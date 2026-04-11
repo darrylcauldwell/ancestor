@@ -1,0 +1,17 @@
+# Secrets and credentials
+.env
+.env.*
+*.p8
+*.p12
+*.pem
+*.key
+credentials.json
+serviceAccountKey.json
+api_key.json
+
+# OS
+.DS_Store
+
+# GEDCOM files may contain sensitive personal data
+# Uncomment the line below to exclude from git:
+# exports/*.ged
