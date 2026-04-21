@@ -224,11 +224,13 @@ def _check_geography(r: dict, person: dict) -> tuple[str, str]:
     birth_location = (person.get("birth_location", "") or "").lower()
 
     if not district:
-        county = (r.get("census_county", "") or r.get("birth_county", "") or "").lower()
+        # Check FamilySearch-style place fields
+        county = (r.get("census_county", "") or r.get("birth_county", "") or
+                  r.get("birth_place", "") or r.get("residence_place", "") or "").lower()
         if "derby" in county:
-            return ("pass", "Derbyshire county")
-        if county:
-            return ("fail", f"county: {county}")
+            return ("pass", "Derbyshire")
+        if county and len(county) > 2:
+            return ("fail", f"location: {county[:50]}")
         return ("fail", "no location data")
 
     district_clean = district.replace(" district", "").strip()
@@ -365,7 +367,7 @@ def _flatten_results(data) -> list:
 
 
 def _extract_year_from_record(r: dict) -> int | None:
-    for field in ("year", "birth_year", "census_year"):
+    for field in ("year", "birth_year", "census_year", "birth_date", "death_date"):
         val = r.get(field)
         if isinstance(val, int):
             return val
@@ -399,4 +401,11 @@ def _summarise_record(r: dict, search_type: str) -> str:
         )
     if "memorial_id" in r:
         return f"{r.get('name', '?')}, {r.get('cemetery', '')}"
+    # FamilySearch format
+    if "collection" in r and "ark" in r:
+        name = r.get("name", "?")
+        birth = r.get("birth_date", "")
+        place = r.get("birth_place", "") or r.get("residence_place", "")
+        coll = r.get("collection", "")[:50]
+        return f"{name}, b.{birth} {place} [{coll}]"
     return str(r)[:120]

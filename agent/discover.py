@@ -119,6 +119,9 @@ def _dispatch_search(search_type: str, surname: str, given: str,
     if search_type == "wirksworth":
         return _search_wirksworth(surname)
 
+    if search_type == "familysearch":
+        return _search_familysearch(surname, given, birth_year, death_year)
+
     print(f"    Unknown search type: {search_type}")
     return []
 
@@ -239,6 +242,61 @@ def _search_findagrave(surname, given, birth_year, death_year):
                                  birth_year=birth_year, death_year=death_year,
                                  location=_default_location(), year_range=5)
     return results if isinstance(results, list) else []
+
+
+def _search_familysearch(surname, given, birth_year, death_year):
+    """Search FamilySearch — births, deaths, and census.
+
+    Uses the cookie-based library. Gracefully skips if cookies expired.
+    Returns combined results from multiple FamilySearch searches.
+    """
+    try:
+        from sources.familysearch import FamilySearch
+        fs = FamilySearch()  # loads cookies from session file
+    except (RuntimeError, Exception) as e:
+        print(f"      FamilySearch unavailable: {e}")
+        return []
+
+    results = []
+    county = _cfg.region.county or "Derbyshire"
+
+    try:
+        # Birth registration index — has mother's maiden name
+        if birth_year:
+            births, _ = fs.search_births(
+                surname=surname, given=given,
+                place=county,
+                year_from=birth_year - 2, year_to=birth_year + 2,
+                count=5)
+            for r in births:
+                r["_fs_type"] = "birth"
+            results.extend(births)
+
+        # Death registration index — fills FreeBMD gaps
+        if death_year:
+            deaths, _ = fs.search_deaths(
+                surname=surname, given=given,
+                place=county,
+                year_from=death_year - 1, year_to=death_year + 1,
+                count=5)
+            for r in deaths:
+                r["_fs_type"] = "death"
+            results.extend(deaths)
+        elif birth_year:
+            # No death year known — broad search
+            deaths, _ = fs.search_deaths(
+                surname=surname, given=given,
+                place=county,
+                year_from=birth_year + 30, year_to=birth_year + 90,
+                count=5)
+            for r in deaths:
+                r["_fs_type"] = "death"
+            results.extend(deaths)
+
+    except Exception as e:
+        print(f"      FamilySearch search error: {e}")
+
+    return results
 
 
 def _search_probate(surname, given, birth_year, death_year):

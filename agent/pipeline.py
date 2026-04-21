@@ -341,6 +341,8 @@ def _execute_strategy_searches(suggestions: list, state: dict) -> dict:
                 result = _run_freereg(params)
             elif source == "wirksworth":
                 result = _run_wirksworth(params)
+            elif source == "familysearch":
+                result = _run_familysearch(params)
             else:
                 print(f"    Unknown source: {source}")
                 continue
@@ -473,6 +475,29 @@ def _run_probate(params: dict):
     return r if isinstance(r, list) else []
 
 
+def _run_familysearch(params: dict):
+    """Execute a FamilySearch search."""
+    try:
+        from sources.familysearch import FamilySearch
+        fs = FamilySearch()
+
+        surname = params.get("surname", "")
+        given = params.get("given", "")
+        place = params.get("place", "")
+        year_from = params.get("year_from") or params.get("year_start")
+        year_to = params.get("year_to") or params.get("year_end")
+
+        results, _ = fs.search_births(
+            surname=surname, given=given, place=place,
+            year_from=int(year_from) if year_from else None,
+            year_to=int(year_to) if year_to else None,
+            count=5)
+        return results
+    except Exception as e:
+        print(f"      FamilySearch: {e}")
+        return []
+
+
 def _run_freereg(params: dict):
     """Execute a FreeREG parish register search."""
     from sources import freereg_search
@@ -579,6 +604,7 @@ def _plan_searches(state: dict) -> list:
         searches.append("burial_memorial")
         searches.append("probate")
         searches.append("wirksworth")
+        searches.append("familysearch")
 
         # Parish registers for pre-civil-registration births
         if birth_year < CIVIL_REGISTRATION_START:
