@@ -1,0 +1,28 @@
+# Genealogy Research Agent — Example Configuration
+#
+# Two config files:
+#   config.yaml       — regional data (committed, shareable)
+#   config.local.yaml — personal settings (gitignored)
+#
+# config.yaml is already populated for Derbyshire.
+# For a different region, edit config.yaml with your districts/parishes.
+#
+# Create config.local.yaml with your personal settings:
+#
+#   project:
+#     name: "Your Family History"
+#     seed_profile: "YourSurname-100"    # Your WikiTree root profile
+#
+# Credentials go in .env (gitignored):
+#   WIKITREE_EMAIL=...
+#   WIKITREE_PASSWORD=...
+#   FAMILYSEARCH_CLIENT_ID=...
+#   FAMILYSEARCH_CLIENT_SECRET=...
+
+# --- Example config.local.yaml ---
+project:
+  name: "My Family History"
+  seed_profile: ""                  # Your WikiTree ID
+
+# --- Regional data is in config.yaml ---
+# Edit that file to change county, districts, parishes

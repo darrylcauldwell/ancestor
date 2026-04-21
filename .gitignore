@@ -9,9 +9,49 @@ credentials.json
 serviceAccountKey.json
 api_key.json
 
+# Personal config (not shared)
+config.local.yaml
+
 # OS
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Local development files
+**/local/
+
+# Built site output
+site/dist/
+
+# Node
+node_modules/
+
+# Claude session data
+.claude/
+
+# Captured API data (may contain session tokens)
+fs_api_capture.json
+
+# Session and cache files
+.wikitree-session.json
+.wikitree-web-session.json
+.wikitree-api-session.json
+.wikitree-state.json
+.wikitree-twin.json
+.familysearch-session.json
+.familysearch-cookies.json
+agent-research/
+
+# Screenshots
+*.png
 
 # GEDCOM files may contain sensitive personal data
 # Uncomment the line below to exclude from git:
 # exports/*.ged
+
+# Personal research files
+SOURCES.md
+TODO.md

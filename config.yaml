@@ -1,0 +1,96 @@
+# Genealogy Research Agent — Regional Configuration
+#
+# Shareable reference data for your research area.
+# Committed to git — other researchers in the same region can reuse this.
+#
+# Personal settings (seed profile, project name) go in config.local.yaml (gitignored).
+# Credentials go in .env (gitignored).
+
+region:
+  county: "Derbyshire"
+  chapman_code: "DBY"
+  country: "England"
+  default_location: "Derbyshire, England"
+
+  # FreeBMD registration district IDs
+  # Find yours at freebmd.org.uk → Search → District dropdown
+  districts:
+    Belper: "722"
+    Ashbourne: "418"
+    Bakewell: "420"
+    Chesterfield: "621"
+    Derby: "710"
+    Basford: "676"
+    Worksop: "765"
+
+  # Which parishes each registration district covers
+  # Used for geographic plausibility scoring
+  district_parishes:
+    Belper:
+      - Turnditch
+      - Windley
+      - Duffield
+      - Heage
+      - Crich
+      - Holbrook
+      - Belper
+      - Kilburn
+      - Denby
+      - Mugginton
+      - Weston Underwood
+      - Kirk Ireton
+      - Hulland
+    Ashbourne:
+      - Ashbourne
+      - Mappleton
+      - Tissington
+      - Bradbourne
+      - Parwich
+      - Doveridge
+      - Kirk Ireton
+    Bakewell:
+      - Bakewell
+      - Youlgreave
+      - Monyash
+      - Baslow
+      - Eyam
+      - Matlock
+      - Darley Dale
+      - Snitterton
+      - Wensley
+      - Middleton by Wirksworth
+      - Wirksworth
+      - Cromford
+    Derby:
+      - Derby
+      - Littleover
+      - Mickleover
+      - Spondon
+    Chesterfield:
+      - Chesterfield
+      - Brampton
+      - Staveley
+      - Unstone
+    Basford:
+      - Loscoe
+      - Heanor
+      - Langley Mill
+    Worksop:
+      - Worksop
+
+  # Districts known to be OUTSIDE your county
+  # Used to reject unlikely matches
+  non_local_districts:
+    Chorlton: "Manchester"
+    Kensington: "London"
+    Birmingham: "West Midlands"
+    Leeds: "Yorkshire"
+    Bristol: "Somerset"
+    Salford: "Manchester"
+    Lambeth: "London"
+    Islington: "London"
+
+  # Source-specific coverage gaps for your area
+  source_gaps:
+    freebmd:
+      Bakewell: "No coverage before 1941"
