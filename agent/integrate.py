@@ -1,137 +1,96 @@
-"""Integrate research findings into the working copy graph.
+"""Integrate research findings into facts and leads.
 
-Translates the pipeline's state dict (confirmed_facts, household_members)
-into working copy updates (field changes, proposed profiles, relationships,
-bio text, research metadata).
+Facts: verified data that can be applied to WikiTree (the queue)
+Leads: promising findings that need further investigation (the backlog)
 
-This is the bridge between the research pipeline and the digital twin.
+No "proposed changes" — everything is either a fact or a lead.
 """
 
 import re
 from agent.drafter import draft_bio
+from agent.leads import Lead, Evidence, NextAction, LeadStore, _make_lead_id
 
 
-def apply_research_to_graph(state: dict, working_copy, twin) -> str | None:
-    """Apply research findings to the working copy.
+def integrate_research(state: dict, twin, lead_store: LeadStore) -> dict:
+    """Process research results into facts and leads.
 
-    Returns the matched wt_id, or None if no match found.
+    Returns dict with:
+        "facts": list of verified changes to apply to WikiTree
+        "leads_created": int count of new leads opened
     """
     person = state["person"]
     name = person.get("name", "")
     birth_year = person.get("birth_year")
-    facts = state.get("confirmed_facts", [])
+    confirmed = state.get("confirmed_facts", [])
     household = state.get("household_members", [])
 
-    # 1. Find the subject in the working copy
+    # Find the subject in the twin
     name_parts = name.split()
     first = name_parts[0] if name_parts else ""
     last = name_parts[-1] if len(name_parts) > 1 else ""
 
-    matches = working_copy.search(first=first, last=last, birth_year=birth_year)
+    matches = twin.search(first=first, last=last, birth_year=birth_year)
     wt_id = matches[0]["wt_id"] if matches else None
 
-    if not wt_id:
-        # Create as proposed profile
-        temp_id = f"_proposed_{name.replace(' ', '_')}_{birth_year or 'unknown'}"
-        working_copy.add_proposed_profile(
-            temp_id,
-            FirstName=first,
-            LastNameAtBirth=last,
-            BirthDate=f"{birth_year}-00-00" if birth_year else "",
-            BirthLocation=person.get("birth_location", ""),
-            Gender=_map_gender(person.get("gender", "")),
-        )
-        wt_id = temp_id
-        print(f"  [INTEGRATE] New profile proposed: {temp_id}")
-    else:
+    if wt_id:
         print(f"  [INTEGRATE] Matched to {wt_id}")
+    else:
+        print(f"  [INTEGRATE] No WikiTree profile found for {name}")
 
-    # 2. Map confirmed facts to fields
-    field_updates = {}
-    research_data = {"confirmed_facts": [], "sources": set()}
+    # === BUILD FACT QUEUE ===
+    facts = []
+
+    # Field updates from confirmed facts
+    if wt_id:
+        profile = twin.get(wt_id) or {}
+
+        for fact in confirmed:
+            fact_type = fact.get("type", "")
+            value = fact.get("value", "")
+            sources = fact.get("sources", [])
+
+            if fact_type == "birth":
+                date = _extract_date(value)
+                current = profile.get("BirthDate", "") or ""
+                if date and (not current or current.startswith("0000")):
+                    facts.append({
+                        "action": "update_field",
+                        "wt_id": wt_id,
+                        "field": "BirthDate",
+                        "value": date,
+                        "sources": sources,
+                    })
+
+            elif fact_type == "death":
+                date = _extract_date(value)
+                current = profile.get("DeathDate", "") or ""
+                if date and (not current or current.startswith("0000")):
+                    facts.append({
+                        "action": "update_field",
+                        "wt_id": wt_id,
+                        "field": "DeathDate",
+                        "value": date,
+                        "sources": sources,
+                    })
+
+        # Bio draft if empty
+        current_bio = profile.get("Bio") or profile.get("bio") or ""
+        if confirmed and (not current_bio or len(current_bio.strip()) < 50):
+            bio = draft_bio(state)
+            facts.append({
+                "action": "update_bio",
+                "wt_id": wt_id,
+                "bio": bio,
+                "sources": [s for f in confirmed for s in f.get("sources", [])],
+            })
+            print(f"  [INTEGRATE] Bio drafted ({len(bio)} chars)")
 
     for fact in facts:
-        fact_type = fact.get("type", "")
-        value = fact.get("value", "")
-        sources = fact.get("sources", [])
+        print(f"  [INTEGRATE] Fact: {fact['action']} {fact.get('field', '')} {fact.get('value', '')}")
 
-        research_data["confirmed_facts"].append(fact)
-        for src in sources:
-            research_data["sources"].add(src)
+    # === HOUSEHOLD MEMBERS → LEADS ===
+    leads_created = 0
 
-        if fact_type == "birth":
-            date = _extract_date(value)
-            if date:
-                current = working_copy.get(wt_id) or {}
-                if not current.get("BirthDate") or current["BirthDate"].startswith("0000"):
-                    field_updates["BirthDate"] = date
-
-        elif fact_type == "death":
-            date = _extract_date(value)
-            if date:
-                current = working_copy.get(wt_id) or {}
-                if not current.get("DeathDate") or current["DeathDate"].startswith("0000"):
-                    field_updates["DeathDate"] = date
-
-        elif fact_type == "marriage":
-            # Store marriage info as research metadata
-            working_copy.add_research(wt_id, "marriages", {
-                "value": value, "sources": sources
-            })
-
-        elif fact_type == "census":
-            # Extract occupation and address
-            occ = _extract_field(value, "occupation")
-            addr = _extract_field(value, "address")
-            if occ:
-                working_copy.add_research(wt_id, "occupations", {
-                    "value": occ, "sources": sources
-                })
-            if addr:
-                working_copy.add_research(wt_id, "addresses", {
-                    "value": addr, "sources": sources
-                })
-
-        elif fact_type == "military":
-            working_copy.add_research(wt_id, "military", {
-                "value": value, "sources": sources
-            })
-
-        elif fact_type == "burial":
-            working_copy.add_research(wt_id, "burial", {
-                "value": value, "sources": sources
-            })
-
-        elif fact_type == "probate":
-            working_copy.add_research(wt_id, "probate", {
-                "value": value, "sources": sources
-            })
-
-    # Apply field updates
-    if field_updates:
-        working_copy.update_fields(wt_id, field_updates)
-        for field, value in field_updates.items():
-            print(f"  [INTEGRATE] {field}: {value}")
-
-    # Store sources list
-    research_data["sources"] = list(research_data["sources"])
-    working_copy.add_research(wt_id, "sources", research_data["sources"])
-
-    # Store uncertain records for human review
-    uncertain = state.get("uncertain_records", [])
-    if uncertain:
-        working_copy.add_research(wt_id, "uncertain_records", uncertain)
-
-    # 3. Draft and store bio
-    current_profile = working_copy.get(wt_id) or {}
-    current_bio = current_profile.get("Bio") or current_profile.get("bio") or ""
-
-    if facts and (not current_bio or len(current_bio.strip()) < 50):
-        bio = draft_bio(state)
-        working_copy.update_bio(wt_id, bio)
-        print(f"  [INTEGRATE] Bio drafted ({len(bio)} chars)")
-
-    # 4. Add household members
     for member in household:
         member_name = member.get("name", "").strip()
         if not member_name:
@@ -141,86 +100,113 @@ def apply_research_to_graph(state: dict, working_copy, twin) -> str | None:
         if not relationship:
             continue
 
-        # Search for existing profile
-        member_parts = member_name.split()
-        m_first = member_parts[0] if member_parts else ""
-        m_last = member_parts[-1] if len(member_parts) > 1 else ""
+        # Skip the subject themselves
+        if member_name.upper() == name.upper():
+            continue
+
         m_birth = member.get("birth_year_approx")
+        census_year = member.get("census_year")
+        occupation = member.get("occupation", "")
+        birth_place = member.get("birth_place", "")
 
-        member_matches = working_copy.search(first=m_first, last=m_last, birth_year=m_birth)
+        # Check if this person already exists in the twin
+        m_parts = member_name.split()
+        m_first = m_parts[0] if m_parts else ""
+        m_last = m_parts[-1] if len(m_parts) > 1 else ""
+        existing = twin.search(first=m_first, last=m_last, birth_year=m_birth)
 
-        if member_matches and member_matches[0]["score"] >= 0.7:
-            # Existing profile — add relationship if not already linked
-            member_wt_id = member_matches[0]["wt_id"]
-            if relationship == "spouse":
-                working_copy.add_proposed_relationship(wt_id, member_wt_id, "spouse")
-            elif relationship in ("father", "mother"):
-                working_copy.add_proposed_relationship(member_wt_id, wt_id, "parent")
-            elif relationship == "child":
-                working_copy.add_proposed_relationship(wt_id, member_wt_id, "parent")
-            elif relationship == "sibling":
-                working_copy.add_proposed_relationship(wt_id, member_wt_id, "sibling")
+        if existing and existing[0]["score"] >= 0.7:
+            # Known person — but is the relationship linked?
+            # This is a lead to verify the link, not a fact
+            existing_id = existing[0]["wt_id"]
+            lead_id = _make_lead_id(member_name, "relationship", census_year)
+
+            lead = Lead(
+                lead_id=lead_id,
+                subject_id=existing_id,
+                subject_name=member_name,
+                subject_birth_year=m_birth,
+                category="relationship",
+                summary=f"{member_name} ({relationship} of {name}) — found in {census_year} census, exists as {existing_id}",
+                uncertainty_reasons=[f"Relationship inferred from {census_year} census — verify link on WikiTree"],
+                evidence=[Evidence(
+                    source=f"census_{census_year}",
+                    record_summary=f"{member_name}, {relationship}, age {member.get('age', '?')}, {birth_place}",
+                    reasons=[f"Found as {relationship} in {name}'s household"],
+                    search_type="census",
+                )],
+                next_actions=[NextAction(
+                    description=f"Check if {existing_id} is linked as {relationship} of {wt_id or name} on WikiTree",
+                    source="wikitree",
+                    cost="free",
+                )],
+            )
+            lead_store.add(lead)
+            leads_created += 1
         else:
-            # New person — add as proposed
-            temp_id = f"_proposed_{member_name.replace(' ', '_')}_{m_birth or 'unknown'}"
-            if not working_copy.has_node(temp_id):
-                working_copy.add_proposed_profile(
-                    temp_id,
-                    FirstName=m_first,
-                    LastNameAtBirth=m_last,
-                    BirthDate=f"{m_birth}-00-00" if m_birth else "",
-                    BirthLocation=member.get("birth_place", ""),
-                    Gender=_map_gender_from_relationship(member),
-                    _census_occupation=member.get("occupation", ""),
-                    _census_year=member.get("census_year"),
-                )
-                if relationship == "spouse":
-                    working_copy.add_proposed_relationship(wt_id, temp_id, "spouse")
-                elif relationship in ("father", "mother"):
-                    working_copy.add_proposed_relationship(temp_id, wt_id, "parent")
-                elif relationship == "child":
-                    working_copy.add_proposed_relationship(wt_id, temp_id, "parent")
-                elif relationship == "sibling":
-                    working_copy.add_proposed_relationship(wt_id, temp_id, "sibling")
+            # Unknown person — lead to investigate who they are
+            lead_id = _make_lead_id(member_name, "identity", m_birth)
 
-                print(f"  [INTEGRATE] Proposed: {member_name} ({relationship})")
+            actions = []
+            if m_birth and m_birth >= 1837:
+                actions.append(NextAction(
+                    description=f"Search FreeBMD for {member_name} birth ~{m_birth}",
+                    source="freebmd",
+                    parameters={"surname": m_last, "given": m_first, "event": "births",
+                                "year_start": m_birth - 2, "year_end": m_birth + 2},
+                    cost="free",
+                ))
+            actions.append(NextAction(
+                description=f"Search WikiTree for existing {member_name} profile",
+                source="wikitree",
+                cost="free",
+            ))
 
-    return wt_id
+            lead = Lead(
+                lead_id=lead_id,
+                subject_id="",
+                subject_name=member_name,
+                subject_birth_year=m_birth,
+                category="identity",
+                summary=f"{member_name} ({relationship} of {name}) — found in {census_year} census, no WikiTree profile",
+                uncertainty_reasons=[
+                    f"Only seen in one source ({census_year} census)",
+                    "No WikiTree profile found — may exist under different spelling",
+                ],
+                evidence=[Evidence(
+                    source=f"census_{census_year}",
+                    record_summary=f"{member_name}, {relationship}, age {member.get('age', '?')}, {occupation}, born {birth_place}",
+                    reasons=[f"Found as {relationship} in {name}'s household"],
+                    search_type="census",
+                )],
+                next_actions=actions,
+            )
+            lead_store.add(lead)
+            leads_created += 1
+
+    if leads_created:
+        print(f"  [INTEGRATE] {leads_created} household members → leads")
+
+    return {
+        "facts": facts,
+        "leads_created": leads_created,
+        "wt_id": wt_id,
+    }
 
 
 def _extract_date(value: str) -> str | None:
-    """Extract a date from a fact value string.
-
-    Returns WikiTree format: YYYY-MM-00 or YYYY-00-00
-    """
+    """Extract WikiTree date format from a fact value string."""
     quarter_map = {"Mar": "03", "Jun": "06", "Sep": "09", "Dec": "12"}
-
-    # Try "Mar 1887" or "Dec 1959" pattern
     match = re.search(r"(Mar|Jun|Sep|Dec)\s+(\d{4})", value)
     if match:
         return f"{match.group(2)}-{quarter_map[match.group(1)]}-00"
-
-    # Try bare year
     match = re.search(r"\b(1[6-9]\d{2})\b", value)
     if match:
         return f"{match.group(1)}-00-00"
-
-    return None
-
-
-def _extract_field(value: str, field_name: str) -> str | None:
-    """Extract a named field from a census fact value string."""
-    lower = value.lower()
-    if f"{field_name}:" in lower:
-        after = lower.split(f"{field_name}:")[1]
-        result = after.split(",")[0].strip()
-        if result and result != "none":
-            return result.title()
     return None
 
 
 def _infer_relationship(member: dict) -> str | None:
-    """Map census relationship to graph edge type."""
     rel = (member.get("relationship") or "").lower()
     if rel in ("head", ""):
         return None
@@ -229,25 +215,9 @@ def _infer_relationship(member: dict) -> str | None:
     if "son" in rel or "daughter" in rel or "child" in rel:
         return "child"
     if "father" in rel or "mother" in rel or "parent" in rel:
-        return "father" if _is_male(member) else "mother"
+        return "parent"
     if "brother" in rel or "sister" in rel or "sibling" in rel:
         return "sibling"
+    if "law" in rel:
+        return "in-law"
     return None
-
-
-def _is_male(member: dict) -> bool:
-    rel = (member.get("relationship") or "").lower()
-    return any(w in rel for w in ("husband", "son", "father", "brother"))
-
-
-def _map_gender(gender: str) -> str:
-    if gender and gender.upper() == "F":
-        return "Female"
-    return "Male"
-
-
-def _map_gender_from_relationship(member: dict) -> str:
-    rel = (member.get("relationship") or "").lower()
-    if any(w in rel for w in ("wife", "daughter", "mother", "sister")):
-        return "Female"
-    return "Male"
