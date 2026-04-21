@@ -54,6 +54,18 @@ class _Project:
     def __init__(self, data: dict):
         self.name = data.get("name", "")
         self.seed_profile = data.get("seed_profile", "")
+        self._data_dir = data.get("data_dir", "")
+
+    @property
+    def data_dir(self) -> Path:
+        """Root directory for all user data files.
+
+        Defaults to project root. Multi-user deployments can set this
+        per user to isolate twin, leads, and research state.
+        """
+        if self._data_dir:
+            return Path(self._data_dir)
+        return ROOT
 
 
 class Config:

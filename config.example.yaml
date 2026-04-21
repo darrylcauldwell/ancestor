@@ -23,6 +23,7 @@
 project:
   name: "My Family History"
   seed_profile: ""                  # Your WikiTree ID
+  # data_dir: "/data/my-research"   # Optional: custom data directory for multi-user
 
 # --- Regional data is in config.yaml ---
 # Edit that file to change county, districts, parishes

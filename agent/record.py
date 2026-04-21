@@ -8,7 +8,9 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-RESEARCH_DIR = Path(__file__).parent.parent / "agent-research"
+def _research_dir():
+    from project_config import config
+    return config.project.data_dir / "agent-research"
 
 
 def save_state(state: dict) -> Path:
@@ -17,7 +19,7 @@ def save_state(state: dict) -> Path:
     Called after each iteration (crash recovery) and at completion.
     Returns path to the saved file.
     """
-    RESEARCH_DIR.mkdir(exist_ok=True)
+    _research_dir().mkdir(exist_ok=True)
 
     corpus_id = _make_id(state["person"])
 
@@ -38,7 +40,7 @@ def save_state(state: dict) -> Path:
         "discrepancies": state.get("discrepancies", []),
     }
 
-    filepath = RESEARCH_DIR / f"{corpus_id}.json"
+    filepath = _research_dir() / f"{corpus_id}.json"
     filepath.write_text(json.dumps(output, indent=2, ensure_ascii=False))
     return filepath
 

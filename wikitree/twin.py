@@ -38,8 +38,9 @@ from pathlib import Path
 
 import networkx as nx
 
-ROOT = Path(__file__).parent.parent
-TWIN_FILE = ROOT / ".wikitree-twin.json"
+def _twin_file():
+    from project_config import config
+    return config.project.data_dir / ".wikitree-twin.json"
 
 
 class LocalTwin:
@@ -53,9 +54,9 @@ class LocalTwin:
 
     def load(self) -> bool:
         """Load graph from disk. Returns True if loaded."""
-        if not TWIN_FILE.exists():
+        if not _twin_file().exists():
             return False
-        data = json.loads(TWIN_FILE.read_text())
+        data = json.loads(_twin_file().read_text())
         self._graph = nx.node_link_graph(data["graph"])
         self._synced_at = data.get("synced_at")
         return True
@@ -68,7 +69,7 @@ class LocalTwin:
             "relationship_count": self._graph.number_of_edges(),
             "graph": nx.node_link_data(self._graph),
         }
-        TWIN_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str))
+        _twin_file().write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str))
 
     # --- Sync from WikiTree API ---
 
@@ -161,7 +162,7 @@ class LocalTwin:
         print(f"\nSync complete:")
         print(f"  {self._graph.number_of_nodes()} profiles")
         print(f"  {self._graph.number_of_edges()} relationships")
-        print(f"  Saved to {TWIN_FILE}")
+        print(f"  Saved to {_twin_file()}")
 
     # --- Profile access ---
 

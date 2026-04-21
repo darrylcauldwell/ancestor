@@ -24,8 +24,11 @@ import os
 
 from wikitree import WikiTreeAPI, get_bio_text
 
-STATE_FILE = Path(__file__).parent / ".wikitree-state.json"
 from project_config import config as _cfg
+
+def _state_file():
+    return _cfg.project.data_dir / ".wikitree-state.json"
+
 DEFAULT_SEED = _cfg.project.seed_profile or "Cauldwell-103"
 
 # Hard cap on walk depth so a mis-linked celebrity profile doesn't drag in
@@ -88,7 +91,7 @@ def walk_tree(api, seed=DEFAULT_SEED, max_depth=MAX_DEPTH):
 
 
 def refresh(api=None, seed=DEFAULT_SEED):
-    """Walk tree + fetch full profiles; persist to STATE_FILE.
+    """Walk tree + fetch full profiles; persist to _state_file().
 
     If `api` is not provided, creates one from WIKITREE_EMAIL/WIKITREE_PASSWORD
     environment variables.
@@ -122,16 +125,16 @@ def refresh(api=None, seed=DEFAULT_SEED):
         "count": len(profiles),
         "profiles": profiles,
     }
-    STATE_FILE.write_text(json.dumps(state, indent=2, default=str))
-    print(f"\n✓ Saved {len(profiles)} profiles to {STATE_FILE}")
+    _state_file().write_text(json.dumps(state, indent=2, default=str))
+    print(f"\n✓ Saved {len(profiles)} profiles to {_state_file()}")
     return state
 
 
 def load_state():
-    if not STATE_FILE.exists():
-        raise SystemExit(f"No state file at {STATE_FILE}. "
+    if not _state_file().exists():
+        raise SystemExit(f"No state file at {_state_file()}. "
                          f"Run `python wikitree_state.py refresh` first.")
-    return json.loads(STATE_FILE.read_text())
+    return json.loads(_state_file().read_text())
 
 
 def _cli():
@@ -180,7 +183,7 @@ def _cli():
         with_bio = sum(1 for p in profs if get_bio_text(p))
         with_birth = sum(1 for p in profs if p.get("BirthDate"))
         with_death = sum(1 for p in profs if p.get("DeathDate"))
-        print(f"State: {STATE_FILE}")
+        print(f"State: {_state_file()}")
         print(f"  Seed:             {state['seed']}")
         print(f"  Authenticated as: {state.get('authenticated_as')}")
         print(f"  Fetched at:       {state['fetched_at']}")

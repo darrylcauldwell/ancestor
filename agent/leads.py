@@ -24,7 +24,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-LEADS_FILE = Path(__file__).parent.parent / "agent-research" / "leads.json"
+def _leads_file():
+    from project_config import config
+    return config.project.data_dir / "agent-research" / "leads.json"
 
 COMMON_SURNAMES = {
     "SMITH", "JONES", "BROWN", "WARD", "TAYLOR", "WILSON", "WRIGHT",
@@ -139,10 +141,10 @@ class LeadStore:
 
     def load(self) -> int:
         """Load leads from disk. Returns count loaded."""
-        if not LEADS_FILE.exists():
+        if not _leads_file().exists():
             return 0
 
-        data = json.loads(LEADS_FILE.read_text())
+        data = json.loads(_leads_file().read_text())
         for lead_data in data.get("leads", []):
             # Reconstruct dataclass from dict
             evidence = [Evidence(**e) for e in lead_data.pop("evidence", [])]
@@ -154,15 +156,15 @@ class LeadStore:
 
     def save(self) -> Path:
         """Save all leads to disk."""
-        LEADS_FILE.parent.mkdir(exist_ok=True)
+        _leads_file().parent.mkdir(exist_ok=True)
         data = {
             "version": 1,
             "last_updated": datetime.now(timezone.utc).isoformat(),
             "lead_count": len(self._leads),
             "leads": [asdict(lead) for lead in self._leads.values()],
         }
-        LEADS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str))
-        return LEADS_FILE
+        _leads_file().write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str))
+        return _leads_file()
 
     def add(self, lead: Lead) -> str:
         """Add a new lead. Deduplicates by lead_id. Returns lead_id."""
