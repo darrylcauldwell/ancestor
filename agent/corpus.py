@@ -1,98 +1,71 @@
-"""WikiTree integration — check existing profiles before duplicating work.
+"""WikiTree profile matching — uses local twin, no API calls.
 
-Fetches profiles from WikiTree watchlist and matches against them
-before researching. Flags discrepancies between WikiTree and agent findings.
-
-Replaces the old corpus.py which loaded from .corpus-state.json (deleted).
+Loads profiles from the local digital twin (NetworkX graph) for
+matching against research subjects. Zero API calls, zero rate limits.
 """
 
-import os
 import re
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-from wikitree.api import WikiTreeAPI
-
 
 _cache = {}
 
 
-def _get_api():
-    """Get an authenticated WikiTree API client."""
-    email = os.environ.get("WIKITREE_EMAIL", "")
-    password = os.environ.get("WIKITREE_PASSWORD", "")
-    if not email or not password:
-        return None
-    api = WikiTreeAPI(email=email, password=password)
-    api.login()
-    return api
-
-
 def load_corpus() -> dict:
-    """Load existing profiles from WikiTree watchlist.
+    """Load existing profiles from the local twin.
 
-    Returns {wt_id: person_dict} in same format the old corpus used.
-    Cached after first call.
+    Returns {wt_id: person_dict} compatible with the pipeline's
+    corpus matching format. Cached after first call.
     """
     if _cache.get("persons"):
         return _cache["persons"]
 
-    api = _get_api()
-    if not api:
-        print("  WARNING: WIKITREE_EMAIL/PASSWORD not set — no existing data check")
+    from wikitree.twin import LocalTwin
+
+    twin = LocalTwin()
+    if not twin.load():
+        print("  WARNING: No twin data — run: python -m wikitree.twin sync")
         return {}
 
-    watchlist = api.get_watchlist(
-        fields="Id,Name,FirstName,MiddleName,LastNameAtBirth,"
-               "BirthDate,DeathDate,BirthLocation,DeathLocation,"
-               "Father,Mother",
-        limit=1000,
-    )
-
     persons = {}
-    for p in watchlist:
-        wt_id = p.get("Name", "")
-        if not wt_id:
+    for wt_id in twin._graph.nodes:
+        node = twin.get(wt_id)
+        if not node:
             continue
 
-        first = p.get("FirstName", "")
-        middle = p.get("MiddleName", "")
-        lnab = p.get("LastNameAtBirth", "")
+        first = node.get("FirstName", "")
+        middle = node.get("MiddleName", "")
+        lnab = node.get("LastNameAtBirth", "")
         full_name = f"{first} {middle} {lnab}".replace("  ", " ").strip()
 
-        birth_year = _extract_year(p.get("BirthDate", ""))
-        death_year = _extract_year(p.get("DeathDate", ""))
+        birth_year = _extract_year(node.get("BirthDate", ""))
+        death_year = _extract_year(node.get("DeathDate", ""))
 
         parent_ids = []
-        if p.get("Father"):
-            parent_ids.append(str(p["Father"]))
-        if p.get("Mother"):
-            parent_ids.append(str(p["Mother"]))
+        father = node.get("Father")
+        mother = node.get("Mother")
+        if father and father != 0:
+            parent_ids.append(str(father))
+        if mother and mother != 0:
+            parent_ids.append(str(mother))
 
         persons[wt_id] = {
             "name": full_name,
             "birth_year": birth_year,
             "death_year": death_year,
-            "birth_location": p.get("BirthLocation", ""),
-            "death_location": p.get("DeathLocation", ""),
+            "birth_location": node.get("BirthLocation", ""),
+            "death_location": node.get("DeathLocation", ""),
             "parent_ids": parent_ids,
             "spouses": [],
             "mentions": [],
         }
 
     _cache["persons"] = persons
-    print(f"  [WIKITREE] Loaded {len(persons)} profiles from watchlist")
+    print(f"  [TWIN] Loaded {len(persons)} profiles from local twin")
     return persons
 
 
 def find_in_corpus(name: str, birth_year: int | None = None,
                     corpus: dict | None = None) -> list[dict]:
-    """Find matching persons in WikiTree profiles.
-
-    Uses fuzzy matching: name similarity + approximate birth year.
-    Returns list of matches with confidence scores.
-    """
+    """Find matching persons by fuzzy name + birth year."""
     if corpus is None:
         corpus = load_corpus()
 
@@ -101,7 +74,6 @@ def find_in_corpus(name: str, birth_year: int | None = None,
     given = name_parts[0] if len(name_parts) > 1 else ""
 
     matches = []
-
     for pid, person in corpus.items():
         corpus_name = (person.get("name") or "").upper()
         corpus_parts = corpus_name.split()
@@ -110,7 +82,6 @@ def find_in_corpus(name: str, birth_year: int | None = None,
         corpus_birth = person.get("birth_year")
 
         name_score = 0.0
-
         if corpus_surname == surname:
             name_score += 0.5
         elif _similar(corpus_surname, surname):
@@ -135,7 +106,6 @@ def find_in_corpus(name: str, birth_year: int | None = None,
             year_score = 0.05
 
         total = name_score + year_score
-
         if total >= 0.5:
             matches.append({
                 "corpus_id": pid,
@@ -144,7 +114,7 @@ def find_in_corpus(name: str, birth_year: int | None = None,
                 "corpus_death_year": person.get("death_year"),
                 "corpus_spouses": person.get("spouses", []),
                 "corpus_parent_ids": person.get("parent_ids", []),
-                "corpus_mentions": len(person.get("mentions", [])),
+                "corpus_mentions": 0,
                 "match_score": round(total, 2),
                 "person": person,
             })
@@ -154,29 +124,22 @@ def find_in_corpus(name: str, birth_year: int | None = None,
 
 
 def get_existing_facts(corpus_person: dict) -> list[str]:
-    """Extract known facts from a WikiTree profile as readable strings."""
+    """Extract known facts from a profile as readable strings."""
     facts = []
     p = corpus_person
-
     if p.get("birth_year"):
         loc = p.get("birth_location", "")
         facts.append(f"birth: ~{p['birth_year']} {loc}".strip())
-
     if p.get("death_year"):
         loc = p.get("death_location", "")
         facts.append(f"death: {p['death_year']} {loc}".strip())
-
-    for spouse in p.get("spouses", []):
-        facts.append(f"spouse: {spouse.get('name', '?')} ({spouse.get('meta', '')})")
-
     for parent_id in p.get("parent_ids", []):
         facts.append(f"parent: {parent_id}")
-
     return facts
 
 
 def flag_discrepancies(agent_facts: list, corpus_match: dict) -> list[str]:
-    """Compare agent findings against WikiTree and flag differences."""
+    """Compare agent findings against twin and flag differences."""
     discrepancies = []
     corpus = corpus_match["person"]
 
@@ -189,8 +152,7 @@ def flag_discrepancies(agent_facts: list, corpus_match: dict) -> list[str]:
                 if abs(agent_birth - corpus_birth) > 2:
                     discrepancies.append(
                         f"BIRTH YEAR: WikiTree says {corpus_birth}, "
-                        f"agent found {agent_birth}"
-                    )
+                        f"agent found {agent_birth}")
 
     corpus_death = corpus.get("death_year")
     for fact in agent_facts:
@@ -201,14 +163,13 @@ def flag_discrepancies(agent_facts: list, corpus_match: dict) -> list[str]:
                 if abs(agent_death - corpus_death) > 2:
                     discrepancies.append(
                         f"DEATH YEAR: WikiTree says {corpus_death}, "
-                        f"agent found {agent_death}"
-                    )
+                        f"agent found {agent_death}")
 
     return discrepancies
 
 
 def validate_corpus_relationships(person_id: str, corpus: dict) -> list[str]:
-    """Flag suspicious relationships in WikiTree data."""
+    """Flag suspicious relationships."""
     warnings = []
     person = corpus.get(person_id)
     if not person:
@@ -222,25 +183,20 @@ def validate_corpus_relationships(person_id: str, corpus: dict) -> list[str]:
         parent = corpus.get(parent_id)
         if not parent:
             continue
-
         parent_birth = parent.get("birth_year")
         if not parent_birth:
             continue
-
         age_at_child_birth = person_birth - parent_birth
         if age_at_child_birth < 14:
             warnings.append(
                 f"SUSPICIOUS: {parent.get('name', parent_id)} (b.{parent_birth}) "
                 f"listed as parent of {person.get('name', person_id)} (b.{person_birth}) "
-                f"— age gap only {age_at_child_birth} years. "
-                f"Likely a sibling, not a parent."
-            )
+                f"— age gap only {age_at_child_birth} years.")
 
     return warnings
 
 
 def _extract_year(date_str: str) -> int | None:
-    """Extract year from WikiTree date format (YYYY-MM-DD or YYYY-00-00)."""
     if not date_str:
         return None
     match = re.match(r"(\d{4})", date_str)
@@ -251,14 +207,13 @@ def _extract_year(date_str: str) -> int | None:
 
 
 def _similar(a: str, b: str) -> bool:
-    """Check if two strings are similar (handles Caldwell/Cauldwell etc)."""
     if not a or not b:
         return False
     if a in b or b in a:
         return True
-    a_normalised = a.replace("AU", "A").replace("OU", "O")
-    b_normalised = b.replace("AU", "A").replace("OU", "O")
-    if a_normalised == b_normalised:
+    a_norm = a.replace("AU", "A").replace("OU", "O")
+    b_norm = b.replace("AU", "A").replace("OU", "O")
+    if a_norm == b_norm:
         return True
     if len(a) == len(b):
         diffs = sum(1 for x, y in zip(a, b) if x != y)
