@@ -227,6 +227,20 @@ def research_person(person: dict) -> dict:
         else:
             print(f"\n[CORPUS] Agent findings consistent with existing research")
 
+    # Create leads from candidates
+    lead_candidates = state.get("lead_candidates", [])
+    if lead_candidates:
+        try:
+            from agent.leads import LeadStore, create_leads_from_candidates
+            lead_store = LeadStore()
+            lead_store.load()
+            new_leads = create_leads_from_candidates(state, lead_store)
+            lead_store.save()
+            if new_leads:
+                print(f"\n  New leads opened: {new_leads}")
+        except Exception as e:
+            print(f"\n  Lead creation skipped: {e}")
+
     # Final save
     save_state(state)
 
@@ -234,9 +248,9 @@ def research_person(person: dict) -> dict:
     print(f"\n{'=' * 60}")
     print(f"RESEARCH COMPLETE: {name}")
     print(f"{'=' * 60}")
-    print(f"  Confirmed facts: {len(state['confirmed_facts'])}")
-    print(f"  Rejected records: {len(state['rejected_records'])}")
-    print(f"  Uncertain: {len(state.get('uncertain_records', []))}")
+    print(f"  Hard facts: {len(state['confirmed_facts'])}")
+    print(f"  Leads: {len(state.get('lead_candidates', []))}")
+    print(f"  Rejected: {len(state['rejected_records'])}")
     print(f"  Household members: {len(state.get('household_members', []))}")
 
     # Research complete — session harness handles integration + write-back
@@ -579,44 +593,42 @@ def _plan_searches(state: dict) -> list:
 
 
 def _apply_scores(scored: dict, state: dict) -> None:
-    """Auto-confirm matches, auto-reject rejects, flag uncertain."""
+    """Classify results as facts, leads, or impossible."""
     for source, results in scored.items():
         search_type = _classify_search_type(source)
 
         for r in results:
             verdict = r["verdict"]
             record_summary = r["record_summary"]
-            score = r["score"]
             reasons = r["reasons"]
+            failed_gates = r.get("failed_gates", [])
 
-            if verdict == "match":
-                # Dedup: don't add if we already have this fact
+            if verdict == "fact":
                 existing_values = {f["value"] for f in state["confirmed_facts"]}
                 if record_summary not in existing_values:
                     state["confirmed_facts"].append({
                         "type": search_type,
                         "value": record_summary,
                         "sources": [f"{source}: {record_summary}"],
-                        "confidence": "high" if score >= 0.9 else "medium",
-                        "score": score,
+                        "confidence": "confirmed",
+                        "gates": r.get("gates", {}),
                     })
-            elif verdict == "uncertain":
-                # Dedup uncertain too, and cap at 20
-                existing_uncertain = {r["record"] for r in state.get("uncertain_records", [])}
-                if record_summary not in existing_uncertain and len(state.get("uncertain_records", [])) < 20:
-                    state.setdefault("uncertain_records", []).append({
-                        "record": record_summary,
-                        "score": score,
+            elif verdict == "lead":
+                existing_leads = {lc["record_summary"] for lc in state.get("lead_candidates", [])}
+                if record_summary not in existing_leads and len(state.get("lead_candidates", [])) < 50:
+                    state.setdefault("lead_candidates", []).append({
+                        "record": r.get("result", {}),
+                        "record_summary": record_summary,
                         "reasons": reasons,
+                        "failed_gates": failed_gates,
                         "source": source,
+                        "search_type": search_type,
                     })
-            elif verdict in ("reject", "impossible"):
-                # Cap rejected records to prevent unbounded growth
+            elif verdict == "impossible":
                 if len(state["rejected_records"]) < 50:
                     state["rejected_records"].append({
                         "record": record_summary,
                         "reason": "; ".join(reasons),
-                        "score": score,
                     })
 
 
