@@ -286,6 +286,15 @@ def main():
         s.apply()
         s.end()
 
+    elif command == "audit":
+        from agent.audit import audit_tree, print_audit_results
+        s = Session()
+        s.start()
+        results = audit_tree(s.twin, s.lead_store)
+        print_audit_results(results)
+        s.lead_store.save()
+        print(f"\n  Leads saved. View with: python session.py leads")
+
     elif command == "gaps":
         s = Session()
         s.start()
@@ -305,6 +314,7 @@ def main():
         print("  research \"Name\" --birth-year YYYY --gender M")
         print("  leads [open|investigating|confirmed|dismissed]")
         print("  apply     — apply fact queue to WikiTree")
+        print("  audit     — check existing data for errors")
         print("  gaps      — show profiles needing work")
 
 
