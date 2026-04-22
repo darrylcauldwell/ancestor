@@ -9,6 +9,10 @@ MAX_DEPTH = 3          # How many generations to branch into
 MAX_PERSONS = 50       # Hard stop on total persons researched
 MAX_RETRIES = 2        # Retry LLM call if JSON parse fails
 
+# Investigation loop
+INVESTIGATION_MAX_TOKENS = 2048    # LLM response limit per iteration
+INVESTIGATION_MAX_ITERATIONS = 3   # Max loop iterations before stopping
+
 # Search parameters
 CIVIL_REGISTRATION_START = 1837  # FreeBMD only covers 1837+
 WW1_START = 1880                 # Born after this might serve in WW1

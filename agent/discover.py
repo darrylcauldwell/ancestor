@@ -293,6 +293,53 @@ def _search_familysearch(surname, given, birth_year, death_year):
                 r["_fs_type"] = "death"
             results.extend(deaths)
 
+        # Marriage records — spouse names, witnesses
+        if birth_year:
+            start = birth_year + 16
+            end = death_year or (birth_year + 50)
+            marriages, _ = fs.search_marriages(
+                surname=surname, given=given,
+                place=county,
+                year_from=start, year_to=end,
+                count=5)
+            for r in marriages:
+                r["_fs_type"] = "marriage"
+            results.extend(marriages)
+
+        # Census records — household composition
+        if birth_year:
+            for census_year in CENSUS_YEARS:
+                if census_year < birth_year:
+                    continue
+                if death_year and census_year > death_year:
+                    continue
+                census, _ = fs.search_census(
+                    year=census_year,
+                    surname=surname, given=given,
+                    place=county,
+                    count=3)
+                for r in census:
+                    r["_fs_type"] = "census"
+                    r["census_year"] = census_year
+                results.extend(census)
+
+        # Broad sweep — hits military, burial, probate, church records,
+        # land records, obituaries, and everything else FamilySearch indexes.
+        # No event-type filter, just name + date range + county.
+        if birth_year:
+            broad, _ = fs.search(
+                surname=surname, given=given,
+                birth_place=county,
+                birth_year_from=birth_year - 2,
+                birth_year_to=birth_year + 2,
+                count=10)
+            # Deduplicate against targeted results by ARK
+            seen_arks = {r.get("ark") for r in results if r.get("ark")}
+            for r in broad:
+                if r.get("ark") not in seen_arks:
+                    r["_fs_type"] = "broad"
+                    results.append(r)
+
     except Exception as e:
         print(f"      FamilySearch search error: {e}")
 

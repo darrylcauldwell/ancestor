@@ -97,20 +97,22 @@ def _extract_json(text: str) -> dict | list | None:
     # Try extracting from ```json ... ``` blocks
     if "```json" in text:
         start = text.index("```json") + 7
-        end = text.index("```", start)
-        try:
-            return json.loads(text[start:end].strip())
-        except (json.JSONDecodeError, ValueError):
-            pass
+        end = text.find("```", start)
+        if end > start:
+            try:
+                return json.loads(text[start:end].strip())
+            except (json.JSONDecodeError, ValueError):
+                pass
 
     # Try extracting from ``` ... ``` blocks
     if "```" in text:
         start = text.index("```") + 3
-        end = text.index("```", start)
-        try:
-            return json.loads(text[start:end].strip())
-        except (json.JSONDecodeError, ValueError):
-            pass
+        end = text.find("```", start)
+        if end > start:
+            try:
+                return json.loads(text[start:end].strip())
+            except (json.JSONDecodeError, ValueError):
+                pass
 
     # Try finding first { or [ and matching closing bracket
     for start_char, end_char in [("{", "}"), ("[", "]")]:

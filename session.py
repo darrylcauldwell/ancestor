@@ -106,14 +106,20 @@ class Session:
         if self._facts:
             print(f"\n  FACTS TO APPLY ({len(self._facts)}):")
             for f in self._facts:
-                action = f.get("action", "?")
-                wt_id = f.get("wt_id", "?")
+                action = f.get("action", "")
+                wt_id = f.get("wt_id", "")
                 if action == "update_field":
                     print(f"    {wt_id}: {f['field']} → {f['value']}")
                 elif action == "update_bio":
                     print(f"    {wt_id}: bio ({len(f.get('bio', ''))} chars)")
+                elif f.get("type") and f.get("value"):
+                    # Investigation-sourced fact
+                    sources = ", ".join(f.get("sources", []))
+                    print(f"    [{f['type']}] {f['value']}")
+                    if sources:
+                        print(f"           Sources: {sources}")
                 else:
-                    print(f"    {wt_id}: {action}")
+                    print(f"    {wt_id}: {action or '?'}")
         else:
             print(f"\n  No facts to apply.")
 
@@ -212,6 +218,98 @@ class Session:
             print(f"  Error: {e}")
             return False
 
+    def investigate(self, lead_id: str):
+        """Run LLM investigation loop on a lead, then extract facts deterministically."""
+        lead = self.lead_store.get(lead_id)
+        if not lead:
+            print(f"Lead not found: {lead_id}")
+            return
+
+        from agent.investigator import investigate_lead
+        result = investigate_lead(lead, self.twin, self.lead_store)
+
+        # Show what happened
+        print(f"\n{'=' * 60}")
+        print(f"INVESTIGATION COMPLETE: {result.iterations} iterations")
+        print(f"{'=' * 60}")
+
+        for i, reasoning in enumerate(result.reasoning_log):
+            print(f"\n  --- Iteration {i + 1} ---")
+            print(f"  {reasoning[:500]}")
+
+        print(f"\n  Searches executed: {len(result.searches_executed)}")
+        print(f"  New evidence: {len(result.new_evidence)}")
+        print(f"  Facts extracted: {len(result.facts_extracted)}")
+        print(f"  Verdict: {result.verdict}")
+
+        # Facts go to the queue for WikiTree push
+        for fact in result.facts_extracted:
+            self._facts.append(fact)
+
+        if result.questions:
+            print(f"\n  QUESTIONS FOR YOU:")
+            for q in result.questions:
+                print(f"    ? {q}")
+
+        self.lead_store.save()
+
+    def investigate_cluster(self, family_key: str):
+        """Investigate a cluster of related leads together."""
+        from agent.investigator import cluster_leads, investigate_cluster
+
+        clusters = cluster_leads(self.lead_store, self.twin)
+        target = None
+        for c in clusters:
+            if c.family_key.lower() == family_key.lower():
+                target = c
+                break
+
+        if not target:
+            print(f"Cluster not found: {family_key}")
+            print("Available clusters:")
+            for c in clusters[:15]:
+                total_priority = sum(l.priority for l in c.leads)
+                print(f"  [{total_priority:+d}] {c.family_key} ({len(c.leads)} leads)")
+            return
+
+        result = investigate_cluster(target, self.twin, self.lead_store)
+
+        print(f"\n{'=' * 60}")
+        print(f"CLUSTER COMPLETE: {result.family_key}")
+        print(f"{'=' * 60}")
+        print(f"  Leads: {result.lead_count}")
+        print(f"  Iterations: {result.iterations}")
+        print(f"  Searches: {len(result.searches_executed)}")
+        print(f"  Facts extracted: {len(result.facts_extracted)}")
+        print(f"  Resolved: {result.leads_resolved}/{result.lead_count}")
+
+        for fact in result.facts_extracted:
+            self._facts.append(fact)
+
+        if result.questions:
+            print(f"\n  QUESTIONS:")
+            for q in result.questions:
+                print(f"    ? {q}")
+
+        self.lead_store.save()
+
+    def list_clusters(self):
+        """Show lead clusters sorted by total priority."""
+        from agent.investigator import cluster_leads
+
+        clusters = cluster_leads(self.lead_store, self.twin)
+        print(f"\n{'=' * 60}")
+        print(f"LEAD CLUSTERS: {len(clusters)} families")
+        print(f"{'=' * 60}")
+
+        for c in clusters:
+            total_priority = sum(l.priority for l in c.leads)
+            print(f"\n  [{total_priority:+d}] {c.family_key} ({len(c.leads)} leads)")
+            for lead in c.leads[:5]:
+                print(f"       {lead.subject_name} ({lead.category})")
+            if len(c.leads) > 5:
+                print(f"       ... and {len(c.leads) - 5} more")
+
     def leads(self, status: str = "open", limit: int = 20):
         """Display leads sorted by priority."""
         all_leads = self.lead_store.by_priority(status)
@@ -295,6 +393,61 @@ def main():
         s.lead_store.save()
         print(f"\n  Leads saved. View with: python session.py leads")
 
+    elif command == "investigate":
+        if len(args) < 2:
+            print("Usage: python session.py investigate <lead_id>")
+            return
+        lead_id = args[1]
+        s = Session()
+        s.start()
+        s.investigate(lead_id)
+        s.review()
+        s.end()
+
+    elif command == "investigate-top":
+        count = int(args[1]) if len(args) > 1 else 1
+        s = Session()
+        s.start()
+        top = s.lead_store.by_priority("open")
+        if not top:
+            print("No open leads to investigate.")
+            return
+        for lead in top[:count]:
+            print(f"\n  Investigating: {lead.lead_id} (priority {lead.priority:+d})")
+            s.investigate(lead.lead_id)
+        s.review()
+        s.end()
+
+    elif command == "clusters":
+        s = Session()
+        s.start()
+        s.list_clusters()
+
+    elif command == "investigate-cluster":
+        if len(args) < 2:
+            print("Usage: python session.py investigate-cluster \"Family Name\"")
+            return
+        family_key = " ".join(args[1:])
+        s = Session()
+        s.start()
+        s.investigate_cluster(family_key)
+        s.review()
+        s.end()
+
+    elif command == "investigate-top-clusters":
+        count = int(args[1]) if len(args) > 1 else 3
+        from agent.investigator import cluster_leads
+        s = Session()
+        s.start()
+        clusters = cluster_leads(s.lead_store, s.twin)
+        for c in clusters[:count]:
+            total = sum(l.priority for l in c.leads)
+            print(f"\n  Investigating cluster: {c.family_key} "
+                  f"({len(c.leads)} leads, priority {total:+d})")
+            s.investigate_cluster(c.family_key)
+        s.review()
+        s.end()
+
     elif command == "gaps":
         s = Session()
         s.start()
@@ -313,6 +466,11 @@ def main():
         print("Usage: python session.py <command>")
         print("  research \"Name\" --birth-year YYYY --gender M")
         print("  leads [open|investigating|confirmed|dismissed]")
+        print("  clusters                          — show lead clusters by family")
+        print("  investigate <lead_id>             — LLM investigation on one lead")
+        print("  investigate-top [N]               — investigate top N priority leads")
+        print("  investigate-cluster \"Family Name\" — investigate a family cluster")
+        print("  investigate-top-clusters [N]      — investigate top N clusters")
         print("  apply     — apply fact queue to WikiTree")
         print("  audit     — check existing data for errors")
         print("  gaps      — show profiles needing work")

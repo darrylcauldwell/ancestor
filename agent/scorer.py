@@ -192,6 +192,8 @@ def _check_date(r: dict, person: dict, search_type: str) -> tuple[str, str]:
         age = record_year - birth_year
         if 16 <= age <= 60:
             return ("pass", f"married {record_year}, age ~{age} (typical)")
+        if age > 70:
+            return ("impossible", f"married {record_year} at age ~{age}")
         return ("fail", f"married {record_year}, age ~{age} (unusual)")
 
     elif search_type == "census":
