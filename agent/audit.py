@@ -211,6 +211,102 @@ def audit_tree(twin, lead_store: LeadStore) -> dict:
                 lead_store.add(lead)
                 leads_created += 1
 
+        # === MISSING LOCATION CHECKS (WikiTree Data Doctor 457/463) ===
+
+        birth_loc = (node.get("BirthLocation", "") or "").strip()
+        death_loc = (node.get("DeathLocation", "") or "").strip()
+
+        if birth_year and birth_year < 1930 and not birth_loc:
+            lead = Lead(
+                lead_id=_make_lead_id(name, "missing_birth_loc", birth_year),
+                subject_id=wt_id,
+                subject_name=name,
+                subject_birth_year=birth_year,
+                category="data_quality",
+                summary=f"{name} ({wt_id}) — no birth location",
+                uncertainty_reasons=["Birth location field is empty"],
+                evidence=[Evidence(
+                    source="audit",
+                    record_summary="BirthLocation is empty",
+                    reasons=["Missing birth location (Data Doctor 457)"],
+                    search_type="data_quality",
+                )],
+                next_actions=[NextAction(
+                    description=f"Search census/birth records for {name} birth location",
+                    source="familysearch",
+                    cost="free",
+                )],
+            )
+            lead_store.add(lead)
+            leads_created += 1
+
+        if death_year and not death_loc:
+            lead = Lead(
+                lead_id=_make_lead_id(name, "missing_death_loc", death_year),
+                subject_id=wt_id,
+                subject_name=name,
+                subject_birth_year=birth_year,
+                category="data_quality",
+                summary=f"{name} ({wt_id}) — no death location",
+                uncertainty_reasons=["Death location field is empty"],
+                evidence=[Evidence(
+                    source="audit",
+                    record_summary="DeathLocation is empty",
+                    reasons=["Missing death location (Data Doctor 463)"],
+                    search_type="data_quality",
+                )],
+                next_actions=[NextAction(
+                    description=f"Search death records for {name} death location",
+                    source="familysearch",
+                    cost="free",
+                )],
+            )
+            lead_store.add(lead)
+            leads_created += 1
+
+        # === PROFILE COMPLETENESS SCORE ===
+
+        completeness = 0
+        completeness_max = 7
+        if node.get("FirstName"):
+            completeness += 1
+        if birth_year:
+            completeness += 1
+        if birth_loc:
+            completeness += 1
+        if death_year:
+            completeness += 1
+        if death_loc:
+            completeness += 1
+        if bio and len(bio.strip()) > 50:
+            completeness += 1
+        if bio and ("<ref" in bio or "Sources" in bio):
+            completeness += 1
+
+        if completeness <= 2 and birth_year and birth_year < 1930:
+            lead = Lead(
+                lead_id=_make_lead_id(name, "incomplete", birth_year),
+                subject_id=wt_id,
+                subject_name=name,
+                subject_birth_year=birth_year,
+                category="data_quality",
+                summary=f"{name} ({wt_id}) — profile very incomplete ({completeness}/{completeness_max})",
+                uncertainty_reasons=[f"Only {completeness} of {completeness_max} key fields populated"],
+                evidence=[Evidence(
+                    source="audit",
+                    record_summary=f"Completeness score: {completeness}/{completeness_max}",
+                    reasons=[f"Profile completeness {completeness}/{completeness_max}"],
+                    search_type="data_quality",
+                )],
+                next_actions=[NextAction(
+                    description=f"Research {name} to fill in missing dates, locations, and bio",
+                    source="familysearch",
+                    cost="free",
+                )],
+            )
+            lead_store.add(lead)
+            leads_created += 1
+
     # === DUPLICATE DETECTION ===
     seen = {}  # (first, last, birth_year) -> wt_id
     for wt_id in twin._graph.nodes:
@@ -236,11 +332,39 @@ def audit_tree(twin, lead_store: LeadStore) -> dict:
         else:
             seen[key] = wt_id
 
+    # Count completeness stats
+    completeness_scores = []
+    for wt_id in twin._graph.nodes:
+        node = twin.get(wt_id)
+        if not node:
+            continue
+        score = 0
+        if node.get("FirstName"):
+            score += 1
+        if _extract_year(node.get("BirthDate", "")):
+            score += 1
+        if (node.get("BirthLocation", "") or "").strip():
+            score += 1
+        if _extract_year(node.get("DeathDate", "")):
+            score += 1
+        if (node.get("DeathLocation", "") or "").strip():
+            score += 1
+        bio = node.get("Bio") or node.get("bio") or ""
+        if bio and len(bio.strip()) > 50:
+            score += 1
+        if bio and ("<ref" in bio or "Sources" in bio):
+            score += 1
+        completeness_scores.append(score)
+
+    avg_completeness = sum(completeness_scores) / len(completeness_scores) if completeness_scores else 0
+
     return {
         "facts": facts,
         "leads_created": leads_created,
         "profiles_checked": profiles_checked,
         "relationships_checked": relationships_checked,
+        "avg_completeness": avg_completeness,
+        "completeness_max": 7,
     }
 
 
@@ -258,6 +382,8 @@ def print_audit_results(results: dict):
     print(f"  Errors found: {len(errors)}")
     print(f"  Duplicates found: {len(duplicates)}")
     print(f"  Leads created: {results['leads_created']}")
+    if results.get("avg_completeness"):
+        print(f"  Avg completeness: {results['avg_completeness']:.1f}/{results['completeness_max']}")
 
     if errors:
         print(f"\n  ERRORS ({len(errors)}):")
