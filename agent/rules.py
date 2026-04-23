@@ -390,6 +390,42 @@ def convergence_score(matching_sources: int) -> float:
     return min(0.9 + (matching_sources - 3) * 0.03, 1.0)
 
 
+def validate_enrichment_date(field: str, proposed_value: str,
+                            current_birth: str = "", current_death: str = "") -> str | None:
+    """No death date before birth date. No birth date after death date.
+
+    Returns None if valid, or an error string if impossible.
+    """
+    import re
+
+    proposed_year = None
+    m = re.search(r"\b(1[0-9]\d{2}|20[0-2]\d)\b", str(proposed_value))
+    if m:
+        proposed_year = int(m.group(1))
+    if not proposed_year:
+        return None
+
+    birth_year = None
+    m_b = re.search(r"\b(1[0-9]\d{2}|20[0-2]\d)\b", str(current_birth))
+    if m_b:
+        birth_year = int(m_b.group(1))
+
+    death_year = None
+    m_d = re.search(r"\b(1[0-9]\d{2}|20[0-2]\d)\b", str(current_death))
+    if m_d:
+        death_year = int(m_d.group(1))
+
+    if field in ("DeathDate", "death_date") and birth_year:
+        if proposed_year < birth_year:
+            return f"death {proposed_year} before birth {birth_year}"
+
+    if field in ("BirthDate", "birth_date") and death_year:
+        if proposed_year > death_year:
+            return f"birth {proposed_year} after death {death_year}"
+
+    return None
+
+
 def normalise_location(location: str) -> str:
     """Normalise a location string to WikiTree's expected format.
 
