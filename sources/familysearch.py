@@ -285,7 +285,16 @@ class FamilySearch:
         )
 
     def _parse_entries(self, data: dict) -> list[dict]:
-        """Parse GEDCOMx entries into simple dicts."""
+        """Parse GEDCOMx entries into simple dicts.
+
+        Handles all FamilySearch record types:
+        - Census/Residence → residence_date, residence_place
+        - Birth, BirthRegistration, Christening, Baptism → birth_date, birth_place
+        - Death, DeathRegistration, Burial → death_date, death_place
+        - Marriage, MarriageBanns, MarriageRegistration → marriage_date, marriage_place
+        - Occupation, MaritalStatus → occupation, marital_status
+        - Fields: Age, RelationshipToHead, ExtRecordId
+        """
         results = []
         for entry in data.get("entries", []):
             content = entry.get("content", {}).get("gedcomx", {})
@@ -301,6 +310,7 @@ class FamilySearch:
                 "marriage_place": "",
                 "collection": "",
                 "ark": "",
+                "record_type": "",
                 "household": [],
                 "relationships": [],
             }
@@ -318,22 +328,55 @@ class FamilySearch:
                     ftype = fact.get("type", "").split("/")[-1]
                     date = fact.get("date", {}).get("original", "")
                     place = fact.get("place", {}).get("original", "")
-                    if ftype == "Birth":
+
+                    # Birth-related facts
+                    if ftype in ("Birth", "BirthRegistration", "Christening", "Baptism"):
                         person_data["birth_date"] = date
                         person_data["birth_place"] = place
-                    elif ftype == "Death":
+                        if i == 0 and ftype != "Birth":
+                            record["record_type"] = ftype.lower()
+
+                    # Death-related facts
+                    elif ftype in ("Death", "DeathRegistration", "Burial"):
                         person_data["death_date"] = date
                         person_data["death_place"] = place
+                        if i == 0 and ftype != "Death":
+                            record["record_type"] = ftype.lower()
+
+                    # Residence/Census
                     elif ftype in ("Census", "Residence"):
                         person_data["residence_date"] = date
                         person_data["residence_place"] = place
-                    elif ftype in ("Marriage", "MarriageBanns"):
+                        if i == 0:
+                            record["record_type"] = "census"
+
+                    # Marriage-related facts
+                    elif ftype in ("Marriage", "MarriageBanns", "MarriageRegistration"):
                         person_data["marriage_date"] = date
                         person_data["marriage_place"] = place
+                        if i == 0:
+                            record["record_type"] = ftype.lower()
+
                     elif ftype == "Occupation":
                         person_data["occupation"] = date or place
                     elif ftype == "MaritalStatus":
                         person_data["marital_status"] = date
+
+                # Extract fields — Age, RelationshipToHead, ExtRecordId
+                fields = person.get("fields", [])
+                for field in fields:
+                    field_type = field.get("type", "").split("/")[-1]
+                    values = field.get("values", [])
+                    if values:
+                        text = values[0].get("text", "")
+                        if field_type == "Age":
+                            person_data["age"] = text
+                        elif field_type == "RelationshipToHead":
+                            person_data["relationship"] = text
+                        elif field_type == "ExtRecordId":
+                            person_data["record_id"] = text
+                        elif field_type == "Role":
+                            person_data["role"] = text
 
                 if i == 0:
                     record.update(person_data)
@@ -351,12 +394,25 @@ class FamilySearch:
                 if about:
                     record["collection_ark"] = about
 
-            # Relationships
+            # Relationship facts (marriage dates on relationships, not persons)
             for rel in content.get("relationships", []):
                 rtype = rel.get("type", "").split("/")[-1]
                 p1 = rel.get("person1", {}).get("resourceId", "")
                 p2 = rel.get("person2", {}).get("resourceId", "")
-                record["relationships"].append({"type": rtype, "person1": p1, "person2": p2})
+                rel_data = {"type": rtype, "person1": p1, "person2": p2}
+                # Some relationships carry facts (marriage date/place)
+                for fact in rel.get("facts", []):
+                    ftype = fact.get("type", "").split("/")[-1]
+                    date = fact.get("date", {}).get("original", "")
+                    place = fact.get("place", {}).get("original", "")
+                    if ftype in ("Marriage", "MarriageBanns", "MarriageRegistration"):
+                        rel_data["marriage_date"] = date
+                        rel_data["marriage_place"] = place
+                        # If primary record doesn't have marriage info, add it
+                        if not record.get("marriage_date"):
+                            record["marriage_date"] = date
+                            record["marriage_place"] = place
+                record["relationships"].append(rel_data)
 
             results.append(record)
         return results
