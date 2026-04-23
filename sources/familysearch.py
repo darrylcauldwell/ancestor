@@ -333,28 +333,28 @@ class FamilySearch:
                     if ftype in ("Birth", "BirthRegistration", "Christening", "Baptism"):
                         person_data["birth_date"] = date
                         person_data["birth_place"] = place
-                        if i == 0 and ftype != "Birth":
+                        if i == 0 and not record["record_type"]:
                             record["record_type"] = ftype.lower()
 
                     # Death-related facts
                     elif ftype in ("Death", "DeathRegistration", "Burial"):
                         person_data["death_date"] = date
                         person_data["death_place"] = place
-                        if i == 0 and ftype != "Death":
+                        if i == 0 and not record["record_type"]:
                             record["record_type"] = ftype.lower()
 
                     # Residence/Census
                     elif ftype in ("Census", "Residence"):
                         person_data["residence_date"] = date
                         person_data["residence_place"] = place
-                        if i == 0:
+                        if i == 0 and not record["record_type"]:
                             record["record_type"] = "census"
 
                     # Marriage-related facts
                     elif ftype in ("Marriage", "MarriageBanns", "MarriageRegistration"):
                         person_data["marriage_date"] = date
                         person_data["marriage_place"] = place
-                        if i == 0:
+                        if i == 0 and not record["record_type"]:
                             record["record_type"] = ftype.lower()
 
                     elif ftype == "Occupation":
@@ -394,13 +394,22 @@ class FamilySearch:
                 if about:
                     record["collection_ark"] = about
 
-            # Relationship facts (marriage dates on relationships, not persons)
+            # Build person ID → index map for relationship resolution
+            pid_to_idx = {}
+            for idx, person in enumerate(persons):
+                pid = person.get("id", "")
+                if pid:
+                    pid_to_idx[pid] = idx
+
+            # Relationship facts (marriage dates, parent-child links)
+            primary_pid = persons[0].get("id", "") if persons else ""
             for rel in content.get("relationships", []):
                 rtype = rel.get("type", "").split("/")[-1]
                 p1 = rel.get("person1", {}).get("resourceId", "")
                 p2 = rel.get("person2", {}).get("resourceId", "")
                 rel_data = {"type": rtype, "person1": p1, "person2": p2}
-                # Some relationships carry facts (marriage date/place)
+
+                # Marriage facts on relationships
                 for fact in rel.get("facts", []):
                     ftype = fact.get("type", "").split("/")[-1]
                     date = fact.get("date", {}).get("original", "")
@@ -408,10 +417,32 @@ class FamilySearch:
                     if ftype in ("Marriage", "MarriageBanns", "MarriageRegistration"):
                         rel_data["marriage_date"] = date
                         rel_data["marriage_place"] = place
-                        # If primary record doesn't have marriage info, add it
                         if not record.get("marriage_date"):
                             record["marriage_date"] = date
                             record["marriage_place"] = place
+                        if not record["record_type"]:
+                            record["record_type"] = ftype.lower()
+
+                # Tag household members with their relationship role
+                # ParentChild: p1 is parent, p2 is child
+                if rtype == "ParentChild" and p2 == primary_pid:
+                    # p1 is the parent of the primary person
+                    parent_idx = pid_to_idx.get(p1)
+                    if parent_idx is not None and parent_idx > 0:
+                        hh_idx = parent_idx - 1  # household is 0-indexed from person 1
+                        if hh_idx < len(record["household"]):
+                            record["household"][hh_idx]["relationship"] = "parent"
+
+                elif rtype == "Couple":
+                    # Tag both as spouse if neither is primary
+                    for pid in (p1, p2):
+                        idx = pid_to_idx.get(pid)
+                        if idx is not None and idx > 0:
+                            hh_idx = idx - 1
+                            if hh_idx < len(record["household"]):
+                                if record["household"][hh_idx].get("relationship") != "parent":
+                                    record["household"][hh_idx]["relationship"] = "spouse"
+
                 record["relationships"].append(rel_data)
 
             results.append(record)
