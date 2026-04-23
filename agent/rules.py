@@ -390,6 +390,41 @@ def convergence_score(matching_sources: int) -> float:
     return min(0.9 + (matching_sources - 3) * 0.03, 1.0)
 
 
+def normalise_location(location: str) -> str:
+    """Normalise a location string to WikiTree's expected format.
+
+    WikiTree standard: "Town, County, England"
+    Ensures English counties always end with ", England".
+    """
+    if not location:
+        return location
+
+    ENGLISH_COUNTIES = {
+        "derbyshire", "nottinghamshire", "staffordshire", "leicestershire",
+        "yorkshire", "lancashire", "cheshire", "warwickshire", "lincolnshire",
+        "kent", "surrey", "middlesex", "sussex", "essex", "suffolk", "norfolk",
+        "cambridgeshire", "oxfordshire", "berkshire", "hampshire", "dorset",
+        "somerset", "devon", "cornwall", "wiltshire", "gloucestershire",
+        "worcestershire", "herefordshire", "shropshire", "rutland",
+        "huntingdonshire", "bedfordshire", "hertfordshire", "buckinghamshire",
+        "northamptonshire", "westmorland", "cumberland", "durham",
+        "northumberland",
+    }
+
+    parts = [p.strip() for p in location.split(",")]
+    last = parts[-1].lower()
+
+    # Already has country
+    if last in ("england", "united kingdom", "wales", "scotland"):
+        return ", ".join(parts)
+
+    # Check if last part is an English county
+    if last in ENGLISH_COUNTIES:
+        parts.append("England")
+
+    return ", ".join(parts)
+
+
 def census_birthplace_reliability() -> str:
     """Census birthplaces are self-reported and vary between enumerations.
 
