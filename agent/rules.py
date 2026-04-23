@@ -393,6 +393,7 @@ def convergence_score(matching_sources: int) -> float:
 def validate_enrichment_date(field: str, proposed_value: str,
                             current_birth: str = "", current_death: str = "") -> str | None:
     """No death date before birth date. No birth date after death date.
+    No values without a 4-digit year.
 
     Returns None if valid, or an error string if impossible.
     """
@@ -403,7 +404,7 @@ def validate_enrichment_date(field: str, proposed_value: str,
     if m:
         proposed_year = int(m.group(1))
     if not proposed_year:
-        return None
+        return f"no valid year in '{proposed_value}'"
 
     birth_year = None
     m_b = re.search(r"\b(1[0-9]\d{2}|20[0-2]\d)\b", str(current_birth))
@@ -424,6 +425,92 @@ def validate_enrichment_date(field: str, proposed_value: str,
             return f"birth {proposed_year} after death {death_year}"
 
     return None
+
+
+def validate_enrichment_location(proposed_place: str, profile_birth_location: str = "",
+                                 profile_birth_place: str = "") -> str | None:
+    """Reject enrichment if the proposed record is from a different county
+    than the profile's known location.
+
+    Returns None if compatible, or an error string if wrong county.
+    """
+    if not proposed_place:
+        return None
+
+    # Build set of known counties from profile
+    known = profile_birth_location or profile_birth_place or ""
+    if not known:
+        return None  # Can't validate without a known location
+
+    known_lower = known.lower()
+
+    ENGLISH_COUNTIES = [
+        "derbyshire", "nottinghamshire", "staffordshire", "leicestershire",
+        "yorkshire", "lancashire", "cheshire", "warwickshire", "lincolnshire",
+        "kent", "surrey", "middlesex", "sussex", "essex", "suffolk", "norfolk",
+        "cambridgeshire", "oxfordshire", "berkshire", "hampshire", "dorset",
+        "somerset", "devon", "cornwall", "wiltshire", "gloucestershire",
+        "worcestershire", "herefordshire", "shropshire", "rutland",
+        "huntingdonshire", "bedfordshire", "hertfordshire", "buckinghamshire",
+        "northamptonshire", "westmorland", "cumberland", "durham",
+        "northumberland",
+    ]
+
+    profile_county = None
+    for county in ENGLISH_COUNTIES:
+        if county in known_lower:
+            profile_county = county
+            break
+
+    if not profile_county:
+        return None  # Profile county not recognised — can't validate
+
+    proposed_lower = proposed_place.lower()
+
+    # Check if proposed place contains the same county
+    if profile_county in proposed_lower:
+        return None  # Same county — compatible
+
+    # Check if proposed place contains a DIFFERENT county
+    for county in ENGLISH_COUNTIES:
+        if county in proposed_lower and county != profile_county:
+            return f"record from {county} but profile is from {profile_county}"
+
+    # Proposed place doesn't mention any county — can't reject
+    return None
+
+
+def validate_enrichment_parents(record_parents: list[str],
+                                twin_parents: list[str]) -> str | None:
+    """Reject enrichment if christening names parents that don't match
+    the parents already linked in the twin.
+
+    Returns None if compatible, or an error string if parents mismatch.
+    """
+    if not record_parents or not twin_parents:
+        return None  # Can't validate without both sets
+
+    # Check if any record parent matches any twin parent (fuzzy)
+    for rp in record_parents:
+        rp_upper = rp.upper().strip()
+        if not rp_upper:
+            continue
+        for tp in twin_parents:
+            tp_upper = tp.upper().strip()
+            # Check if surnames match
+            rp_parts = rp_upper.split()
+            tp_parts = tp_upper.split()
+            if rp_parts and tp_parts:
+                # Compare last names
+                if rp_parts[-1] == tp_parts[-1]:
+                    return None  # At least one parent surname matches
+                # Compare first names (parent might be listed by first name only)
+                if rp_parts[0] == tp_parts[0]:
+                    return None
+
+    record_str = ", ".join(record_parents)
+    twin_str = ", ".join(twin_parents)
+    return f"record parents [{record_str}] don't match twin parents [{twin_str}]"
 
 
 def normalise_location(location: str) -> str:
