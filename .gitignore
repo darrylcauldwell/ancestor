@@ -58,3 +58,7 @@ AncestorApp/.swiftpm/
 # Personal research files
 SOURCES.md
 TODO.md
+
+# Xcode user data
+xcuserdata/
+*.xcuserstate
