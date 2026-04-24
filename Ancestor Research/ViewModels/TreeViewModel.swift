@@ -31,7 +31,17 @@ final class TreeViewModel {
         } else {
             layout = TreeLayout.overviewLayout(snapshot: snapshot)
         }
-        offset = .zero
+        // Centre view on the root node at bottom of viewport
+        if let rootID = rootProfileID,
+           let rootNode = layout.nodes.first(where: { $0.id == rootID }) {
+            // Offset so root is at bottom-centre of the viewport
+            offset = CGSize(
+                width: -rootNode.x + layout.width / 2,
+                height: -(rootNode.y - layout.height / 2 + TreeLayout.nodeHeight)
+            )
+        } else {
+            offset = .zero
+        }
         scale = 1.0
     }
 
