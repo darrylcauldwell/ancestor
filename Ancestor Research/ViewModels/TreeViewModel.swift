@@ -32,18 +32,15 @@ final class TreeViewModel {
         } else {
             layout = TreeLayout.overviewLayout(snapshot: snapshot)
         }
-        // Centre view on the root node at bottom of viewport
-        if let rootID = rootProfileID,
-           let rootNode = layout.nodes.first(where: { $0.id == rootID }) {
-            // Offset so root is at bottom-centre of the viewport
-            offset = CGSize(
-                width: -rootNode.x + layout.width / 2,
-                height: -(rootNode.y - layout.height / 2 + TreeLayout.nodeHeight)
-            )
-        } else {
-            offset = .zero
-        }
-        scale = 1.0
+        // Auto-scale to fit tree in a reasonable viewport (assume ~1200px wide, ~800px tall)
+        let viewportWidth: Double = 1200
+        let viewportHeight: Double = 800
+        let scaleX = layout.width > 0 ? viewportWidth / layout.width : 1.0
+        let scaleY = layout.height > 0 ? viewportHeight / layout.height : 1.0
+        scale = min(scaleX, scaleY, 1.0)  // Never scale up, only down
+
+        // Centre view — offset adjusted for scale
+        offset = .zero
     }
 
     /// Recenter the view on a different person with history tracking.
