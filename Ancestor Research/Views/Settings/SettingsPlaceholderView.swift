@@ -50,8 +50,14 @@ struct SettingsPlaceholderView: View {
                 Section("WikiTree") {
                     LabeledContent("Email", value: wikiTreeEmail)
 
-                    SecureField("Password", text: $wikiTreePassword)
-                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        SecureField("Password", text: $wikiTreePassword)
+                            .textFieldStyle(.roundedBorder)
+                        if !wikiTreePassword.isEmpty {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                        }
+                    }
 
                     HStack {
                         Button("Connect & Import") {
