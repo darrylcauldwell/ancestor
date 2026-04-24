@@ -1,6 +1,8 @@
 import SwiftUI
 
 /// Interactive family tree visualisation using Canvas.
+/// Shows a window of generations around a focal person — never all profiles at once.
+/// Click any node to select. Double-click to recenter the view on that person.
 struct TreeGraphView: View {
     @Environment(AppState.self) private var appState
     @State private var treeVM = TreeViewModel()
@@ -14,8 +16,30 @@ struct TreeGraphView: View {
                     .gesture(panGesture)
                     .gesture(magnifyGesture)
 
-                // Zoom controls overlay
+                // Controls overlay
                 VStack {
+                    // Navigation breadcrumb
+                    if let rootID = treeVM.rootProfileID,
+                       let root = appState.snapshot.profiles[rootID] {
+                        HStack {
+                            if treeVM.canGoBack {
+                                Button {
+                                    treeVM.goBack(snapshot: appState.snapshot)
+                                } label: {
+                                    Image(systemName: "chevron.left")
+                                }
+                                .buttonStyle(.glass)
+                            }
+                            Text(root.displayName)
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .glassEffect(.regular, in: .capsule)
+                            Spacer()
+                        }
+                        .padding()
+                    }
                     Spacer()
                     HStack {
                         Spacer()
@@ -32,7 +56,9 @@ struct TreeGraphView: View {
                 ProfileDetailView(
                     profile: profile,
                     snapshot: appState.snapshot,
-                    onSetRoot: { treeVM.setRoot(selectedID, snapshot: appState.snapshot) }
+                    onSetRoot: {
+                        treeVM.recenter(on: selectedID, snapshot: appState.snapshot)
+                    }
                 )
                 .frame(width: 300)
             }
@@ -55,31 +81,26 @@ struct TreeGraphView: View {
             }
         }
         .onAppear {
-            autoSelectRoot()
+            selectInitialRoot()
             treeVM.rebuildLayout(snapshot: appState.snapshot)
         }
         .onChange(of: appState.snapshot.profiles.count) {
-            autoSelectRoot()
+            selectInitialRoot()
             treeVM.rebuildLayout(snapshot: appState.snapshot)
         }
     }
 
-    /// Auto-select a root profile for tree view if none selected.
-    /// Picks the youngest profile that has parents — likely the tree's starting point.
-    private func autoSelectRoot() {
+    /// Pick the youngest profile with parents as the initial root.
+    private func selectInitialRoot() {
         guard treeVM.rootProfileID == nil, !appState.snapshot.profiles.isEmpty else { return }
 
-        // Find the youngest profile that has at least one parent link
         let withParents = appState.snapshot.profiles.values.filter {
             !appState.snapshot.parentsOf($0.id).isEmpty
         }
-
-        let bestRoot = withParents.max { a, b in
+        let youngest = withParents.max { a, b in
             (a.birthDate?.bestYear ?? 0) < (b.birthDate?.bestYear ?? 0)
         }
-
-        if let rootID = bestRoot?.id {
-            treeVM.viewMode = .pedigree
+        if let rootID = youngest?.id ?? appState.snapshot.profiles.keys.first {
             treeVM.rootProfileID = rootID
         }
     }
@@ -121,13 +142,21 @@ struct TreeGraphView: View {
                     size: CGSize(width: TreeLayout.nodeWidth, height: TreeLayout.nodeHeight)
                 )
                 let isSelected = node.id == treeVM.selectedProfileID
+                let isRoot = node.id == treeVM.rootProfileID
                 let dimmed = hasSearch && !highlighted.contains(node.id)
                 drawNode(context: &context, node: node, rect: rect,
-                        isSelected: isSelected, dimmed: dimmed)
+                        isSelected: isSelected, isRoot: isRoot, dimmed: dimmed)
             }
         }
-        .onTapGesture { location in
-            handleTap(at: location)
+        .onTapGesture(count: 2) { location in
+            // Double-click to recenter
+            if let nodeID = hitTest(at: location) {
+                treeVM.recenter(on: nodeID, snapshot: appState.snapshot)
+            }
+        }
+        .onTapGesture(count: 1) { location in
+            // Single click to select
+            treeVM.selectedProfileID = hitTest(at: location)
         }
         .background(Color(nsColor: .controlBackgroundColor))
     }
@@ -137,20 +166,23 @@ struct TreeGraphView: View {
     private func drawEdge(context: inout GraphicsContext, from: CGPoint, to: CGPoint, type: RelationshipType) {
         var path = Path()
         if type == .spouse {
-            // Horizontal line for spouse connections
-            path.move(to: CGPoint(x: from.x + TreeLayout.nodeWidth / 2, y: from.y))
-            path.addLine(to: CGPoint(x: to.x - TreeLayout.nodeWidth / 2, y: to.y))
+            // Horizontal double-line for spouse
+            let fromRight = CGPoint(x: from.x + TreeLayout.nodeWidth / 2, y: from.y)
+            let toLeft = CGPoint(x: to.x - TreeLayout.nodeWidth / 2, y: to.y)
+            path.move(to: fromRight)
+            path.addLine(to: toLeft)
             context.stroke(path, with: .color(.pink.opacity(0.6)), lineWidth: 2)
         } else {
-            // Curved line for parent-child
-            let midY = (from.y + to.y) / 2
-            path.move(to: CGPoint(x: from.x, y: from.y + TreeLayout.nodeHeight / 2))
-            path.addCurve(
-                to: CGPoint(x: to.x, y: to.y - TreeLayout.nodeHeight / 2),
-                control1: CGPoint(x: from.x, y: midY),
-                control2: CGPoint(x: to.x, y: midY)
-            )
-            context.stroke(path, with: .color(.secondary.opacity(0.5)), lineWidth: 1.5)
+            // Orthogonal connector for parent-child
+            let fromBottom = CGPoint(x: from.x, y: from.y + TreeLayout.nodeHeight / 2)
+            let toTop = CGPoint(x: to.x, y: to.y - TreeLayout.nodeHeight / 2)
+            let midY = (fromBottom.y + toTop.y) / 2
+
+            path.move(to: fromBottom)
+            path.addLine(to: CGPoint(x: fromBottom.x, y: midY))
+            path.addLine(to: CGPoint(x: toTop.x, y: midY))
+            path.addLine(to: toTop)
+            context.stroke(path, with: .color(.secondary.opacity(0.4)), lineWidth: 1.5)
         }
     }
 
@@ -159,9 +191,10 @@ struct TreeGraphView: View {
         node: TreeLayout.LayoutNode,
         rect: CGRect,
         isSelected: Bool,
+        isRoot: Bool,
         dimmed: Bool
     ) {
-        let cornerRadius: Double = 10
+        let cornerRadius: Double = 12
         let path = Path(roundedRect: rect, cornerRadius: cornerRadius)
 
         // Background colour based on completeness
@@ -169,6 +202,8 @@ struct TreeGraphView: View {
         let ratio = comp.maximum > 0 ? Double(comp.score) / Double(comp.maximum) : 0
         let fillColor: Color = if isSelected {
             .accentColor.opacity(0.3)
+        } else if isRoot {
+            .blue.opacity(0.15)
         } else if dimmed {
             .gray.opacity(0.1)
         } else {
@@ -176,69 +211,115 @@ struct TreeGraphView: View {
                 red: 1.0 - ratio * 0.7,
                 green: 0.3 + ratio * 0.7,
                 blue: 0.3
-            ).opacity(0.2)
+            ).opacity(0.15)
         }
 
         context.fill(path, with: .color(fillColor))
 
         // Border
-        let borderColor: Color = isSelected ? .accentColor : .secondary.opacity(0.3)
-        context.stroke(path, with: .color(borderColor), lineWidth: isSelected ? 2 : 1)
+        let borderColor: Color = isSelected ? .accentColor : (isRoot ? .blue.opacity(0.5) : .secondary.opacity(0.2))
+        context.stroke(path, with: .color(borderColor), lineWidth: isSelected ? 2.5 : (isRoot ? 2 : 1))
 
-        // Name text
+        // Semantic zoom — detail level based on scale
         let name = node.profile.displayName
-        let nameText = Text(name).font(.caption).foregroundStyle(dimmed ? .tertiary : .primary)
-        context.draw(
-            context.resolve(nameText),
-            at: CGPoint(x: rect.midX, y: rect.midY - 8),
-            anchor: .center
-        )
-
-        // Birth year text
-        if let year = node.profile.birthDate?.bestYear {
-            let yearText = Text("b. \(year)").font(.caption2).foregroundStyle(.secondary)
+        if treeVM.scale > 0.4 {
+            // Full detail: name + dates
+            let nameText = Text(name)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(dimmed ? .tertiary : .primary)
             context.draw(
-                context.resolve(yearText),
-                at: CGPoint(x: rect.midX, y: rect.midY + 10),
+                context.resolve(nameText),
+                at: CGPoint(x: rect.midX, y: rect.midY - 12),
+                anchor: .center
+            )
+
+            // Birth/death years
+            var dateStr = ""
+            if let by = node.profile.birthDate?.bestYear {
+                dateStr += "b.\(by)"
+            }
+            if let dy = node.profile.deathDate?.bestYear {
+                dateStr += dateStr.isEmpty ? "d.\(dy)" : " — d.\(dy)"
+            }
+            if !dateStr.isEmpty {
+                let dateText = Text(dateStr)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                context.draw(
+                    context.resolve(dateText),
+                    at: CGPoint(x: rect.midX, y: rect.midY + 8),
+                    anchor: .center
+                )
+            }
+
+            // Birth location (if space)
+            if treeVM.scale > 0.7, let loc = node.profile.birthLocation {
+                let shortLoc = loc.components(separatedBy: ",").first ?? loc
+                let locText = Text(shortLoc)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                context.draw(
+                    context.resolve(locText),
+                    at: CGPoint(x: rect.midX, y: rect.midY + 24),
+                    anchor: .center
+                )
+            }
+        } else {
+            // Medium/far zoom: name only
+            let nameText = Text(name)
+                .font(.system(size: 10))
+                .foregroundStyle(dimmed ? .quaternary : .secondary)
+            context.draw(
+                context.resolve(nameText),
+                at: CGPoint(x: rect.midX, y: rect.midY),
                 anchor: .center
             )
         }
 
         // Completeness badge
         let badge = Text("\(comp.score)/\(comp.maximum)")
-            .font(.system(size: 9))
+            .font(.system(size: 9, weight: .semibold))
             .foregroundStyle(ratio >= 1.0 ? .green : .orange)
         context.draw(
             context.resolve(badge),
-            at: CGPoint(x: rect.maxX - 16, y: rect.minY + 10),
+            at: CGPoint(x: rect.maxX - 18, y: rect.minY + 12),
             anchor: .center
         )
 
-        // Dispute indicator
-        if !node.profile.disputes.isEmpty {
-            let disputeBadge = Text("⚠").font(.system(size: 10))
+        // Expand indicators
+        if node.hasMoreAncestors {
+            let indicator = Text("▲")
+                .font(.system(size: 10))
+                .foregroundStyle(.blue)
             context.draw(
-                context.resolve(disputeBadge),
-                at: CGPoint(x: rect.minX + 10, y: rect.minY + 10),
+                context.resolve(indicator),
+                at: CGPoint(x: rect.midX, y: rect.minY - 8),
+                anchor: .center
+            )
+        }
+        if node.hasMoreDescendants {
+            let indicator = Text("▼")
+                .font(.system(size: 10))
+                .foregroundStyle(.blue)
+            context.draw(
+                context.resolve(indicator),
+                at: CGPoint(x: rect.midX, y: rect.maxY + 8),
                 anchor: .center
             )
         }
     }
 
-    // MARK: - Interaction
+    // MARK: - Hit Testing
 
-    private func handleTap(at location: CGPoint) {
-        // Transform screen coordinates back to canvas coordinates
-        // This is approximate — works for basic selection
-        guard let canvasSize = NSApp?.keyWindow?.contentView?.bounds.size else { return }
+    private func hitTest(at location: CGPoint) -> String? {
+        guard let canvasSize = NSApp?.keyWindow?.contentView?.bounds.size else { return nil }
         let centerX = canvasSize.width / 2
         let centerY = canvasSize.height / 2
 
         let canvasX = (location.x - centerX - treeVM.offset.width) / treeVM.scale + treeVM.layout.width / 2
         let canvasY = (location.y - centerY - treeVM.offset.height) / treeVM.scale + treeVM.layout.height / 2
 
-        // Find the node under the tap
-        let hitNode = treeVM.layout.nodes.first { node in
+        return treeVM.layout.nodes.first { node in
             let nodeRect = CGRect(
                 x: node.x - TreeLayout.nodeWidth / 2,
                 y: node.y - TreeLayout.nodeHeight / 2,
@@ -246,10 +327,10 @@ struct TreeGraphView: View {
                 height: TreeLayout.nodeHeight
             )
             return nodeRect.contains(CGPoint(x: canvasX, y: canvasY))
-        }
-
-        treeVM.selectedProfileID = hitNode?.id
+        }?.id
     }
+
+    // MARK: - Gestures
 
     private var panGesture: some Gesture {
         DragGesture()

@@ -3,13 +3,19 @@ import SwiftUI
 /// View model for the interactive tree graph.
 @MainActor @Observable
 final class TreeViewModel {
-    var layout: TreeLayout.LayoutResult = .init(nodes: [], edges: [], width: 0, height: 0)
+    var layout: TreeLayout.LayoutResult = .init(nodes: [], edges: [], width: 0, height: 0, rootID: nil)
     var selectedProfileID: String?
     var rootProfileID: String?
     var viewMode: TreeViewMode = .pedigree
     var scale: Double = 1.0
     var offset: CGSize = .zero
     var searchText: String = ""
+
+    // Navigation history for back/forward
+    private var history: [String] = []
+    private var historyIndex: Int = -1
+
+    var canGoBack: Bool { historyIndex > 0 }
 
     /// Rebuild layout from the current snapshot.
     func rebuildLayout(snapshot: FamilyGraphSnapshot) {
@@ -25,21 +31,38 @@ final class TreeViewModel {
         } else {
             layout = TreeLayout.overviewLayout(snapshot: snapshot)
         }
+        offset = .zero
+        scale = 1.0
     }
 
-    /// Select a profile and optionally make it the root.
+    /// Recenter the view on a different person with history tracking.
+    func recenter(on profileID: String, snapshot: FamilyGraphSnapshot) {
+        if historyIndex < history.count - 1 {
+            history.removeSubrange((historyIndex + 1)...)
+        }
+        history.append(profileID)
+        historyIndex = history.count - 1
+
+        rootProfileID = profileID
+        selectedProfileID = profileID
+        rebuildLayout(snapshot: snapshot)
+    }
+
+    /// Navigate back in history.
+    func goBack(snapshot: FamilyGraphSnapshot) {
+        guard canGoBack else { return }
+        historyIndex -= 1
+        rootProfileID = history[historyIndex]
+        selectedProfileID = rootProfileID
+        rebuildLayout(snapshot: snapshot)
+    }
+
     func selectProfile(_ id: String) {
         selectedProfileID = id
     }
 
     func setRoot(_ id: String, snapshot: FamilyGraphSnapshot) {
-        rootProfileID = id
-        rebuildLayout(snapshot: snapshot)
-    }
-
-    func clearRoot(snapshot: FamilyGraphSnapshot) {
-        rootProfileID = nil
-        rebuildLayout(snapshot: snapshot)
+        recenter(on: id, snapshot: snapshot)
     }
 
     /// Zoom controls.
