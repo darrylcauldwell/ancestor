@@ -159,40 +159,10 @@ final class AppState {
         loadingMessage = nil
     }
 
-    /// Refresh from WikiTree — re-fetch all profiles.
+    /// Refresh from WikiTree — superseded by refreshWikiTreeWithDiff().
+    /// Kept as a direct refresh for cases where diff is not needed.
     func refreshWikiTree() async {
-        guard case .wikitree = currentProject?.source else { return }
-        isLoading = true
-        loadingMessage = "Refreshing from WikiTree..."
-        errorMessage = nil
-
-        do {
-            let (profiles, relationships) = try await wikiTreeClient.fetchWatchlistTree { message in
-                Task { @MainActor in
-                    self.loadingMessage = message
-                }
-            }
-
-            let profileDict = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
-            // TODO: DiffEngine to compare old vs new snapshot, generate FieldChanges,
-            // show TreeDiffView before committing. For now, rebuild directly.
-            let newSnapshot = FamilyGraphSnapshot(profiles: profileDict, relationships: relationships)
-            snapshot = newSnapshot
-
-            if var project = currentProject {
-                project = Project(
-                    id: project.id, name: project.name, source: project.source,
-                    createdAt: project.createdAt, lastRefreshed: Date()
-                )
-                try currentDatabase?.saveProjectMeta(project)
-                currentProject = project
-            }
-        } catch {
-            errorMessage = "Refresh error: \(error.localizedDescription)"
-        }
-
-        isLoading = false
-        loadingMessage = nil
+        await refreshWikiTreeWithDiff()
     }
 
     // MARK: - Refresh with Diff
