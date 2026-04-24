@@ -90,6 +90,9 @@ struct AuditPlaceholderView: View {
                 .font(.caption)
                 .fontWeight(.semibold)
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .glassEffect(.regular, in: .capsule)
     }
 }
 
@@ -111,44 +114,131 @@ nonisolated extension Severity {
     }
 }
 
-/// Gaps view — profiles missing key data.
+/// Gaps view — profiles missing key data, grouped by what's missing.
 struct GapsPlaceholderView: View {
     @Environment(AppState.self) private var appState
+    @State private var filterCheck: CompletenessCheck?
+    @State private var searchText = ""
 
     var body: some View {
-        let missing = appState.snapshot.profiles.values.filter { profile in
-            let comp = appState.snapshot.completeness(for: profile.id)
-            return comp.score < comp.maximum
-        }.sorted { a, b in
-            appState.snapshot.completeness(for: a.id).score <
-                appState.snapshot.completeness(for: b.id).score
-        }
-
-        if missing.isEmpty {
-            ContentUnavailableView {
-                Label("No Gaps", systemImage: "checkmark.circle")
-            } description: {
-                Text("All profiles are complete.")
-            }
-        } else {
-            List(missing) { profile in
-                let comp = appState.snapshot.completeness(for: profile.id)
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text(profile.displayName)
-                            .font(.headline)
-                        Text(comp.missing.map(\.label).joined(separator: ", "))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+        VStack(spacing: 0) {
+            // Summary bar
+            if !appState.snapshot.profiles.isEmpty {
+                HStack(spacing: 12) {
+                    gapSummary
                     Spacer()
-                    Text("\(comp.score)/\(comp.maximum)")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                    TextField("Search...", text: $searchText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 150)
+                }
+                .padding()
+                Divider()
+            }
+
+            // List
+            let gaps = filteredProfiles
+            if gaps.isEmpty {
+                ContentUnavailableView {
+                    Label("No Gaps", systemImage: "checkmark.circle")
+                } description: {
+                    Text(appState.snapshot.profiles.isEmpty
+                         ? "Import data to see gaps."
+                         : "All profiles are complete.")
+                }
+            } else {
+                List(gaps) { profile in
+                    let comp = appState.snapshot.completeness(for: profile.id)
+                    HStack {
+                        // Completeness bar
+                        completenessBar(comp)
+                            .frame(width: 40)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(profile.displayName)
+                                .font(.headline)
+                            if let year = profile.birthDate?.bestYear {
+                                Text("b. \(year)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            HStack(spacing: 4) {
+                                ForEach(comp.missing, id: \.label) { check in
+                                    Text(check.shortLabel)
+                                        .font(.system(size: 9))
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .glassEffect(.regular, in: .capsule)
+                                }
+                            }
+                        }
+
+                        Spacer()
+
+                        Text("\(comp.score)/\(comp.maximum)")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(comp.score == 0 ? .red : .orange)
+                    }
                 }
             }
-            .navigationTitle("Gaps (\(missing.count) incomplete)")
         }
+        .navigationTitle("Gaps (\(filteredProfiles.count) incomplete)")
+    }
+
+    private var filteredProfiles: [Profile] {
+        appState.snapshot.profiles.values
+            .filter { profile in
+                let comp = appState.snapshot.completeness(for: profile.id)
+                guard comp.score < comp.maximum else { return false }
+                if let filter = filterCheck {
+                    guard comp.missing.contains(where: { $0.label == filter.label }) else { return false }
+                }
+                if !searchText.isEmpty {
+                    guard profile.displayName.localizedCaseInsensitiveContains(searchText) else { return false }
+                }
+                return true
+            }
+            .sorted {
+                appState.snapshot.completeness(for: $0.id).score <
+                    appState.snapshot.completeness(for: $1.id).score
+            }
+    }
+
+    private var gapSummary: some View {
+        let total = appState.snapshot.profiles.count
+        let incomplete = appState.snapshot.profiles.values.filter {
+            let c = appState.snapshot.completeness(for: $0.id)
+            return c.score < c.maximum
+        }.count
+        let complete = total - incomplete
+        return HStack(spacing: 8) {
+            Text("\(complete)/\(total) complete")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(incomplete == 0 ? .green : .secondary)
+            if total > 0 {
+                let pct = Int(Double(complete) / Double(total) * 100)
+                Text("\(pct)%")
+                    .font(.caption2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .glassEffect(.regular, in: .capsule)
+            }
+        }
+    }
+
+    private func completenessBar(_ comp: ProfileCompleteness) -> some View {
+        let ratio = comp.maximum > 0 ? Double(comp.score) / Double(comp.maximum) : 0
+        return GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(.quaternary)
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(ratio >= 1.0 ? Color.green : (ratio > 0.5 ? .orange : .red))
+                    .frame(width: geo.size.width * ratio)
+            }
+        }
+        .frame(height: 6)
     }
 }
 
@@ -157,6 +247,23 @@ nonisolated extension CompletenessCheck {
         switch self {
         case .field(let field): "Missing \(field.rawValue)"
         case .hasParents: "No parents"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .field(let field):
+            switch field {
+            case .firstName: "name"
+            case .lastName: "surname"
+            case .gender: "gender"
+            case .birthDate: "birth"
+            case .birthLocation: "b.loc"
+            case .deathDate: "death"
+            case .deathLocation: "d.loc"
+            case .bio: "bio"
+            }
+        case .hasParents: "parents"
         }
     }
 }

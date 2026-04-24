@@ -45,8 +45,10 @@ struct NewProjectView: View {
 
             HStack(spacing: 16) {
                 Button("Cancel") { dismiss() }
+                    .buttonStyle(.glass)
                     .keyboardShortcut(.cancelAction)
                 Button("Create") { createProject() }
+                    .buttonStyle(.glassProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canCreate)
             }

@@ -23,6 +23,9 @@ struct SidebarView: View {
                 }
             }
             .padding(.horizontal)
+            .padding(.vertical, 8)
+            .glassEffect(.regular, in: .rect(cornerRadius: 10))
+            .padding(.horizontal, 8)
             .padding(.bottom, 8)
         }
         .toolbar {

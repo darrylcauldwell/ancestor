@@ -120,10 +120,9 @@ struct ProfileDetailView: View {
             ForEach(sources, id: \.raw) { source in
                 Text(source.origin.identifier.uppercased())
                     .font(.system(size: 8, weight: .bold))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(.quaternary)
-                    .clipShape(Capsule())
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .glassEffect(.regular, in: .capsule)
             }
         }
     }

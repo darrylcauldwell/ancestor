@@ -59,6 +59,7 @@ struct ProjectPickerView: View {
         }
         .padding(40)
         .frame(minWidth: 500, minHeight: 400)
+        .background(.ultraThinMaterial)
         .sheet(isPresented: $showingNewProject) {
             NewProjectView()
         }
