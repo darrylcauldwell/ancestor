@@ -8,7 +8,6 @@ struct NewProjectView: View {
     @State private var sourceType: SourceType = .gedcom
     @State private var wikiTreeEmail = ""
     @State private var wikiTreePassword = ""
-    @State private var wikiTreeSeedProfile = ""
     @State private var selectedFile: URL?
     @State private var showingFilePicker = false
 
@@ -47,9 +46,6 @@ struct NewProjectView: View {
                     SecureField("WikiTree Password", text: $wikiTreePassword)
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 400)
-                    TextField("Seed Profile ID (e.g. Cauldwell-103)", text: $wikiTreeSeedProfile)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 400)
                 }
             }
 
@@ -85,7 +81,7 @@ struct NewProjectView: View {
         case .gedcom:
             return selectedFile != nil
         case .wikitree:
-            return !wikiTreeEmail.isEmpty && !wikiTreePassword.isEmpty && !wikiTreeSeedProfile.isEmpty
+            return !wikiTreeEmail.isEmpty && !wikiTreePassword.isEmpty
         }
     }
 
@@ -96,12 +92,11 @@ struct NewProjectView: View {
             appState.createAndImportProject(name: projectName, source: .gedcom(path: file.path))
         case .wikitree:
             appState.createAndImportProject(name: projectName, source: .wikitree(email: wikiTreeEmail))
-            // Immediately connect and pull ancestor tree
+            // Immediately connect and pull watchlist
             Task {
                 await appState.connectWikiTree(
                     email: wikiTreeEmail,
-                    password: wikiTreePassword,
-                    seedProfileID: wikiTreeSeedProfile
+                    password: wikiTreePassword
                 )
             }
         }

@@ -4,7 +4,6 @@ import SwiftUI
 struct SettingsPlaceholderView: View {
     @Environment(AppState.self) private var appState
     @State private var wikiTreePassword = ""
-    @State private var wikiTreeSeedProfile = ""
 
     /// Email extracted from project source — single source of truth.
     private var wikiTreeEmail: String {
@@ -53,21 +52,18 @@ struct SettingsPlaceholderView: View {
 
                     SecureField("Password", text: $wikiTreePassword)
                         .textFieldStyle(.roundedBorder)
-                    TextField("Seed Profile ID (e.g. Cauldwell-103)", text: $wikiTreeSeedProfile)
-                        .textFieldStyle(.roundedBorder)
 
                     HStack {
                         Button("Connect & Import") {
                             Task {
                                 await appState.connectWikiTree(
                                     email: wikiTreeEmail,
-                                    password: wikiTreePassword,
-                                    seedProfileID: wikiTreeSeedProfile
+                                    password: wikiTreePassword
                                 )
                             }
                         }
                         .buttonStyle(.glassProminent)
-                        .disabled(wikiTreePassword.isEmpty || wikiTreeSeedProfile.isEmpty)
+                        .disabled(wikiTreePassword.isEmpty)
 
                         if appState.snapshot.profiles.count > 0 {
                             Button("Refresh with Diff") {
