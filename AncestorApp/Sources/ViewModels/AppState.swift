@@ -1,0 +1,216 @@
+import SwiftUI
+
+/// Root application state — tracks current project and snapshot.
+@MainActor @Observable
+final class AppState {
+    var currentProject: Project?
+    var currentDatabase: ProjectDatabase?
+    var snapshot: FamilyGraphSnapshot = .empty
+    var availableProjects: [Project] = []
+    var isLoading = false
+    var loadingMessage: String?
+    var errorMessage: String?
+
+    init() {
+        refreshProjectList()
+    }
+
+    func refreshProjectList() {
+        availableProjects = ProjectStore.listProjects()
+    }
+
+    func openProject(_ project: Project) {
+        isLoading = true
+        loadingMessage = "Opening project..."
+        errorMessage = nil
+        do {
+            let (proj, db) = try ProjectStore.openProject(project.id)
+            currentProject = proj
+            currentDatabase = db
+            snapshot = try db.buildSnapshot()
+        } catch {
+            errorMessage = "Failed to open project: \(error.localizedDescription)"
+        }
+        isLoading = false
+        loadingMessage = nil
+    }
+
+    /// Create a new project and immediately import data from its source.
+    func createAndImportProject(name: String, source: DataSource) {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            let (project, db) = try ProjectStore.createProject(name: name, source: source)
+            currentProject = project
+            currentDatabase = db
+
+            switch source {
+            case .gedcom(let path):
+                try importGEDCOM(path: path, db: db)
+            case .wikitree:
+                // WikiTree credentials are entered separately in Settings
+                // For now, create the project — user connects via Settings
+                snapshot = .empty
+            }
+
+            refreshProjectList()
+        } catch {
+            errorMessage = "Failed to create project: \(error.localizedDescription)"
+        }
+
+        isLoading = false
+        loadingMessage = nil
+    }
+
+    /// Import a GEDCOM file into the current database.
+    private func importGEDCOM(path: String, db: ProjectDatabase) throws {
+        loadingMessage = "Parsing GEDCOM file..."
+        let parseResult = try GEDCOMParser.parse(fileAt: path)
+
+        loadingMessage = "Saving \(parseResult.individualCount) profiles..."
+        let transaction = try db.importSnapshot(parseResult.snapshot, source: path)
+
+        loadingMessage = "Building tree..."
+        snapshot = try db.buildSnapshot()
+
+        // Update project metadata with refresh time
+        if var project = currentProject {
+            project = Project(
+                id: project.id,
+                name: project.name,
+                source: project.source,
+                createdAt: project.createdAt,
+                lastRefreshed: transaction.completedAt
+            )
+            try db.saveProjectMeta(project)
+            currentProject = project
+        }
+
+        if !parseResult.warnings.isEmpty {
+            print("GEDCOM import warnings:")
+            for warning in parseResult.warnings {
+                print("  \(warning)")
+            }
+        }
+    }
+
+    func deleteProject(_ id: UUID) {
+        do {
+            try ProjectStore.deleteProject(id)
+            if currentProject?.id == id {
+                currentProject = nil
+                currentDatabase = nil
+                snapshot = .empty
+            }
+            refreshProjectList()
+        } catch {
+            errorMessage = "Failed to delete project: \(error.localizedDescription)"
+        }
+    }
+
+    func closeProject() {
+        currentProject = nil
+        currentDatabase = nil
+        snapshot = .empty
+    }
+
+    // MARK: - WikiTree
+
+    private var wikiTreeClient = WikiTreeClient()
+
+    /// Connect to WikiTree and fetch all watchlist profiles.
+    func connectWikiTree(email: String, password: String) async {
+        isLoading = true
+        loadingMessage = "Logging in to WikiTree..."
+        errorMessage = nil
+
+        do {
+            let user = try await wikiTreeClient.login(email: email, password: password)
+
+            let (profiles, relationships) = try await wikiTreeClient.fetchWatchlistTree { message in
+                Task { @MainActor in
+                    self.loadingMessage = message
+                }
+            }
+
+            let profileDict = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
+            let importSnapshot = FamilyGraphSnapshot(profiles: profileDict, relationships: relationships)
+
+            guard let db = currentDatabase else { return }
+            loadingMessage = "Saving \(profiles.count) profiles..."
+            let transaction = try db.importSnapshot(importSnapshot, source: "wikitree://\(user.name)")
+
+            snapshot = try db.buildSnapshot()
+
+            if var project = currentProject {
+                project = Project(
+                    id: project.id, name: project.name, source: project.source,
+                    createdAt: project.createdAt, lastRefreshed: transaction.completedAt
+                )
+                try db.saveProjectMeta(project)
+                currentProject = project
+            }
+        } catch {
+            errorMessage = "WikiTree error: \(error.localizedDescription)"
+        }
+
+        isLoading = false
+        loadingMessage = nil
+    }
+
+    /// Refresh from WikiTree — re-fetch all profiles.
+    func refreshWikiTree() async {
+        guard case .wikitree = currentProject?.source else { return }
+        isLoading = true
+        loadingMessage = "Refreshing from WikiTree..."
+        errorMessage = nil
+
+        do {
+            let (profiles, relationships) = try await wikiTreeClient.fetchWatchlistTree { message in
+                Task { @MainActor in
+                    self.loadingMessage = message
+                }
+            }
+
+            let profileDict = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
+            // TODO: DiffEngine to compare old vs new snapshot, generate FieldChanges,
+            // show TreeDiffView before committing. For now, rebuild directly.
+            let newSnapshot = FamilyGraphSnapshot(profiles: profileDict, relationships: relationships)
+            snapshot = newSnapshot
+
+            if var project = currentProject {
+                project = Project(
+                    id: project.id, name: project.name, source: project.source,
+                    createdAt: project.createdAt, lastRefreshed: Date()
+                )
+                try currentDatabase?.saveProjectMeta(project)
+                currentProject = project
+            }
+        } catch {
+            errorMessage = "Refresh error: \(error.localizedDescription)"
+        }
+
+        isLoading = false
+        loadingMessage = nil
+    }
+
+    /// Export current project to GEDCOM file.
+    func exportGEDCOM(to path: String) {
+        guard !snapshot.profiles.isEmpty else {
+            errorMessage = "No data to export."
+            return
+        }
+        do {
+            let result = try GEDCOMExporter.export(snapshot, to: path)
+            if !result.dropped.isEmpty {
+                print("GEDCOM export — dropped data:")
+                for item in result.dropped {
+                    print("  \(item)")
+                }
+            }
+        } catch {
+            errorMessage = "Export failed: \(error.localizedDescription)"
+        }
+    }
+}

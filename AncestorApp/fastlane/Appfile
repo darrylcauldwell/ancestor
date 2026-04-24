@@ -1,0 +1,5 @@
+# App Store Connect credentials
+# Set BUNDLE_ID and DEVELOPMENT_TEAM as environment variables
+app_identifier(ENV['BUNDLE_ID'] || 'com.darrylcauldwell.ancestor-research')
+apple_id(ENV['APPLE_ID'] || '')
+team_id(ENV['DEVELOPMENT_TEAM'] || '')

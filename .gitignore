@@ -48,9 +48,12 @@ agent-research/
 # Screenshots
 *.png
 
-# GEDCOM files may contain sensitive personal data
-# Uncomment the line below to exclude from git:
-# exports/*.ged
+# GEDCOM files contain personal family data
+*.ged
+
+# Swift Package Manager
+AncestorApp/.build/
+AncestorApp/.swiftpm/
 
 # Personal research files
 SOURCES.md
