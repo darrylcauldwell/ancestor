@@ -307,6 +307,46 @@ def audit_tree(twin, lead_store: LeadStore) -> dict:
             lead_store.add(lead)
             leads_created += 1
 
+    # === ANCESTOR EXTENSION — find parents for end-of-line profiles ===
+
+        parents = twin.parents_of(wt_id)
+        if not parents and birth_year and birth_year < 1920:
+            # No parents and born before 1920 — researchable via parish/civil records
+            # Higher priority for older profiles (deeper tree extension)
+            # Skip profiles with "Unknown" first name (GEDCOM placeholders)
+            if first and first.lower() not in ("unknown", "testdebug", "private"):
+                source_hint = "familysearch"
+                search_desc = f"Search christening/baptism records for {name} b.{birth_year}"
+                if birth_year < 1837:
+                    search_desc = f"Search parish registers for {name} b.{birth_year}"
+                    source_hint = "freereg"
+                elif birth_year < 1870:
+                    search_desc += " (or parish registers)"
+
+                lead = Lead(
+                    lead_id=_make_lead_id(name, "find_parents", birth_year),
+                    subject_id=wt_id,
+                    subject_name=name,
+                    subject_birth_year=birth_year,
+                    category="ancestor_extension",
+                    summary=f"{name} ({wt_id}) — no parents, extend tree",
+                    uncertainty_reasons=[f"End-of-line ancestor, born {birth_year}"],
+                    evidence=[Evidence(
+                        source="audit",
+                        record_summary=f"No parent links. Born {birth_year} {birth_loc}",
+                        reasons=["End-of-line ancestor"],
+                        search_type="ancestor_extension",
+                    )],
+                    next_actions=[NextAction(
+                        description=search_desc,
+                        source=source_hint,
+                        cost="free",
+                    )],
+                    is_direct_ancestor=True,
+                )
+                lead_store.add(lead)
+                leads_created += 1
+
     # === DUPLICATE DETECTION ===
     seen = {}  # (first, last, birth_year) -> wt_id
     for wt_id in twin._graph.nodes:

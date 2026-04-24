@@ -47,6 +47,12 @@ Think step by step:
 - Which sources could provide answers? Suggest 2-4 searches across different sources.
 - If previous searches came back empty, try DIFFERENT sources — don't repeat what failed.
 
+ANCESTOR EXTENSION: When the lead category is "ancestor_extension", the goal is to find PARENTS for this person — not confirm the person themselves. Search for their christening or baptism record, which typically names parents. Strategies:
+- Search FamilySearch for christening/baptism records (these name the father and often the mother)
+- For pre-1837 births, also try freereg (parish registers)
+- If you know a parent's name from a previous result, search for that parent's own christening to extend further
+- Narrow the birth year range to +/- 3 years of the known birth year
+
 Available sources (use these exact names):
 - freebmd: births, deaths, marriages (1837+). Parameters: surname, given, event (births/deaths/marriages), year_start, year_end
 - freecen: census records (1841-1911). Parameters: surname, given, year
@@ -89,6 +95,8 @@ Think about the family as a unit:
 - If one family member is found in a later census, check if others appear in the same household.
 
 CAST THE NET WIDE. FamilySearch is the richest source — always include it.
+
+ANCESTOR EXTENSION: Some leads have category "ancestor_extension" — the goal is to find PARENTS, not confirm the person. Search christening/baptism records (FamilySearch or freereg for pre-1837). These records name parents. If multiple siblings need parents, finding ONE christening record confirms parents for ALL siblings.
 
 Available sources (use these exact names):
 - freebmd: births, deaths, marriages (1837+). Parameters: surname, given, event (births/deaths/marriages), year_start, year_end
@@ -500,9 +508,13 @@ def _find_target_lead(cluster: Cluster, surname: str, given: str) -> Lead | None
         lead_surname = parts[-1] if parts else ""
         lead_given = parts[0] if len(parts) > 1 else ""
 
-        score = name_similarity_score(lead_surname, surname.upper())
-        if given:
-            score += name_similarity_score(lead_given, given.upper())
+        # Ensure surname and given are strings (LLM sometimes returns lists)
+        s = surname if isinstance(surname, str) else str(surname)
+        g = given if isinstance(given, str) else str(given)
+
+        score = name_similarity_score(lead_surname, s.upper())
+        if g:
+            score += name_similarity_score(lead_given, g.upper())
         else:
             score += 0.5  # No given name to match, partial credit
 
@@ -1055,6 +1067,44 @@ def _extract_facts(lead: Lead, lead_store: LeadStore) -> list[dict]:
             "household_confirmed": household_confirmed,
             "raw_record": raw,
         })
+
+    # === ANCESTOR EXTENSION: extract parent names from household data ===
+    if lead.category == "ancestor_extension":
+        parents_found = []
+        for evidence in lead.evidence:
+            raw = evidence.raw_record
+            if not raw:
+                continue
+            record_type = raw.get("record_type", "")
+            household = raw.get("household", [])
+            for member in household:
+                if not isinstance(member, dict):
+                    continue
+                if member.get("relationship") == "parent":
+                    parent_name = member.get("name", "")
+                    if parent_name and parent_name not in [p["name"] for p in parents_found]:
+                        parents_found.append({
+                            "name": parent_name,
+                            "birth_year": member.get("birth_year", ""),
+                            "source": evidence.source,
+                            "record_summary": evidence.record_summary,
+                            "record_type": record_type,
+                        })
+
+        for parent in parents_found:
+            facts.append({
+                "type": "add_parent",
+                "value": f"Parent: {parent['name']}",
+                "sources": [parent["source"]],
+                "confidence": "from_record",
+                "raw_record": {
+                    "parent_name": parent["name"],
+                    "parent_birth_year": parent["birth_year"],
+                    "child_wt_id": lead.subject_id,
+                    "child_name": lead.subject_name,
+                    "record_type": parent["record_type"],
+                },
+            })
 
     # Promote the lead only after extracting all facts
     if facts:
