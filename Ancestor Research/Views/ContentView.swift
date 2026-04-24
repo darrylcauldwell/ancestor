@@ -17,6 +17,11 @@ struct ContentView: View {
         } message: {
             Text(appState.errorMessage ?? "")
         }
+        .alert("Success", isPresented: .constant(appState.successMessage != nil)) {
+            Button("OK") { appState.successMessage = nil }
+        } message: {
+            Text(appState.successMessage ?? "")
+        }
         .overlay {
             if appState.isLoading {
                 ZStack {

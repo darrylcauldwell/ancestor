@@ -3,33 +3,57 @@ import SwiftUI
 /// Settings view with WikiTree connection and project info.
 struct SettingsPlaceholderView: View {
     @Environment(AppState.self) private var appState
-    @State private var wikiTreeEmail = ""
     @State private var wikiTreePassword = ""
     @State private var wikiTreeSeedProfile = ""
-    @State private var isConnecting = false
+
+    /// Email extracted from project source — single source of truth.
+    private var wikiTreeEmail: String {
+        if case .wikitree(let email) = appState.currentProject?.source {
+            return email
+        }
+        return ""
+    }
+
+    private var isWikiTreeProject: Bool {
+        if case .wikitree = appState.currentProject?.source { return true }
+        return false
+    }
 
     var body: some View {
         Form {
             Section("Project") {
                 if let project = appState.currentProject {
                     LabeledContent("Name", value: project.name)
-                    LabeledContent("Source", value: project.source.description)
                     LabeledContent("Created", value: project.createdAt.formatted())
                     if let refreshed = project.lastRefreshed {
                         LabeledContent("Last Refreshed", value: refreshed.formatted())
                     }
                     LabeledContent("Profiles", value: "\(appState.snapshot.profiles.count)")
                     LabeledContent("Relationships", value: "\(appState.snapshot.relationships.count)")
+
+                    if let summary = appState.auditSummary {
+                        LabeledContent("Audit") {
+                            HStack(spacing: 8) {
+                                Text("\(summary.errors.count) errors")
+                                    .foregroundColor(summary.errors.isEmpty ? .secondary : .red)
+                                Text("\(summary.warnings.count) warnings")
+                                    .foregroundColor(summary.warnings.isEmpty ? .secondary : .orange)
+                                Text("\(summary.info.count) info")
+                                    .foregroundColor(.secondary)
+                            }
+                            .font(.caption)
+                        }
+                    }
                 }
             }
 
-            if case .wikitree = appState.currentProject?.source {
-                Section("WikiTree Connection") {
-                    TextField("Email", text: $wikiTreeEmail)
-                        .textFieldStyle(.roundedBorder)
+            if isWikiTreeProject {
+                Section("WikiTree") {
+                    LabeledContent("Email", value: wikiTreeEmail)
+
                     SecureField("Password", text: $wikiTreePassword)
                         .textFieldStyle(.roundedBorder)
-                    TextField("Seed Profile ID", text: $wikiTreeSeedProfile)
+                    TextField("Seed Profile ID (e.g. Cauldwell-103)", text: $wikiTreeSeedProfile)
                         .textFieldStyle(.roundedBorder)
 
                     HStack {
@@ -42,7 +66,8 @@ struct SettingsPlaceholderView: View {
                                 )
                             }
                         }
-                        .disabled(wikiTreeEmail.isEmpty || wikiTreePassword.isEmpty || wikiTreeSeedProfile.isEmpty)
+                        .buttonStyle(.glassProminent)
+                        .disabled(wikiTreePassword.isEmpty || wikiTreeSeedProfile.isEmpty)
 
                         if appState.snapshot.profiles.count > 0 {
                             Button("Refresh with Diff") {
@@ -50,6 +75,7 @@ struct SettingsPlaceholderView: View {
                                     await appState.refreshWikiTreeWithDiff()
                                 }
                             }
+                            .buttonStyle(.glass)
                         }
                     }
                 }

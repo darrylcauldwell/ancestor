@@ -11,6 +11,7 @@ final class AppState {
     var isLoading = false
     var loadingMessage: String?
     var errorMessage: String?
+    var successMessage: String?
 
     init() {
         refreshProjectList()
@@ -139,9 +140,11 @@ final class AppState {
         isLoading = true
         loadingMessage = "Logging in to WikiTree..."
         errorMessage = nil
+        successMessage = nil
 
         do {
             let user = try await wikiTreeClient.login(email: email, password: password)
+            loadingMessage = "Logged in as \(user.name). Fetching ancestor tree..."
 
             let (profiles, relationships) = try await wikiTreeClient.fetchAncestorTree(
                 seedProfileID: seedProfileID
@@ -151,14 +154,30 @@ final class AppState {
                 }
             }
 
+            if profiles.isEmpty {
+                errorMessage = "WikiTree returned 0 profiles for seed '\(seedProfileID)'. Check the profile ID is correct (e.g. Cauldwell-103)."
+                isLoading = false
+                loadingMessage = nil
+                return
+            }
+
             let profileDict = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
             let importSnapshot = FamilyGraphSnapshot(profiles: profileDict, relationships: relationships)
 
-            guard let db = currentDatabase else { return }
-            loadingMessage = "Saving \(profiles.count) profiles..."
+            guard let db = currentDatabase else {
+                errorMessage = "No database — create a project first."
+                isLoading = false
+                loadingMessage = nil
+                return
+            }
+
+            loadingMessage = "Saving \(profiles.count) profiles, \(relationships.count) relationships..."
             let transaction = try db.importSnapshot(importSnapshot, source: "wikitree://\(user.name)")
 
+            loadingMessage = "Building tree..."
             snapshot = try db.buildSnapshot()
+
+            loadingMessage = "Running audit..."
             runPostLoadAudit()
 
             if var project = currentProject {
@@ -169,6 +188,9 @@ final class AppState {
                 try db.saveProjectMeta(project)
                 currentProject = project
             }
+
+            let auditCount = auditSummary?.total ?? 0
+            successMessage = "Imported \(profiles.count) profiles, \(relationships.count) relationships. Audit found \(auditCount) items."
         } catch {
             errorMessage = "WikiTree error: \(error.localizedDescription)"
         }
