@@ -136,7 +136,7 @@ final class AppState {
 
     /// Connect to WikiTree and fetch ancestor tree from a seed profile.
     /// Single getAncestors call — much more efficient than watchlist + batch.
-    func connectWikiTree(email: String, password: String, seedProfileID: String) async {
+    func connectWikiTree(email: String, password: String, seedProfileID: String = "") async {
         isLoading = true
         loadingMessage = "Logging in to WikiTree..."
         errorMessage = nil
@@ -144,18 +144,16 @@ final class AppState {
 
         do {
             let user = try await wikiTreeClient.login(email: email, password: password)
-            loadingMessage = "Logged in as \(user.name). Fetching ancestor tree..."
+            loadingMessage = "Logged in as \(user.name). Fetching watchlist..."
 
-            let (profiles, relationships) = try await wikiTreeClient.fetchAncestorTree(
-                seedProfileID: seedProfileID
-            ) { message in
+            let (profiles, relationships) = try await wikiTreeClient.fetchWatchlistTree { message in
                 Task { @MainActor in
                     self.loadingMessage = message
                 }
             }
 
             if profiles.isEmpty {
-                errorMessage = "WikiTree returned 0 profiles for seed '\(seedProfileID)'. Check the profile ID is correct (e.g. Cauldwell-103)."
+                errorMessage = "WikiTree returned 0 profiles. Check your watchlist has profiles."
                 isLoading = false
                 loadingMessage = nil
                 return
