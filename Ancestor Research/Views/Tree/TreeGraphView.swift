@@ -148,15 +148,11 @@ struct TreeGraphView: View {
                         isSelected: isSelected, isRoot: isRoot, dimmed: dimmed)
             }
         }
-        .onTapGesture(count: 2) { location in
-            // Double-click to recenter
+        .onTapGesture(count: 1) { location in
+            // Single click to select AND recenter
             if let nodeID = hitTest(at: location) {
                 treeVM.recenter(on: nodeID, snapshot: appState.snapshot)
             }
-        }
-        .onTapGesture(count: 1) { location in
-            // Single click to select
-            treeVM.selectedProfileID = hitTest(at: location)
         }
         .background(Color(nsColor: .controlBackgroundColor))
     }
