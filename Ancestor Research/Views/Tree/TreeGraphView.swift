@@ -6,7 +6,6 @@ import SwiftUI
 struct TreeGraphView: View {
     @Environment(AppState.self) private var appState
     @State private var treeVM = TreeViewModel()
-    @State private var dragStart: CGSize = .zero
 
     var body: some View {
         HSplitView {
@@ -338,12 +337,12 @@ struct TreeGraphView: View {
         DragGesture()
             .onChanged { value in
                 treeVM.offset = CGSize(
-                    width: dragStart.width + value.translation.width,
-                    height: dragStart.height + value.translation.height
+                    width: treeVM.dragStartOffset.width + value.translation.width,
+                    height: treeVM.dragStartOffset.height + value.translation.height
                 )
             }
             .onEnded { _ in
-                dragStart = treeVM.offset
+                treeVM.dragStartOffset = treeVM.offset
             }
     }
 

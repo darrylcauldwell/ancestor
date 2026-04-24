@@ -9,6 +9,7 @@ final class TreeViewModel {
     var viewMode: TreeViewMode = .pedigree
     var scale: Double = 1.0
     var offset: CGSize = .zero
+    var dragStartOffset: CGSize = .zero
     var searchText: String = ""
     var visibleGenerations: Int = 4
 
@@ -36,6 +37,7 @@ final class TreeViewModel {
         // User can pan horizontally if tree is wider than viewport.
         scale = 1.0
         offset = .zero
+        dragStartOffset = .zero
     }
 
     /// Recenter the view on a different person with history tracking.
