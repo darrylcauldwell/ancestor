@@ -55,10 +55,32 @@ struct TreeGraphView: View {
             }
         }
         .onAppear {
+            autoSelectRoot()
             treeVM.rebuildLayout(snapshot: appState.snapshot)
         }
         .onChange(of: appState.snapshot.profiles.count) {
+            autoSelectRoot()
             treeVM.rebuildLayout(snapshot: appState.snapshot)
+        }
+    }
+
+    /// Auto-select a root profile for tree view if none selected.
+    /// Picks the youngest profile that has parents — likely the tree's starting point.
+    private func autoSelectRoot() {
+        guard treeVM.rootProfileID == nil, !appState.snapshot.profiles.isEmpty else { return }
+
+        // Find the youngest profile that has at least one parent link
+        let withParents = appState.snapshot.profiles.values.filter {
+            !appState.snapshot.parentsOf($0.id).isEmpty
+        }
+
+        let bestRoot = withParents.max { a, b in
+            (a.birthDate?.bestYear ?? 0) < (b.birthDate?.bestYear ?? 0)
+        }
+
+        if let rootID = bestRoot?.id {
+            treeVM.viewMode = .pedigree
+            treeVM.rootProfileID = rootID
         }
     }
 

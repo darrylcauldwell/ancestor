@@ -229,8 +229,8 @@ actor WikiTreeClient {
         progress?("Fetching relationships...")
         let relativeData = try await getRelativesRaw(wtIDs)
 
-        let profiles = profileData.compactMap { Self.convertProfile($0) }
-        let relationships = Self.buildRelationships(from: profiles, relativeData: relativeData)
+        var profiles = profileData.compactMap { Self.convertProfile($0) }
+        let relationships = Self.buildRelationships(from: &profiles, relativeData: relativeData)
 
         return (profiles, relationships)
     }
@@ -477,70 +477,77 @@ extension WikiTreeClient {
     }
 
     /// Build relationships from WikiTree API relative data.
-    static func buildRelationships(from profiles: [Profile], relativeData: [[String: Any]]) -> [Relationship] {
+    /// Exact port of Python twin.py lines 120-153.
+    static func buildRelationships(
+        from profiles: inout [Profile],
+        relativeData: [[String: Any]]
+    ) -> [Relationship] {
         var relationships: [Relationship] = []
-        let profileIDs = Set(profiles.map(\.id))
+        var knownIDs = Set(profiles.map(\.id))
+        var edgeSet: Set<String> = []  // "type:from:to" for dedup
 
         for entry in relativeData {
             guard let items = entry["items"] as? [[String: Any]] else { continue }
             for item in items {
                 guard let person = item["person"] as? [String: Any],
-                      let personName = person["Name"] as? String,
-                      profileIDs.contains(personName) else { continue }
+                      let personName = person["Name"] as? String else { continue }
 
-                _ = profiles.first { $0.id == personName } // Available for future use
+                // Python: for rel_type, edge_type in [("Children", "parent"), ("Spouses", "spouse")]
+                let relTypes: [(key: String, edgeType: RelationshipType)] = [
+                    ("Children", .parent),
+                    ("Spouses", .spouse),
+                ]
 
-                // Parents
-                if let parents = person["Parents"] as? [String: Any] {
-                    for (_, parentData) in parents {
-                        guard let parentDict = parentData as? [String: Any],
-                              let parentName = parentDict["Name"] as? String,
-                              profileIDs.contains(parentName) else { continue }
+                for (relKey, edgeType) in relTypes {
+                    guard let relatives = person[relKey] as? [String: Any] else { continue }
 
-                        let parentGender = parentDict["Gender"] as? String
-                        let role: ParentRole = switch parentGender {
-                        case "Male": .father
-                        case "Female": .mother
-                        default: .unspecified
-                        }
+                    for (_, relData) in relatives {
+                        guard let relDict = relData as? [String: Any],
+                              let relName = relDict["Name"] as? String else { continue }
 
-                        // Avoid duplicate edges
-                        let exists = relationships.contains {
-                            $0.type == .parent && $0.from == parentName && $0.to == personName
-                        }
-                        if !exists {
-                            relationships.append(Relationship(
-                                id: UUID(), from: parentName, to: personName,
-                                type: .parent, role: role, subtype: .unknown,
-                                marriageDate: nil, divorceDate: nil
-                            ))
-                        }
-                    }
-                }
-
-                // Spouses
-                if let spouses = person["Spouses"] as? [String: Any] {
-                    for (_, spouseData) in spouses {
-                        guard let spouseDict = spouseData as? [String: Any],
-                              let spouseName = spouseDict["Name"] as? String,
-                              profileIDs.contains(spouseName) else { continue }
-
-                        // Only add one direction
-                        let exists = relationships.contains {
-                            $0.type == .spouse &&
-                            (($0.from == personName && $0.to == spouseName) ||
-                             ($0.from == spouseName && $0.to == personName))
-                        }
-                        if !exists {
-                            let marriageDateStr = spouseDict["marriage_date"] as? String
-                            let marriageDate = marriageDateStr.flatMap { str in
-                                str.isEmpty || str == "0000-00-00" ? nil : GenealogicalDate(parsing: str)
+                        // Python: ensure relative node exists — add if missing
+                        if !knownIDs.contains(relName) {
+                            if let newProfile = convertProfile(relDict) {
+                                profiles.append(newProfile)
+                                knownIDs.insert(relName)
                             }
-                            relationships.append(Relationship(
-                                id: UUID(), from: personName, to: spouseName,
-                                type: .spouse, role: nil, subtype: .unknown,
-                                marriageDate: marriageDate, divorceDate: nil
-                            ))
+                        }
+
+                        if edgeType == .parent {
+                            // Python: person is parent of child (Children list)
+                            let edgeKey = "parent:\(personName):\(relName)"
+                            if !edgeSet.contains(edgeKey) {
+                                edgeSet.insert(edgeKey)
+                                let gender = relDict["Gender"] as? String ?? (person["Gender"] as? String ?? "")
+                                let personGender = person["Gender"] as? String
+                                let role: ParentRole = switch personGender {
+                                case "Male": .father
+                                case "Female": .mother
+                                default: .unspecified
+                                }
+                                relationships.append(Relationship(
+                                    id: UUID(), from: personName, to: relName,
+                                    type: .parent, role: role, subtype: .unknown,
+                                    marriageDate: nil, divorceDate: nil
+                                ))
+                            }
+                        } else if edgeType == .spouse {
+                            // Python: bidirectional spouse
+                            let edgeKey1 = "spouse:\(personName):\(relName)"
+                            let edgeKey2 = "spouse:\(relName):\(personName)"
+                            if !edgeSet.contains(edgeKey1) && !edgeSet.contains(edgeKey2) {
+                                edgeSet.insert(edgeKey1)
+                                edgeSet.insert(edgeKey2)
+                                let marriageDateStr = relDict["marriage_date"] as? String
+                                let marriageDate = marriageDateStr.flatMap { str in
+                                    str.isEmpty || str == "0000-00-00" ? nil : GenealogicalDate(parsing: str)
+                                }
+                                relationships.append(Relationship(
+                                    id: UUID(), from: personName, to: relName,
+                                    type: .spouse, role: nil, subtype: .unknown,
+                                    marriageDate: marriageDate, divorceDate: nil
+                                ))
+                            }
                         }
                     }
                 }
