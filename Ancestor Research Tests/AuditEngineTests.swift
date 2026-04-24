@@ -286,13 +286,10 @@ struct AuditEngineTests {
     // MARK: - Full Audit on Real GEDCOM
 
     @Test func auditRealGEDCOM() throws {
-        let path = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Cauldwell Family Tree.ged")
-            .path
+        let thisFile = URL(fileURLWithPath: #filePath)
+        let testDir = thisFile.deletingLastPathComponent()
+        let repoRoot = testDir.deletingLastPathComponent()
+        let path = repoRoot.appendingPathComponent("Cauldwell Family Tree.ged").path
 
         let parsed = try GEDCOMParser.parse(fileAt: path)
         let summary = AuditEngine.auditGrouped(parsed.snapshot)

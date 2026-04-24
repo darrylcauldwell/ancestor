@@ -41,9 +41,9 @@ struct SettingsPlaceholderView: View {
                         .disabled(wikiTreeEmail.isEmpty || wikiTreePassword.isEmpty)
 
                         if appState.snapshot.profiles.count > 0 {
-                            Button("Refresh") {
+                            Button("Refresh with Diff") {
                                 Task {
-                                    await appState.refreshWikiTree()
+                                    await appState.refreshWikiTreeWithDiff()
                                 }
                             }
                         }

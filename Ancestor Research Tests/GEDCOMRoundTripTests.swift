@@ -6,13 +6,12 @@ import Foundation
 /// Semantic equivalence, not textual identity.
 struct GEDCOMRoundTripTests {
 
-    static let testFilePath = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .appendingPathComponent("Cauldwell Family Tree.ged")
-        .path
+    static let testFilePath: String = {
+        let thisFile = URL(fileURLWithPath: #filePath)
+        let testDir = thisFile.deletingLastPathComponent()
+        let repoRoot = testDir.deletingLastPathComponent()
+        return repoRoot.appendingPathComponent("Cauldwell Family Tree.ged").path
+    }()
 
     @Test func roundTripPreservesProfileCount() throws {
         let original = try GEDCOMParser.parse(fileAt: Self.testFilePath)
@@ -139,8 +138,8 @@ struct GEDCOMRoundTripTests {
         // Export should complete without error
         #expect(exported.individualCount == original.individualCount)
         #expect(exported.familyCount > 0)
-        // Dropped list should be available (may be empty if no disputes/multi-sources)
-        #expect(exported.dropped is [String])
+        // Dropped list exists (may be empty if no disputes/multi-sources)
+        #expect(exported.dropped.count >= 0)
     }
 
     @Test func syntheticRoundTrip() {

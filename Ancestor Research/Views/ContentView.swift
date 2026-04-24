@@ -86,6 +86,14 @@ struct MainView: View {
                 appState.errorMessage = "Export failed: \(error.localizedDescription)"
             }
         }
+        .sheet(isPresented: .init(
+            get: { appState.pendingDiff != nil },
+            set: { if !$0 { appState.rejectPendingDiff() } }
+        )) {
+            if let diff = appState.pendingDiff {
+                TreeDiffView(diff: diff)
+            }
+        }
     }
 }
 

@@ -195,6 +195,115 @@ final class AppState {
         loadingMessage = nil
     }
 
+    // MARK: - Refresh with Diff
+
+    /// Pending diff waiting for user to accept or reject.
+    var pendingDiff: DiffEngine.DiffResult?
+    var pendingSnapshot: FamilyGraphSnapshot?
+
+    /// Refresh from WikiTree — fetch new data and show diff before committing.
+    func refreshWikiTreeWithDiff() async {
+        guard case .wikitree = currentProject?.source else { return }
+        isLoading = true
+        loadingMessage = "Refreshing from WikiTree..."
+        errorMessage = nil
+
+        do {
+            let (profiles, relationships) = try await wikiTreeClient.fetchWatchlistTree { message in
+                Task { @MainActor in
+                    self.loadingMessage = message
+                }
+            }
+
+            let profileDict = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
+            let newSnapshot = FamilyGraphSnapshot(profiles: profileDict, relationships: relationships)
+
+            // Compute diff
+            let diff = DiffEngine.diff(old: snapshot, new: newSnapshot)
+
+            if diff.isEmpty {
+                // No changes — nothing to do
+                loadingMessage = nil
+                isLoading = false
+                return
+            }
+
+            // Store pending diff for user review
+            pendingDiff = diff
+            pendingSnapshot = newSnapshot
+        } catch {
+            errorMessage = "Refresh error: \(error.localizedDescription)"
+        }
+
+        isLoading = false
+        loadingMessage = nil
+    }
+
+    /// Accept the pending diff and commit changes.
+    func acceptPendingDiff() {
+        guard let newSnapshot = pendingSnapshot else { return }
+        snapshot = newSnapshot
+
+        if var project = currentProject {
+            project = Project(
+                id: project.id, name: project.name, source: project.source,
+                createdAt: project.createdAt, lastRefreshed: Date()
+            )
+            try? currentDatabase?.saveProjectMeta(project)
+            currentProject = project
+        }
+
+        pendingDiff = nil
+        pendingSnapshot = nil
+    }
+
+    /// Reject the pending diff — keep current data.
+    func rejectPendingDiff() {
+        pendingDiff = nil
+        pendingSnapshot = nil
+    }
+
+    // MARK: - Undo
+
+    /// Undo the most recent transaction.
+    func undoLastTransaction() {
+        guard let db = currentDatabase else { return }
+
+        do {
+            let transactions = try db.loadTransactions(limit: 1)
+            guard let latest = transactions.first else {
+                errorMessage = "Nothing to undo."
+                return
+            }
+
+            switch latest.undoStrategy {
+            case .structural:
+                // Delete all entities created by this transaction
+                try db.undoStructural(transactionID: latest.id)
+            case .replay:
+                // Reverse each FieldChange
+                try db.undoReplay(transactionID: latest.id)
+            }
+
+            // Record the undo as its own transaction
+            let undoTx = Transaction(
+                id: UUID(),
+                kind: .undo(ofTransactionID: latest.id),
+                undoStrategy: .replay,
+                startedAt: Date(),
+                completedAt: Date(),
+                changeCount: latest.changeCount,
+                profileCount: latest.profileCount
+            )
+            try db.saveTransaction(undoTx)
+
+            // Rebuild snapshot
+            snapshot = try db.buildSnapshot()
+        } catch {
+            errorMessage = "Undo failed: \(error.localizedDescription)"
+        }
+    }
+
     /// Export current project to GEDCOM file.
     func exportGEDCOM(to path: String) {
         guard !snapshot.profiles.isEmpty else {

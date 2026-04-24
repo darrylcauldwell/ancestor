@@ -428,6 +428,92 @@ nonisolated final class ProjectDatabase: Sendable {
         }
     }
 
+    // MARK: - Undo
+
+    /// Structural undo: delete all entities created by a transaction (import undo).
+    func undoStructural(transactionID: UUID) throws {
+        try dbQueue.write { db in
+            let txID = transactionID.uuidString
+            try db.execute(sql: "DELETE FROM field_sources WHERE created_by_transaction_id = ?", arguments: [txID])
+            try db.execute(sql: "DELETE FROM field_disputes WHERE created_by_transaction_id = ?", arguments: [txID])
+            try db.execute(sql: "DELETE FROM relationships WHERE created_by_transaction_id = ?", arguments: [txID])
+            try db.execute(sql: "DELETE FROM profiles WHERE created_by_transaction_id = ?", arguments: [txID])
+        }
+    }
+
+    /// Replay undo: reverse each FieldChange for a transaction.
+    func undoReplay(transactionID: UUID) throws {
+        try dbQueue.write { db in
+            let txID = transactionID.uuidString
+            let changes = try Row.fetchAll(db, sql: """
+                SELECT * FROM field_changes WHERE transaction_id = ? ORDER BY rowid DESC
+                """, arguments: [txID])
+
+            for row in changes {
+                let entityID: String = row["entity_id"]
+                let entityKind: String = row["entity_kind"]
+                let field: String = row["field"]
+                let oldValue: String? = row["old_value"]
+
+                if entityKind == "profile" {
+                    // Map field name back to column
+                    let column = Self.profileFieldToColumn(field)
+                    if let column {
+                        if let oldVal = oldValue {
+                            try db.execute(
+                                sql: "UPDATE profiles SET \(column) = ? WHERE id = ?",
+                                arguments: [oldVal, entityID]
+                            )
+                        } else {
+                            try db.execute(
+                                sql: "UPDATE profiles SET \(column) = NULL WHERE id = ?",
+                                arguments: [entityID]
+                            )
+                        }
+                    }
+                }
+                // Relationship field undo would go here
+            }
+
+            // Remove the field_changes for this transaction
+            try db.execute(sql: "DELETE FROM field_changes WHERE transaction_id = ?", arguments: [txID])
+            // Remove field_sources added by this transaction
+            try db.execute(sql: "DELETE FROM field_sources WHERE created_by_transaction_id = ?", arguments: [txID])
+            // Restore disputes removed by this transaction
+            try db.execute(sql: "DELETE FROM field_disputes WHERE created_by_transaction_id = ?", arguments: [txID])
+        }
+    }
+
+    /// Save a transaction record.
+    func saveTransaction(_ tx: Transaction) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO transactions (id, kind, undo_strategy, started_at, completed_at, change_count, profile_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    tx.id.uuidString,
+                    Self.encodeJSON(tx.kind),
+                    tx.undoStrategy.rawValue,
+                    tx.startedAt, tx.completedAt,
+                    tx.changeCount, tx.profileCount,
+                ])
+        }
+    }
+
+    private static func profileFieldToColumn(_ field: String) -> String? {
+        switch field {
+        case "firstName": "first_name"
+        case "lastName": "last_name"
+        case "gender": "gender"
+        case "birthLocation": "birth_location"
+        case "deathLocation": "death_location"
+        case "bio": "bio"
+        // Date fields need special handling (original + earliest + latest + qualifier)
+        // For now, simple string fields only
+        default: nil
+        }
+    }
+
     // MARK: - JSON Helpers
 
     private static func encodeJSON<T: Encodable>(_ value: T) -> String {

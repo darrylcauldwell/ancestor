@@ -5,13 +5,14 @@ import Foundation
 struct GEDCOMParserTests {
 
     // Path to the real GEDCOM file — adjust if moved
-    static let testFilePath = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()  // AncestorAppTests
-        .deletingLastPathComponent()  // Tests
-        .deletingLastPathComponent()  // AncestorApp
-        .deletingLastPathComponent()  // ancestor
-        .appendingPathComponent("Cauldwell Family Tree.ged")
-        .path
+    static let testFilePath: String = {
+        // #filePath is the full path to this .swift file.
+        // Walk up from the file to the test directory, then up to the repo root.
+        let thisFile = URL(fileURLWithPath: #filePath)       // .../Ancestor Research Tests/GEDCOMParserTests.swift
+        let testDir = thisFile.deletingLastPathComponent()   // .../Ancestor Research Tests/
+        let repoRoot = testDir.deletingLastPathComponent()   // .../ancestor/
+        return repoRoot.appendingPathComponent("Cauldwell Family Tree.ged").path
+    }()
 
     @Test func parsesRealGEDCOM() throws {
         let result = try GEDCOMParser.parse(fileAt: Self.testFilePath)

@@ -6,22 +6,50 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		3E8156BF2F9BA1A800D37FC5 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 39C6F347BBD297A3033F5CEA /* GRDB */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3E81571D2F9BA27400D37FC5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3E2FD7902F9B89F200491FEB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3E2FD7972F9B89F200491FEB;
+			remoteInfo = "Ancestor Research";
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		3E2FD7982F9B89F200491FEB /* Ancestor Research.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ancestor Research.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		3E8157192F9BA27400D37FC5 /* Ancestor Research Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Ancestor Research Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		540C5CCC76287B3809A8A9BD /* Ancestor Research Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Ancestor Research Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C6AAE4AA144FD30A17282AA3 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3E2FD79A2F9B89F200491FEB /* Ancestor Research */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "Ancestor Research";
+			sourceTree = "<group>";
+		};
+		3E81571A2F9BA27400D37FC5 /* Ancestor Research Tests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Ancestor Research Tests";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		3E2FD7952F9B89F200491FEB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3E8156BF2F9BA1A800D37FC5 /* GRDB in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E8157162F9BA27400D37FC5 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -35,7 +63,9 @@
 			isa = PBXGroup;
 			children = (
 				3E2FD79A2F9B89F200491FEB /* Ancestor Research */,
+				3E81571A2F9BA27400D37FC5 /* Ancestor Research Tests */,
 				3E2FD7992F9B89F200491FEB /* Products */,
+				686FB74CE7ADF010C2BF4D14 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -43,8 +73,26 @@
 			isa = PBXGroup;
 			children = (
 				3E2FD7982F9B89F200491FEB /* Ancestor Research.app */,
+				540C5CCC76287B3809A8A9BD /* Ancestor Research Tests.xctest */,
+				3E8157192F9BA27400D37FC5 /* Ancestor Research Tests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		686FB74CE7ADF010C2BF4D14 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				916E561E1BAD43CC0696E27E /* OS X */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		916E561E1BAD43CC0696E27E /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				C6AAE4AA144FD30A17282AA3 /* Cocoa.framework */,
+			);
+			name = "OS X";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -73,6 +121,29 @@
 			productReference = 3E2FD7982F9B89F200491FEB /* Ancestor Research.app */;
 			productType = "com.apple.product-type.application";
 		};
+		3E8157182F9BA27400D37FC5 /* Ancestor Research Tests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3E8157212F9BA27400D37FC5 /* Build configuration list for PBXNativeTarget "Ancestor Research Tests" */;
+			buildPhases = (
+				3E8157152F9BA27400D37FC5 /* Sources */,
+				3E8157162F9BA27400D37FC5 /* Frameworks */,
+				3E8157172F9BA27400D37FC5 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3E81571E2F9BA27400D37FC5 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				3E81571A2F9BA27400D37FC5 /* Ancestor Research Tests */,
+			);
+			name = "Ancestor Research Tests";
+			packageProductDependencies = (
+			);
+			productName = "Ancestor Research Tests";
+			productReference = 3E8157192F9BA27400D37FC5 /* Ancestor Research Tests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -85,6 +156,10 @@
 				TargetAttributes = {
 					3E2FD7972F9B89F200491FEB = {
 						CreatedOnToolsVersion = 26.3;
+					};
+					3E8157182F9BA27400D37FC5 = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = 3E2FD7972F9B89F200491FEB;
 					};
 				};
 			};
@@ -106,12 +181,20 @@
 			projectRoot = "";
 			targets = (
 				3E2FD7972F9B89F200491FEB /* Ancestor Research */,
+				3E8157182F9BA27400D37FC5 /* Ancestor Research Tests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		3E2FD7962F9B89F200491FEB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E8157172F9BA27400D37FC5 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -128,7 +211,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		3E8157152F9BA27400D37FC5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		3E81571E2F9BA27400D37FC5 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3E2FD7972F9B89F200491FEB /* Ancestor Research */;
+			targetProxy = 3E81571D2F9BA27400D37FC5 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		3E2FD7A12F9B89F300491FEB /* Debug */ = {
@@ -319,6 +417,46 @@
 			};
 			name = Release;
 		};
+		3E81571F2F9BA27400D37FC5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N6BK2WX94Z;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.dreamfold.Ancestor-Research-Tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ancestor Research.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Ancestor Research";
+			};
+			name = Debug;
+		};
+		3E8157202F9BA27400D37FC5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N6BK2WX94Z;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.dreamfold.Ancestor-Research-Tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ancestor Research.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Ancestor Research";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -336,6 +474,15 @@
 			buildConfigurations = (
 				3E2FD7A42F9B89F300491FEB /* Debug */,
 				3E2FD7A52F9B89F300491FEB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3E8157212F9BA27400D37FC5 /* Build configuration list for PBXNativeTarget "Ancestor Research Tests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3E81571F2F9BA27400D37FC5 /* Debug */,
+				3E8157202F9BA27400D37FC5 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -28,7 +28,32 @@ nonisolated enum AuditRules {
         MissingBirthLocationRule(),
         MissingBioRule(),
         DuplicateDetectionRule(),
+        CompletenessScoreRule(),
     ]
+}
+
+// MARK: - Completeness Score Rule
+
+nonisolated struct CompletenessScoreRule: AuditRuleDefinition {
+    let id = "completenessScore"
+    let displayName = "Completeness Score"
+    let description = "Profiles are scored 0-7 based on populated fields."
+    let fireCondition = "Score below maximum for that profile type."
+    let warningCondition: String? = nil
+    let workedExample = "Profile with name, birth date, birth location but no death info, no bio, no parents → 3/7"
+    let defaultSeverity = Severity.info
+
+    func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        let comp = snapshot.completeness(for: profile.id)
+        if comp.score < comp.maximum {
+            return [AuditResult(
+                id: UUID(), profileID: profile.id, profileName: profile.displayName,
+                severity: .info, ruleID: id,
+                message: "\(profile.displayName) — completeness \(comp.score)/\(comp.maximum) (missing: \(comp.missing.map(\.label).joined(separator: ", ")))"
+            )]
+        }
+        return []
+    }
 }
 
 // MARK: - Temporal Rules (Error + Warning tiers)
