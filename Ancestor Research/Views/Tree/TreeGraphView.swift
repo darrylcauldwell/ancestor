@@ -90,19 +90,21 @@ struct TreeGraphView: View {
         }
     }
 
-    /// Pick the youngest profile with parents as the initial root.
-    private func selectInitialRoot() {
-        guard treeVM.rootProfileID == nil, !appState.snapshot.profiles.isEmpty else { return }
-
+    /// Find the natural root — youngest profile with parents (bottom of the tree).
+    private var naturalRootID: String? {
         let withParents = appState.snapshot.profiles.values.filter {
             !appState.snapshot.parentsOf($0.id).isEmpty
         }
         let youngest = withParents.max { a, b in
             (a.birthDate?.bestYear ?? 0) < (b.birthDate?.bestYear ?? 0)
         }
-        if let rootID = youngest?.id ?? appState.snapshot.profiles.keys.first {
-            treeVM.rootProfileID = rootID
-        }
+        return youngest?.id ?? appState.snapshot.profiles.keys.first
+    }
+
+    /// Set the initial root on first load.
+    private func selectInitialRoot() {
+        guard treeVM.rootProfileID == nil, !appState.snapshot.profiles.isEmpty else { return }
+        treeVM.rootProfileID = naturalRootID
     }
 
     // MARK: - Canvas
@@ -357,7 +359,11 @@ struct TreeGraphView: View {
             Button { treeVM.zoomIn(snapshot: appState.snapshot) } label: {
                 Image(systemName: "minus.magnifyingglass")
             }
-            Button { treeVM.rebuildLayout(snapshot: appState.snapshot) } label: {
+            Button {
+                if let rootID = naturalRootID {
+                    treeVM.recenter(on: rootID, snapshot: appState.snapshot)
+                }
+            } label: {
                 Image(systemName: "house")
             }
             Button { treeVM.zoomOut(snapshot: appState.snapshot) } label: {
