@@ -120,7 +120,86 @@ actor WikiTreeClient {
 
     // MARK: - High-Level API (returns Sendable model types)
 
-    /// Fetch the full watchlist as Profiles + Relationships, ready for snapshot.
+    /// Fetch an ancestor tree from a seed profile in a single API call.
+    /// Much more efficient than watchlist + batch profiles + batch relatives.
+    /// One getAncestors call returns all profiles with relationships embedded.
+    func fetchAncestorTree(
+        seedProfileID: String,
+        depth: Int = 10,
+        progress: (@Sendable (String) -> Void)? = nil
+    ) async throws -> (profiles: [Profile], relationships: [Relationship]) {
+        progress?("Fetching ancestor tree for \(seedProfileID)...")
+
+        let result = try await post(params: [
+            "action": "getAncestors",
+            "key": seedProfileID,
+            "depth": "\(depth)",
+            "fields": Self.defaultFields,
+            "bioFormat": "wiki",
+        ])
+
+        guard let ancestors = result.first?["ancestors"] as? [[String: Any]] else {
+            return ([], [])
+        }
+
+        progress?("Processing \(ancestors.count) profiles...")
+
+        var profiles: [Profile] = []
+        var relationships: [Relationship] = []
+        var profileIDs: Set<String> = []
+
+        for ancestorData in ancestors {
+            guard let profile = Self.convertProfile(ancestorData) else { continue }
+            profiles.append(profile)
+            profileIDs.insert(profile.id)
+
+            // Extract parent relationships from Father/Mother fields
+            if let fatherID = ancestorData["Father"] as? Int, fatherID != 0,
+               let fatherName = ancestorData["FatherName"] as? String, !fatherName.isEmpty {
+                // Father ID is numeric — we need the Name (WikiTree ID)
+                // getAncestors includes Father as an ID, the actual profile will be in ancestors list
+            }
+        }
+
+        // Build relationships from the ancestor data
+        // Each profile has Father and Mother numeric IDs
+        // Map numeric IDs to WikiTree names
+        var idToName: [Int: String] = [:]
+        for a in ancestors {
+            if let id = a["Id"] as? Int, let name = a["Name"] as? String {
+                idToName[id] = name
+            }
+        }
+
+        for ancestorData in ancestors {
+            guard let childName = ancestorData["Name"] as? String else { continue }
+
+            // Father relationship
+            if let fatherID = ancestorData["Father"] as? Int, fatherID != 0,
+               let fatherName = idToName[fatherID], profileIDs.contains(fatherName) {
+                relationships.append(Relationship(
+                    id: UUID(), from: fatherName, to: childName,
+                    type: .parent, role: .father, subtype: .unknown,
+                    marriageDate: nil, divorceDate: nil
+                ))
+            }
+
+            // Mother relationship
+            if let motherID = ancestorData["Mother"] as? Int, motherID != 0,
+               let motherName = idToName[motherID], profileIDs.contains(motherName) {
+                relationships.append(Relationship(
+                    id: UUID(), from: motherName, to: childName,
+                    type: .parent, role: .mother, subtype: .unknown,
+                    marriageDate: nil, divorceDate: nil
+                ))
+            }
+        }
+
+        progress?("Done — \(profiles.count) profiles, \(relationships.count) relationships")
+        return (profiles, relationships)
+    }
+
+    /// Legacy: Fetch via watchlist (many API calls). Use fetchAncestorTree instead.
     func fetchWatchlistTree(
         progress: (@Sendable (String) -> Void)? = nil
     ) async throws -> (profiles: [Profile], relationships: [Relationship]) {

@@ -5,6 +5,7 @@ struct SettingsPlaceholderView: View {
     @Environment(AppState.self) private var appState
     @State private var wikiTreeEmail = ""
     @State private var wikiTreePassword = ""
+    @State private var wikiTreeSeedProfile = ""
     @State private var isConnecting = false
 
     var body: some View {
@@ -28,17 +29,20 @@ struct SettingsPlaceholderView: View {
                         .textFieldStyle(.roundedBorder)
                     SecureField("Password", text: $wikiTreePassword)
                         .textFieldStyle(.roundedBorder)
+                    TextField("Seed Profile ID", text: $wikiTreeSeedProfile)
+                        .textFieldStyle(.roundedBorder)
 
                     HStack {
                         Button("Connect & Import") {
                             Task {
                                 await appState.connectWikiTree(
                                     email: wikiTreeEmail,
-                                    password: wikiTreePassword
+                                    password: wikiTreePassword,
+                                    seedProfileID: wikiTreeSeedProfile
                                 )
                             }
                         }
-                        .disabled(wikiTreeEmail.isEmpty || wikiTreePassword.isEmpty)
+                        .disabled(wikiTreeEmail.isEmpty || wikiTreePassword.isEmpty || wikiTreeSeedProfile.isEmpty)
 
                         if appState.snapshot.profiles.count > 0 {
                             Button("Refresh with Diff") {
