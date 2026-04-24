@@ -353,8 +353,8 @@ struct TreeGraphView: View {
             Button { treeVM.zoomIn() } label: {
                 Image(systemName: "plus.magnifyingglass")
             }
-            Button { treeVM.zoomToFit() } label: {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
+            Button { treeVM.rebuildLayout(snapshot: appState.snapshot) } label: {
+                Image(systemName: "house")
             }
             Button { treeVM.zoomOut() } label: {
                 Image(systemName: "minus.magnifyingglass")
