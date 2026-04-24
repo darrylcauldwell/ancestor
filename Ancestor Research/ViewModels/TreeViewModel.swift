@@ -10,7 +10,7 @@ final class TreeViewModel {
     var scale: Double = 1.0
     var offset: CGSize = .zero
     var searchText: String = ""
-    var visibleGenerations: Int = 5
+    var visibleGenerations: Int = 3
 
     // Navigation history for back/forward
     private var history: [String] = []
@@ -32,14 +32,13 @@ final class TreeViewModel {
         } else {
             layout = TreeLayout.overviewLayout(snapshot: snapshot)
         }
-        // Auto-scale to fit tree in a reasonable viewport (assume ~1200px wide, ~800px tall)
-        let viewportWidth: Double = 1200
-        let viewportHeight: Double = 800
+        // Auto-scale to fit tree in viewport, but keep nodes readable
+        let viewportWidth: Double = 1400
+        let viewportHeight: Double = 900
         let scaleX = layout.width > 0 ? viewportWidth / layout.width : 1.0
         let scaleY = layout.height > 0 ? viewportHeight / layout.height : 1.0
-        scale = min(scaleX, scaleY, 1.0)  // Never scale up, only down
+        scale = max(min(scaleX, scaleY, 1.0), 0.4)  // Min 0.4 to keep nodes legible
 
-        // Centre view — offset adjusted for scale
         offset = .zero
     }
 
@@ -83,7 +82,7 @@ final class TreeViewModel {
         rebuildLayout(snapshot: snapshot)
     }
     func zoomToFit(snapshot: FamilyGraphSnapshot) {
-        visibleGenerations = 5
+        visibleGenerations = 3
         rebuildLayout(snapshot: snapshot)
     }
 
