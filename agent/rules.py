@@ -476,6 +476,39 @@ def validate_enrichment_location(proposed_place: str, profile_birth_location: st
         if county in proposed_lower and county != profile_county:
             return f"record from {county} but profile is from {profile_county}"
 
+    # If profile is English but proposed place is clearly not England,
+    # reject — catches US states, other countries, etc.
+    if "england" in known_lower or profile_county:
+        NON_ENGLAND_MARKERS = [
+            # US states (abbreviated and full)
+            "alabama", "alaska", "arizona", "arkansas", "california",
+            "colorado", "connecticut", "delaware", "florida", "georgia",
+            "hawaii", "idaho", "illinois", "indiana", "iowa", "kansas",
+            "kentucky", "louisiana", "maine", "maryland", "massachusetts",
+            "michigan", "minnesota", "mississippi", "missouri", "montana",
+            "nebraska", "nevada", "new hampshire", "new jersey", "new mexico",
+            "new york", "north carolina", "north dakota", "ohio", "oklahoma",
+            "oregon", "pennsylvania", "rhode island", "south carolina",
+            "south dakota", "tennessee", "texas", "utah", "vermont",
+            "virginia", "washington", "west virginia", "wisconsin", "wyoming",
+            # US state abbreviations commonly seen in FamilySearch
+            # (space-prefixed to avoid matching English place substrings)
+            " ala", " ark", " calif", " conn", " del", " fla", " ill",
+            " ind", " kans", " ky", " la", " mass", " md", " mich",
+            " minn", " miss", " mo", " mont", " nebr", " nev",
+            " okla", " ore", " pa", " vt", " va", " wash",
+            " wis", " wyo",
+            # Abbreviations that can appear as full field value
+            "n. j.", "n.j.", "n. y.", "n.y.", "n.c.", "n.d.",
+            "s.c.", "s.d.", "penna",
+            # Other countries
+            "united states", "canada", "australia", "new zealand",
+            "south africa", "nova scotia", "ontario", "quebec",
+        ]
+        for marker in NON_ENGLAND_MARKERS:
+            if marker in proposed_lower:
+                return f"record from '{proposed_place}' but profile is from England ({profile_county})"
+
     # Proposed place doesn't mention any county — can't reject
     return None
 

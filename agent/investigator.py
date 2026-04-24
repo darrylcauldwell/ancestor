@@ -345,7 +345,7 @@ def investigate_cluster(cluster: Cluster, twin, lead_store: LeadStore,
 
     # 5. Deterministic extraction for each lead in cluster
     for lead in cluster.leads:
-        facts = _extract_facts(lead, lead_store)
+        facts = _extract_facts(lead, lead_store, twin)
         result.facts_extracted.extend(facts)
         if facts:
             result.leads_resolved += 1
@@ -630,7 +630,7 @@ def investigate_lead(lead: Lead, twin, lead_store: LeadStore,
             break
 
         # 4. Execute searches and score results
-        new_evidence_this_round = _execute_and_score(searches, lead, lead_store)
+        new_evidence_this_round = _execute_and_score(searches, lead, lead_store, twin)
         result.searches_executed.extend(
             [{"iteration": iteration + 1, **s} for s in searches]
         )
@@ -646,7 +646,7 @@ def investigate_lead(lead: Lead, twin, lead_store: LeadStore,
             print(f"  No new evidence — LLM will see empty results next iteration")
 
     # 5. Deterministic extraction — final scoring pass
-    facts = _extract_facts(lead, lead_store)
+    facts = _extract_facts(lead, lead_store, twin)
     result.facts_extracted = facts
 
     # 6. Determine verdict
@@ -830,6 +830,28 @@ def _resolve_search_type(source: str, params: dict) -> str:
     return source
 
 
+def _extract_birth_location(lead: Lead, twin) -> str:
+    """Get birth location from twin profile or lead evidence."""
+    # Try twin profile first — most authoritative
+    if lead.subject_id:
+        profile = twin.get(lead.subject_id)
+        if profile:
+            loc = profile.get("BirthLocation", "")
+            if loc:
+                return loc
+
+    # Fall back to audit evidence which embeds location
+    for e in lead.evidence:
+        if e.source == "audit" and e.record_summary:
+            # Audit evidence looks like: "No parent links. Born 1897 Belper, Derbyshire, England"
+            import re
+            m = re.search(r"Born \d{4}\s+(.+)", e.record_summary)
+            if m:
+                return m.group(1)
+
+    return ""
+
+
 def _extract_death_year(lead: Lead) -> int | None:
     """Try to find a death year from lead evidence or raw records."""
     for e in lead.evidence:
@@ -900,16 +922,17 @@ def _infer_birth_year(lead: Lead, twin) -> int | None:
 
 
 def _execute_and_score(searches: list[dict], lead: Lead,
-                       lead_store: LeadStore) -> list[Evidence]:
+                       lead_store: LeadStore, twin=None) -> list[Evidence]:
     """Execute searches via discover.py and score results via scorer.py."""
     from agent.discover import _dispatch_search
 
     death_year = _extract_death_year(lead)
+    birth_location = _extract_birth_location(lead, twin) if twin else ""
     person = {
         "name": lead.subject_name,
         "birth_year": lead.subject_birth_year,
         "death_year": death_year,
-        "birth_location": "",
+        "birth_location": birth_location,
     }
 
     name_parts = lead.subject_name.split()
@@ -1009,7 +1032,7 @@ def _search_type_for_scorer(search_type: str, record: dict | None = None) -> str
     return "unknown"
 
 
-def _extract_facts(lead: Lead, lead_store: LeadStore) -> list[dict]:
+def _extract_facts(lead: Lead, lead_store: LeadStore, twin=None) -> list[dict]:
     """Final deterministic pass — extract ALL facts from accumulated evidence.
 
     Each piece of evidence is re-scored. Every result that passes all gates
@@ -1017,13 +1040,14 @@ def _extract_facts(lead: Lead, lead_store: LeadStore) -> list[dict]:
     match — the person must appear in a household containing expected family
     members. This prevents promoting a name+date match in the wrong family.
     """
-    from agent.rules import name_similarity_score
+    from agent.rules import name_similarity_score, validate_enrichment_location
 
+    birth_location = _extract_birth_location(lead, twin) if twin else ""
     person = {
         "name": lead.subject_name,
         "birth_year": lead.subject_birth_year,
         "death_year": _extract_death_year(lead),
-        "birth_location": "",
+        "birth_location": birth_location,
     }
 
     # Build list of expected family names from the lead context
@@ -1075,6 +1099,18 @@ def _extract_facts(lead: Lead, lead_store: LeadStore) -> list[dict]:
             raw = evidence.raw_record
             if not raw:
                 continue
+
+            # Location gate — reject records from wrong county/country
+            record_place = (raw.get("birth_place", "")
+                            or raw.get("event_place", "")
+                            or raw.get("residence_place", ""))
+            if birth_location and record_place:
+                loc_problem = validate_enrichment_location(
+                    record_place, profile_birth_location=birth_location)
+                if loc_problem:
+                    print(f"      [LOCATION REJECT] {evidence.record_summary[:60]} — {loc_problem}")
+                    continue
+
             record_type = raw.get("record_type", "")
             household = raw.get("household", [])
             for member in household:
@@ -1192,11 +1228,11 @@ def _run_deterministic_fallback(lead: Lead, twin, lead_store: LeadStore,
         result.reasoning_log.append(
             "LLM unavailable — executing deterministic next actions"
         )
-        new_evidence = _execute_and_score(searches, lead, lead_store)
+        new_evidence = _execute_and_score(searches, lead, lead_store, twin)
         result.new_evidence.extend(new_evidence)
         result.searches_executed.extend(searches)
         result.iterations = 1
 
-        facts = _extract_facts(lead, lead_store)
+        facts = _extract_facts(lead, lead_store, twin)
         result.facts_extracted = facts
         result.verdict = "resolved" if facts else "more_evidence" if new_evidence else "inconclusive"
