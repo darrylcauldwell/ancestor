@@ -10,7 +10,7 @@ final class TreeViewModel {
     var scale: Double = 1.0
     var offset: CGSize = .zero
     var searchText: String = ""
-    var visibleGenerations: Int = 3
+    var visibleGenerations: Int = 4
 
     // Navigation history for back/forward
     private var history: [String] = []
@@ -82,7 +82,7 @@ final class TreeViewModel {
         rebuildLayout(snapshot: snapshot)
     }
     func zoomToFit(snapshot: FamilyGraphSnapshot) {
-        visibleGenerations = 3
+        visibleGenerations = 4
         rebuildLayout(snapshot: snapshot)
     }
 
