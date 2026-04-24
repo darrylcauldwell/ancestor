@@ -40,11 +40,11 @@ nonisolated struct TreeLayout {
 
     // MARK: - Configuration
 
-    static let nodeWidth: Double = 200
-    static let nodeHeight: Double = 80
-    static let horizontalSpacing: Double = 40
-    static let verticalSpacing: Double = 100
-    static let spouseSpacing: Double = 24
+    static let nodeWidth: Double = 180
+    static let nodeHeight: Double = 70
+    static let horizontalSpacing: Double = 20
+    static let verticalSpacing: Double = 50
+    static let spouseSpacing: Double = 16
 
     // MARK: - Focussed Pedigree Layout
 
