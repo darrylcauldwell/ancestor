@@ -32,13 +32,9 @@ final class TreeViewModel {
         } else {
             layout = TreeLayout.overviewLayout(snapshot: snapshot)
         }
-        // Auto-scale to fit tree in viewport, but keep nodes readable
-        let viewportWidth: Double = 1400
-        let viewportHeight: Double = 900
-        let scaleX = layout.width > 0 ? viewportWidth / layout.width : 1.0
-        let scaleY = layout.height > 0 ? viewportHeight / layout.height : 1.0
-        scale = max(min(scaleX, scaleY, 1.0), 0.4)  // Min 0.4 to keep nodes legible
-
+        // Keep nodes at full size — don't auto-shrink.
+        // User can pan horizontally if tree is wider than viewport.
+        scale = 1.0
         offset = .zero
     }
 
