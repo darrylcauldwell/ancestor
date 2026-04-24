@@ -36,32 +36,62 @@ actor WikiTreeClient {
 
     /// Two-step clientLogin: POST credentials → capture authcode → confirm.
     func login(email: String, password: String) async throws -> WikiTreeUser {
-        // Step 1: POST credentials
+        // Step 1: POST credentials — must NOT follow redirects to capture authcode
         let loginParams: [String: String] = [
             "action": "clientLogin",
             "doLogin": "1",
             "wpEmail": email,
             "wpPassword": password,
+            "appId": appID,
         ]
 
-        let (_, response) = try await postRaw(params: loginParams)
+        var request = URLRequest(url: apiURL)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        let body = loginParams.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
+            .joined(separator: "&")
+        request.httpBody = body.data(using: .utf8)
+
+        // Use a session that does NOT follow redirects
+        let noRedirectDelegate = NoRedirectDelegate()
+        let noRedirectSession = URLSession(configuration: .default, delegate: noRedirectDelegate, delegateQueue: nil)
+        let (data, response) = try await noRedirectSession.data(for: request)
+
         guard let httpResponse = response as? HTTPURLResponse else {
             throw WikiTreeError.loginFailed("No HTTP response")
         }
 
-        // Extract authcode from redirect Location header
-        let location = httpResponse.value(forHTTPHeaderField: "Location") ?? ""
-        guard let url = URL(string: location),
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let authcode = components.queryItems?.first(where: { $0.name == "authcode" })?.value else {
-            // Some responses return 200 with authcode in body instead of redirect
-            throw WikiTreeError.loginFailed("No authcode in redirect. Status=\(httpResponse.statusCode)")
-        }
-
-        // Capture cookies from Step 1
+        // Capture cookies from response
         if let headerFields = httpResponse.allHeaderFields as? [String: String] {
             let cookies = HTTPCookie.cookies(withResponseHeaderFields: headerFields, for: apiURL)
             sessionCookies.append(contentsOf: cookies)
+        }
+
+        // Extract authcode — try redirect Location header first, then response body
+        var authcode: String?
+
+        // Try Location header (302 redirect)
+        if let location = httpResponse.value(forHTTPHeaderField: "Location"),
+           let url = URL(string: location),
+           let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            authcode = components.queryItems?.first(where: { $0.name == "authcode" })?.value
+        }
+
+        // Try response body (some WikiTree versions return authcode in JSON body)
+        if authcode == nil, let bodyStr = String(data: data, encoding: .utf8) {
+            // Look for authcode in URL-like string in body
+            if let range = bodyStr.range(of: "authcode=") {
+                let after = bodyStr[range.upperBound...]
+                let code = after.prefix(while: { $0 != "&" && $0 != "\"" && $0 != " " && $0 != "\n" })
+                if !code.isEmpty {
+                    authcode = String(code)
+                }
+            }
+        }
+
+        guard let authcode else {
+            let bodyPreview = String(data: data, encoding: .utf8)?.prefix(500) ?? "empty"
+            throw WikiTreeError.loginFailed("No authcode. Status=\(httpResponse.statusCode), Body=\(bodyPreview)")
         }
 
         // Step 2: Confirm with authcode
@@ -252,6 +282,21 @@ actor WikiTreeClient {
 }
 
 // MARK: - Types
+
+/// Prevents URLSession from following redirects — needed to capture
+/// the authcode from WikiTree's clientLogin redirect.
+private final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        // Return nil to stop the redirect — we want the 302 response
+        completionHandler(nil)
+    }
+}
 
 nonisolated struct WikiTreeUser: Sendable {
     let id: Int
