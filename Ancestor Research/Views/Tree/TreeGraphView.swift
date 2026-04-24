@@ -317,8 +317,16 @@ struct TreeGraphView: View {
         let centerX = canvasSize.width / 2
         let centerY = canvasSize.height / 2
 
-        let canvasX = (location.x - centerX - treeVM.offset.width) / treeVM.scale + treeVM.layout.width / 2
-        let canvasY = (location.y - centerY - treeVM.offset.height) / treeVM.scale + treeVM.layout.height / 2
+        // Reverse the Canvas transform to get from screen coords to node coords
+        let rootNode = treeVM.layout.nodes.first { $0.id == treeVM.rootProfileID }
+        let rootX = rootNode?.x ?? 0
+        let rootY = rootNode?.y ?? 0
+        let drawOffsetX = -rootX
+        let drawOffsetY = -rootY + (canvasSize.height / treeVM.scale / 2) - TreeLayout.nodeHeight
+
+        // Screen → canvas: undo translate, undo scale, undo draw offset
+        let canvasX = (location.x - centerX - treeVM.offset.width) / treeVM.scale - drawOffsetX
+        let canvasY = (location.y - centerY - treeVM.offset.height) / treeVM.scale - drawOffsetY
 
         return treeVM.layout.nodes.first { node in
             let nodeRect = CGRect(
