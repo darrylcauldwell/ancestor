@@ -29,6 +29,12 @@ nonisolated enum AuditRules {
         MissingBioRule(),
         DuplicateDetectionRule(),
         CompletenessScoreRule(),
+        ParentDiedBeforeChildRule(),
+        ParentSuspiciouslyOldRule(),
+        SelfSpouseRule(),
+        UnsourcedBioRule(),
+        MissingDeathLocationRule(),
+        AncestorExtensionRule(),
     ]
 }
 
@@ -452,4 +458,204 @@ nonisolated func nameSimilarity(_ a: String, _ b: String) -> Double {
     }
 
     return 0.0
+}
+
+// MARK: - Parent Died Before Child (from Python audit.py line 134)
+
+nonisolated struct ParentDiedBeforeChildRule: AuditRuleDefinition {
+    let id = "parentDiedBeforeChild"
+    let displayName = "Parent Died Before Child Born"
+    let description = "A parent cannot have died before their child was born (1-year posthumous allowance)."
+    let fireCondition = "parent.deathDate.latest < child.birthDate.earliest - 1"
+    let warningCondition: String? = "parent.deathDate.bestYear < child.birthDate.bestYear - 1"
+    let workedExample = "Parent died 1880, child born 1885: 1880 < 1884 → ERROR"
+    let defaultSeverity = Severity.error
+
+    func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        guard let childBirth = profile.birthDate else { return [] }
+        var results: [AuditResult] = []
+
+        let parentRels = snapshot.relationships.filter {
+            $0.type == .parent && $0.to == profile.id
+        }
+
+        for rel in parentRels {
+            guard let parent = snapshot.profiles[rel.from],
+                  let parentDeath = parent.deathDate else { continue }
+
+            // Error tier: parent definitely died before child born (1-year posthumous allowance)
+            if let pdl = parentDeath.latest, let cbe = childBirth.earliest, pdl < cbe - 1 {
+                results.append(AuditResult(
+                    id: UUID(), profileID: profile.id, profileName: profile.displayName,
+                    severity: .error, ruleID: id,
+                    message: "\(parent.displayName) died \(parentDeath.original) but child \(profile.displayName) born \(childBirth.original) — parent died before child"
+                ))
+            } else if let pdby = parentDeath.bestYear, let cbby = childBirth.bestYear, pdby < cbby - 1 {
+                results.append(AuditResult(
+                    id: UUID(), profileID: profile.id, profileName: profile.displayName,
+                    severity: .warning, ruleID: id,
+                    message: "\(parent.displayName) (~\(pdby)) may have died before child \(profile.displayName) (~\(cbby))"
+                ))
+            }
+        }
+        return results
+    }
+}
+
+// MARK: - Parent Suspiciously Old (from Python audit.py line 110)
+
+nonisolated struct ParentSuspiciouslyOldRule: AuditRuleDefinition {
+    let id = "parentSuspiciouslyOld"
+    let displayName = "Parent Suspiciously Old"
+    let description = "A parent more than 55 years older than their child is unusual and worth checking."
+    let fireCondition = "child.birthDate.earliest - parent.birthDate.latest > 55"
+    let warningCondition: String? = "child.birthDate.bestYear - parent.birthDate.bestYear > 55"
+    let workedExample = "Parent born 1820, child born 1880: gap 60 → WARNING (unusual but possible)"
+    let defaultSeverity = Severity.warning
+
+    func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        guard let childBirth = profile.birthDate else { return [] }
+        var results: [AuditResult] = []
+
+        let parentRels = snapshot.relationships.filter {
+            $0.type == .parent && $0.to == profile.id
+        }
+
+        for rel in parentRels {
+            guard let parent = snapshot.profiles[rel.from],
+                  let parentBirth = parent.birthDate else { continue }
+
+            if let cbe = childBirth.earliest, let pbl = parentBirth.latest, cbe - pbl > 55 {
+                results.append(AuditResult(
+                    id: UUID(), profileID: profile.id, profileName: profile.displayName,
+                    severity: .warning, ruleID: id,
+                    message: "\(parent.displayName) (born \(parentBirth.original)) is \(cbe - pbl)+ years older than \(profile.displayName) — unusual"
+                ))
+            } else if let cbby = childBirth.bestYear, let pbby = parentBirth.bestYear, cbby - pbby > 55 {
+                results.append(AuditResult(
+                    id: UUID(), profileID: profile.id, profileName: profile.displayName,
+                    severity: .warning, ruleID: id,
+                    message: "\(parent.displayName) (~\(pbby)) is ~\(cbby - pbby) years older than \(profile.displayName) — unusual"
+                ))
+            }
+        }
+        return results
+    }
+}
+
+// MARK: - Self-Spouse (from Python audit.py line 152)
+
+nonisolated struct SelfSpouseRule: AuditRuleDefinition {
+    let id = "selfSpouse"
+    let displayName = "Self-Spouse"
+    let description = "A person cannot be linked as their own spouse."
+    let fireCondition = "Spouse edge where from == to."
+    let warningCondition: String? = nil
+    let workedExample = "Profile X has a spouse link pointing to itself"
+    let defaultSeverity = Severity.error
+
+    func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        let selfSpouse = snapshot.relationships.contains {
+            $0.type == .spouse && $0.from == profile.id && $0.to == profile.id
+        }
+        if selfSpouse {
+            return [AuditResult(
+                id: UUID(), profileID: profile.id, profileName: profile.displayName,
+                severity: .error, ruleID: id,
+                message: "\(profile.displayName) — linked as own spouse"
+            )]
+        }
+        return []
+    }
+}
+
+// MARK: - Unsourced Bio (from Python audit.py line 190)
+
+nonisolated struct UnsourcedBioRule: AuditRuleDefinition {
+    let id = "unsourcedBio"
+    let displayName = "Unsourced Biography"
+    let description = "Biography exists but has no source citations — may be unverified GEDCOM data."
+    let fireCondition = "Bio present (>50 chars) but no <ref> tags or Sources section."
+    let warningCondition: String? = nil
+    let workedExample = "Profile has 200-char bio but no references or Sources heading"
+    let defaultSeverity = Severity.warning
+
+    func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        guard let bio = profile.bio, bio.count > 50 else { return [] }
+
+        let hasRefs = bio.contains("<ref") || bio.contains("Sources") || bio.contains("sources")
+        if !hasRefs {
+            return [AuditResult(
+                id: UUID(), profileID: profile.id, profileName: profile.displayName,
+                severity: .warning, ruleID: id,
+                message: "\(profile.displayName) — bio has no source citations (\(bio.count) chars, no <ref> or Sources)"
+            )]
+        }
+        return []
+    }
+}
+
+// MARK: - Missing Death Location (from Python audit.py line 243)
+
+nonisolated struct MissingDeathLocationRule: AuditRuleDefinition {
+    let id = "missingDeathLocation"
+    let displayName = "Missing Death Location"
+    let description = "Profile has a death date but no death location."
+    let fireCondition = "deathDate is set but deathLocation is nil."
+    let warningCondition: String? = nil
+    let workedExample = "Profile has death date 1960 but no death location recorded"
+    let defaultSeverity = Severity.warning
+
+    func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        // Only flag if we know they died (has death date) but not where
+        if profile.deathDate != nil && profile.deathLocation == nil {
+            return [AuditResult(
+                id: UUID(), profileID: profile.id, profileName: profile.displayName,
+                severity: .warning, ruleID: id,
+                message: "\(profile.displayName) — has death date but no death location"
+            )]
+        }
+        return []
+    }
+}
+
+// MARK: - Ancestor Extension (from Python audit.py line 310)
+
+nonisolated struct AncestorExtensionRule: AuditRuleDefinition {
+    let id = "ancestorExtension"
+    let displayName = "End-of-Line Ancestor"
+    let description = "Profile has no parents and was born before 1920 — tree can be extended via parish/civil records."
+    let fireCondition = "No parent edges, birth year < 1920, name is not 'Unknown'."
+    let warningCondition: String? = nil
+    let workedExample = "John Smith born 1880 with no parents → search christening records"
+    let defaultSeverity = Severity.info
+
+    func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        let parents = snapshot.parentsOf(profile.id)
+        guard parents.isEmpty else { return [] }
+
+        guard let birthYear = profile.birthDate?.bestYear, birthYear < 1920 else { return [] }
+
+        // Skip placeholder names
+        let name = (profile.firstName ?? "").lowercased()
+        guard !name.isEmpty,
+              name != "unknown",
+              name != "private",
+              name != "testdebug" else { return [] }
+
+        let sourceHint: String
+        if birthYear < 1837 {
+            sourceHint = "parish registers"
+        } else if birthYear < 1870 {
+            sourceHint = "christening/baptism records or parish registers"
+        } else {
+            sourceHint = "christening/baptism records"
+        }
+
+        return [AuditResult(
+            id: UUID(), profileID: profile.id, profileName: profile.displayName,
+            severity: .info, ruleID: id,
+            message: "\(profile.displayName) (b.\(birthYear)) — no parents, search \(sourceHint) to extend tree"
+        )]
+    }
 }

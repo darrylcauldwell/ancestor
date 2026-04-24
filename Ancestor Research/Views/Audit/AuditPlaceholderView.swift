@@ -12,7 +12,7 @@ struct AuditPlaceholderView: View {
                 Button {
                     auditVM.runAudit(snapshot: appState.snapshot)
                 } label: {
-                    Label("Run Audit", systemImage: "play.fill")
+                    Label("Re-run Audit", systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.glassProminent)
                 .disabled(appState.snapshot.profiles.isEmpty)
@@ -80,6 +80,12 @@ struct AuditPlaceholderView: View {
             }
         }
         .navigationTitle("Audit")
+        .onAppear {
+            // Use auto-audit from AppState if available and no manual run yet
+            if auditVM.summary == nil, let autoSummary = appState.auditSummary {
+                auditVM.summary = autoSummary
+            }
+        }
     }
 
     private func severityBadge(_ severity: Severity, count: Int) -> some View {

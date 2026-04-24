@@ -6,6 +6,7 @@ final class AppState {
     var currentProject: Project?
     var currentDatabase: ProjectDatabase?
     var snapshot: FamilyGraphSnapshot = .empty
+    var auditSummary: AuditSummary?
     var availableProjects: [Project] = []
     var isLoading = false
     var loadingMessage: String?
@@ -19,6 +20,15 @@ final class AppState {
         availableProjects = ProjectStore.listProjects()
     }
 
+    /// Run audit automatically after any snapshot change.
+    private func runPostLoadAudit() {
+        guard !snapshot.profiles.isEmpty else {
+            auditSummary = nil
+            return
+        }
+        auditSummary = AuditEngine.auditGrouped(snapshot)
+    }
+
     func openProject(_ project: Project) {
         isLoading = true
         loadingMessage = "Opening project..."
@@ -28,6 +38,7 @@ final class AppState {
             currentProject = proj
             currentDatabase = db
             snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
         } catch {
             errorMessage = "Failed to open project: \(error.localizedDescription)"
         }
@@ -73,6 +84,9 @@ final class AppState {
 
         loadingMessage = "Building tree..."
         snapshot = try db.buildSnapshot()
+
+        loadingMessage = "Running audit..."
+        runPostLoadAudit()
 
         // Update project metadata with refresh time
         if var project = currentProject {
@@ -145,6 +159,7 @@ final class AppState {
             let transaction = try db.importSnapshot(importSnapshot, source: "wikitree://\(user.name)")
 
             snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
 
             if var project = currentProject {
                 project = Project(
@@ -272,6 +287,7 @@ final class AppState {
 
             // Rebuild snapshot
             snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
         } catch {
             errorMessage = "Undo failed: \(error.localizedDescription)"
         }

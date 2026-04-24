@@ -283,6 +283,142 @@ struct AuditEngineTests {
         #expect(nameSimilarity("John", "Mary") == 0.0)
     }
 
+    // MARK: - Parent Died Before Child
+
+    @Test func parentDiedBeforeChild_error() {
+        let parent = makeProfile(id: "parent", birthDate: "1850", deathDate: "1880")
+        let child = makeProfile(id: "child", birthDate: "1885")
+        let rel = Relationship(
+            id: UUID(), from: "parent", to: "child",
+            type: .parent, role: .father, subtype: .biological,
+            marriageDate: nil, divorceDate: nil
+        )
+        let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
+        let results = ParentDiedBeforeChildRule().evaluate(profile: child, snapshot: snapshot)
+        #expect(results.count == 1)
+        #expect(results.first?.severity == .error)
+    }
+
+    @Test func parentDiedBeforeChild_posthumousOK() {
+        // Parent died 1 year before child born — allowed (posthumous birth)
+        let parent = makeProfile(id: "parent", birthDate: "1850", deathDate: "1884")
+        let child = makeProfile(id: "child", birthDate: "1885")
+        let rel = Relationship(
+            id: UUID(), from: "parent", to: "child",
+            type: .parent, role: .father, subtype: .biological,
+            marriageDate: nil, divorceDate: nil
+        )
+        let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
+        let results = ParentDiedBeforeChildRule().evaluate(profile: child, snapshot: snapshot)
+        #expect(results.isEmpty)
+    }
+
+    // MARK: - Parent Suspiciously Old
+
+    @Test func parentSuspiciouslyOld_warning() {
+        let parent = makeProfile(id: "parent", birthDate: "1820")
+        let child = makeProfile(id: "child", birthDate: "1880")
+        let rel = Relationship(
+            id: UUID(), from: "parent", to: "child",
+            type: .parent, role: .father, subtype: .biological,
+            marriageDate: nil, divorceDate: nil
+        )
+        let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
+        let results = ParentSuspiciouslyOldRule().evaluate(profile: child, snapshot: snapshot)
+        #expect(results.count == 1)
+        #expect(results.first?.severity == .warning)
+    }
+
+    @Test func parentSuspiciouslyOld_normalGap_ok() {
+        let parent = makeProfile(id: "parent", birthDate: "1850")
+        let child = makeProfile(id: "child", birthDate: "1880")
+        let rel = Relationship(
+            id: UUID(), from: "parent", to: "child",
+            type: .parent, role: .father, subtype: .biological,
+            marriageDate: nil, divorceDate: nil
+        )
+        let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
+        let results = ParentSuspiciouslyOldRule().evaluate(profile: child, snapshot: snapshot)
+        #expect(results.isEmpty)
+    }
+
+    // MARK: - Self-Spouse
+
+    @Test func selfSpouse_detected() {
+        let profile = makeProfile(id: "person")
+        let rel = Relationship(
+            id: UUID(), from: "person", to: "person",
+            type: .spouse, role: nil, subtype: .unknown,
+            marriageDate: nil, divorceDate: nil
+        )
+        let snapshot = makeSnapshot(profiles: [profile], relationships: [rel])
+        let results = SelfSpouseRule().evaluate(profile: profile, snapshot: snapshot)
+        #expect(results.count == 1)
+        #expect(results.first?.severity == .error)
+    }
+
+    // MARK: - Unsourced Bio
+
+    @Test func unsourcedBio_detected() {
+        let profile = makeProfile(bio: "This is a biography that is longer than fifty characters but has no source citations at all anywhere.")
+        let snapshot = makeSnapshot(profiles: [profile])
+        let results = UnsourcedBioRule().evaluate(profile: profile, snapshot: snapshot)
+        #expect(results.count == 1)
+    }
+
+    @Test func unsourcedBio_withRefs_ok() {
+        let profile = makeProfile(bio: "This is a biography with sources. <ref>Some source</ref> More text here to make it long enough.")
+        let snapshot = makeSnapshot(profiles: [profile])
+        let results = UnsourcedBioRule().evaluate(profile: profile, snapshot: snapshot)
+        #expect(results.isEmpty)
+    }
+
+    // MARK: - Missing Death Location
+
+    @Test func missingDeathLocation_detected() {
+        let profile = makeProfile(birthDate: "1880", deathDate: "1960")
+        let snapshot = makeSnapshot(profiles: [profile])
+        let results = MissingDeathLocationRule().evaluate(profile: profile, snapshot: snapshot)
+        #expect(results.count == 1)
+    }
+
+    // MARK: - Ancestor Extension
+
+    @Test func ancestorExtension_endOfLine() {
+        let profile = makeProfile(firstName: "John", birthDate: "1880")
+        let snapshot = makeSnapshot(profiles: [profile])
+        let results = AncestorExtensionRule().evaluate(profile: profile, snapshot: snapshot)
+        #expect(results.count == 1)
+        #expect(results.first?.severity == .info)
+    }
+
+    @Test func ancestorExtension_hasParents_ok() {
+        let parent = makeProfile(id: "parent")
+        let child = makeProfile(id: "child", firstName: "John", birthDate: "1880")
+        let rel = Relationship(
+            id: UUID(), from: "parent", to: "child",
+            type: .parent, role: .father, subtype: .unknown,
+            marriageDate: nil, divorceDate: nil
+        )
+        let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
+        let results = AncestorExtensionRule().evaluate(profile: child, snapshot: snapshot)
+        #expect(results.isEmpty)
+    }
+
+    @Test func ancestorExtension_skipsUnknown() {
+        let profile = makeProfile(firstName: "Unknown", birthDate: "1880")
+        let snapshot = makeSnapshot(profiles: [profile])
+        let results = AncestorExtensionRule().evaluate(profile: profile, snapshot: snapshot)
+        #expect(results.isEmpty)
+    }
+
+    @Test func ancestorExtension_tooRecent_ok() {
+        let profile = makeProfile(firstName: "John", birthDate: "1950")
+        let snapshot = makeSnapshot(profiles: [profile])
+        let results = AncestorExtensionRule().evaluate(profile: profile, snapshot: snapshot)
+        #expect(results.isEmpty)
+    }
+
     // MARK: - Full Audit on Real GEDCOM
 
     @Test func auditRealGEDCOM() throws {
