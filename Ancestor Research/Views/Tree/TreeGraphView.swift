@@ -350,14 +350,14 @@ struct TreeGraphView: View {
 
     private var zoomControls: some View {
         VStack(spacing: 4) {
-            Button { treeVM.zoomIn() } label: {
-                Image(systemName: "plus.magnifyingglass")
+            Button { treeVM.zoomIn(snapshot: appState.snapshot) } label: {
+                Image(systemName: "minus.magnifyingglass")
             }
             Button { treeVM.rebuildLayout(snapshot: appState.snapshot) } label: {
                 Image(systemName: "house")
             }
-            Button { treeVM.zoomOut() } label: {
-                Image(systemName: "minus.magnifyingglass")
+            Button { treeVM.zoomOut(snapshot: appState.snapshot) } label: {
+                Image(systemName: "plus.magnifyingglass")
             }
         }
         .buttonStyle(.glass)

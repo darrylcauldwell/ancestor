@@ -10,6 +10,7 @@ final class TreeViewModel {
     var scale: Double = 1.0
     var offset: CGSize = .zero
     var searchText: String = ""
+    var visibleGenerations: Int = 5
 
     // Navigation history for back/forward
     private var history: [String] = []
@@ -22,9 +23,9 @@ final class TreeViewModel {
         if let rootID = rootProfileID {
             switch viewMode {
             case .pedigree:
-                layout = TreeLayout.pedigreeLayout(rootID: rootID, snapshot: snapshot)
+                layout = TreeLayout.pedigreeLayout(rootID: rootID, snapshot: snapshot, maxGenerations: visibleGenerations)
             case .descendants:
-                layout = TreeLayout.descendantLayout(rootID: rootID, snapshot: snapshot)
+                layout = TreeLayout.descendantLayout(rootID: rootID, snapshot: snapshot, maxGenerations: visibleGenerations)
             case .overview:
                 layout = TreeLayout.overviewLayout(snapshot: snapshot)
             }
@@ -75,10 +76,19 @@ final class TreeViewModel {
         recenter(on: id, snapshot: snapshot)
     }
 
-    /// Zoom controls.
-    func zoomIn() { scale = min(scale * 1.25, 4.0) }
-    func zoomOut() { scale = max(scale / 1.25, 0.1) }
-    func zoomToFit() { scale = 1.0; offset = .zero }
+    /// Zoom = show more/fewer generations from the focal person.
+    func zoomIn(snapshot: FamilyGraphSnapshot) {
+        visibleGenerations = max(visibleGenerations - 1, 2)
+        rebuildLayout(snapshot: snapshot)
+    }
+    func zoomOut(snapshot: FamilyGraphSnapshot) {
+        visibleGenerations = min(visibleGenerations + 1, 10)
+        rebuildLayout(snapshot: snapshot)
+    }
+    func zoomToFit(snapshot: FamilyGraphSnapshot) {
+        visibleGenerations = 5
+        rebuildLayout(snapshot: snapshot)
+    }
 
     /// Filtered profiles for search.
     func filteredNodes() -> [TreeLayout.LayoutNode] {
