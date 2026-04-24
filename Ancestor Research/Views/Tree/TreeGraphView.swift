@@ -118,8 +118,12 @@ struct TreeGraphView: View {
             )
             context.scaleBy(x: treeVM.scale, y: treeVM.scale)
 
-            let offsetX = -treeVM.layout.width / 2
-            let offsetY = -treeVM.layout.height / 2
+            // Centre on the root node — root at bottom-centre of viewport
+            let rootNode = treeVM.layout.nodes.first { $0.id == treeVM.rootProfileID }
+            let rootX = rootNode?.x ?? 0
+            let rootY = rootNode?.y ?? 0
+            let offsetX = -rootX  // Centre horizontally on root
+            let offsetY = -rootY + (size.height / treeVM.scale / 2) - TreeLayout.nodeHeight  // Root near bottom
 
             // Draw edges
             for edge in treeVM.layout.edges {
