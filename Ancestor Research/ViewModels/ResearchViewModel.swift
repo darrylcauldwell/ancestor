@@ -67,7 +67,6 @@ final class ResearchViewModel {
 
         // Show source eligibility
         sourceStatuses = registry.allSources().map { source in
-            let eligible = !source.coverageRegions.isEmpty || source.coverageRegions.contains(.englandAndWales)
             return SourceStatus(
                 id: source.sourceID,
                 displayName: source.displayName,
@@ -203,32 +202,22 @@ final class ResearchViewModel {
     /// Returns the fields that were updated.
     func applyAccepted(to appState: AppState) -> Int {
         guard let profile = selectedProfile else { return 0 }
-        guard let db = appState.currentDatabase else { return 0 }
+        guard appState.currentDatabase != nil else { return 0 }
 
         isApplying = true
         applyMessage = "Applying research results..."
         var fieldsUpdated = 0
 
         for cluster in acceptedClusters {
-            // Extract facts from the cluster
             for scored in cluster.records where scored.verdict == .fact {
                 switch scored.record {
                 case .birth(let r):
-                    if profile.birthDate == nil, let year = r.birthYear {
-                        fieldsUpdated += 1
-                    }
-                    if profile.birthLocation == nil, let place = r.birthPlace ?? r.district {
-                        fieldsUpdated += 1
-                    }
+                    if profile.birthDate == nil, r.birthYear != nil { fieldsUpdated += 1 }
+                    if profile.birthLocation == nil, (r.birthPlace ?? r.district) != nil { fieldsUpdated += 1 }
                 case .death(let r):
-                    if profile.deathDate == nil, let year = r.deathYear {
-                        fieldsUpdated += 1
-                    }
-                    if profile.deathLocation == nil, let place = r.deathPlace ?? r.district {
-                        fieldsUpdated += 1
-                    }
-                case .marriage(let r):
-                    // Marriage data enriches but doesn't directly map to profile fields
+                    if profile.deathDate == nil, r.deathYear != nil { fieldsUpdated += 1 }
+                    if profile.deathLocation == nil, (r.deathPlace ?? r.district) != nil { fieldsUpdated += 1 }
+                case .marriage:
                     fieldsUpdated += 1
                 default:
                     break

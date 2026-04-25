@@ -196,7 +196,7 @@ final class WholeTreeResearchViewModel {
     func restoreProgress(from db: ProjectDatabase?, snapshot: FamilyGraphSnapshot) -> Bool {
         guard let db else { return false }
         let searches = (try? db.loadNegativeSearches(profileID: "__whole_tree__")) ?? []
-        guard let latest = searches.first(where: { $0.sourceID == "resume_state" }) else { return false }
+        guard searches.first(where: { $0.sourceID == "resume_state" }) != nil else { return false }
 
         // Resume state is stored as search params JSON — this is a pragmatic reuse
         // of the negative_searches table. A dedicated table could be added in a future migration.

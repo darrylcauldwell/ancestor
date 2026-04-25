@@ -315,7 +315,7 @@ nonisolated struct TreeLayout {
 
         // Add spouses beside their partners
         for node in Array(realNodes) {
-            guard let profile = node.profile else { continue }
+            guard node.profile != nil else { continue }
             let spouses = snapshot.spousesOf(node.id)
             for spouse in spouses where !visited.contains(spouse.id) {
                 visited.insert(spouse.id)
@@ -427,7 +427,7 @@ nonisolated struct TreeLayout {
 
         // Add spouses beside their partners
         for node in Array(nodes) {
-            guard let profile = node.profile else { continue }
+            guard node.profile != nil else { continue }
             let spouses = snapshot.spousesOf(node.id)
             for spouse in spouses where !visited.contains(spouse.id) {
                 visited.insert(spouse.id)

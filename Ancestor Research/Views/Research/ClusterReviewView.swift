@@ -142,7 +142,7 @@ struct ClusterReviewView: View {
 
                 Spacer()
 
-                if let merge = cluster.mergeCandidate {
+                if cluster.mergeCandidate != nil {
                     Text("Possible duplicate")
                         .font(AppTypography.badge)
                         .foregroundStyle(.orange)

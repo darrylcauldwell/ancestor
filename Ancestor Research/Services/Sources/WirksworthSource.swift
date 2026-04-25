@@ -262,23 +262,15 @@ struct WirksworthSource: RecordSource {
     nonisolated private static func extractDateFromLine(_ line: String, keywords: [String]) -> Int? {
         for kw in keywords {
             // Try "kw (date)" or "kw YEAR"
-            let patterns = [
-                "\\\(kw)\\s*\\(([^)]+)\\)",
-                "\\\(kw)\\s+(\\d{4})",
-            ]
-            for pattern in patterns {
-                let fullPattern = "\\b\(kw)\\s*(?:\\(([^)]+)\\)|(\\d{4}))"
-                if let regex = try? NSRegularExpression(pattern: fullPattern),
-                   let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) {
-                    // Check group 1 (parenthesized date)
-                    if let range = Range(match.range(at: 1), in: line) {
-                        let dateStr = String(line[range])
-                        if let year = extractFourDigitYear(from: dateStr) { return year }
-                    }
-                    // Check group 2 (plain year)
-                    if let range = Range(match.range(at: 2), in: line) {
-                        return Int(line[range])
-                    }
+            let fullPattern = "\\b\(kw)\\s*(?:\\(([^)]+)\\)|(\\d{4}))"
+            if let regex = try? NSRegularExpression(pattern: fullPattern),
+               let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) {
+                if let range = Range(match.range(at: 1), in: line) {
+                    let dateStr = String(line[range])
+                    if let year = extractFourDigitYear(from: dateStr) { return year }
+                }
+                if let range = Range(match.range(at: 2), in: line) {
+                    return Int(line[range])
                 }
             }
         }
