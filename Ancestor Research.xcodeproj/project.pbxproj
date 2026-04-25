@@ -8,6 +8,10 @@
 
 /* Begin PBXBuildFile section */
 		3E8156BF2F9BA1A800D37FC5 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 39C6F347BBD297A3033F5CEA /* GRDB */; };
+		A1B2C3D4E5F60001DEADBEEF /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60002DEADBEEF /* MLXLLM */; };
+		A1B2C3D4E5F60004DEADBEEF /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60005DEADBEEF /* MLXLMCommon */; };
+		A1B2C3D4E5F60006DEADBEEF /* MLXHuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60007DEADBEEF /* MLXHuggingFace */; };
+		A1B2C3D4E5F60009DEADBEEF /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000ADEADBEEF /* Tokenizers */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,6 +50,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				3E8156BF2F9BA1A800D37FC5 /* GRDB in Frameworks */,
+				A1B2C3D4E5F60001DEADBEEF /* MLXLLM in Frameworks */,
+				A1B2C3D4E5F60004DEADBEEF /* MLXLMCommon in Frameworks */,
+				A1B2C3D4E5F60006DEADBEEF /* MLXHuggingFace in Frameworks */,
+				A1B2C3D4E5F60009DEADBEEF /* Tokenizers in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -116,6 +124,10 @@
 			name = "Ancestor Research";
 			packageProductDependencies = (
 				39C6F347BBD297A3033F5CEA /* GRDB */,
+				A1B2C3D4E5F60002DEADBEEF /* MLXLLM */,
+				A1B2C3D4E5F60005DEADBEEF /* MLXLMCommon */,
+				A1B2C3D4E5F60007DEADBEEF /* MLXHuggingFace */,
+				A1B2C3D4E5F6000ADEADBEEF /* Tokenizers */,
 			);
 			productName = "Ancestor Research";
 			productReference = 3E2FD7982F9B89F200491FEB /* Ancestor Research.app */;
@@ -172,6 +184,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				23B42F21C1F41CE36B81FD87 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+				A1B2C3D4E5F60003DEADBEEF /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+				A1B2C3D4E5F60008DEADBEEF /* XCRemoteSwiftPackageReference "swift-transformers" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3E2FD7992F9B89F200491FEB /* Products */;
@@ -500,6 +514,22 @@
 				minimumVersion = 7.0.0;
 			};
 		};
+		A1B2C3D4E5F60008DEADBEEF /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-transformers.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.3.0;
+			};
+		};
+		A1B2C3D4E5F60003DEADBEEF /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.31.3;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -507,6 +537,26 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 23B42F21C1F41CE36B81FD87 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
 			productName = GRDB;
+		};
+		A1B2C3D4E5F60002DEADBEEF /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F60003DEADBEEF /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLLM;
+		};
+		A1B2C3D4E5F60005DEADBEEF /* MLXLMCommon */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F60003DEADBEEF /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLMCommon;
+		};
+		A1B2C3D4E5F60007DEADBEEF /* MLXHuggingFace */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F60003DEADBEEF /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXHuggingFace;
+		};
+		A1B2C3D4E5F6000ADEADBEEF /* Tokenizers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F60008DEADBEEF /* XCRemoteSwiftPackageReference "swift-transformers" */;
+			productName = Tokenizers;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

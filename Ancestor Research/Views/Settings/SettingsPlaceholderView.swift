@@ -118,6 +118,10 @@ struct SettingsPlaceholderView: View {
                 }
             }
 
+            Section("Reasoning Model") {
+                reasoningModelSection
+            }
+
             Section("Audit Rules (\(enabledRuleCount)/\(AuditRules.builtIn.count) enabled)") {
                 ForEach(AuditRules.builtIn, id: \.id) { rule in
                     DisclosureGroup {
@@ -195,6 +199,61 @@ struct SettingsPlaceholderView: View {
         case .open: .green
         case .community: .blue
         case .restricted: .orange
+        }
+    }
+
+    // MARK: - Reasoning Model
+
+    @State private var modelStatus = "Not loaded"
+    @State private var isLoadingModel = false
+
+    private var reasoningModelSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("DeepSeek-R1 14B (4-bit)")
+                        .font(AppTypography.cardTitle)
+                    Text("Chain-of-thought reasoning for genealogical analysis")
+                        .font(AppTypography.cardMeta)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(modelStatus)
+                    .font(AppTypography.badge)
+                    .foregroundStyle(modelStatus == "Ready" ? .green : .secondary)
+            }
+
+            HStack(spacing: 12) {
+                Button(isLoadingModel ? "Loading..." : "Load Model") {
+                    isLoadingModel = true
+                    modelStatus = "Loading..."
+                    Task {
+                        do {
+                            try await LocalInferenceService.shared.loadModel()
+                            modelStatus = "Ready"
+                        } catch {
+                            modelStatus = "Error: \(error.localizedDescription)"
+                        }
+                        isLoadingModel = false
+                    }
+                }
+                .buttonStyle(.glassProminent)
+                .controlSize(.small)
+                .disabled(isLoadingModel)
+
+                Button("Unload") {
+                    Task {
+                        await LocalInferenceService.shared.unload()
+                        modelStatus = "Not loaded"
+                    }
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+            }
+
+            Text("Requires ~7 GB memory. First load downloads the model from Hugging Face.")
+                .font(AppTypography.badge)
+                .foregroundStyle(.tertiary)
         }
     }
 
