@@ -26,4 +26,5 @@ protocol DetailFetchingSource: RecordSource {
 protocol AuthenticatingSource: RecordSource {
     nonisolated var credentialLabel: String { get }
     func setCredential(_ value: String) async
+    func clearCredentials() async
 }

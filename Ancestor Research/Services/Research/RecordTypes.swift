@@ -225,6 +225,7 @@ nonisolated struct FreeBMDParams: Sendable {
 nonisolated struct FreeCenParams: Sendable {
     let chapmanCode: String?
     let censusYear: Int?
+    let birthYearRange: ClosedRange<Int>?
 }
 
 nonisolated struct FindAGraveParams: Sendable {

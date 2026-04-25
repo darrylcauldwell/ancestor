@@ -187,7 +187,7 @@ struct SourceExplorerView: View {
                 // Build source-specific params
                 let params: SourceQueryParams = switch source.sourceID {
                 case "freebmd": .freeBMD(FreeBMDParams(districtCode: nil, wildcardSurname: false, motherSurname: nil, spouseSurname: nil))
-                case "freecen": .freeCen(FreeCenParams(chapmanCode: "DBY", censusYear: birthYearValue.flatMap { _ in nil }))
+                case "freecen": .freeCen(FreeCenParams(chapmanCode: "DBY", censusYear: birthYearValue.flatMap { _ in nil }, birthYearRange: nil))
                 case "findagrave": .findAGrave(FindAGraveParams(yearRangeWidth: 5, location: nil))
                 case "cwgc": .cwgc(CWGCParams(conflict: nil))
                 default: .generic

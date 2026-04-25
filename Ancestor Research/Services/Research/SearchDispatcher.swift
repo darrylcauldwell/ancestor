@@ -99,7 +99,10 @@ struct SearchDispatcher {
                     region: subject.region,
                     sourceParams: .freeCen(FreeCenParams(
                         chapmanCode: regionConfig.chapmanCode,
-                        censusYear: year
+                        censusYear: year,
+                        birthYearRange: subject.birthYearFrom.flatMap { from in
+                            subject.birthYearTo.map { to in from...to }
+                        }
                     ))
                 )
             }
