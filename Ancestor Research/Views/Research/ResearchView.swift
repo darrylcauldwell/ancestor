@@ -11,7 +11,18 @@ struct ResearchView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if wholeTreeVM.isRunning {
+            if frIsRunning {
+                FieldResearcherProgressView(
+                    profileName: frProfileName,
+                    isRunning: $frIsRunning,
+                    status: $frStatus,
+                    findingsCount: $frFindingsCount,
+                    cost: $frCost,
+                    onStop: { frIsRunning = false }
+                )
+            } else if let reviewID = pendingReviewProfileID, showPendingReview {
+                PendingFactsReviewView(profileID: reviewID)
+            } else if wholeTreeVM.isRunning {
                 wholeTreeProgress
             } else if researchVM.isResearching {
                 ResearchProgressView(vm: researchVM)
@@ -153,6 +164,13 @@ struct ResearchView: View {
                 .buttonStyle(.glass)
                 .controlSize(.small)
                 .disabled(frIsRunning || !searchable)
+
+                Button("Review") {
+                    pendingReviewProfileID = profile.id
+                    showPendingReview = true
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
             }
 
             Button("Research") {
@@ -246,6 +264,9 @@ struct ResearchView: View {
     @State private var frStatus = ""
     @State private var frFindingsCount = 0
     @State private var frCost = 0.0
+    @State private var frProfileName = ""
+    @State private var showPendingReview = false
+    @State private var pendingReviewProfileID: String?
 
     private func startFieldResearch(profile: Profile) {
         guard let apiKey = SettingsPlaceholderView.loadAPIKey(), !apiKey.isEmpty else {
@@ -255,9 +276,11 @@ struct ResearchView: View {
         guard let db = appState.currentDatabase else { return }
 
         frIsRunning = true
+        frProfileName = profile.displayName
         frStatus = "Starting..."
         frFindingsCount = 0
         frCost = 0
+        showPendingReview = false
 
         Task {
             let api = ClaudeAPIClient(
@@ -276,6 +299,12 @@ struct ResearchView: View {
             frFindingsCount = result.findings.count + result.narrativeFindings.count
             frCost = result.cost
             frStatus = "\(frFindingsCount) findings, \(result.leads.count) leads — $\(String(format: "%.2f", result.cost))"
+
+            // Transition to pending facts review
+            if frFindingsCount > 0 {
+                pendingReviewProfileID = profile.id
+                showPendingReview = true
+            }
         }
     }
 
