@@ -6,11 +6,14 @@ struct ResearchView: View {
     @Environment(AppState.self) private var appState
     @Environment(SourceRegistry.self) private var registry
     @State private var researchVM = ResearchViewModel()
+    @State private var wholeTreeVM = WholeTreeResearchViewModel()
     @State private var profileSearchText = ""
 
     var body: some View {
         VStack(spacing: 0) {
-            if researchVM.isResearching {
+            if wholeTreeVM.isRunning {
+                wholeTreeProgress
+            } else if researchVM.isResearching {
                 ResearchProgressView(vm: researchVM)
             } else if let result = researchVM.currentResult {
                 ClusterReviewView(vm: researchVM, result: result)
@@ -65,6 +68,19 @@ struct ResearchView: View {
                 Spacer()
 
                 modeDescription
+
+                Button("Research All") {
+                    Task {
+                        await wholeTreeVM.start(
+                            snapshot: appState.snapshot,
+                            registry: registry,
+                            database: appState.currentDatabase
+                        )
+                    }
+                }
+                .buttonStyle(.glassProminent)
+                .controlSize(.small)
+                .disabled(appState.snapshot.profiles.isEmpty)
             }
             .padding()
             Divider()
@@ -166,6 +182,52 @@ struct ResearchView: View {
                 if ca.score != cb.score { return ca.score < cb.score }
                 return a.displayName < b.displayName
             }
+    }
+
+    // MARK: - Whole-Tree Progress
+
+    private var wholeTreeProgress: some View {
+        VStack(spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Whole-Tree Research")
+                        .font(AppTypography.popoverTitle)
+                    Text(wholeTreeVM.progressSummary)
+                        .font(AppTypography.cardBody)
+                        .foregroundStyle(.secondary)
+                    if let profile = wholeTreeVM.currentProfile {
+                        Text("Current: \(profile.displayName)")
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                if wholeTreeVM.waitingForReview {
+                    Button("Continue") { wholeTreeVM.continueToNext() }
+                        .buttonStyle(.glassProminent)
+                        .controlSize(.small)
+                }
+                Button("Cancel") { wholeTreeVM.cancel() }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+            }
+            .padding()
+            Divider()
+
+            if wholeTreeVM.waitingForReview, let result = wholeTreeVM.currentResult {
+                ClusterReviewView(vm: researchVM, result: result)
+            } else {
+                ProgressView("Researching \(wholeTreeVM.currentProfile?.displayName ?? "")...")
+                    .frame(maxHeight: .infinity)
+            }
+
+            if let reason = wholeTreeVM.stopReason, !wholeTreeVM.isRunning {
+                Text("Stopped: \(reason)")
+                    .font(AppTypography.cardBody)
+                    .foregroundStyle(.orange)
+                    .padding()
+            }
+        }
     }
 
     private var modeDescription: some View {
