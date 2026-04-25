@@ -4,6 +4,8 @@ import SwiftUI
 /// Shows source status cards, iteration progress, and result counts.
 struct ResearchProgressView: View {
     @Bindable var vm: ResearchViewModel
+    @State private var elapsedSeconds: Int = 0
+    @State private var timerTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 24) {
@@ -20,6 +22,16 @@ struct ResearchProgressView: View {
                     Text(vm.selectedMode.rawValue.capitalized)
                         .font(AppTypography.badge)
                         .foregroundStyle(.secondary)
+
+                    #if DEBUG
+                    // 5-minute clock — visible in dev builds per §6.1
+                    let minutes = elapsedSeconds / 60
+                    let seconds = elapsedSeconds % 60
+                    Text(String(format: "%d:%02d / 5:00", minutes, seconds))
+                        .font(AppTypography.cardMeta)
+                        .monospacedDigit()
+                        .foregroundStyle(elapsedSeconds > 300 ? .red : .secondary)
+                    #endif
                 }
             }
 
@@ -104,5 +116,24 @@ struct ResearchProgressView: View {
             Image(systemName: "xmark.circle.fill")
                 .foregroundStyle(.red)
         }
+    }
+}
+
+// MARK: - Timer extension
+
+extension ResearchProgressView {
+    func startTimer() {
+        elapsedSeconds = 0
+        timerTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                elapsedSeconds += 1
+            }
+        }
+    }
+
+    func stopTimer() {
+        timerTask?.cancel()
+        timerTask = nil
     }
 }

@@ -137,11 +137,26 @@ nonisolated struct ScoringRules {
 
     /// Score name similarity handling common genealogical variations.
     /// Ported faithfully from Python's name_similarity_score().
+    /// User-learned name equivalences (loaded from database at app launch).
+    /// Set this from AppState after loading the project database.
+    nonisolated(unsafe) static var learnedEquivalences: Set<String> = []
+
+    /// Register a learned equivalence pair (e.g. "ROBERT" ↔ "BOB").
+    static func addLearnedEquivalence(_ nameA: String, _ nameB: String) {
+        let a = nameA.uppercased()
+        let b = nameB.uppercased()
+        learnedEquivalences.insert("\(a)=\(b)")
+        learnedEquivalences.insert("\(b)=\(a)")
+    }
+
     static func nameSimilarity(_ nameA: String, _ nameB: String) -> Double {
         let a = nameA.uppercased().trimmingCharacters(in: .whitespaces)
         let b = nameB.uppercased().trimmingCharacters(in: .whitespaces)
 
         if a == b { return 1.0 }
+
+        // User-learned equivalences (highest priority after exact match)
+        if learnedEquivalences.contains("\(a)=\(b)") { return 0.9 }
 
         // Spelling normalisation (AU/A, OU/O swaps)
         let aNorm = a.replacingOccurrences(of: "AU", with: "A")

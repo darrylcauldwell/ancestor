@@ -404,6 +404,15 @@ struct ClusterReviewView: View {
         case .militaryService:
             Image(systemName: "shield")
                 .foregroundStyle(.red)
+        case .unknownChild:
+            Image(systemName: "figure.and.child.holdinghands")
+                .foregroundStyle(.blue)
+        case .occupationRevealed:
+            Image(systemName: "briefcase")
+                .foregroundStyle(.teal)
+        case .addressFound:
+            Image(systemName: "mappin.and.ellipse")
+                .foregroundStyle(.cyan)
         case .alternateSpelling:
             Image(systemName: "textformat.abc")
                 .foregroundStyle(.secondary)

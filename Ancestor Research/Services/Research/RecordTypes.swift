@@ -209,6 +209,9 @@ nonisolated enum SourceQueryParams: Sendable {
     case freeCen(FreeCenParams)
     case findAGrave(FindAGraveParams)
     case cwgc(CWGCParams)
+    case probate(ProbateParams)
+    case wirksworth(WirksworthParams)
+    case freeREG(FreeREGParams)
     case generic
 }
 
@@ -231,6 +234,20 @@ nonisolated struct FindAGraveParams: Sendable {
 
 nonisolated struct CWGCParams: Sendable {
     let conflict: String?
+}
+
+nonisolated struct ProbateParams: Sendable {
+    let courtType: String?       // "PROBATE", "ADMINISTRATION", etc.
+}
+
+nonisolated struct WirksworthParams: Sendable {
+    let parishHint: String?      // Specific parish within Wirksworth area
+}
+
+nonisolated struct FreeREGParams: Sendable {
+    let registerType: String?    // "ba" (baptism), "ma" (marriage), "bu" (burial)
+    let parish: String?
+    let chapmanCode: String?
 }
 
 // MARK: - Known Relative (used in FamilyContext)

@@ -7,6 +7,7 @@ struct ResearchState: Sendable {
     var scoredRecords: [ScoredRecord] = []
     var householdMembers: [HouseholdMember] = []
     var searchHistory: [SearchAttempt] = []
+    var discrepancies: [ResearchDiscrepancy] = []
     var activeRecordTypes: Set<RecordType>
     var iteration: Int = 0
 
@@ -41,17 +42,28 @@ nonisolated struct ResearchConfig: Sendable {
     static let discover = ResearchConfig(maxIterations: 4, maxFacts: 100, mode: .discover)
 }
 
+/// A discrepancy detected between a source record and existing tree data.
+nonisolated struct ResearchDiscrepancy: Sendable {
+    let field: String               // e.g. "birthYear", "deathYear"
+    let existingValue: String       // What the tree says
+    let sourceValue: String         // What the source says
+    let sourceID: String
+    let severity: DiscrepancySeverity
+    let reasoning: String           // Why this severity was assigned
+}
+
 /// The output of a research run.
 nonisolated struct ResearchResult: Sendable {
     let confirmedFacts: [ScoredRecord]
     let leads: [ScoredRecord]
     let allScoredRecords: [ScoredRecord]
     let clusters: [LifeCluster]
+    let discrepancies: [ResearchDiscrepancy]
     let householdMembers: [HouseholdMember]
     let searchHistory: [SearchAttempt]
 
     static let empty = ResearchResult(
         confirmedFacts: [], leads: [], allScoredRecords: [],
-        clusters: [], householdMembers: [], searchHistory: []
+        clusters: [], discrepancies: [], householdMembers: [], searchHistory: []
     )
 }

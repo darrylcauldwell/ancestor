@@ -21,7 +21,19 @@ nonisolated struct ResearchSubject: Sendable {
     var gender: Gender?
     var region: Region?
     var mode: ResearchMode
+    var familyContext: FamilyContext?
+}
 
+/// Known family members for the family context gate.
+nonisolated struct FamilyContext: Sendable {
+    let spouseName: String?
+    let spouseSurname: String?
+    let childNames: [String]
+    let fatherName: String?
+    let motherName: String?
+}
+
+nonisolated extension ResearchSubject {
     var displayName: String {
         [givenName, surname].compactMap { $0 }.joined(separator: " ")
     }
@@ -64,7 +76,20 @@ nonisolated struct ResearchSubject: Sendable {
 
     /// Build from an existing profile.
     static func fromProfile(_ profile: Profile, snapshot: FamilyGraphSnapshot, mode: ResearchMode = .extend) -> ResearchSubject {
-        ResearchSubject(
+        // Build family context from the tree
+        let spouses = snapshot.spousesOf(profile.id)
+        let children = snapshot.childrenOf(profile.id)
+        let parents = snapshot.parentsOf(profile.id)
+
+        let context = FamilyContext(
+            spouseName: spouses.first?.displayName,
+            spouseSurname: spouses.first?.lastName,
+            childNames: children.map(\.displayName),
+            fatherName: parents.first(where: { $0.gender == .male })?.displayName,
+            motherName: parents.first(where: { $0.gender == .female })?.displayName
+        )
+
+        return ResearchSubject(
             surname: profile.lastName,
             givenName: profile.firstName,
             birthYearFrom: profile.birthDate?.earliest,
@@ -73,7 +98,8 @@ nonisolated struct ResearchSubject: Sendable {
             deathYearTo: profile.deathDate?.latest,
             gender: profile.gender,
             region: profile.birthLocation.map { .county($0) },
-            mode: mode
+            mode: mode,
+            familyContext: context
         )
     }
 
@@ -90,7 +116,8 @@ nonisolated struct ResearchSubject: Sendable {
             deathYearFrom: deathYear, deathYearTo: deathYear,
             gender: gender,
             region: location.map { .county($0) },
-            mode: mode
+            mode: mode,
+            familyContext: nil
         )
     }
 }

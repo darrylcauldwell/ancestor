@@ -1,9 +1,10 @@
 import Foundation
 import os
 
-/// Deterministic research pipeline.
-/// Iterates: dispatch → score → convergence → refine subject.
-/// LLM strategy advisor is optional and added in a later phase.
+/// Deterministic-probabilistic-deterministic research pipeline.
+/// Per iteration: dispatch → score → detect discrepancies → refine subject.
+/// Between iterations: optional reasoning model suggests next search direction.
+/// When the model and deterministic engine disagree, deterministic wins.
 @MainActor
 final class ResearchPipeline {
     let dispatcher: SearchDispatcher
@@ -59,8 +60,34 @@ final class ResearchPipeline {
             // DETERMINISTIC: extract household members from census results
             extractHouseholdMembers(from: scored, into: &state)
 
+            // DETERMINISTIC: detect discrepancies between new records and existing tree
+            let discrepancies = detectDiscrepancies(scored: scored, subject: state.subject)
+            state.discrepancies.append(contentsOf: discrepancies)
+
             // DETERMINISTIC: refine subject from confirmed facts (learned date propagation)
             state.subject = refineSubject(state.subject, from: state.confirmedFacts)
+
+            // PROBABILISTIC: optional reasoning model suggests next search direction
+            // Only between iterations, never rules on specific records
+            if iteration < config.maxIterations {
+                let availableSources = dispatcher.registry.allSources().map(\.sourceID)
+                if let suggestion = await ResearchInterpreter.suggestNextSearch(
+                    subject: state.subject,
+                    currentResults: ResearchResult(
+                        confirmedFacts: state.confirmedFacts, leads: state.leads,
+                        allScoredRecords: state.scoredRecords, clusters: [],
+                        discrepancies: state.discrepancies,
+                        householdMembers: state.householdMembers, searchHistory: state.searchHistory
+                    ),
+                    availableSources: availableSources
+                ) {
+                    logger.info("Reasoning model suggests: \(suggestion.sourceID) for \(suggestion.reason)")
+                    // Model can suggest record types to prioritise — deterministic dispatch still decides
+                    if let suggestedType = suggestion.recordType {
+                        state.activeRecordTypes.insert(suggestedType)
+                    }
+                }
+            }
 
             // STOPPING CONDITIONS
             if state.confirmedFacts.count >= config.maxFacts {
@@ -96,9 +123,58 @@ final class ResearchPipeline {
             leads: state.leads,
             allScoredRecords: state.scoredRecords,
             clusters: clusters,
+            discrepancies: state.discrepancies,
             householdMembers: state.householdMembers,
             searchHistory: state.searchHistory
         )
+    }
+
+    // MARK: - Discrepancy Detection
+
+    /// Detect discrepancies between new records and the existing tree.
+    private func detectDiscrepancies(scored: [ScoredRecord], subject: ResearchSubject) -> [ResearchDiscrepancy] {
+        var discrepancies: [ResearchDiscrepancy] = []
+
+        for record in scored where record.verdict == .fact {
+            let sourceInfo = sourceInfoMap[record.record.sourceID]
+
+            switch record.record {
+            case .birth(let r):
+                if let existingYear = subject.birthYearFrom, let recordYear = r.birthYear, existingYear != recordYear {
+                    let delta = abs(existingYear - recordYear)
+                    let severity = DiscrepancySeverityTable.severity(
+                        sourceTier: sourceInfo?.trustTier ?? .community,
+                        absDelta: delta, convergence: .singleSource
+                    )
+                    discrepancies.append(ResearchDiscrepancy(
+                        field: "birthYear", existingValue: String(existingYear),
+                        sourceValue: String(recordYear), sourceID: record.record.sourceID,
+                        severity: severity.severity,
+                        reasoning: severity.reasoning
+                    ))
+                }
+
+            case .death(let r):
+                if let existingYear = subject.deathYearFrom, let recordYear = r.deathYear, existingYear != recordYear {
+                    let delta = abs(existingYear - recordYear)
+                    let severity = DiscrepancySeverityTable.severity(
+                        sourceTier: sourceInfo?.trustTier ?? .community,
+                        absDelta: delta, convergence: .singleSource
+                    )
+                    discrepancies.append(ResearchDiscrepancy(
+                        field: "deathYear", existingValue: String(existingYear),
+                        sourceValue: String(recordYear), sourceID: record.record.sourceID,
+                        severity: severity.severity,
+                        reasoning: severity.reasoning
+                    ))
+                }
+
+            default:
+                break
+            }
+        }
+
+        return discrepancies
     }
 
     // MARK: - Learned Date Propagation

@@ -159,6 +159,16 @@ struct BulkReviewView: View {
 
 // MARK: - Types
 
+/// Review friction per §20.6 — how much user effort is needed to process a finding.
+/// Higher friction = more attention required. Sorted highest-first in bulk review.
+nonisolated enum ReviewFriction: Int, CaseIterable, Sendable {
+    case autoStage = 0          // Refinements — applied with undo, user glances
+    case batchReview = 1        // Confirmations — "Accept all N" button
+    case individualReview = 2   // Corrections — old→new comparison per item
+    case mustResolve = 3        // Conflicts — cannot commit until resolved
+    case newFinding = 4         // Discoveries — novel information for user attention
+}
+
 nonisolated enum FrictionTier: String, CaseIterable, Sendable {
     case conflict = "Conflict"
     case correction = "Correction"
@@ -180,6 +190,16 @@ nonisolated enum FrictionTier: String, CaseIterable, Sendable {
         case .correction: .orange
         case .confirmation: .blue
         case .refinement: .green
+        }
+    }
+
+    /// Map to the spec's ReviewFriction level.
+    var reviewFriction: ReviewFriction {
+        switch self {
+        case .conflict: .mustResolve
+        case .correction: .individualReview
+        case .confirmation: .batchReview
+        case .refinement: .autoStage
         }
     }
 }

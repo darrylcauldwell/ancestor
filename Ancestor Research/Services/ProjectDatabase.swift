@@ -211,6 +211,52 @@ nonisolated final class ProjectDatabase: Sendable {
             try db.create(index: "idx_leads_status", on: "leads", columns: ["status"])
         }
 
+        migrator.registerMigration("v4_scored_records_discrepancies_pending") { db in
+            // Scored records — full 4-gate results persisted per research run
+            try db.create(table: "scored_records") { t in
+                t.primaryKey("id", .text)
+                t.column("profile_id", .text).notNull()
+                t.column("source_record_id", .text).notNull()
+                t.column("verdict", .text).notNull()
+                t.column("gate_name", .text)
+                t.column("gate_date", .text)
+                t.column("gate_geography", .text)
+                t.column("gate_family", .text)
+                t.column("summary", .text).notNull()
+                t.column("scored_at", .datetime).notNull()
+            }
+
+            // Research discrepancies — conflicts between sources and tree
+            try db.create(table: "research_discrepancies") { t in
+                t.autoIncrementedPrimaryKey("rowid")
+                t.column("profile_id", .text).notNull()
+                t.column("field", .text).notNull()
+                t.column("existing_value", .text).notNull()
+                t.column("source_value", .text).notNull()
+                t.column("source_id", .text).notNull()
+                t.column("severity", .text).notNull()
+                t.column("reasoning", .text).notNull()
+                t.column("resolution_status", .text).notNull().defaults(to: "unresolved")
+                t.column("detected_at", .datetime).notNull()
+            }
+
+            // Pending facts — facts awaiting user review before tree commit
+            try db.create(table: "pending_facts") { t in
+                t.primaryKey("id", .text)
+                t.column("profile_id", .text).notNull()
+                t.column("fact_kind", .text).notNull()    // birth_year, death_year, etc.
+                t.column("value_json", .text).notNull()    // The proposed value
+                t.column("sources_json", .text).notNull()  // Supporting source citations
+                t.column("review_status", .text).notNull().defaults(to: "pending")
+                t.column("created_at", .datetime).notNull()
+                t.column("reviewed_at", .datetime)
+            }
+
+            try db.create(index: "idx_scored_records_profile", on: "scored_records", columns: ["profile_id"])
+            try db.create(index: "idx_discrepancies_profile", on: "research_discrepancies", columns: ["profile_id"])
+            try db.create(index: "idx_pending_facts_profile", on: "pending_facts", columns: ["profile_id"])
+        }
+
         try migrator.migrate(dbQueue)
     }
 

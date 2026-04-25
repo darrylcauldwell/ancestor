@@ -254,9 +254,58 @@ nonisolated struct RecordScorer {
     // MARK: - Gate 4: Family Context
 
     private static func checkFamilyContext(record: SourceRecord, subject: ResearchSubject) -> GateResult {
-        // Family context gate — requires FamilyContext on ResearchSubject
-        // TODO: Re-enable when pipeline provides family context (Phase 6)
-        return GateResult(gate: .familyContext, outcome: .skip, reason: "family context not yet available")
+        guard let context = subject.familyContext else {
+            return GateResult(gate: .familyContext, outcome: .skip, reason: "no family context available")
+        }
+
+        // Check census household for known family members
+        if case .census(let census) = record, let household = census.household {
+            // Spouse match
+            if let spouseName = context.spouseName {
+                let spouseInHousehold = household.contains { member in
+                    let rel = member.relationship.lowercased()
+                    let isSpouse = rel.contains("wife") || rel.contains("husband")
+                    return isSpouse && ScoringRules.nameSimilarity(member.name.uppercased(), spouseName.uppercased()) >= 0.7
+                }
+                if spouseInHousehold {
+                    return GateResult(gate: .familyContext, outcome: .pass, reason: "spouse \(spouseName) found in household")
+                }
+            }
+
+            // Child match
+            for childName in context.childNames {
+                let childInHousehold = household.contains { member in
+                    let rel = member.relationship.lowercased()
+                    let isChild = rel.contains("son") || rel.contains("daughter") || rel.contains("child")
+                    return isChild && ScoringRules.nameSimilarity(member.name.uppercased(), childName.uppercased()) >= 0.7
+                }
+                if childInHousehold {
+                    return GateResult(gate: .familyContext, outcome: .pass, reason: "child \(childName) found in household")
+                }
+            }
+
+            // No family members found — soft fail (suspicious but not disqualifying)
+            if context.spouseName != nil || !context.childNames.isEmpty {
+                return GateResult(gate: .familyContext, outcome: .softFail, reason: "no known family members in household")
+            }
+        }
+
+        // Marriage record — check spouse name match
+        if case .marriage(let marriage) = record, let spouseName = marriage.spouseName {
+            if let knownSpouse = context.spouseName {
+                if ScoringRules.nameSimilarity(spouseName.uppercased(), knownSpouse.uppercased()) >= 0.7 {
+                    return GateResult(gate: .familyContext, outcome: .pass, reason: "spouse matches: \(spouseName)")
+                }
+            }
+            if let knownSurname = context.spouseSurname {
+                let parts = spouseName.uppercased().split(separator: " ")
+                if let recordSurname = parts.last, ScoringRules.nameSimilarity(String(recordSurname), knownSurname.uppercased()) >= 0.7 {
+                    return GateResult(gate: .familyContext, outcome: .pass, reason: "spouse surname matches: \(recordSurname)")
+                }
+            }
+        }
+
+        return GateResult(gate: .familyContext, outcome: .skip, reason: "no family context applicable for this record type")
     }
 
     // MARK: - Helpers

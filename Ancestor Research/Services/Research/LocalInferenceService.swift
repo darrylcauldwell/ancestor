@@ -191,7 +191,7 @@ actor LocalInferenceService {
         // Remove all <think>...</think> blocks
         while let thinkStart = result.range(of: "<think>"),
               let thinkEnd = result.range(of: "</think>", range: thinkStart.upperBound..<result.endIndex) {
-            result.removeSubrange(thinkStart.lowerBound...thinkEnd.upperBound)
+            result.removeSubrange(thinkStart.lowerBound..<thinkEnd.upperBound)
         }
 
         // Also handle unclosed <think> at end (model hit token limit mid-thought)
