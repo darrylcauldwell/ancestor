@@ -323,8 +323,75 @@ struct PendingFactsReviewView: View {
 
     private func acceptFinding(_ finding: ProcessedFinding) {
         guard let db = appState.currentDatabase else { return }
+
+        // 1. Mark pending fact as accepted
         try? db.updatePendingFactStatus(id: finding.id, status: "accepted", verificationStatus: "verified")
+
+        // 2. Apply the fact to the tree profile
+        applyFactToProfile(finding: finding, db: db)
+
+        // 3. Add field source for provenance tracking
+        addFieldSource(finding: finding, db: db)
+
         processedFindings.removeAll { $0.id == finding.id }
+    }
+
+    private func applyFactToProfile(finding: ProcessedFinding, db: ProjectDatabase) {
+        let field = finding.finding.field
+        let value = finding.finding.value
+
+        // Map finding field to profile column
+        let (column, datePrefix): (String?, String) = switch field {
+        case "birthDate", "baptismDate": ("birth_date_original", "birth_date")
+        case "deathDate", "burialDate": ("death_date_original", "death_date")
+        case "birthLocation": ("birth_location", "")
+        case "deathLocation": ("death_location", "")
+        default: (nil, "")
+        }
+
+        guard let column else { return } // Fields like occupation/address are narrative, not profile columns
+
+        // Update profile in database
+        try? db.dbQueue.write { writeDB in
+            try writeDB.execute(
+                sql: "UPDATE profiles SET \(column) = ? WHERE id = ?",
+                arguments: [value, profileID]
+            )
+
+            // If it's a date field, also update the year columns
+            if !datePrefix.isEmpty, let year = EvidenceFirewall.extractYear(from: value) {
+                try writeDB.execute(
+                    sql: "UPDATE profiles SET \(datePrefix)_earliest = ?, \(datePrefix)_latest = ? WHERE id = ?",
+                    arguments: [year, year, profileID]
+                )
+            }
+        }
+
+        // Rebuild snapshot to reflect the change
+        if let newSnapshot = try? db.buildSnapshot() {
+            appState.snapshot = newSnapshot
+        }
+    }
+
+    private func addFieldSource(finding: ProcessedFinding, db: ProjectDatabase) {
+        let profileField: String = switch finding.finding.field {
+        case "birthDate", "baptismDate": "birthDate"
+        case "deathDate", "burialDate": "deathDate"
+        case "birthLocation": "birthLocation"
+        case "deathLocation": "deathLocation"
+        default: finding.finding.field
+        }
+
+        try? db.dbQueue.write { writeDB in
+            try writeDB.execute(sql: """
+                INSERT INTO field_sources (entity_id, entity_kind, field, origin, raw, added_at)
+                VALUES (?, 'profile', ?, 'field-researcher', ?, ?)
+                """, arguments: [
+                    profileID, profileField,
+                    "\(finding.finding.value) [\(finding.finding.sourceTitle)]",
+                    Date(),
+                ])
+        }
     }
 
     private func rejectFinding(_ finding: ProcessedFinding) {

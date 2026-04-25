@@ -203,6 +203,8 @@ actor FieldResearcherService {
         lines.append("For new people you discover (parents, siblings, spouses not yet in the tree), use submit_lead.")
         lines.append("For biographical details that don't fit a specific field (occupations from directories, newspaper mentions, wills), use submit_narrative_finding.")
         lines.append("Focus on sources the structured pipeline hasn't covered: parish registers, newspapers, directories, local history sites.")
+        lines.append("")
+        lines.append(FieldResearchPrompts.derbyshireContext)
 
         return lines.joined(separator: "\n")
     }

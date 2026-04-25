@@ -66,6 +66,51 @@ nonisolated enum FieldResearchPrompts {
     - Are there additional sources that corroborate one over the other?
     """
 
+    /// Derbyshire-specific context appended to research prompts.
+    static let derbyshireContext = """
+
+    ## Derbyshire Parish and District Reference
+
+    ### Registration Districts (civil registration from 1837)
+    - **Bakewell** district: Wirksworth, Matlock, Cromford, Middleton by Wirksworth, \
+      Youlgreave, Monyash, Baslow, Eyam, Darley Dale, Snitterton, Wensley, Bakewell
+    - **Belper** district: Turnditch, Windley, Duffield, Heage, Crich, Holbrook, \
+      Belper, Kilburn, Denby, Mugginton, Weston Underwood, Kirk Ireton, Hulland
+    - **Ashbourne** district: Ashbourne, Mappleton, Tissington, Bradbourne, \
+      Parwich, Doveridge, Kirk Ireton
+    - **Derby** district: Derby, Littleover, Mickleover, Spondon
+    - **Chesterfield** district: Chesterfield, Brampton, Staveley, Unstone
+    - **Basford** (Notts, bordering): Loscoe, Heanor, Langley Mill
+
+    ### Dominant Occupations by Area
+    - Wirksworth/Middleton/Cromford: lead mining, quarrying, framework knitting
+    - Belper/Milford: cotton mills (Strutt's mills), framework knitting
+    - Matlock: lead mining, hydropathy/tourism (from 1850s)
+    - Ashbourne: agriculture, brewing
+    - Crich: limestone quarrying, lead mining
+
+    ### Nonconformist Chapels (records NOT in C of E parish registers)
+    - Wirksworth: Methodist (Wesleyan and Primitive), Baptist
+    - Belper: Unitarian (notable), Methodist
+    - Cromford: Independent Chapel (Arkwright's)
+    - Crich: Methodist (strong presence)
+
+    ### Key Historical Events Affecting Records
+    - 1841 census: ages over 15 rounded DOWN to nearest 5
+    - 1837: civil registration begins (FreeBMD coverage starts)
+    - 1812: Rose's Act standardises parish register format
+    - 1752: calendar change (11 days lost — beware dates near September 1752)
+    - Lead mining decline 1870s–1890s: expect emigration and occupational changes
+    - Railway arrives Wirksworth 1867: increases mobility
+
+    ### Common Surname Spelling Variants in Derbyshire
+    - CAULDWELL / CALDWELL / CAUDWELL / COLDWELL
+    - TWYFORD / TWIFORD / TWYFORT
+    - BUNTING / BUNTEN / BUNTIN
+    - FEARN / FERN / FEARNE
+    - WRAGG / WRAG
+    """
+
     static let ancestorDiscovery = """
     You are searching for a missing ancestor. The person in the tree has no known \
     [parent/spouse] and you need to find candidates.
