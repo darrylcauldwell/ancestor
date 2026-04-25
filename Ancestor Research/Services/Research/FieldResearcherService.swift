@@ -204,7 +204,7 @@ actor FieldResearcherService {
         lines.append("For biographical details that don't fit a specific field (occupations from directories, newspaper mentions, wills), use submit_narrative_finding.")
         lines.append("Focus on sources the structured pipeline hasn't covered: parish registers, newspapers, directories, local history sites.")
         lines.append("")
-        lines.append(FieldResearchPrompts.derbyshireContext)
+        lines.append(FieldResearchPrompts.regionContext(config: RegionConfig.derbyshire, snapshot: snapshot))
 
         return lines.joined(separator: "\n")
     }

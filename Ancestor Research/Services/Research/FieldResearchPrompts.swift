@@ -6,7 +6,7 @@ import Foundation
 nonisolated enum FieldResearchPrompts {
 
     static let systemPrompt = """
-    You are a genealogical field researcher specialising in Derbyshire, England. \
+    You are a genealogical field researcher. \
     Your job is to find primary and secondary evidence about historical people by \
     searching the web and reading documents.
 
@@ -18,11 +18,9 @@ nonisolated enum FieldResearchPrompts {
     4. Resolve any conflicting evidence
     5. Build a soundly reasoned conclusion
 
-    ## Derbyshire Context
-    The research area is centred on Wirksworth, Belper, and surrounding parishes \
-    in Derbyshire, England. Key registration districts: Bakewell (covers Wirksworth, \
-    Matlock, Cromford, Middleton), Belper (covers Duffield, Heage, Crich, Holbrook), \
-    Ashbourne (covers Tissington, Bradbourne, Parwich).
+    ## Context
+    The region-specific context (districts, parishes, date range, surnames) is \
+    provided in the user message. Use it to focus your search on the right area.
 
     Parish registers cover baptisms, marriages, and burials. Civil registration \
     (FreeBMD) starts in 1837. Census years: 1841, 1851, 1861, 1871, 1881, 1891, \
@@ -31,9 +29,8 @@ nonisolated enum FieldResearchPrompts {
     ## Common Pitfalls
     - Census ages were self-reported and often rounded (especially in 1841 where \
       ages over 15 were rounded down to nearest 5)
-    - Name spellings varied: CAULDWELL/CALDWELL, TWYFORD/TWIFORD
+    - Name spellings varied between records — check spelling variants
     - Women appear under maiden name before marriage, married name after
-    - Lead mining was the dominant occupation in the Wirksworth area
     - Nonconformist (Methodist, Baptist) baptisms may not appear in Church of England \
       parish registers
 
@@ -66,50 +63,61 @@ nonisolated enum FieldResearchPrompts {
     - Are there additional sources that corroborate one over the other?
     """
 
-    /// Derbyshire-specific context appended to research prompts.
-    static let derbyshireContext = """
+    /// Build region-specific context dynamically from the tree data and region config.
+    /// NOT hardcoded to Derbyshire — works for any region.
+    static func regionContext(config: RegionConfig, snapshot: FamilyGraphSnapshot) -> String {
+        var lines: [String] = []
 
-    ## Derbyshire Parish and District Reference
+        lines.append("## Region Reference: \(config.county), \(config.country)")
+        lines.append("")
 
-    ### Registration Districts (civil registration from 1837)
-    - **Bakewell** district: Wirksworth, Matlock, Cromford, Middleton by Wirksworth, \
-      Youlgreave, Monyash, Baslow, Eyam, Darley Dale, Snitterton, Wensley, Bakewell
-    - **Belper** district: Turnditch, Windley, Duffield, Heage, Crich, Holbrook, \
-      Belper, Kilburn, Denby, Mugginton, Weston Underwood, Kirk Ireton, Hulland
-    - **Ashbourne** district: Ashbourne, Mappleton, Tissington, Bradbourne, \
-      Parwich, Doveridge, Kirk Ireton
-    - **Derby** district: Derby, Littleover, Mickleover, Spondon
-    - **Chesterfield** district: Chesterfield, Brampton, Staveley, Unstone
-    - **Basford** (Notts, bordering): Loscoe, Heanor, Langley Mill
+        // Districts and parishes from config
+        if !config.districtParishes.isEmpty {
+            lines.append("### Registration Districts")
+            for (district, parishes) in config.districtParishes.sorted(by: { $0.key < $1.key }) {
+                lines.append("- **\(district)** district: \(parishes.joined(separator: ", "))")
+            }
+            lines.append("")
+        }
 
-    ### Dominant Occupations by Area
-    - Wirksworth/Middleton/Cromford: lead mining, quarrying, framework knitting
-    - Belper/Milford: cotton mills (Strutt's mills), framework knitting
-    - Matlock: lead mining, hydropathy/tourism (from 1850s)
-    - Ashbourne: agriculture, brewing
-    - Crich: limestone quarrying, lead mining
+        // Derive common surnames from tree
+        let surnames = Set(snapshot.profiles.values.compactMap(\.lastName))
+            .sorted()
+            .prefix(20)
+        if !surnames.isEmpty {
+            lines.append("### Surnames in This Tree")
+            lines.append(surnames.joined(separator: ", "))
+            lines.append("")
+        }
 
-    ### Nonconformist Chapels (records NOT in C of E parish registers)
-    - Wirksworth: Methodist (Wesleyan and Primitive), Baptist
-    - Belper: Unitarian (notable), Methodist
-    - Cromford: Independent Chapel (Arkwright's)
-    - Crich: Methodist (strong presence)
+        // Derive date range from tree
+        let years = snapshot.profiles.values.compactMap { $0.birthDate?.earliest }
+        if let earliest = years.min(), let latest = years.max() {
+            lines.append("### Date Range")
+            lines.append("Earliest birth: \(earliest), latest: \(latest)")
+            lines.append("")
+        }
 
-    ### Key Historical Events Affecting Records
-    - 1841 census: ages over 15 rounded DOWN to nearest 5
-    - 1837: civil registration begins (FreeBMD coverage starts)
-    - 1812: Rose's Act standardises parish register format
-    - 1752: calendar change (11 days lost — beware dates near September 1752)
-    - Lead mining decline 1870s–1890s: expect emigration and occupational changes
-    - Railway arrives Wirksworth 1867: increases mobility
+        // Derive locations from tree
+        let locations = Set(snapshot.profiles.values.compactMap(\.birthLocation))
+            .sorted()
+            .prefix(15)
+        if !locations.isEmpty {
+            lines.append("### Locations in This Tree")
+            lines.append(locations.joined(separator: ", "))
+            lines.append("")
+        }
 
-    ### Common Surname Spelling Variants in Derbyshire
-    - CAULDWELL / CALDWELL / CAUDWELL / COLDWELL
-    - TWYFORD / TWIFORD / TWYFORT
-    - BUNTING / BUNTEN / BUNTIN
-    - FEARN / FERN / FEARNE
-    - WRAGG / WRAG
-    """
+        // Universal genealogical context (not region-specific)
+        lines.append("### Key Dates for English Genealogy")
+        lines.append("- 1841 census: ages over 15 rounded DOWN to nearest 5")
+        lines.append("- 1837: civil registration begins (FreeBMD coverage starts)")
+        lines.append("- 1812: Rose's Act standardises parish register format")
+        lines.append("- 1752: calendar change (11 days lost)")
+        lines.append("- Census years: 1841, 1851, 1861, 1871, 1881, 1891, 1901, 1911, 1921")
+
+        return lines.joined(separator: "\n")
+    }
 
     static let ancestorDiscovery = """
     You are searching for a missing ancestor. The person in the tree has no known \
