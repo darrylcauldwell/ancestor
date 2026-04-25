@@ -108,6 +108,22 @@ final class ResearchViewModel {
 
         logger.info("Research complete: \(result.clusters.count) clusters, \(result.confirmedFacts.count) facts, \(result.leads.count) leads")
 
+        // Create leads from scored leads and household discoveries
+        if let db = appDatabase {
+            let leadStore = LeadStore(db: db)
+            for scored in result.leads {
+                _ = try? await leadStore.createFromScoredRecord(scored, profileID: profile.id)
+            }
+            for member in result.householdMembers {
+                let censusYear = result.allScoredRecords
+                    .compactMap { r -> Int? in
+                        if case .census(let c) = r.record { return c.censusYear }
+                        return nil
+                    }.first ?? 1861
+                _ = try? await leadStore.createFromHouseholdMember(member, profileID: profile.id, censusYear: censusYear)
+            }
+        }
+
         // Persist the research run
         if let db = appDatabase {
             let searchedSources = Set(result.allScoredRecords.map(\.record.sourceID))

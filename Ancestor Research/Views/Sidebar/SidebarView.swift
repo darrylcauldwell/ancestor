@@ -49,6 +49,7 @@ nonisolated extension SidebarTab {
         case .audit: "checkmark.shield"
         case .gaps: "exclamationmark.triangle"
         case .research: "globe.desk"
+        case .leads: "person.crop.circle.badge.questionmark"
         case .settings: "gear"
         }
     }

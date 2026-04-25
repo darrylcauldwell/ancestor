@@ -189,6 +189,28 @@ nonisolated final class ProjectDatabase: Sendable {
             try db.create(index: "idx_research_runs_profile", on: "research_runs", columns: ["profile_id"])
         }
 
+        migrator.registerMigration("v3_leads") { db in
+            try db.create(table: "leads") { t in
+                t.primaryKey("id", .text)
+                t.column("profile_id", .text).notNull()
+                t.column("name", .text).notNull()
+                t.column("surname", .text)
+                t.column("given_name", .text)
+                t.column("birth_year", .integer)
+                t.column("death_year", .integer)
+                t.column("relationship", .text)
+                t.column("source", .text).notNull()
+                t.column("status", .text).notNull()
+                t.column("evidence", .text).notNull()
+                t.column("created_at", .datetime).notNull()
+                t.column("investigated_at", .datetime)
+                t.column("resolved_at", .datetime)
+                t.column("resolution", .text)
+            }
+            try db.create(index: "idx_leads_profile", on: "leads", columns: ["profile_id"])
+            try db.create(index: "idx_leads_status", on: "leads", columns: ["status"])
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -590,7 +612,7 @@ nonisolated final class ProjectDatabase: Sendable {
 
 // MARK: - Research Persistence
 
-extension ProjectDatabase {
+nonisolated extension ProjectDatabase {
 
     /// Save a research run record.
     func saveResearchRun(
@@ -693,6 +715,73 @@ extension ProjectDatabase {
                 (sourceID: $0["source_id"] as String,
                  recordType: $0["record_type"] as String,
                  date: $0["searched_at"] as Date)
+            }
+        }
+    }
+}
+
+// MARK: - Lead Persistence
+
+nonisolated extension ProjectDatabase {
+
+    func saveLead(_ lead: Lead) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT OR REPLACE INTO leads
+                (id, profile_id, name, surname, given_name, birth_year, death_year,
+                 relationship, source, status, evidence, created_at, investigated_at, resolved_at, resolution)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    lead.id, lead.profileID, lead.name, lead.surname, lead.givenName,
+                    lead.birthYear, lead.deathYear, lead.relationship,
+                    lead.source.rawValue, lead.status.rawValue, lead.evidence,
+                    lead.createdAt, lead.investigatedAt, lead.resolvedAt, lead.resolution?.rawValue
+                ])
+        }
+    }
+
+    func loadLeads() throws -> [Lead] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT * FROM leads ORDER BY created_at DESC")
+            return rows.compactMap { row -> Lead? in
+                guard let source = LeadSource(rawValue: row["source"] as String),
+                      let status = LeadStatus(rawValue: row["status"] as String) else { return nil }
+                return Lead(
+                    id: row["id"],
+                    profileID: row["profile_id"],
+                    name: row["name"],
+                    surname: row["surname"],
+                    givenName: row["given_name"],
+                    birthYear: row["birth_year"],
+                    deathYear: row["death_year"],
+                    relationship: row["relationship"],
+                    source: source,
+                    status: status,
+                    evidence: row["evidence"],
+                    createdAt: row["created_at"],
+                    investigatedAt: row["investigated_at"],
+                    resolvedAt: row["resolved_at"],
+                    resolution: (row["resolution"] as String?).flatMap { LeadResolution(rawValue: $0) }
+                )
+            }
+        }
+    }
+
+    func loadLeads(profileID: String) throws -> [Lead] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT * FROM leads WHERE profile_id = ? ORDER BY created_at DESC", arguments: [profileID])
+            return rows.compactMap { row -> Lead? in
+                guard let source = LeadSource(rawValue: row["source"] as String),
+                      let status = LeadStatus(rawValue: row["status"] as String) else { return nil }
+                return Lead(
+                    id: row["id"], profileID: row["profile_id"],
+                    name: row["name"], surname: row["surname"], givenName: row["given_name"],
+                    birthYear: row["birth_year"], deathYear: row["death_year"],
+                    relationship: row["relationship"], source: source, status: status,
+                    evidence: row["evidence"], createdAt: row["created_at"],
+                    investigatedAt: row["investigated_at"], resolvedAt: row["resolved_at"],
+                    resolution: (row["resolution"] as String?).flatMap { LeadResolution(rawValue: $0) }
+                )
             }
         }
     }
