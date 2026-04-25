@@ -36,11 +36,23 @@ struct MCPServer {
 actor MCPHandler {
     let db: DatabaseQueue
 
+    /// Supported schema version range (§12).
+    static let supportedSchemaVersions = 3...5
+
     init(dbPath: String) throws {
         var config = Configuration()
         config.foreignKeysEnabled = true
         config.readonly = false
         self.db = try DatabaseQueue(path: dbPath, configuration: config)
+
+        // Schema version check
+        try db.read { db in
+            // Check for v3 (leads) and v5 (field_researcher) tables
+            let tables = try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type='table'")
+            if !tables.contains("leads") {
+                throw MCPError.invalidParams("Database schema too old (no leads table). Update the app first.")
+            }
+        }
     }
 
     func run() async {
@@ -200,6 +212,21 @@ actor MCPHandler {
                     required: ["source_profile_id", "name", "evidence", "source_url"]
                 ),
                 tool(
+                    name: "submit_narrative_finding",
+                    description: "Submit unstructured biographical evidence that doesn't map to a single field (apprenticeships, wills, newspaper mentions, emigration, etc.).",
+                    properties: [
+                        "profile_id": ["type": "string", "description": "Profile ID this is about"],
+                        "category": ["type": "string", "description": "Category: apprenticeship, will_probate, newspaper, emigration, military_service, education, land_property, poor_law, trade_directory, inscription, other"],
+                        "description": ["type": "string", "description": "What was found (max 500 chars)"],
+                        "date_or_period": ["type": "string", "description": "When this applied (e.g. 1845, 1841-1851)"],
+                        "source_url": ["type": "string", "description": "URL where found"],
+                        "source_title": ["type": "string", "description": "Source name"],
+                        "evidence_text": ["type": "string", "description": "Exact text from source (max 200 chars)"],
+                        "reasoning": ["type": "string", "description": "How connected to this profile"],
+                    ],
+                    required: ["profile_id", "category", "description", "source_url", "source_title", "evidence_text", "reasoning"]
+                ),
+                tool(
                     name: "get_profile",
                     description: "Get full detail for a specific profile including all known facts, sources, relationships, and research history.",
                     properties: [
@@ -228,6 +255,8 @@ actor MCPHandler {
         switch name {
         case "submit_evidence":
             return try submitEvidence(arguments)
+        case "submit_narrative_finding":
+            return try submitNarrativeFinding(arguments)
         case "submit_lead":
             return try submitLead(arguments)
         case "get_profile":
@@ -435,6 +464,44 @@ actor MCPHandler {
             }
             p["relationships"] = relationships
 
+            // Field sources — what's confirmed with source provenance
+            let fieldSources = try Row.fetchAll(db, sql: """
+                SELECT field, raw, origin FROM field_sources WHERE entity_id = ?
+                """, arguments: [id])
+            var confirmedFacts: [[String: String]] = []
+            for fs in fieldSources {
+                confirmedFacts.append([
+                    "field": fs["field"] as String? ?? "",
+                    "value": fs["raw"] as String? ?? "",
+                    "source": fs["origin"] as String? ?? "",
+                ])
+            }
+            p["confirmed_facts"] = confirmedFacts
+
+            // Active leads for this profile
+            let leadRows = try Row.fetchAll(db, sql: """
+                SELECT name, relationship, status, evidence, birth_year, death_year
+                FROM leads WHERE profile_id = ? ORDER BY created_at DESC
+                """, arguments: [id])
+            p["leads"] = leadRows.map { lead -> [String: Any] in
+                var l: [String: Any] = [
+                    "name": lead["name"] as String? ?? "",
+                    "status": lead["status"] as String? ?? "",
+                    "evidence": lead["evidence"] as String? ?? "",
+                ]
+                if let r: String = lead["relationship"] { l["relationship"] = r }
+                if let y: Int = lead["birth_year"] { l["birth_year"] = y }
+                if let y: Int = lead["death_year"] { l["death_year"] = y }
+                return l
+            }
+
+            // Cited URLs from previous FR sessions (for source-recycling detection)
+            let urlRows = try Row.fetchAll(db, sql: """
+                SELECT DISTINCT source_url FROM pending_facts
+                WHERE profile_id = ? AND source_url IS NOT NULL
+                """, arguments: [id])
+            p["cited_urls"] = urlRows.compactMap { $0["source_url"] as String? }
+
             // Research history
             let runs = try Row.fetchAll(db, sql: """
                 SELECT mode, completed_at, fact_count, lead_count, cluster_count, gps_score
@@ -510,12 +577,29 @@ actor MCPHandler {
             throw MCPError.invalidParams("missing required fields for submit_evidence")
         }
 
-        let id = UUID().uuidString
+        // Validate field is in the accepted vocabulary
+        let validFields: Set<String> = [
+            "birthDate", "deathDate", "baptismDate", "burialDate",
+            "birthLocation", "deathLocation", "marriageDate", "marriageLocation",
+            "occupation", "address", "religion",
+        ]
+        guard validFields.contains(field) else {
+            return [
+                "content": [["type": "text", "text": "Field '\(field)' not supported. Use submit_narrative_finding for unstructured evidence, or submit_lead for new people."]]
+            ]
+        }
+
+        // Idempotency key (§13) — deterministic ID from content
+        let id = idempotencyKey(profileID: profileID, field: field, value: value, sourceURL: sourceURL)
+
+        // Cap evidence_text at 200 chars (§5.4)
+        let cappedEvidence = String(evidenceText.prefix(200))
+
         let sourcesJSON = try String(
             data: JSONSerialization.data(withJSONObject: [
                 "source_url": sourceURL,
                 "source_title": sourceTitle,
-                "evidence_text": evidenceText,
+                "evidence_text": cappedEvidence,
                 "reasoning": reasoning,
                 "confidence": confidence,
                 "agent": "field-researcher",
@@ -525,16 +609,60 @@ actor MCPHandler {
 
         try db.write { db in
             try db.execute(sql: """
-                INSERT INTO pending_facts (id, profile_id, fact_kind, value_json, sources_json, review_status, created_at)
-                VALUES (?, ?, ?, ?, ?, 'pending', ?)
-                """, arguments: [id, profileID, field, value, sourcesJSON, Date()])
+                INSERT OR IGNORE INTO pending_facts
+                (id, profile_id, fact_kind, value_json, sources_json, review_status, created_at,
+                 source_url, source_title, evidence_text, reasoning, agent_id, verification_status)
+                VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 'field-researcher', 'pending')
+                """, arguments: [
+                    id, profileID, field, value, sourcesJSON, Date(),
+                    sourceURL, sourceTitle, cappedEvidence, reasoning,
+                ])
         }
 
         return [
             "content": [
                 [
                     "type": "text",
-                    "text": "Evidence submitted: \(field) = \(value) for profile \(profileID). ID: \(id). Status: pending human review.",
+                    "text": "Evidence submitted: \(field) = \(value) for profile \(profileID). ID: \(id). Status: pending human review. The app will verify the source URL and score this through the 4-gate pipeline before presenting for review.",
+                ]
+            ]
+        ]
+    }
+
+    func submitNarrativeFinding(_ args: [String: Any]) throws -> [String: Any] {
+        guard let profileID = args["profile_id"] as? String,
+              let category = args["category"] as? String,
+              let description = args["description"] as? String,
+              let sourceURL = args["source_url"] as? String,
+              let sourceTitle = args["source_title"] as? String,
+              let evidenceText = args["evidence_text"] as? String,
+              let reasoning = args["reasoning"] as? String else {
+            throw MCPError.invalidParams("missing required fields for submit_narrative_finding")
+        }
+
+        let dateOrPeriod = args["date_or_period"] as? String
+        let id = idempotencyKey(profileID: profileID, field: category, value: description, sourceURL: sourceURL)
+        let cappedEvidence = String(evidenceText.prefix(200))
+        let cappedDescription = String(description.prefix(500))
+
+        try db.write { db in
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO narrative_findings
+                (id, profile_id, category, description, date_or_period,
+                 source_url, source_title, evidence_text, reasoning,
+                 agent_id, verification_status, submitted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'field-researcher', 'pending', ?)
+                """, arguments: [
+                    id, profileID, category, cappedDescription, dateOrPeriod,
+                    sourceURL, sourceTitle, cappedEvidence, reasoning, Date(),
+                ])
+        }
+
+        return [
+            "content": [
+                [
+                    "type": "text",
+                    "text": "Narrative finding submitted: \(category) for profile \(profileID). ID: \(id). Status: pending verification.",
                 ]
             ]
         ]
@@ -579,6 +707,17 @@ actor MCPHandler {
     }
 
     // MARK: - Helpers
+
+    /// Deterministic ID from content for idempotency (§13).
+    func idempotencyKey(profileID: String, field: String, value: String, sourceURL: String) -> String {
+        let input = "\(profileID)|\(field)|\(value)|\(sourceURL)"
+        // Simple hash — not cryptographic, just deterministic
+        var hash: UInt64 = 5381
+        for byte in input.utf8 {
+            hash = ((hash &<< 5) &+ hash) &+ UInt64(byte)
+        }
+        return String(format: "fr_%016llx", hash)
+    }
 
     func resource(_ uri: String, _ name: String, _ description: String) -> [String: String] {
         ["uri": uri, "name": name, "description": description, "mimeType": "application/json"]

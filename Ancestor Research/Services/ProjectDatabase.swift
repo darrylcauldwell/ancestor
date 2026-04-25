@@ -257,6 +257,63 @@ nonisolated final class ProjectDatabase: Sendable {
             try db.create(index: "idx_pending_facts_profile", on: "pending_facts", columns: ["profile_id"])
         }
 
+        migrator.registerMigration("v5_field_researcher") { db in
+            // Narrative findings — unstructured biographical evidence
+            try db.create(table: "narrative_findings") { t in
+                t.primaryKey("id", .text)
+                t.column("profile_id", .text).notNull()
+                t.column("category", .text).notNull()
+                t.column("description", .text).notNull()
+                t.column("date_or_period", .text)
+                t.column("source_url", .text).notNull()
+                t.column("source_title", .text).notNull()
+                t.column("evidence_text", .text).notNull()
+                t.column("reasoning", .text).notNull()
+                t.column("agent_id", .text).notNull()
+                t.column("verification_status", .text).notNull().defaults(to: "pending")
+                t.column("submitted_at", .datetime).notNull()
+            }
+
+            // Page cache — cached source pages for provenance (Rule 2)
+            try db.create(table: "page_cache") { t in
+                t.primaryKey("url_hash", .text)   // SHA256 of URL
+                t.column("url", .text).notNull()
+                t.column("content_hash", .text).notNull()
+                t.column("fetched_at", .datetime).notNull()
+                t.column("content_length", .integer).notNull()
+                // Actual page data stored as files in Application Support, keyed by url_hash
+            }
+
+            // Field researcher sessions — cost tracking (§10)
+            try db.create(table: "field_researcher_sessions") { t in
+                t.primaryKey("id", .text)
+                t.column("profile_id", .text).notNull()
+                t.column("agent_id", .text).notNull()
+                t.column("started_at", .datetime).notNull()
+                t.column("completed_at", .datetime)
+                t.column("tokens_input", .integer).notNull().defaults(to: 0)
+                t.column("tokens_output", .integer).notNull().defaults(to: 0)
+                t.column("estimated_cost", .double).notNull().defaults(to: 0)
+                t.column("findings_submitted", .integer).notNull().defaults(to: 0)
+                t.column("findings_accepted", .integer).notNull().defaults(to: 0)
+            }
+
+            // Add verification columns to pending_facts
+            try db.alter(table: "pending_facts") { t in
+                t.add(column: "source_url", .text)
+                t.add(column: "source_title", .text)
+                t.add(column: "evidence_text", .text)
+                t.add(column: "reasoning", .text)
+                t.add(column: "agent_id", .text)
+                t.add(column: "verification_status", .text).defaults(to: "pending")
+                t.add(column: "source_trust_tier", .text)
+                t.add(column: "source_directness", .text)
+            }
+
+            try db.create(index: "idx_narrative_findings_profile", on: "narrative_findings", columns: ["profile_id"])
+            try db.create(index: "idx_fr_sessions_profile", on: "field_researcher_sessions", columns: ["profile_id"])
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -762,6 +819,72 @@ nonisolated extension ProjectDatabase {
                  recordType: $0["record_type"] as String,
                  date: $0["searched_at"] as Date)
             }
+        }
+    }
+}
+
+// MARK: - Pending Facts
+
+nonisolated extension ProjectDatabase {
+
+    func loadPendingFacts(profileID: String) throws -> [[String: Any]] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT * FROM pending_facts WHERE profile_id = ? AND review_status = 'pending'
+                ORDER BY created_at DESC
+                """, arguments: [profileID])
+            return rows.map { row in
+                var dict: [String: Any] = [:]
+                for column in row.columnNames {
+                    dict[column] = row[column] as Any
+                }
+                return dict
+            }
+        }
+    }
+
+    func loadCitedURLs(profileID: String) throws -> Set<String> {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT DISTINCT source_url FROM pending_facts
+                WHERE profile_id = ? AND source_url IS NOT NULL
+                """, arguments: [profileID])
+            return Set(rows.compactMap { $0["source_url"] as String? })
+        }
+    }
+
+    func updatePendingFactStatus(id: String, status: String, verificationStatus: String? = nil) throws {
+        try dbQueue.write { db in
+            if let vs = verificationStatus {
+                try db.execute(
+                    sql: "UPDATE pending_facts SET review_status = ?, verification_status = ? WHERE id = ?",
+                    arguments: [status, vs, id]
+                )
+            } else {
+                try db.execute(
+                    sql: "UPDATE pending_facts SET review_status = ? WHERE id = ?",
+                    arguments: [status, id]
+                )
+            }
+        }
+    }
+
+    func saveNarrativeFinding(_ finding: NarrativeFinding) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO narrative_findings
+                (id, profile_id, category, description, date_or_period,
+                 source_url, source_title, evidence_text, reasoning,
+                 agent_id, verification_status, submitted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    finding.id, finding.profileID, finding.category,
+                    finding.description, finding.dateOrPeriod,
+                    finding.sourceURL, finding.sourceTitle,
+                    String(finding.evidenceText.prefix(200)),
+                    finding.reasoning, finding.agentID,
+                    finding.verificationStatus.rawValue, finding.submittedAt,
+                ])
         }
     }
 }
