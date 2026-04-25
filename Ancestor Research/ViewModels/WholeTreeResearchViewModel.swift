@@ -169,4 +169,37 @@ final class WholeTreeResearchViewModel {
     var progressSummary: String {
         "\(profilesCompleted)/\(profileQueue.count) profiles, \(totalFacts) facts"
     }
+
+    // MARK: - Resume Persistence
+
+    /// Save current position for resume after app restart.
+    func saveProgress(to db: ProjectDatabase?) {
+        guard let db else { return }
+        let state: [String: Any] = [
+            "currentIndex": currentIndex,
+            "profilesCompleted": profilesCompleted,
+            "totalFacts": totalFacts,
+            "profileIDs": profileQueue.map(\.id),
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: state),
+           let json = String(data: data, encoding: .utf8) {
+            try? db.saveNegativeSearch(
+                profileID: "__whole_tree__",
+                sourceID: "resume_state",
+                recordType: "whole_tree",
+                params: json
+            )
+        }
+    }
+
+    /// Try to restore progress from a previous run.
+    func restoreProgress(from db: ProjectDatabase?, snapshot: FamilyGraphSnapshot) -> Bool {
+        guard let db else { return false }
+        let searches = (try? db.loadNegativeSearches(profileID: "__whole_tree__")) ?? []
+        guard let latest = searches.first(where: { $0.sourceID == "resume_state" }) else { return false }
+
+        // Resume state is stored as search params JSON — this is a pragmatic reuse
+        // of the negative_searches table. A dedicated table could be added in a future migration.
+        return false // Placeholder — full restore requires deserializing profile queue
+    }
 }
