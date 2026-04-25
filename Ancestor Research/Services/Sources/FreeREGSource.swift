@@ -1,0 +1,268 @@
+import Foundation
+import os
+
+/// FreeREG — volunteer-transcribed parish register records
+/// https://www.freereg.org.uk/
+/// Access: POST form with CSRF token → HTML table results
+/// Auth: CSRF token from search form
+/// Coverage: ~1500–1900, England & Wales parish registers (baptism, marriage, burial)
+/// Faithfully ported from Python's sources/freereg_search.py
+actor FreeREGSource: RecordSource {
+
+    // MARK: - RecordSource Protocol
+
+    nonisolated let sourceID = "freereg"
+    nonisolated let displayName = "FreeREG"
+    nonisolated let recordTypes: Set<RecordType> = [.baptism, .marriage, .burial, .parish]
+    nonisolated let coverageYearRange: ClosedRange<Int>? = 1500...1900
+    nonisolated let coverageRegions: Set<Region> = [.englandAndWales]
+    nonisolated let dataLineage: SourceLineage = .independentTranscription(of: "parish-registers")
+    nonisolated let trustTier: SourceTrustTier = .transcription
+    nonisolated let evidenceDirectness: EvidenceDirectness = .directTranscription
+    nonisolated let tosStatus = SourceToSStatus(
+        level: .community,
+        summary: "Volunteer transcription project — no API, no explicit prohibition"
+    )
+
+    // MARK: - State
+
+    private let http: any HTTPClient
+    private let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "FreeREG")
+    private var csrfToken: String?
+    private var lastRequestTime: ContinuousClock.Instant?
+    private let requestDelay: Duration = .milliseconds(1000)
+
+    init(http: any HTTPClient = SourceHTTPClient.shared) {
+        self.http = http
+    }
+
+    // MARK: - Constants
+
+    nonisolated private static let baseURL = "https://www.freereg.org.uk"
+    nonisolated private static let searchFormURL = "https://www.freereg.org.uk/search_queries/new"
+    nonisolated private static let searchPostURL = "https://www.freereg.org.uk/search_queries"
+    nonisolated private static let userAgent = "AncestorResearch/1.0 (macOS; genealogy research tool; github.com/darrylcauldwell/ancestor)"
+
+    // MARK: - Search
+
+    func search(_ query: RecordQuery) async -> SourceQueryResult {
+        guard recordTypes.contains(query.recordType) else {
+            return .outsideCoverage(reason: "FreeREG provides parish register records only")
+        }
+        guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
+
+        do {
+            try await ensureSession()
+            try await rateLimit()
+
+            // Map record type to FreeREG form value
+            let recordTypeValue: String
+            switch query.recordType {
+            case .baptism, .christening: recordTypeValue = "ba"
+            case .marriage: recordTypeValue = "ma"
+            case .burial: recordTypeValue = "bu"
+            default: recordTypeValue = ""  // All types
+            }
+
+            // Get chapman code from query params or default
+            let chapmanCode: String
+            if case .freeCen(let params) = query.sourceParams, let code = params.chapmanCode {
+                chapmanCode = code
+            } else {
+                chapmanCode = "DBY"
+            }
+
+            var fields: [String: String] = [
+                "search_query[last_name]": surname,
+                "search_query[chapman_codes][]": chapmanCode,
+                "commit": "Search",
+            ]
+            if let token = csrfToken {
+                fields["authenticity_token"] = token
+            }
+            if let givenName = query.givenName, !givenName.isEmpty {
+                fields["search_query[first_name]"] = givenName
+            }
+            if !recordTypeValue.isEmpty {
+                fields["search_query[record_type]"] = recordTypeValue
+            }
+            if let yearFrom = query.yearFrom {
+                fields["search_query[start_year]"] = String(yearFrom)
+            }
+            if let yearTo = query.yearTo {
+                fields["search_query[end_year]"] = String(yearTo)
+            }
+
+            let data = try await http.postForm(
+                url: URL(string: Self.searchPostURL)!,
+                fields: fields,
+                headers: [
+                    "User-Agent": Self.userAgent,
+                    "X-CSRF-Token": csrfToken ?? "",
+                    "Referer": Self.searchFormURL,
+                ]
+            )
+
+            let html = String(data: data, encoding: .utf8) ?? ""
+            let records = Self.parseResults(html, recordType: query.recordType)
+            logger.info("FreeREG: \(records.count) results for \(surname)")
+            return .results(records)
+        } catch {
+            csrfToken = nil  // Reset on error
+            logger.error("FreeREG search failed: \(error.localizedDescription)")
+            return .unavailable(reason: error.localizedDescription)
+        }
+    }
+
+    // MARK: - Session Management
+
+    private func ensureSession() async throws {
+        guard csrfToken == nil else { return }
+
+        let data = try await http.get(url: URL(string: Self.searchFormURL)!, headers: [
+            "User-Agent": Self.userAgent,
+        ])
+        let html = String(data: data, encoding: .utf8) ?? ""
+
+        // Extract CSRF token from <meta name="csrf-token" content="...">
+        let metaPattern = #"<meta\s+name="csrf-token"\s+content="([^"]+)""#
+        if let regex = try? NSRegularExpression(pattern: metaPattern, options: .caseInsensitive),
+           let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+           let range = Range(match.range(at: 1), in: html) {
+            csrfToken = String(html[range])
+        }
+
+        // Fallback: look for hidden input
+        if csrfToken == nil {
+            let inputPattern = #"<input[^>]+name="authenticity_token"[^>]+value="([^"]+)""#
+            if let regex = try? NSRegularExpression(pattern: inputPattern),
+               let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let range = Range(match.range(at: 1), in: html) {
+                csrfToken = String(html[range])
+            }
+        }
+    }
+
+    private func rateLimit() async throws {
+        if let last = lastRequestTime {
+            let elapsed = ContinuousClock.now - last
+            if elapsed < requestDelay {
+                try await Task.sleep(for: requestDelay - elapsed)
+            }
+        }
+        lastRequestTime = .now
+    }
+
+    // MARK: - Parsing (nonisolated static — testable)
+
+    /// Parse FreeREG search results HTML table.
+    nonisolated static func parseResults(_ html: String, recordType: RecordType) -> [SourceRecord] {
+        var records: [SourceRecord] = []
+
+        // Find table rows with data
+        let rowPattern = #"<tr[^>]*>(.*?)</tr>"#
+        guard let rowRegex = try? NSRegularExpression(pattern: rowPattern, options: .dotMatchesLineSeparators) else {
+            return []
+        }
+
+        let cellPattern = #"<t[dh][^>]*>(.*?)</t[dh]>"#
+        guard let cellRegex = try? NSRegularExpression(pattern: cellPattern, options: .dotMatchesLineSeparators) else {
+            return []
+        }
+
+        // Extract link pattern for detail URLs
+        let linkPattern = #"href="(/(?:search_records|freereg1_csv_entries)/[^"]+)""#
+        let linkRegex = try? NSRegularExpression(pattern: linkPattern)
+
+        var headers: [String] = []
+        let rowMatches = rowRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+
+        for rowMatch in rowMatches {
+            guard let rowRange = Range(rowMatch.range(at: 1), in: html) else { continue }
+            let rowHTML = String(html[rowRange])
+
+            let cellMatches = cellRegex.matches(in: rowHTML, range: NSRange(rowHTML.startIndex..., in: rowHTML))
+            let cells = cellMatches.compactMap { match -> String? in
+                guard let range = Range(match.range(at: 1), in: rowHTML) else { return nil }
+                return stripTags(String(rowHTML[range]))
+            }
+
+            guard !cells.isEmpty else { continue }
+
+            // Header row detection
+            if rowHTML.contains("<th") {
+                headers = cells
+                continue
+            }
+
+            // Skip rows without headers
+            guard !headers.isEmpty else { continue }
+
+            // Build row dict
+            var row: [String: String] = [:]
+            for (i, header) in headers.enumerated() where i < cells.count {
+                row[header.lowercased()] = cells[i]
+            }
+
+            // Extract detail URL
+            var detailURL: String?
+            if let linkRegex,
+               let linkMatch = linkRegex.firstMatch(in: rowHTML, range: NSRange(rowHTML.startIndex..., in: rowHTML)),
+               let range = Range(linkMatch.range(at: 1), in: rowHTML) {
+                detailURL = "\(baseURL)\(rowHTML[range])"
+            }
+
+            // Build record
+            let name = row["name"] ?? row["surname"] ?? ""
+            let date = row["date"] ?? ""
+            let parish = row["parish"] ?? ""
+            let county = row["county"] ?? ""
+            let type = row["record type"] ?? row["type"] ?? ""
+
+            guard !name.isEmpty else { continue }
+
+            let parts = name.split(separator: " ", maxSplits: 1)
+            let givenName = parts.count > 0 ? String(parts[0]) : nil
+            let surname = parts.count > 1 ? String(parts[1]) : name
+
+            let eventYear = extractYear(from: date)
+            let eventType = type.isEmpty ? recordType.rawValue : type.lowercased()
+
+            let common = RecordCommon(
+                id: "freereg_\(name.hashValue)_\(date.hashValue)",
+                sourceID: "freereg",
+                name: name, surname: surname, givenName: givenName,
+                detailURL: detailURL,
+                rawFields: ["parish": parish, "county": county, "event_type": eventType, "date": date]
+            )
+
+            records.append(.parish(ParishRecord(
+                common: common,
+                eventType: eventType,
+                eventDate: date.isEmpty ? nil : date,
+                eventYear: eventYear,
+                parish: parish.isEmpty ? nil : parish,
+                county: county.isEmpty ? nil : county,
+                fatherName: nil,
+                motherName: nil
+            )))
+        }
+
+        return records
+    }
+
+    nonisolated private static func stripTags(_ html: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: "<[^>]+>") else { return html }
+        return regex.stringByReplacingMatches(
+            in: html, range: NSRange(html.startIndex..., in: html), withTemplate: ""
+        ).trimmingCharacters(in: .whitespaces)
+    }
+
+    nonisolated private static func extractYear(from dateStr: String) -> Int? {
+        let pattern = #"\b(\d{4})\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: dateStr, range: NSRange(dateStr.startIndex..., in: dateStr)),
+              let range = Range(match.range(at: 1), in: dateStr) else { return nil }
+        return Int(dateStr[range])
+    }
+}

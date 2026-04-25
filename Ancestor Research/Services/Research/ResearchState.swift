@@ -17,7 +17,7 @@ struct ResearchState: Sendable {
 
     init(subject: ResearchSubject) {
         self.subject = subject
-        self.activeRecordTypes = [.birth, .death, .marriage, .census, .burial]
+        self.activeRecordTypes = [.birth, .death, .marriage, .census, .burial, .probate, .parish, .pedigree]
     }
 }
 
