@@ -249,18 +249,29 @@ final class AppState {
         loadingMessage = nil
     }
 
-    /// Accept the pending diff and commit changes.
+    /// Accept the pending diff and commit changes to the database.
     func acceptPendingDiff() {
         guard let newSnapshot = pendingSnapshot else { return }
-        snapshot = newSnapshot
+        guard let db = currentDatabase else { return }
 
-        if var project = currentProject {
-            project = Project(
-                id: project.id, name: project.name, source: project.source,
-                createdAt: project.createdAt, lastRefreshed: Date()
-            )
-            try? currentDatabase?.saveProjectMeta(project)
-            currentProject = project
+        do {
+            // Persist the new snapshot to the database
+            let transaction = try db.importSnapshot(newSnapshot, source: "wikitree://refresh")
+
+            // Rebuild snapshot from database (ensures consistency)
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+
+            if var project = currentProject {
+                project = Project(
+                    id: project.id, name: project.name, source: project.source,
+                    createdAt: project.createdAt, lastRefreshed: transaction.completedAt
+                )
+                try db.saveProjectMeta(project)
+                currentProject = project
+            }
+        } catch {
+            errorMessage = "Failed to save refresh: \(error.localizedDescription)"
         }
 
         pendingDiff = nil

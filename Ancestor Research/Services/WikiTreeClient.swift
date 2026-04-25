@@ -307,6 +307,7 @@ actor WikiTreeClient {
                 "getParents": "1",
                 "getChildren": "1",
                 "getSpouses": "1",
+                "getSiblings": "1",
             ])
             allResults.append(contentsOf: result)
             await rateLimit()
@@ -492,6 +493,9 @@ extension WikiTreeClient {
                       let personName = person["Name"] as? String else { continue }
 
                 // Python: for rel_type, edge_type in [("Children", "parent"), ("Spouses", "spouse")]
+                // Python handles Children, Spouses, Siblings. Siblings are derived
+                // from shared parents in FamilyGraphSnapshot, so we only store
+                // parent and spouse edges explicitly.
                 let relTypes: [(key: String, edgeType: RelationshipType)] = [
                     ("Children", .parent),
                     ("Spouses", .spouse),
@@ -547,6 +551,9 @@ extension WikiTreeClient {
                                 ))
                             }
                         }
+                        // Note: Siblings are NOT stored as explicit relationships.
+                        // They are derived from shared parents in FamilyGraphSnapshot.siblingsOf().
+                        // The getSiblings API call ensures sibling profiles are added as nodes.
                     }
                 }
             }
