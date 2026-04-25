@@ -13,6 +13,7 @@ struct ProfilePopoverView: View {
     var onRecenter: (String) -> Void
     var onFocusHere: () -> Void
     var onShowDetail: () -> Void
+    var onResearch: (() -> Void)?
 
     var body: some View {
         ScrollView {
@@ -233,6 +234,11 @@ struct ProfilePopoverView: View {
                 .controlSize(.small)
                 .disabled(isRoot)
             Spacer()
+            if let onResearch {
+                Button("Research") { onResearch() }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.small)
+            }
             Button("Full Detail") { onShowDetail() }
                 .buttonStyle(.glass)
                 .controlSize(.small)

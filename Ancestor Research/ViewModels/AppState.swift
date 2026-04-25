@@ -8,6 +8,8 @@ final class AppState {
     var snapshot: FamilyGraphSnapshot = .empty
     var auditSummary: AuditSummary?
     var availableProjects: [Project] = []
+    /// Set to trigger research for a specific profile from the tree view.
+    var researchProfileID: String?
     var isLoading = false
     var loadingMessage: String?
     var errorMessage: String?

@@ -125,6 +125,70 @@ nonisolated final class ProjectDatabase: Sendable {
             try db.create(index: "idx_field_disputes_entity", on: "field_disputes", columns: ["entity_id", "field"])
         }
 
+        migrator.registerMigration("v2_research_tables") { db in
+            // Records found during research
+            try db.create(table: "research_records") { t in
+                t.primaryKey("id", .text)
+                t.column("profile_id", .text).notNull()
+                t.column("source_id", .text).notNull()
+                t.column("record_type", .text).notNull()
+                t.column("verdict", .text).notNull()       // fact, lead, impossible
+                t.column("summary", .text).notNull()
+                t.column("raw_json", .text).notNull()       // full SourceRecord as JSON
+                t.column("citation_full", .text)
+                t.column("citation_short", .text)
+                t.column("citation_url", .text)
+                t.column("researched_at", .datetime).notNull()
+            }
+
+            // Record rejections — records the user rejected (remembered across restarts)
+            try db.create(table: "record_rejections") { t in
+                t.autoIncrementedPrimaryKey("rowid")
+                t.column("profile_id", .text).notNull()
+                t.column("record_id", .text).notNull()
+                t.column("rejected_at", .datetime).notNull()
+                t.uniqueKey(["profile_id", "record_id"])
+            }
+
+            // Name equivalences learned from user review
+            try db.create(table: "name_equivalences") { t in
+                t.autoIncrementedPrimaryKey("rowid")
+                t.column("name_a", .text).notNull()
+                t.column("name_b", .text).notNull()
+                t.column("learned_at", .datetime).notNull()
+                t.uniqueKey(["name_a", "name_b"])
+            }
+
+            // Negative searches — sources that returned no results
+            try db.create(table: "negative_searches") { t in
+                t.autoIncrementedPrimaryKey("rowid")
+                t.column("profile_id", .text).notNull()
+                t.column("source_id", .text).notNull()
+                t.column("record_type", .text).notNull()
+                t.column("searched_at", .datetime).notNull()
+                t.column("search_params", .text)    // JSON of query params
+            }
+
+            // Research runs — history of pipeline executions
+            try db.create(table: "research_runs") { t in
+                t.primaryKey("id", .text)
+                t.column("profile_id", .text).notNull()
+                t.column("mode", .text).notNull()
+                t.column("started_at", .datetime).notNull()
+                t.column("completed_at", .datetime)
+                t.column("fact_count", .integer).notNull().defaults(to: 0)
+                t.column("lead_count", .integer).notNull().defaults(to: 0)
+                t.column("cluster_count", .integer).notNull().defaults(to: 0)
+                t.column("gps_score", .integer)
+            }
+
+            // Indices
+            try db.create(index: "idx_research_records_profile", on: "research_records", columns: ["profile_id"])
+            try db.create(index: "idx_record_rejections_profile", on: "record_rejections", columns: ["profile_id"])
+            try db.create(index: "idx_negative_searches_profile", on: "negative_searches", columns: ["profile_id"])
+            try db.create(index: "idx_research_runs_profile", on: "research_runs", columns: ["profile_id"])
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -523,6 +587,116 @@ nonisolated final class ProjectDatabase: Sendable {
 }
 
 // MARK: - GenealogicalDate internal init for database reconstruction
+
+// MARK: - Research Persistence
+
+extension ProjectDatabase {
+
+    /// Save a research run record.
+    func saveResearchRun(
+        id: UUID, profileID: String, mode: ResearchMode,
+        startedAt: Date, completedAt: Date,
+        factCount: Int, leadCount: Int, clusterCount: Int, gpsScore: Int?
+    ) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT OR REPLACE INTO research_runs
+                (id, profile_id, mode, started_at, completed_at, fact_count, lead_count, cluster_count, gps_score)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    id.uuidString, profileID, mode.rawValue,
+                    startedAt, completedAt,
+                    factCount, leadCount, clusterCount, gpsScore
+                ])
+        }
+    }
+
+    /// Load research history for a profile.
+    func loadResearchRuns(profileID: String) throws -> [(id: UUID, mode: String, date: Date, facts: Int, leads: Int, clusters: Int, gps: Int?)] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT * FROM research_runs WHERE profile_id = ? ORDER BY completed_at DESC
+                """, arguments: [profileID])
+            return rows.map { row in
+                (
+                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    mode: row["mode"] as String,
+                    date: row["completed_at"] as Date,
+                    facts: row["fact_count"] as Int,
+                    leads: row["lead_count"] as Int,
+                    clusters: row["cluster_count"] as Int,
+                    gps: row["gps_score"] as Int?
+                )
+            }
+        }
+    }
+
+    /// Save a rejected record ID for a profile.
+    func saveRejection(profileID: String, recordID: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO record_rejections (profile_id, record_id, rejected_at)
+                VALUES (?, ?, ?)
+                """, arguments: [profileID, recordID, Date()])
+        }
+    }
+
+    /// Load rejected record IDs for a profile.
+    func loadRejections(profileID: String) throws -> Set<String> {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT record_id FROM record_rejections WHERE profile_id = ?
+                """, arguments: [profileID])
+            return Set(rows.map { $0["record_id"] as String })
+        }
+    }
+
+    /// Save a name equivalence learned during review.
+    func saveNameEquivalence(nameA: String, nameB: String) throws {
+        let a = nameA.uppercased()
+        let b = nameB.uppercased()
+        let (first, second) = a < b ? (a, b) : (b, a)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO name_equivalences (name_a, name_b, learned_at)
+                VALUES (?, ?, ?)
+                """, arguments: [first, second, Date()])
+        }
+    }
+
+    /// Load all learned name equivalences.
+    func loadNameEquivalences() throws -> [(String, String)] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT name_a, name_b FROM name_equivalences")
+            return rows.map { ($0["name_a"] as String, $0["name_b"] as String) }
+        }
+    }
+
+    /// Record a negative search (source returned no results).
+    func saveNegativeSearch(profileID: String, sourceID: String, recordType: String, params: String?) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO negative_searches (profile_id, source_id, record_type, searched_at, search_params)
+                VALUES (?, ?, ?, ?, ?)
+                """, arguments: [profileID, sourceID, recordType, Date(), params])
+        }
+    }
+
+    /// Load negative searches for a profile.
+    func loadNegativeSearches(profileID: String) throws -> [(sourceID: String, recordType: String, date: Date)] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT source_id, record_type, searched_at FROM negative_searches
+                WHERE profile_id = ? ORDER BY searched_at DESC
+                """, arguments: [profileID])
+            return rows.map {
+                (sourceID: $0["source_id"] as String,
+                 recordType: $0["record_type"] as String,
+                 date: $0["searched_at"] as Date)
+            }
+        }
+    }
+}
 
 nonisolated extension GenealogicalDate {
     /// Internal init for reconstructing from database columns.

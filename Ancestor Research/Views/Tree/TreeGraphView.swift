@@ -600,6 +600,10 @@ struct TreeGraphView: View {
                 onShowDetail: {
                     treeVM.popoverProfileID = nil
                     treeVM.showInspector = true
+                },
+                onResearch: {
+                    treeVM.popoverProfileID = nil
+                    appState.researchProfileID = popoverID
                 }
             )
             .frame(width: 320)

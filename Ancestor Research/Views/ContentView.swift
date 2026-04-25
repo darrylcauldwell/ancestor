@@ -65,7 +65,7 @@ struct MainView: View {
             case .gaps:
                 GapsPlaceholderView()
             case .research:
-                SourceExplorerView()
+                ResearchView()
             case .settings:
                 SettingsPlaceholderView()
             }
@@ -91,6 +91,11 @@ struct MainView: View {
         ) { result in
             if case .failure(let error) = result {
                 appState.errorMessage = "Export failed: \(error.localizedDescription)"
+            }
+        }
+        .onChange(of: appState.researchProfileID) { _, newID in
+            if newID != nil {
+                selectedTab = .research
             }
         }
         .sheet(isPresented: .init(

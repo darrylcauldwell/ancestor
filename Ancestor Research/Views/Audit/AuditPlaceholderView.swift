@@ -247,6 +247,14 @@ struct GapsPlaceholderView: View {
                                 Text("\(comp.score)/\(comp.maximum)")
                                     .font(AppTypography.cardTitle)
                                     .foregroundStyle(comp.score == 0 ? .red : .orange)
+
+                                if isSearchable(profile) {
+                                    Button("Research") {
+                                        appState.researchProfileID = profile.id
+                                    }
+                                    .buttonStyle(.glass)
+                                    .controlSize(.mini)
+                                }
                             }
                             .padding(12)
                             .glassEffect(.regular, in: .rect(cornerRadius: 12))
@@ -316,6 +324,11 @@ struct GapsPlaceholderView: View {
                 appState.snapshot.completeness(for: $0.id).score <
                     appState.snapshot.completeness(for: $1.id).score
             }
+    }
+
+    private func isSearchable(_ profile: Profile) -> Bool {
+        guard let birthYear = profile.birthDate?.earliest else { return true }
+        return birthYear <= 1930
     }
 
     private var gapSummary: some View {
