@@ -18,9 +18,8 @@ nonisolated struct JSONPayload: Sendable {
 
 import os
 
-nonisolated(unsafe) let wikiTreeLogger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "WikiTree")
-
 actor WikiTreeClient {
+    private static let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "WikiTree")
     private let apiURL = URL(string: "https://api.wikitree.com/api.php")!
     private let appID = AppConstants.wikiTreeAppID
     private let rateLimitDelay: Duration = .milliseconds(300)
@@ -40,7 +39,7 @@ actor WikiTreeClient {
 
     /// Two-step clientLogin: POST credentials → capture authcode → confirm.
     func login(email: String, password: String) async throws -> WikiTreeUser {
-        wikiTreeLogger.info("Login: starting for \(email)")
+        Self.logger.info("Login: starting for \(email)")
         // Step 1: POST credentials — must NOT follow redirects to capture authcode
         let loginParams: [String: String] = [
             "action": "clientLogin",
@@ -63,17 +62,17 @@ actor WikiTreeClient {
         let (data, response) = try await noRedirectSession.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            wikiTreeLogger.error("Login: no HTTP response")
+            Self.logger.error("Login: no HTTP response")
             throw WikiTreeError.loginFailed("No HTTP response")
         }
 
-        wikiTreeLogger.info("Login: step 1 response status=\(httpResponse.statusCode)")
+        Self.logger.info("Login: step 1 response status=\(httpResponse.statusCode)")
 
         // Capture cookies from response
         if let headerFields = httpResponse.allHeaderFields as? [String: String] {
             let cookies = HTTPCookie.cookies(withResponseHeaderFields: headerFields, for: apiURL)
             sessionCookies.append(contentsOf: cookies)
-            wikiTreeLogger.info("Login: captured \(cookies.count) cookies")
+            Self.logger.info("Login: captured \(cookies.count) cookies")
         }
 
         // Extract authcode — try redirect Location header first, then response body
@@ -100,7 +99,7 @@ actor WikiTreeClient {
 
         guard let authcode else {
             let bodyPreview = String(data: data, encoding: .utf8)?.prefix(500) ?? "empty"
-            wikiTreeLogger.error("Login: no authcode found. Status=\(httpResponse.statusCode), body=\(bodyPreview)")
+            Self.logger.error("Login: no authcode found. Status=\(httpResponse.statusCode), body=\(bodyPreview)")
             throw WikiTreeError.loginFailed("No authcode. Status=\(httpResponse.statusCode), Body=\(bodyPreview)")
         }
 
@@ -138,7 +137,7 @@ actor WikiTreeClient {
         depth: Int = 10,
         progress: (@Sendable (String) -> Void)? = nil
     ) async throws -> (profiles: [Profile], relationships: [Relationship]) {
-        wikiTreeLogger.info("fetchAncestorTree: seed=\(seedProfileID), depth=\(depth)")
+        Self.logger.info("fetchAncestorTree: seed=\(seedProfileID), depth=\(depth)")
         progress?("Fetching ancestor tree for \(seedProfileID)...")
 
         let result = try await post(params: [
@@ -150,10 +149,10 @@ actor WikiTreeClient {
         ])
 
         guard let ancestors = result.first?["ancestors"] as? [[String: Any]] else {
-            wikiTreeLogger.warning("fetchAncestorTree: no 'ancestors' key in response. Keys: \(result.first?.keys.joined(separator: ", ") ?? "none")")
+            Self.logger.warning("fetchAncestorTree: no 'ancestors' key in response. Keys: \(result.first?.keys.joined(separator: ", ") ?? "none")")
             return ([], [])
         }
-        wikiTreeLogger.info("fetchAncestorTree: received \(ancestors.count) ancestor records")
+        Self.logger.info("fetchAncestorTree: received \(ancestors.count) ancestor records")
 
         progress?("Processing \(ancestors.count) profiles...")
 
@@ -208,7 +207,7 @@ actor WikiTreeClient {
             }
         }
 
-        wikiTreeLogger.info("fetchAncestorTree: built \(profiles.count) profiles, \(relationships.count) relationships")
+        Self.logger.info("fetchAncestorTree: built \(profiles.count) profiles, \(relationships.count) relationships")
         progress?("Done — \(profiles.count) profiles, \(relationships.count) relationships")
         return (profiles, relationships)
     }
@@ -518,7 +517,6 @@ extension WikiTreeClient {
                             let edgeKey = "parent:\(personName):\(relName)"
                             if !edgeSet.contains(edgeKey) {
                                 edgeSet.insert(edgeKey)
-                                let gender = relDict["Gender"] as? String ?? (person["Gender"] as? String ?? "")
                                 let personGender = person["Gender"] as? String
                                 let role: ParentRole = switch personGender {
                                 case "Male": .father

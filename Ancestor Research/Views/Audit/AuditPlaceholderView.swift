@@ -4,13 +4,15 @@ import SwiftUI
 struct AuditPlaceholderView: View {
     @Environment(AppState.self) private var appState
     @State private var auditVM = AuditViewModel()
+    @AppStorage("disabledAuditRuleIDs") private var disabledRuleIDsData: Data = Data()
 
     var body: some View {
         VStack(spacing: 0) {
             // Toolbar area
             HStack {
                 Button {
-                    auditVM.runAudit(snapshot: appState.snapshot)
+                    let disabled = (try? JSONDecoder().decode(Set<String>.self, from: disabledRuleIDsData)) ?? []
+                    auditVM.runAudit(snapshot: appState.snapshot, disabledRuleIDs: disabled)
                 } label: {
                     Label("Re-run Audit", systemImage: "arrow.clockwise")
                 }
@@ -56,19 +58,28 @@ struct AuditPlaceholderView: View {
                         Text("Checked \(summary.profilesChecked) profiles.")
                     }
                 } else {
-                    List(auditVM.filteredResults) { result in
-                        HStack(alignment: .top) {
-                            Image(systemName: result.severity.iconName)
-                                .foregroundStyle(result.severity.color)
-                                .frame(width: 20)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(result.message)
-                                    .font(.callout)
-                                Text(result.ruleID)
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
+                    ScrollView {
+                        LazyVStack(spacing: 10) {
+                            ForEach(auditVM.filteredResults) { result in
+                                HStack(alignment: .top, spacing: 10) {
+                                    Image(systemName: result.severity.iconName)
+                                        .foregroundStyle(result.severity.color)
+                                        .font(.body)
+                                        .frame(width: 24)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(result.profileName)
+                                            .font(AppTypography.cardTitle)
+                                        Text(strippedMessage(result))
+                                            .font(AppTypography.cardBody)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(12)
+                                .glassEffect(.regular, in: .rect(cornerRadius: 12))
                             }
                         }
+                        .padding()
                     }
                 }
             } else {
@@ -86,6 +97,22 @@ struct AuditPlaceholderView: View {
                 auditVM.summary = autoSummary
             }
         }
+    }
+
+    /// Strip the profile name from the start of the message to avoid duplication with the header.
+    private func strippedMessage(_ result: AuditResult) -> String {
+        var msg = result.message
+        if msg.hasPrefix(result.profileName) {
+            msg = String(msg.dropFirst(result.profileName.count))
+            // Remove leading separator: " — ", " - ", " "
+            if msg.hasPrefix(" — ") {
+                msg = String(msg.dropFirst(3))
+            } else if msg.hasPrefix(" ") {
+                msg = String(msg.dropFirst(1))
+            }
+        }
+        // Capitalize first letter
+        return msg.prefix(1).uppercased() + msg.dropFirst()
     }
 
     private func severityBadge(_ severity: Severity, count: Int) -> some View {
@@ -120,22 +147,56 @@ nonisolated extension Severity {
     }
 }
 
-/// Gaps view — profiles missing key data, grouped by what's missing.
+/// Gaps view — profiles missing key data, filterable by missing field.
 struct GapsPlaceholderView: View {
     @Environment(AppState.self) private var appState
     @State private var filterCheck: CompletenessCheck?
     @State private var searchText = ""
 
+    /// All distinct missing checks across all incomplete profiles, with counts.
+    private var availableFilters: [(check: CompletenessCheck, count: Int)] {
+        var counts: [String: (check: CompletenessCheck, count: Int)] = [:]
+        for profile in appState.snapshot.profiles.values {
+            let comp = appState.snapshot.completeness(for: profile.id)
+            for check in comp.missing {
+                let key = check.label
+                if let existing = counts[key] {
+                    counts[key] = (check: existing.check, count: existing.count + 1)
+                } else {
+                    counts[key] = (check: check, count: 1)
+                }
+            }
+        }
+        return counts.values.sorted { $0.count > $1.count }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Summary bar
+            // Summary + filter bar
             if !appState.snapshot.profiles.isEmpty {
-                HStack(spacing: 12) {
-                    gapSummary
-                    Spacer()
-                    TextField("Search...", text: $searchText)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 150)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) {
+                        gapSummary
+                        Spacer()
+                        TextField("Search...", text: $searchText)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 180)
+                    }
+
+                    // Field filter buttons
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            filterButton(label: "All", check: nil, count: totalIncomplete)
+
+                            ForEach(availableFilters, id: \.check.label) { filter in
+                                filterButton(
+                                    label: filter.check.shortLabel.capitalized,
+                                    check: filter.check,
+                                    count: filter.count
+                                )
+                            }
+                        }
+                    }
                 }
                 .padding()
                 Divider()
@@ -149,46 +210,93 @@ struct GapsPlaceholderView: View {
                 } description: {
                     Text(appState.snapshot.profiles.isEmpty
                          ? "Import data to see gaps."
-                         : "All profiles are complete.")
+                         : filterCheck != nil
+                            ? "No profiles missing this field."
+                            : "All profiles are complete.")
                 }
             } else {
-                List(gaps) { profile in
-                    let comp = appState.snapshot.completeness(for: profile.id)
-                    HStack {
-                        // Completeness bar
-                        completenessBar(comp)
-                            .frame(width: 40)
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(gaps) { profile in
+                            let comp = appState.snapshot.completeness(for: profile.id)
+                            let ratio = comp.maximum > 0 ? Double(comp.score) / Double(comp.maximum) : 0
+                            HStack(spacing: 10) {
+                                // Severity indicator
+                                Image(systemName: ratio > 0.5 ? "exclamationmark.triangle.fill" : "xmark.circle.fill")
+                                    .foregroundStyle(ratio > 0.5 ? .orange : .red)
+                                    .font(.body)
+                                    .frame(width: 24)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(profile.displayName)
-                                .font(.headline)
-                            if let year = profile.birthDate?.bestYear {
-                                Text("b. \(year)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            HStack(spacing: 4) {
-                                ForEach(comp.missing, id: \.label) { check in
-                                    Text(check.shortLabel)
-                                        .font(.system(size: 9))
-                                        .padding(.horizontal, 4)
-                                        .padding(.vertical, 1)
-                                        .glassEffect(.regular, in: .capsule)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack(spacing: 6) {
+                                        Text(profile.displayName)
+                                            .font(AppTypography.cardTitle)
+                                        if let year = profile.birthDate?.bestYear {
+                                            Text("b. \(String(year))")
+                                                .font(AppTypography.cardMeta)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    Text("Missing: \(comp.missing.map(\.shortLabel).joined(separator: ", "))")
+                                        .font(AppTypography.cardBody)
+                                        .foregroundStyle(.secondary)
                                 }
+
+                                Spacer()
+
+                                Text("\(comp.score)/\(comp.maximum)")
+                                    .font(AppTypography.cardTitle)
+                                    .foregroundStyle(comp.score == 0 ? .red : .orange)
                             }
+                            .padding(12)
+                            .glassEffect(.regular, in: .rect(cornerRadius: 12))
                         }
-
-                        Spacer()
-
-                        Text("\(comp.score)/\(comp.maximum)")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(comp.score == 0 ? .red : .orange)
                     }
+                    .padding()
                 }
             }
         }
         .navigationTitle("Gaps (\(filteredProfiles.count) incomplete)")
+    }
+
+    // MARK: - Filter Button
+
+    private func filterButton(label: String, check: CompletenessCheck?, count: Int) -> some View {
+        let isActive = (filterCheck?.label == check?.label)
+        return Button {
+            if isActive {
+                filterCheck = nil
+            } else {
+                filterCheck = check
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(AppTypography.cardMeta)
+                    .fontWeight(isActive ? .bold : .regular)
+                Text("\(count)")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(isActive ? .primary : .tertiary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(isActive ? Color.accentColor.opacity(0.2) : Color.clear)
+            .glassEffect(.regular, in: .capsule)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func isActiveFilter(_ check: CompletenessCheck) -> Bool {
+        filterCheck?.label == check.label
+    }
+
+    // MARK: - Data
+
+    private var totalIncomplete: Int {
+        appState.snapshot.profiles.values.filter {
+            let c = appState.snapshot.completeness(for: $0.id)
+            return c.score < c.maximum
+        }.count
     }
 
     private var filteredProfiles: [Profile] {
@@ -212,20 +320,17 @@ struct GapsPlaceholderView: View {
 
     private var gapSummary: some View {
         let total = appState.snapshot.profiles.count
-        let incomplete = appState.snapshot.profiles.values.filter {
-            let c = appState.snapshot.completeness(for: $0.id)
-            return c.score < c.maximum
-        }.count
+        let incomplete = totalIncomplete
         let complete = total - incomplete
         return HStack(spacing: 8) {
             Text("\(complete)/\(total) complete")
-                .font(.caption)
+                .font(AppTypography.cardBody)
                 .fontWeight(.semibold)
                 .foregroundStyle(incomplete == 0 ? .green : .secondary)
             if total > 0 {
                 let pct = Int(Double(complete) / Double(total) * 100)
                 Text("\(pct)%")
-                    .font(.caption2)
+                    .font(AppTypography.cardMeta)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .glassEffect(.regular, in: .capsule)
@@ -237,14 +342,14 @@ struct GapsPlaceholderView: View {
         let ratio = comp.maximum > 0 ? Double(comp.score) / Double(comp.maximum) : 0
         return GeometryReader { geo in
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 3)
+                RoundedRectangle(cornerRadius: 4)
                     .fill(.quaternary)
-                RoundedRectangle(cornerRadius: 3)
+                RoundedRectangle(cornerRadius: 4)
                     .fill(ratio >= 1.0 ? Color.green : (ratio > 0.5 ? .orange : .red))
                     .frame(width: geo.size.width * ratio)
             }
         }
-        .frame(height: 6)
+        .frame(height: 8)
     }
 }
 

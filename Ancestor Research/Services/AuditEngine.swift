@@ -3,12 +3,13 @@ import Foundation
 /// Runs all audit rules against a FamilyGraphSnapshot.
 nonisolated struct AuditEngine {
 
-    /// Run all built-in rules against every profile in the snapshot.
-    static func audit(_ snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+    /// Run all enabled built-in rules against every profile in the snapshot.
+    static func audit(_ snapshot: FamilyGraphSnapshot, disabledRuleIDs: Set<String> = []) -> [AuditResult] {
         var results: [AuditResult] = []
+        let enabledRules = AuditRules.builtIn.filter { !disabledRuleIDs.contains($0.id) }
 
         for profile in snapshot.profiles.values {
-            for rule in AuditRules.builtIn {
+            for rule in enabledRules {
                 let ruleResults = rule.evaluate(profile: profile, snapshot: snapshot)
                 results.append(contentsOf: ruleResults)
             }
@@ -26,8 +27,8 @@ nonisolated struct AuditEngine {
     }
 
     /// Run audit and return results grouped by severity.
-    static func auditGrouped(_ snapshot: FamilyGraphSnapshot) -> AuditSummary {
-        let all = audit(snapshot)
+    static func auditGrouped(_ snapshot: FamilyGraphSnapshot, disabledRuleIDs: Set<String> = []) -> AuditSummary {
+        let all = audit(snapshot, disabledRuleIDs: disabledRuleIDs)
         return AuditSummary(
             errors: all.filter { $0.severity == .error },
             warnings: all.filter { $0.severity == .warning },

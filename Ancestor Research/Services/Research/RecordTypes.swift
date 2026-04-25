@@ -1,0 +1,277 @@
+import Foundation
+
+// MARK: - Record Type
+
+/// What kind of record to search for.
+nonisolated enum RecordType: String, Codable, Sendable {
+    case birth, death, marriage, census, burial, military, probate
+    case baptism, christening, parish, pedigree
+}
+
+// MARK: - Record Common
+
+/// Fields shared by all record types.
+nonisolated struct RecordCommon: Codable, Sendable {
+    let id: String
+    let sourceID: String
+    let name: String?
+    let surname: String?
+    let givenName: String?
+    let detailURL: String?
+    let rawFields: [String: String]
+}
+
+// MARK: - Type-Specific Records
+
+nonisolated struct BirthRecord: Codable, Sendable {
+    let common: RecordCommon
+    let birthYear: Int?
+    let birthDate: String?
+    let birthPlace: String?
+    let quarter: String?
+    let district: String?
+    let volume: String?
+    let page: String?
+    let mothersMaidenName: String?
+}
+
+nonisolated struct DeathRecord: Codable, Sendable {
+    let common: RecordCommon
+    let deathYear: Int?
+    let deathDate: String?
+    let deathPlace: String?
+    let age: Int?
+    let quarter: String?
+    let district: String?
+    let volume: String?
+    let page: String?
+    let spouseSurname: String?
+}
+
+nonisolated struct MarriageRecord: Codable, Sendable {
+    let common: RecordCommon
+    let marriageYear: Int?
+    let marriageDate: String?
+    let marriagePlace: String?
+    let quarter: String?
+    let district: String?
+    let volume: String?
+    let page: String?
+    let spouseName: String?
+}
+
+nonisolated struct CensusRecord: Codable, Sendable {
+    let common: RecordCommon
+    let censusYear: Int
+    let age: Int?
+    let birthYear: Int?
+    let birthPlace: String?
+    let birthCounty: String?
+    let relationship: String?
+    let occupation: String?
+    let address: String?
+    let parish: String?
+    let district: String?
+    let household: [HouseholdMember]?
+}
+
+nonisolated struct BurialRecord: Codable, Sendable {
+    let common: RecordCommon
+    let deathDate: String?
+    let deathYear: Int?
+    let birthDate: String?
+    let birthYear: Int?
+    let burialLocation: String?
+    let cemetery: String?
+    let memorialID: Int?
+    let inscription: String?
+    let bio: String?
+    let isVeteran: Bool
+}
+
+nonisolated struct MilitaryRecord: Codable, Sendable {
+    let common: RecordCommon
+    let rank: String?
+    let regiment: String?
+    let unit: String?
+    let serviceNumber: String?
+    let dateOfDeath: String?
+    let deathYear: Int?
+    let age: Int?
+    let cemetery: String?
+    let graveRef: String?
+    let additionalInfo: String?
+}
+
+nonisolated struct ProbateRecord: Codable, Sendable {
+    let common: RecordCommon
+    let deathDate: String?
+    let deathYear: Int?
+    let probateDate: String?
+    let birthDate: String?
+    let ageAtDeath: Int?
+    let address: String?
+    let grantType: String?
+    let registry: String?
+    let probateNumber: String?
+    let regimentNumber: Int?
+}
+
+nonisolated struct ParishRecord: Codable, Sendable {
+    let common: RecordCommon
+    let eventType: String?
+    let eventDate: String?
+    let eventYear: Int?
+    let parish: String?
+    let county: String?
+    let fatherName: String?
+    let motherName: String?
+}
+
+nonisolated struct PedigreeRecord: Codable, Sendable {
+    let common: RecordCommon
+    let birthYear: Int?
+    let deathYear: Int?
+    let spouse: String?
+    let marriageYear: Int?
+    let occupation: String?
+    let location: String?
+    let generation: Int?
+}
+
+// MARK: - Household Member (shared by CensusRecord and ScoringRules)
+
+nonisolated struct HouseholdMember: Codable, Sendable {
+    let name: String
+    let relationship: String
+    let age: Int?
+    let birthYear: Int?
+    let birthPlace: String?
+    let occupation: String?
+    let sex: String?
+}
+
+// MARK: - Source Record (enum with associated values)
+
+/// A record returned from a source — typed by record kind.
+nonisolated enum SourceRecord: Identifiable, Sendable {
+    case birth(BirthRecord)
+    case death(DeathRecord)
+    case marriage(MarriageRecord)
+    case census(CensusRecord)
+    case burial(BurialRecord)
+    case military(MilitaryRecord)
+    case probate(ProbateRecord)
+    case parish(ParishRecord)
+    case pedigree(PedigreeRecord)
+
+    var id: String { common.id }
+    var sourceID: String { common.sourceID }
+    var name: String? { common.name }
+    var surname: String? { common.surname }
+    var givenName: String? { common.givenName }
+    var detailURL: String? { common.detailURL }
+    var rawFields: [String: String] { common.rawFields }
+
+    var common: RecordCommon {
+        switch self {
+        case .birth(let r): r.common
+        case .death(let r): r.common
+        case .marriage(let r): r.common
+        case .census(let r): r.common
+        case .burial(let r): r.common
+        case .military(let r): r.common
+        case .probate(let r): r.common
+        case .parish(let r): r.common
+        case .pedigree(let r): r.common
+        }
+    }
+}
+
+// MARK: - Record Query
+
+/// Search parameters — source adapters extract what they need.
+nonisolated struct RecordQuery: Sendable {
+    let surname: String?
+    let givenName: String?
+    let recordType: RecordType
+    let yearFrom: Int?
+    let yearTo: Int?
+    let gender: Gender?
+    let region: Region?
+    let sourceParams: SourceQueryParams
+}
+
+/// Source-specific typed parameters. The dispatcher knows which source
+/// gets which params; the source doesn't need to parse strings.
+nonisolated enum SourceQueryParams: Sendable {
+    case freeBMD(FreeBMDParams)
+    case freeCen(FreeCenParams)
+    case findAGrave(FindAGraveParams)
+    case cwgc(CWGCParams)
+    case generic
+}
+
+nonisolated struct FreeBMDParams: Sendable {
+    let districtCode: String?
+    let wildcardSurname: Bool
+    let motherSurname: String?
+    let spouseSurname: String?
+}
+
+nonisolated struct FreeCenParams: Sendable {
+    let chapmanCode: String?
+    let censusYear: Int?
+}
+
+nonisolated struct FindAGraveParams: Sendable {
+    let yearRangeWidth: Int
+    let location: String?
+}
+
+nonisolated struct CWGCParams: Sendable {
+    let conflict: String?
+}
+
+// MARK: - Known Relative (used in FamilyContext)
+
+nonisolated struct KnownRelative: Codable, Sendable {
+    let name: String
+    let birthYear: Int?
+}
+
+// MARK: - Source Query Result
+
+/// What a source search returns — distinguishes "no results" from "source broken".
+nonisolated enum SourceQueryResult: Sendable {
+    case results([SourceRecord])
+    case unavailable(reason: String)
+    case throttled(retryAfter: Duration)
+    case outsideCoverage(reason: String)
+
+    var records: [SourceRecord] {
+        if case .results(let r) = self { return r } else { return [] }
+    }
+}
+
+// MARK: - Source Readiness
+
+nonisolated enum SourceReadiness: Sendable {
+    case ready
+    case needsAuth(message: String)
+    case unavailable(reason: String)
+}
+
+// MARK: - Source Terms of Service Status
+
+/// How this source's programmatic access relates to its terms of service.
+nonisolated struct SourceToSStatus: Sendable {
+    let level: ToSLevel
+    let summary: String     // short description for Settings UI
+
+    enum ToSLevel: Sendable {
+        case open           // public API or explicitly permitted
+        case community      // volunteer project, no prohibition, no explicit API
+        case restricted     // ToS restricts automated access
+    }
+}

@@ -8,7 +8,7 @@ nonisolated struct ProfileCompleteness: Sendable {
     let potentiallyLiving: Bool
 }
 
-nonisolated enum CompletenessCheck: Sendable {
+nonisolated enum CompletenessCheck: Hashable, Sendable {
     case field(ProfileField)
     case hasParents
 }

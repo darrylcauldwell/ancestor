@@ -1,0 +1,81 @@
+client:
+  name: basic
+  file-system: device-agnostic
+tools: {}
+targets:
+  "PackageStructure": ["<PackageStructure>"]
+  "SourceTests-arm64-apple-macosx26.0-debug.exe": ["<SourceTests-arm64-apple-macosx26.0-debug.exe>"]
+  "SourceTests-arm64-apple-macosx26.0-debug.module": ["<SourceTests-arm64-apple-macosx26.0-debug.module>"]
+  "main": ["<SourceTests-arm64-apple-macosx26.0-debug.exe>","<SourceTests-arm64-apple-macosx26.0-debug.module>"]
+  "test": ["<SourceTests-arm64-apple-macosx26.0-debug.exe>","<SourceTests-arm64-apple-macosx26.0-debug.module>"]
+default: "main"
+nodes:
+  "/Users/darrylcauldwell/Development/ancestor/SourceTests/Sources/":
+    is-directory-structure: true
+    content-exclusion-patterns: [".git",".build"]
+  "/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests":
+    is-mutated: true
+commands:
+  "/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests-entitlement.plist":
+    tool: write-auxiliary-file
+    inputs: ["<entitlement-plist>","<com.apple.security.get-task-allow>"]
+    outputs: ["/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests-entitlement.plist"]
+    description: "Write auxiliary file /Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests-entitlement.plist"
+
+  "/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/Users/darrylcauldwell/Development/ancestor/SourceTests/Sources/TestRunner.swift"]
+    outputs: ["/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests.build/sources"]
+    description: "Write auxiliary file /Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests.build/sources"
+
+  "/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests.product/Objects.LinkFileList":
+    tool: write-auxiliary-file
+    inputs: ["<link-file-list>","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests.build/TestRunner.swift.o"]
+    outputs: ["/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests.product/Objects.LinkFileList"]
+    description: "Write auxiliary file /Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests.product/Objects.LinkFileList"
+
+  "/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt":
+    tool: write-auxiliary-file
+    inputs: ["<swift-get-version>","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"]
+    outputs: ["/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"]
+    always-out-of-date: "true"
+    description: "Write auxiliary file /Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+
+  "<SourceTests-arm64-apple-macosx26.0-debug.exe>":
+    tool: phony
+    inputs: ["<SourceTests-arm64-apple-macosx26.0-debug.exe-CodeSigning>"]
+    outputs: ["<SourceTests-arm64-apple-macosx26.0-debug.exe>"]
+
+  "<SourceTests-arm64-apple-macosx26.0-debug.module>":
+    tool: phony
+    inputs: ["/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests.build/TestRunner.swift.o","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/Modules/SourceTests.swiftmodule"]
+    outputs: ["<SourceTests-arm64-apple-macosx26.0-debug.module>"]
+
+  "C.SourceTests-arm64-apple-macosx26.0-debug.exe":
+    tool: shell
+    inputs: ["/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests.build/TestRunner.swift.o","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests.product/Objects.LinkFileList"]
+    outputs: ["/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests"]
+    description: "Linking ./.build/arm64-apple-macosx/debug/SourceTests"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-L","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug","-o","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests","-module-name","SourceTests","-Xlinker","-no_warn_duplicate_libraries","-emit-executable","-Xlinker","-alias","-Xlinker","_SourceTests_main","-Xlinker","_main","-Xlinker","-rpath","-Xlinker","@loader_path","@/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests.product/Objects.LinkFileList","-Xlinker","-rpath","-Xlinker","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx","-target","arm64-apple-macosx15.0","-Xlinker","-add_ast_path","-Xlinker","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/Modules/SourceTests.swiftmodule","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g"]
+
+  "C.SourceTests-arm64-apple-macosx26.0-debug.exe-entitlements":
+    tool: shell
+    inputs: ["/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests-entitlement.plist"]
+    outputs: ["<SourceTests-arm64-apple-macosx26.0-debug.exe-CodeSigning>"]
+    description: "Applying debug entitlements to ./.build/arm64-apple-macosx/debug/SourceTests"
+    args: ["codesign","--force","--sign","-","--entitlements","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests-entitlement.plist","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests"]
+
+  "C.SourceTests-arm64-apple-macosx26.0-debug.module":
+    tool: shell
+    inputs: ["/Users/darrylcauldwell/Development/ancestor/SourceTests/Sources/TestRunner.swift","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests.build/sources"]
+    outputs: ["/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests.build/TestRunner.swift.o","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/Modules/SourceTests.swiftmodule"]
+    description: "Compiling Swift Module 'SourceTests' (1 sources)"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-module-name","SourceTests","-emit-dependencies","-emit-module","-emit-module-path","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/Modules/SourceTests.swiftmodule","-output-file-map","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests.build/output-file-map.json","-incremental","-c","@/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/SourceTests.build/sources","-I","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/Modules","-target","arm64-apple-macosx15.0","-incremental","-enable-batch-mode","-serialize-diagnostics","-index-store-path","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/index/store","-Onone","-enable-testing","-j10","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE","-module-cache-path","/Users/darrylcauldwell/Development/ancestor/SourceTests/.build/arm64-apple-macosx/debug/ModuleCache","-parseable-output","-Xfrontend","-entry-point-function-name","-Xfrontend","SourceTests_main","-parse-as-library","-swift-version","6","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g","-Xcc","-isysroot","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-Xcc","-fPIC","-Xcc","-g","-package-name","sourcetests"]
+
+  "PackageStructure":
+    tool: package-structure-tool
+    inputs: ["/Users/darrylcauldwell/Development/ancestor/SourceTests/Sources/","/Users/darrylcauldwell/Development/ancestor/SourceTests/Package.swift","/Users/darrylcauldwell/Development/ancestor/SourceTests/Package.resolved"]
+    outputs: ["<PackageStructure>"]
+    description: "Planning build"
+    allow-missing-inputs: true
+

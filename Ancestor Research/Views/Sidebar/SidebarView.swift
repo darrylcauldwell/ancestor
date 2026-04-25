@@ -48,6 +48,7 @@ nonisolated extension SidebarTab {
         case .tree: "person.3"
         case .audit: "checkmark.shield"
         case .gaps: "exclamationmark.triangle"
+        case .research: "globe.desk"
         case .settings: "gear"
         }
     }

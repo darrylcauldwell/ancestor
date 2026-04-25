@@ -8,9 +8,9 @@ final class AuditViewModel {
     var filterSeverity: Severity?
     var searchText = ""
 
-    func runAudit(snapshot: FamilyGraphSnapshot) {
+    func runAudit(snapshot: FamilyGraphSnapshot, disabledRuleIDs: Set<String> = []) {
         isRunning = true
-        summary = AuditEngine.auditGrouped(snapshot)
+        summary = AuditEngine.auditGrouped(snapshot, disabledRuleIDs: disabledRuleIDs)
         isRunning = false
     }
 
