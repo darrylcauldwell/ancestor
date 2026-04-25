@@ -146,6 +146,15 @@ struct ResearchView: View {
                 .font(AppTypography.cardMeta)
                 .foregroundStyle(comp.score == comp.maximum ? .green : .orange)
 
+            if frEnabled {
+                Button(frIsRunning ? "Researching..." : "Field Research") {
+                    startFieldResearch(profile: profile)
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                .disabled(frIsRunning || !searchable)
+            }
+
             Button("Research") {
                 Task {
                     researchVM.appDatabase = appState.currentDatabase
@@ -227,6 +236,46 @@ struct ResearchView: View {
                     .foregroundStyle(.orange)
                     .padding()
             }
+        }
+    }
+
+    // MARK: - Field Researcher Integration
+
+    @AppStorage("fieldResearcherEnabled") private var frEnabled = false
+    @State private var frIsRunning = false
+    @State private var frStatus = ""
+    @State private var frFindingsCount = 0
+    @State private var frCost = 0.0
+
+    private func startFieldResearch(profile: Profile) {
+        guard let apiKey = SettingsPlaceholderView.loadAPIKey(), !apiKey.isEmpty else {
+            frStatus = "No API key — configure in Settings"
+            return
+        }
+        guard let db = appState.currentDatabase else { return }
+
+        frIsRunning = true
+        frStatus = "Starting..."
+        frFindingsCount = 0
+        frCost = 0
+
+        Task {
+            let api = ClaudeAPIClient(
+                apiKey: apiKey,
+                model: UserDefaults.standard.string(forKey: "fieldResearcherModel") ?? "claude-sonnet-4-20250514"
+            )
+            let budget = UserDefaults.standard.double(forKey: "fieldResearcherBudget")
+            let service = FieldResearcherService(
+                api: api, db: db, snapshot: appState.snapshot,
+                sourceInfoMap: registry.buildSourceInfoMap(),
+                sessionBudget: budget > 0 ? budget : 0.50
+            )
+
+            let result = await service.research(profileID: profile.id)
+            frIsRunning = false
+            frFindingsCount = result.findings.count + result.narrativeFindings.count
+            frCost = result.cost
+            frStatus = "\(frFindingsCount) findings, \(result.leads.count) leads — $\(String(format: "%.2f", result.cost))"
         }
     }
 
