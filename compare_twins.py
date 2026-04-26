@@ -161,8 +161,11 @@ def compare():
 
             # Normalise date comparisons (Python: "1834-05-17", App: "1834-05-17")
             if py_val and app_val and py_val != app_val:
-                # Don't flag trivial differences (0000-00-00 vs empty)
+                # Don't flag trivial differences
                 if py_val == "0000-00-00" or app_val == "0000-00-00":
+                    continue
+                # Don't flag gender casing (Male vs male — enum rawValue difference)
+                if field == "gender" and py_val.lower() == app_val.lower():
                     continue
                 field_diffs.append((wt_id, field, py_val, app_val))
 
@@ -186,14 +189,34 @@ def compare():
     for r in app_rels:
         app_edge_set.add((r["source"], r["target"], r["type"]))
 
-    edges_py_only = py_edge_set - app_edge_set
-    edges_app_only = app_edge_set - py_edge_set
-    edges_both = py_edge_set & app_edge_set
+    # Filter out sibling edges — app derives siblings from shared parents, doesn't store them
+    py_non_sibling = {e for e in py_edge_set if e[2] != "sibling"}
+    app_non_sibling = {e for e in app_edge_set if e[2] != "sibling"}
+    py_sibling_count = len(py_edge_set) - len(py_non_sibling)
 
-    print(f"RELATIONSHIPS")
+    # Normalise spouse edges — Python stores bidirectional (A→B and B→A),
+    # app stores one direction per pair. Canonicalise to sorted tuple.
+    def canonicalise(edge_set):
+        canonical = set()
+        for s, t, tp in edge_set:
+            if tp == "spouse":
+                canonical.add((min(s, t), max(s, t), tp))
+            else:
+                canonical.add((s, t, tp))
+        return canonical
+
+    py_canonical = canonicalise(py_non_sibling)
+    app_canonical = canonicalise(app_non_sibling)
+
+    edges_py_only = py_canonical - app_canonical
+    edges_app_only = app_canonical - py_canonical
+    edges_both = py_canonical & app_canonical
+
+    print(f"RELATIONSHIPS (excluding siblings — app derives from shared parents)")
     print(f"  In both:        {len(edges_both)}")
     print(f"  Python only:    {len(edges_py_only)}")
     print(f"  App only:       {len(edges_app_only)}")
+    print(f"  Sibling edges (Python only, derived in app): {py_sibling_count}")
     print()
 
     if edges_py_only:
