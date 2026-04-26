@@ -166,8 +166,16 @@ def main():
                 role = "father" if row[0] == "male" else "mother" if row[0] == "female" else None
 
             rel_id = str(uuid.uuid4())
+            # Check for existing relationship before inserting
+            existing = cursor.execute(
+                "SELECT 1 FROM relationships WHERE from_id = ? AND to_id = ? AND type = 'parent' LIMIT 1",
+                (source, target)
+            ).fetchone()
+            if existing:
+                continue
+
             cursor.execute("""
-                INSERT OR IGNORE INTO relationships
+                INSERT INTO relationships
                 (id, from_id, to_id, type, role, subtype, created_by_transaction_id)
                 VALUES (?, ?, ?, 'parent', ?, 'unknown', ?)
             """, (rel_id, source, target, role, tx_id))
@@ -182,9 +190,16 @@ def main():
             seen_edges.add(edge_key1)
             seen_edges.add(edge_key2)
 
+            existing = cursor.execute(
+                "SELECT 1 FROM relationships WHERE from_id = ? AND to_id = ? AND type = 'spouse' LIMIT 1",
+                (source, target)
+            ).fetchone()
+            if existing:
+                continue
+
             rel_id = str(uuid.uuid4())
             cursor.execute("""
-                INSERT OR IGNORE INTO relationships
+                INSERT INTO relationships
                 (id, from_id, to_id, type, subtype, created_by_transaction_id)
                 VALUES (?, ?, ?, 'spouse', 'unknown', ?)
             """, (rel_id, source, target, tx_id))
