@@ -4,6 +4,8 @@ import SwiftUI
 nonisolated enum HitTestResult: Sendable {
     case infoIcon(String)
     case arrowIndicator(String)
+    case ancestorIndicator(String)
+    case descendantIndicator(String)
     case nodeBody(String)
     case empty
 }
@@ -277,7 +279,7 @@ final class TreeViewModel {
                     height: TreeLayout.arrowHitHeight
                 )
                 if arrowRect.contains(layoutPoint) {
-                    return .arrowIndicator(node.id)
+                    return .ancestorIndicator(node.id)
                 }
             }
             if node.hasMoreDescendants {
@@ -288,7 +290,7 @@ final class TreeViewModel {
                     height: TreeLayout.arrowHitHeight
                 )
                 if arrowRect.contains(layoutPoint) {
-                    return .arrowIndicator(node.id)
+                    return .descendantIndicator(node.id)
                 }
             }
         }

@@ -53,7 +53,8 @@ struct TreeGraphView: View {
                             case .active(let location):
                                 let result = treeVM.hitTest(at: location, canvasSize: canvasSize)
                                 switch result {
-                                case .nodeBody(let id), .infoIcon(let id), .arrowIndicator(let id):
+                                case .nodeBody(let id), .infoIcon(let id), .arrowIndicator(let id),
+                                     .ancestorIndicator(let id), .descendantIndicator(let id):
                                     treeVM.hoveredNodeID = id
                                 case .empty:
                                     treeVM.hoveredNodeID = nil
@@ -140,6 +141,17 @@ struct TreeGraphView: View {
 
         case .arrowIndicator(let id):
             treeVM.popoverProfileID = nil
+            treeVM.recenter(on: id, snapshot: appState.snapshot, canvasSize: canvasSize)
+
+        case .ancestorIndicator(let id):
+            // Tapped "▲ ancestors" — stay in pedigree mode, recenter on this node
+            treeVM.popoverProfileID = nil
+            treeVM.recenter(on: id, snapshot: appState.snapshot, canvasSize: canvasSize)
+
+        case .descendantIndicator(let id):
+            // Tapped "▼ N children" — switch to descendants mode to show them
+            treeVM.popoverProfileID = nil
+            treeVM.viewMode = .descendants
             treeVM.recenter(on: id, snapshot: appState.snapshot, canvasSize: canvasSize)
 
         case .nodeBody(let id):
