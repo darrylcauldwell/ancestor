@@ -46,7 +46,17 @@ struct ContentView: View {
 /// Main app view shown when a project is open.
 struct MainView: View {
     @Environment(AppState.self) private var appState
-    @State private var selectedTab: SidebarTab = .tree
+    @State private var selectedTab: SidebarTab = {
+        // Screenshot mode: jump directly to the requested screen
+        if let screen = ScreenshotScreen.fromLaunchArguments() {
+            switch screen {
+            case .treePedigree, .treeDescendants: return .tree
+            case .audit: return .audit
+            case .research: return .research
+            }
+        }
+        return .tree
+    }()
     @State private var showingExporter = false
 
     var body: some View {
