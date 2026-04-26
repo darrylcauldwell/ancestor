@@ -62,3 +62,40 @@ TODO.md
 # Xcode user data
 xcuserdata/
 *.xcuserstate
+
+# Xcode derived data
+DerivedData/
+
+# Swift Package Manager build directories
+FieldResearcherMCP/.build/
+FieldResearcherMCP/Package.resolved
+SourceTests/.build/
+SourceTests/Package.resolved
+
+# Downloaded MLX models (multi-GB)
+models/
+
+# Captured fixture data (may contain real personal records)
+SourceTests/Fixtures/
+SourceTests/Expected/
+wirksworth_data.json
+
+# Database files (personal family data)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# FamilySearch data (ToS restricts automated access — never commit)
+familysearch_*
+fs_*
+
+# App page cache (fetched web pages)
+page-cache/
+
+# Fastlane build artifacts
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output/
+*.ipa
+*.app.dSYM.zip
+*.pkg
