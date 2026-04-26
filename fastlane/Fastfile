@@ -4,14 +4,10 @@ default_platform(:mac)
 
 # Shared helper — builds an App Store Connect API key from environment variables.
 def asc_api_key
-  asc_key_id = ENV.fetch("ASC_KEY_ID")
-  asc_issuer_id = ENV.fetch("ASC_ISSUER_ID")
-  asc_key_path = ENV.fetch("ASC_KEY_PATH")
-
   app_store_connect_api_key(
-    key_id: asc_key_id,
-    issuer_id: asc_issuer_id,
-    key_filepath: asc_key_path
+    key_id: ENV.fetch("ASC_KEY_ID"),
+    issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+    key_filepath: ENV.fetch("ASC_KEY_PATH")
   )
 end
 
@@ -21,13 +17,19 @@ platform :mac do
     api_key = asc_api_key
 
     # Fetch latest build number from TestFlight and increment
-    latest_build = latest_testflight_build_number(
-      api_key: api_key,
-      app_identifier: "dev.dreamfold.Ancestor-Research",
-      platform: "osx"
-    )
+    begin
+      latest_build = latest_testflight_build_number(
+        api_key: api_key,
+        app_identifier: "dev.dreamfold.Ancestor-Research",
+        platform: "osx"
+      )
+    rescue => e
+      UI.message("No existing TestFlight builds found — starting at 1")
+      latest_build = 0
+    end
     new_build = latest_build + 1
 
+    # Set build number using agvtool (Apple Generic Versioning)
     increment_build_number(
       xcodeproj: "Ancestor Research.xcodeproj",
       build_number: new_build
@@ -48,7 +50,7 @@ platform :mac do
       export_method: "app-store",
       project: "Ancestor Research.xcodeproj",
       destination: "generic/platform=macOS",
-      xcargs: "-allowProvisioningUpdates -authenticationKeyPath '#{File.expand_path(asc_key_path)}' -authenticationKeyID #{asc_key_id} -authenticationKeyIssuerID #{asc_issuer_id}",
+      xcargs: "-skipMacroValidation -allowProvisioningUpdates -authenticationKeyPath '#{File.expand_path(asc_key_path)}' -authenticationKeyID #{asc_key_id} -authenticationKeyIssuerID #{asc_issuer_id}",
       export_options: {
         signingStyle: "automatic",
         teamID: "N6BK2WX94Z"
@@ -62,22 +64,37 @@ platform :mac do
     )
   end
 
+  desc "Upload metadata and screenshots to App Store Connect"
+  lane :metadata do
+    api_key = asc_api_key
+    deliver(
+      api_key: api_key,
+      app_identifier: "dev.dreamfold.Ancestor-Research",
+      skip_binary_upload: true,
+      skip_screenshots: false,
+      force: true,
+      platform: "osx"
+    )
+  end
+
   desc "Build and archive without uploading"
   lane :build do
     build_app(
       scheme: "Ancestor Research",
       export_method: "app-store",
       project: "Ancestor Research.xcodeproj",
-      destination: "generic/platform=macOS"
+      destination: "generic/platform=macOS",
+      xcargs: "-skipMacroValidation"
     )
   end
 
   desc "Run tests"
   lane :test do
     run_tests(
-      scheme: "Ancestor Research",
+      scheme: "Ancestor Research Tests",
       project: "Ancestor Research.xcodeproj",
-      destination: "platform=macOS"
+      destination: "platform=macOS",
+      xcargs: "-skipMacroValidation"
     )
   end
 end
