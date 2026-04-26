@@ -133,12 +133,14 @@ nonisolated struct FamilyGraphSnapshot: Sendable {
             let hasParents = parentEdgeTargets.contains(id)
             if !hasParents { missing.append(.hasParents) }
 
-            // Living heuristic: if latest possible birth + 110 >= current year, might be alive
+            // Living heuristic: born more than 100 years ago with no death = almost certainly dead.
+            // Uses relative threshold (adapts each year) rather than fixed cutoff.
+            // 100 years balances privacy (don't flag the living) with research (don't miss the dead).
             let potentiallyLiving: Bool
             if profile.deathDate != nil {
                 potentiallyLiving = false
             } else if let latestBirth = profile.birthDate?.latest {
-                potentiallyLiving = latestBirth + 110 >= currentYear
+                potentiallyLiving = latestBirth + 100 >= currentYear
             } else {
                 // Unbounded birth — can't rule out being alive if no death recorded
                 potentiallyLiving = true
