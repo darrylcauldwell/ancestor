@@ -398,7 +398,7 @@ nonisolated struct TreeLayout {
                 nextX += nodeWidth + spouseSpacing
 
                 // Place spouses inline
-                placeSpouses(of: profileID, atY: y, generation: generation)
+                placeSpouses(of: profileID, personX: x, atY: y, generation: generation)
 
                 // Ensure gap before next sibling
                 nextX += horizontalSpacing - spouseSpacing
@@ -431,7 +431,7 @@ nonisolated struct TreeLayout {
                 // Place spouses inline, starting right of the person
                 let savedNextX = nextX
                 nextX = finalX + nodeWidth + spouseSpacing
-                placeSpouses(of: profileID, atY: y, generation: generation)
+                placeSpouses(of: profileID, personX: finalX, atY: y, generation: generation)
                 nextX = max(nextX, savedNextX) // don't go backwards
 
                 // Parent-child edges
@@ -451,7 +451,7 @@ nonisolated struct TreeLayout {
         }
 
         /// Place spouse(s) of a person to the right, advancing nextX.
-        func placeSpouses(of profileID: String, atY y: Double, generation: Int) {
+        func placeSpouses(of profileID: String, personX: Double, atY y: Double, generation: Int) {
             let spouses = snapshot.spousesOf(profileID).filter { !visited.contains($0.id) }
             for spouse in spouses {
                 visited.insert(spouse.id)
@@ -466,7 +466,7 @@ nonisolated struct TreeLayout {
                 edges.append(LayoutEdge(
                     id: "\(profileID)=\(spouse.id)",
                     fromID: profileID, toID: spouse.id,
-                    fromX: nextX - spouseSpacing, fromY: y,
+                    fromX: personX, fromY: y,
                     toX: spouseX, toY: y,
                     type: .spouse
                 ))
