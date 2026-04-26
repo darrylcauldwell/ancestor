@@ -62,8 +62,6 @@ struct MainView: View {
                 }
             case .audit:
                 AuditPlaceholderView()
-            case .gaps:
-                GapsPlaceholderView()
             case .research:
                 ResearchView()
             case .leads:
@@ -114,7 +112,6 @@ struct MainView: View {
 nonisolated enum SidebarTab: String, CaseIterable {
     case tree = "Tree"
     case audit = "Audit"
-    case gaps = "Gaps"
     case research = "Research"
     case leads = "Leads"
     case settings = "Settings"

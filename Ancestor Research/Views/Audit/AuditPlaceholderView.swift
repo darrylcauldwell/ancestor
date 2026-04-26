@@ -29,7 +29,22 @@ struct AuditPlaceholderView: View {
                     }
                 }
 
-                Picker("Filter", selection: $auditVM.filterSeverity) {
+                // Category filter: All | Issues | Gaps
+                Picker("Category", selection: $auditVM.filterCategory) {
+                    Text("All").tag(nil as AuditCategory?)
+                    HStack(spacing: 4) {
+                        Text("Issues")
+                        Text("(\(auditVM.issueCount))").foregroundStyle(.secondary)
+                    }.tag(AuditCategory.issue as AuditCategory?)
+                    HStack(spacing: 4) {
+                        Text("Gaps")
+                        Text("(\(auditVM.gapCount))").foregroundStyle(.secondary)
+                    }.tag(AuditCategory.gap as AuditCategory?)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 240)
+
+                Picker("Severity", selection: $auditVM.filterSeverity) {
                     Text("All").tag(nil as Severity?)
                     Text("Errors").tag(Severity.error as Severity?)
                     Text("Warnings").tag(Severity.warning as Severity?)

@@ -10,8 +10,14 @@ nonisolated protocol AuditRuleDefinition: Sendable {
     var warningCondition: String? { get }
     var workedExample: String { get }
     var defaultSeverity: Severity { get }
+    var category: AuditCategory { get }
 
     func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult]
+}
+
+// Default category — most rules are consistency issues
+nonisolated extension AuditRuleDefinition {
+    var category: AuditCategory { .issue }
 }
 
 /// Registry of built-in rules.
@@ -42,6 +48,7 @@ nonisolated enum AuditRules {
 
 nonisolated struct CompletenessScoreRule: AuditRuleDefinition {
     let id = "completenessScore"
+    let category: AuditCategory = .gap
     let displayName = "Completeness Score"
     let description = "Profiles are scored 0-7 based on populated fields."
     let fireCondition = "Score below maximum for that profile type."
@@ -54,7 +61,7 @@ nonisolated struct CompletenessScoreRule: AuditRuleDefinition {
         if comp.score < comp.maximum {
             return [AuditResult(
                 id: UUID(), profileID: profile.id, profileName: profile.displayName,
-                severity: .info, ruleID: id,
+                severity: .info, category: .gap, ruleID: id,
                 message: "\(profile.displayName) — completeness \(comp.score)/\(comp.maximum) (missing: \(comp.missing.map(\.label).joined(separator: ", ")))"
             )]
         }
@@ -243,6 +250,7 @@ nonisolated struct NoMarriageAfterDeathRule: AuditRuleDefinition {
 
 nonisolated struct MissingParentsRule: AuditRuleDefinition {
     let id = "missingParents"
+    let category: AuditCategory = .gap
     let displayName = "Missing Parents"
     let description = "Profile has no parent links."
     let fireCondition = "No parent edges for this profile."
@@ -255,7 +263,7 @@ nonisolated struct MissingParentsRule: AuditRuleDefinition {
         if parents.isEmpty {
             return [AuditResult(
                 id: UUID(), profileID: profile.id, profileName: profile.displayName,
-                severity: .warning, ruleID: id,
+                severity: .warning, category: .gap, ruleID: id,
                 message: "\(profile.displayName) — no parents"
             )]
         }
@@ -265,6 +273,7 @@ nonisolated struct MissingParentsRule: AuditRuleDefinition {
 
 nonisolated struct MissingBirthDateRule: AuditRuleDefinition {
     let id = "missingBirthDate"
+    let category: AuditCategory = .gap
     let displayName = "Missing Birth Date"
     let description = "Profile has no birth date."
     let fireCondition = "birthDate is nil."
@@ -276,7 +285,7 @@ nonisolated struct MissingBirthDateRule: AuditRuleDefinition {
         if profile.birthDate == nil {
             return [AuditResult(
                 id: UUID(), profileID: profile.id, profileName: profile.displayName,
-                severity: .warning, ruleID: id,
+                severity: .warning, category: .gap, ruleID: id,
                 message: "\(profile.displayName) — no birth date"
             )]
         }
@@ -286,6 +295,7 @@ nonisolated struct MissingBirthDateRule: AuditRuleDefinition {
 
 nonisolated struct MissingDeathDateRule: AuditRuleDefinition {
     let id = "missingDeathDate"
+    let category: AuditCategory = .gap
     let displayName = "Missing Death Date"
     let description = "Profile has no death date (may still be living)."
     let fireCondition = "deathDate is nil and not potentially living."
@@ -298,7 +308,7 @@ nonisolated struct MissingDeathDateRule: AuditRuleDefinition {
         if profile.deathDate == nil && !comp.potentiallyLiving {
             return [AuditResult(
                 id: UUID(), profileID: profile.id, profileName: profile.displayName,
-                severity: .info, ruleID: id,
+                severity: .info, category: .gap, ruleID: id,
                 message: "\(profile.displayName) — no death date"
             )]
         }
@@ -308,6 +318,7 @@ nonisolated struct MissingDeathDateRule: AuditRuleDefinition {
 
 nonisolated struct MissingBirthLocationRule: AuditRuleDefinition {
     let id = "missingBirthLocation"
+    let category: AuditCategory = .gap
     let displayName = "Missing Birth Location"
     let description = "Profile has no birth location."
     let fireCondition = "birthLocation is nil."
@@ -319,7 +330,7 @@ nonisolated struct MissingBirthLocationRule: AuditRuleDefinition {
         if profile.birthLocation == nil {
             return [AuditResult(
                 id: UUID(), profileID: profile.id, profileName: profile.displayName,
-                severity: .warning, ruleID: id,
+                severity: .warning, category: .gap, ruleID: id,
                 message: "\(profile.displayName) — no birth location"
             )]
         }
@@ -329,6 +340,7 @@ nonisolated struct MissingBirthLocationRule: AuditRuleDefinition {
 
 nonisolated struct MissingBioRule: AuditRuleDefinition {
     let id = "missingBio"
+    let category: AuditCategory = .gap
     let displayName = "Missing Biography"
     let description = "Profile has no biography."
     let fireCondition = "bio is nil or empty."
@@ -340,7 +352,7 @@ nonisolated struct MissingBioRule: AuditRuleDefinition {
         if profile.bio == nil || (profile.bio?.isEmpty ?? true) {
             return [AuditResult(
                 id: UUID(), profileID: profile.id, profileName: profile.displayName,
-                severity: .info, ruleID: id,
+                severity: .info, category: .gap, ruleID: id,
                 message: "\(profile.displayName) — no biography"
             )]
         }
@@ -599,6 +611,7 @@ nonisolated struct UnsourcedBioRule: AuditRuleDefinition {
 
 nonisolated struct MissingDeathLocationRule: AuditRuleDefinition {
     let id = "missingDeathLocation"
+    let category: AuditCategory = .gap
     let displayName = "Missing Death Location"
     let description = "Profile has a death date but no death location."
     let fireCondition = "deathDate is set but deathLocation is nil."
@@ -611,7 +624,7 @@ nonisolated struct MissingDeathLocationRule: AuditRuleDefinition {
         if profile.deathDate != nil && profile.deathLocation == nil {
             return [AuditResult(
                 id: UUID(), profileID: profile.id, profileName: profile.displayName,
-                severity: .warning, ruleID: id,
+                severity: .warning, category: .gap, ruleID: id,
                 message: "\(profile.displayName) — has death date but no death location"
             )]
         }
@@ -623,6 +636,7 @@ nonisolated struct MissingDeathLocationRule: AuditRuleDefinition {
 
 nonisolated struct AncestorExtensionRule: AuditRuleDefinition {
     let id = "ancestorExtension"
+    let category: AuditCategory = .gap
     let displayName = "End-of-Line Ancestor"
     let description = "Profile has no parents and was born before 1920 — tree can be extended via parish/civil records."
     let fireCondition = "No parent edges, birth year < 1920, name is not 'Unknown'."
@@ -654,7 +668,7 @@ nonisolated struct AncestorExtensionRule: AuditRuleDefinition {
 
         return [AuditResult(
             id: UUID(), profileID: profile.id, profileName: profile.displayName,
-            severity: .info, ruleID: id,
+            severity: .info, category: .gap, ruleID: id,
             message: "\(profile.displayName) (b.\(birthYear)) — no parents, search \(sourceHint) to extend tree"
         )]
     }

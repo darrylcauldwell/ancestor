@@ -47,7 +47,6 @@ nonisolated extension SidebarTab {
         switch self {
         case .tree: "person.3"
         case .audit: "checkmark.shield"
-        case .gaps: "exclamationmark.triangle"
         case .research: "globe.desk"
         case .leads: "person.crop.circle.badge.questionmark"
         case .settings: "gear"
