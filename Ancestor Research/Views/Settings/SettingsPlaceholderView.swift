@@ -118,6 +118,24 @@ struct SettingsPlaceholderView: View {
                 }
             }
 
+            Section("Demo Mode") {
+                Toggle("Show demo family tree", isOn: Binding(
+                    get: { UserDefaults.standard.bool(forKey: "demoModeEnabled") },
+                    set: { enabled in
+                        UserDefaults.standard.set(enabled, forKey: "demoModeEnabled")
+                        if enabled {
+                            let (demoProfiles, demoRelationships) = DemoDataGenerator.generate()
+                            appState.snapshot = FamilyGraphSnapshot(profiles: demoProfiles, relationships: demoRelationships)
+                        } else if let db = appState.currentDatabase {
+                            appState.snapshot = (try? db.buildSnapshot()) ?? .empty
+                        }
+                    }
+                ))
+                Text("Replaces your tree with a fictional Ashford family for screenshots and demos. Your data is not affected.")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.tertiary)
+            }
+
             Section("Reasoning Model") {
                 reasoningModelSection
             }
