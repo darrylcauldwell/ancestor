@@ -359,7 +359,8 @@ nonisolated struct TreeLayout {
     // MARK: - Descendant Layout
 
     /// Show descendants of a focal person, expanding downward.
-    /// No ghost nodes in descendant view.
+    /// Spouses are placed inline during layout (not post-processed)
+    /// to ensure correct horizontal spacing at every level.
     static func descendantLayout(
         rootID: String,
         snapshot: FamilyGraphSnapshot,
@@ -370,6 +371,8 @@ nonisolated struct TreeLayout {
         var visited: Set<String> = []
         var nextX: Double = 0
 
+        /// Place a person and their spouse(s), returning the person's x position.
+        /// Advances nextX past the entire family unit (person + spouses).
         func place(profileID: String, generation: Int) -> Double {
             guard generation <= maxGenerations,
                   !visited.contains(profileID),
@@ -381,14 +384,8 @@ nonisolated struct TreeLayout {
             let y = Double(generation) * (nodeHeight + verticalSpacing)
             let completeness = snapshot.completeness(for: profileID)
 
-            // Count spouses to reserve horizontal space
-            let spouseCount = snapshot.spousesOf(profileID)
-                .filter { !visited.contains($0.id) }.count
-            let nodeSlotWidth = nodeWidth + (spouseCount > 0
-                ? Double(spouseCount) * (nodeWidth + spouseSpacing)
-                : 0)
-
             if children.isEmpty || generation == maxGenerations {
+                // Leaf node — place person, then spouse(s) to the right
                 let x = nextX
                 let hasMore = generation == maxGenerations && !children.isEmpty
                 nodes.append(LayoutNode(
@@ -398,9 +395,16 @@ nonisolated struct TreeLayout {
                     hasMoreAncestors: false,
                     hasMoreDescendants: hasMore
                 ))
-                nextX += nodeSlotWidth + horizontalSpacing
+                nextX += nodeWidth + spouseSpacing
+
+                // Place spouses inline
+                placeSpouses(of: profileID, atY: y, generation: generation)
+
+                // Ensure gap before next sibling
+                nextX += horizontalSpacing - spouseSpacing
                 return x
             } else {
+                // Branch node — place children first, then centre parent over them
                 var childXs: [Double] = []
                 for child in children {
                     let childX = place(profileID: child.id, generation: generation + 1)
@@ -408,53 +412,69 @@ nonisolated struct TreeLayout {
                 }
 
                 let x = childXs.isEmpty ? nextX : (childXs.first! + childXs.last!) / 2
+
+                // Ensure the parent (+ spouse) doesn't overlap with already-placed nodes
+                let spouses = snapshot.spousesOf(profileID).filter { !visited.contains($0.id) }
+                let unitWidth = nodeWidth + Double(spouses.count) * (nodeWidth + spouseSpacing)
+                let minX = nextX  // never go left of what's already placed
+
+                // But also don't go left of centre-over-children position
+                let finalX = max(x, minX)
+
                 nodes.append(LayoutNode(
                     id: profileID,
                     kind: .profile(profile, completeness),
-                    x: x, y: y, generation: generation,
+                    x: finalX, y: y, generation: generation,
                     hasMoreAncestors: false, hasMoreDescendants: false
                 ))
 
+                // Place spouses inline, starting right of the person
+                let savedNextX = nextX
+                nextX = finalX + nodeWidth + spouseSpacing
+                placeSpouses(of: profileID, atY: y, generation: generation)
+                nextX = max(nextX, savedNextX) // don't go backwards
+
+                // Parent-child edges
                 for (i, child) in children.enumerated() where i < childXs.count {
                     edges.append(LayoutEdge(
                         id: "\(profileID)->\(child.id)",
                         fromID: profileID, toID: child.id,
-                        fromX: x, fromY: y,
+                        fromX: finalX, fromY: y,
                         toX: childXs[i],
                         toY: Double(generation + 1) * (nodeHeight + verticalSpacing),
                         type: .parent
                     ))
                 }
 
-                return x
+                return finalX
+            }
+        }
+
+        /// Place spouse(s) of a person to the right, advancing nextX.
+        func placeSpouses(of profileID: String, atY y: Double, generation: Int) {
+            let spouses = snapshot.spousesOf(profileID).filter { !visited.contains($0.id) }
+            for spouse in spouses {
+                visited.insert(spouse.id)
+                let spouseX = nextX
+                let completeness = snapshot.completeness(for: spouse.id)
+                nodes.append(LayoutNode(
+                    id: spouse.id,
+                    kind: .profile(spouse, completeness),
+                    x: spouseX, y: y, generation: generation,
+                    hasMoreAncestors: false, hasMoreDescendants: false
+                ))
+                edges.append(LayoutEdge(
+                    id: "\(profileID)=\(spouse.id)",
+                    fromID: profileID, toID: spouse.id,
+                    fromX: nextX - spouseSpacing, fromY: y,
+                    toX: spouseX, toY: y,
+                    type: .spouse
+                ))
+                nextX += nodeWidth + spouseSpacing
             }
         }
 
         _ = place(profileID: rootID, generation: 0)
-
-        // Add spouses beside their partners
-        for node in Array(nodes) {
-            guard node.profile != nil else { continue }
-            let spouses = snapshot.spousesOf(node.id)
-            for spouse in spouses where !visited.contains(spouse.id) {
-                visited.insert(spouse.id)
-                let completeness = snapshot.completeness(for: spouse.id)
-                let spouseX = node.x + nodeWidth + spouseSpacing
-                nodes.append(LayoutNode(
-                    id: spouse.id,
-                    kind: .profile(spouse, completeness),
-                    x: spouseX, y: node.y, generation: node.generation,
-                    hasMoreAncestors: false, hasMoreDescendants: false
-                ))
-                edges.append(LayoutEdge(
-                    id: "\(node.id)=\(spouse.id)",
-                    fromID: node.id, toID: spouse.id,
-                    fromX: node.x, fromY: node.y,
-                    toX: spouseX, toY: node.y,
-                    type: .spouse
-                ))
-            }
-        }
 
         let width = (nodes.map(\.x).max() ?? 0) + nodeWidth * 2
         let height = (nodes.map(\.y).max() ?? 0) + nodeHeight * 2
