@@ -381,6 +381,13 @@ nonisolated struct TreeLayout {
             let y = Double(generation) * (nodeHeight + verticalSpacing)
             let completeness = snapshot.completeness(for: profileID)
 
+            // Count spouses to reserve horizontal space
+            let spouseCount = snapshot.spousesOf(profileID)
+                .filter { !visited.contains($0.id) }.count
+            let nodeSlotWidth = nodeWidth + (spouseCount > 0
+                ? Double(spouseCount) * (nodeWidth + spouseSpacing)
+                : 0)
+
             if children.isEmpty || generation == maxGenerations {
                 let x = nextX
                 let hasMore = generation == maxGenerations && !children.isEmpty
@@ -391,7 +398,7 @@ nonisolated struct TreeLayout {
                     hasMoreAncestors: false,
                     hasMoreDescendants: hasMore
                 ))
-                nextX += nodeWidth + horizontalSpacing
+                nextX += nodeSlotWidth + horizontalSpacing
                 return x
             } else {
                 var childXs: [Double] = []
