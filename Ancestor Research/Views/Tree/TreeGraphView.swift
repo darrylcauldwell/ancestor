@@ -296,11 +296,33 @@ struct TreeGraphView: View {
             let offsetX = transform.drawOffsetX
             let offsetY = transform.drawOffsetY
 
-            // Draw edges
+            // Draw edges — group parent edges by parent to avoid overlapping line segments
+            var parentChildGroups: [String: (from: CGPoint, children: [CGPoint])] = [:]
+            var spouseEdges: [(from: CGPoint, to: CGPoint)] = []
+
             for edge in treeVM.layout.edges {
                 let from = CGPoint(x: edge.fromX + offsetX, y: edge.fromY + offsetY)
                 let to = CGPoint(x: edge.toX + offsetX, y: edge.toY + offsetY)
-                drawEdge(context: &context, from: from, to: to, type: edge.type)
+
+                if edge.type == .spouse {
+                    spouseEdges.append((from, to))
+                } else {
+                    let key = edge.fromID
+                    if parentChildGroups[key] == nil {
+                        parentChildGroups[key] = (from: from, children: [])
+                    }
+                    parentChildGroups[key]!.children.append(to)
+                }
+            }
+
+            // Draw grouped parent-child connectors (one path per parent, no overlap)
+            for (_, group) in parentChildGroups {
+                drawParentChildGroup(context: &context, from: group.from, children: group.children)
+            }
+
+            // Draw spouse connectors
+            for edge in spouseEdges {
+                drawEdge(context: &context, from: edge.from, to: edge.to, type: .spouse)
             }
 
             // Draw nodes (real + ghost)
@@ -336,6 +358,37 @@ struct TreeGraphView: View {
     }
 
     // MARK: - Drawing
+
+    /// Draw a single parent with all children as one connected path.
+    /// Parent → vertical drop → horizontal bar → vertical drops to each child.
+    /// No overlapping segments.
+    private func drawParentChildGroup(context: inout GraphicsContext, from: CGPoint, children: [CGPoint]) {
+        guard !children.isEmpty else { return }
+
+        let fromBottom = CGPoint(x: from.x, y: from.y + TreeLayout.nodeHeight / 2)
+        let childTops = children.map { CGPoint(x: $0.x, y: $0.y - TreeLayout.nodeHeight / 2) }
+        let midY = (fromBottom.y + childTops[0].y) / 2
+
+        var path = Path()
+
+        // Parent down to midY
+        path.move(to: fromBottom)
+        path.addLine(to: CGPoint(x: fromBottom.x, y: midY))
+
+        // Horizontal bar spanning all children
+        let leftX = min(fromBottom.x, childTops.map(\.x).min()!)
+        let rightX = max(fromBottom.x, childTops.map(\.x).max()!)
+        path.move(to: CGPoint(x: leftX, y: midY))
+        path.addLine(to: CGPoint(x: rightX, y: midY))
+
+        // Vertical drops to each child
+        for top in childTops {
+            path.move(to: CGPoint(x: top.x, y: midY))
+            path.addLine(to: top)
+        }
+
+        context.stroke(path, with: .color(.secondary.opacity(0.4)), lineWidth: 1.5)
+    }
 
     private func drawEdge(context: inout GraphicsContext, from: CGPoint, to: CGPoint, type: RelationshipType) {
         var path = Path()
@@ -660,6 +713,7 @@ struct TreeGraphView: View {
                 VStack(spacing: 4) {
                     Button {
                         if let rootID = naturalRootID {
+                            treeVM.viewMode = .pedigree
                             treeVM.recenter(on: rootID, snapshot: appState.snapshot,
                                            canvasSize: canvasSize)
                         }
