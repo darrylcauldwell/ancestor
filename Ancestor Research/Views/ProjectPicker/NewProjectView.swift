@@ -89,6 +89,11 @@ struct NewProjectView: View {
         switch sourceType {
         case .gedcom:
             guard let file = selectedFile else { return }
+            guard file.startAccessingSecurityScopedResource() else {
+                appState.errorMessage = "Permission denied — could not access the selected file."
+                return
+            }
+            defer { file.stopAccessingSecurityScopedResource() }
             appState.createAndImportProject(name: projectName, source: .gedcom(path: file.path))
         case .wikitree:
             appState.createAndImportProject(name: projectName, source: .wikitree(email: wikiTreeEmail))
