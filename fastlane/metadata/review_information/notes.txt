@@ -1,0 +1,27 @@
+DEMO MODE (no data import needed):
+
+1. Launch the app
+2. Go to Settings (gear icon in the sidebar)
+3. Under "Demo Mode", toggle on "Show demo family tree"
+   — this loads a fictional Ashford family with ~30 profiles across 5 generations
+
+With demo mode active you can explore all core features:
+
+- Tree view: pedigree and descendants navigation, click any person to expand
+- Audit view: 18 consistency checks and gap detection across the demo tree
+- Research view: the structured research pipeline (searches free genealogy sites)
+- Field Researcher: click "Field Research" on any profile row to see the AI research interface — in demo mode this runs a simulated session showing realistic progress, findings count, and cost tracking without requiring an API key
+
+SAMPLE GEDCOM FILE:
+
+A sample GEDCOM file for import testing is hosted at:
+https://raw.githubusercontent.com/darrylcauldwell/ancestor/main/samples/ashford-demo.ged
+
+To import: File > New Project > name it anything > select the downloaded .ged file.
+
+API-DEPENDENT FEATURES (optional, not required for core functionality):
+
+- "Field Researcher" uses the Claude API (anthropic.com) to search the web for genealogical evidence. Users provide their own API key in Settings. In demo mode this feature runs a simulated session so no API key is needed.
+- "Reasoning Model" downloads an open-source model (~4 GB) from Hugging Face on first use. No API key required but needs ~7 GB memory.
+
+No login or account is required. All data stays on-device.

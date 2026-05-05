@@ -1,0 +1,28 @@
+Ancestor Research is a genealogy app that combines your family tree with an automated research pipeline. Import your tree from WikiTree or GEDCOM, and the app searches seven historical record sources, scores every result through a rigorous evidence pipeline, and presents findings for your review.
+
+RESEARCH PIPELINE
+Search FreeBMD civil registration indexes, FreeCen census transcriptions, CWGC military casualties, Find a Grave memorials, England & Wales Probate Calendar, Wirksworth parish records, and FreeREG parish registers — all from one app. Every record is scored through four gates (name, date, geography, family context) and classified as fact, lead, or impossible.
+
+EVIDENCE-BASED GENEALOGY
+Built around the Genealogical Proof Standard. The app tracks source independence, evidence directness, and convergence across multiple sources. A birth confirmed by both FreeBMD and a parish register transcription scores higher than one source alone. GPS scoring shows how well-researched each profile is.
+
+LIFE CLUSTERING
+Search results are grouped into candidate lives — "here are 3 possible Thomas Lands, which is yours?" — rather than showing raw records. Each cluster has a confidence rating (strong, moderate, weak, ambiguous) based on evidence quality and internal consistency.
+
+TREE VISUALISATION
+Interactive pedigree and descendants views with ghost nodes for unknown ancestors. Navigate up through generations or down through descendants. Compact layout with spouse cards alongside their partners.
+
+AUDIT & GAP DETECTION
+18 audit rules check your tree for consistency errors (birth before death, impossible ages, self-spouse) and missing data (no birth date, no parents, no bio). Filter by issues or gaps to prioritise your research.
+
+DISCOVERIES
+The app surfaces findings you didn't ask for: household members from census records, maiden names from mother-in-law surnames, spouse identifications from marriage records, occupations, addresses, and military service.
+
+LOCAL REASONING MODEL
+Optional on-device AI using Apple Silicon — loads a reasoning model (DeepSeek-R1) to suggest research strategy, evaluate evidence clusters, draft biographical summaries, and disambiguate conflicting records. Runs locally, no cloud required.
+
+FIELD RESEARCHER
+Optional integration with the Claude API for deep web research. The Field Researcher reads your full tree context, searches unstructured sources (parish register scans, newspaper archives, local history sites), and contributes findings back through the same evidence pipeline. Every finding is verified, scored, and presented for your approval before entering the tree.
+
+PRIVACY
+Your family tree data stays on your Mac. The app searches external genealogy sources but never uploads your tree. The local reasoning model runs entirely on-device. The Field Researcher feature (optional, requires your own API key) sends research context to the Claude API — no tree data is shared without your explicit action.

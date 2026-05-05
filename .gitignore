@@ -48,8 +48,9 @@ agent-research/
 # Screenshots
 *.png
 
-# GEDCOM files contain personal family data
+# GEDCOM files contain personal family data (except public samples)
 *.ged
+!samples/*.ged
 
 # Swift Package Manager
 AncestorApp/.build/
@@ -92,6 +93,9 @@ fs_*
 # App page cache (fetched web pages)
 page-cache/
 
+# Built app bundles
+*.app/
+
 # Fastlane build artifacts
 fastlane/report.xml
 fastlane/Preview.html
@@ -99,3 +103,9 @@ fastlane/test_output/
 *.ipa
 *.app.dSYM.zip
 *.pkg
+
+# Fastlane review personal contact info
+fastlane/metadata/review_information/email_address.txt
+fastlane/metadata/review_information/phone_number.txt
+fastlane/metadata/review_information/first_name.txt
+fastlane/metadata/review_information/last_name.txt

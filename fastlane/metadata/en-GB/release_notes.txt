@@ -1,0 +1,11 @@
+Initial release.
+
+- Research pipeline with 7 sources (FreeBMD, FreeCen, CWGC, Find a Grave, Probate, Wirksworth, FreeREG)
+- 4-gate record scorer with life clustering
+- GPS scoring per the Genealogical Proof Standard
+- Interactive pedigree and descendants tree views
+- 18 audit rules for consistency and gap detection
+- WikiTree and GEDCOM import
+- Local reasoning model support (Apple Silicon)
+- Field Researcher for unstructured web evidence (Claude API)
+- Evidence Firewall ensuring all findings are verified before entering the tree

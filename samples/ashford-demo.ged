@@ -1,0 +1,272 @@
+0 HEAD
+1 SOUR AncestorResearch
+2 VERS 1.0
+2 NAME Ancestor Research
+1 DEST GEDCOM
+1 DATE 5 MAY 2026
+1 SUBM @SUB1@
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+0 @SUB1@ SUBM
+1 NAME Ancestor Research Demo
+0 @I001@ INDI
+1 NAME William /Ashford/
+2 GIVN William
+2 SURN Ashford
+1 SEX M
+1 BIRT
+2 DATE 1792
+2 PLAC Wirksworth, Derbyshire, England
+1 DEAT
+2 DATE 1861
+1 NOTE Lead miner at Goodluck Mine, Wirksworth. Married Sarah at Wirksworth parish church.
+1 FAMS @F001@
+0 @I002@ INDI
+1 NAME Sarah /Bunting/
+2 GIVN Sarah
+2 SURN Bunting
+1 SEX F
+1 BIRT
+2 DATE 1795
+2 PLAC Cromford, Derbyshire, England
+1 DEAT
+2 DATE 1868
+1 FAMS @F001@
+0 @I003@ INDI
+1 NAME Thomas /Ashford/
+2 GIVN Thomas
+2 SURN Ashford
+1 SEX M
+1 BIRT
+2 DATE 15 MAR 1821
+2 PLAC Wirksworth, Derbyshire, England
+1 DEAT
+2 DATE 2 NOV 1889
+2 PLAC Bakewell, Derbyshire, England
+1 NOTE Quarryman at Middleton quarry. Census 1851: age 30, married, 3 children. Census 1861: age 40, quarryman, 5 children.
+1 FAMC @F001@
+1 FAMS @F002@
+0 @I004@ INDI
+1 NAME Martha /Fearn/
+2 GIVN Martha
+2 SURN Fearn
+1 SEX F
+1 BIRT
+2 DATE 1824
+2 PLAC Matlock, Derbyshire, England
+1 DEAT
+2 DATE 1893
+1 FAMS @F002@
+0 @I005@ INDI
+1 NAME James /Hartington/
+2 GIVN James
+2 SURN Hartington
+1 SEX M
+1 BIRT
+2 DATE 1818
+2 PLAC Bakewell, Derbyshire, England
+1 DEAT
+2 DATE 1875
+1 FAMS @F003@
+0 @I006@ INDI
+1 NAME Elizabeth /Wragg/
+2 GIVN Elizabeth
+2 SURN Wragg
+1 SEX F
+1 BIRT
+2 DATE 8 JUL 1822
+2 PLAC Belper, Derbyshire, England
+1 DEAT
+2 DATE 15 JAN 1901
+1 FAMS @F003@
+0 @I007@ INDI
+1 NAME George /Ashford/
+2 GIVN George
+2 SURN Ashford
+1 SEX M
+1 BIRT
+2 DATE 22 SEP 1850
+2 PLAC Wirksworth, Derbyshire, England
+1 DEAT
+2 DATE 14 MAR 1918
+2 PLAC Wirksworth, Derbyshire, England
+1 NOTE Framework knitter then lead miner. Married Mary Hartington at Bakewell in 1874. Six children. Died during influenza epidemic.
+1 FAMC @F002@
+1 FAMS @F004@
+0 @I008@ INDI
+1 NAME Mary /Hartington/
+2 GIVN Mary
+2 SURN Hartington
+1 SEX F
+1 BIRT
+2 DATE 11 APR 1853
+2 PLAC Bakewell, Derbyshire, England
+1 DEAT
+2 DATE 20 AUG 1932
+1 FAMC @F003@
+1 FAMS @F004@
+0 @I009@ INDI
+1 NAME Samuel /Ashford/
+2 GIVN Samuel
+2 SURN Ashford
+1 SEX M
+1 BIRT
+2 DATE 1848
+2 PLAC Wirksworth, Derbyshire, England
+1 DEAT
+2 DATE 1916
+1 FAMC @F002@
+1 FAMS @F005@
+0 @I010@ INDI
+1 NAME Annie /Smedley/
+2 GIVN Annie
+2 SURN Smedley
+1 SEX F
+1 BIRT
+2 DATE 1855
+2 PLAC Crich, Derbyshire, England
+1 FAMS @F005@
+0 @I011@ INDI
+1 NAME Ellen /Ashford/
+2 GIVN Ellen
+2 SURN Ashford
+1 SEX F
+1 BIRT
+2 DATE 1856
+2 PLAC Wirksworth, Derbyshire, England
+1 DEAT
+2 DATE 1890
+1 NOTE Died young — possibly in childbirth. Buried at Wirksworth.
+1 FAMC @F002@
+0 @I012@ INDI
+1 NAME Clara /Ashford/
+2 GIVN Clara
+2 SURN Ashford
+1 SEX F
+1 BIRT
+2 DATE 10 AUG 1876
+2 PLAC Wirksworth, Derbyshire, England
+1 DEAT
+2 DATE 14 FEB 1945
+1 FAMC @F004@
+0 @I013@ INDI
+1 NAME Albert /Ashford/
+2 GIVN Albert
+2 SURN Ashford
+1 SEX M
+1 BIRT
+2 DATE 4 DEC 1878
+2 PLAC Wirksworth, Derbyshire, England
+1 DEAT
+2 DATE 18 JUN 1952
+2 PLAC Belper, Derbyshire, England
+1 NOTE Served in Sherwood Foresters, survived the Somme. Returned to lead mining then moved to Belper cotton mills.
+1 FAMC @F004@
+1 FAMS @F006@
+0 @I014@ INDI
+1 NAME Harold /Ashford/
+2 GIVN Harold
+2 SURN Ashford
+1 SEX M
+1 BIRT
+2 DATE 1880
+2 PLAC Wirksworth, Derbyshire, England
+1 DEAT
+2 DATE 1 JUL 1916
+2 PLAC Thiepval, France
+1 NOTE Private, 1st Battalion Sherwood Foresters. Killed in action on the first day of the Battle of the Somme. Memorial: Thiepval.
+1 FAMC @F004@
+0 @I015@ INDI
+1 NAME Edith /Ashford/
+2 GIVN Edith
+2 SURN Ashford
+1 SEX F
+1 BIRT
+2 DATE 1884
+2 PLAC Wirksworth, Derbyshire, England
+1 FAMC @F004@
+0 @I016@ INDI
+1 NAME Florence /Kirkland/
+2 GIVN Florence
+2 SURN Kirkland
+1 SEX F
+1 BIRT
+2 DATE 21 MAR 1882
+2 PLAC Duffield, Derbyshire, England
+1 DEAT
+2 DATE 30 NOV 1961
+1 FAMS @F006@
+0 @I017@ INDI
+1 NAME Dorothy /Ashford/
+2 GIVN Dorothy
+2 SURN Ashford
+1 SEX F
+1 BIRT
+2 DATE 28 JAN 1906
+2 PLAC Belper, Derbyshire, England
+1 DEAT
+2 DATE 15 MAR 1989
+1 FAMC @F006@
+0 @I018@ INDI
+1 NAME Ernest /Ashford/
+2 GIVN Ernest
+2 SURN Ashford
+1 SEX M
+1 BIRT
+2 DATE 12 MAY 1910
+2 PLAC Belper, Derbyshire, England
+1 DEAT
+2 DATE 3 SEP 1978
+1 FAMC @F006@
+0 @I019@ INDI
+1 NAME Margaret /Ashford/
+2 GIVN Margaret
+2 SURN Ashford
+1 SEX F
+1 BIRT
+2 DATE 7 NOV 1914
+2 PLAC Belper, Derbyshire, England
+1 FAMC @F006@
+0 @F001@ FAM
+1 HUSB @I001@
+1 WIFE @I002@
+1 MARR
+2 DATE 1816
+1 CHIL @I003@
+0 @F002@ FAM
+1 HUSB @I003@
+1 WIFE @I004@
+1 MARR
+2 DATE 1845
+1 CHIL @I007@
+1 CHIL @I009@
+1 CHIL @I011@
+0 @F003@ FAM
+1 HUSB @I005@
+1 WIFE @I006@
+1 MARR
+2 DATE 1842
+1 CHIL @I008@
+0 @F004@ FAM
+1 HUSB @I007@
+1 WIFE @I008@
+1 MARR
+2 DATE 1874
+1 CHIL @I012@
+1 CHIL @I013@
+1 CHIL @I014@
+1 CHIL @I015@
+0 @F005@ FAM
+1 HUSB @I009@
+1 WIFE @I010@
+0 @F006@ FAM
+1 HUSB @I013@
+1 WIFE @I016@
+1 MARR
+2 DATE 1904
+1 CHIL @I017@
+1 CHIL @I018@
+1 CHIL @I019@
+0 TRLR

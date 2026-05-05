@@ -73,7 +73,35 @@ platform :mac do
       skip_binary_upload: true,
       skip_screenshots: false,
       force: true,
+      platform: "osx",
+      app_rating_config_path: "fastlane/rating_config.json"
+    )
+  end
+
+  desc "Submit existing TestFlight build to App Store review"
+  lane :promote do
+    api_key = asc_api_key
+    build = latest_testflight_build_number(
+      api_key: api_key,
+      app_identifier: "dev.dreamfold.Ancestor-Research",
       platform: "osx"
+    )
+    deliver(
+      api_key: api_key,
+      app_identifier: "dev.dreamfold.Ancestor-Research",
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      skip_metadata: true,
+      submit_for_review: true,
+      force: true,
+      platform: "osx",
+      build_number: build.to_s,
+      app_version: "1.0",
+      precheck_include_in_app_purchases: false,
+      submission_information: {
+        export_compliance_uses_encryption: false,
+        add_id_info_uses_idfa: false
+      }
     )
   end
 

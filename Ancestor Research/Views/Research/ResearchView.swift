@@ -157,7 +157,7 @@ struct ResearchView: View {
                 .font(AppTypography.cardMeta)
                 .foregroundStyle(comp.score == comp.maximum ? .green : .orange)
 
-            if frEnabled {
+            if frVisible {
                 Button(frIsRunning ? "Researching..." : "Field Research") {
                     startFieldResearch(profile: profile)
                 }
@@ -165,12 +165,14 @@ struct ResearchView: View {
                 .controlSize(.small)
                 .disabled(frIsRunning || !searchable)
 
-                Button("Review") {
-                    pendingReviewProfileID = profile.id
-                    showPendingReview = true
+                if !DemoDataGenerator.isDemoMode {
+                    Button("Review") {
+                        pendingReviewProfileID = profile.id
+                        showPendingReview = true
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
                 }
-                .buttonStyle(.glass)
-                .controlSize(.small)
             }
 
             Button("Research") {
@@ -268,7 +270,19 @@ struct ResearchView: View {
     @State private var showPendingReview = false
     @State private var pendingReviewProfileID: String?
 
+    /// Whether the Field Researcher UI should be visible.
+    /// Always true in demo mode so reviewers can see the full interface.
+    private var frVisible: Bool {
+        frEnabled || DemoDataGenerator.isDemoMode
+    }
+
     private func startFieldResearch(profile: Profile) {
+        // In demo mode, run a simulated session without API key or database
+        if DemoDataGenerator.isDemoMode {
+            startDemoFieldResearch(profile: profile)
+            return
+        }
+
         guard let apiKey = SettingsPlaceholderView.loadAPIKey(), !apiKey.isEmpty else {
             frStatus = "No API key — configure in Settings"
             return
@@ -305,6 +319,44 @@ struct ResearchView: View {
                 pendingReviewProfileID = profile.id
                 showPendingReview = true
             }
+        }
+    }
+
+    /// Simulated Field Researcher session for demo mode.
+    /// Shows realistic progress animation without calling the Claude API.
+    private func startDemoFieldResearch(profile: Profile) {
+        frIsRunning = true
+        frProfileName = profile.displayName
+        frStatus = "Building context..."
+        frFindingsCount = 0
+        frCost = 0
+        showPendingReview = false
+
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            frStatus = "Turn 1/8 — reasoning..."
+            try? await Task.sleep(for: .seconds(2))
+
+            frFindingsCount = 1
+            frCost = 0.03
+            frStatus = "Turn 2/8 — reasoning..."
+            try? await Task.sleep(for: .seconds(2))
+
+            frFindingsCount = 2
+            frCost = 0.07
+            frStatus = "Turn 3/8 — reasoning..."
+            try? await Task.sleep(for: .seconds(1.5))
+
+            frFindingsCount = 3
+            frCost = 0.11
+            frStatus = "Turn 4/8 — reasoning..."
+            try? await Task.sleep(for: .seconds(1.5))
+
+            frFindingsCount = 4
+            frCost = 0.14
+
+            frIsRunning = false
+            frStatus = "4 findings, 1 lead — $0.14 (demo)"
         }
     }
 
