@@ -74,7 +74,8 @@ platform :mac do
       skip_screenshots: false,
       force: true,
       platform: "osx",
-      app_rating_config_path: "fastlane/rating_config.json"
+      app_rating_config_path: "fastlane/rating_config.json",
+      precheck_include_in_app_purchases: false
     )
   end
 
