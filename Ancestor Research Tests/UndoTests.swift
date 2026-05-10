@@ -13,9 +13,10 @@ struct UndoTests {
         Profile(
             id: id, externalIDs: [:],
             firstName: "John", lastName: "Smith", gender: .male,
+            attributes: nil,
             birthDate: GenealogicalDate(parsing: "1887"),
             birthLocation: "Belper", deathDate: nil,
-            deathLocation: nil, bio: nil,
+            deathLocation: nil, bio: nil, isDeleted: false,
             sources: [:], disputes: [:]
         )
     }
@@ -24,7 +25,7 @@ struct UndoTests {
         let db = try makeTempDB()
         let p1 = makeProfile(id: "a")
         let p2 = makeProfile(id: "b")
-        let rel = Relationship(id: UUID(), from: "a", to: "b", type: .parent, role: .father, subtype: .biological, marriageDate: nil, divorceDate: nil)
+        let rel = Relationship(id: UUID(), from: "a", to: "b", type: .parent, role: .father, subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
         let snapshot = FamilyGraphSnapshot(profiles: ["a": p1, "b": p2], relationships: [rel])
         let tx = try db.importSnapshot(snapshot, source: "/test.ged")
 

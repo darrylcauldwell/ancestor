@@ -4,11 +4,38 @@ struct SidebarView: View {
     @Environment(AppState.self) private var appState
     @Binding var selectedTab: SidebarTab
 
+    /// Per DESIGN.md §7.7 + §7.16: progressive disclosure. The sidebar
+    /// reveals tabs as the project earns them — Workbench on first note,
+    /// Tasks once a manual project crosses the 5-profile threshold (always
+    /// visible for imported projects), Sourcing once any citation exists.
+    /// Tree, Research, Leads, and Settings are always shown.
+    private var visibleTabs: [SidebarTab] {
+        SidebarTab.allCases.filter { tab in
+            switch tab {
+            case .tree, .research, .leads, .settings:
+                return true
+            case .tasks:
+                return appState.tasksTabVisible
+            case .sourcing:
+                return appState.sourcingTabVisible
+            case .workbench:
+                return appState.workbenchHasContent
+            }
+        }
+    }
+
     var body: some View {
-        List(SidebarTab.allCases, id: \.self, selection: $selectedTab) { tab in
+        List(visibleTabs, id: \.self, selection: $selectedTab) { tab in
             Label(tab.label, systemImage: tab.systemImage)
         }
         .listStyle(.sidebar)
+        // If the selected tab disappears (e.g. user dropped below the Tasks
+        // threshold by deleting profiles), fall back to Tree.
+        .onChange(of: visibleTabs) { _, tabs in
+            if !tabs.contains(selectedTab) {
+                selectedTab = .tree
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             VStack(alignment: .leading, spacing: 4) {
                 let count = appState.snapshot.profiles.count
@@ -46,8 +73,10 @@ nonisolated extension SidebarTab {
     var systemImage: String {
         switch self {
         case .tree: "person.3"
-        case .audit: "checkmark.shield"
+        case .tasks: "checklist"
+        case .sourcing: "checkmark.seal"
         case .research: "globe.desk"
+        case .workbench: "rectangle.grid.2x2"
         case .leads: "person.crop.circle.badge.questionmark"
         case .settings: "gear"
         }

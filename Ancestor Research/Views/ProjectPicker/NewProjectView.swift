@@ -24,6 +24,7 @@ struct NewProjectView: View {
             Picker("Data Source", selection: $sourceType) {
                 Text("GEDCOM File").tag(SourceType.gedcom)
                 Text("WikiTree API").tag(SourceType.wikitree)
+                Text("Start From Scratch").tag(SourceType.manual)
             }
             .pickerStyle(.segmented)
             .frame(maxWidth: 400)
@@ -37,6 +38,17 @@ struct NewProjectView: View {
                     Button("Choose GEDCOM File...") {
                         showingFilePicker = true
                     }
+                    Text("Or use the bundled sample — generated from a fictional 30-profile family.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                    Button {
+                        useSampleGEDCOM()
+                    } label: {
+                        Label("Use Sample GEDCOM", systemImage: "doc.text")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
                 }
             case .wikitree:
                 VStack(spacing: 12) {
@@ -47,6 +59,12 @@ struct NewProjectView: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 400)
                 }
+            case .manual:
+                Text("We'll guide you through entering yourself, your parents, and your grandparents.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 400)
             }
 
             HStack(spacing: 16) {
@@ -82,7 +100,32 @@ struct NewProjectView: View {
             return selectedFile != nil
         case .wikitree:
             return !wikiTreeEmail.isEmpty && !wikiTreePassword.isEmpty
+        case .manual:
+            return true
         }
+    }
+
+    /// Generate a sample GEDCOM from the demo data and feed it through the
+    /// normal GEDCOM-import path. Reviewer-friendly entry that exercises the
+    /// import code without requiring a hosted external file. The file is
+    /// written to a temp directory; existing project name (or "Sample GEDCOM"
+    /// fallback) is used.
+    private func useSampleGEDCOM() {
+        let tmpDir = FileManager.default.temporaryDirectory
+        let tmpFile = tmpDir.appendingPathComponent("sample-\(UUID().uuidString).ged")
+
+        let (profiles, relationships) = DemoDataGenerator.generate()
+        let demoSnapshot = FamilyGraphSnapshot(profiles: profiles, relationships: relationships)
+        do {
+            _ = try GEDCOMExporter.export(demoSnapshot, to: tmpFile.path)
+        } catch {
+            appState.errorMessage = "Failed to write sample GEDCOM: \(error.localizedDescription)"
+            return
+        }
+
+        let name = projectName.isEmpty ? "Sample GEDCOM" : projectName
+        appState.createAndImportProject(name: name, source: .gedcom(path: tmpFile.path))
+        dismiss()
     }
 
     private func createProject() {
@@ -104,11 +147,14 @@ struct NewProjectView: View {
                     password: wikiTreePassword
                 )
             }
+        case .manual:
+            appState.createAndImportProject(name: projectName, source: .manual)
+            appState.showOnboardingWizard = true
         }
         dismiss()
     }
 }
 
 private enum SourceType {
-    case gedcom, wikitree
+    case gedcom, wikitree, manual
 }

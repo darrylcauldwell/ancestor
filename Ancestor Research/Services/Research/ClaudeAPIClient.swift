@@ -1,6 +1,8 @@
 import Foundation
 import os
 
+#if !FIELD_RESEARCHER_DISABLED
+
 /// Claude Messages API client for the Field Researcher.
 /// Handles multi-turn conversations with tool use and cost tracking.
 actor ClaudeAPIClient {
@@ -228,3 +230,5 @@ nonisolated enum ClaudeAPIError: LocalizedError {
         }
     }
 }
+
+#endif

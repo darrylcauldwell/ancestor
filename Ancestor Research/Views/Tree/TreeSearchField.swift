@@ -12,9 +12,10 @@ struct TreeSearchField: View {
 
     private var matches: [(profile: Profile, completeness: ProfileCompleteness)] {
         guard !searchText.isEmpty else { return [] }
-        let query = searchText.lowercased()
+        let query = TreeSearchQuery.parse(searchText)
+        guard !query.isEmpty else { return [] }
         let results = allProfiles
-            .filter { $0.displayName.lowercased().contains(query) }
+            .filter { query.matches($0) }
             .sorted { a, b in a.displayName < b.displayName }
         return results.map { ($0, snapshot.completeness(for: $0.id)) }
     }
@@ -48,6 +49,7 @@ struct TreeSearchField: View {
                                         Image(systemName: "arrow.triangle.2.circlepath")
                                             .font(.caption2)
                                             .foregroundStyle(.orange)
+                                            .accessibilityLabel("Switches view mode")
                                     }
                                     Text(match.profile.displayName)
                                         .font(.callout)

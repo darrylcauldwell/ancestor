@@ -1,7 +1,7 @@
 import Foundation
 
 /// A formatted citation following Evidence Explained conventions.
-nonisolated struct Citation: Sendable {
+nonisolated struct RenderedCitation: Sendable {
     let full: String        // Full citation for notes
     let short: String       // Short form for subsequent references
     let url: String?        // Direct link if available
@@ -20,7 +20,7 @@ nonisolated struct Citation: Sendable {
 nonisolated struct CitationRenderer {
 
     /// Render a citation for a source record.
-    static func cite(_ record: SourceRecord, accessedAt: Date = Date()) -> Citation {
+    static func cite(_ record: SourceRecord, accessedAt: Date = Date()) -> RenderedCitation {
         switch record {
         case .birth(let r):
             return citeBMDRecord(
@@ -65,7 +65,7 @@ nonisolated struct CitationRenderer {
         year: Int?, quarter: String?,
         district: String?, volume: String?, page: String?,
         accessedAt: Date
-    ) -> Citation {
+    ) -> RenderedCitation {
         let name = [common.givenName, common.surname].compactMap { $0 }.joined(separator: " ")
         let yearStr = year.map(String.init) ?? "?"
         let qStr = quarter ?? ""
@@ -87,7 +87,7 @@ nonisolated struct CitationRenderer {
 
         let short = "\(type): \(name), \(qStr) \(yearStr), \(loc)"
 
-        return Citation(
+        return RenderedCitation(
             full: full, short: short,
             url: common.detailURL,
             accessedAt: accessedAt,
@@ -97,7 +97,7 @@ nonisolated struct CitationRenderer {
 
     // MARK: - FreeCen (Census)
 
-    private static func citeCensus(_ r: CensusRecord, accessedAt: Date) -> Citation {
+    private static func citeCensus(_ r: CensusRecord, accessedAt: Date) -> RenderedCitation {
         let name = r.common.name ?? [r.common.givenName, r.common.surname].compactMap { $0 }.joined(separator: " ")
         let parish = r.parish ?? r.district ?? ""
         let birthPlace = r.birthPlace ?? ""
@@ -110,7 +110,7 @@ nonisolated struct CitationRenderer {
 
         let short = "Census \(r.censusYear): \(name), \(parish)"
 
-        return Citation(
+        return RenderedCitation(
             full: full, short: short,
             url: r.common.detailURL,
             accessedAt: accessedAt,
@@ -120,7 +120,7 @@ nonisolated struct CitationRenderer {
 
     // MARK: - Find a Grave (Burial)
 
-    private static func citeBurial(_ r: BurialRecord, accessedAt: Date) -> Citation {
+    private static func citeBurial(_ r: BurialRecord, accessedAt: Date) -> RenderedCitation {
         let name = r.common.name ?? [r.common.givenName, r.common.surname].compactMap { $0 }.joined(separator: " ")
         let cemetery = r.cemetery ?? ""
         let location = r.burialLocation ?? ""
@@ -132,7 +132,7 @@ nonisolated struct CitationRenderer {
 
         let short = "Find a Grave: \(name), \(cemetery)"
 
-        return Citation(
+        return RenderedCitation(
             full: full, short: short,
             url: r.common.detailURL,
             accessedAt: accessedAt,
@@ -142,7 +142,7 @@ nonisolated struct CitationRenderer {
 
     // MARK: - CWGC (Military)
 
-    private static func citeMilitary(_ r: MilitaryRecord, accessedAt: Date) -> Citation {
+    private static func citeMilitary(_ r: MilitaryRecord, accessedAt: Date) -> RenderedCitation {
         let name = r.common.name ?? [r.common.givenName, r.common.surname].compactMap { $0 }.joined(separator: " ")
         let regiment = r.regiment ?? ""
         let rank = r.rank ?? ""
@@ -155,7 +155,7 @@ nonisolated struct CitationRenderer {
 
         let short = "CWGC: \(rank) \(name), \(regiment)"
 
-        return Citation(
+        return RenderedCitation(
             full: full, short: short,
             url: r.common.detailURL,
             accessedAt: accessedAt,
@@ -165,7 +165,7 @@ nonisolated struct CitationRenderer {
 
     // MARK: - Probate
 
-    private static func citeProbate(_ r: ProbateRecord, accessedAt: Date) -> Citation {
+    private static func citeProbate(_ r: ProbateRecord, accessedAt: Date) -> RenderedCitation {
         let name = r.common.name ?? [r.common.givenName, r.common.surname].compactMap { $0 }.joined(separator: " ")
         let grantType = r.grantType ?? "Probate"
         let date = r.probateDate ?? ""
@@ -176,7 +176,7 @@ nonisolated struct CitationRenderer {
 
         let short = "\(grantType): \(name), \(date)"
 
-        return Citation(
+        return RenderedCitation(
             full: full, short: short,
             url: r.common.detailURL,
             accessedAt: accessedAt,
@@ -186,7 +186,7 @@ nonisolated struct CitationRenderer {
 
     // MARK: - Parish
 
-    private static func citeParish(_ r: ParishRecord, accessedAt: Date) -> Citation {
+    private static func citeParish(_ r: ParishRecord, accessedAt: Date) -> RenderedCitation {
         let name = r.common.name ?? [r.common.givenName, r.common.surname].compactMap { $0 }.joined(separator: " ")
         let event = r.eventType ?? "record"
         let parish = r.parish ?? ""
@@ -195,7 +195,7 @@ nonisolated struct CitationRenderer {
         let full = "\(parish) Parish Register, \(event) of \(name), \(year)."
         let short = "Parish: \(name), \(event) \(year)"
 
-        return Citation(
+        return RenderedCitation(
             full: full, short: short,
             url: r.common.detailURL,
             accessedAt: accessedAt,
@@ -205,14 +205,14 @@ nonisolated struct CitationRenderer {
 
     // MARK: - Pedigree
 
-    private static func citePedigree(_ r: PedigreeRecord, accessedAt: Date) -> Citation {
+    private static func citePedigree(_ r: PedigreeRecord, accessedAt: Date) -> RenderedCitation {
         let name = r.common.name ?? [r.common.givenName, r.common.surname].compactMap { $0 }.joined(separator: " ")
         let location = r.location ?? ""
 
         let full = "Pedigree resource, \(name), \(location)."
         let short = "Pedigree: \(name)"
 
-        return Citation(
+        return RenderedCitation(
             full: full, short: short,
             url: r.common.detailURL,
             accessedAt: accessedAt,

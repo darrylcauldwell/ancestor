@@ -137,26 +137,59 @@ nonisolated struct ScoringRules {
 
     /// Score name similarity handling common genealogical variations.
     /// Ported faithfully from Python's name_similarity_score().
-    /// User-learned name equivalences (loaded from database at app launch).
-    /// Set this from AppState after loading the project database.
-    nonisolated(unsafe) static var learnedEquivalences: Set<String> = []
+    /// User-learned name equivalences keyed by project UUID (M25). Each
+    /// project's learnings stay isolated from others — important when the
+    /// user has multiple project windows open simultaneously. The
+    /// `nil`-keyed bucket is reserved for tests and pre-project callers.
+    nonisolated(unsafe) private static var equivalencesByProject: [UUID?: Set<String>] = [:]
+    private static let equivalencesLock = NSLock()
 
-    /// Register a learned equivalence pair (e.g. "ROBERT" ↔ "BOB").
-    static func addLearnedEquivalence(_ nameA: String, _ nameB: String) {
-        let a = nameA.uppercased()
-        let b = nameB.uppercased()
-        learnedEquivalences.insert("\(a)=\(b)")
-        learnedEquivalences.insert("\(b)=\(a)")
+    /// Test/legacy accessor — returns the `nil`-keyed (project-less) bucket.
+    /// Production code should use `learnedEquivalences(for:)` with a real
+    /// project UUID instead.
+    static var learnedEquivalences: Set<String> {
+        get {
+            equivalencesLock.lock()
+            defer { equivalencesLock.unlock() }
+            return equivalencesByProject[nil] ?? []
+        }
+        set {
+            equivalencesLock.lock()
+            defer { equivalencesLock.unlock() }
+            equivalencesByProject[nil] = newValue
+        }
     }
 
-    static func nameSimilarity(_ nameA: String, _ nameB: String) -> Double {
+    /// Returns the equivalence set for a given project, or the legacy
+    /// project-less bucket if `projectID` is nil.
+    static func learnedEquivalences(for projectID: UUID?) -> Set<String> {
+        equivalencesLock.lock()
+        defer { equivalencesLock.unlock() }
+        return equivalencesByProject[projectID] ?? []
+    }
+
+    /// Register a learned equivalence pair (e.g. "ROBERT" ↔ "BOB"). Stored
+    /// against `projectID` if provided so multi-window scenarios stay
+    /// isolated; pass nil for the legacy global bucket.
+    static func addLearnedEquivalence(_ nameA: String, _ nameB: String, projectID: UUID? = nil) {
+        let a = nameA.uppercased()
+        let b = nameB.uppercased()
+        equivalencesLock.lock()
+        defer { equivalencesLock.unlock() }
+        equivalencesByProject[projectID, default: []].insert("\(a)=\(b)")
+        equivalencesByProject[projectID, default: []].insert("\(b)=\(a)")
+    }
+
+    static func nameSimilarity(_ nameA: String, _ nameB: String, projectID: UUID? = nil) -> Double {
         let a = nameA.uppercased().trimmingCharacters(in: .whitespaces)
         let b = nameB.uppercased().trimmingCharacters(in: .whitespaces)
 
         if a == b { return 1.0 }
 
-        // User-learned equivalences (highest priority after exact match)
-        if learnedEquivalences.contains("\(a)=\(b)") { return 0.9 }
+        // User-learned equivalences (highest priority after exact match).
+        // M25: scoped per project so multi-window with different open
+        // projects doesn't cross-pollinate equivalences.
+        if learnedEquivalences(for: projectID).contains("\(a)=\(b)") { return 0.9 }
 
         // Spelling normalisation (AU/A, OU/O swaps)
         let aNorm = a.replacingOccurrences(of: "AU", with: "A")

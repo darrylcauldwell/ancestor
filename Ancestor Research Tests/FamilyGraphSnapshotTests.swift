@@ -11,10 +11,11 @@ struct FamilyGraphSnapshotTests {
         Profile(
             id: id, externalIDs: [:],
             firstName: firstName, lastName: lastName, gender: .male,
+            attributes: nil,
             birthDate: birthDate.map { GenealogicalDate(parsing: $0) },
             birthLocation: nil,
             deathDate: deathDate.map { GenealogicalDate(parsing: $0) },
-            deathLocation: nil, bio: nil, sources: [:], disputes: [:]
+            deathLocation: nil, bio: nil, isDeleted: false, sources: [:], disputes: [:]
         )
     }
 
@@ -27,7 +28,7 @@ struct FamilyGraphSnapshotTests {
     @Test func parentsOf() {
         let parent = makeProfile(id: "p", firstName: "John")
         let child = makeProfile(id: "c", firstName: "James")
-        let rel = Relationship(id: UUID(), from: "p", to: "c", type: .parent, role: .father, subtype: .biological, marriageDate: nil, divorceDate: nil)
+        let rel = Relationship(id: UUID(), from: "p", to: "c", type: .parent, role: .father, subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
         let snap = FamilyGraphSnapshot(profiles: ["p": parent, "c": child], relationships: [rel])
         #expect(snap.parentsOf("c").count == 1)
         #expect(snap.parentsOf("c").first?.id == "p")
@@ -38,8 +39,8 @@ struct FamilyGraphSnapshotTests {
         let parent = makeProfile(id: "p")
         let child1 = makeProfile(id: "c1", firstName: "Alice")
         let child2 = makeProfile(id: "c2", firstName: "Bob")
-        let r1 = Relationship(id: UUID(), from: "p", to: "c1", type: .parent, role: .father, subtype: .biological, marriageDate: nil, divorceDate: nil)
-        let r2 = Relationship(id: UUID(), from: "p", to: "c2", type: .parent, role: .father, subtype: .biological, marriageDate: nil, divorceDate: nil)
+        let r1 = Relationship(id: UUID(), from: "p", to: "c1", type: .parent, role: .father, subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
+        let r2 = Relationship(id: UUID(), from: "p", to: "c2", type: .parent, role: .father, subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
         let snap = FamilyGraphSnapshot(profiles: ["p": parent, "c1": child1, "c2": child2], relationships: [r1, r2])
         let siblings = snap.siblingsOf("c1")
         #expect(siblings.count == 1)
@@ -67,7 +68,7 @@ struct FamilyGraphSnapshotTests {
     @Test func completenessWithParents() {
         let parent = makeProfile(id: "p")
         let child = makeProfile(id: "c", firstName: "Test", birthDate: "1990")
-        let rel = Relationship(id: UUID(), from: "p", to: "c", type: .parent, role: .father, subtype: .biological, marriageDate: nil, divorceDate: nil)
+        let rel = Relationship(id: UUID(), from: "p", to: "c", type: .parent, role: .father, subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
         let snap = FamilyGraphSnapshot(profiles: ["p": parent, "c": child], relationships: [rel])
         let comp = snap.completeness(for: "c")
         // Has firstName + birthDate + parents = 3. Missing: birthLocation, deathLocation, bio = 3 missing. Score = 3/6
@@ -77,7 +78,7 @@ struct FamilyGraphSnapshotTests {
     @Test func spousesOf() {
         let p1 = makeProfile(id: "h", firstName: "John")
         let p2 = makeProfile(id: "w", firstName: "Mary")
-        let rel = Relationship(id: UUID(), from: "h", to: "w", type: .spouse, role: nil, subtype: .unknown, marriageDate: nil, divorceDate: nil)
+        let rel = Relationship(id: UUID(), from: "h", to: "w", type: .spouse, role: nil, subtype: .unknown, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
         let snap = FamilyGraphSnapshot(profiles: ["h": p1, "w": p2], relationships: [rel])
         #expect(snap.spousesOf("h").count == 1)
         #expect(snap.spousesOf("w").count == 1)
@@ -87,8 +88,8 @@ struct FamilyGraphSnapshotTests {
         let gp = makeProfile(id: "gp")
         let p = makeProfile(id: "p")
         let c = makeProfile(id: "c")
-        let r1 = Relationship(id: UUID(), from: "gp", to: "p", type: .parent, role: .father, subtype: .biological, marriageDate: nil, divorceDate: nil)
-        let r2 = Relationship(id: UUID(), from: "p", to: "c", type: .parent, role: .father, subtype: .biological, marriageDate: nil, divorceDate: nil)
+        let r1 = Relationship(id: UUID(), from: "gp", to: "p", type: .parent, role: .father, subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
+        let r2 = Relationship(id: UUID(), from: "p", to: "c", type: .parent, role: .father, subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
         let snap = FamilyGraphSnapshot(profiles: ["gp": gp, "p": p, "c": c], relationships: [r1, r2])
         let ancestors = snap.ancestorsOf("c", depth: 5)
         #expect(ancestors.count == 2)

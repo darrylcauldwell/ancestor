@@ -13,9 +13,10 @@ struct ProjectDatabaseTests {
         Profile(
             id: id, externalIDs: ["gedcom": "@I1@"],
             firstName: firstName, lastName: lastName, gender: .male,
+            attributes: nil,
             birthDate: GenealogicalDate(parsing: "1887"),
             birthLocation: "Belper, Derbyshire", deathDate: nil,
-            deathLocation: nil, bio: nil,
+            deathLocation: nil, bio: nil, isDeleted: false,
             sources: [.birthDate: [FieldSource(origin: .gedcom, raw: "1887", addedAt: Date())]],
             disputes: [:]
         )
@@ -23,7 +24,7 @@ struct ProjectDatabaseTests {
 
     @Test func saveAndLoadProjectMeta() throws {
         let db = try makeTempDB()
-        let project = Project(id: UUID(), name: "Test Project", source: .gedcom(path: "/test.ged"), createdAt: Date(), lastRefreshed: nil)
+        let project = Project(id: UUID(), name: "Test Project", source: .gedcom(path: "/test.ged"), homePersonID: nil, createdAt: Date(), lastRefreshed: nil)
         try db.saveProjectMeta(project)
         let loaded = try db.loadProjectMeta()
         #expect(loaded != nil)
@@ -60,7 +61,7 @@ struct ProjectDatabaseTests {
         let db = try makeTempDB()
         let parent = makeProfile(id: "parent", firstName: "David")
         let child = makeProfile(id: "child", firstName: "Darryl")
-        let rel = Relationship(id: UUID(), from: "parent", to: "child", type: .parent, role: .father, subtype: .biological, marriageDate: nil, divorceDate: nil)
+        let rel = Relationship(id: UUID(), from: "parent", to: "child", type: .parent, role: .father, subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
         let snapshot = FamilyGraphSnapshot(profiles: ["parent": parent, "child": child], relationships: [rel])
         _ = try db.importSnapshot(snapshot, source: "/test.ged")
 
@@ -73,7 +74,7 @@ struct ProjectDatabaseTests {
     @Test func persistenceAcrossReload() throws {
         let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
         let db1 = try ProjectDatabase(path: path)
-        let project = Project(id: UUID(), name: "Persist Test", source: .gedcom(path: "/test.ged"), createdAt: Date(), lastRefreshed: nil)
+        let project = Project(id: UUID(), name: "Persist Test", source: .gedcom(path: "/test.ged"), homePersonID: nil, createdAt: Date(), lastRefreshed: nil)
         try db1.saveProjectMeta(project)
         let profile = makeProfile()
         let snapshot = FamilyGraphSnapshot(profiles: ["test-1": profile], relationships: [])

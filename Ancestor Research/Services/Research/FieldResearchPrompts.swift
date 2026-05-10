@@ -1,5 +1,7 @@
 import Foundation
 
+#if !FIELD_RESEARCHER_DISABLED
+
 /// System prompts for the Field Researcher.
 /// Encode genealogical methodology, Derbyshire-specific knowledge,
 /// and common pitfalls.
@@ -134,3 +136,5 @@ nonisolated enum FieldResearchPrompts {
     candidate, also submit the supporting evidence as findings.
     """
 }
+
+#endif

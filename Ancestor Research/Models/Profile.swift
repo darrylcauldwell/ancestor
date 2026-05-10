@@ -15,6 +15,7 @@ nonisolated struct Profile: Codable, Identifiable, Sendable {
     var firstName: String?
     var lastName: String?
     var gender: Gender?
+    var attributes: PersonAttributes?   // nil for existing profiles (treated as .default)
 
     var birthDate: GenealogicalDate?
     var birthLocation: String?
@@ -22,8 +23,15 @@ nonisolated struct Profile: Codable, Identifiable, Sendable {
     var deathLocation: String?
     var bio: String?
 
+    var isDeleted: Bool                 // Soft delete — hidden from tree, preserved in DB
+
     var sources: [ProfileField: [FieldSource]]
     var disputes: [ProfileField: FieldDispute]
+
+    /// Resolved attributes — never nil at access time.
+    var resolvedAttributes: PersonAttributes {
+        attributes ?? .default
+    }
 
     /// Display name combining first and last.
     var displayName: String {

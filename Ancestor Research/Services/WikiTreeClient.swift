@@ -192,7 +192,7 @@ actor WikiTreeClient {
                 relationships.append(Relationship(
                     id: UUID(), from: fatherName, to: childName,
                     type: .parent, role: .father, subtype: .unknown,
-                    marriageDate: nil, divorceDate: nil
+                    marriageDate: nil, marriageLocation: nil, divorceDate: nil
                 ))
             }
 
@@ -202,7 +202,7 @@ actor WikiTreeClient {
                 relationships.append(Relationship(
                     id: UUID(), from: motherName, to: childName,
                     type: .parent, role: .mother, subtype: .unknown,
-                    marriageDate: nil, divorceDate: nil
+                    marriageDate: nil, marriageLocation: nil, divorceDate: nil
                 ))
             }
         }
@@ -466,11 +466,13 @@ extension WikiTreeClient {
             firstName: firstName,
             lastName: lastName,
             gender: gender,
+            attributes: nil,
             birthDate: birthDate,
             birthLocation: (birthLocation?.isEmpty ?? true) ? nil : birthLocation,
             deathDate: deathDate,
             deathLocation: (deathLocation?.isEmpty ?? true) ? nil : deathLocation,
             bio: (bio?.isEmpty ?? true) ? nil : bio,
+            isDeleted: false,
             sources: sources,
             disputes: [:]
         )
@@ -530,7 +532,7 @@ extension WikiTreeClient {
                                 relationships.append(Relationship(
                                     id: UUID(), from: personName, to: relName,
                                     type: .parent, role: role, subtype: .unknown,
-                                    marriageDate: nil, divorceDate: nil
+                                    marriageDate: nil, marriageLocation: nil, divorceDate: nil
                                 ))
                             }
                         } else if edgeType == .spouse {
@@ -547,7 +549,7 @@ extension WikiTreeClient {
                                 relationships.append(Relationship(
                                     id: UUID(), from: personName, to: relName,
                                     type: .spouse, role: nil, subtype: .unknown,
-                                    marriageDate: marriageDate, divorceDate: nil
+                                    marriageDate: marriageDate, marriageLocation: nil, divorceDate: nil
                                 ))
                             }
                         }

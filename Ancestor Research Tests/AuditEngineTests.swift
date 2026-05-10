@@ -21,11 +21,13 @@ struct AuditEngineTests {
             firstName: firstName,
             lastName: lastName,
             gender: .male,
+            attributes: nil,
             birthDate: birthDate.map { GenealogicalDate(parsing: $0) },
             birthLocation: birthLocation,
             deathDate: deathDate.map { GenealogicalDate(parsing: $0) },
             deathLocation: nil,
             bio: bio,
+            isDeleted: false,
             sources: [:],
             disputes: [:]
         )
@@ -93,7 +95,7 @@ struct AuditEngineTests {
         let rel = Relationship(
             id: UUID(), from: "parent", to: "child",
             type: .parent, role: .father, subtype: .biological,
-            marriageDate: nil, divorceDate: nil
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
         )
         let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
         let results = ParentAgeGapRule().evaluate(profile: child, snapshot: snapshot)
@@ -108,7 +110,7 @@ struct AuditEngineTests {
         let rel = Relationship(
             id: UUID(), from: "parent", to: "child",
             type: .parent, role: .father, subtype: .biological,
-            marriageDate: nil, divorceDate: nil
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
         )
         let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
         let results = ParentAgeGapRule().evaluate(profile: child, snapshot: snapshot)
@@ -121,7 +123,7 @@ struct AuditEngineTests {
         let rel = Relationship(
             id: UUID(), from: "step", to: "child",
             type: .parent, role: .father, subtype: .step,
-            marriageDate: nil, divorceDate: nil
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
         )
         let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
         let results = ParentAgeGapRule().evaluate(profile: child, snapshot: snapshot)
@@ -154,7 +156,7 @@ struct AuditEngineTests {
         let rel = Relationship(
             id: UUID(), from: "person", to: "spouse",
             type: .spouse, role: nil, subtype: .unknown,
-            marriageDate: GenealogicalDate(parsing: "1890"), divorceDate: nil
+            marriageDate: GenealogicalDate(parsing: "1890"), marriageLocation: nil, divorceDate: nil
         )
         let snapshot = makeSnapshot(profiles: [profile, spouse], relationships: [rel])
         let results = MarriageAgeRule().evaluate(profile: profile, snapshot: snapshot)
@@ -171,7 +173,7 @@ struct AuditEngineTests {
         let rel = Relationship(
             id: UUID(), from: "person", to: "spouse",
             type: .spouse, role: nil, subtype: .unknown,
-            marriageDate: GenealogicalDate(parsing: "1890"), divorceDate: nil
+            marriageDate: GenealogicalDate(parsing: "1890"), marriageLocation: nil, divorceDate: nil
         )
         let snapshot = makeSnapshot(profiles: [profile, spouse], relationships: [rel])
         let results = NoMarriageAfterDeathRule().evaluate(profile: profile, snapshot: snapshot)
@@ -194,7 +196,7 @@ struct AuditEngineTests {
         let rel = Relationship(
             id: UUID(), from: "parent", to: "child",
             type: .parent, role: .father, subtype: .unknown,
-            marriageDate: nil, divorceDate: nil
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
         )
         let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
         let results = MissingParentsRule().evaluate(profile: child, snapshot: snapshot)
@@ -291,7 +293,7 @@ struct AuditEngineTests {
         let rel = Relationship(
             id: UUID(), from: "parent", to: "child",
             type: .parent, role: .father, subtype: .biological,
-            marriageDate: nil, divorceDate: nil
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
         )
         let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
         let results = ParentDiedBeforeChildRule().evaluate(profile: child, snapshot: snapshot)
@@ -306,7 +308,7 @@ struct AuditEngineTests {
         let rel = Relationship(
             id: UUID(), from: "parent", to: "child",
             type: .parent, role: .father, subtype: .biological,
-            marriageDate: nil, divorceDate: nil
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
         )
         let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
         let results = ParentDiedBeforeChildRule().evaluate(profile: child, snapshot: snapshot)
@@ -321,7 +323,7 @@ struct AuditEngineTests {
         let rel = Relationship(
             id: UUID(), from: "parent", to: "child",
             type: .parent, role: .father, subtype: .biological,
-            marriageDate: nil, divorceDate: nil
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
         )
         let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
         let results = ParentSuspiciouslyOldRule().evaluate(profile: child, snapshot: snapshot)
@@ -335,7 +337,7 @@ struct AuditEngineTests {
         let rel = Relationship(
             id: UUID(), from: "parent", to: "child",
             type: .parent, role: .father, subtype: .biological,
-            marriageDate: nil, divorceDate: nil
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
         )
         let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
         let results = ParentSuspiciouslyOldRule().evaluate(profile: child, snapshot: snapshot)
@@ -349,7 +351,7 @@ struct AuditEngineTests {
         let rel = Relationship(
             id: UUID(), from: "person", to: "person",
             type: .spouse, role: nil, subtype: .unknown,
-            marriageDate: nil, divorceDate: nil
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
         )
         let snapshot = makeSnapshot(profiles: [profile], relationships: [rel])
         let results = SelfSpouseRule().evaluate(profile: profile, snapshot: snapshot)
@@ -398,7 +400,7 @@ struct AuditEngineTests {
         let rel = Relationship(
             id: UUID(), from: "parent", to: "child",
             type: .parent, role: .father, subtype: .unknown,
-            marriageDate: nil, divorceDate: nil
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
         )
         let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
         let results = AncestorExtensionRule().evaluate(profile: child, snapshot: snapshot)

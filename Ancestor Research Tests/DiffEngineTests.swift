@@ -11,9 +11,10 @@ struct DiffEngineTests {
         Profile(
             id: id, externalIDs: [:],
             firstName: firstName, lastName: lastName, gender: .male,
+            attributes: nil,
             birthDate: birthDate.map { GenealogicalDate(parsing: $0) },
             birthLocation: nil, deathDate: nil, deathLocation: nil,
-            bio: nil, sources: [:], disputes: [:]
+            bio: nil, isDeleted: false, sources: [:], disputes: [:]
         )
     }
 
@@ -55,7 +56,7 @@ struct DiffEngineTests {
         let p1 = makeProfile(id: "p")
         let p2 = makeProfile(id: "c")
         let old = FamilyGraphSnapshot(profiles: ["p": p1, "c": p2], relationships: [])
-        let rel = Relationship(id: UUID(), from: "p", to: "c", type: .parent, role: .father, subtype: .unknown, marriageDate: nil, divorceDate: nil)
+        let rel = Relationship(id: UUID(), from: "p", to: "c", type: .parent, role: .father, subtype: .unknown, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
         let new = FamilyGraphSnapshot(profiles: ["p": p1, "c": p2], relationships: [rel])
         let diff = DiffEngine.diff(old: old, new: new)
         #expect(diff.relationshipsAdded.count == 1)

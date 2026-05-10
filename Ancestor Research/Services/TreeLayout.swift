@@ -105,7 +105,7 @@ nonisolated struct TreeLayout {
         // Fallback: infer from gender
         switch realParent.gender {
         case .male: return .left
-        case .female: return .right
+        case .female, .other: return .right
         case .unknown, .none: return .left
         }
     }

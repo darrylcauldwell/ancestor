@@ -1,5 +1,7 @@
 import SwiftUI
 
+#if !FIELD_RESEARCHER_DISABLED
+
 /// Live progress panel for a Field Researcher session.
 /// Shows turn count, findings stream, cost tracking, and stop button.
 struct FieldResearcherProgressView: View {
@@ -76,3 +78,5 @@ struct FieldResearcherProgressView: View {
         return .secondary
     }
 }
+
+#endif

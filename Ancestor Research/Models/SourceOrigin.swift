@@ -11,4 +11,13 @@ nonisolated struct SourceOrigin: Codable, Hashable, Sendable {
     static let familysearch = SourceOrigin(identifier: "familysearch")
     static let cwgc = SourceOrigin(identifier: "cwgc")
     static let manual = SourceOrigin(identifier: "manual")
+    static let manualMemory = SourceOrigin(identifier: "manual.memory")
+    static let manualDocument = SourceOrigin(identifier: "manual.document")
+    static let manualRecord = SourceOrigin(identifier: "manual.record")
+    static let manualEstimate = SourceOrigin(identifier: "manual.estimate")
+
+    /// Whether this is any kind of manual source.
+    var isManual: Bool {
+        identifier == "manual" || identifier.hasPrefix("manual.")
+    }
 }

@@ -314,6 +314,239 @@ nonisolated final class ProjectDatabase: Sendable {
             try db.create(index: "idx_fr_sessions_profile", on: "field_researcher_sessions", columns: ["profile_id"])
         }
 
+        // MARK: v6 — Manual entry support
+        migrator.registerMigration("v6_manual_entry") { db in
+            // Project metadata: home person anchor
+            try db.alter(table: "project_meta") { t in
+                t.add(column: "home_person_id", .text)
+            }
+
+            // Profiles: person attributes (JSON), soft delete flag
+            try db.alter(table: "profiles") { t in
+                t.add(column: "attributes", .text)          // JSON-encoded PersonAttributes
+                t.add(column: "is_deleted", .integer).notNull().defaults(to: 0)
+            }
+
+            // Relationships: marriage location
+            try db.alter(table: "relationships") { t in
+                t.add(column: "marriage_location", .text)
+            }
+        }
+
+        // MARK: v7 — Research Workbench tables
+        // All workbench tables added in one migration so subsequent W sub-phases
+        // (W3 Focus, W4 Sessions, W5 Hypotheses, etc.) need no further schema work.
+        // FTS5 is set up for workbench_notes via triggers — search lights up
+        // when W6 ships.
+        migrator.registerMigration("v7_workbench") { db in
+            try db.create(table: "focus_sets") { t in
+                t.column("id", .text).primaryKey()
+                t.column("title", .text)
+                t.column("profile_ids", .text).notNull()       // JSON array
+                t.column("created_at", .datetime).notNull()
+                t.column("last_active_at", .datetime).notNull()
+            }
+
+            try db.create(table: "open_questions") { t in
+                t.column("id", .text).primaryKey()
+                t.column("text", .text).notNull()
+                t.column("profile_ids", .text).notNull()       // JSON array
+                t.column("priority", .text).notNull()
+                t.column("status", .text).notNull()
+                t.column("tried_sources", .text)
+                t.column("promoted_from", .text)               // JSON-encoded QuestionOrigin
+                t.column("created_at", .datetime).notNull()
+                t.column("resolved_at", .datetime)
+                t.column("resolution", .text)
+            }
+            try db.create(index: "idx_open_questions_status",
+                          on: "open_questions", columns: ["status"])
+
+            try db.create(table: "hypotheses") { t in
+                t.column("id", .text).primaryKey()
+                t.column("claim", .text).notNull()             // JSON-encoded HypothesisClaim
+                t.column("confidence", .text).notNull()
+                t.column("reasoning", .text).notNull()
+                t.column("supporting_evidence", .text).notNull()  // JSON array
+                t.column("contradicting_evidence", .text).notNull() // JSON array
+                t.column("status", .text).notNull()
+                t.column("created_at", .datetime).notNull()
+                t.column("resolved_at", .datetime)
+                t.column("dismissal_reason", .text)
+            }
+            try db.create(index: "idx_hypotheses_status",
+                          on: "hypotheses", columns: ["status"])
+
+            try db.create(table: "workbench_notes") { t in
+                t.column("id", .text).primaryKey()
+                t.column("content", .text).notNull()
+                t.column("tag", .text).notNull()
+                t.column("attached_to", .text).notNull()       // JSON-encoded NoteAttachment
+                t.column("attachment_kind", .text).notNull()   // discriminator for fast filtering
+                t.column("attachment_id", .text)               // profile id / relationship id / etc.
+                t.column("created_at", .datetime).notNull()
+                t.column("updated_at", .datetime).notNull()
+            }
+            try db.create(index: "idx_workbench_notes_attachment",
+                          on: "workbench_notes",
+                          columns: ["attachment_kind", "attachment_id"])
+
+            // FTS5 contentless index keyed on workbench_notes.id, kept in sync
+            // by triggers. Contentless avoids storing the text twice.
+            try db.execute(sql: """
+                CREATE VIRTUAL TABLE workbench_notes_fts USING fts5(
+                    content,
+                    content='workbench_notes',
+                    content_rowid='rowid'
+                )
+                """)
+            try db.execute(sql: """
+                CREATE TRIGGER workbench_notes_ai AFTER INSERT ON workbench_notes BEGIN
+                    INSERT INTO workbench_notes_fts(rowid, content) VALUES (new.rowid, new.content);
+                END
+                """)
+            try db.execute(sql: """
+                CREATE TRIGGER workbench_notes_ad AFTER DELETE ON workbench_notes BEGIN
+                    INSERT INTO workbench_notes_fts(workbench_notes_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+                END
+                """)
+            try db.execute(sql: """
+                CREATE TRIGGER workbench_notes_au AFTER UPDATE ON workbench_notes BEGIN
+                    INSERT INTO workbench_notes_fts(workbench_notes_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+                    INSERT INTO workbench_notes_fts(rowid, content) VALUES (new.rowid, new.content);
+                END
+                """)
+
+            try db.create(table: "sessions") { t in
+                t.column("id", .text).primaryKey()
+                t.column("started_at", .datetime).notNull()
+                t.column("ended_at", .datetime)
+                t.column("focus_set_id", .text)
+                t.column("profiles_added", .integer).notNull().defaults(to: 0)
+                t.column("profiles_edited", .integer).notNull().defaults(to: 0)
+                t.column("disputes_resolved", .integer).notNull().defaults(to: 0)
+                t.column("hypotheses_created", .integer).notNull().defaults(to: 0)
+                t.column("hypotheses_promoted", .integer).notNull().defaults(to: 0)
+                t.column("questions_created", .integer).notNull().defaults(to: 0)
+                t.column("questions_resolved", .integer).notNull().defaults(to: 0)
+                t.column("notes_created", .integer).notNull().defaults(to: 0)
+                t.column("transaction_ids", .text).notNull()   // JSON array
+            }
+            // M13 — research_goals is created by migration v10
+            // (`v10_attachments_goals`) with the correct `question_ids_json`
+            // / `hypothesis_ids_json` columns the CRUD layer expects.
+        }
+
+        // MARK: v8 — Citations + Evidence Quality on field_sources
+        // Per DESIGN.md §5.12. JSON-encoded Citation goes in `citation_json`;
+        // EvidenceQuality (small enum) is stored as integer for cheap reads.
+        // Both nullable — most existing field_sources will stay null.
+        migrator.registerMigration("v8_citations") { db in
+            try db.alter(table: "field_sources") { t in
+                t.add(column: "citation_json", .text)
+                t.add(column: "evidence_quality", .integer)
+            }
+        }
+
+        // MARK: v9 — Life events + FactConfidence (M12)
+        // Adds the `life_events` table and `fact_confidence` column on
+        // `field_sources`. Per DESIGN.md §5.13 + §5.14.
+        migrator.registerMigration("v9_life_events") { db in
+            try db.alter(table: "field_sources") { t in
+                t.add(column: "fact_confidence", .integer)  // 0=tentative,1=standard,2=wellEvidenced; null = unset
+            }
+
+            try db.create(table: "life_events") { t in
+                t.column("id", .text).primaryKey()
+                t.column("profile_id", .text).notNull()
+                t.column("type", .text).notNull()
+                t.column("date_original", .text)
+                t.column("date_earliest", .integer)
+                t.column("date_latest", .integer)
+                t.column("date_qualifier", .text)
+                t.column("date_approximate", .integer)      // 0/1
+                t.column("end_date_original", .text)
+                t.column("end_date_earliest", .integer)
+                t.column("end_date_latest", .integer)
+                t.column("end_date_qualifier", .text)
+                t.column("end_date_approximate", .integer)  // 0/1
+                t.column("location", .text)
+                t.column("description", .text)
+                t.column("sources_json", .text).notNull()   // JSON array of FieldSource
+                t.column("confidence", .integer).notNull().defaults(to: 1)  // FactConfidence rawInt
+                t.column("created_by_transaction_id", .text)
+            }
+            try db.create(index: "idx_life_events_profile",
+                          on: "life_events", columns: ["profile_id"])
+        }
+
+        // MARK: v10 — Attachments + Research Goals (M13)
+        // Per DESIGN.md §5.15 + §5.16. Attachments store metadata; the
+        // actual files live in the project's media directory on disk.
+        migrator.registerMigration("v10_attachments_goals") { db in
+            try db.create(table: "attachments") { t in
+                t.column("id", .text).primaryKey()
+                t.column("filename", .text).notNull()
+                t.column("media_type", .text).notNull()         // photo / document / transcription
+                t.column("caption", .text)
+                t.column("date_taken", .datetime)
+                t.column("location_taken", .text)
+                t.column("relative_path", .text).notNull()      // Relative to project media dir
+                t.column("target_kind", .text).notNull()        // profile / lifeEvent / fieldSource
+                t.column("target_primary_id", .text).notNull()  // profileID / lifeEventUUID / "entityID:field"
+                t.column("target_json", .text).notNull()        // Full encoded AttachmentTarget
+                t.column("added_at", .datetime).notNull()
+            }
+            try db.create(index: "idx_attachments_target",
+                          on: "attachments", columns: ["target_kind", "target_primary_id"])
+
+            try db.create(table: "research_goals") { t in
+                t.column("id", .text).primaryKey()
+                t.column("title", .text).notNull()
+                t.column("description", .text)
+                t.column("status", .text).notNull()             // active/paused/completed/abandoned
+                t.column("progress", .integer).notNull().defaults(to: 0)
+                t.column("question_ids_json", .text).notNull()  // JSON [UUID]
+                t.column("hypothesis_ids_json", .text).notNull()
+                t.column("focus_set_id", .text)                 // nullable FK reference
+                t.column("created_at", .datetime).notNull()
+                t.column("completed_at", .datetime)
+            }
+        }
+
+        // MARK: v11 — Sensitive flag (M14)
+        // Per DESIGN.md §7.15.2. Adds `sensitive` column to workbench_notes
+        // and life_events so users can mark items for exclusion from shared
+        // exports. Defaults to 0 (not sensitive) so existing rows are unaffected.
+        migrator.registerMigration("v11_sensitive_flag") { db in
+            try db.alter(table: "workbench_notes") { t in
+                t.add(column: "sensitive", .integer).notNull().defaults(to: 0)
+            }
+            try db.alter(table: "life_events") { t in
+                t.add(column: "sensitive", .integer).notNull().defaults(to: 0)
+            }
+        }
+
+        // MARK: v12 — Audit rule overrides (M18)
+        // Per DESIGN.md §13. Per-project storage of user-toggled rules,
+        // user-tuned thresholds, and per-profile snooze. Scope distinguishes
+        // global (rule-wide) overrides from profile-scoped (snooze-this-rule-
+        // for-this-person) overrides.
+        migrator.registerMigration("v12_audit_rule_overrides") { db in
+            try db.create(table: "audit_rule_overrides") { t in
+                t.column("id", .text).primaryKey()
+                t.column("rule_id", .text).notNull()
+                t.column("scope_kind", .text).notNull()    // 'global' | 'profile'
+                t.column("scope_profile_id", .text)        // nil for global
+                t.column("enabled", .integer).notNull().defaults(to: 1)
+                t.column("snoozed_until", .datetime)
+                t.column("thresholds_json", .text).notNull().defaults(to: "{}")
+            }
+            try db.create(index: "idx_audit_rule_overrides_lookup",
+                          on: "audit_rule_overrides",
+                          columns: ["rule_id", "scope_kind", "scope_profile_id"])
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -323,8 +556,8 @@ nonisolated final class ProjectDatabase: Sendable {
     /// Eagerly joins profiles + field_sources + field_disputes.
     func buildSnapshot() throws -> FamilyGraphSnapshot {
         try dbQueue.read { db in
-            // Load all profiles
-            let profileRows = try Row.fetchAll(db, sql: "SELECT * FROM profiles")
+            // Load all profiles (excluding soft-deleted)
+            let profileRows = try Row.fetchAll(db, sql: "SELECT * FROM profiles WHERE is_deleted = 0")
             var profiles: [String: Profile] = [:]
             for row in profileRows {
                 let id: String = row["id"]
@@ -350,9 +583,10 @@ nonisolated final class ProjectDatabase: Sendable {
         let genderStr: String? = row["gender"]
         let gender = genderStr.flatMap { Gender(rawValue: $0) }
 
-        // Load sources for this profile
+        // Load sources for this profile, including citation + quality (v8) and fact_confidence (v9).
         let sourceRows = try Row.fetchAll(db, sql: """
-            SELECT field, origin, raw, added_at FROM field_sources
+            SELECT field, origin, raw, added_at, citation_json, evidence_quality, fact_confidence
+            FROM field_sources
             WHERE entity_id = ? AND entity_kind = 'profile'
             """, arguments: [id])
 
@@ -363,7 +597,24 @@ nonisolated final class ProjectDatabase: Sendable {
             let origin = SourceOrigin(identifier: sRow["origin"])
             let raw: String = sRow["raw"]
             let addedAt: Date = sRow["added_at"]
-            sources[field, default: []].append(FieldSource(origin: origin, raw: raw, addedAt: addedAt))
+
+            // Decode optional citation JSON; nil if column null or unparseable.
+            var citation: Citation?
+            if let json: String = sRow["citation_json"],
+               let data = json.data(using: .utf8) {
+                citation = try? JSONDecoder().decode(Citation.self, from: data)
+            }
+            // EvidenceQuality stored as int; nil if column null or out of range.
+            let quality: EvidenceQuality? = (sRow["evidence_quality"] as Int?)
+                .flatMap(EvidenceQuality.init(rawValue:))
+            // FactConfidence stored as int; nil if column null or out of range.
+            let confidence: FactConfidence? = (sRow["fact_confidence"] as Int?)
+                .flatMap(FactConfidence.init(rawInt:))
+
+            sources[field, default: []].append(FieldSource(
+                origin: origin, raw: raw, addedAt: addedAt,
+                citation: citation, quality: quality, confidence: confidence
+            ))
         }
 
         // Load disputes for this profile
@@ -391,17 +642,28 @@ nonisolated final class ProjectDatabase: Sendable {
             )
         }
 
+        // Decode PersonAttributes from JSON column (nil for pre-v6 profiles)
+        let attributes: PersonAttributes? = {
+            guard let json: String = row["attributes"],
+                  let data = json.data(using: .utf8) else { return nil }
+            return try? JSONDecoder().decode(PersonAttributes.self, from: data)
+        }()
+
+        let isDeleted: Bool = row["is_deleted"] ?? false
+
         return Profile(
             id: id,
             externalIDs: externalIDs,
             firstName: row["first_name"],
             lastName: row["last_name"],
             gender: gender,
+            attributes: attributes,
             birthDate: birthDate,
             birthLocation: row["birth_location"],
             deathDate: deathDate,
             deathLocation: row["death_location"],
             bio: row["bio"],
+            isDeleted: isDeleted,
             sources: sources,
             disputes: disputes
         )
@@ -427,6 +689,8 @@ nonisolated final class ProjectDatabase: Sendable {
         let roleStr: String? = row["role"]
         let subtypeStr: String = row["subtype"]
 
+        let marriageLocation: String? = row["marriage_location"]
+
         return Relationship(
             id: UUID(uuidString: row["id"]) ?? UUID(),
             from: row["from_id"],
@@ -435,6 +699,7 @@ nonisolated final class ProjectDatabase: Sendable {
             role: roleStr.flatMap { ParentRole(rawValue: $0) },
             subtype: RelationshipSubtype(rawValue: subtypeStr) ?? .unknown,
             marriageDate: marriageDate,
+            marriageLocation: marriageLocation,
             divorceDate: divorceDate
         )
     }
@@ -452,14 +717,17 @@ nonisolated final class ProjectDatabase: Sendable {
             case .wikitree(let email):
                 sourceKind = "wikitree"
                 sourceValue = email
+            case .manual:
+                sourceKind = "manual"
+                sourceValue = ""
             }
 
             try db.execute(sql: """
-                INSERT OR REPLACE INTO project_meta (id, name, source_kind, source_value, created_at, last_refreshed)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO project_meta (id, name, source_kind, source_value, created_at, last_refreshed, home_person_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
                     project.id.uuidString, project.name, sourceKind, sourceValue,
-                    project.createdAt, project.lastRefreshed
+                    project.createdAt, project.lastRefreshed, project.homePersonID
                 ])
         }
     }
@@ -471,14 +739,18 @@ nonisolated final class ProjectDatabase: Sendable {
             }
             let sourceKind: String = row["source_kind"]
             let sourceValue: String = row["source_value"]
-            let source: DataSource = sourceKind == "gedcom"
-                ? .gedcom(path: sourceValue)
-                : .wikitree(email: sourceValue)
+            let source: DataSource = switch sourceKind {
+            case "gedcom": .gedcom(path: sourceValue)
+            case "manual": .manual
+            default: .wikitree(email: sourceValue)
+            }
+            let homePersonID: String? = row["home_person_id"]
 
             return Project(
                 id: UUID(uuidString: row["id"]) ?? UUID(),
                 name: row["name"],
                 source: source,
+                homePersonID: homePersonID,
                 createdAt: row["created_at"],
                 lastRefreshed: row["last_refreshed"]
             )
@@ -552,16 +824,22 @@ nonisolated final class ProjectDatabase: Sendable {
         let externalIDsJSON = (try? JSONEncoder().encode(profile.externalIDs))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
 
+        let attributesJSON: String? = profile.attributes.flatMap {
+            (try? JSONEncoder().encode($0)).flatMap { String(data: $0, encoding: .utf8) }
+        }
+
         try db.execute(sql: """
             INSERT INTO profiles (id, external_ids, first_name, last_name, gender,
+                attributes, is_deleted,
                 birth_date_original, birth_date_earliest, birth_date_latest, birth_date_qualifier,
                 birth_location,
                 death_date_original, death_date_earliest, death_date_latest, death_date_qualifier,
                 death_location, bio, created_by_transaction_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
                 profile.id, externalIDsJSON, profile.firstName, profile.lastName,
                 profile.gender?.rawValue,
+                attributesJSON, profile.isDeleted,
                 profile.birthDate?.original, profile.birthDate?.earliest, profile.birthDate?.latest,
                 profile.birthDate?.qualifier.rawValue,
                 profile.birthLocation,
@@ -575,14 +853,16 @@ nonisolated final class ProjectDatabase: Sendable {
         try db.execute(sql: """
             INSERT INTO relationships (id, from_id, to_id, type, role, subtype,
                 marriage_date_original, marriage_date_earliest, marriage_date_latest, marriage_date_qualifier,
+                marriage_location,
                 divorce_date_original, divorce_date_earliest, divorce_date_latest, divorce_date_qualifier,
                 created_by_transaction_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
                 rel.id.uuidString, rel.from, rel.to, rel.type.rawValue,
                 rel.role?.rawValue, rel.subtype.rawValue,
                 rel.marriageDate?.original, rel.marriageDate?.earliest, rel.marriageDate?.latest,
                 rel.marriageDate?.qualifier.rawValue,
+                rel.marriageLocation,
                 rel.divorceDate?.original, rel.divorceDate?.earliest, rel.divorceDate?.latest,
                 rel.divorceDate?.qualifier.rawValue,
                 transactionID.uuidString,
@@ -591,11 +871,14 @@ nonisolated final class ProjectDatabase: Sendable {
 
     // MARK: - Transaction History
 
-    /// Load transactions ordered by most recent first.
+    /// Load transactions ordered by most recent first. Breaks `completed_at`
+    /// ties by `rowid DESC` so insertion order wins — important when several
+    /// transactions land within the same millisecond (e.g. an import
+    /// immediately followed by an undo).
     func loadTransactions(limit: Int = 50) throws -> [Transaction] {
         try dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT * FROM transactions ORDER BY completed_at DESC LIMIT ?
+                SELECT * FROM transactions ORDER BY completed_at DESC, rowid DESC LIMIT ?
                 """, arguments: [limit])
             return rows.compactMap { row in
                 guard let kindJSON: String = row["kind"],
@@ -645,7 +928,43 @@ nonisolated final class ProjectDatabase: Sendable {
                 let oldValue: String? = row["old_value"]
 
                 if entityKind == "profile" {
-                    // Map field name back to column
+                    // Handle is_deleted as a special case (not a ProfileField)
+                    if field == "is_deleted" {
+                        let val = oldValue == "1" ? 1 : 0
+                        try db.execute(
+                            sql: "UPDATE profiles SET is_deleted = ? WHERE id = ?",
+                            arguments: [val, entityID]
+                        )
+                        continue
+                    }
+
+                    // Handle date fields (4-column pattern)
+                    if field == "birthDate" || field == "deathDate" {
+                        let prefix = field == "birthDate" ? "birth_date" : "death_date"
+                        if let raw = oldValue {
+                            let date = GenealogicalDate(parsing: raw)
+                            try db.execute(
+                                sql: """
+                                UPDATE profiles SET \(prefix)_original = ?, \(prefix)_earliest = ?,
+                                    \(prefix)_latest = ?, \(prefix)_qualifier = ?
+                                WHERE id = ?
+                                """,
+                                arguments: [date.original, date.earliest, date.latest, date.qualifier.rawValue, entityID]
+                            )
+                        } else {
+                            try db.execute(
+                                sql: """
+                                UPDATE profiles SET \(prefix)_original = NULL, \(prefix)_earliest = NULL,
+                                    \(prefix)_latest = NULL, \(prefix)_qualifier = NULL
+                                WHERE id = ?
+                                """,
+                                arguments: [entityID]
+                            )
+                        }
+                        continue
+                    }
+
+                    // Simple string fields
                     let column = Self.profileFieldToColumn(field)
                     if let column {
                         if let oldVal = oldValue {
@@ -705,9 +1024,524 @@ nonisolated final class ProjectDatabase: Sendable {
 
     // MARK: - JSON Helpers
 
-    private static func encodeJSON<T: Encodable>(_ value: T) -> String {
+    /// JSON encoder shared with the rest of the database layer (incl. extensions).
+    static func encodeJSON<T: Encodable>(_ value: T) -> String {
         (try? JSONEncoder().encode(value))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+    }
+}
+
+// MARK: - Manual Entry Mutations
+
+nonisolated extension ProjectDatabase {
+
+    /// Add a single profile to the database. All fields tagged with the given source.
+    /// Returns the transaction that was created.
+    @discardableResult
+    func addProfile(_ profile: Profile, source: SourceOrigin) throws -> Transaction {
+        let now = Date()
+        let transaction = Transaction(
+            id: UUID(),
+            kind: .addProfile(profileID: profile.id),
+            undoStrategy: .structural,
+            startedAt: now, completedAt: now,
+            changeCount: 0, profileCount: 1
+        )
+
+        try dbQueue.write { db in
+            // Save transaction
+            try db.execute(sql: """
+                INSERT INTO transactions (id, kind, undo_strategy, started_at, completed_at, change_count, profile_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    transaction.id.uuidString,
+                    Self.encodeJSON(transaction.kind),
+                    transaction.undoStrategy.rawValue,
+                    transaction.startedAt, transaction.completedAt,
+                    transaction.changeCount, transaction.profileCount,
+                ])
+
+            // Insert profile
+            try Self.insertProfile(profile, transactionID: transaction.id, db: db)
+
+            // Insert field sources
+            try Self.insertFieldSources(for: profile, source: source, transactionID: transaction.id, db: db)
+        }
+
+        return transaction
+    }
+
+    /// Add a family group — multiple profiles and relationships in one atomic transaction.
+    @discardableResult
+    func addFamily(
+        profiles: [Profile],
+        relationships: [Relationship],
+        source: SourceOrigin
+    ) throws -> Transaction {
+        let now = Date()
+        let transaction = Transaction(
+            id: UUID(),
+            kind: .addFamily(profileIDs: profiles.map(\.id)),
+            undoStrategy: .structural,
+            startedAt: now, completedAt: now,
+            changeCount: relationships.count, profileCount: profiles.count
+        )
+
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO transactions (id, kind, undo_strategy, started_at, completed_at, change_count, profile_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    transaction.id.uuidString,
+                    Self.encodeJSON(transaction.kind),
+                    transaction.undoStrategy.rawValue,
+                    transaction.startedAt, transaction.completedAt,
+                    transaction.changeCount, transaction.profileCount,
+                ])
+
+            for profile in profiles {
+                try Self.insertProfile(profile, transactionID: transaction.id, db: db)
+                try Self.insertFieldSources(for: profile, source: source, transactionID: transaction.id, db: db)
+            }
+
+            for rel in relationships {
+                try Self.insertRelationship(rel, transactionID: transaction.id, db: db)
+            }
+        }
+
+        return transaction
+    }
+
+    /// Add a relationship between two existing profiles.
+    @discardableResult
+    func addRelationship(_ rel: Relationship) throws -> Transaction {
+        let now = Date()
+        let transaction = Transaction(
+            id: UUID(),
+            kind: .addRelationship(relationshipID: rel.id),
+            undoStrategy: .structural,
+            startedAt: now, completedAt: now,
+            changeCount: 1, profileCount: 0
+        )
+
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO transactions (id, kind, undo_strategy, started_at, completed_at, change_count, profile_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    transaction.id.uuidString,
+                    Self.encodeJSON(transaction.kind),
+                    transaction.undoStrategy.rawValue,
+                    transaction.startedAt, transaction.completedAt,
+                    transaction.changeCount, transaction.profileCount,
+                ])
+
+            try Self.insertRelationship(rel, transactionID: transaction.id, db: db)
+        }
+
+        return transaction
+    }
+
+    /// Remove a relationship. Records the old values for undo replay.
+    @discardableResult
+    func removeRelationship(id: UUID) throws -> Transaction {
+        let now = Date()
+        let transaction = Transaction(
+            id: UUID(),
+            kind: .removeRelationship(relationshipID: id),
+            undoStrategy: .replay,
+            startedAt: now, completedAt: now,
+            changeCount: 1, profileCount: 0
+        )
+
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO transactions (id, kind, undo_strategy, started_at, completed_at, change_count, profile_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    transaction.id.uuidString,
+                    Self.encodeJSON(transaction.kind),
+                    transaction.undoStrategy.rawValue,
+                    transaction.startedAt, transaction.completedAt,
+                    transaction.changeCount, transaction.profileCount,
+                ])
+
+            try db.execute(sql: "DELETE FROM relationships WHERE id = ?", arguments: [id.uuidString])
+        }
+
+        return transaction
+    }
+
+    /// Update a simple string field on a profile. Creates a FieldChange for undo.
+    func updateProfileField(
+        profileID: String,
+        field: ProfileField,
+        oldValue: String?,
+        newValue: String?,
+        source: SourceOrigin,
+        transactionID: UUID,
+        db: Database
+    ) throws {
+        guard let column = Self.profileFieldToColumn(field.rawValue) else { return }
+
+        if let newVal = newValue {
+            try db.execute(
+                sql: "UPDATE profiles SET \(column) = ? WHERE id = ?",
+                arguments: [newVal, profileID]
+            )
+        } else {
+            try db.execute(
+                sql: "UPDATE profiles SET \(column) = NULL WHERE id = ?",
+                arguments: [profileID]
+            )
+        }
+
+        // Record field change
+        try db.execute(sql: """
+            INSERT INTO field_changes (id, transaction_id, entity_id, entity_kind, field, old_value, new_value, source, reason)
+            VALUES (?, ?, ?, 'profile', ?, ?, ?, ?, NULL)
+            """, arguments: [
+                UUID().uuidString, transactionID.uuidString, profileID,
+                field.rawValue, oldValue, newValue ?? "", source.identifier,
+            ])
+
+        // Add field source
+        try db.execute(sql: """
+            INSERT INTO field_sources (entity_id, entity_kind, field, origin, raw, added_at, created_by_transaction_id)
+            VALUES (?, 'profile', ?, ?, ?, ?, ?)
+            """, arguments: [
+                profileID, field.rawValue, source.identifier,
+                newValue ?? "", Date(), transactionID.uuidString,
+            ])
+    }
+
+    /// Update a date field on a profile. Handles the 4-column pattern (original/earliest/latest/qualifier).
+    func updateProfileDateField(
+        profileID: String,
+        field: ProfileField,
+        oldDate: GenealogicalDate?,
+        newDate: GenealogicalDate?,
+        source: SourceOrigin,
+        transactionID: UUID,
+        db: Database
+    ) throws {
+        let prefix: String
+        switch field {
+        case .birthDate: prefix = "birth_date"
+        case .deathDate: prefix = "death_date"
+        default: return // Only date fields use this method
+        }
+
+        if let date = newDate {
+            try db.execute(
+                sql: """
+                UPDATE profiles SET \(prefix)_original = ?, \(prefix)_earliest = ?,
+                    \(prefix)_latest = ?, \(prefix)_qualifier = ?
+                WHERE id = ?
+                """,
+                arguments: [date.original, date.earliest, date.latest, date.qualifier.rawValue, profileID]
+            )
+        } else {
+            try db.execute(
+                sql: """
+                UPDATE profiles SET \(prefix)_original = NULL, \(prefix)_earliest = NULL,
+                    \(prefix)_latest = NULL, \(prefix)_qualifier = NULL
+                WHERE id = ?
+                """,
+                arguments: [profileID]
+            )
+        }
+
+        // Record field change (store original string for undo)
+        try db.execute(sql: """
+            INSERT INTO field_changes (id, transaction_id, entity_id, entity_kind, field, old_value, new_value, source, reason)
+            VALUES (?, ?, ?, 'profile', ?, ?, ?, ?, NULL)
+            """, arguments: [
+                UUID().uuidString, transactionID.uuidString, profileID,
+                field.rawValue, oldDate?.original, newDate?.original ?? "", source.identifier,
+            ])
+
+        // Add field source
+        if let date = newDate {
+            try db.execute(sql: """
+                INSERT INTO field_sources (entity_id, entity_kind, field, origin, raw, added_at, created_by_transaction_id)
+                VALUES (?, 'profile', ?, ?, ?, ?, ?)
+                """, arguments: [
+                    profileID, field.rawValue, source.identifier,
+                    date.original, Date(), transactionID.uuidString,
+                ])
+        }
+    }
+
+    /// Create a manual edit transaction that applies multiple field changes at once.
+    @discardableResult
+    func editProfile(
+        profileID: String,
+        changes: [(field: ProfileField, oldValue: String?, newValue: String?)],
+        dateChanges: [(field: ProfileField, oldDate: GenealogicalDate?, newDate: GenealogicalDate?)],
+        source: SourceOrigin
+    ) throws -> Transaction {
+        let now = Date()
+        let totalChanges = changes.count + dateChanges.count
+        let transaction = Transaction(
+            id: UUID(),
+            kind: .manualEdit,
+            undoStrategy: .replay,
+            startedAt: now, completedAt: now,
+            changeCount: totalChanges, profileCount: 1
+        )
+
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO transactions (id, kind, undo_strategy, started_at, completed_at, change_count, profile_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    transaction.id.uuidString,
+                    Self.encodeJSON(transaction.kind),
+                    transaction.undoStrategy.rawValue,
+                    transaction.startedAt, transaction.completedAt,
+                    transaction.changeCount, transaction.profileCount,
+                ])
+
+            for change in changes {
+                try self.updateProfileField(
+                    profileID: profileID,
+                    field: change.field,
+                    oldValue: change.oldValue,
+                    newValue: change.newValue,
+                    source: source,
+                    transactionID: transaction.id,
+                    db: db
+                )
+            }
+
+            for dateChange in dateChanges {
+                try self.updateProfileDateField(
+                    profileID: profileID,
+                    field: dateChange.field,
+                    oldDate: dateChange.oldDate,
+                    newDate: dateChange.newDate,
+                    source: source,
+                    transactionID: transaction.id,
+                    db: db
+                )
+            }
+        }
+
+        return transaction
+    }
+
+    /// Record an alternative fact for a profile field. The existing column
+    /// value is **not** changed — instead, a new entry is appended to
+    /// `field_sources` so the field shows multiple competing values. Used by
+    /// EditPersonView when the user opts to "Record alternative" rather than
+    /// "Correct" an imported value.
+    ///
+    /// Undo strategy: `.structural`, so undoing the transaction simply removes
+    /// the inserted field_sources row. No column update means no replay needed.
+    @discardableResult
+    func recordAlternativeFact(
+        profileID: String,
+        field: ProfileField,
+        rawValue: String,
+        source: SourceOrigin
+    ) throws -> Transaction {
+        let now = Date()
+        let transaction = Transaction(
+            id: UUID(),
+            kind: .manualEdit,
+            undoStrategy: .structural,
+            startedAt: now, completedAt: now,
+            changeCount: 1, profileCount: 1
+        )
+
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO transactions (id, kind, undo_strategy, started_at, completed_at, change_count, profile_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    transaction.id.uuidString,
+                    Self.encodeJSON(transaction.kind),
+                    transaction.undoStrategy.rawValue,
+                    transaction.startedAt, transaction.completedAt,
+                    transaction.changeCount, transaction.profileCount,
+                ])
+
+            try db.execute(sql: """
+                INSERT INTO field_sources (entity_id, entity_kind, field, origin, raw, added_at, created_by_transaction_id)
+                VALUES (?, 'profile', ?, ?, ?, ?, ?)
+                """, arguments: [
+                    profileID, field.rawValue, source.identifier,
+                    rawValue, Date(), transaction.id.uuidString,
+                ])
+        }
+
+        return transaction
+    }
+
+    /// Soft-delete profiles — sets is_deleted = 1. Reversible via restore.
+    @discardableResult
+    func softDeleteProfiles(ids: [String]) throws -> Transaction {
+        let now = Date()
+        let transaction = Transaction(
+            id: UUID(),
+            kind: .softDelete(profileIDs: ids),
+            undoStrategy: .replay,
+            startedAt: now, completedAt: now,
+            changeCount: ids.count, profileCount: ids.count
+        )
+
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO transactions (id, kind, undo_strategy, started_at, completed_at, change_count, profile_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    transaction.id.uuidString,
+                    Self.encodeJSON(transaction.kind),
+                    transaction.undoStrategy.rawValue,
+                    transaction.startedAt, transaction.completedAt,
+                    transaction.changeCount, transaction.profileCount,
+                ])
+
+            for id in ids {
+                try db.execute(
+                    sql: "UPDATE profiles SET is_deleted = 1 WHERE id = ?",
+                    arguments: [id]
+                )
+                // Record field change for undo
+                try db.execute(sql: """
+                    INSERT INTO field_changes (id, transaction_id, entity_id, entity_kind, field, old_value, new_value, source, reason)
+                    VALUES (?, ?, ?, 'profile', 'is_deleted', '0', '1', 'manual', 'soft delete')
+                    """, arguments: [UUID().uuidString, transaction.id.uuidString, id])
+            }
+        }
+
+        return transaction
+    }
+
+    /// Restore soft-deleted profiles — sets is_deleted = 0.
+    @discardableResult
+    func restoreProfiles(ids: [String]) throws -> Transaction {
+        let now = Date()
+        let transaction = Transaction(
+            id: UUID(),
+            kind: .manualEdit,
+            undoStrategy: .replay,
+            startedAt: now, completedAt: now,
+            changeCount: ids.count, profileCount: ids.count
+        )
+
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO transactions (id, kind, undo_strategy, started_at, completed_at, change_count, profile_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    transaction.id.uuidString,
+                    Self.encodeJSON(transaction.kind),
+                    transaction.undoStrategy.rawValue,
+                    transaction.startedAt, transaction.completedAt,
+                    transaction.changeCount, transaction.profileCount,
+                ])
+
+            for id in ids {
+                try db.execute(
+                    sql: "UPDATE profiles SET is_deleted = 0 WHERE id = ?",
+                    arguments: [id]
+                )
+                try db.execute(sql: """
+                    INSERT INTO field_changes (id, transaction_id, entity_id, entity_kind, field, old_value, new_value, source, reason)
+                    VALUES (?, ?, ?, 'profile', 'is_deleted', '1', '0', 'manual', 'restore')
+                    """, arguments: [UUID().uuidString, transaction.id.uuidString, id])
+            }
+        }
+
+        return transaction
+    }
+
+    /// Load all soft-deleted profiles (for Settings > Deleted People).
+    func loadDeletedProfiles() throws -> [Profile] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT * FROM profiles WHERE is_deleted = 1")
+            return try rows.map { try Self.profileFromRow($0, db: db) }
+        }
+    }
+
+    /// Update the home person ID on the project metadata.
+    func setHomePerson(id: String?) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE project_meta SET home_person_id = ?",
+                arguments: [id]
+            )
+        }
+    }
+
+    // MARK: - Private Helpers for Manual Entry
+
+    /// Insert field sources for all non-nil fields on a profile.
+    private static func insertFieldSources(
+        for profile: Profile,
+        source: SourceOrigin,
+        transactionID: UUID,
+        db: Database
+    ) throws {
+        let now = Date()
+        let fields: [(ProfileField, String?)] = [
+            (.firstName, profile.firstName),
+            (.lastName, profile.lastName),
+            (.gender, profile.gender?.rawValue),
+            (.birthDate, profile.birthDate?.original),
+            (.birthLocation, profile.birthLocation),
+            (.deathDate, profile.deathDate?.original),
+            (.deathLocation, profile.deathLocation),
+            (.bio, profile.bio),
+        ]
+
+        for (field, value) in fields {
+            guard let raw = value else { continue }
+            try db.execute(sql: """
+                INSERT INTO field_sources (entity_id, entity_kind, field, origin, raw, added_at, created_by_transaction_id)
+                VALUES (?, 'profile', ?, ?, ?, ?, ?)
+                """, arguments: [
+                    profile.id, field.rawValue, source.identifier,
+                    raw, now, transactionID.uuidString,
+                ])
+        }
+    }
+
+    /// Update the citation/quality on the most-recent field_sources row
+    /// matching (profileID, field, origin). Per DESIGN.md §5.12, citations
+    /// are layered onto existing sources rather than replacing them; the
+    /// raw value stays untouched. nil arguments clear that column.
+    /// No-op when no matching row exists.
+    func updateFieldSourceCitation(
+        profileID: String,
+        field: ProfileField,
+        origin: SourceOrigin,
+        citation: Citation?,
+        quality: EvidenceQuality?
+    ) throws {
+        let citationJSON: String? = citation.flatMap { c -> String? in
+            guard !c.isEmpty else { return nil }
+            return Self.encodeJSON(c)
+        }
+        try dbQueue.write { db in
+            // Update the rowid-most-recent matching source so manual edits
+            // attach to the freshest entry rather than back-dated imports.
+            try db.execute(sql: """
+                UPDATE field_sources
+                SET citation_json = ?, evidence_quality = ?
+                WHERE rowid = (
+                    SELECT rowid FROM field_sources
+                    WHERE entity_id = ? AND entity_kind = 'profile'
+                          AND field = ? AND origin = ?
+                    ORDER BY rowid DESC LIMIT 1
+                )
+                """, arguments: [
+                    citationJSON, quality?.rawValue,
+                    profileID, field.rawValue, origin.identifier,
+                ])
+        }
     }
 }
 
@@ -965,5 +1799,87 @@ nonisolated extension GenealogicalDate {
         self.latest = latest
         self.isApproximate = isApproximate
         self.qualifier = qualifier
+    }
+}
+
+// MARK: - Field disputes (M16.14)
+
+nonisolated extension ProjectDatabase {
+
+    /// Insert a `FieldDispute` row. Used by tests and (in future) by the
+    /// dispute-detection pass that runs alongside imports. Production import
+    /// paths don't seed disputes today — buildSnapshot will simply find an
+    /// empty `disputes` map for every profile.
+    @discardableResult
+    func addFieldDispute(profileID: String, dispute: FieldDispute) throws -> Int64 {
+        let competingJSON = Self.encodeJSON(dispute.competingSources)
+        let resolutionJSON = dispute.resolution.map { Self.encodeJSON($0) }
+        return try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO field_disputes
+                (entity_id, field, reason, competing_sources, detected_at, resolution)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    profileID, dispute.field.rawValue, dispute.reason.rawValue,
+                    competingJSON, dispute.detectedAt, resolutionJSON,
+                ])
+            return db.lastInsertedRowID
+        }
+    }
+
+    /// Persist a resolution onto the most-recent matching `field_disputes`
+    /// row for `(profileID, field)`. Wraps the write in a transaction so
+    /// undo can replay the change. Returns the new transaction record so
+    /// callers can record session events.
+    ///
+    /// `resolution == nil` clears any previous decision (used by "Defer"
+    /// in the UI when the user opens the dialog, changes their mind, and
+    /// wants to leave the dispute unresolved). The conventional path for
+    /// "leave it for later" is `.deferred`, which keeps the dispute in
+    /// the resolved state but flags it as not-yet-acted-upon.
+    @discardableResult
+    func resolveFieldDispute(
+        profileID: String,
+        field: ProfileField,
+        resolution: DisputeResolution?
+    ) throws -> Transaction {
+        let now = Date()
+        let transaction = Transaction(
+            id: UUID(),
+            kind: .resolveDispute(field: field, profileID: profileID),
+            undoStrategy: .replay,
+            startedAt: now, completedAt: now,
+            changeCount: 1, profileCount: 1
+        )
+
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO transactions
+                (id, kind, undo_strategy, started_at, completed_at, change_count, profile_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    transaction.id.uuidString,
+                    Self.encodeJSON(transaction.kind),
+                    transaction.undoStrategy.rawValue,
+                    transaction.startedAt, transaction.completedAt,
+                    transaction.changeCount, transaction.profileCount,
+                ])
+
+            let resolutionJSON: String? = resolution.map { Self.encodeJSON($0) }
+            try db.execute(sql: """
+                UPDATE field_disputes
+                SET resolution = ?
+                WHERE rowid = (
+                    SELECT rowid FROM field_disputes
+                    WHERE entity_id = ? AND field = ?
+                    ORDER BY rowid DESC LIMIT 1
+                )
+                """, arguments: [
+                    resolutionJSON,
+                    profileID, field.rawValue,
+                ])
+        }
+
+        return transaction
     }
 }

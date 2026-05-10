@@ -38,11 +38,12 @@ nonisolated struct DemoDataGenerator {
             return Profile(
                 id: id, externalIDs: ["demo": id],
                 firstName: first, lastName: last, gender: gender,
+                attributes: nil,
                 birthDate: birth.map { GenealogicalDate(parsing: $0) },
                 birthLocation: birthLoc,
                 deathDate: death.map { GenealogicalDate(parsing: $0) },
                 deathLocation: deathLoc,
-                bio: bio, sources: sources, disputes: [:]
+                bio: bio, isDeleted: false, sources: sources, disputes: [:]
             )
         }
 
@@ -50,7 +51,7 @@ nonisolated struct DemoDataGenerator {
             relationships.append(Relationship(
                 id: UUID(), from: parentID, to: childID,
                 type: .parent, role: role, subtype: .unknown,
-                marriageDate: nil, divorceDate: nil
+                marriageDate: nil, marriageLocation: nil, divorceDate: nil
             ))
         }
 
@@ -59,6 +60,7 @@ nonisolated struct DemoDataGenerator {
                 id: UUID(), from: a, to: b,
                 type: .spouse, role: nil, subtype: .unknown,
                 marriageDate: marriageDate.map { GenealogicalDate(parsing: $0) },
+                marriageLocation: nil,
                 divorceDate: nil
             ))
         }

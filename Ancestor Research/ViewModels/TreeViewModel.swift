@@ -88,7 +88,16 @@ final class TreeViewModel {
 
     // MARK: - Recenter (animated)
 
-    func recenter(on profileID: String, snapshot: FamilyGraphSnapshot, canvasSize: CGSize) {
+    /// M24 — Recenter on a profile, optionally animating the offset slide.
+    /// `reduceMotion` is forwarded from the SwiftUI environment by the caller
+    /// (the view model itself can't read `@Environment`). When true, the
+    /// re-root happens instantly with no easing animation.
+    func recenter(
+        on profileID: String,
+        snapshot: FamilyGraphSnapshot,
+        canvasSize: CGSize,
+        reduceMotion: Bool = false
+    ) {
         guard let oldRootID = rootProfileID else {
             // First root — no animation
             rootProfileID = profileID
@@ -144,9 +153,13 @@ final class TreeViewModel {
             offset = initialOffset
             dragStartOffset = .zero
 
-            withAnimation(.easeInOut(duration: 0.35)) {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) {
                 offset = .zero
             }
+            // When reduce-motion is on we set the offset instantly; the flag
+            // still flips for the same `Task.sleep` duration so any callers
+            // observing `isAnimatingRecenter` (e.g. the click handler) behave
+            // consistently across both modes. The slide just isn't visible.
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(0.35))
                 isAnimatingRecenter = false
@@ -160,7 +173,8 @@ final class TreeViewModel {
     /// Recenter that may auto-switch view mode for off-canvas relatives.
     func recenterOnRelative(
         _ relativeID: String, from currentProfileID: String,
-        snapshot: FamilyGraphSnapshot, canvasSize: CGSize
+        snapshot: FamilyGraphSnapshot, canvasSize: CGSize,
+        reduceMotion: Bool = false
     ) {
         let isAncestor = snapshot.parentsOf(currentProfileID).contains { $0.id == relativeID }
         let isChild = snapshot.childrenOf(currentProfileID).contains { $0.id == relativeID }
@@ -171,7 +185,7 @@ final class TreeViewModel {
             viewMode = .descendants
         }
 
-        recenter(on: relativeID, snapshot: snapshot, canvasSize: canvasSize)
+        recenter(on: relativeID, snapshot: snapshot, canvasSize: canvasSize, reduceMotion: reduceMotion)
     }
 
     // MARK: - History Navigation
@@ -185,7 +199,7 @@ final class TreeViewModel {
         rebuildLayout(snapshot: snapshot)
     }
 
-    func jumpToHistory(index targetIndex: Int, snapshot: FamilyGraphSnapshot) {
+    func jumpToHistory(index targetIndex: Int, snapshot: FamilyGraphSnapshot, reduceMotion: Bool = false) {
         let maxDist = max(targetIndex, history.count - 1 - targetIndex)
         for dist in 0...maxDist {
             for candidate in [targetIndex - dist, targetIndex + dist] {
@@ -193,7 +207,7 @@ final class TreeViewModel {
                 let profileID = history[candidate]
                 if snapshot.profiles[profileID] != nil {
                     historyIndex = candidate
-                    recenter(on: profileID, snapshot: snapshot, canvasSize: lastCanvasSize)
+                    recenter(on: profileID, snapshot: snapshot, canvasSize: lastCanvasSize, reduceMotion: reduceMotion)
                     return
                 }
             }

@@ -11,6 +11,7 @@ struct ResearchView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            #if !FIELD_RESEARCHER_DISABLED
             if frIsRunning {
                 FieldResearcherProgressView(
                     profileName: frProfileName,
@@ -31,6 +32,21 @@ struct ResearchView: View {
             } else {
                 profileSelector
             }
+            #else
+            // Field Researcher compiled out — direct path through the
+            // deterministic research pipeline; no API-key flow.
+            if let reviewID = pendingReviewProfileID, showPendingReview {
+                PendingFactsReviewView(profileID: reviewID)
+            } else if wholeTreeVM.isRunning {
+                wholeTreeProgress
+            } else if researchVM.isResearching {
+                ResearchProgressView(vm: researchVM)
+            } else if let result = researchVM.currentResult {
+                ClusterReviewView(vm: researchVM, result: result)
+            } else {
+                profileSelector
+            }
+            #endif
         }
         .navigationTitle(navigationTitle)
         .onChange(of: appState.researchProfileID) { _, profileID in
@@ -157,6 +173,7 @@ struct ResearchView: View {
                 .font(AppTypography.cardMeta)
                 .foregroundStyle(comp.score == comp.maximum ? .green : .orange)
 
+            #if !FIELD_RESEARCHER_DISABLED
             if frVisible {
                 Button(frIsRunning ? "Researching..." : "Field Research") {
                     startFieldResearch(profile: profile)
@@ -174,6 +191,18 @@ struct ResearchView: View {
                     .controlSize(.small)
                 }
             }
+            #else
+            // Review-pending-facts is shared between FR and the deterministic
+            // pipeline; keep it visible.
+            if !DemoDataGenerator.isDemoMode {
+                Button("Review") {
+                    pendingReviewProfileID = profile.id
+                    showPendingReview = true
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+            }
+            #endif
 
             Button("Research") {
                 Task {
@@ -259,16 +288,19 @@ struct ResearchView: View {
         }
     }
 
-    // MARK: - Field Researcher Integration
+    // MARK: - Pending facts review (shared with deterministic pipeline)
 
+    @State private var showPendingReview = false
+    @State private var pendingReviewProfileID: String?
+
+    // MARK: - Field Researcher Integration
+    #if !FIELD_RESEARCHER_DISABLED
     @AppStorage("fieldResearcherEnabled") private var frEnabled = false
     @State private var frIsRunning = false
     @State private var frStatus = ""
     @State private var frFindingsCount = 0
     @State private var frCost = 0.0
     @State private var frProfileName = ""
-    @State private var showPendingReview = false
-    @State private var pendingReviewProfileID: String?
 
     /// Whether the Field Researcher UI should be visible.
     /// Always true in demo mode so reviewers can see the full interface.
@@ -359,6 +391,7 @@ struct ResearchView: View {
             frStatus = "4 findings, 1 lead — $0.14 (demo)"
         }
     }
+    #endif
 
     private var modeDescription: some View {
         Group {

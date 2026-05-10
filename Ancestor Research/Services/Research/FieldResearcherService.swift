@@ -2,6 +2,8 @@ import Foundation
 import os
 import GRDB
 
+#if !FIELD_RESEARCHER_DISABLED
+
 /// Orchestrates the in-app Field Researcher. Builds context from the tree,
 /// runs multi-turn conversations with the Claude API, extracts structured
 /// findings, and feeds them through the Evidence Firewall.
@@ -499,3 +501,5 @@ nonisolated struct FieldResearchLead: Sendable {
     let evidence: String
     let sourceURL: String
 }
+
+#endif

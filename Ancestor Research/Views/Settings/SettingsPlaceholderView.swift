@@ -5,7 +5,10 @@ struct SettingsPlaceholderView: View {
     @Environment(AppState.self) private var appState
     @Environment(SourceRegistry.self) private var sourceRegistry
     @State private var wikiTreePassword = ""
-    @AppStorage("disabledAuditRuleIDs") private var disabledRuleIDsData: Data = Data()
+    /// M16.11 — controls whether the tree canvas draws note dots, open-question
+    /// markers, focus rings, and tentative-fact glyphs. Hidden state is useful
+    /// for printing or screen-shotting a clean tree.
+    @AppStorage("showResearchIndicators") private var showResearchIndicators: Bool = true
 
     /// Email extracted from project source — single source of truth.
     private var wikiTreeEmail: String {
@@ -17,6 +20,11 @@ struct SettingsPlaceholderView: View {
 
     private var isWikiTreeProject: Bool {
         if case .wikitree = appState.currentProject?.source { return true }
+        return false
+    }
+
+    private var isManualProject: Bool {
+        if case .manual = appState.currentProject?.source { return true }
         return false
     }
 
@@ -58,6 +66,7 @@ struct SettingsPlaceholderView: View {
                         if !wikiTreePassword.isEmpty {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
+                                .accessibilityLabel("Password entered")
                         }
                     }
 
@@ -91,6 +100,7 @@ struct SettingsPlaceholderView: View {
                         // ToS indicator
                         Image(systemName: tosIcon(source.tosStatus.level))
                             .foregroundStyle(tosColor(source.tosStatus.level))
+                            .accessibilityLabel("Terms of service status \(source.tosStatus.level)")
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(source.displayName)
@@ -118,6 +128,29 @@ struct SettingsPlaceholderView: View {
                 }
             }
 
+            if isManualProject {
+                Section("Onboarding") {
+                    Button("Re-launch wizard") {
+                        appState.showOnboardingWizard = true
+                    }
+                    .buttonStyle(.glass)
+                    Text("Walk through the guided setup again. Existing profiles aren't replaced — the wizard adds new people in a single transaction.")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            Section("Deleted People") {
+                DeletedPeopleView()
+            }
+
+            Section("Tree Visualisation") {
+                Toggle("Show research indicators on tree nodes", isOn: $showResearchIndicators)
+                Text("Hide note and question icons, focus rings, and tentative-fact glyphs from the tree view (useful for printing or demos).")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.tertiary)
+            }
+
             Section("Demo Mode") {
                 Toggle("Show demo family tree", isOn: Binding(
                     get: { UserDefaults.standard.bool(forKey: "demoModeEnabled") },
@@ -140,70 +173,41 @@ struct SettingsPlaceholderView: View {
                 reasoningModelSection
             }
 
+            #if !FIELD_RESEARCHER_DISABLED
             Section("Field Researcher") {
                 fieldResearcherSection
             }
+            #endif
 
-            Section("Audit Rules (\(enabledRuleCount)/\(AuditRules.builtIn.count) enabled)") {
-                ForEach(AuditRules.builtIn, id: \.id) { rule in
-                    DisclosureGroup {
-                        VStack(alignment: .leading, spacing: 6) {
-                            LabeledContent("Invariant") {
-                                Text(rule.description)
-                                    .font(.caption)
-                            }
-                            LabeledContent("Error fires when") {
-                                Text(rule.fireCondition)
-                                    .font(.caption.monospaced())
-                            }
-                            if let warning = rule.warningCondition {
-                                LabeledContent("Warning fires when") {
-                                    Text(warning)
-                                        .font(.caption.monospaced())
-                                }
-                            }
-                            if !rule.workedExample.isEmpty {
-                                LabeledContent("Example") {
-                                    Text(rule.workedExample)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
+            Section {
+                DisclosureGroup("Backups") {
+                    BackupsListView()
+                }
+            }
+
+            Section("Audit Rules") {
+                NavigationLink {
+                    AuditRulesView()
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Configure audit rules")
+                                .font(AppTypography.cardTitle)
+                            Text("Enable, disable, snooze, or tune thresholds for the \(AuditRules.builtIn.count) built-in rules.")
+                                .font(AppTypography.cardMeta)
+                                .foregroundStyle(.secondary)
                         }
-                    } label: {
-                        HStack {
-                            Toggle(isOn: ruleBinding(for: rule.id)) {
-                                HStack {
-                                    Image(systemName: rule.defaultSeverity.iconName)
-                                        .foregroundStyle(isRuleEnabled(rule.id) ? rule.defaultSeverity.color : .secondary.opacity(0.3))
-                                    Text(rule.displayName)
-                                        .foregroundStyle(isRuleEnabled(rule.id) ? .primary : .secondary)
-                                }
-                            }
-                            .toggleStyle(.switch)
-                            .controlSize(.small)
-                        }
+                        Spacer()
                     }
                 }
+            }
+
+            Section("Statistics") {
+                NavigationLink("Statistics") { StatisticsView() }
             }
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
-    }
-
-    // MARK: - Disabled Rules Storage
-
-    private var disabledRuleIDs: Set<String> {
-        get {
-            (try? JSONDecoder().decode(Set<String>.self, from: disabledRuleIDsData)) ?? []
-        }
-        nonmutating set {
-            disabledRuleIDsData = (try? JSONEncoder().encode(newValue)) ?? Data()
-        }
-    }
-
-    private var enabledRuleCount: Int {
-        AuditRules.builtIn.count - disabledRuleIDs.count
     }
 
     // MARK: - ToS Helpers
@@ -280,13 +284,15 @@ struct SettingsPlaceholderView: View {
     }
 
     // MARK: - Field Researcher
-
+    #if !FIELD_RESEARCHER_DISABLED
     @AppStorage("fieldResearcherEnabled") private var frEnabled = false
     @AppStorage("fieldResearcherModel") private var frModel = "claude-sonnet-4-20250514"
     @AppStorage("fieldResearcherBudget") private var frBudget = 0.50
     @State private var frAPIKey = ""
     @State private var frKeyStatus = ""
+    #endif
 
+    #if !FIELD_RESEARCHER_DISABLED
     private var fieldResearcherSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Toggle("Enable Field Researcher", isOn: $frEnabled)
@@ -360,23 +366,5 @@ struct SettingsPlaceholderView: View {
         guard status == errSecSuccess, let data = result as? Data else { return nil }
         return String(data: data, encoding: .utf8)
     }
-
-    private func isRuleEnabled(_ ruleID: String) -> Bool {
-        !disabledRuleIDs.contains(ruleID)
-    }
-
-    private func ruleBinding(for ruleID: String) -> Binding<Bool> {
-        Binding(
-            get: { isRuleEnabled(ruleID) },
-            set: { enabled in
-                var ids = disabledRuleIDs
-                if enabled {
-                    ids.remove(ruleID)
-                } else {
-                    ids.insert(ruleID)
-                }
-                disabledRuleIDs = ids
-            }
-        )
-    }
+    #endif
 }

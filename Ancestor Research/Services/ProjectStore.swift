@@ -31,6 +31,7 @@ nonisolated struct ProjectStore {
             id: UUID(),
             name: name,
             source: source,
+            homePersonID: nil,
             createdAt: Date(),
             lastRefreshed: nil
         )
@@ -50,10 +51,48 @@ nonisolated struct ProjectStore {
         return (project, db)
     }
 
-    /// Delete a project's SQLite file.
+    /// Delete a project's SQLite file. Also removes the media + thumbnails
+    /// + backups directories if they exist.
     static func deleteProject(_ id: UUID) throws {
         let path = projectsDirectory.appendingPathComponent("\(id.uuidString).sqlite")
         try FileManager.default.removeItem(at: path)
+        try? FileManager.default.removeItem(at: mediaDirectory(for: id))
+        try? FileManager.default.removeItem(at: thumbnailsDirectory(for: id))
+        try? FileManager.default.removeItem(at: backupsDirectory(for: id))
+    }
+
+    // MARK: - Media directory helpers (M13)
+
+    /// Per-project media directory. Lazily created.
+    static func mediaDirectory(for projectID: UUID) -> URL {
+        let dir = projectsDirectory
+            .appendingPathComponent(projectID.uuidString, isDirectory: true)
+            .appendingPathComponent("media", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// Per-project thumbnail directory. Lazily created.
+    static func thumbnailsDirectory(for projectID: UUID) -> URL {
+        let dir = projectsDirectory
+            .appendingPathComponent(projectID.uuidString, isDirectory: true)
+            .appendingPathComponent("thumbnails", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// Per-project backups directory (M14). Lazily created.
+    static func backupsDirectory(for projectID: UUID) -> URL {
+        let dir = projectsDirectory
+            .appendingPathComponent(projectID.uuidString, isDirectory: true)
+            .appendingPathComponent("backups", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// Resolve an attachment's relative path to an absolute URL on disk.
+    static func absoluteURL(for attachment: Attachment, in projectID: UUID) -> URL {
+        mediaDirectory(for: projectID).appendingPathComponent(attachment.relativePath)
     }
 }
 

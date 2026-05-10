@@ -10,10 +10,23 @@ nonisolated struct AuditResult: Codable, Identifiable, Sendable {
     let ruleID: String
     let message: String
 
+    /// Optional alternate message used in manual-guidance mode (M16.6).
+    /// When `AppState.isSmallManualProject` is true, callers should prefer
+    /// this over `message`. Nil for rules that have no guidance variant
+    /// (errors stay as errors even in guidance mode).
+    var guidanceMessage: String?
+
+    /// Other profile IDs implicated by this finding (M19). For
+    /// `DuplicateDetectionRule` this carries the candidate's ID so the
+    /// Tasks view can offer "Compare" without scraping the message.
+    /// Nil for rules that don't reference a second profile.
+    var relatedProfileIDs: [String]?
+
     /// Convenience init with default category = .issue (backward compatible).
     init(id: UUID = UUID(), profileID: String, profileName: String,
          severity: Severity, category: AuditCategory = .issue,
-         ruleID: String, message: String) {
+         ruleID: String, message: String, guidanceMessage: String? = nil,
+         relatedProfileIDs: [String]? = nil) {
         self.id = id
         self.profileID = profileID
         self.profileName = profileName
@@ -21,6 +34,8 @@ nonisolated struct AuditResult: Codable, Identifiable, Sendable {
         self.category = category
         self.ruleID = ruleID
         self.message = message
+        self.guidanceMessage = guidanceMessage
+        self.relatedProfileIDs = relatedProfileIDs
     }
 }
 

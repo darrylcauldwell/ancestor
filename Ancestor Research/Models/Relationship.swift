@@ -10,6 +10,7 @@ nonisolated struct Relationship: Codable, Hashable, Identifiable, Sendable {
     let role: ParentRole?
     let subtype: RelationshipSubtype
     let marriageDate: GenealogicalDate?
+    let marriageLocation: String?
     let divorceDate: GenealogicalDate?
 }
 

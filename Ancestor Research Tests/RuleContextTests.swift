@@ -19,11 +19,11 @@ struct RuleContextTests {
         Profile(
             id: id, externalIDs: [:],
             firstName: firstName, lastName: lastName,
-            gender: .male,
+            gender: .male, attributes: nil,
             birthDate: birthDate.map { GenealogicalDate(parsing: $0) },
             birthLocation: "Derbyshire",
             deathDate: deathDate.map { GenealogicalDate(parsing: $0) },
-            deathLocation: nil, bio: nil, sources: [:], disputes: [:]
+            deathLocation: nil, bio: nil, isDeleted: false, sources: [:], disputes: [:]
         )
     }
 

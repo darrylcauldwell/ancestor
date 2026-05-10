@@ -14,6 +14,17 @@ struct ProfilePopoverView: View {
     var onFocusHere: () -> Void
     var onShowDetail: () -> Void
     var onResearch: (() -> Void)?
+    var onEdit: (() -> Void)?
+    var onAddRelative: ((AutoSuggestService.RelationContext) -> Void)?
+    var onAddRelationship: (() -> Void)?
+    var onRemove: (() -> Void)?
+    var onRemoveBranch: ((Bool) -> Void)?  // ancestors=true removes ancestors; false removes descendants
+
+    /// W3 Focus actions. `onToggleFocus` toggles whether this profile is in
+    /// the active focus set. nil → no active focus set (callback hidden).
+    var isInFocus: Bool = false
+    var hasActiveFocus: Bool = false
+    var onToggleFocus: (() -> Void)?
 
     var body: some View {
         ScrollView {
@@ -164,6 +175,7 @@ struct ProfilePopoverView: View {
                                 Image(systemName: "arrow.triangle.2.circlepath")
                                     .font(AppTypography.badge)
                                     .foregroundStyle(.orange)
+                                    .accessibilityLabel("Switches view mode")
                             }
                             Text(relative.displayName)
                                 .font(AppTypography.popoverValue)
@@ -176,6 +188,7 @@ struct ProfilePopoverView: View {
                             Image(systemName: "arrow.right.circle")
                                 .font(AppTypography.cardMeta)
                                 .foregroundStyle(.secondary)
+                                .accessibilityHidden(true)
                         }
                     }
                     .buttonStyle(.plain)
@@ -228,20 +241,76 @@ struct ProfilePopoverView: View {
     // MARK: - Actions
 
     private var actionButtons: some View {
-        HStack {
-            Button("Focus Here") { onFocusHere() }
-                .buttonStyle(.glassProminent)
-                .controlSize(.small)
-                .disabled(isRoot)
-            Spacer()
-            if let onResearch {
-                Button("Research") { onResearch() }
+        VStack(spacing: 6) {
+            HStack {
+                Button("Focus Here") { onFocusHere() }
                     .buttonStyle(.glassProminent)
                     .controlSize(.small)
+                    .disabled(isRoot)
+                Spacer()
+                if let onResearch {
+                    Button("Research") { onResearch() }
+                        .buttonStyle(.glassProminent)
+                        .controlSize(.small)
+                }
+                Button("Full Detail") { onShowDetail() }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
             }
-            Button("Full Detail") { onShowDetail() }
-                .buttonStyle(.glass)
-                .controlSize(.small)
+            if onEdit != nil || onAddRelative != nil {
+                HStack {
+                    if let onEdit {
+                        Button("Edit") { onEdit() }
+                            .buttonStyle(.glass)
+                            .controlSize(.small)
+                    }
+                    Spacer()
+                    if let onAddRelative {
+                        Menu("Add…") {
+                            Button("Add Child") { onAddRelative(.child) }
+                            Button("Add Spouse") { onAddRelative(.spouse) }
+                            Button("Add Parent") { onAddRelative(.parent) }
+                            Button("Add Sibling") { onAddRelative(.sibling) }
+                            if let onAddRelationship {
+                                Divider()
+                                Button("Connect to existing person…") { onAddRelationship() }
+                            }
+                        }
+                        .menuStyle(.borderlessButton)
+                        .controlSize(.small)
+                    }
+                }
+            }
+            if onRemove != nil || onRemoveBranch != nil || (onToggleFocus != nil && hasActiveFocus) {
+                HStack {
+                    if let onToggleFocus, hasActiveFocus {
+                        Button {
+                            onToggleFocus()
+                        } label: {
+                            Label(
+                                isInFocus ? "Remove from focus" : "Add to focus",
+                                systemImage: isInFocus ? "scope" : "plus.circle"
+                            )
+                        }
+                        .buttonStyle(.glass)
+                        .controlSize(.small)
+                    }
+                    Spacer()
+                    if onRemove != nil || onRemoveBranch != nil {
+                        Menu("Remove…") {
+                            if let onRemove {
+                                Button("Remove this person", role: .destructive) { onRemove() }
+                            }
+                            if let onRemoveBranch {
+                                Button("Remove person and ancestors", role: .destructive) { onRemoveBranch(true) }
+                                Button("Remove person and descendants", role: .destructive) { onRemoveBranch(false) }
+                            }
+                        }
+                        .menuStyle(.borderlessButton)
+                        .controlSize(.small)
+                    }
+                }
+            }
         }
     }
 }

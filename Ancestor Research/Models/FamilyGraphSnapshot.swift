@@ -81,6 +81,20 @@ nonisolated struct FamilyGraphSnapshot: Sendable {
         completenessCache[id] ?? ProfileCompleteness(score: 0, maximum: 7, missing: [], potentiallyLiving: false)
     }
 
+    /// IDs of profiles in the focus set plus their immediate connections
+    /// (parents, children, spouses). Used by the Tree's "Focus only" filter
+    /// (DESIGN.md §7.7.2). Omits soft-deleted and non-existent IDs.
+    func focusFilteredIDs(focus profileIDs: [String]) -> Set<String> {
+        var result: Set<String> = []
+        for id in profileIDs where profiles[id] != nil {
+            result.insert(id)
+            for p in parentsOf(id) { result.insert(p.id) }
+            for c in childrenOf(id) { result.insert(c.id) }
+            for s in spousesOf(id) { result.insert(s.id) }
+        }
+        return result
+    }
+
     // MARK: - Cache Builders
 
     private static func buildSiblingCache(

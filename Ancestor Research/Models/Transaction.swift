@@ -18,6 +18,16 @@ nonisolated struct Transaction: Codable, Identifiable, Sendable {
             return "Imported \(filename) (\(profileCount) profiles)"
         case .refreshWikiTree:
             return "WikiTree refresh (\(changeCount) changes)"
+        case .addProfile:
+            return "Added person"
+        case .addFamily:
+            return "Added family (\(profileCount) people)"
+        case .addRelationship:
+            return "Added relationship"
+        case .removeRelationship:
+            return "Removed relationship"
+        case .softDelete:
+            return "Removed \(profileCount > 1 ? "\(profileCount) people" : "person")"
         case .manualEdit:
             return "Manual edit (\(changeCount) fields)"
         case .resolveDispute(let field, _):
@@ -31,6 +41,11 @@ nonisolated struct Transaction: Codable, Identifiable, Sendable {
 nonisolated enum TransactionKind: Codable, Sendable {
     case importGEDCOM(path: String)
     case refreshWikiTree
+    case addProfile(profileID: String)
+    case addFamily(profileIDs: [String])
+    case addRelationship(relationshipID: UUID)
+    case removeRelationship(relationshipID: UUID)
+    case softDelete(profileIDs: [String])
     case manualEdit
     case resolveDispute(field: ProfileField, profileID: String)
     case undo(ofTransactionID: UUID)

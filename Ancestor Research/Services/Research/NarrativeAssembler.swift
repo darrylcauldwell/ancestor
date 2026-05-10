@@ -10,7 +10,7 @@ nonisolated struct NarrativeAssembler {
         result: ResearchResult,
         sourceInfoMap: [String: SourceInfo]
     ) async -> Biography {
-        var events: [LifeEvent] = []
+        var events: [NarrativeLifeEvent] = []
 
         // Extract events from clusters
         for cluster in result.clusters where cluster.confidence >= .moderate {
@@ -52,7 +52,7 @@ nonisolated struct NarrativeAssembler {
     /// Build narrative text — uses reasoning model if available, else deterministic template.
     private static func buildNarrative(
         profile: Profile,
-        events: [LifeEvent],
+        events: [NarrativeLifeEvent],
         sourceInfoMap: [String: SourceInfo]
     ) async -> String {
         // Try reasoning model
@@ -72,7 +72,7 @@ nonisolated struct NarrativeAssembler {
         return templateNarrative(profile: profile, events: events)
     }
 
-    private static func buildNarrativePrompt(profile: Profile, events: [LifeEvent]) -> String {
+    private static func buildNarrativePrompt(profile: Profile, events: [NarrativeLifeEvent]) -> String {
         var lines = ["Write a biography for \(profile.displayName) from these events:"]
         for event in events {
             lines.append("- \(event.type.rawValue): \(event.description) [\(event.sourceID)]")
@@ -82,7 +82,7 @@ nonisolated struct NarrativeAssembler {
     }
 
     /// Deterministic template narrative — always available.
-    static func templateNarrative(profile: Profile, events: [LifeEvent]) -> String {
+    static func templateNarrative(profile: Profile, events: [NarrativeLifeEvent]) -> String {
         let name = profile.displayName
         var parts: [String] = []
 
@@ -113,29 +113,29 @@ nonisolated struct NarrativeAssembler {
 
     // MARK: - Event Extraction
 
-    private static func extractEvent(from scored: ScoredRecord) -> LifeEvent? {
+    private static func extractEvent(from scored: ScoredRecord) -> NarrativeLifeEvent? {
         let citation = CitationRenderer.cite(scored.record)
         switch scored.record {
         case .birth(let r):
-            return LifeEvent(type: .birth, year: r.birthYear, location: r.district ?? r.birthPlace,
+            return NarrativeLifeEvent(type: .birth, year: r.birthYear, location: r.district ?? r.birthPlace,
                            description: citation.short, sourceID: scored.record.sourceID, citation: citation)
         case .death(let r):
-            return LifeEvent(type: .death, year: r.deathYear, location: r.district ?? r.deathPlace,
+            return NarrativeLifeEvent(type: .death, year: r.deathYear, location: r.district ?? r.deathPlace,
                            description: citation.short, sourceID: scored.record.sourceID, citation: citation)
         case .marriage(let r):
-            return LifeEvent(type: .marriage, year: r.marriageYear, location: r.district,
+            return NarrativeLifeEvent(type: .marriage, year: r.marriageYear, location: r.district,
                            description: r.spouseName ?? citation.short, sourceID: scored.record.sourceID, citation: citation)
         case .census(let r):
-            return LifeEvent(type: .census, year: r.censusYear, location: r.parish ?? r.district,
+            return NarrativeLifeEvent(type: .census, year: r.censusYear, location: r.parish ?? r.district,
                            description: "age \(r.age.map(String.init) ?? "?"), \(r.occupation ?? "")", sourceID: scored.record.sourceID, citation: citation)
         case .military(let r):
-            return LifeEvent(type: .military, year: r.deathYear, location: r.cemetery,
+            return NarrativeLifeEvent(type: .military, year: r.deathYear, location: r.cemetery,
                            description: "\(r.rank ?? "") \(r.regiment ?? "")", sourceID: scored.record.sourceID, citation: citation)
         case .burial(let r):
-            return LifeEvent(type: .burial, year: r.deathYear, location: r.cemetery,
+            return NarrativeLifeEvent(type: .burial, year: r.deathYear, location: r.cemetery,
                            description: citation.short, sourceID: scored.record.sourceID, citation: citation)
         case .probate(let r):
-            return LifeEvent(type: .probate, year: r.deathYear, location: r.address,
+            return NarrativeLifeEvent(type: .probate, year: r.deathYear, location: r.address,
                            description: "\(r.grantType ?? "probate") \(r.probateDate ?? "")", sourceID: scored.record.sourceID, citation: citation)
         default:
             return nil
@@ -149,7 +149,7 @@ nonisolated struct Biography: Sendable {
     let profileID: String
     let narrative: String
     let timeline: [TimelineEntry]
-    let events: [LifeEvent]
+    let events: [NarrativeLifeEvent]
     let generatedAt: Date
 }
 
@@ -159,18 +159,18 @@ nonisolated struct TimelineEntry: Identifiable, Sendable {
     let label: String
     let description: String
     let sourceID: String
-    let citation: Citation
+    let citation: RenderedCitation
 }
 
-nonisolated struct LifeEvent: Sendable {
-    let type: LifeEventType
+nonisolated struct NarrativeLifeEvent: Sendable {
+    let type: NarrativeLifeEventType
     let year: Int?
     let location: String?
     let description: String
     let sourceID: String
-    let citation: Citation
+    let citation: RenderedCitation
 }
 
-nonisolated enum LifeEventType: String, Sendable {
+nonisolated enum NarrativeLifeEventType: String, Sendable {
     case birth, death, marriage, census, military, burial, probate, baptism
 }

@@ -81,6 +81,7 @@ struct AuditPlaceholderView: View {
                                         .foregroundStyle(result.severity.color)
                                         .font(.body)
                                         .frame(width: 24)
+                                        .accessibilityLabel("Severity \(result.severity.rawValue)")
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(result.profileName)
                                             .font(AppTypography.cardTitle)
@@ -89,6 +90,15 @@ struct AuditPlaceholderView: View {
                                             .foregroundStyle(.secondary)
                                     }
                                     Spacer()
+                                    Button {
+                                        promoteToQuestion(result)
+                                    } label: {
+                                        Label("Promote", systemImage: "questionmark.bubble")
+                                    }
+                                    .buttonStyle(.glass)
+                                    .controlSize(.mini)
+                                    .help("Add as an open question on the workbench")
+                                    .accessibilityHint("Add as an open question on the workbench")
                                 }
                                 .padding(12)
                                 .glassEffect(.regular, in: .rect(cornerRadius: 12))
@@ -114,6 +124,26 @@ struct AuditPlaceholderView: View {
         }
     }
 
+    /// Promote an audit issue to an OpenQuestion. The question text mirrors
+    /// the audit message; provenance is recorded via QuestionOrigin.fromAudit
+    /// so the workbench can surface where the question came from. Maps audit
+    /// severity to question priority (error → high, warning → medium, info → low).
+    private func promoteToQuestion(_ result: AuditResult) {
+        let priority: QuestionPriority = switch result.severity {
+        case .error: .high
+        case .warning: .medium
+        case .info: .low
+        }
+        let text = "\(result.profileName): \(strippedMessage(result))"
+        appState.createQuestion(
+            text: text,
+            profileIDs: [result.profileID],
+            priority: priority,
+            promotedFrom: .fromAudit(ruleID: result.ruleID)
+        )
+        appState.successMessage = "Added to workbench questions."
+    }
+
     /// Strip the profile name from the start of the message to avoid duplication with the header.
     private func strippedMessage(_ result: AuditResult) -> String {
         var msg = result.message
@@ -134,6 +164,7 @@ struct AuditPlaceholderView: View {
         HStack(spacing: 4) {
             Image(systemName: severity.iconName)
                 .foregroundStyle(severity.color)
+                .accessibilityHidden(true)
             Text("\(count)")
                 .font(.caption)
                 .fontWeight(.semibold)
@@ -141,6 +172,8 @@ struct AuditPlaceholderView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .glassEffect(.regular, in: .capsule)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(count) \(severity.rawValue) issues")
     }
 }
 
@@ -241,6 +274,7 @@ struct GapsPlaceholderView: View {
                                     .foregroundStyle(ratio > 0.5 ? .orange : .red)
                                     .font(.body)
                                     .frame(width: 24)
+                                    .accessibilityLabel(ratio > 0.5 ? "Partial completeness" : "Severely incomplete")
 
                                 VStack(alignment: .leading, spacing: 3) {
                                     HStack(spacing: 6) {
@@ -270,6 +304,23 @@ struct GapsPlaceholderView: View {
                                     .buttonStyle(.glass)
                                     .controlSize(.mini)
                                 }
+                                // Per-profile promote: turn the missing-field
+                                // checks into one OpenQuestion per gap with
+                                // QuestionOrigin.fromGap. Menu shows one entry
+                                // per missing check so the user can be selective.
+                                Menu {
+                                    ForEach(comp.missing, id: \.self) { check in
+                                        Button("Promote \"\(check.shortLabel)\"") {
+                                            promoteGap(profile: profile, check: check)
+                                        }
+                                    }
+                                } label: {
+                                    Label("Promote", systemImage: "questionmark.bubble")
+                                }
+                                .menuStyle(.borderlessButton)
+                                .controlSize(.mini)
+                                .help("Add a missing field as a workbench question")
+                                .accessibilityHint("Add a missing field as a workbench question")
                             }
                             .padding(12)
                             .glassEffect(.regular, in: .rect(cornerRadius: 12))
@@ -344,6 +395,28 @@ struct GapsPlaceholderView: View {
     private func isSearchable(_ profile: Profile) -> Bool {
         guard let birthYear = profile.birthDate?.earliest else { return true }
         return birthYear <= 1930
+    }
+
+    /// Promote a missing-field gap to an OpenQuestion, recording the field
+    /// in `QuestionOrigin.fromGap` so the workbench shows where it came from.
+    private func promoteGap(profile: Profile, check: CompletenessCheck) {
+        let text: String
+        let origin: QuestionOrigin
+        switch check {
+        case .field(let field):
+            text = "\(profile.displayName): missing \(field.rawValue)"
+            origin = .fromGap(profileID: profile.id, field: field)
+        case .hasParents:
+            text = "\(profile.displayName): missing parents"
+            // hasParents isn't a ProfileField — reuse fromGap with a
+            // sentinel field. firstName is the closest "identity" field.
+            origin = .fromGap(profileID: profile.id, field: .firstName)
+        }
+        appState.createQuestion(
+            text: text, profileIDs: [profile.id],
+            priority: .medium, promotedFrom: origin
+        )
+        appState.successMessage = "Added to workbench questions."
     }
 
     private var gapSummary: some View {

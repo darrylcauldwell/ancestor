@@ -12,12 +12,45 @@ nonisolated protocol AuditRuleDefinition: Sendable {
     var defaultSeverity: Severity { get }
     var category: AuditCategory { get }
 
+    /// Numeric thresholds the user can tune (M18, DESIGN.md §13). Rules
+    /// that consume tunables read them via `AuditEngine`'s threshold
+    /// resolution helpers, falling back to `defaultValue` when no
+    /// override exists. Rules with no tunables return [].
+    var tunableThresholds: [TunableThreshold] { get }
+
     func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult]
+
+    /// Threshold-aware evaluation (M18). The audit engine calls this with the
+    /// per-rule merged thresholds dictionary (defaults overridden by the user's
+    /// global override). Rules that don't honour thresholds get the default
+    /// implementation, which delegates to the zero-threshold `evaluate`.
+    /// Direct callers (existing tests) keep using the 2-arg method, which
+    /// resolves to the rule's defaults.
+    func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot, thresholds: [String: Double]) -> [AuditResult]
+
+    /// Manual-guidance message variant (M16.6). When `AppState.isSmallManualProject`
+    /// is active, the audit engine attaches this to the result so the UI can
+    /// frame gaps as suggestions ("you might add…") rather than warnings.
+    /// Returns nil to indicate no guidance variant — the canonical `message`
+    /// is used unchanged. Errors and consistency issues should leave this nil.
+    func guidanceMessage(profile: Profile) -> String?
 }
 
 // Default category — most rules are consistency issues
 nonisolated extension AuditRuleDefinition {
     var category: AuditCategory { .issue }
+
+    /// Default: no tunable thresholds. Rules opt-in by overriding.
+    var tunableThresholds: [TunableThreshold] { [] }
+
+    /// Default: ignore thresholds and call the zero-arg evaluate.
+    /// Threshold-honouring rules override this.
+    func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot, thresholds: [String: Double]) -> [AuditResult] {
+        evaluate(profile: profile, snapshot: snapshot)
+    }
+
+    /// Default: no guidance variant. Rules opt-in by overriding.
+    func guidanceMessage(profile: Profile) -> String? { nil }
 }
 
 /// Registry of built-in rules.
@@ -81,7 +114,8 @@ nonisolated struct BirthBeforeDeathRule: AuditRuleDefinition {
     let defaultSeverity = Severity.error
 
     func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
-        guard let birth = profile.birthDate, let death = profile.deathDate else { return [] }
+        guard let birth = profile.effectiveDate(.birthDate),
+              let death = profile.effectiveDate(.deathDate) else { return [] }
         var results: [AuditResult] = []
 
         if let be = birth.earliest, let dl = death.latest, be > dl {
@@ -110,8 +144,21 @@ nonisolated struct ParentAgeGapRule: AuditRuleDefinition {
     let workedExample = "Parent '1874' (latest=1874), Child '1887' (earliest=1887): 1874+14=1888 > 1887 → ERROR (gap is 13)"
     let defaultSeverity = Severity.error
 
+    var tunableThresholds: [TunableThreshold] {
+        [TunableThreshold(
+            key: "minYearsGap",
+            displayName: "Minimum parent-child age gap",
+            defaultValue: 14, minimum: 8, maximum: 20, unit: "years"
+        )]
+    }
+
     func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
-        guard let childBirth = profile.birthDate else { return [] }
+        evaluate(profile: profile, snapshot: snapshot, thresholds: [:])
+    }
+
+    func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot, thresholds: [String: Double]) -> [AuditResult] {
+        let minGap = Int(thresholds["minYearsGap"] ?? 14)
+        guard let childBirth = profile.effectiveDate(.birthDate) else { return [] }
         var results: [AuditResult] = []
 
         let parentRels = snapshot.relationships.filter {
@@ -120,15 +167,15 @@ nonisolated struct ParentAgeGapRule: AuditRuleDefinition {
 
         for rel in parentRels {
             guard let parent = snapshot.profiles[rel.from],
-                  let parentBirth = parent.birthDate else { continue }
+                  let parentBirth = parent.effectiveDate(.birthDate) else { continue }
 
-            if let pl = parentBirth.latest, let ce = childBirth.earliest, pl + 14 > ce {
+            if let pl = parentBirth.latest, let ce = childBirth.earliest, pl + minGap > ce {
                 results.append(AuditResult(
                     id: UUID(), profileID: profile.id, profileName: profile.displayName,
                     severity: .error, ruleID: id,
-                    message: "\(parent.displayName) (born \(parentBirth.original)) is parent of \(profile.displayName) (born \(childBirth.original)) — gap may be less than 14 years"
+                    message: "\(parent.displayName) (born \(parentBirth.original)) is parent of \(profile.displayName) (born \(childBirth.original)) — gap may be less than \(minGap) years"
                 ))
-            } else if let pby = parentBirth.bestYear, let cby = childBirth.bestYear, pby + 14 > cby {
+            } else if let pby = parentBirth.bestYear, let cby = childBirth.bestYear, pby + minGap > cby {
                 results.append(AuditResult(
                     id: UUID(), profileID: profile.id, profileName: profile.displayName,
                     severity: .warning, ruleID: id,
@@ -150,7 +197,7 @@ nonisolated struct MarriageAgeRule: AuditRuleDefinition {
     let defaultSeverity = Severity.error
 
     func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
-        guard let birth = profile.birthDate else { return [] }
+        guard let birth = profile.effectiveDate(.birthDate) else { return [] }
         var results: [AuditResult] = []
 
         let spouseRels = snapshot.relationships.filter {
@@ -187,21 +234,35 @@ nonisolated struct LifespanRule: AuditRuleDefinition {
     let workedExample = "Birth '1800' (latest=1800), Death 'AFT 1920' (earliest=1920): 1920-1800=120 > 110 → ERROR"
     let defaultSeverity = Severity.error
 
+    var tunableThresholds: [TunableThreshold] {
+        [TunableThreshold(
+            key: "maxLifespan",
+            displayName: "Maximum plausible lifespan",
+            defaultValue: 110, minimum: 90, maximum: 130, unit: "years"
+        )]
+    }
+
     func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
-        guard let birth = profile.birthDate, let death = profile.deathDate else { return [] }
+        evaluate(profile: profile, snapshot: snapshot, thresholds: [:])
+    }
+
+    func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot, thresholds: [String: Double]) -> [AuditResult] {
+        let maxLifespan = Int(thresholds["maxLifespan"] ?? 110)
+        guard let birth = profile.effectiveDate(.birthDate),
+              let death = profile.effectiveDate(.deathDate) else { return [] }
         var results: [AuditResult] = []
 
-        if let de = death.earliest, let bl = birth.latest, de - bl > 110 {
+        if let de = death.earliest, let bl = birth.latest, de - bl > maxLifespan {
             results.append(AuditResult(
                 id: UUID(), profileID: profile.id, profileName: profile.displayName,
                 severity: .error, ruleID: id,
-                message: "\(profile.displayName) lifespan \(de - bl) years (born \(birth.original), died \(death.original)) — exceeds 110"
+                message: "\(profile.displayName) lifespan \(de - bl) years (born \(birth.original), died \(death.original)) — exceeds \(maxLifespan)"
             ))
-        } else if let dby = death.bestYear, let bby = birth.bestYear, dby - bby > 110 {
+        } else if let dby = death.bestYear, let bby = birth.bestYear, dby - bby > maxLifespan {
             results.append(AuditResult(
                 id: UUID(), profileID: profile.id, profileName: profile.displayName,
                 severity: .warning, ruleID: id,
-                message: "\(profile.displayName) probable lifespan ~\(dby - bby) years — exceeds 110"
+                message: "\(profile.displayName) probable lifespan ~\(dby - bby) years — exceeds \(maxLifespan)"
             ))
         }
         return results
@@ -218,7 +279,7 @@ nonisolated struct NoMarriageAfterDeathRule: AuditRuleDefinition {
     let defaultSeverity = Severity.error
 
     func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
-        guard let death = profile.deathDate else { return [] }
+        guard let death = profile.effectiveDate(.deathDate) else { return [] }
         var results: [AuditResult] = []
 
         let spouseRels = snapshot.relationships.filter {
@@ -269,6 +330,10 @@ nonisolated struct MissingParentsRule: AuditRuleDefinition {
         }
         return []
     }
+
+    func guidanceMessage(profile: Profile) -> String? {
+        "Consider adding \(profile.displayName)'s parents — their parish records often unlock further generations."
+    }
 }
 
 nonisolated struct MissingBirthDateRule: AuditRuleDefinition {
@@ -290,6 +355,10 @@ nonisolated struct MissingBirthDateRule: AuditRuleDefinition {
             )]
         }
         return []
+    }
+
+    func guidanceMessage(profile: Profile) -> String? {
+        "What you might add next: birth date for \(profile.displayName)."
     }
 }
 
@@ -314,6 +383,10 @@ nonisolated struct MissingDeathDateRule: AuditRuleDefinition {
         }
         return []
     }
+
+    func guidanceMessage(profile: Profile) -> String? {
+        "What you might add next: death date for \(profile.displayName)."
+    }
 }
 
 nonisolated struct MissingBirthLocationRule: AuditRuleDefinition {
@@ -335,6 +408,10 @@ nonisolated struct MissingBirthLocationRule: AuditRuleDefinition {
             )]
         }
         return []
+    }
+
+    func guidanceMessage(profile: Profile) -> String? {
+        "You could note where \(profile.displayName) was born when you next find a record."
     }
 }
 
@@ -383,7 +460,8 @@ nonisolated struct DuplicateDetectionRule: AuditRuleDefinition {
                 results.append(AuditResult(
                     id: UUID(), profileID: profile.id, profileName: profile.displayName,
                     severity: .warning, ruleID: id,
-                    message: "Possible duplicate: \(profile.displayName) and \(other.displayName) (score: \(String(format: "%.2f", score)))"
+                    message: "Possible duplicate: \(profile.displayName) and \(other.displayName) (score: \(String(format: "%.2f", score)))",
+                    relatedProfileIDs: [otherID]
                 ))
             }
         }
@@ -484,7 +562,7 @@ nonisolated struct ParentDiedBeforeChildRule: AuditRuleDefinition {
     let defaultSeverity = Severity.error
 
     func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
-        guard let childBirth = profile.birthDate else { return [] }
+        guard let childBirth = profile.effectiveDate(.birthDate) else { return [] }
         var results: [AuditResult] = []
 
         let parentRels = snapshot.relationships.filter {
@@ -493,7 +571,7 @@ nonisolated struct ParentDiedBeforeChildRule: AuditRuleDefinition {
 
         for rel in parentRels {
             guard let parent = snapshot.profiles[rel.from],
-                  let parentDeath = parent.deathDate else { continue }
+                  let parentDeath = parent.effectiveDate(.deathDate) else { continue }
 
             // Error tier: parent definitely died before child born (1-year posthumous allowance)
             if let pdl = parentDeath.latest, let cbe = childBirth.earliest, pdl < cbe - 1 {
@@ -525,8 +603,21 @@ nonisolated struct ParentSuspiciouslyOldRule: AuditRuleDefinition {
     let workedExample = "Parent born 1820, child born 1880: gap 60 → WARNING (unusual but possible)"
     let defaultSeverity = Severity.warning
 
+    var tunableThresholds: [TunableThreshold] {
+        [TunableThreshold(
+            key: "maxYearsGap",
+            displayName: "Maximum parent-child age gap",
+            defaultValue: 55, minimum: 40, maximum: 80, unit: "years"
+        )]
+    }
+
     func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
-        guard let childBirth = profile.birthDate else { return [] }
+        evaluate(profile: profile, snapshot: snapshot, thresholds: [:])
+    }
+
+    func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot, thresholds: [String: Double]) -> [AuditResult] {
+        let maxGap = Int(thresholds["maxYearsGap"] ?? 55)
+        guard let childBirth = profile.effectiveDate(.birthDate) else { return [] }
         var results: [AuditResult] = []
 
         let parentRels = snapshot.relationships.filter {
@@ -535,15 +626,15 @@ nonisolated struct ParentSuspiciouslyOldRule: AuditRuleDefinition {
 
         for rel in parentRels {
             guard let parent = snapshot.profiles[rel.from],
-                  let parentBirth = parent.birthDate else { continue }
+                  let parentBirth = parent.effectiveDate(.birthDate) else { continue }
 
-            if let cbe = childBirth.earliest, let pbl = parentBirth.latest, cbe - pbl > 55 {
+            if let cbe = childBirth.earliest, let pbl = parentBirth.latest, cbe - pbl > maxGap {
                 results.append(AuditResult(
                     id: UUID(), profileID: profile.id, profileName: profile.displayName,
                     severity: .warning, ruleID: id,
                     message: "\(parent.displayName) (born \(parentBirth.original)) is \(cbe - pbl)+ years older than \(profile.displayName) — unusual"
                 ))
-            } else if let cbby = childBirth.bestYear, let pbby = parentBirth.bestYear, cbby - pbby > 55 {
+            } else if let cbby = childBirth.bestYear, let pbby = parentBirth.bestYear, cbby - pbby > maxGap {
                 results.append(AuditResult(
                     id: UUID(), profileID: profile.id, profileName: profile.displayName,
                     severity: .warning, ruleID: id,

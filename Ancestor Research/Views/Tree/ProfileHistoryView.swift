@@ -42,6 +42,7 @@ struct ProfileHistoryView: View {
                 Image(systemName: "pencil.circle.fill")
                     .foregroundStyle(.orange)
                     .font(.caption)
+                    .accessibilityHidden(true)
 
                 Text(fieldLabel(change.field))
                     .font(.caption)
@@ -66,6 +67,7 @@ struct ProfileHistoryView: View {
                 Image(systemName: "arrow.right")
                     .font(.system(size: 8))
                     .foregroundStyle(.secondary)
+                    .accessibilityLabel("changed to")
                 Text(change.newValue)
                     .font(.caption2)
                     .foregroundStyle(.green)
