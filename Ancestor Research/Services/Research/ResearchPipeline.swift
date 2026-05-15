@@ -35,7 +35,8 @@ final class ResearchPipeline {
             let records = await dispatcher.dispatch(
                 subject: state.subject,
                 recordTypes: state.activeRecordTypes,
-                scope: config.scope
+                scope: config.scope,
+                mode: state.subject.mode
             )
 
             let scored = records.map { record in

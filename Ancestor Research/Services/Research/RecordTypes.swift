@@ -218,6 +218,37 @@ nonisolated struct RecordQuery: Sendable {
     let gender: Gender?
     let region: Region?
     let sourceParams: SourceQueryParams
+    /// Name-match strictness. Defaults to `.strict`. Sources may ignore it
+    /// — see RESEARCH_AXES_SPEC §7 for which sources honour which tiers.
+    /// Change 4 ships the field with no source-side handling; Change 5
+    /// wires the per-source query rewriting; Change 6 wires the dispatcher's
+    /// empty-then-broaden flow.
+    let strictness: SearchStrictness
+
+    /// Custom init so `strictness` can be defaulted without losing the
+    /// memberwise calling convention (Swift drops defaulted `let` fields
+    /// from the synthesised init).
+    init(
+        surname: String?,
+        givenName: String?,
+        recordType: RecordType,
+        yearFrom: Int?,
+        yearTo: Int?,
+        gender: Gender?,
+        region: Region?,
+        sourceParams: SourceQueryParams,
+        strictness: SearchStrictness = .strict
+    ) {
+        self.surname = surname
+        self.givenName = givenName
+        self.recordType = recordType
+        self.yearFrom = yearFrom
+        self.yearTo = yearTo
+        self.gender = gender
+        self.region = region
+        self.sourceParams = sourceParams
+        self.strictness = strictness
+    }
 }
 
 /// Source-specific typed parameters. The dispatcher knows which source

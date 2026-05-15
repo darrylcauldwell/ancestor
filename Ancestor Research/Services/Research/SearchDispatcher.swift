@@ -12,11 +12,17 @@ struct SearchDispatcher {
     /// `scope` widens fan-out for scope-aware sources (FreeBMD; FreeCen/FreeREG later).
     /// Local plugins (Wirksworth) and inherently-national sources (CWGC, FindAGrave,
     /// Probate) ignore scope.
+    ///
+    /// `mode` is the wedge for the strictness ladder (RESEARCH_AXES_SPEC §3.1 /
+    /// Change 6). This Change passes `.strict` to every source unconditionally;
+    /// Change 6 wires the per-mode empty-then-broaden flow.
     func dispatch(
         subject: ResearchSubject,
         recordTypes: Set<RecordType>,
-        scope: ResearchScope = .county
+        scope: ResearchScope = .county,
+        mode: ResearchMode = .extend
     ) async -> [SourceRecord] {
+        _ = mode  // Reserved for Change 6 — empty-then-broaden flow.
         let allQueries = buildAllQueries(subject: subject, recordTypes: recordTypes, scope: scope)
 
         return await withTaskGroup(of: [SourceRecord].self) { group in
