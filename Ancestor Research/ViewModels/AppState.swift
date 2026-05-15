@@ -217,7 +217,7 @@ final class AppState {
     }
 
     func refreshProjectList() {
-        availableProjects = ProjectStore.listProjects()
+        availableProjects = ProjectStore.listProjects(includingArchived: true)
     }
 
     /// Run audit automatically after any snapshot change.
@@ -1293,6 +1293,29 @@ final class AppState {
             refreshProjectList()
         } catch {
             errorMessage = "Failed to delete project: \(error.localizedDescription)"
+        }
+    }
+
+    func archiveProject(_ id: UUID) {
+        do {
+            try ProjectStore.archiveProject(id)
+            if currentProject?.id == id {
+                currentProject = nil
+                currentDatabase = nil
+                snapshot = .empty
+            }
+            refreshProjectList()
+        } catch {
+            errorMessage = "Failed to archive project: \(error.localizedDescription)"
+        }
+    }
+
+    func unarchiveProject(_ id: UUID) {
+        do {
+            try ProjectStore.unarchiveProject(id)
+            refreshProjectList()
+        } catch {
+            errorMessage = "Failed to unarchive project: \(error.localizedDescription)"
         }
     }
 

@@ -9,6 +9,9 @@ nonisolated struct Project: Codable, Identifiable, Sendable {
     var homePersonID: String?       // Anchor profile — the person whose tree this is
     var createdAt: Date
     var lastRefreshed: Date?
+    var archivedAt: Date?           // nil = active; non-nil = archived at that moment
+
+    var isArchived: Bool { archivedAt != nil }
 }
 
 nonisolated enum DataSource: Codable, Sendable {

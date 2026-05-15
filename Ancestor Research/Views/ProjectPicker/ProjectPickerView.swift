@@ -19,6 +19,17 @@ struct ProjectPickerView: View {
     @State private var showingCorrectionsImporter = false
     @State private var correctionsTargetProjectID: UUID?
 
+    // Archive / permanent-delete
+    @State private var showArchived = false
+    @State private var pendingHardDelete: Project?
+
+    private var activeProjects: [Project] {
+        appState.availableProjects.filter { !$0.isArchived }
+    }
+    private var archivedProjects: [Project] {
+        appState.availableProjects.filter(\.isArchived)
+    }
+
     var body: some View {
         VStack(spacing: 24) {
             Text(AppConstants.displayName)
@@ -32,52 +43,37 @@ struct ProjectPickerView: View {
                     Text("Create a new project, or tap **View Sample Tree** below to explore with fictional data.")
                 }
             } else {
-                List(appState.availableProjects) { project in
-                    Button {
-                        appState.openProject(project)
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(project.name)
-                                    .font(.headline)
-                                Text(project.source.description)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                VStack(spacing: 8) {
+                    List {
+                        Section {
+                            ForEach(activeProjects) { project in
+                                projectRow(project)
+                                    .contextMenu { activeContextMenu(project) }
                             }
-                            Spacer()
-                            if let date = project.lastRefreshed {
-                                Text(date, format: .relative(presentation: .named))
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
+                        }
+                        if showArchived && !archivedProjects.isEmpty {
+                            Section("Archived") {
+                                ForEach(archivedProjects) { project in
+                                    projectRow(project)
+                                        .opacity(0.6)
+                                        .contextMenu { archivedContextMenu(project) }
+                                }
                             }
                         }
                     }
-                    .contextMenu {
-                        Button {
-                            exportingProjectID = project.id
-                            pendingExportName = project.name
-                            showingExporter = true
-                        } label: {
-                            Label("Export as .ancestor archive…", systemImage: "archivebox")
+                    .frame(maxWidth: 500, maxHeight: 300)
+
+                    if !archivedProjects.isEmpty {
+                        Toggle(isOn: $showArchived) {
+                            Text("Show archived (\(archivedProjects.count))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                        Button {
-                            // Open the project then prompt for the GEDCOM
-                            // file. The corrections path needs an active
-                            // database; opening here keeps the picker as
-                            // the single entry point.
-                            appState.openProject(project)
-                            correctionsTargetProjectID = project.id
-                            showingCorrectionsImporter = true
-                        } label: {
-                            Label("Import GEDCOM as suggestions…", systemImage: "lightbulb")
-                        }
-                        Divider()
-                        Button("Delete", role: .destructive) {
-                            appState.deleteProject(project.id)
-                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .frame(maxWidth: 500, alignment: .trailing)
                     }
                 }
-                .frame(maxWidth: 500, maxHeight: 300)
             }
 
             HStack(spacing: 12) {
@@ -157,6 +153,97 @@ struct ProjectPickerView: View {
             allowsMultipleSelection: false
         ) { result in
             handleCorrectionsImportResult(result)
+        }
+        .confirmationDialog(
+            "Delete \"\(pendingHardDelete?.name ?? "")\" permanently?",
+            isPresented: Binding(
+                get: { pendingHardDelete != nil },
+                set: { if !$0 { pendingHardDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete permanently", role: .destructive) {
+                if let project = pendingHardDelete {
+                    appState.deleteProject(project.id)
+                }
+                pendingHardDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingHardDelete = nil }
+        } message: {
+            Text("This removes the SQLite file, media, thumbnails, and backups. It cannot be undone.")
+        }
+    }
+
+    // MARK: - Row + context menus
+
+    @ViewBuilder
+    private func projectRow(_ project: Project) -> some View {
+        Button {
+            appState.openProject(project)
+        } label: {
+            HStack {
+                VStack(alignment: .leading) {
+                    HStack(spacing: 6) {
+                        Text(project.name)
+                            .font(.headline)
+                        if project.isArchived {
+                            Text("Archived")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.secondary.opacity(0.2), in: Capsule())
+                        }
+                    }
+                    Text(project.source.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let date = project.archivedAt ?? project.lastRefreshed {
+                    Text(date, format: .relative(presentation: .named))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func activeContextMenu(_ project: Project) -> some View {
+        Button {
+            exportingProjectID = project.id
+            pendingExportName = project.name
+            showingExporter = true
+        } label: {
+            Label("Export as .ancestor archive…", systemImage: "archivebox")
+        }
+        Button {
+            appState.openProject(project)
+            correctionsTargetProjectID = project.id
+            showingCorrectionsImporter = true
+        } label: {
+            Label("Import GEDCOM as suggestions…", systemImage: "lightbulb")
+        }
+        Divider()
+        Button(role: .destructive) {
+            appState.archiveProject(project.id)
+        } label: {
+            Label("Archive", systemImage: "archivebox.fill")
+        }
+    }
+
+    @ViewBuilder
+    private func archivedContextMenu(_ project: Project) -> some View {
+        Button {
+            appState.unarchiveProject(project.id)
+        } label: {
+            Label("Unarchive", systemImage: "tray.and.arrow.up")
+        }
+        Divider()
+        Button(role: .destructive) {
+            pendingHardDelete = project
+        } label: {
+            Label("Delete permanently…", systemImage: "trash")
         }
     }
 

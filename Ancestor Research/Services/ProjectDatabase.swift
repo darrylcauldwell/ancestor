@@ -667,6 +667,15 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // Archive-not-delete for projects. NULL = active; non-NULL = archived
+        // at that timestamp. Hard delete remains available but only from an
+        // archived state (enforced in the picker, not the schema).
+        migrator.registerMigration("v20_project_archived_at") { db in
+            try db.alter(table: "project_meta") { t in
+                t.add(column: "archived_at", .datetime)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -850,11 +859,12 @@ nonisolated final class ProjectDatabase: Sendable {
             }
 
             try db.execute(sql: """
-                INSERT OR REPLACE INTO project_meta (id, name, source_kind, source_value, created_at, last_refreshed, home_person_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO project_meta (id, name, source_kind, source_value, created_at, last_refreshed, home_person_id, archived_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
                     project.id.uuidString, project.name, sourceKind, sourceValue,
-                    project.createdAt, project.lastRefreshed, project.homePersonID
+                    project.createdAt, project.lastRefreshed, project.homePersonID,
+                    project.archivedAt
                 ])
         }
     }
@@ -879,8 +889,16 @@ nonisolated final class ProjectDatabase: Sendable {
                 source: source,
                 homePersonID: homePersonID,
                 createdAt: row["created_at"],
-                lastRefreshed: row["last_refreshed"]
+                lastRefreshed: row["last_refreshed"],
+                archivedAt: row["archived_at"]
             )
+        }
+    }
+
+    /// Toggle a project's archived state. Pass nil to unarchive.
+    func setArchivedAt(_ date: Date?) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE project_meta SET archived_at = ?", arguments: [date])
         }
     }
 

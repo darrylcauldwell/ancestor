@@ -15,8 +15,10 @@ nonisolated struct ProjectStore {
         return dir
     }()
 
-    /// List all available projects by reading SQLite files.
-    static func listProjects() -> [Project] {
+    /// List projects by reading SQLite files. Active-only by default;
+    /// callers that need to surface archived projects (the picker) pass
+    /// `includingArchived: true` and filter presentationally.
+    static func listProjects(includingArchived: Bool = false) -> [Project] {
         logger.info("listProjects scanning dir: \(projectsDirectory.path, privacy: .public)")
         let files: [URL]
         do {
@@ -38,7 +40,9 @@ nonisolated struct ProjectStore {
                 let db = try ProjectDatabase(path: url.path)
                 do {
                     if let project = try db.loadProjectMeta() {
-                        loaded.append(project)
+                        if includingArchived || !project.isArchived {
+                            loaded.append(project)
+                        }
                     } else {
                         metaFailures += 1
                         logger.warning("loadProjectMeta returned nil for \(url.lastPathComponent, privacy: .public)")
@@ -54,6 +58,21 @@ nonisolated struct ProjectStore {
         }
         logger.info("listProjects done: loaded=\(loaded.count, privacy: .public) initFail=\(dbInitFailures, privacy: .public) metaFail=\(metaFailures, privacy: .public)")
         return loaded
+    }
+
+    /// Mark a project archived. The SQLite file is left in place — archive is
+    /// a metadata flag, not a file move, so backups/media paths stay stable.
+    static func archiveProject(_ id: UUID) throws {
+        let path = projectsDirectory.appendingPathComponent("\(id.uuidString).sqlite").path
+        let db = try ProjectDatabase(path: path)
+        try db.setArchivedAt(Date())
+    }
+
+    /// Clear the archived flag.
+    static func unarchiveProject(_ id: UUID) throws {
+        let path = projectsDirectory.appendingPathComponent("\(id.uuidString).sqlite").path
+        let db = try ProjectDatabase(path: path)
+        try db.setArchivedAt(nil)
     }
 
     /// Create a new project with the given name and data source.
