@@ -79,13 +79,18 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
         do {
             try await ensureSession()
 
+            // RESEARCH_AXES_SPEC Change 5: FreeCen exposes a soundex toggle
+            // (the form's "Name Soundex" checkbox). Strict keeps it off;
+            // .loose and .variant flip it on. (Variant fan-out is dispatcher-
+            // side — each fanned-out query arrives here at .strict.)
+            let fuzzyFlag = query.strictness >= .loose ? "1" : "0"
             let fields: [String: String] = [
                 "utf8": "✓",
                 "authenticity_token": csrfToken ?? "",
                 "search_query[last_name]": surname,
                 "search_query[first_name]": query.givenName ?? "",
                 "search_query[record_type]": year.map(String.init) ?? "",
-                "search_query[fuzzy]": "0",
+                "search_query[fuzzy]": fuzzyFlag,
                 "search_query[search_nearby_places]": "0",
                 "search_query[disabled]": "0",
                 "search_query[start_year]": "",

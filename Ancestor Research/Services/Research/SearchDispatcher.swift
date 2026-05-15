@@ -70,18 +70,65 @@ struct SearchDispatcher {
     }
 
     #if DEBUG
-    /// Test seam for `RESEARCH_AXES_SPEC` Change 3 acceptance tests. Lets a test
-    /// inspect the per-source query fan-out for a given scope without going
-    /// through the async network path.
+    /// Test seam for `RESEARCH_AXES_SPEC` Change 3+5 acceptance tests. Lets a test
+    /// inspect the per-source query fan-out for a given scope (and optional
+    /// strictness) without going through the async network path.
     func buildQueriesForTest(
         source: any RecordSource,
         subject: ResearchSubject,
         recordType: RecordType,
-        scope: ResearchScope
+        scope: ResearchScope,
+        strictness: SearchStrictness = .strict
     ) -> [RecordQuery] {
-        buildQueries(source: source, subject: subject, recordType: recordType, scope: scope)
+        let queries = buildQueries(source: source, subject: subject, recordType: recordType, scope: scope)
+        return Self.applyStrictness(queries, strictness: strictness, source: source)
     }
     #endif
+
+    /// Apply a non-strict strictness value to a freshly built set of queries.
+    ///
+    /// - `.strict`: queries are passed through unchanged.
+    /// - `.loose`: each query's `strictness` field is set to `.loose` so the
+    ///   source can adjust its outbound request (e.g. FreeBMD's Phonetic flag,
+    ///   CWGC's Tab=exact omission).
+    /// - `.variant`: for variant-supporting sources (FreeBMD, FreeREG, FreeCen),
+    ///   each query is fanned out to N+1 queries — the original plus one per
+    ///   surname variant from `SurnameVariants.shared`. CWGC falls back to
+    ///   `.loose` (it has no useful variant axis distinct from server-side
+    ///   soundex). Sources with no variant axis (Probate, Wirksworth, FindAGrave)
+    ///   fall back to `.strict`. See RESEARCH_AXES_SPEC §7.
+    static func applyStrictness(
+        _ queries: [RecordQuery],
+        strictness: SearchStrictness,
+        source: any RecordSource
+    ) -> [RecordQuery] {
+        switch strictness {
+        case .strict:
+            return queries
+        case .loose:
+            return queries.map { $0.with(strictness: .loose) }
+        case .variant:
+            switch source.sourceID {
+            case "freebmd", "freereg", "freecen":
+                return queries.flatMap { q -> [RecordQuery] in
+                    let original = q.surname ?? ""
+                    let variants = SurnameVariants.shared.variants(of: original)
+                    guard !variants.isEmpty else { return [q] }
+                    // Original query + one per variant. Each fanned-out query
+                    // is itself .strict (the variant IS the exact surname for
+                    // that probe); the .variant tier is a fan-out construct.
+                    let fannedSurnames = [original] + variants
+                    return fannedSurnames.map { q.with(surname: $0) }
+                }
+            case "cwgc":
+                // No useful variant axis distinct from server soundex.
+                return queries.map { $0.with(strictness: .loose) }
+            default:
+                // Probate, Wirksworth, FindAGrave — strict-only.
+                return queries
+            }
+        }
+    }
 
     private func buildQueries(
         source: any RecordSource,

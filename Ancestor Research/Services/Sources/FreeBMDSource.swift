@@ -94,6 +94,13 @@ actor FreeBMDSource: RecordSource {
             let params: FreeBMDParams? = {
                 if case .freeBMD(let p) = query.sourceParams { return p } else { return nil }
             }()
+            // Strictness: .loose enables FreeBMD's Phonetic flag for
+            // server-side soundex matching. .variant is handled by the
+            // dispatcher (one query per variant) — each fanned-out query
+            // arrives here at .strict with the variant in `surname`, so
+            // the form body still ends with Phonetic=false. See
+            // RESEARCH_AXES_SPEC §7.
+            let phoneticFlag = query.strictness >= .loose ? "true" : "false"
             let fields: [String: String] = [
                 "type": recordType,
                 "surname": surname,
@@ -103,6 +110,7 @@ actor FreeBMDSource: RecordSource {
                 "start": query.yearFrom.map(String.init) ?? "",
                 "end": query.yearTo.map(String.init) ?? "",
                 "districtid": params?.districtCode ?? "",
+                "Phonetic": phoneticFlag,
                 "db": formTokenDB ?? "",
                 "v": formTokenV ?? "",
                 "find.x": "1",

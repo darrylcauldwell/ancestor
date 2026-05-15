@@ -88,6 +88,13 @@ actor FreeREGSource: RecordSource {
                 "search_query[chapman_codes][]": chapmanCode,
                 "commit": "Search",
             ]
+            // RESEARCH_AXES_SPEC Change 5: FreeREG exposes a Name Soundex
+            // checkbox at `search_query[fuzzy]` (form value `"true"`).
+            // .loose and .variant enable it; .strict omits the field
+            // (browser convention for unchecked checkboxes).
+            if query.strictness >= .loose {
+                fields["search_query[fuzzy]"] = "true"
+            }
             if let token = csrfToken {
                 fields["authenticity_token"] = token
             }

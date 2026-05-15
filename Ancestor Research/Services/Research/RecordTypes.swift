@@ -249,6 +249,24 @@ nonisolated struct RecordQuery: Sendable {
         self.sourceParams = sourceParams
         self.strictness = strictness
     }
+
+    /// Builder helpers for the dispatcher's strictness ladder (Change 5).
+    /// All other fields preserved. See RESEARCH_AXES_SPEC §7.
+    func with(strictness: SearchStrictness) -> RecordQuery {
+        RecordQuery(
+            surname: surname, givenName: givenName, recordType: recordType,
+            yearFrom: yearFrom, yearTo: yearTo, gender: gender, region: region,
+            sourceParams: sourceParams, strictness: strictness
+        )
+    }
+
+    func with(surname: String?) -> RecordQuery {
+        RecordQuery(
+            surname: surname, givenName: givenName, recordType: recordType,
+            yearFrom: yearFrom, yearTo: yearTo, gender: gender, region: region,
+            sourceParams: sourceParams, strictness: strictness
+        )
+    }
 }
 
 /// Source-specific typed parameters. The dispatcher knows which source

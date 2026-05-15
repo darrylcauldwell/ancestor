@@ -54,10 +54,16 @@ struct CWGCSource: RecordSource {
 
         do {
             var components = URLComponents(string: Self.exportURL)!
+            // Strictness: .strict keeps Tab=exact (canonical match);
+            // .loose and .variant both drop Tab so CWGC's server-side
+            // soundex fires. CWGC has no distinct .variant axis — per
+            // RESEARCH_AXES_SPEC §7 it falls back to .loose.
             var queryItems = [
                 URLQueryItem(name: "Surname", value: surname),
-                URLQueryItem(name: "Tab", value: "exact"),
             ]
+            if query.strictness == .strict {
+                queryItems.append(URLQueryItem(name: "Tab", value: "exact"))
+            }
             if let given = query.givenName, !given.isEmpty {
                 queryItems.append(URLQueryItem(name: "Forename", value: given))
             }
