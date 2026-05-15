@@ -414,8 +414,6 @@ nonisolated struct TreeLayout {
                 let x = childXs.isEmpty ? nextX : (childXs.first! + childXs.last!) / 2
 
                 // Ensure the parent (+ spouse) doesn't overlap with already-placed nodes
-                let spouses = snapshot.spousesOf(profileID).filter { !visited.contains($0.id) }
-                let unitWidth = nodeWidth + Double(spouses.count) * (nodeWidth + spouseSpacing)
                 let minX = nextX  // never go left of what's already placed
 
                 // But also don't go left of centre-over-children position

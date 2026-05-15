@@ -10,6 +10,15 @@ struct NewProjectView: View {
     @State private var wikiTreePassword = ""
     @State private var selectedFile: URL?
     @State private var showingFilePicker = false
+    /// In-flight validation for the WikiTree credentials. Setting this true
+    /// disables the Create button and swaps it for "Logging in…" so the user
+    /// can't double-click while the credential check is running.
+    @State private var isValidatingWikiTree = false
+    /// Inline error from a failed WikiTree pre-validation. Lives inside the
+    /// sheet so a bad password doesn't leave behind a half-created project
+    /// (Task #56) — the sheet stays open and the user can correct the
+    /// password without navigating to Settings.
+    @State private var wikiTreeError: String?
 
     var body: some View {
         VStack(spacing: 20) {
@@ -58,6 +67,13 @@ struct NewProjectView: View {
                     SecureField("WikiTree Password", text: $wikiTreePassword)
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 400)
+                    if let error = wikiTreeError {
+                        Text(error)
+                            .font(.callout)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 400)
+                    }
                 }
             case .manual:
                 Text("We'll guide you through entering yourself, your parents, and your grandparents.")
@@ -71,10 +87,10 @@ struct NewProjectView: View {
                 Button("Cancel") { dismiss() }
                     .buttonStyle(.glass)
                     .keyboardShortcut(.cancelAction)
-                Button("Create") { createProject() }
+                Button(isValidatingWikiTree ? "Logging in…" : "Create") { createProject() }
                     .buttonStyle(.glassProminent)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!canCreate)
+                    .disabled(!canCreate || isValidatingWikiTree)
             }
         }
         .padding(30)
@@ -138,10 +154,29 @@ struct NewProjectView: View {
             }
             defer { file.stopAccessingSecurityScopedResource() }
             appState.createAndImportProject(name: projectName, source: .gedcom(path: file.path))
+            dismiss()
         case .wikitree:
-            appState.createAndImportProject(name: projectName, source: .wikitree(email: wikiTreeEmail))
-            // Immediately connect and pull watchlist
+            // Validate credentials FIRST. Only on success do we create the
+            // project file and start the import — a bad password no longer
+            // leaves behind an empty SQLite shell the user has no UI path
+            // back to (Task #56).
+            wikiTreeError = nil
+            isValidatingWikiTree = true
             Task {
+                do {
+                    try await appState.validateWikiTreeLogin(
+                        email: wikiTreeEmail,
+                        password: wikiTreePassword
+                    )
+                } catch {
+                    isValidatingWikiTree = false
+                    wikiTreeError = "Login failed: \(error.localizedDescription)"
+                    return
+                }
+                // Login succeeded; proceed with project creation + import.
+                appState.createAndImportProject(name: projectName, source: .wikitree(email: wikiTreeEmail))
+                isValidatingWikiTree = false
+                dismiss()
                 await appState.connectWikiTree(
                     email: wikiTreeEmail,
                     password: wikiTreePassword
@@ -150,8 +185,8 @@ struct NewProjectView: View {
         case .manual:
             appState.createAndImportProject(name: projectName, source: .manual)
             appState.showOnboardingWizard = true
+            dismiss()
         }
-        dismiss()
     }
 }
 

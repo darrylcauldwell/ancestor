@@ -18,6 +18,7 @@ struct AddFamilyView: View {
     // MARK: Marriage
     @State private var marriageDateText: String = ""
     @State private var marriageLocation: String = ""
+    @State private var marriageLocationCode: String? = nil
 
     // MARK: Children
     @State private var childSlots: [PersonSlot] = [PersonSlot(role: .child)]
@@ -113,8 +114,11 @@ struct AddFamilyView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Marriage (optional)")
             DateParsePreviewField(label: "Marriage date", text: $marriageDateText)
-            TextField("Marriage location", text: $marriageLocation)
-                .textFieldStyle(.roundedBorder)
+            LocationPicker(
+                label: "Marriage location",
+                text: $marriageLocation,
+                locationCode: $marriageLocationCode
+            )
         }
     }
 
@@ -227,8 +231,11 @@ struct AddFamilyView: View {
                 .pickerStyle(.segmented)
             }
             DateParsePreviewField(label: "Birth date", text: slot.birthDateText)
-            TextField("Birth location", text: slot.birthLocation)
-                .textFieldStyle(.roundedBorder)
+            LocationPicker(
+                label: "Birth location",
+                text: slot.birthLocation,
+                locationCode: slot.birthLocationCode
+            )
         }
     }
 
@@ -275,6 +282,7 @@ struct AddFamilyView: View {
                 type: .spouse, role: nil, subtype: .unknown,
                 marriageDate: GenealogicalDate.parsePreview(marriageDateText).parsed,
                 marriageLocation: AutoSuggestService.normaliseName(marriageLocation),
+                marriageLocationCode: marriageLocationCode,
                 divorceDate: nil
             ))
         }
@@ -367,8 +375,10 @@ struct AddFamilyView: View {
                 attributes: nil,
                 birthDate: GenealogicalDate.parsePreview(slot.birthDateText).parsed,
                 birthLocation: AutoSuggestService.normaliseName(slot.birthLocation),
+                birthLocationCode: slot.birthLocationCode,
                 deathDate: nil,
                 deathLocation: nil,
+                deathLocationCode: nil,
                 bio: nil,
                 isDeleted: false,
                 sources: [:],
@@ -396,6 +406,7 @@ struct AddFamilyView: View {
         var gender: Gender = .unknown
         var birthDateText: String = ""
         var birthLocation: String = ""
+        var birthLocationCode: String? = nil
 
         // Census-mode per-person fields (M16.4)
         var censusAgeText: String = ""

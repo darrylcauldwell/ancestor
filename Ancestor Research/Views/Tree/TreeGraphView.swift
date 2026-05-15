@@ -28,11 +28,21 @@ struct TreeGraphView: View {
     // Manual entry sheets
     @State private var showAddPerson: Bool = false
     @State private var showAddFamily: Bool = false
-    @State private var showEditPerson: Bool = false
-    @State private var showAddRelationship: Bool = false
     @State private var addPersonContext: AddPersonContext = .freestanding
-    @State private var editProfileID: String?
-    @State private var relationshipAnchorID: String?
+    /// Edit-person and add-relationship sheets are driven by Identifiable
+    /// wrappers via `.sheet(item:)` rather than (Bool, String?) pairs. The
+    /// old pattern — `.sheet(isPresented: $showEditPerson) { if let id = editProfileID { … } }`
+    /// could render EmptyView when SwiftUI evaluated the closure before the
+    /// String? binding settled, producing a collapsed empty-rectangle sheet.
+    @State private var editProfileID: SheetID?
+    @State private var relationshipAnchorID: SheetID?
+
+    /// Identifiable wrapper so a profile-ID string can drive `.sheet(item:)`.
+    /// SwiftUI keys the sheet by `id`, so the inner view only ever renders
+    /// with a non-nil ID and avoids the EmptyView race.
+    struct SheetID: Identifiable, Hashable {
+        let id: String
+    }
 
     @State private var dismissedDisconnectedBanner: Bool = false
 
@@ -186,15 +196,11 @@ struct TreeGraphView: View {
         .sheet(isPresented: $showAddFamily) {
             AddFamilyView()
         }
-        .sheet(isPresented: $showEditPerson) {
-            if let id = editProfileID {
-                EditPersonView(profileID: id)
-            }
+        .sheet(item: $editProfileID) { sheetID in
+            EditPersonView(profileID: sheetID.id)
         }
-        .sheet(isPresented: $showAddRelationship) {
-            if let id = relationshipAnchorID {
-                AddRelationshipView(anchorID: id)
-            }
+        .sheet(item: $relationshipAnchorID) { sheetID in
+            AddRelationshipView(anchorID: sheetID.id)
         }
         // M19 — pick the right-hand profile, then present the comparison.
         .sheet(isPresented: $showComparePicker) {
@@ -246,8 +252,7 @@ struct TreeGraphView: View {
             case .addFamily:
                 showAddFamily = true
             case .editSelected(let profileID):
-                editProfileID = profileID
-                showEditPerson = true
+                editProfileID = SheetID(id: profileID)
             }
             appState.clearPendingPersonAction()
         }
@@ -1028,11 +1033,31 @@ struct TreeGraphView: View {
             let screenPos = node.map { transform.toScreen(x: $0.x, y: $0.y) }
                 ?? CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
 
-            let popoverHeight: CGFloat = 400
-            let placeBelow = screenPos.y - TreeLayout.nodeHeight / 2 < popoverHeight + 20
-            let anchorY = placeBelow
-                ? screenPos.y + TreeLayout.nodeHeight / 2 * treeVM.scale + 10
-                : screenPos.y - TreeLayout.nodeHeight / 2 * treeVM.scale - 10
+            // Popover sizing matches `.frame(width: 320).frame(maxHeight: 480)`
+            // below. Use the cap so placement decisions don't underestimate.
+            let popoverHeight: CGFloat = 480
+            let gap: CGFloat = 10
+            let halfHeight = popoverHeight / 2
+            let topOfNode = screenPos.y - TreeLayout.nodeHeight / 2 * treeVM.scale
+            let bottomOfNode = screenPos.y + TreeLayout.nodeHeight / 2 * treeVM.scale
+            let roomAbove = topOfNode - gap
+            let roomBelow = canvasSize.height - bottomOfNode - gap
+            // Prefer above when it fits; otherwise below when it fits; otherwise
+            // pick the larger side so we can clamp into whatever room we have.
+            let placeBelow: Bool = {
+                if roomAbove >= popoverHeight { return false }
+                if roomBelow >= popoverHeight { return true }
+                return roomBelow > roomAbove
+            }()
+            let rawAnchorY = placeBelow
+                ? bottomOfNode + gap + halfHeight
+                : topOfNode - gap - halfHeight
+            // Clamp to the canvas so the card never renders off-window. When
+            // the available side is shorter than the popover, the maxHeight
+            // frame lets the card compress and the clamp keeps it visible.
+            let minY = halfHeight + gap
+            let maxY = canvasSize.height - halfHeight - gap
+            let anchorY = max(minY, min(maxY, rawAnchorY))
             let anchor: UnitPoint = placeBelow ? .top : .bottom
 
             ProfilePopoverView(
@@ -1065,8 +1090,7 @@ struct TreeGraphView: View {
                 },
                 onEdit: {
                     treeVM.popoverProfileID = nil
-                    editProfileID = popoverID
-                    showEditPerson = true
+                    editProfileID = SheetID(id: popoverID)
                 },
                 onAddRelative: { relation in
                     treeVM.popoverProfileID = nil
@@ -1075,8 +1099,7 @@ struct TreeGraphView: View {
                 },
                 onAddRelationship: {
                     treeVM.popoverProfileID = nil
-                    relationshipAnchorID = popoverID
-                    showAddRelationship = true
+                    relationshipAnchorID = SheetID(id: popoverID)
                 },
                 onRemove: {
                     treeVM.popoverProfileID = nil
@@ -1146,8 +1169,7 @@ struct TreeGraphView: View {
                     canConnect: suggestion != nil,
                     onConnect: {
                         if let (primary, _) = suggestion {
-                            relationshipAnchorID = primary
-                            showAddRelationship = true
+                            relationshipAnchorID = SheetID(id: primary)
                         }
                     },
                     onDismiss: { dismissedDisconnectedBanner = true }

@@ -23,6 +23,7 @@ struct WirksworthSource: RecordSource {
         level: .community,
         summary: "Volunteer-contributed pedigrees and register transcriptions"
     )
+    nonisolated let kind: SourceKind = .localPlugin
 
     // MARK: - State
 
@@ -47,6 +48,9 @@ struct WirksworthSource: RecordSource {
         }
         guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
 
+        let summary = Self.activitySummary(query: query, surname: surname)
+        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary))
+
         do {
             // First, search the pedigree index for matching surname
             let indexData = try await http.get(url: URL(string: Self.pedigreeIndexURL)!, headers: [
@@ -57,6 +61,7 @@ struct WirksworthSource: RecordSource {
 
             guard !matchingPedigrees.isEmpty else {
                 logger.info("Wirksworth: no pedigrees matching \(surname)")
+                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0))
                 return .results([])
             }
 
@@ -73,11 +78,22 @@ struct WirksworthSource: RecordSource {
             }
 
             logger.info("Wirksworth: \(allRecords.count) records for \(surname)")
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: allRecords.count))
             return .results(allRecords)
         } catch {
             logger.error("Wirksworth search failed: \(error.localizedDescription)")
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
             return .unavailable(reason: error.localizedDescription)
         }
+    }
+
+    /// Build a one-line description of a Wirksworth query for the live activity feed.
+    nonisolated static func activitySummary(query: RecordQuery, surname: String) -> String {
+        let searchTerms: String = {
+            if let given = query.givenName, !given.isEmpty { return "\(given) \(surname)" }
+            return surname
+        }()
+        return "Wirksworth pedigrees: \(searchTerms)"
     }
 
     // MARK: - Index Parsing

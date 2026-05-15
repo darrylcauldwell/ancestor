@@ -1,0 +1,6752 @@
+[
+  {
+    "name": "Aberayron",
+    "code": "388",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Aberconwy",
+    "code": "389",
+    "startYear": 1975,
+    "endYear": null
+  },
+  {
+    "name": "Abergavenny",
+    "code": "390",
+    "startYear": null,
+    "endYear": 1958
+  },
+  {
+    "name": "Aberystwyth",
+    "code": "391",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Abingdon",
+    "code": "392",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Acle",
+    "code": "393",
+    "startYear": 1939,
+    "endYear": 1974
+  },
+  {
+    "name": "Alcester",
+    "code": "394",
+    "startYear": null,
+    "endYear": 1985
+  },
+  {
+    "name": "Alderbury",
+    "code": "395",
+    "startYear": null,
+    "endYear": 1895
+  },
+  {
+    "name": "Aldershot",
+    "code": "396",
+    "startYear": 1932,
+    "endYear": 1974
+  },
+  {
+    "name": "Aldridge & Brownhills",
+    "code": "397",
+    "startYear": 1966,
+    "endYear": 1974
+  },
+  {
+    "name": "Aled",
+    "code": "398",
+    "startYear": 1935,
+    "endYear": 1974
+  },
+  {
+    "name": "Alnwick",
+    "code": "399",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Alresford",
+    "code": "400",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Alston",
+    "code": "401",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Alton",
+    "code": "402",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Altrincham",
+    "code": "403",
+    "startYear": null,
+    "endYear": 1898
+  },
+  {
+    "name": "Alverstoke",
+    "code": "404",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Alyn & Deeside",
+    "code": "405",
+    "startYear": 1974,
+    "endYear": 1996
+  },
+  {
+    "name": "Amber Valley",
+    "code": "406",
+    "startYear": 1994,
+    "endYear": null
+  },
+  {
+    "name": "Amersham",
+    "code": "407",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Amesbury",
+    "code": "408",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Amounderness",
+    "code": "409",
+    "startYear": 1935,
+    "endYear": 1974
+  },
+  {
+    "name": "Ampthill",
+    "code": "410",
+    "startYear": null,
+    "endYear": 1999
+  },
+  {
+    "name": "Andover",
+    "code": "411",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Anglesey",
+    "code": "412",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Anglesey",
+    "code": "413",
+    "startYear": 1968,
+    "endYear": 1974
+  },
+  {
+    "name": "Anglesey East",
+    "code": "414",
+    "startYear": 1937,
+    "endYear": 1968
+  },
+  {
+    "name": "Anglesey West",
+    "code": "415",
+    "startYear": 1937,
+    "endYear": 1968
+  },
+  {
+    "name": "Appleby",
+    "code": "416",
+    "startYear": 1974,
+    "endYear": 1984
+  },
+  {
+    "name": "Ardudwy",
+    "code": "417",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Ashbourne",
+    "code": "418",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Ashby de la Zouch",
+    "code": "419",
+    "startYear": null,
+    "endYear": 1949
+  },
+  {
+    "name": "Ashford",
+    "code": "420",
+    "startYear": 1941,
+    "endYear": 1998
+  },
+  {
+    "name": "Ashford with Shepway",
+    "code": "421",
+    "startYear": 1998,
+    "endYear": null
+  },
+  {
+    "name": "Ashton",
+    "code": "422",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Ashton & Oldham",
+    "code": "423",
+    "startYear": null,
+    "endYear": 1848
+  },
+  {
+    "name": "Ashton under Lyne",
+    "code": "424",
+    "startYear": 1848,
+    "endYear": 1937
+  },
+  {
+    "name": "Askrigg",
+    "code": "425",
+    "startYear": null,
+    "endYear": 1868
+  },
+  {
+    "name": "Aston",
+    "code": "426",
+    "startYear": null,
+    "endYear": 1924
+  },
+  {
+    "name": "Atcham",
+    "code": "427",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Atherstone",
+    "code": "428",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Auckland",
+    "code": "429",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Axbridge",
+    "code": "430",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Axminster",
+    "code": "431",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Aylesbury",
+    "code": "432",
+    "startYear": null,
+    "endYear": 1985
+  },
+  {
+    "name": "Aylesbury Vale",
+    "code": "433",
+    "startYear": 1985,
+    "endYear": null
+  },
+  {
+    "name": "Aylsham",
+    "code": "434",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Aysgarth",
+    "code": "435",
+    "startYear": 1869,
+    "endYear": 1936
+  },
+  {
+    "name": "Bakewell",
+    "code": "691",
+    "startYear": 1839,
+    "endYear": null
+  },
+  {
+    "name": "Bala",
+    "code": "692",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Banbury",
+    "code": "693",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Bangor",
+    "code": "694",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Barking",
+    "code": "695",
+    "startYear": 1965,
+    "endYear": 1980
+  },
+  {
+    "name": "Barking & Dagenham",
+    "code": "696",
+    "startYear": 1980,
+    "endYear": null
+  },
+  {
+    "name": "Barkston Ash",
+    "code": "697",
+    "startYear": 1947,
+    "endYear": 1974
+  },
+  {
+    "name": "Barnet",
+    "code": "698",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Barnsley",
+    "code": "699",
+    "startYear": 1850,
+    "endYear": null
+  },
+  {
+    "name": "Barnstaple",
+    "code": "700",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Barrow in Furness",
+    "code": "701",
+    "startYear": 1876,
+    "endYear": null
+  },
+  {
+    "name": "Barrow upon Soar",
+    "code": "702",
+    "startYear": null,
+    "endYear": 1949
+  },
+  {
+    "name": "Barton",
+    "code": "704",
+    "startYear": 1934,
+    "endYear": 1980
+  },
+  {
+    "name": "Barton Regis",
+    "code": "706",
+    "startYear": 1877,
+    "endYear": 1904
+  },
+  {
+    "name": "Barton upon Irwell",
+    "code": "705",
+    "startYear": 1850,
+    "endYear": 1934
+  },
+  {
+    "name": "Barton, Worsley & Flixton",
+    "code": "703",
+    "startYear": 1839,
+    "endYear": 1841
+  },
+  {
+    "name": "Basford",
+    "code": "707",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Basildon",
+    "code": "708",
+    "startYear": 1974,
+    "endYear": 1974
+  },
+  {
+    "name": "Basingstoke",
+    "code": "709",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Bath",
+    "code": "710",
+    "startYear": null,
+    "endYear": 1996
+  },
+  {
+    "name": "Bath & North East Somerset",
+    "code": "711",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Bathavon",
+    "code": "712",
+    "startYear": 1936,
+    "endYear": 1974
+  },
+  {
+    "name": "Battersea",
+    "code": "713",
+    "startYear": 1930,
+    "endYear": 1965
+  },
+  {
+    "name": "Battle",
+    "code": "714",
+    "startYear": null,
+    "endYear": 1977
+  },
+  {
+    "name": "Beaminster",
+    "code": "715",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Bedale",
+    "code": "716",
+    "startYear": 1839,
+    "endYear": 1936
+  },
+  {
+    "name": "Bedford",
+    "code": "717",
+    "startYear": null,
+    "endYear": 1999
+  },
+  {
+    "name": "Bedminster",
+    "code": "718",
+    "startYear": null,
+    "endYear": 1899
+  },
+  {
+    "name": "Bedwellty",
+    "code": "719",
+    "startYear": 1861,
+    "endYear": 1974
+  },
+  {
+    "name": "Belford",
+    "code": "720",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Bellingham",
+    "code": "721",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Belper",
+    "code": "722",
+    "startYear": null,
+    "endYear": 1994
+  },
+  {
+    "name": "Berkhampstead",
+    "code": "724",
+    "startYear": null,
+    "endYear": 1939
+  },
+  {
+    "name": "Berkhamsted",
+    "code": "723",
+    "startYear": 1939,
+    "endYear": 1974
+  },
+  {
+    "name": "Bermondsey",
+    "code": "725",
+    "startYear": null,
+    "endYear": 1869
+  },
+  {
+    "name": "Bermondsey",
+    "code": "726",
+    "startYear": 1934,
+    "endYear": 1965
+  },
+  {
+    "name": "Berwick",
+    "code": "727",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Bethnal Green",
+    "code": "728",
+    "startYear": null,
+    "endYear": 1965
+  },
+  {
+    "name": "Beverley",
+    "code": "729",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Beverley",
+    "code": "730",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Bexley",
+    "code": "731",
+    "startYear": 1965,
+    "endYear": null
+  },
+  {
+    "name": "Bicester",
+    "code": "732",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Bideford",
+    "code": "733",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Biggleswade",
+    "code": "734",
+    "startYear": null,
+    "endYear": 1999
+  },
+  {
+    "name": "Billericay",
+    "code": "735",
+    "startYear": null,
+    "endYear": 1939
+  },
+  {
+    "name": "Billesdon",
+    "code": "736",
+    "startYear": null,
+    "endYear": 1949
+  },
+  {
+    "name": "Bilston",
+    "code": "737",
+    "startYear": 1935,
+    "endYear": 1966
+  },
+  {
+    "name": "Bingham",
+    "code": "738",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Birkenhead",
+    "code": "739",
+    "startYear": 1861,
+    "endYear": 1998
+  },
+  {
+    "name": "Birmingham",
+    "code": "740",
+    "startYear": null,
+    "endYear": 1924
+  },
+  {
+    "name": "Birmingham",
+    "code": "741",
+    "startYear": 1932,
+    "endYear": null
+  },
+  {
+    "name": "Birmingham North",
+    "code": "742",
+    "startYear": 1924,
+    "endYear": 1932
+  },
+  {
+    "name": "Birmingham South",
+    "code": "743",
+    "startYear": 1924,
+    "endYear": 1932
+  },
+  {
+    "name": "Bishops Stortford",
+    "code": "745",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Bishopsgate",
+    "code": "744",
+    "startYear": null,
+    "endYear": 1838
+  },
+  {
+    "name": "Blaby",
+    "code": "746",
+    "startYear": null,
+    "endYear": 1949
+  },
+  {
+    "name": "Blackburn",
+    "code": "747",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Blackpool",
+    "code": "748",
+    "startYear": 1936,
+    "endYear": 1974
+  },
+  {
+    "name": "Blackpool & Fylde",
+    "code": "749",
+    "startYear": 1974,
+    "endYear": 1998
+  },
+  {
+    "name": "Blaenau Gwent",
+    "code": "750",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Blandford",
+    "code": "751",
+    "startYear": null,
+    "endYear": 1956
+  },
+  {
+    "name": "Blean",
+    "code": "752",
+    "startYear": null,
+    "endYear": 1941
+  },
+  {
+    "name": "Blofield",
+    "code": "753",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Blyth",
+    "code": "754",
+    "startYear": 1935,
+    "endYear": 1983
+  },
+  {
+    "name": "Blything",
+    "code": "755",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Bodmin",
+    "code": "756",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Bolton",
+    "code": "757",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Bootle Cul",
+    "code": "758",
+    "startYear": null,
+    "endYear": 1939
+  },
+  {
+    "name": "Bootle Lan",
+    "code": "759",
+    "startYear": 1934,
+    "endYear": 1980
+  },
+  {
+    "name": "Border",
+    "code": "760",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Bosmere",
+    "code": "761",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Boston",
+    "code": "762",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Bourne",
+    "code": "763",
+    "startYear": null,
+    "endYear": 1933
+  },
+  {
+    "name": "Bourne",
+    "code": "764",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Bourne & South Kesteven",
+    "code": "765",
+    "startYear": 1934,
+    "endYear": 1974
+  },
+  {
+    "name": "Bournemouth",
+    "code": "766",
+    "startYear": 1932,
+    "endYear": null
+  },
+  {
+    "name": "Bournemouth & Christchurch",
+    "code": "767",
+    "startYear": 1925,
+    "endYear": 1932
+  },
+  {
+    "name": "Brackley",
+    "code": "768",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Bracknell",
+    "code": "769",
+    "startYear": 1974,
+    "endYear": 1998
+  },
+  {
+    "name": "Bradfield",
+    "code": "770",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Bradford",
+    "code": "772",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Bradford upon Avon",
+    "code": "771",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Braintree",
+    "code": "773",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Bramham",
+    "code": "774",
+    "startYear": 1862,
+    "endYear": 1869
+  },
+  {
+    "name": "Bramley",
+    "code": "775",
+    "startYear": 1863,
+    "endYear": 1925
+  },
+  {
+    "name": "Bramley & Holbeck",
+    "code": "776",
+    "startYear": 1925,
+    "endYear": 1928
+  },
+  {
+    "name": "Brampton",
+    "code": "777",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Brecknock",
+    "code": "778",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Brent",
+    "code": "779",
+    "startYear": 1965,
+    "endYear": null
+  },
+  {
+    "name": "Brentford",
+    "code": "780",
+    "startYear": null,
+    "endYear": 1947
+  },
+  {
+    "name": "Brentwood",
+    "code": "781",
+    "startYear": 1939,
+    "endYear": null
+  },
+  {
+    "name": "Bridge",
+    "code": "782",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Bridgend",
+    "code": "783",
+    "startYear": null,
+    "endYear": 1970
+  },
+  {
+    "name": "Bridgend",
+    "code": "784",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Bridgnorth",
+    "code": "785",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Bridgwater",
+    "code": "786",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Bridlington",
+    "code": "787",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Bridlington",
+    "code": "788",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Bridport",
+    "code": "789",
+    "startYear": null,
+    "endYear": 1958
+  },
+  {
+    "name": "Bridport",
+    "code": "790",
+    "startYear": 1959,
+    "endYear": 1997
+  },
+  {
+    "name": "Brighton",
+    "code": "791",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Bristol",
+    "code": "792",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Brixworth",
+    "code": "793",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Bromley",
+    "code": "794",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Bromsgrove",
+    "code": "795",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Bromyard",
+    "code": "796",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Broxbourne",
+    "code": "797",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Buckingham",
+    "code": "798",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Bucklow",
+    "code": "799",
+    "startYear": 1898,
+    "endYear": 1974
+  },
+  {
+    "name": "Buckrose",
+    "code": "800",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Builth",
+    "code": "801",
+    "startYear": null,
+    "endYear": 1987
+  },
+  {
+    "name": "Bullingdon",
+    "code": "802",
+    "startYear": 1964,
+    "endYear": null
+  },
+  {
+    "name": "Bulmer",
+    "code": "803",
+    "startYear": 1936,
+    "endYear": 1974
+  },
+  {
+    "name": "Buntingford",
+    "code": "804",
+    "startYear": null,
+    "endYear": 1837
+  },
+  {
+    "name": "Burnley",
+    "code": "805",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Burnley & Pendle",
+    "code": "806",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Burton upon Trent",
+    "code": "807",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Bury",
+    "code": "808",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Bury St Edmunds",
+    "code": "809",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Caerleon",
+    "code": "1054",
+    "startYear": 1936,
+    "endYear": 1974
+  },
+  {
+    "name": "Caernarfon",
+    "code": "1055",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Caernarvon",
+    "code": "1056",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Caerphilly",
+    "code": "1057",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Caistor",
+    "code": "1058",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Calder",
+    "code": "1059",
+    "startYear": 1938,
+    "endYear": 1974
+  },
+  {
+    "name": "Calne",
+    "code": "1060",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Camberwell",
+    "code": "1061",
+    "startYear": null,
+    "endYear": 1991
+  },
+  {
+    "name": "Camborne-Redruth",
+    "code": "1062",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Cambridge",
+    "code": "1063",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Cambridge",
+    "code": "1064",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Cambridgeshire",
+    "code": "1065",
+    "startYear": 1935,
+    "endYear": 1974
+  },
+  {
+    "name": "Camden",
+    "code": "1066",
+    "startYear": 1977,
+    "endYear": null
+  },
+  {
+    "name": "Camelford",
+    "code": "1067",
+    "startYear": null,
+    "endYear": 1995
+  },
+  {
+    "name": "Cannock",
+    "code": "1068",
+    "startYear": 1877,
+    "endYear": 1974
+  },
+  {
+    "name": "Cannock Chase",
+    "code": "1069",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Canterbury",
+    "code": "1070",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Cardiff",
+    "code": "1071",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Cardiff",
+    "code": "1072",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Cardigan",
+    "code": "1073",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Cardiganshire Central",
+    "code": "1074",
+    "startYear": 1936,
+    "endYear": null
+  },
+  {
+    "name": "Cardiganshire North",
+    "code": "1075",
+    "startYear": 1936,
+    "endYear": null
+  },
+  {
+    "name": "Cardiganshire South",
+    "code": "1076",
+    "startYear": 1936,
+    "endYear": null
+  },
+  {
+    "name": "Carlisle",
+    "code": "1077",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Carmarthen",
+    "code": "1078",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Carnarvon",
+    "code": "1079",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Castle Ward",
+    "code": "1081",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Castleford",
+    "code": "1080",
+    "startYear": 1862,
+    "endYear": 1867
+  },
+  {
+    "name": "Catherington",
+    "code": "1082",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Caxton",
+    "code": "1083",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Central Cleveland",
+    "code": "1084",
+    "startYear": 1974,
+    "endYear": 1996
+  },
+  {
+    "name": "Cerne",
+    "code": "1085",
+    "startYear": null,
+    "endYear": 1837
+  },
+  {
+    "name": "Chailey",
+    "code": "1086",
+    "startYear": null,
+    "endYear": 1837
+  },
+  {
+    "name": "Chanctonbury",
+    "code": "1087",
+    "startYear": 1935,
+    "endYear": 1974
+  },
+  {
+    "name": "Chapel en le Frith",
+    "code": "1088",
+    "startYear": 1838,
+    "endYear": 1974
+  },
+  {
+    "name": "Chard",
+    "code": "1089",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Chatham",
+    "code": "1090",
+    "startYear": 1941,
+    "endYear": 1998
+  },
+  {
+    "name": "Cheadle",
+    "code": "1091",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Chelmsford",
+    "code": "1092",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Chelsea",
+    "code": "1093",
+    "startYear": null,
+    "endYear": 1837
+  },
+  {
+    "name": "Chelsea",
+    "code": "1094",
+    "startYear": 1841,
+    "endYear": 1981
+  },
+  {
+    "name": "Cheltenham",
+    "code": "1095",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Chepstow",
+    "code": "1096",
+    "startYear": null,
+    "endYear": 1968
+  },
+  {
+    "name": "Chertsey",
+    "code": "1097",
+    "startYear": null,
+    "endYear": 1934
+  },
+  {
+    "name": "Cheshire East",
+    "code": "1098",
+    "startYear": 1998,
+    "endYear": null
+  },
+  {
+    "name": "Chester",
+    "code": "1099",
+    "startYear": 1870,
+    "endYear": 1974
+  },
+  {
+    "name": "Chester & Ellesmere Port",
+    "code": "1100",
+    "startYear": 1974,
+    "endYear": 1998
+  },
+  {
+    "name": "Chester le Street",
+    "code": "1101",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Chesterfield",
+    "code": "1102",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Chesterton",
+    "code": "1103",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Chichester",
+    "code": "1104",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Chiltern & Beaconsfield",
+    "code": "1105",
+    "startYear": 1974,
+    "endYear": 1988
+  },
+  {
+    "name": "Chiltern & South Bucks",
+    "code": "1106",
+    "startYear": 1988,
+    "endYear": 1998
+  },
+  {
+    "name": "Chippenham",
+    "code": "1107",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Chipping Norton",
+    "code": "1108",
+    "startYear": null,
+    "endYear": 1982
+  },
+  {
+    "name": "Chipping Sodbury",
+    "code": "1109",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Chorley",
+    "code": "1110",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Chorlton",
+    "code": "1111",
+    "startYear": null,
+    "endYear": 1924
+  },
+  {
+    "name": "Christchurch",
+    "code": "1112",
+    "startYear": null,
+    "endYear": 1925
+  },
+  {
+    "name": "Christchurch",
+    "code": "1113",
+    "startYear": 1932,
+    "endYear": 1974
+  },
+  {
+    "name": "Church Stretton",
+    "code": "1114",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Cirencester",
+    "code": "1115",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "City of Westminster",
+    "code": "1116",
+    "startYear": 1933,
+    "endYear": 1965
+  },
+  {
+    "name": "Claro",
+    "code": "1117",
+    "startYear": 1947,
+    "endYear": 1998
+  },
+  {
+    "name": "Cleethorpes",
+    "code": "1118",
+    "startYear": 1938,
+    "endYear": 1974
+  },
+  {
+    "name": "Cleobury Mortimer",
+    "code": "1119",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Clerkenwell",
+    "code": "1120",
+    "startYear": null,
+    "endYear": 1869
+  },
+  {
+    "name": "Cleveland",
+    "code": "1121",
+    "startYear": 1936,
+    "endYear": 1974
+  },
+  {
+    "name": "Clifton",
+    "code": "1122",
+    "startYear": null,
+    "endYear": 1877
+  },
+  {
+    "name": "Clitheroe",
+    "code": "1123",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Clun",
+    "code": "1124",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Clutton",
+    "code": "1125",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Coalville",
+    "code": "1126",
+    "startYear": 1949,
+    "endYear": 1999
+  },
+  {
+    "name": "Cockermouth",
+    "code": "1127",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Colchester",
+    "code": "1128",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Colwyn",
+    "code": "1129",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Congleton",
+    "code": "1130",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Congleton & Crewe",
+    "code": "1131",
+    "startYear": 1974,
+    "endYear": 1991
+  },
+  {
+    "name": "Conway",
+    "code": "1132",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Conway Valley",
+    "code": "1133",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Cookham",
+    "code": "1134",
+    "startYear": null,
+    "endYear": 1896
+  },
+  {
+    "name": "Corby",
+    "code": "1135",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Corwen",
+    "code": "1136",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Cosford",
+    "code": "1137",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Coventry",
+    "code": "1138",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Cranbrook",
+    "code": "1139",
+    "startYear": null,
+    "endYear": 1941
+  },
+  {
+    "name": "Crawley",
+    "code": "1140",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Crediton",
+    "code": "1141",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Crewe",
+    "code": "1142",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Crickhowell",
+    "code": "1143",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Cricklade",
+    "code": "1144",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Crosby",
+    "code": "1145",
+    "startYear": 1934,
+    "endYear": 1980
+  },
+  {
+    "name": "Croydon",
+    "code": "1146",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Cuckfield",
+    "code": "1147",
+    "startYear": null,
+    "endYear": 1980
+  },
+  {
+    "name": "Dacorum",
+    "code": "1004",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Darlington",
+    "code": "1005",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Dartford",
+    "code": "1006",
+    "startYear": null,
+    "endYear": 1979
+  },
+  {
+    "name": "Darwen",
+    "code": "1007",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Daventry",
+    "code": "1008",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "De Meirionydd",
+    "code": "1009",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Deben",
+    "code": "1010",
+    "startYear": 1935,
+    "endYear": null
+  },
+  {
+    "name": "Dec",
+    "code": "4",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Delyn",
+    "code": "1011",
+    "startYear": 1974,
+    "endYear": 1996
+  },
+  {
+    "name": "Denbighshire North",
+    "code": "1012",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Denbighshire South",
+    "code": "1013",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Deptford",
+    "code": "1014",
+    "startYear": 1930,
+    "endYear": 1966
+  },
+  {
+    "name": "Depwade",
+    "code": "1015",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Derby",
+    "code": "1016",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Devizes",
+    "code": "1017",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Devon Central",
+    "code": "1018",
+    "startYear": 1936,
+    "endYear": 1974
+  },
+  {
+    "name": "Devonport",
+    "code": "1019",
+    "startYear": 1898,
+    "endYear": 1937
+  },
+  {
+    "name": "Dewsbury",
+    "code": "1020",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Docking",
+    "code": "1021",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Dolgelly",
+    "code": "1022",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Don Valley",
+    "code": "1023",
+    "startYear": 1938,
+    "endYear": 1974
+  },
+  {
+    "name": "Doncaster",
+    "code": "1024",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Dorchester",
+    "code": "1025",
+    "startYear": null,
+    "endYear": 1949
+  },
+  {
+    "name": "Dorking",
+    "code": "1026",
+    "startYear": null,
+    "endYear": 1934
+  },
+  {
+    "name": "Dover",
+    "code": "1027",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Downham",
+    "code": "1028",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Driffield",
+    "code": "1029",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Droitwich",
+    "code": "1030",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Droxford",
+    "code": "1031",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Dudley",
+    "code": "1032",
+    "startYear": null,
+    "endYear": 1912
+  },
+  {
+    "name": "Dudley",
+    "code": "1033",
+    "startYear": 1913,
+    "endYear": 1935
+  },
+  {
+    "name": "Dudley",
+    "code": "1034",
+    "startYear": 1935,
+    "endYear": 1966
+  },
+  {
+    "name": "Dudley",
+    "code": "1035",
+    "startYear": 1966,
+    "endYear": null
+  },
+  {
+    "name": "Dulverton",
+    "code": "1036",
+    "startYear": null,
+    "endYear": 1837
+  },
+  {
+    "name": "Dulverton",
+    "code": "1037",
+    "startYear": 1855,
+    "endYear": 1936
+  },
+  {
+    "name": "Dunmow",
+    "code": "1038",
+    "startYear": null,
+    "endYear": 1967
+  },
+  {
+    "name": "Dunstable",
+    "code": "1039",
+    "startYear": 1964,
+    "endYear": 1999
+  },
+  {
+    "name": "Durham",
+    "code": "1040",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Durham Central",
+    "code": "1041",
+    "startYear": 1938,
+    "endYear": 1971
+  },
+  {
+    "name": "Durham Central",
+    "code": "1042",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Durham Central & South Eastern",
+    "code": "1043",
+    "startYear": 1971,
+    "endYear": 1974
+  },
+  {
+    "name": "Durham Eastern",
+    "code": "1044",
+    "startYear": 1938,
+    "endYear": null
+  },
+  {
+    "name": "Durham North Eastern",
+    "code": "1046",
+    "startYear": 1938,
+    "endYear": 1974
+  },
+  {
+    "name": "Durham North Western",
+    "code": "1047",
+    "startYear": 1938,
+    "endYear": 1974
+  },
+  {
+    "name": "Durham Northern",
+    "code": "1045",
+    "startYear": 1938,
+    "endYear": null
+  },
+  {
+    "name": "Durham South Eastern",
+    "code": "1048",
+    "startYear": 1938,
+    "endYear": 1971
+  },
+  {
+    "name": "Durham South Western",
+    "code": "1049",
+    "startYear": 1938,
+    "endYear": null
+  },
+  {
+    "name": "Durham Western",
+    "code": "1050",
+    "startYear": 1938,
+    "endYear": null
+  },
+  {
+    "name": "Dursley",
+    "code": "1051",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Dwyfor",
+    "code": "1052",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Dyffryn Conwy",
+    "code": "1053",
+    "startYear": 1974,
+    "endYear": 1975
+  },
+  {
+    "name": "Ealing",
+    "code": "810",
+    "startYear": 1947,
+    "endYear": null
+  },
+  {
+    "name": "Easington",
+    "code": "811",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Easingwold",
+    "code": "812",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "East Ashford",
+    "code": "813",
+    "startYear": null,
+    "endYear": 1941
+  },
+  {
+    "name": "East Cleveland",
+    "code": "815",
+    "startYear": 1974,
+    "endYear": 1996
+  },
+  {
+    "name": "East Dereham",
+    "code": "816",
+    "startYear": 1939,
+    "endYear": null
+  },
+  {
+    "name": "East Dorset",
+    "code": "817",
+    "startYear": 1997,
+    "endYear": null
+  },
+  {
+    "name": "East Elloe",
+    "code": "818",
+    "startYear": 1936,
+    "endYear": null
+  },
+  {
+    "name": "East Glamorgan",
+    "code": "819",
+    "startYear": 1935,
+    "endYear": 1974
+  },
+  {
+    "name": "East Grinstead",
+    "code": "820",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "East Ham",
+    "code": "821",
+    "startYear": 1935,
+    "endYear": 1967
+  },
+  {
+    "name": "East London",
+    "code": "825",
+    "startYear": 1838,
+    "endYear": 1869
+  },
+  {
+    "name": "East Preston",
+    "code": "826",
+    "startYear": 1870,
+    "endYear": 1935
+  },
+  {
+    "name": "East Retford",
+    "code": "827",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "East Staffordshire",
+    "code": "829",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "East Stonehouse",
+    "code": "830",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "East Ward",
+    "code": "831",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Eastbourne",
+    "code": "814",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Easthampstead",
+    "code": "822",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Easthampstead",
+    "code": "823",
+    "startYear": 1967,
+    "endYear": 1974
+  },
+  {
+    "name": "Eastleigh",
+    "code": "824",
+    "startYear": 1927,
+    "endYear": 1932
+  },
+  {
+    "name": "Eastry",
+    "code": "828",
+    "startYear": null,
+    "endYear": 1941
+  },
+  {
+    "name": "Ecclesall Bierlow",
+    "code": "832",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Ecclesfield",
+    "code": "833",
+    "startYear": null,
+    "endYear": 1850
+  },
+  {
+    "name": "Edmonton",
+    "code": "834",
+    "startYear": null,
+    "endYear": 1965
+  },
+  {
+    "name": "Elham",
+    "code": "835",
+    "startYear": null,
+    "endYear": 1941
+  },
+  {
+    "name": "Ellesmere",
+    "code": "836",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Elstree & Potters Bar",
+    "code": "837",
+    "startYear": 1965,
+    "endYear": 1996
+  },
+  {
+    "name": "Ely",
+    "code": "838",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Enfield",
+    "code": "839",
+    "startYear": 1965,
+    "endYear": null
+  },
+  {
+    "name": "Epping",
+    "code": "840",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Epping Forest",
+    "code": "841",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Epsom",
+    "code": "842",
+    "startYear": null,
+    "endYear": 1934
+  },
+  {
+    "name": "Erewash",
+    "code": "843",
+    "startYear": 1997,
+    "endYear": null
+  },
+  {
+    "name": "Erpingham",
+    "code": "844",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Essex South Western",
+    "code": "845",
+    "startYear": 1935,
+    "endYear": 1965
+  },
+  {
+    "name": "Eton",
+    "code": "846",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Evesham",
+    "code": "847",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Ewecross",
+    "code": "848",
+    "startYear": 1947,
+    "endYear": 1998
+  },
+  {
+    "name": "Exeter",
+    "code": "849",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Exmoor",
+    "code": "850",
+    "startYear": 1936,
+    "endYear": 1974
+  },
+  {
+    "name": "Fakenham",
+    "code": "362",
+    "startYear": 1939,
+    "endYear": null
+  },
+  {
+    "name": "Falmouth",
+    "code": "363",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Fareham",
+    "code": "364",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Faringdon",
+    "code": "365",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Farnborough",
+    "code": "366",
+    "startYear": 1847,
+    "endYear": 1869
+  },
+  {
+    "name": "Farnham",
+    "code": "367",
+    "startYear": null,
+    "endYear": 1934
+  },
+  {
+    "name": "Farnworth",
+    "code": "368",
+    "startYear": 1935,
+    "endYear": 1974
+  },
+  {
+    "name": "Farringdon",
+    "code": "369",
+    "startYear": null,
+    "endYear": 1838
+  },
+  {
+    "name": "Faversham",
+    "code": "370",
+    "startYear": null,
+    "endYear": 1941
+  },
+  {
+    "name": "Fenland",
+    "code": "371",
+    "startYear": 1980,
+    "endYear": null
+  },
+  {
+    "name": "Ffestiniog",
+    "code": "372",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Finsbury",
+    "code": "373",
+    "startYear": 1930,
+    "endYear": 1965
+  },
+  {
+    "name": "Fleetwood",
+    "code": "374",
+    "startYear": 1974,
+    "endYear": 1982
+  },
+  {
+    "name": "Flegg",
+    "code": "375",
+    "startYear": null,
+    "endYear": 1923
+  },
+  {
+    "name": "Flintshire East",
+    "code": "376",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Flintshire West",
+    "code": "377",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Foleshill",
+    "code": "378",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Folkestone",
+    "code": "379",
+    "startYear": 1941,
+    "endYear": 1974
+  },
+  {
+    "name": "Forden",
+    "code": "380",
+    "startYear": 1870,
+    "endYear": 1935
+  },
+  {
+    "name": "Fordingbridge",
+    "code": "381",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Forehoe",
+    "code": "382",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Forest of Dean",
+    "code": "383",
+    "startYear": 1937,
+    "endYear": null
+  },
+  {
+    "name": "Freebridge Lynn",
+    "code": "384",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Frome",
+    "code": "385",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Fulham",
+    "code": "386",
+    "startYear": 1875,
+    "endYear": null
+  },
+  {
+    "name": "Fylde",
+    "code": "387",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Gainsborough",
+    "code": "74",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Garstang",
+    "code": "75",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Gateshead",
+    "code": "76",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Gipping",
+    "code": "77",
+    "startYear": 1935,
+    "endYear": 1983
+  },
+  {
+    "name": "Gipping & Hartismere",
+    "code": "78",
+    "startYear": 1983,
+    "endYear": null
+  },
+  {
+    "name": "Glanford Brigg",
+    "code": "79",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Glendale",
+    "code": "80",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Glossop",
+    "code": "81",
+    "startYear": 1898,
+    "endYear": 1974
+  },
+  {
+    "name": "Gloucester",
+    "code": "82",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Gloucester",
+    "code": "83",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Gloucester City",
+    "code": "84",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Gloucester Rural",
+    "code": "85",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Glyndwr",
+    "code": "86",
+    "startYear": 1974,
+    "endYear": 1996
+  },
+  {
+    "name": "Godstone",
+    "code": "87",
+    "startYear": null,
+    "endYear": 1934
+  },
+  {
+    "name": "Goole",
+    "code": "88",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Gosport",
+    "code": "89",
+    "startYear": 1932,
+    "endYear": 1974
+  },
+  {
+    "name": "Gower",
+    "code": "90",
+    "startYear": 1858,
+    "endYear": 1934
+  },
+  {
+    "name": "Grantham",
+    "code": "91",
+    "startYear": null,
+    "endYear": 1933
+  },
+  {
+    "name": "Grantham",
+    "code": "92",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Grantham & West Kesteven",
+    "code": "93",
+    "startYear": 1934,
+    "endYear": 1974
+  },
+  {
+    "name": "Gravesend",
+    "code": "94",
+    "startYear": null,
+    "endYear": 1941
+  },
+  {
+    "name": "Gravesend",
+    "code": "95",
+    "startYear": 1980,
+    "endYear": null
+  },
+  {
+    "name": "Great Boughton",
+    "code": "96",
+    "startYear": null,
+    "endYear": 1869
+  },
+  {
+    "name": "Great Ouseburn",
+    "code": "97",
+    "startYear": 1854,
+    "endYear": 1946
+  },
+  {
+    "name": "Great Yarmouth",
+    "code": "98",
+    "startYear": 1939,
+    "endYear": null
+  },
+  {
+    "name": "Greenwich",
+    "code": "99",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Grimsby",
+    "code": "100",
+    "startYear": 1897,
+    "endYear": 1996
+  },
+  {
+    "name": "Guildford",
+    "code": "101",
+    "startYear": null,
+    "endYear": 1934
+  },
+  {
+    "name": "Guiltcross",
+    "code": "102",
+    "startYear": null,
+    "endYear": 1902
+  },
+  {
+    "name": "Guisborough",
+    "code": "103",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Hackney",
+    "code": "450",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Hailsham",
+    "code": "451",
+    "startYear": null,
+    "endYear": 1976
+  },
+  {
+    "name": "Halifax",
+    "code": "452",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Halstead",
+    "code": "453",
+    "startYear": null,
+    "endYear": 1972
+  },
+  {
+    "name": "Halton",
+    "code": "454",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Haltwhistle",
+    "code": "455",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Hambledon",
+    "code": "456",
+    "startYear": null,
+    "endYear": 1934
+  },
+  {
+    "name": "Hammersmith",
+    "code": "457",
+    "startYear": 1915,
+    "endYear": null
+  },
+  {
+    "name": "Hampstead",
+    "code": "458",
+    "startYear": 1848,
+    "endYear": 1977
+  },
+  {
+    "name": "Hardingstone",
+    "code": "459",
+    "startYear": null,
+    "endYear": 1923
+  },
+  {
+    "name": "Haringey",
+    "code": "460",
+    "startYear": 1965,
+    "endYear": null
+  },
+  {
+    "name": "Harlow",
+    "code": "461",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Harrow",
+    "code": "462",
+    "startYear": 1947,
+    "endYear": null
+  },
+  {
+    "name": "Hartismere",
+    "code": "463",
+    "startYear": null,
+    "endYear": 1983
+  },
+  {
+    "name": "Hartlepool",
+    "code": "464",
+    "startYear": 1859,
+    "endYear": 1938
+  },
+  {
+    "name": "Hartlepool",
+    "code": "465",
+    "startYear": 1967,
+    "endYear": 1974
+  },
+  {
+    "name": "Hartlepool",
+    "code": "466",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Hartley Wintney",
+    "code": "467",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Harwich",
+    "code": "468",
+    "startYear": 1939,
+    "endYear": 1957
+  },
+  {
+    "name": "Haslingden",
+    "code": "469",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Hastings",
+    "code": "470",
+    "startYear": null,
+    "endYear": 1977
+  },
+  {
+    "name": "Hastings & Rother",
+    "code": "471",
+    "startYear": 1977,
+    "endYear": null
+  },
+  {
+    "name": "Hatfield",
+    "code": "472",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Havant",
+    "code": "473",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Haverfordwest",
+    "code": "474",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Havering",
+    "code": "475",
+    "startYear": 1965,
+    "endYear": null
+  },
+  {
+    "name": "Hawarden",
+    "code": "476",
+    "startYear": 1903,
+    "endYear": 1974
+  },
+  {
+    "name": "Hay",
+    "code": "477",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Hayfield",
+    "code": "478",
+    "startYear": 1838,
+    "endYear": 1938
+  },
+  {
+    "name": "Haywards Heath",
+    "code": "479",
+    "startYear": 1980,
+    "endYear": null
+  },
+  {
+    "name": "Headington",
+    "code": "480",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Helmsley",
+    "code": "481",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Helston",
+    "code": "482",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Hemel Hempstead",
+    "code": "483",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Hemsworth",
+    "code": "484",
+    "startYear": 1850,
+    "endYear": 1974
+  },
+  {
+    "name": "Hendon",
+    "code": "485",
+    "startYear": null,
+    "endYear": 1947
+  },
+  {
+    "name": "Hendon",
+    "code": "486",
+    "startYear": 1947,
+    "endYear": 1999
+  },
+  {
+    "name": "Henley",
+    "code": "487",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Henstead",
+    "code": "488",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Hereford",
+    "code": "489",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Hertford",
+    "code": "490",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Hertford & Ware",
+    "code": "491",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Hexham",
+    "code": "492",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Heywood",
+    "code": "493",
+    "startYear": 1934,
+    "endYear": 1974
+  },
+  {
+    "name": "High Peak",
+    "code": "494",
+    "startYear": null,
+    "endYear": 1837
+  },
+  {
+    "name": "High Peak",
+    "code": "495",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Highworth",
+    "code": "496",
+    "startYear": null,
+    "endYear": 1899
+  },
+  {
+    "name": "Hillingdon",
+    "code": "497",
+    "startYear": 1965,
+    "endYear": null
+  },
+  {
+    "name": "Hinckley",
+    "code": "498",
+    "startYear": null,
+    "endYear": 1999
+  },
+  {
+    "name": "Hiraethog",
+    "code": "499",
+    "startYear": 1935,
+    "endYear": 1974
+  },
+  {
+    "name": "Hitchin",
+    "code": "500",
+    "startYear": null,
+    "endYear": 1996
+  },
+  {
+    "name": "Hitchin & Stevenage",
+    "code": "501",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Holbeach",
+    "code": "502",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Holbeck",
+    "code": "503",
+    "startYear": 1862,
+    "endYear": 1925
+  },
+  {
+    "name": "Holborn",
+    "code": "504",
+    "startYear": null,
+    "endYear": 1965
+  },
+  {
+    "name": "Holderness",
+    "code": "505",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Hollingbourne",
+    "code": "506",
+    "startYear": null,
+    "endYear": 1941
+  },
+  {
+    "name": "Holsworthy",
+    "code": "507",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Holyhead",
+    "code": "508",
+    "startYear": 1885,
+    "endYear": 1937
+  },
+  {
+    "name": "Holywell",
+    "code": "509",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Honiton",
+    "code": "510",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Hoo",
+    "code": "511",
+    "startYear": null,
+    "endYear": 1923
+  },
+  {
+    "name": "Horncastle",
+    "code": "512",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Horsham",
+    "code": "513",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Horwich",
+    "code": "514",
+    "startYear": 1935,
+    "endYear": 1967
+  },
+  {
+    "name": "Houghton le Spring",
+    "code": "515",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Hounslow",
+    "code": "516",
+    "startYear": 1965,
+    "endYear": null
+  },
+  {
+    "name": "Hove",
+    "code": "517",
+    "startYear": 1935,
+    "endYear": 1998
+  },
+  {
+    "name": "Howden",
+    "code": "518",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Howdenshire",
+    "code": "519",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Hoxne",
+    "code": "520",
+    "startYear": null,
+    "endYear": 1907
+  },
+  {
+    "name": "Huddersfield",
+    "code": "521",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Hull",
+    "code": "522",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Hungerford",
+    "code": "523",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Hunslet",
+    "code": "524",
+    "startYear": 1845,
+    "endYear": 1928
+  },
+  {
+    "name": "Huntingdon",
+    "code": "525",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Huntingdonshire North",
+    "code": "526",
+    "startYear": 1934,
+    "endYear": 1967
+  },
+  {
+    "name": "Hursley",
+    "code": "527",
+    "startYear": null,
+    "endYear": 1837
+  },
+  {
+    "name": "Hyde",
+    "code": "528",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Hyndburn & Rossendale",
+    "code": "529",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Ilford",
+    "code": "1148",
+    "startYear": 1939,
+    "endYear": 1965
+  },
+  {
+    "name": "Ilkeston",
+    "code": "1149",
+    "startYear": 1938,
+    "endYear": 1997
+  },
+  {
+    "name": "Ince",
+    "code": "1150",
+    "startYear": 1936,
+    "endYear": 1974
+  },
+  {
+    "name": "Ipswich",
+    "code": "1151",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Isle of Wight",
+    "code": "1153",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Isles of Scilly",
+    "code": "1152",
+    "startYear": 1901,
+    "endYear": null
+  },
+  {
+    "name": "Islington",
+    "code": "1154",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Jarrow",
+    "code": "1155",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Jun",
+    "code": "2",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Keighley",
+    "code": "851",
+    "startYear": null,
+    "endYear": 1946
+  },
+  {
+    "name": "Keighley",
+    "code": "852",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Kendal",
+    "code": "853",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Kendal",
+    "code": "854",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Kensington",
+    "code": "855",
+    "startYear": null,
+    "endYear": 1981
+  },
+  {
+    "name": "Kensington & Chelsea",
+    "code": "856",
+    "startYear": 1981,
+    "endYear": null
+  },
+  {
+    "name": "Kerrier",
+    "code": "857",
+    "startYear": 1936,
+    "endYear": null
+  },
+  {
+    "name": "Kettering",
+    "code": "858",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Ketton",
+    "code": "859",
+    "startYear": 1934,
+    "endYear": 1974
+  },
+  {
+    "name": "Keynsham",
+    "code": "860",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Kidderminster",
+    "code": "861",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Kings Lynn",
+    "code": "865",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Kings Norton",
+    "code": "866",
+    "startYear": null,
+    "endYear": 1912
+  },
+  {
+    "name": "Kings Norton",
+    "code": "867",
+    "startYear": 1913,
+    "endYear": 1924
+  },
+  {
+    "name": "Kingsbridge",
+    "code": "862",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Kingsclere",
+    "code": "863",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Kingsclere & Whitchurch",
+    "code": "864",
+    "startYear": 1932,
+    "endYear": null
+  },
+  {
+    "name": "Kingston",
+    "code": "868",
+    "startYear": null,
+    "endYear": 1934
+  },
+  {
+    "name": "Kingston upon Thames",
+    "code": "869",
+    "startYear": 1965,
+    "endYear": null
+  },
+  {
+    "name": "Kingswinford",
+    "code": "870",
+    "startYear": 1934,
+    "endYear": 1937
+  },
+  {
+    "name": "Kingswood",
+    "code": "871",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Kington",
+    "code": "872",
+    "startYear": null,
+    "endYear": 1838
+  },
+  {
+    "name": "Kington",
+    "code": "873",
+    "startYear": 1870,
+    "endYear": 1870
+  },
+  {
+    "name": "Kington",
+    "code": "874",
+    "startYear": 1871,
+    "endYear": null
+  },
+  {
+    "name": "Kirk Deighton",
+    "code": "875",
+    "startYear": 1861,
+    "endYear": 1869
+  },
+  {
+    "name": "Kirkstall",
+    "code": "876",
+    "startYear": 1862,
+    "endYear": 1869
+  },
+  {
+    "name": "Knaresborough",
+    "code": "877",
+    "startYear": null,
+    "endYear": 1946
+  },
+  {
+    "name": "Knighton",
+    "code": "878",
+    "startYear": null,
+    "endYear": 1933
+  },
+  {
+    "name": "Knowsley",
+    "code": "879",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Lambeth",
+    "code": "891",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Lampeter",
+    "code": "892",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Lancaster",
+    "code": "893",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Lanchester",
+    "code": "894",
+    "startYear": null,
+    "endYear": 1837
+  },
+  {
+    "name": "Lanchester",
+    "code": "895",
+    "startYear": 1875,
+    "endYear": 1938
+  },
+  {
+    "name": "Langport",
+    "code": "896",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Launceston",
+    "code": "897",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Ledbury",
+    "code": "898",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Leeds",
+    "code": "899",
+    "startYear": null,
+    "endYear": 1928
+  },
+  {
+    "name": "Leeds",
+    "code": "900",
+    "startYear": 1939,
+    "endYear": null
+  },
+  {
+    "name": "Leeds North",
+    "code": "901",
+    "startYear": 1929,
+    "endYear": 1939
+  },
+  {
+    "name": "Leeds South",
+    "code": "902",
+    "startYear": 1929,
+    "endYear": 1939
+  },
+  {
+    "name": "Leek",
+    "code": "903",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Leicester",
+    "code": "904",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Leicestershire Central",
+    "code": "905",
+    "startYear": 1949,
+    "endYear": 1997
+  },
+  {
+    "name": "Leigh",
+    "code": "906",
+    "startYear": null,
+    "endYear": 1995
+  },
+  {
+    "name": "Leighton Buzzard",
+    "code": "907",
+    "startYear": null,
+    "endYear": 1999
+  },
+  {
+    "name": "Leominster",
+    "code": "908",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Lewes",
+    "code": "909",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Lewisham",
+    "code": "910",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Lexden",
+    "code": "911",
+    "startYear": null,
+    "endYear": 1939
+  },
+  {
+    "name": "Leyburn",
+    "code": "912",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Lichfield",
+    "code": "913",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Limehouse",
+    "code": "914",
+    "startYear": 1921,
+    "endYear": 1925
+  },
+  {
+    "name": "Lincoln",
+    "code": "915",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Linton",
+    "code": "916",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Liskeard",
+    "code": "917",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Littleborough",
+    "code": "918",
+    "startYear": 1936,
+    "endYear": 1974
+  },
+  {
+    "name": "Liverpool",
+    "code": "919",
+    "startYear": null,
+    "endYear": 1934
+  },
+  {
+    "name": "Liverpool",
+    "code": "920",
+    "startYear": 1969,
+    "endYear": null
+  },
+  {
+    "name": "Liverpool North",
+    "code": "921",
+    "startYear": 1934,
+    "endYear": 1969
+  },
+  {
+    "name": "Liverpool South",
+    "code": "922",
+    "startYear": 1934,
+    "endYear": 1969
+  },
+  {
+    "name": "Llandilofawr",
+    "code": "923",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Llandovery",
+    "code": "924",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Llanelli",
+    "code": "925",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Llanelly",
+    "code": "926",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Llanfyllin",
+    "code": "927",
+    "startYear": null,
+    "endYear": 1982
+  },
+  {
+    "name": "Llanrwst",
+    "code": "928",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Loddon",
+    "code": "929",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "London City",
+    "code": "930",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Long Ashton",
+    "code": "931",
+    "startYear": 1899,
+    "endYear": 1936
+  },
+  {
+    "name": "Longtown",
+    "code": "932",
+    "startYear": null,
+    "endYear": 1939
+  },
+  {
+    "name": "Lothingland",
+    "code": "933",
+    "startYear": 1935,
+    "endYear": 1974
+  },
+  {
+    "name": "Loughborough",
+    "code": "934",
+    "startYear": null,
+    "endYear": 1999
+  },
+  {
+    "name": "Louth",
+    "code": "935",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Lower Agbrigg",
+    "code": "936",
+    "startYear": 1939,
+    "endYear": 1974
+  },
+  {
+    "name": "Ludlow",
+    "code": "937",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Lunesdale",
+    "code": "938",
+    "startYear": 1869,
+    "endYear": 1974
+  },
+  {
+    "name": "Luton",
+    "code": "939",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Lutterworth",
+    "code": "940",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Lymington",
+    "code": "941",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Macclesfield",
+    "code": "942",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Machynlleth",
+    "code": "943",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Madeley",
+    "code": "944",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Maelor",
+    "code": "945",
+    "startYear": 1954,
+    "endYear": 1974
+  },
+  {
+    "name": "Maidenhead",
+    "code": "946",
+    "startYear": 1896,
+    "endYear": 1974
+  },
+  {
+    "name": "Maidstone",
+    "code": "947",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Maldon",
+    "code": "948",
+    "startYear": null,
+    "endYear": 1972
+  },
+  {
+    "name": "Maldon",
+    "code": "949",
+    "startYear": 1974,
+    "endYear": 1974
+  },
+  {
+    "name": "Malling",
+    "code": "950",
+    "startYear": null,
+    "endYear": 1941
+  },
+  {
+    "name": "Malmesbury",
+    "code": "951",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Malton",
+    "code": "952",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Malvern",
+    "code": "953",
+    "startYear": 1952,
+    "endYear": null
+  },
+  {
+    "name": "Manchester",
+    "code": "954",
+    "startYear": null,
+    "endYear": 1924
+  },
+  {
+    "name": "Manchester",
+    "code": "955",
+    "startYear": 1939,
+    "endYear": null
+  },
+  {
+    "name": "Manchester North",
+    "code": "956",
+    "startYear": 1925,
+    "endYear": 1939
+  },
+  {
+    "name": "Manchester South",
+    "code": "957",
+    "startYear": 1925,
+    "endYear": 1939
+  },
+  {
+    "name": "Mansfield",
+    "code": "958",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Mar",
+    "code": "1",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "March",
+    "code": "959",
+    "startYear": 1938,
+    "endYear": 1980
+  },
+  {
+    "name": "Market Bosworth",
+    "code": "960",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Market Drayton",
+    "code": "961",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Market Harborough",
+    "code": "962",
+    "startYear": null,
+    "endYear": 1999
+  },
+  {
+    "name": "Marlborough",
+    "code": "963",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Martley",
+    "code": "964",
+    "startYear": null,
+    "endYear": 1913
+  },
+  {
+    "name": "Martley",
+    "code": "965",
+    "startYear": 1934,
+    "endYear": 1976
+  },
+  {
+    "name": "Marylebone",
+    "code": "966",
+    "startYear": null,
+    "endYear": 1901
+  },
+  {
+    "name": "Matlock",
+    "code": "967",
+    "startYear": null,
+    "endYear": 1838
+  },
+  {
+    "name": "Medway",
+    "code": "968",
+    "startYear": null,
+    "endYear": 1941
+  },
+  {
+    "name": "Medway",
+    "code": "969",
+    "startYear": 1998,
+    "endYear": null
+  },
+  {
+    "name": "Melksham",
+    "code": "970",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Melton & Rutland",
+    "code": "971",
+    "startYear": 1995,
+    "endYear": 1997
+  },
+  {
+    "name": "Melton Mowbray",
+    "code": "972",
+    "startYear": null,
+    "endYear": 1995
+  },
+  {
+    "name": "Melton Mowbray",
+    "code": "973",
+    "startYear": 1997,
+    "endYear": 1999
+  },
+  {
+    "name": "Mendip",
+    "code": "974",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Mere",
+    "code": "975",
+    "startYear": null,
+    "endYear": 1977
+  },
+  {
+    "name": "Meriden",
+    "code": "976",
+    "startYear": null,
+    "endYear": 1977
+  },
+  {
+    "name": "Merioneth East",
+    "code": "977",
+    "startYear": 1935,
+    "endYear": 1974
+  },
+  {
+    "name": "Merioneth North",
+    "code": "978",
+    "startYear": 1935,
+    "endYear": 1974
+  },
+  {
+    "name": "Merioneth South",
+    "code": "979",
+    "startYear": 1935,
+    "endYear": 1974
+  },
+  {
+    "name": "Merthyr Tydfil",
+    "code": "980",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Merton",
+    "code": "981",
+    "startYear": 1965,
+    "endYear": null
+  },
+  {
+    "name": "Mid Devon",
+    "code": "982",
+    "startYear": 1978,
+    "endYear": null
+  },
+  {
+    "name": "Mid Glamorgan",
+    "code": "983",
+    "startYear": 1970,
+    "endYear": 1974
+  },
+  {
+    "name": "Mid Powys",
+    "code": "984",
+    "startYear": 1988,
+    "endYear": null
+  },
+  {
+    "name": "Mid Surrey",
+    "code": "985",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Mid Warwickshire",
+    "code": "986",
+    "startYear": 1985,
+    "endYear": null
+  },
+  {
+    "name": "Middlesbrough",
+    "code": "987",
+    "startYear": 1875,
+    "endYear": 1968
+  },
+  {
+    "name": "Middlesbrough",
+    "code": "988",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Middlesex South",
+    "code": "989",
+    "startYear": 1947,
+    "endYear": 1965
+  },
+  {
+    "name": "Middleton",
+    "code": "990",
+    "startYear": 1933,
+    "endYear": 1974
+  },
+  {
+    "name": "Midhurst",
+    "code": "991",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Midhurst & Petworth",
+    "code": "992",
+    "startYear": 1935,
+    "endYear": 1974
+  },
+  {
+    "name": "Mildenhall",
+    "code": "993",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Mile End Old Town",
+    "code": "994",
+    "startYear": 1857,
+    "endYear": 1925
+  },
+  {
+    "name": "Millom",
+    "code": "995",
+    "startYear": 1939,
+    "endYear": null
+  },
+  {
+    "name": "Milton",
+    "code": "996",
+    "startYear": null,
+    "endYear": 1941
+  },
+  {
+    "name": "Milton Keynes",
+    "code": "997",
+    "startYear": 1985,
+    "endYear": null
+  },
+  {
+    "name": "Mitford",
+    "code": "998",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Monmouth",
+    "code": "999",
+    "startYear": null,
+    "endYear": 1939
+  },
+  {
+    "name": "Monmouthshire",
+    "code": "1000",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Montgomery",
+    "code": "1001",
+    "startYear": null,
+    "endYear": 1870
+  },
+  {
+    "name": "Morpeth",
+    "code": "1002",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Mutford",
+    "code": "1003",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Nantwich",
+    "code": "11",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Narberth",
+    "code": "12",
+    "startYear": null,
+    "endYear": 1973
+  },
+  {
+    "name": "Neath",
+    "code": "13",
+    "startYear": null,
+    "endYear": 1970
+  },
+  {
+    "name": "Neath",
+    "code": "14",
+    "startYear": 1974,
+    "endYear": 1996
+  },
+  {
+    "name": "Neath Port Talbot",
+    "code": "15",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Nelson",
+    "code": "16",
+    "startYear": 1936,
+    "endYear": 1974
+  },
+  {
+    "name": "New Forest",
+    "code": "23",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Newark",
+    "code": "17",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Newbury",
+    "code": "18",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Newcastle in Emlyn",
+    "code": "19",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Newcastle under Lyme",
+    "code": "20",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Newcastle upon Tyne",
+    "code": "21",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Newent",
+    "code": "22",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Newham",
+    "code": "24",
+    "startYear": 1968,
+    "endYear": null
+  },
+  {
+    "name": "Newhaven",
+    "code": "25",
+    "startYear": null,
+    "endYear": 1839
+  },
+  {
+    "name": "Newhaven",
+    "code": "26",
+    "startYear": 1901,
+    "endYear": 1935
+  },
+  {
+    "name": "Newington",
+    "code": "27",
+    "startYear": null,
+    "endYear": 1869
+  },
+  {
+    "name": "Newmarket",
+    "code": "28",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Newmarket",
+    "code": "29",
+    "startYear": 1938,
+    "endYear": 1989
+  },
+  {
+    "name": "Newport M",
+    "code": "30",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Newport Pagnell",
+    "code": "32",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Newport S",
+    "code": "31",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Newton",
+    "code": "33",
+    "startYear": 1934,
+    "endYear": 1974
+  },
+  {
+    "name": "Newton Abbot",
+    "code": "34",
+    "startYear": null,
+    "endYear": 1996
+  },
+  {
+    "name": "Newtown",
+    "code": "35",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "North Aylesford",
+    "code": "36",
+    "startYear": null,
+    "endYear": 1884
+  },
+  {
+    "name": "North Bierley",
+    "code": "37",
+    "startYear": 1892,
+    "endYear": 1938
+  },
+  {
+    "name": "North Bucks",
+    "code": "38",
+    "startYear": 1935,
+    "endYear": 1985
+  },
+  {
+    "name": "North Cleveland",
+    "code": "39",
+    "startYear": 1974,
+    "endYear": 1996
+  },
+  {
+    "name": "North Cotswold",
+    "code": "40",
+    "startYear": 1937,
+    "endYear": null
+  },
+  {
+    "name": "North Devon",
+    "code": "41",
+    "startYear": 1998,
+    "endYear": null
+  },
+  {
+    "name": "North Dorset",
+    "code": "42",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "North East Cheshire",
+    "code": "43",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "North East Hampshire",
+    "code": "44",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "North East Lincolnshire",
+    "code": "45",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "North Kesteven",
+    "code": "46",
+    "startYear": 1934,
+    "endYear": 1974
+  },
+  {
+    "name": "North Lincolnshire",
+    "code": "47",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "North Shropshire",
+    "code": "48",
+    "startYear": 1970,
+    "endYear": null
+  },
+  {
+    "name": "North Somerset",
+    "code": "49",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "North Surrey",
+    "code": "50",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "North Tyneside",
+    "code": "51",
+    "startYear": 1985,
+    "endYear": null
+  },
+  {
+    "name": "North Tyneside East",
+    "code": "52",
+    "startYear": 1974,
+    "endYear": 1985
+  },
+  {
+    "name": "North Tyneside West",
+    "code": "53",
+    "startYear": 1974,
+    "endYear": 1985
+  },
+  {
+    "name": "North Walsham",
+    "code": "54",
+    "startYear": 1939,
+    "endYear": null
+  },
+  {
+    "name": "North Warwickshire",
+    "code": "55",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "North Witchford",
+    "code": "56",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Northallerton",
+    "code": "57",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Northampton",
+    "code": "58",
+    "startYear": null,
+    "endYear": 1923
+  },
+  {
+    "name": "Northampton",
+    "code": "59",
+    "startYear": 1936,
+    "endYear": null
+  },
+  {
+    "name": "Northampton & Hardingstone",
+    "code": "60",
+    "startYear": 1924,
+    "endYear": 1936
+  },
+  {
+    "name": "Northleach",
+    "code": "61",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Northumberland Central",
+    "code": "62",
+    "startYear": 1937,
+    "endYear": null
+  },
+  {
+    "name": "Northumberland North First",
+    "code": "63",
+    "startYear": 1937,
+    "endYear": null
+  },
+  {
+    "name": "Northumberland North Second",
+    "code": "64",
+    "startYear": 1937,
+    "endYear": null
+  },
+  {
+    "name": "Northumberland South",
+    "code": "65",
+    "startYear": 1936,
+    "endYear": 1974
+  },
+  {
+    "name": "Northumberland West",
+    "code": "66",
+    "startYear": 1937,
+    "endYear": null
+  },
+  {
+    "name": "Northwich",
+    "code": "67",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Norton Radstock",
+    "code": "68",
+    "startYear": 1936,
+    "endYear": 1974
+  },
+  {
+    "name": "Norwich",
+    "code": "69",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Norwich Outer",
+    "code": "70",
+    "startYear": 1939,
+    "endYear": 1991
+  },
+  {
+    "name": "Nottingham",
+    "code": "71",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Nuneaton",
+    "code": "72",
+    "startYear": null,
+    "endYear": 1985
+  },
+  {
+    "name": "Nuneaton & Bedworth",
+    "code": "73",
+    "startYear": 1985,
+    "endYear": null
+  },
+  {
+    "name": "Oakham",
+    "code": "436",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Ogwr",
+    "code": "437",
+    "startYear": 1974,
+    "endYear": 1996
+  },
+  {
+    "name": "Okehampton",
+    "code": "438",
+    "startYear": null,
+    "endYear": 1997
+  },
+  {
+    "name": "Oldbury",
+    "code": "439",
+    "startYear": 1934,
+    "endYear": 1966
+  },
+  {
+    "name": "Oldham",
+    "code": "440",
+    "startYear": 1848,
+    "endYear": null
+  },
+  {
+    "name": "Ongar",
+    "code": "441",
+    "startYear": null,
+    "endYear": 1939
+  },
+  {
+    "name": "Ormskirk",
+    "code": "442",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Orsett",
+    "code": "443",
+    "startYear": null,
+    "endYear": 1939
+  },
+  {
+    "name": "Oswestry",
+    "code": "444",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Otley",
+    "code": "445",
+    "startYear": null,
+    "endYear": 1869
+  },
+  {
+    "name": "Oundle",
+    "code": "446",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Oundle & Thrapston",
+    "code": "447",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Overton",
+    "code": "448",
+    "startYear": 1935,
+    "endYear": 1953
+  },
+  {
+    "name": "Oxford",
+    "code": "449",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Paddington",
+    "code": "641",
+    "startYear": 1885,
+    "endYear": 1977
+  },
+  {
+    "name": "Pancras",
+    "code": "642",
+    "startYear": null,
+    "endYear": 1901
+  },
+  {
+    "name": "Pateley Bridge",
+    "code": "643",
+    "startYear": null,
+    "endYear": 1946
+  },
+  {
+    "name": "Patrington",
+    "code": "644",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Pembroke",
+    "code": "645",
+    "startYear": null,
+    "endYear": 1982
+  },
+  {
+    "name": "Penistone",
+    "code": "646",
+    "startYear": 1911,
+    "endYear": 1946
+  },
+  {
+    "name": "Penkridge",
+    "code": "647",
+    "startYear": null,
+    "endYear": 1877
+  },
+  {
+    "name": "Penllyn",
+    "code": "648",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Penrith",
+    "code": "649",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Penzance",
+    "code": "650",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Pershore",
+    "code": "651",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Peterborough",
+    "code": "652",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Petersfield",
+    "code": "653",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Petworth",
+    "code": "654",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Pewsey",
+    "code": "655",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Pickering",
+    "code": "656",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Plomesgate",
+    "code": "657",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Ploughley",
+    "code": "658",
+    "startYear": 1964,
+    "endYear": null
+  },
+  {
+    "name": "Ploughley & Bullingdon",
+    "code": "659",
+    "startYear": 1932,
+    "endYear": 1964
+  },
+  {
+    "name": "Plymouth",
+    "code": "660",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Plympton",
+    "code": "662",
+    "startYear": 1936,
+    "endYear": 1974
+  },
+  {
+    "name": "Plympton St Mary",
+    "code": "661",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Pocklington",
+    "code": "663",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Pocklington",
+    "code": "664",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Pontardawe",
+    "code": "665",
+    "startYear": 1875,
+    "endYear": 1934
+  },
+  {
+    "name": "Pontefract",
+    "code": "666",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Pontypool",
+    "code": "667",
+    "startYear": null,
+    "endYear": 1996
+  },
+  {
+    "name": "Pontypridd",
+    "code": "668",
+    "startYear": 1863,
+    "endYear": null
+  },
+  {
+    "name": "Poole",
+    "code": "669",
+    "startYear": null,
+    "endYear": 1958
+  },
+  {
+    "name": "Poole",
+    "code": "670",
+    "startYear": 1959,
+    "endYear": null
+  },
+  {
+    "name": "Poplar",
+    "code": "671",
+    "startYear": null,
+    "endYear": 1965
+  },
+  {
+    "name": "Poplar & Bethnal Green",
+    "code": "672",
+    "startYear": 1966,
+    "endYear": 1982
+  },
+  {
+    "name": "Portsea Island",
+    "code": "673",
+    "startYear": null,
+    "endYear": 1900
+  },
+  {
+    "name": "Portsmouth",
+    "code": "674",
+    "startYear": 1900,
+    "endYear": null
+  },
+  {
+    "name": "Potterspury",
+    "code": "675",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Prescot",
+    "code": "676",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Presteigne",
+    "code": "677",
+    "startYear": null,
+    "endYear": 1877
+  },
+  {
+    "name": "Preston",
+    "code": "678",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Preston & South Ribble",
+    "code": "679",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Prestwich",
+    "code": "680",
+    "startYear": 1874,
+    "endYear": 1924
+  },
+  {
+    "name": "Pwllheli",
+    "code": "681",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Pwllheli & Porthmadog",
+    "code": "682",
+    "startYear": 1974,
+    "endYear": 1996
+  },
+  {
+    "name": "Pwllheli & Portmadoc",
+    "code": "683",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Radford",
+    "code": "139",
+    "startYear": null,
+    "endYear": 1880
+  },
+  {
+    "name": "Radnorshire East",
+    "code": "140",
+    "startYear": 1933,
+    "endYear": null
+  },
+  {
+    "name": "Radnorshire West",
+    "code": "141",
+    "startYear": 1933,
+    "endYear": 1987
+  },
+  {
+    "name": "Reading",
+    "code": "142",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Reading & Wokingham",
+    "code": "143",
+    "startYear": 1974,
+    "endYear": 1998
+  },
+  {
+    "name": "Redbridge",
+    "code": "144",
+    "startYear": 1965,
+    "endYear": null
+  },
+  {
+    "name": "Redcar & Cleveland",
+    "code": "145",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Redditch",
+    "code": "146",
+    "startYear": 1994,
+    "endYear": null
+  },
+  {
+    "name": "Redruth",
+    "code": "147",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Reeth",
+    "code": "148",
+    "startYear": 1840,
+    "endYear": 1936
+  },
+  {
+    "name": "Reigate",
+    "code": "149",
+    "startYear": null,
+    "endYear": 1934
+  },
+  {
+    "name": "Repton",
+    "code": "150",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Rhayader",
+    "code": "151",
+    "startYear": null,
+    "endYear": 1933
+  },
+  {
+    "name": "Rhuddlan",
+    "code": "152",
+    "startYear": 1974,
+    "endYear": 1996
+  },
+  {
+    "name": "Ribble Valley",
+    "code": "153",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Richmond Sry",
+    "code": "154",
+    "startYear": null,
+    "endYear": 1934
+  },
+  {
+    "name": "Richmond Yk",
+    "code": "155",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Richmond upon Thames",
+    "code": "156",
+    "startYear": 1965,
+    "endYear": null
+  },
+  {
+    "name": "Ringwood",
+    "code": "157",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Ringwood & Fordingbridge",
+    "code": "158",
+    "startYear": 1974,
+    "endYear": 1999
+  },
+  {
+    "name": "Ripon",
+    "code": "159",
+    "startYear": null,
+    "endYear": 1946
+  },
+  {
+    "name": "Risbridge",
+    "code": "160",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Rochdale",
+    "code": "161",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Rochford",
+    "code": "162",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Romford",
+    "code": "163",
+    "startYear": null,
+    "endYear": 1965
+  },
+  {
+    "name": "Romney Marsh",
+    "code": "164",
+    "startYear": null,
+    "endYear": 1941
+  },
+  {
+    "name": "Romsey",
+    "code": "165",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Romsey",
+    "code": "166",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Romsey & Stockbridge",
+    "code": "167",
+    "startYear": 1932,
+    "endYear": 1974
+  },
+  {
+    "name": "Ross",
+    "code": "168",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Rothbury",
+    "code": "169",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Rother Valley",
+    "code": "170",
+    "startYear": 1938,
+    "endYear": 1974
+  },
+  {
+    "name": "Rotherham",
+    "code": "171",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Rotherhithe",
+    "code": "172",
+    "startYear": null,
+    "endYear": 1869
+  },
+  {
+    "name": "Rowley Regis",
+    "code": "173",
+    "startYear": 1935,
+    "endYear": 1966
+  },
+  {
+    "name": "Royston",
+    "code": "174",
+    "startYear": null,
+    "endYear": 1939
+  },
+  {
+    "name": "Rugby",
+    "code": "175",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Runcorn",
+    "code": "176",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Rushcliffe",
+    "code": "177",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Ruthin",
+    "code": "178",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Rutland",
+    "code": "179",
+    "startYear": 1974,
+    "endYear": 1995
+  },
+  {
+    "name": "Rutland",
+    "code": "180",
+    "startYear": 1997,
+    "endYear": null
+  },
+  {
+    "name": "Rye",
+    "code": "181",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Ryedale",
+    "code": "182",
+    "startYear": 1936,
+    "endYear": 1998
+  },
+  {
+    "name": "Saddleworth",
+    "code": "195",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Saffron Walden",
+    "code": "196",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Salford",
+    "code": "197",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Salisbury",
+    "code": "198",
+    "startYear": null,
+    "endYear": 1869
+  },
+  {
+    "name": "Salisbury",
+    "code": "199",
+    "startYear": 1895,
+    "endYear": null
+  },
+  {
+    "name": "Samford",
+    "code": "200",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Sandwell",
+    "code": "201",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Scarborough",
+    "code": "202",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Scilly Islands",
+    "code": "203",
+    "startYear": null,
+    "endYear": 1901
+  },
+  {
+    "name": "Sculcoates",
+    "code": "204",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Scunthorpe",
+    "code": "205",
+    "startYear": 1938,
+    "endYear": 1996
+  },
+  {
+    "name": "Sedbergh",
+    "code": "206",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Sedgefield",
+    "code": "207",
+    "startYear": null,
+    "endYear": 1837
+  },
+  {
+    "name": "Sedgefield",
+    "code": "208",
+    "startYear": 1896,
+    "endYear": 1938
+  },
+  {
+    "name": "Sedgemoor",
+    "code": "209",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Sefton North",
+    "code": "210",
+    "startYear": 1980,
+    "endYear": null
+  },
+  {
+    "name": "Sefton South",
+    "code": "211",
+    "startYear": 1980,
+    "endYear": null
+  },
+  {
+    "name": "Seisdon",
+    "code": "212",
+    "startYear": null,
+    "endYear": 1838
+  },
+  {
+    "name": "Seisdon",
+    "code": "213",
+    "startYear": 1966,
+    "endYear": 1974
+  },
+  {
+    "name": "Selby",
+    "code": "214",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Sep",
+    "code": "3",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Settle",
+    "code": "215",
+    "startYear": null,
+    "endYear": 1946
+  },
+  {
+    "name": "Sevenoaks",
+    "code": "216",
+    "startYear": null,
+    "endYear": 1941
+  },
+  {
+    "name": "Shaftesbury",
+    "code": "217",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Shardlow",
+    "code": "218",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Sheffield",
+    "code": "219",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Sheppey",
+    "code": "220",
+    "startYear": null,
+    "endYear": 1979
+  },
+  {
+    "name": "Shepton Mallet",
+    "code": "221",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Shepway",
+    "code": "222",
+    "startYear": 1974,
+    "endYear": 1998
+  },
+  {
+    "name": "Sherborne",
+    "code": "223",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Shifnal",
+    "code": "224",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Shipston on Stour",
+    "code": "225",
+    "startYear": null,
+    "endYear": 1985
+  },
+  {
+    "name": "Shoreditch",
+    "code": "226",
+    "startYear": null,
+    "endYear": 1965
+  },
+  {
+    "name": "Shrewsbury",
+    "code": "227",
+    "startYear": null,
+    "endYear": 1871
+  },
+  {
+    "name": "Shrewsbury",
+    "code": "228",
+    "startYear": 1935,
+    "endYear": null
+  },
+  {
+    "name": "Sidcup",
+    "code": "229",
+    "startYear": 1952,
+    "endYear": 1965
+  },
+  {
+    "name": "Sittingbourne",
+    "code": "230",
+    "startYear": 1941,
+    "endYear": 1979
+  },
+  {
+    "name": "Skipton",
+    "code": "231",
+    "startYear": null,
+    "endYear": 1946
+  },
+  {
+    "name": "Skirlaugh",
+    "code": "232",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Sleaford",
+    "code": "233",
+    "startYear": null,
+    "endYear": 1933
+  },
+  {
+    "name": "Sleaford",
+    "code": "234",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Sleaford & East Kesteven",
+    "code": "235",
+    "startYear": 1934,
+    "endYear": 1974
+  },
+  {
+    "name": "Slough",
+    "code": "236",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Smallburgh",
+    "code": "237",
+    "startYear": 1870,
+    "endYear": 1938
+  },
+  {
+    "name": "Smethwick",
+    "code": "238",
+    "startYear": 1932,
+    "endYear": 1966
+  },
+  {
+    "name": "Sodbury",
+    "code": "239",
+    "startYear": 1937,
+    "endYear": 1996
+  },
+  {
+    "name": "Solihull",
+    "code": "240",
+    "startYear": null,
+    "endYear": 1977
+  },
+  {
+    "name": "Solihull North",
+    "code": "241",
+    "startYear": 1978,
+    "endYear": null
+  },
+  {
+    "name": "Solihull South",
+    "code": "242",
+    "startYear": 1978,
+    "endYear": null
+  },
+  {
+    "name": "South Cheshire",
+    "code": "245",
+    "startYear": 1991,
+    "endYear": 1998
+  },
+  {
+    "name": "South Derbyshire",
+    "code": "246",
+    "startYear": 1997,
+    "endYear": null
+  },
+  {
+    "name": "South Dorset",
+    "code": "247",
+    "startYear": 1997,
+    "endYear": null
+  },
+  {
+    "name": "South East Hampshire",
+    "code": "248",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "South East Surrey",
+    "code": "249",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "South Glamorgan",
+    "code": "251",
+    "startYear": 1974,
+    "endYear": 1996
+  },
+  {
+    "name": "South Gloucestershire",
+    "code": "252",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "South Hams",
+    "code": "253",
+    "startYear": 1998,
+    "endYear": null
+  },
+  {
+    "name": "South Molton",
+    "code": "254",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "South Pembrokeshire",
+    "code": "255",
+    "startYear": 1983,
+    "endYear": null
+  },
+  {
+    "name": "South Shields",
+    "code": "257",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "South Staffordshire",
+    "code": "258",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "South Stoneham",
+    "code": "259",
+    "startYear": null,
+    "endYear": 1927
+  },
+  {
+    "name": "South Warwickshire",
+    "code": "261",
+    "startYear": 1985,
+    "endYear": null
+  },
+  {
+    "name": "Southam",
+    "code": "243",
+    "startYear": null,
+    "endYear": 1985
+  },
+  {
+    "name": "Southampton",
+    "code": "244",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Southend on Sea",
+    "code": "250",
+    "startYear": 1939,
+    "endYear": null
+  },
+  {
+    "name": "Southport",
+    "code": "256",
+    "startYear": 1934,
+    "endYear": 1980
+  },
+  {
+    "name": "Southwark",
+    "code": "260",
+    "startYear": 1901,
+    "endYear": null
+  },
+  {
+    "name": "Southwell",
+    "code": "262",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Spalding",
+    "code": "263",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Spen Valley",
+    "code": "264",
+    "startYear": 1939,
+    "endYear": 1974
+  },
+  {
+    "name": "Spilsby",
+    "code": "265",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "St Albans",
+    "code": "116",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "St Asaph",
+    "code": "117",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "St Austell",
+    "code": "118",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "St Columb",
+    "code": "119",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "St Faiths",
+    "code": "120",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "St George Hanover Square",
+    "code": "121",
+    "startYear": null,
+    "endYear": 1933
+  },
+  {
+    "name": "St George Southwark",
+    "code": "123",
+    "startYear": null,
+    "endYear": 1869
+  },
+  {
+    "name": "St George in the East",
+    "code": "122",
+    "startYear": null,
+    "endYear": 1925
+  },
+  {
+    "name": "St Germans",
+    "code": "124",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "St Giles",
+    "code": "125",
+    "startYear": null,
+    "endYear": 1930
+  },
+  {
+    "name": "St Helens",
+    "code": "126",
+    "startYear": 1935,
+    "endYear": null
+  },
+  {
+    "name": "St Ives",
+    "code": "127",
+    "startYear": null,
+    "endYear": 1967
+  },
+  {
+    "name": "St James Westminster",
+    "code": "128",
+    "startYear": null,
+    "endYear": 1870
+  },
+  {
+    "name": "St Luke",
+    "code": "129",
+    "startYear": null,
+    "endYear": 1869
+  },
+  {
+    "name": "St Martin",
+    "code": "130",
+    "startYear": 1913,
+    "endYear": 1933
+  },
+  {
+    "name": "St Martin in the Fields",
+    "code": "131",
+    "startYear": null,
+    "endYear": 1868
+  },
+  {
+    "name": "St Marylebone",
+    "code": "132",
+    "startYear": 1902,
+    "endYear": 1977
+  },
+  {
+    "name": "St Neots",
+    "code": "133",
+    "startYear": null,
+    "endYear": 1970
+  },
+  {
+    "name": "St Olave Bermondsey",
+    "code": "134",
+    "startYear": 1902,
+    "endYear": 1934
+  },
+  {
+    "name": "St Olave Southwark",
+    "code": "135",
+    "startYear": null,
+    "endYear": 1901
+  },
+  {
+    "name": "St Pancras",
+    "code": "136",
+    "startYear": 1902,
+    "endYear": 1977
+  },
+  {
+    "name": "St Saviour Southwark",
+    "code": "137",
+    "startYear": null,
+    "endYear": 1901
+  },
+  {
+    "name": "St Thomas",
+    "code": "138",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Stafford",
+    "code": "266",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Staffordshire Moorlands",
+    "code": "267",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Staincliffe",
+    "code": "268",
+    "startYear": 1947,
+    "endYear": 1998
+  },
+  {
+    "name": "Staincross",
+    "code": "269",
+    "startYear": 1938,
+    "endYear": 1974
+  },
+  {
+    "name": "Staines",
+    "code": "270",
+    "startYear": null,
+    "endYear": 1947
+  },
+  {
+    "name": "Stamford",
+    "code": "271",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Stepney",
+    "code": "272",
+    "startYear": null,
+    "endYear": 1921
+  },
+  {
+    "name": "Stepney",
+    "code": "273",
+    "startYear": 1926,
+    "endYear": 1982
+  },
+  {
+    "name": "Stevenage",
+    "code": "274",
+    "startYear": 1975,
+    "endYear": 1996
+  },
+  {
+    "name": "Steyning",
+    "code": "275",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Stockbridge",
+    "code": "276",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Stockport",
+    "code": "277",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Stockton",
+    "code": "278",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Stockton on Tees",
+    "code": "279",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Stoke Damerel",
+    "code": "280",
+    "startYear": null,
+    "endYear": 1898
+  },
+  {
+    "name": "Stoke Newington",
+    "code": "281",
+    "startYear": 1930,
+    "endYear": 1979
+  },
+  {
+    "name": "Stoke and Wolstanton",
+    "code": "285",
+    "startYear": 1922,
+    "endYear": 1934
+  },
+  {
+    "name": "Stoke on Trent",
+    "code": "282",
+    "startYear": 1935,
+    "endYear": null
+  },
+  {
+    "name": "Stoke upon Trent",
+    "code": "283",
+    "startYear": null,
+    "endYear": 1922
+  },
+  {
+    "name": "Stokesley",
+    "code": "284",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Stone",
+    "code": "286",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Stourbridge",
+    "code": "287",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Stow",
+    "code": "288",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Stow on the Wold",
+    "code": "289",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Strand",
+    "code": "290",
+    "startYear": null,
+    "endYear": 1913
+  },
+  {
+    "name": "Stratford upon Avon",
+    "code": "291",
+    "startYear": null,
+    "endYear": 1985
+  },
+  {
+    "name": "Stratton",
+    "code": "292",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Strood",
+    "code": "293",
+    "startYear": 1885,
+    "endYear": 1923
+  },
+  {
+    "name": "Strood & Hoo",
+    "code": "295",
+    "startYear": 1923,
+    "endYear": 1941
+  },
+  {
+    "name": "Stroud",
+    "code": "294",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Sturminster",
+    "code": "296",
+    "startYear": null,
+    "endYear": 1958
+  },
+  {
+    "name": "Sturminster",
+    "code": "297",
+    "startYear": 1959,
+    "endYear": 1974
+  },
+  {
+    "name": "Sudbury",
+    "code": "298",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Sunderland",
+    "code": "299",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Surrey Mid Eastern",
+    "code": "300",
+    "startYear": 1934,
+    "endYear": 1996
+  },
+  {
+    "name": "Surrey North Eastern",
+    "code": "303",
+    "startYear": 1934,
+    "endYear": 1965
+  },
+  {
+    "name": "Surrey North Western",
+    "code": "304",
+    "startYear": 1934,
+    "endYear": 1996
+  },
+  {
+    "name": "Surrey Northern",
+    "code": "301",
+    "startYear": 1948,
+    "endYear": 1965
+  },
+  {
+    "name": "Surrey Northern",
+    "code": "302",
+    "startYear": 1965,
+    "endYear": 1996
+  },
+  {
+    "name": "Surrey South Eastern",
+    "code": "305",
+    "startYear": 1934,
+    "endYear": 1996
+  },
+  {
+    "name": "Surrey South Western",
+    "code": "306",
+    "startYear": 1934,
+    "endYear": 1996
+  },
+  {
+    "name": "Sutton",
+    "code": "307",
+    "startYear": 1965,
+    "endYear": null
+  },
+  {
+    "name": "Sutton Coldfield",
+    "code": "308",
+    "startYear": 1932,
+    "endYear": 1974
+  },
+  {
+    "name": "Swadlincote",
+    "code": "309",
+    "startYear": 1974,
+    "endYear": 1997
+  },
+  {
+    "name": "Swaffham",
+    "code": "310",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Swale",
+    "code": "311",
+    "startYear": 1980,
+    "endYear": 1998
+  },
+  {
+    "name": "Swansea",
+    "code": "312",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Swindon",
+    "code": "313",
+    "startYear": 1899,
+    "endYear": null
+  },
+  {
+    "name": "Tadcaster",
+    "code": "314",
+    "startYear": null,
+    "endYear": 1946
+  },
+  {
+    "name": "Tameside",
+    "code": "315",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Tamworth",
+    "code": "316",
+    "startYear": null,
+    "endYear": 1939
+  },
+  {
+    "name": "Taunton",
+    "code": "317",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Taunton",
+    "code": "318",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Taunton Deane",
+    "code": "319",
+    "startYear": 1974,
+    "endYear": 1996
+  },
+  {
+    "name": "Tavistock",
+    "code": "320",
+    "startYear": null,
+    "endYear": 1997
+  },
+  {
+    "name": "Teesdale",
+    "code": "321",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Teesside",
+    "code": "322",
+    "startYear": 1971,
+    "endYear": 1974
+  },
+  {
+    "name": "Teesside North",
+    "code": "323",
+    "startYear": 1968,
+    "endYear": 1971
+  },
+  {
+    "name": "Teesside South",
+    "code": "324",
+    "startYear": 1968,
+    "endYear": 1971
+  },
+  {
+    "name": "Teignbridge",
+    "code": "325",
+    "startYear": 1997,
+    "endYear": null
+  },
+  {
+    "name": "Tenbury",
+    "code": "326",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Tendring",
+    "code": "327",
+    "startYear": null,
+    "endYear": 1939
+  },
+  {
+    "name": "Tenterden",
+    "code": "328",
+    "startYear": null,
+    "endYear": 1941
+  },
+  {
+    "name": "Tetbury",
+    "code": "329",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Tewkesbury",
+    "code": "330",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Thakeham",
+    "code": "331",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Thame",
+    "code": "332",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Thanet",
+    "code": "333",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Thanet with Dover",
+    "code": "334",
+    "startYear": 1998,
+    "endYear": null
+  },
+  {
+    "name": "Thetford",
+    "code": "335",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Thingoe",
+    "code": "336",
+    "startYear": null,
+    "endYear": 1908
+  },
+  {
+    "name": "Thirsk",
+    "code": "337",
+    "startYear": null,
+    "endYear": 1980
+  },
+  {
+    "name": "Thornbury",
+    "code": "338",
+    "startYear": null,
+    "endYear": 1981
+  },
+  {
+    "name": "Thorne",
+    "code": "339",
+    "startYear": null,
+    "endYear": 1946
+  },
+  {
+    "name": "Thrapston",
+    "code": "340",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Thurrock",
+    "code": "341",
+    "startYear": 1939,
+    "endYear": null
+  },
+  {
+    "name": "Ticehurst",
+    "code": "342",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Tisbury",
+    "code": "343",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Tiverton",
+    "code": "344",
+    "startYear": null,
+    "endYear": 1978
+  },
+  {
+    "name": "Todmorden",
+    "code": "345",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Tonbridge",
+    "code": "346",
+    "startYear": null,
+    "endYear": 1979
+  },
+  {
+    "name": "Torbay",
+    "code": "347",
+    "startYear": 1968,
+    "endYear": null
+  },
+  {
+    "name": "Torfaen",
+    "code": "348",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Torridge",
+    "code": "349",
+    "startYear": 1998,
+    "endYear": null
+  },
+  {
+    "name": "Torrington",
+    "code": "350",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Totnes",
+    "code": "351",
+    "startYear": null,
+    "endYear": 1968
+  },
+  {
+    "name": "Towcester",
+    "code": "352",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Tower Hamlets",
+    "code": "353",
+    "startYear": 1983,
+    "endYear": null
+  },
+  {
+    "name": "Toxteth Park",
+    "code": "354",
+    "startYear": 1881,
+    "endYear": 1922
+  },
+  {
+    "name": "Trafford",
+    "code": "355",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Tregaron",
+    "code": "356",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Trowbridge",
+    "code": "357",
+    "startYear": 1936,
+    "endYear": null
+  },
+  {
+    "name": "Truro",
+    "code": "358",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Tunbridge Wells",
+    "code": "359",
+    "startYear": 1980,
+    "endYear": null
+  },
+  {
+    "name": "Tunstead",
+    "code": "360",
+    "startYear": null,
+    "endYear": 1869
+  },
+  {
+    "name": "Tynemouth",
+    "code": "361",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Uckfield",
+    "code": "880",
+    "startYear": null,
+    "endYear": 1999
+  },
+  {
+    "name": "Ulverston",
+    "code": "881",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Upper Agbrigg",
+    "code": "882",
+    "startYear": 1939,
+    "endYear": 1974
+  },
+  {
+    "name": "Uppingham",
+    "code": "883",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Upton upon Severn",
+    "code": "884",
+    "startYear": null,
+    "endYear": 1952
+  },
+  {
+    "name": "Uttlesford",
+    "code": "885",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Uttoxeter",
+    "code": "886",
+    "startYear": null,
+    "endYear": 1939
+  },
+  {
+    "name": "Uxbridge",
+    "code": "887",
+    "startYear": null,
+    "endYear": 1965
+  },
+  {
+    "name": "Vale Royal",
+    "code": "889",
+    "startYear": 1974,
+    "endYear": 1998
+  },
+  {
+    "name": "Vale of Glamorgan",
+    "code": "888",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Vaynor",
+    "code": "890",
+    "startYear": 1934,
+    "endYear": 1974
+  },
+  {
+    "name": "Wainford",
+    "code": "530",
+    "startYear": 1935,
+    "endYear": 1948
+  },
+  {
+    "name": "Wakefield",
+    "code": "531",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Wallasey",
+    "code": "532",
+    "startYear": 1936,
+    "endYear": 1998
+  },
+  {
+    "name": "Wallingford",
+    "code": "533",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Walsall",
+    "code": "534",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Walsingham",
+    "code": "535",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Waltham Forest",
+    "code": "536",
+    "startYear": 1965,
+    "endYear": null
+  },
+  {
+    "name": "Wandsworth",
+    "code": "537",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Wangford",
+    "code": "538",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Wantage",
+    "code": "539",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Ware",
+    "code": "540",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Wareham",
+    "code": "541",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Warley",
+    "code": "542",
+    "startYear": 1969,
+    "endYear": 1974
+  },
+  {
+    "name": "Warley East",
+    "code": "543",
+    "startYear": 1966,
+    "endYear": 1968
+  },
+  {
+    "name": "Warley West",
+    "code": "544",
+    "startYear": 1966,
+    "endYear": 1968
+  },
+  {
+    "name": "Warminster",
+    "code": "545",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Warrington",
+    "code": "546",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Warwick",
+    "code": "547",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Warwick & Leamington",
+    "code": "548",
+    "startYear": 1932,
+    "endYear": 1985
+  },
+  {
+    "name": "Watford",
+    "code": "549",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Waveney",
+    "code": "550",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Wayland",
+    "code": "551",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Weardale",
+    "code": "552",
+    "startYear": null,
+    "endYear": 1938
+  },
+  {
+    "name": "Wednesbury",
+    "code": "553",
+    "startYear": 1932,
+    "endYear": 1966
+  },
+  {
+    "name": "Wellingborough",
+    "code": "554",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Wellington Sal",
+    "code": "556",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Wellington Som",
+    "code": "555",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Wells",
+    "code": "557",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Welshpool",
+    "code": "558",
+    "startYear": 1936,
+    "endYear": 1982
+  },
+  {
+    "name": "Welshpool & Llanfyllin",
+    "code": "559",
+    "startYear": 1982,
+    "endYear": null
+  },
+  {
+    "name": "Welton",
+    "code": "560",
+    "startYear": 1938,
+    "endYear": 1974
+  },
+  {
+    "name": "Wem",
+    "code": "561",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Wenlock",
+    "code": "562",
+    "startYear": 1935,
+    "endYear": 1948
+  },
+  {
+    "name": "Wensleydale",
+    "code": "563",
+    "startYear": 1936,
+    "endYear": 1998
+  },
+  {
+    "name": "Weobley",
+    "code": "564",
+    "startYear": null,
+    "endYear": 1997
+  },
+  {
+    "name": "West Ashford",
+    "code": "565",
+    "startYear": null,
+    "endYear": 1941
+  },
+  {
+    "name": "West Bromwich",
+    "code": "566",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "West Cheshire",
+    "code": "570",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "West Derby",
+    "code": "571",
+    "startYear": null,
+    "endYear": 1934
+  },
+  {
+    "name": "West Devon",
+    "code": "572",
+    "startYear": 1997,
+    "endYear": null
+  },
+  {
+    "name": "West Dorset",
+    "code": "573",
+    "startYear": 1997,
+    "endYear": null
+  },
+  {
+    "name": "West Firle",
+    "code": "574",
+    "startYear": null,
+    "endYear": 1837
+  },
+  {
+    "name": "West Glamorgan",
+    "code": "575",
+    "startYear": 1935,
+    "endYear": 1974
+  },
+  {
+    "name": "West Ham",
+    "code": "576",
+    "startYear": null,
+    "endYear": 1967
+  },
+  {
+    "name": "West Hartlepool",
+    "code": "578",
+    "startYear": 1938,
+    "endYear": 1967
+  },
+  {
+    "name": "West Lancashire",
+    "code": "579",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "West London",
+    "code": "580",
+    "startYear": 1838,
+    "endYear": 1869
+  },
+  {
+    "name": "West Oxfordshire",
+    "code": "587",
+    "startYear": 1982,
+    "endYear": null
+  },
+  {
+    "name": "West Somerset",
+    "code": "588",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "West Surrey",
+    "code": "589",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "West Ward",
+    "code": "590",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Westbourne",
+    "code": "567",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Westbury",
+    "code": "568",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Westbury on Severn",
+    "code": "569",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Westhampnett",
+    "code": "577",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Westminster",
+    "code": "581",
+    "startYear": 1870,
+    "endYear": 1913
+  },
+  {
+    "name": "Westminster",
+    "code": "582",
+    "startYear": 1965,
+    "endYear": null
+  },
+  {
+    "name": "Westminster St Margaret",
+    "code": "583",
+    "startYear": null,
+    "endYear": 1870
+  },
+  {
+    "name": "Westmorland North",
+    "code": "584",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Westmorland South",
+    "code": "585",
+    "startYear": 1937,
+    "endYear": 1974
+  },
+  {
+    "name": "Weston super Mare",
+    "code": "586",
+    "startYear": 1936,
+    "endYear": 1996
+  },
+  {
+    "name": "Wetherby",
+    "code": "591",
+    "startYear": 1854,
+    "endYear": 1946
+  },
+  {
+    "name": "Weymouth",
+    "code": "592",
+    "startYear": null,
+    "endYear": 1958
+  },
+  {
+    "name": "Weymouth",
+    "code": "593",
+    "startYear": 1959,
+    "endYear": 1997
+  },
+  {
+    "name": "Wharfedale",
+    "code": "594",
+    "startYear": 1861,
+    "endYear": 1981
+  },
+  {
+    "name": "Wheatenhurst",
+    "code": "595",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Whitby",
+    "code": "596",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Whitchurch H",
+    "code": "597",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Whitchurch S",
+    "code": "598",
+    "startYear": null,
+    "endYear": 1837
+  },
+  {
+    "name": "Whitchurch S",
+    "code": "599",
+    "startYear": 1853,
+    "endYear": 1969
+  },
+  {
+    "name": "Whitechapel",
+    "code": "600",
+    "startYear": null,
+    "endYear": 1925
+  },
+  {
+    "name": "Whitehaven",
+    "code": "601",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Whittlesey",
+    "code": "602",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Widnes",
+    "code": "603",
+    "startYear": 1964,
+    "endYear": 1974
+  },
+  {
+    "name": "Wigan",
+    "code": "604",
+    "startYear": null,
+    "endYear": 1995
+  },
+  {
+    "name": "Wigan & Leigh",
+    "code": "605",
+    "startYear": 1995,
+    "endYear": null
+  },
+  {
+    "name": "Wigton",
+    "code": "606",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Willesden",
+    "code": "607",
+    "startYear": 1909,
+    "endYear": 1965
+  },
+  {
+    "name": "Williton",
+    "code": "608",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Wilton",
+    "code": "609",
+    "startYear": null,
+    "endYear": 1936
+  },
+  {
+    "name": "Wimborne",
+    "code": "610",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Wincanton",
+    "code": "611",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Winchcomb",
+    "code": "612",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "Winchester",
+    "code": "613",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Windsor",
+    "code": "614",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Windsor & Maidenhead",
+    "code": "615",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "Winslow",
+    "code": "616",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Wirral",
+    "code": "617",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Wisbech",
+    "code": "618",
+    "startYear": null,
+    "endYear": 1980
+  },
+  {
+    "name": "Witham",
+    "code": "619",
+    "startYear": null,
+    "endYear": 1880
+  },
+  {
+    "name": "Witney",
+    "code": "620",
+    "startYear": null,
+    "endYear": 1982
+  },
+  {
+    "name": "Woburn",
+    "code": "621",
+    "startYear": null,
+    "endYear": 1899
+  },
+  {
+    "name": "Wokingham",
+    "code": "622",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Wolstanton",
+    "code": "623",
+    "startYear": null,
+    "endYear": 1922
+  },
+  {
+    "name": "Wolverhampton",
+    "code": "624",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Wood Green",
+    "code": "626",
+    "startYear": 1947,
+    "endYear": 1965
+  },
+  {
+    "name": "Woodbridge",
+    "code": "625",
+    "startYear": null,
+    "endYear": 1935
+  },
+  {
+    "name": "Woodstock",
+    "code": "627",
+    "startYear": null,
+    "endYear": 1932
+  },
+  {
+    "name": "Woolwich",
+    "code": "628",
+    "startYear": 1868,
+    "endYear": 1969
+  },
+  {
+    "name": "Worcester",
+    "code": "629",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Worksop",
+    "code": "630",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Worsley",
+    "code": "631",
+    "startYear": 1841,
+    "endYear": 1849
+  },
+  {
+    "name": "Worth Valley",
+    "code": "634",
+    "startYear": 1947,
+    "endYear": 1974
+  },
+  {
+    "name": "Worthing",
+    "code": "632",
+    "startYear": null,
+    "endYear": 1869
+  },
+  {
+    "name": "Worthing",
+    "code": "633",
+    "startYear": 1935,
+    "endYear": null
+  },
+  {
+    "name": "Wortley",
+    "code": "635",
+    "startYear": 1838,
+    "endYear": 1974
+  },
+  {
+    "name": "Wrekin",
+    "code": "636",
+    "startYear": 1974,
+    "endYear": 1998
+  },
+  {
+    "name": "Wrexham",
+    "code": "637",
+    "startYear": null,
+    "endYear": 1974
+  },
+  {
+    "name": "Wrexham",
+    "code": "638",
+    "startYear": 1996,
+    "endYear": null
+  },
+  {
+    "name": "Wrexham Maelor",
+    "code": "639",
+    "startYear": 1974,
+    "endYear": 1996
+  },
+  {
+    "name": "Wycombe",
+    "code": "640",
+    "startYear": null,
+    "endYear": 1998
+  },
+  {
+    "name": "Yarmouth",
+    "code": "684",
+    "startYear": null,
+    "endYear": 1923
+  },
+  {
+    "name": "Yarmouth & Flegg",
+    "code": "685",
+    "startYear": 1924,
+    "endYear": 1938
+  },
+  {
+    "name": "Yeovil",
+    "code": "686",
+    "startYear": null,
+    "endYear": null
+  },
+  {
+    "name": "Ynys Mon",
+    "code": "687",
+    "startYear": 1974,
+    "endYear": null
+  },
+  {
+    "name": "York",
+    "code": "688",
+    "startYear": null,
+    "endYear": 1937
+  },
+  {
+    "name": "York",
+    "code": "689",
+    "startYear": 1938,
+    "endYear": null
+  },
+  {
+    "name": "Ystradgynlais",
+    "code": "690",
+    "startYear": 1934,
+    "endYear": null
+  }
+]

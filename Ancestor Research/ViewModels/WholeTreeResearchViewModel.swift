@@ -35,13 +35,12 @@ final class WholeTreeResearchViewModel {
     // MARK: - Queue Building
 
     /// Build a priority-sorted queue of profiles to research.
-    /// Priority: least complete first, skip post-1930 births and already-complete profiles.
+    /// Priority: least complete first, skip already-complete profiles. Per-source
+    /// coverage is enforced by the dispatcher — profiles outside any source's
+    /// declared range simply return zero results rather than being pre-excluded.
     func buildQueue(snapshot: FamilyGraphSnapshot) {
         profileQueue = snapshot.profiles.values
             .filter { profile in
-                // Skip unsearchable (born after 1930)
-                if let birthYear = profile.birthDate?.earliest, birthYear > 1930 { return false }
-                // Skip fully complete profiles
                 let comp = snapshot.completeness(for: profile.id)
                 return comp.score < comp.maximum
             }

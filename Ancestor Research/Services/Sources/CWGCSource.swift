@@ -46,6 +46,9 @@ struct CWGCSource: RecordSource {
         }
         guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
 
+        let summary = Self.activitySummary(query: query, surname: surname)
+        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary))
+
         do {
             var components = URLComponents(string: Self.exportURL)!
             var queryItems = [
@@ -65,21 +68,46 @@ struct CWGCSource: RecordSource {
             }
             components.queryItems = queryItems
 
-            guard let url = components.url else { return .results([]) }
+            guard let url = components.url else {
+                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0))
+                return .results([])
+            }
 
             let data = try await http.get(url: url, headers: ["User-Agent": Self.userAgent])
             guard let csv = String(data: data, encoding: .utf8) else {
+                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "Invalid encoding"))
                 return .unavailable(reason: "Invalid encoding in CSV response")
             }
 
             let records = Self.parseCSV(csv)
             logger.info("CWGC search returned \(records.count) records for \(surname)")
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count))
             return .results(records)
 
         } catch {
             logger.warning("CWGC search failed: \(error.localizedDescription)")
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
             return .unavailable(reason: error.localizedDescription)
         }
+    }
+
+    /// Build a one-line description of a CWGC query for the live activity feed.
+    /// Surfaces the war filter (WWI / WWII / both) so the user can tell which
+    /// casualty database each line probed.
+    nonisolated static func activitySummary(query: RecordQuery, surname: String) -> String {
+        let warLabel: String
+        if let yearFrom = query.yearFrom, let yearTo = query.yearTo {
+            if yearTo <= 1918 { warLabel = "WWI " }
+            else if yearFrom >= 1939 { warLabel = "WWII " }
+            else { warLabel = "" }
+        } else {
+            warLabel = ""
+        }
+        let searchTerms: String = {
+            if let given = query.givenName, !given.isEmpty { return "\(given) \(surname)" }
+            return surname
+        }()
+        return "CWGC \(warLabel)casualties: \(searchTerms)"
     }
 
     // MARK: - CSV Parsing (static, testable)

@@ -112,6 +112,7 @@ struct OnboardingWizardView: View {
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .glassEffect(.regular, in: .rect(cornerRadius: 8))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -135,6 +136,7 @@ struct OnboardingWizardView: View {
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .glassEffect(.regular, in: .rect(cornerRadius: 8))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -168,8 +170,11 @@ struct OnboardingWizardView: View {
             VStack(alignment: .leading, spacing: 6) {
                 columnTitle("Marriage (optional)")
                 DateParsePreviewField(label: "Marriage date", text: $input.marriageDateText)
-                TextField("Marriage location", text: $input.marriageLocation)
-                    .textFieldStyle(.roundedBorder)
+                LocationPicker(
+                    label: "Marriage location",
+                    text: $input.marriageLocation,
+                    locationCode: $input.marriageLocationCode
+                )
             }
         }
     }
@@ -397,8 +402,11 @@ struct OnboardingWizardView: View {
             }
             DateParsePreviewField(label: "Birth date", text: input.birthDateText)
             if includeLocation {
-                TextField("Birth location", text: input.birthLocation)
-                    .textFieldStyle(.roundedBorder)
+                LocationPicker(
+                    label: "Birth location",
+                    text: input.birthLocation,
+                    locationCode: input.birthLocationCode
+                )
             }
         }
     }

@@ -13,9 +13,31 @@ nonisolated extension ProjectDatabase {
         return event
     }
 
+    /// Insert a life event only if no row already exists with the same `id`.
+    /// Used by the cluster-review projection (Task #53) so re-clicking "Save
+    /// as lead" on the same cluster doesn't duplicate the projected events.
+    /// Pairs with `SourceRecord.deterministicID(profileID:sourceRecordID:)`
+    /// which produces a stable UUID per (profile, sourceRecord).
+    /// Returns `true` if the row was inserted, `false` if a row with that id
+    /// was already present.
+    @discardableResult
+    func addLifeEventIfAbsent(_ event: LifeEvent) throws -> Bool {
+        try dbQueue.write { db in
+            let existing = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM life_events WHERE id = ?",
+                arguments: [event.id.uuidString]
+            ) ?? 0
+            guard existing == 0 else { return false }
+            try Self.insertLifeEvent(event, db: db)
+            return true
+        }
+    }
+
     @discardableResult
     func updateLifeEvent(_ event: LifeEvent) throws -> LifeEvent {
         let sourcesJSON = Self.encodeJSON(event.sources)
+        let detailsJSON = event.details.flatMap(Self.encodeDetailsJSON)
         try dbQueue.write { db in
             try db.execute(sql: """
                 UPDATE life_events
@@ -24,7 +46,8 @@ nonisolated extension ProjectDatabase {
                     date_qualifier = ?, date_approximate = ?,
                     end_date_original = ?, end_date_earliest = ?, end_date_latest = ?,
                     end_date_qualifier = ?, end_date_approximate = ?,
-                    location = ?, description = ?,
+                    location = ?, location_code = ?, description = ?,
+                    details_json = ?,
                     sources_json = ?, confidence = ?, sensitive = ?
                 WHERE id = ?
                 """, arguments: [
@@ -33,7 +56,8 @@ nonisolated extension ProjectDatabase {
                     event.date?.qualifier.rawValue, event.date.map { $0.isApproximate ? 1 : 0 },
                     event.endDate?.original, event.endDate?.earliest, event.endDate?.latest,
                     event.endDate?.qualifier.rawValue, event.endDate.map { $0.isApproximate ? 1 : 0 },
-                    event.location, event.description,
+                    event.location, event.locationCode, event.description,
+                    detailsJSON,
                     sourcesJSON, event.confidence.rawInt,
                     event.sensitive ? 1 : 0,
                     event.id.uuidString,
@@ -69,23 +93,42 @@ nonisolated extension ProjectDatabase {
 
     static func insertLifeEvent(_ event: LifeEvent, db: Database) throws {
         let sourcesJSON = encodeJSON(event.sources)
+        let detailsJSON = event.details.flatMap(encodeDetailsJSON)
         try db.execute(sql: """
             INSERT INTO life_events
               (id, profile_id, type,
                date_original, date_earliest, date_latest, date_qualifier, date_approximate,
                end_date_original, end_date_earliest, end_date_latest, end_date_qualifier, end_date_approximate,
-               location, description, sources_json, confidence, created_by_transaction_id, sensitive)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               location, location_code, description, details_json,
+               sources_json, confidence, created_by_transaction_id, sensitive)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
                 event.id.uuidString, event.profileID, event.type.rawValue,
                 event.date?.original, event.date?.earliest, event.date?.latest,
                 event.date?.qualifier.rawValue, event.date.map { $0.isApproximate ? 1 : 0 },
                 event.endDate?.original, event.endDate?.earliest, event.endDate?.latest,
                 event.endDate?.qualifier.rawValue, event.endDate.map { $0.isApproximate ? 1 : 0 },
-                event.location, event.description, sourcesJSON, event.confidence.rawInt,
+                event.location, event.locationCode, event.description, detailsJSON,
+                sourcesJSON, event.confidence.rawInt,
                 event.createdByTransactionID?.uuidString,
                 event.sensitive ? 1 : 0,
             ])
+    }
+
+    /// Encode a `LifeEventDetails` to JSON for storage. Returns nil if
+    /// encoding fails — we'd rather lose the structured payload than fail
+    /// the write (the freeform `description` still survives).
+    static func encodeDetailsJSON(_ details: LifeEventDetails) -> String? {
+        guard let data = try? JSONEncoder().encode(details) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Decode a `details_json` cell back into `LifeEventDetails`. Returns
+    /// nil for missing / unparseable values so a row that ever gets garbled
+    /// still loads — its description-side data isn't affected.
+    static func decodeDetailsJSON(_ json: String?) -> LifeEventDetails? {
+        guard let json, let data = json.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(LifeEventDetails.self, from: data)
     }
 
     static func lifeEventFromRow(_ row: Row) -> LifeEvent? {
@@ -111,7 +154,9 @@ nonisolated extension ProjectDatabase {
         return LifeEvent(
             id: id, profileID: profileID, type: type,
             date: date, endDate: endDate,
-            location: row["location"], description: row["description"],
+            location: row["location"], locationCode: row["location_code"],
+            description: row["description"],
+            details: decodeDetailsJSON(row["details_json"]),
             sources: sources, confidence: confidence,
             createdByTransactionID: txID,
             sensitive: sensitive

@@ -47,6 +47,15 @@ struct ProfileDetailView: View {
 
                 Divider()
 
+                // Per-gap research entry points (Task #39). When a profile is
+                // missing facts the user can act on each one in-place rather
+                // than running a whole-profile sweep. Each row sets the same
+                // researchConfigProfile that the whole-profile Research button
+                // does — `ResearchConfigSheet` then picks an appropriate
+                // default mode for the subject. We don't yet pass a focus
+                // hint through to the sheet; that's a future refinement.
+                missingFactsSection
+
                 // Fields with source badges
                 fieldRow("Birth", value: profile.birthDate?.original, place: profile.birthLocation, field: .birthDate)
                 hypotheticalLine(for: .birthDate)
@@ -128,6 +137,14 @@ struct ProfileDetailView: View {
                     .buttonStyle(.glass)
                     .controlSize(.small)
 
+                    Button {
+                        appState.researchConfigProfile = profile
+                    } label: {
+                        Label("Research", systemImage: "magnifyingglass")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+
                     if let setRoot = onSetRoot {
                         Button("Show as Root") {
                             setRoot()
@@ -166,6 +183,44 @@ struct ProfileDetailView: View {
         }
         .sheet(isPresented: $showingAttachmentImporter) {
             AttachmentImportSheet(target: .profile(id: profile.id))
+        }
+    }
+
+    /// Per-gap research entry points (Task #39). Lists each missing fact /
+    /// relationship from the completeness check and offers a Research button
+    /// per item. Each button opens the standard `ResearchConfigSheet` for the
+    /// profile — the sheet's smart-default mode picker already adapts to the
+    /// subject's shape, so a per-gap button on a ghost profile lands on
+    /// Discover and on a near-complete profile lands on Verify. Targeted-focus
+    /// hinting (e.g. "fill death record specifically") is deliberately not
+    /// passed through yet; the pipeline doesn't act on it and the current
+    /// signposting value comes from the entry point, not the dispatch.
+    @ViewBuilder
+    private var missingFactsSection: some View {
+        let comp = snapshot.completeness(for: profile.id)
+        if !comp.missing.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Missing facts")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                ForEach(comp.missing, id: \.self) { gap in
+                    HStack(spacing: 8) {
+                        Image(systemName: "questionmark.circle")
+                            .foregroundStyle(.tertiary)
+                            .font(.callout)
+                        Text(gap.label)
+                            .font(.callout)
+                        Spacer()
+                        Button("Research") {
+                            appState.researchConfigProfile = profile
+                        }
+                        .buttonStyle(.glass)
+                        .controlSize(.small)
+                    }
+                }
+            }
+            Divider()
         }
     }
 
@@ -274,6 +329,15 @@ struct ProfileDetailView: View {
                                     Text(location)
                                         .font(AppTypography.cardMeta)
                                         .foregroundStyle(.secondary)
+                                }
+                                // Task #52 — surface the typed details
+                                // payload below the freeform description so
+                                // structured fields the source emitted
+                                // (rank, cemetery, household, etc.) are
+                                // actually visible to the user. Falls
+                                // through silently when `details` is nil.
+                                if let details = event.details {
+                                    LifeEventDetailsView(details: details)
                                 }
                             }
                             Spacer(minLength: 0)

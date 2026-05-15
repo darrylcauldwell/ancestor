@@ -633,7 +633,10 @@ private struct TaskRow: View {
         case .field(let f):
             switch f {
             case .firstName: return "name"
+            case .middleName: return "middle"
             case .lastName: return "surname"
+            case .nickName: return "nickname"
+            case .mothersMaidenName: return "mother's maiden"
             case .gender: return "gender"
             case .birthDate: return "birth"
             case .birthLocation: return "b.loc"

@@ -37,13 +37,25 @@ actor FreeBMDSource: RecordSource {
         self.http = http
     }
     private let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "FreeBMD")
-    private var lastRequestTime: ContinuousClock.Instant?
+    /// Scheduled time for the next allowable request. Each caller synchronously
+    /// (without await) advances this and reads its own slot — guarantees serial
+    /// timing even when many search() calls arrive at the actor concurrently.
+    /// The previous lastRequestTime-then-await pattern was racy under actor
+    /// reentrancy: many callers read the same stale value, all slept ~500ms,
+    /// then woke nearly simultaneously and fired together.
+    private var nextRequestSlot: ContinuousClock.Instant?
     private let requestDelay: Duration = .milliseconds(500)
 
     // Session state (CSRF tokens)
     private var sessionCookie: String?
     private var formTokenDB: String?
     private var formTokenV: String?
+    /// In-flight session-establishment task. Multiple concurrent search() calls
+    /// all hit ensureSession() before any one has cached the cookie. Without
+    /// this latch they'd each fetch the form HTML in parallel (12+ duplicate
+    /// requests per pipeline iteration), occasionally exhausting connection
+    /// pools and causing timeouts. Concurrent callers now await the same task.
+    private var sessionEstablishmentTask: Task<Void, Error>?
 
     private var lastSuccessfulSearch: Date?
     private var lastError: String?
@@ -61,6 +73,11 @@ actor FreeBMDSource: RecordSource {
         guard recordTypes.contains(query.recordType) else { return .outsideCoverage(reason: "FreeBMD does not cover \(query.recordType.rawValue)") }
         guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
 
+        // Build a human-readable summary like "FreeBMD Belper marriages:
+        // Cauldwell × Holmes 1946–1977" for the activity feed.
+        let summary = Self.activitySummary(query: query, surname: surname)
+        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary))
+
         do {
             try await ensureSession()
 
@@ -71,15 +88,21 @@ actor FreeBMDSource: RecordSource {
             default: "All"
             }
 
+            // Pull source-specific params. `spouseSurname` powers marriage
+            // enrichment — "Cauldwell × Holmes" marriages get found by setting
+            // surname=Cauldwell and s_surname=Holmes (or vice versa).
+            let params: FreeBMDParams? = {
+                if case .freeBMD(let p) = query.sourceParams { return p } else { return nil }
+            }()
             let fields: [String: String] = [
                 "type": recordType,
                 "surname": surname,
                 "given": query.givenName ?? "",
-                "s_surname": "",
+                "s_surname": params?.spouseSurname ?? "",
                 "s_given": "",
                 "start": query.yearFrom.map(String.init) ?? "",
                 "end": query.yearTo.map(String.init) ?? "",
-                "districtid": { if case .freeBMD(let p) = query.sourceParams { return p.districtCode ?? "" }; return "" }(),
+                "districtid": params?.districtCode ?? "",
                 "db": formTokenDB ?? "",
                 "v": formTokenV ?? "",
                 "find.x": "1",
@@ -97,11 +120,15 @@ actor FreeBMDSource: RecordSource {
                 )
             }
 
-            guard let html = String(data: data, encoding: .utf8) else { return .unavailable(reason: "Invalid encoding") }
+            guard let html = String(data: data, encoding: .utf8) else {
+                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "Invalid encoding"))
+                return .unavailable(reason: "Invalid encoding")
+            }
             let results = Self.parseSearchResults(html, recordType: query.recordType)
             lastSuccessfulSearch = Date()
             lastError = nil
             logger.info("Search returned \(results.count) results for \(surname)")
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count))
             return .results(results)
 
         } catch {
@@ -110,16 +137,76 @@ actor FreeBMDSource: RecordSource {
             sessionCookie = nil
             formTokenDB = nil
             formTokenV = nil
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
             return .unavailable(reason: error.localizedDescription)
         }
+    }
+
+    /// Build a one-line description of a FreeBMD query for the live activity feed.
+    /// Resolves the district code to its display name when possible (catalogue
+    /// covers all 1125 UK districts) and includes the search terms so the user
+    /// can tell what each line means.
+    nonisolated static func activitySummary(query: RecordQuery, surname: String) -> String {
+        let recordTypeLabel: String = switch query.recordType {
+        case .birth: "births"
+        case .death: "deaths"
+        case .marriage: "marriages"
+        default: query.recordType.rawValue
+        }
+
+        var districtName = "national"
+        var spouseSurname: String?
+        if case .freeBMD(let params) = query.sourceParams {
+            if let code = params.districtCode, !code.isEmpty {
+                districtName = FreeBMDDistrictCatalogue.shared.all()
+                    .first(where: { $0.code == code })?.name ?? "district \(code)"
+            }
+            if let ss = params.spouseSurname, !ss.isEmpty {
+                spouseSurname = ss
+            }
+        }
+
+        let searchTerms: String = {
+            if let spouse = spouseSurname { return "\(surname) × \(spouse)" }
+            if let given = query.givenName, !given.isEmpty { return "\(given) \(surname)" }
+            return surname
+        }()
+
+        let yearLabel: String
+        switch (query.yearFrom, query.yearTo) {
+        case let (yf?, yt?) where yf == yt:
+            yearLabel = " \(yf)"
+        case let (yf?, yt?):
+            yearLabel = " \(yf)–\(yt)"
+        default:
+            yearLabel = ""
+        }
+
+        return "FreeBMD \(districtName) \(recordTypeLabel): \(searchTerms)\(yearLabel)"
     }
 
     // MARK: - Session Management
 
     /// Fetch a fresh session cookie and hidden form tokens from FreeBMD.
+    /// Concurrent callers all await the same establishment task — only one
+    /// network fetch ever happens at a time even when 12+ search() calls
+    /// queue at the actor.
     private func ensureSession() async throws {
-        guard sessionCookie == nil else { return }
+        if sessionCookie != nil { return }
+        if let inFlight = sessionEstablishmentTask {
+            try await inFlight.value
+            return
+        }
+        let task = Task<Void, Error> { [weak self] in
+            try await self?.performSessionEstablishment()
+        }
+        sessionEstablishmentTask = task
+        defer { sessionEstablishmentTask = nil }
+        try await task.value
+    }
 
+    /// The actual fetch. Only ever called from inside the single in-flight task.
+    private func performSessionEstablishment() async throws {
         let data = try await http.get(url: Self.searchFormURL, headers: ["User-Agent": Self.userAgent])
         guard let html = String(data: data, encoding: .utf8) else {
             throw HTTPError.status(code: 0, body: nil)
@@ -140,15 +227,42 @@ actor FreeBMDSource: RecordSource {
 
     // MARK: - Rate Limiting
 
+    /// Serializes requests with a strict 500ms gap between consecutive calls.
+    ///
+    /// Slot-reservation pattern: each caller atomically advances `nextRequestSlot`
+    /// to its scheduled wall-clock time, then sleeps until that moment before
+    /// firing. Because the slot advancement happens entirely synchronously on
+    /// the actor (no `await` between read and write), 12 concurrent search()
+    /// calls each get a unique slot 500ms apart — they don't pile up and hit
+    /// the volunteer source simultaneously.
+    ///
+    /// FreeBMD is a single-volunteer transcription project; we deliberately do
+    /// not run requests in parallel. 12 districts × 0.5s = ~6s per record type
+    /// per pipeline iteration. That's well-behaved (2 req/sec, similar to a
+    /// human browsing).
     private func rateLimitedRequest(_ operation: () async throws -> Data) async throws -> Data {
-        if let lastTime = lastRequestTime {
-            let elapsed = ContinuousClock.now - lastTime
-            if elapsed < requestDelay {
-                try await Task.sleep(for: requestDelay - elapsed)
-            }
+        let scheduledFor = reserveNextSlot()
+        let now = ContinuousClock.now
+        if scheduledFor > now {
+            try await Task.sleep(until: scheduledFor, clock: .continuous)
         }
-        lastRequestTime = .now
         return try await operation()
+    }
+
+    /// Atomically (within the actor's serial section, no await) compute the
+    /// next available slot and advance `nextRequestSlot` past it.
+    private func reserveNextSlot() -> ContinuousClock.Instant {
+        let now = ContinuousClock.now
+        let scheduledFor: ContinuousClock.Instant
+        if let nextSlot = nextRequestSlot, nextSlot > now {
+            // Queue forms — schedule after the previous reservation.
+            scheduledFor = nextSlot
+        } else {
+            // No queue — go now.
+            scheduledFor = now
+        }
+        nextRequestSlot = scheduledFor.advanced(by: requestDelay)
+        return scheduledFor
     }
 
     // MARK: - Parsing (static, testable)

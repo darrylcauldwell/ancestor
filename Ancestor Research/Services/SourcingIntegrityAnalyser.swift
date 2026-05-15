@@ -56,7 +56,10 @@ nonisolated enum SourcingIntegrityAnalyser {
     private static func displayValue(for field: ProfileField, profile: Profile) -> String? {
         switch field {
         case .firstName: return nonEmpty(profile.firstName)
+        case .middleName: return nonEmpty(profile.middleName)
         case .lastName: return nonEmpty(profile.lastName)
+        case .nickName: return nonEmpty(profile.nickName)
+        case .mothersMaidenName: return nonEmpty(profile.mothersMaidenName)
         case .gender:
             guard let g = profile.gender, g != .unknown else { return nil }
             return g.rawValue.capitalized

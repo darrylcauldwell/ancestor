@@ -31,7 +31,10 @@ nonisolated enum ProfileDiff {
     static func value(of field: ProfileField, in profile: Profile) -> String? {
         switch field {
         case .firstName: return profile.firstName
+        case .middleName: return profile.middleName
         case .lastName: return profile.lastName
+        case .nickName: return profile.nickName
+        case .mothersMaidenName: return profile.mothersMaidenName
         case .gender: return profile.gender?.rawValue
         case .birthDate: return profile.birthDate?.original
         case .birthLocation: return profile.birthLocation

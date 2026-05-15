@@ -5,7 +5,6 @@ import SwiftUI
 struct ResearchProgressView: View {
     @Bindable var vm: ResearchViewModel
     @State private var elapsedSeconds: Int = 0
-    @State private var timerTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 24) {
@@ -35,9 +34,14 @@ struct ResearchProgressView: View {
                 }
             }
 
-            // Progress indicator
-            ProgressView()
-                .controlSize(.large)
+            // Progress indicator — only spin while the pipeline is actually
+            // running. Previously this rendered unconditionally, so the wheel
+            // kept spinning after the title flipped to "Research complete"
+            // and the user thought the run was stuck.
+            if vm.isResearching {
+                ProgressView()
+                    .controlSize(.large)
+            }
 
             if let message = vm.progressMessage {
                 Text(message)
@@ -64,10 +68,68 @@ struct ResearchProgressView: View {
                 }
             }
 
+            // Live activity feed — newest first, ~6 lines visible, scrollable.
+            // Render unconditionally so the user sees the panel even before
+            // the first event arrives (previously the panel popped in after
+            // first event, which made it feel like nothing was happening).
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Activity")
+                        .font(AppTypography.cardMeta)
+                        .foregroundStyle(.secondary)
+                    Text("(\(vm.recentActivity.count))")
+                        .font(AppTypography.cardMeta)
+                        .foregroundStyle(.tertiary)
+                }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        if vm.recentActivity.isEmpty {
+                            Text("Waiting for sources to report…")
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.tertiary)
+                                .italic()
+                        } else {
+                            ForEach(Array(vm.recentActivity.enumerated()), id: \.offset) { _, line in
+                                Text(line)
+                                    .font(AppTypography.badge)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                }
+                .frame(maxWidth: 500, minHeight: 80, maxHeight: 140)
+                .glassEffect(.regular, in: .rect(cornerRadius: 8))
+                // ScrollView doesn't clip to its glassEffect shape by
+                // default — without this clipShape the activity rows
+                // beyond row 6 spilled past the 140pt cap and rendered
+                // on top of the sheet's footer.
+                .clipShape(.rect(cornerRadius: 8))
+            }
+
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+        #if DEBUG
+        // Drive the 5-minute soft-deadline clock. Starts when the view
+        // appears, stops when it goes away (or when research completes —
+        // we leave the final reading visible after isResearching flips).
+        .task(id: vm.isResearching) {
+            if vm.isResearching {
+                elapsedSeconds = 0
+                while !Task.isCancelled && vm.isResearching {
+                    try? await Task.sleep(for: .seconds(1))
+                    if !Task.isCancelled && vm.isResearching {
+                        elapsedSeconds += 1
+                    }
+                }
+            }
+        }
+        #endif
     }
 
     private func sourceStatusCard(_ status: ResearchViewModel.SourceStatus) -> some View {
@@ -119,21 +181,3 @@ struct ResearchProgressView: View {
     }
 }
 
-// MARK: - Timer extension
-
-extension ResearchProgressView {
-    func startTimer() {
-        elapsedSeconds = 0
-        timerTask = Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                elapsedSeconds += 1
-            }
-        }
-    }
-
-    func stopTimer() {
-        timerTask?.cancel()
-        timerTask = nil
-    }
-}

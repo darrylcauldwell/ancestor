@@ -22,11 +22,15 @@ nonisolated enum OnboardingWizardBuilder {
         var gender: Gender?
         var birthDateText: String
         var birthLocation: String
+        /// Structured place ID picked from the gazetteer (e.g. "DBY:Crich").
+        /// nil for freeform entries that didn't match any gazetteer place.
+        var birthLocationCode: String?
 
         init(
             id: UUID = UUID(),
             firstName: String, lastName: String, gender: Gender?,
-            birthDateText: String, birthLocation: String
+            birthDateText: String, birthLocation: String,
+            birthLocationCode: String? = nil
         ) {
             self.id = id
             self.firstName = firstName
@@ -34,6 +38,7 @@ nonisolated enum OnboardingWizardBuilder {
             self.gender = gender
             self.birthDateText = birthDateText
             self.birthLocation = birthLocation
+            self.birthLocationCode = birthLocationCode
         }
 
         var isPopulated: Bool {
@@ -51,6 +56,7 @@ nonisolated enum OnboardingWizardBuilder {
         var mother: PersonInput
         var marriageDateText: String = ""
         var marriageLocation: String = ""
+        var marriageLocationCode: String? = nil
         /// Optional third parent — surfaced via the wizard's "Add stepparent"
         /// button (DESIGN.md §7.5.1). When populated, attaches as a parent
         /// edge with `RelationshipSubtype.step`.
@@ -122,7 +128,8 @@ nonisolated enum OnboardingWizardBuilder {
             relationships.append(spouseEdge(
                 a: fatherID, b: motherID,
                 marriageDateText: input.marriageDateText,
-                marriageLocation: input.marriageLocation
+                marriageLocation: input.marriageLocation,
+                marriageLocationCode: input.marriageLocationCode
             ))
         }
 
@@ -240,8 +247,10 @@ nonisolated enum OnboardingWizardBuilder {
             attributes: nil,
             birthDate: GenealogicalDate.parsePreview(input.birthDateText).parsed,
             birthLocation: AutoSuggestService.normaliseName(input.birthLocation),
+            birthLocationCode: input.birthLocationCode,
             deathDate: nil,
             deathLocation: nil,
+            deathLocationCode: nil,
             bio: nil,
             isDeleted: false,
             sources: [:],
@@ -263,13 +272,15 @@ nonisolated enum OnboardingWizardBuilder {
     private static func spouseEdge(
         a: String, b: String,
         marriageDateText: String,
-        marriageLocation: String
+        marriageLocation: String,
+        marriageLocationCode: String? = nil
     ) -> Relationship {
         Relationship(
             id: UUID(), from: a, to: b,
             type: .spouse, role: nil, subtype: .unknown,
             marriageDate: GenealogicalDate.parsePreview(marriageDateText).parsed,
             marriageLocation: AutoSuggestService.normaliseName(marriageLocation),
+            marriageLocationCode: marriageLocationCode,
             divorceDate: nil
         )
     }

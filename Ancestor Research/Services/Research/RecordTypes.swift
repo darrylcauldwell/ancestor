@@ -141,7 +141,7 @@ nonisolated struct PedigreeRecord: Codable, Sendable {
 
 // MARK: - Household Member (shared by CensusRecord and ScoringRules)
 
-nonisolated struct HouseholdMember: Codable, Sendable {
+nonisolated struct HouseholdMember: Codable, Sendable, Hashable {
     let name: String
     let relationship: String
     let age: Int?
@@ -154,7 +154,9 @@ nonisolated struct HouseholdMember: Codable, Sendable {
 // MARK: - Source Record (enum with associated values)
 
 /// A record returned from a source — typed by record kind.
-nonisolated enum SourceRecord: Identifiable, Sendable {
+/// Codable so it can be JSON-persisted in the evidence_records table without losing
+/// any field (typed or raw). All associated values are already Codable.
+nonisolated enum SourceRecord: Identifiable, Sendable, Codable {
     case birth(BirthRecord)
     case death(DeathRecord)
     case marriage(MarriageRecord)
@@ -184,6 +186,22 @@ nonisolated enum SourceRecord: Identifiable, Sendable {
         case .probate(let r): r.common
         case .parish(let r): r.common
         case .pedigree(let r): r.common
+        }
+    }
+
+    /// Map the enum case to a RecordType. Nonisolated so the DB layer can use it
+    /// outside MainActor.
+    var recordType: RecordType {
+        switch self {
+        case .birth: .birth
+        case .death: .death
+        case .marriage: .marriage
+        case .census: .census
+        case .burial: .burial
+        case .military: .death  // military records are death records for scoring
+        case .probate: .probate
+        case .parish: .parish
+        case .pedigree: .pedigree
         }
     }
 }

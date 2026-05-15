@@ -23,19 +23,38 @@ nonisolated struct RegionConfig: Codable, Sendable {
 
     /// Hardcoded Derbyshire config — fallback if JSON resource not found.
     /// Ported from Python config.yaml.
+    ///
+    /// District codes verified against FreeBMD's authoritative dropdown
+    /// (https://www.freebmd.org.uk/search). Each code passes when sent
+    /// to FreeBMD's POST endpoint; the prior config had five wrong codes
+    /// (420 Bakewell, 621 Chesterfield, 710 Derby, 676 Basford, 765 Worksop)
+    /// that silently produced zero results.
+    ///
+    /// Includes successor districts from post-1974 boundary changes:
+    /// High Peak (from Jun1974), Amber Valley (from Jun1994 — successor to
+    /// Belper), South Derbyshire (from Jun1997), Ilkeston (Jun1938-Mar1997).
+    /// Glossop (Jun1898-Mar1974) covers the same area pre-reorganisation
+    /// that High Peak now covers.
     static let derbyshire = RegionConfig(
         county: "Derbyshire",
         chapmanCode: "DBY",
         country: "England",
         defaultLocation: "Derbyshire, England",
         districts: [
-            "Belper": "722",
+            // Pre-1974 districts (still valid for their period)
+            "Belper": "722",            // (to Jun1994)
             "Ashbourne": "418",
-            "Bakewell": "420",
-            "Chesterfield": "621",
-            "Derby": "710",
-            "Basford": "676",
-            "Worksop": "765",
+            "Bakewell": "691",          // was 420
+            "Chesterfield": "1102",     // was 621
+            "Derby": "1016",            // was 710
+            "Basford": "707",           // was 676 — Nottinghamshire-side, covered SE Derbyshire historically
+            "Worksop": "630",           // was 765 — Nottinghamshire-side, covered NE Derbyshire historically
+            "Glossop": "81",            // (Jun1898-Mar1974) — NW Derbyshire pre-reorganisation
+            // Post-1974 successors
+            "High Peak": "495",         // (from Jun1974) — successor to Glossop/Bakewell area
+            "Ilkeston": "1149",         // (Jun1938-Mar1997) — east Derbyshire
+            "Amber Valley": "406",      // (from Jun1994) — successor to Belper
+            "South Derbyshire": "246",  // (from Jun1997)
         ],
         districtParishes: [
             "Belper": ["Turnditch", "Windley", "Duffield", "Heage", "Crich", "Holbrook",
@@ -50,6 +69,13 @@ nonisolated struct RegionConfig: Codable, Sendable {
             "Chesterfield": ["Chesterfield", "Brampton", "Staveley", "Unstone"],
             "Basford": ["Loscoe", "Heanor", "Langley Mill"],
             "Worksop": ["Worksop"],
+            "Glossop": ["Glossop", "Hadfield", "Tintwistle", "Charlesworth"],
+            "High Peak": ["Buxton", "Glossop", "Hadfield", "New Mills", "Whaley Bridge",
+                          "Chapel-en-le-Frith", "Bakewell", "Matlock", "Wirksworth"],
+            "Ilkeston": ["Ilkeston", "Heanor", "Langley Mill", "Long Eaton", "Sandiacre"],
+            "Amber Valley": ["Belper", "Heanor", "Ripley", "Alfreton", "Crich",
+                             "Denby", "Holbrook", "Duffield", "Turnditch"],
+            "South Derbyshire": ["Swadlincote", "Repton", "Melbourne", "Hilton"],
         ],
         nonLocalDistricts: [
             "Chorlton": "Manchester",

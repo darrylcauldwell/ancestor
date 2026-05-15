@@ -31,7 +31,12 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         self.http = http
     }
     private let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "FindAGrave")
-    private var lastRequestTime: ContinuousClock.Instant?
+    /// Scheduled time for the next allowable request. Slot-reservation pattern
+    /// (same as FreeBMD): each caller synchronously advances `nextRequestSlot`
+    /// to its own scheduled instant before any await. Concurrent search() calls
+    /// pick up unique slots 500 ms apart instead of all reading the same stale
+    /// `lastRequestTime` and waking simultaneously.
+    private var nextRequestSlot: ContinuousClock.Instant?
     private let requestDelay: Duration = .milliseconds(500)  // be polite to volunteer site
 
     private var lastSuccessfulSearch: Date?
@@ -52,6 +57,9 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         let fagParams: FindAGraveParams
         if case .findAGrave(let p) = query.sourceParams { fagParams = p }
         else { fagParams = FindAGraveParams(yearRangeWidth: 5, location: nil) }
+
+        let summary = Self.activitySummary(query: query, params: fagParams)
+        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary))
 
         do {
             var params: [String: String] = [
@@ -79,7 +87,10 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
             }
 
             let urlString = Self.searchURL + "?" + params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }.joined(separator: "&")
-            guard let url = URL(string: urlString) else { return .results([]) }
+            guard let url = URL(string: urlString) else {
+                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0))
+                return .results([])
+            }
 
             let data = try await rateLimitedRequest {
                 try await self.http.get(url: url, headers: [
@@ -93,13 +104,32 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
             lastSuccessfulSearch = Date()
             lastError = nil
             logger.info("Search returned \(results.count) results")
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count))
             return .results(results)
 
         } catch {
             lastError = error.localizedDescription
             logger.warning("Search failed: \(error.localizedDescription)")
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
             return .unavailable(reason: error.localizedDescription)
         }
+    }
+
+    /// Build a one-line description of a FindAGrave query for the live activity feed.
+    nonisolated static func activitySummary(query: RecordQuery, params: FindAGraveParams) -> String {
+        let searchTerms: String = {
+            let surname = query.surname ?? ""
+            if let given = query.givenName, !given.isEmpty { return "\(given) \(surname)".trimmingCharacters(in: .whitespaces) }
+            return surname
+        }()
+        let locationLabel = (params.location?.isEmpty == false) ? " \(params.location!)" : ""
+        let yearLabel: String
+        switch (query.yearFrom, query.yearTo) {
+        case let (yf?, yt?) where yf == yt: yearLabel = " \(yf)"
+        case let (yf?, yt?): yearLabel = " \(yf)–\(yt)"
+        default: yearLabel = ""
+        }
+        return "Find a Grave\(locationLabel) burials: \(searchTerms)\(yearLabel)"
     }
 
     // MARK: - Detail Fetching
@@ -132,15 +162,30 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
 
     // MARK: - Rate Limiting
 
+    /// Serializes requests with a strict gap between consecutive calls.
+    /// Slot-reservation pattern (see FreeBMDSource for the rationale): each
+    /// caller synchronously advances `nextRequestSlot` so 12+ concurrent
+    /// search()/fetchDetail() calls get unique slots instead of all reading
+    /// the same stale `lastRequestTime` and waking simultaneously.
     private func rateLimitedRequest(_ operation: () async throws -> Data) async throws -> Data {
-        if let lastTime = lastRequestTime {
-            let elapsed = ContinuousClock.now - lastTime
-            if elapsed < requestDelay {
-                try await Task.sleep(for: requestDelay - elapsed)
-            }
+        let scheduledFor = reserveNextSlot()
+        let now = ContinuousClock.now
+        if scheduledFor > now {
+            try await Task.sleep(until: scheduledFor, clock: .continuous)
         }
-        lastRequestTime = .now
         return try await operation()
+    }
+
+    private func reserveNextSlot() -> ContinuousClock.Instant {
+        let now = ContinuousClock.now
+        let scheduledFor: ContinuousClock.Instant
+        if let nextSlot = nextRequestSlot, nextSlot > now {
+            scheduledFor = nextSlot
+        } else {
+            scheduledFor = now
+        }
+        nextRequestSlot = scheduledFor.advanced(by: requestDelay)
+        return scheduledFor
     }
 
     // MARK: - Parsing (static, testable with canned data)

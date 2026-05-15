@@ -1,6 +1,8 @@
 import Foundation
 
-/// The three research modes — each affects pipeline behaviour.
+/// The four research modes — each tunes pipeline thoroughness rather than
+/// running different algorithms. Same dispatcher, same sources, same scoring;
+/// modes differ in iteration count, fact caps, and early-stop conditions.
 nonisolated enum ResearchMode: String, Sendable {
     /// Confirm what's already in the tree. Stops early if all facts corroborated.
     case verify
@@ -8,10 +10,41 @@ nonisolated enum ResearchMode: String, Sendable {
     case extend
     /// Find this person from scratch (ghost node). Broadest search.
     case discover
+    /// Most thorough preset — runs everything Discover does, plus extra
+    /// iterations and a higher fact cap. Use when you want the kitchen sink.
+    case all
+}
+
+/// Profile-contextual trigger for a research run. Used by the profile-detail
+/// "Research" sheet to fire a research run with mode/scope picked at the moment
+/// of triggering, rather than relying on whatever's currently set on the
+/// Research view's controls.
+nonisolated struct ResearchRequest: Sendable {
+    let profileID: String
+    let mode: ResearchMode
+    let scope: ResearchScope
+}
+
+/// How widely to fan out scope-aware sources (FreeBMD, FreeCen, FreeREG).
+/// Mode is orthogonal — `local`/`national` controls breadth; `verify`/`extend`/
+/// `discover` controls depth.
+///
+/// - `local`: query the home region only. ~6 seconds per record type.
+///   Right for the 80% case where the subject is in the user's home county.
+/// - `national`: query the entire UK catalogue. ~9 minutes per record type
+///   for FreeBMD. Right for migrants, surname lookups, or as a fallback
+///   when local came back empty.
+nonisolated enum ResearchScope: String, Sendable {
+    case local
+    case national
 }
 
 /// The person being researched.
 nonisolated struct ResearchSubject: Sendable {
+    /// Profile ID this subject was built from, if any.
+    /// nil for manual-input subjects and leads (no profile yet exists).
+    /// Required for parent-inference to create real parent-of edges.
+    var profileID: String?
     var surname: String?
     var givenName: String?
     var birthYearFrom: Int?
@@ -90,6 +123,7 @@ nonisolated extension ResearchSubject {
         )
 
         return ResearchSubject(
+            profileID: profile.id,
             surname: profile.lastName,
             givenName: profile.firstName,
             birthYearFrom: profile.birthDate?.earliest,

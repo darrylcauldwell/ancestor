@@ -53,7 +53,7 @@ struct MainView: View {
             switch screen {
             case .treePedigree, .treeDescendants: return .tree
             case .audit: return .tasks
-            case .research: return .research
+            case .research: return .triage
             }
         }
         return .tree
@@ -65,6 +65,20 @@ struct MainView: View {
     /// across launches via AppStorage so repeat exports remember the choice.
     @AppStorage("excludeSensitiveOnExport") private var excludeSensitiveOnExport: Bool = false
     @AppStorage("gedcomExportFormat") private var gedcomExportFormatRaw: String = GEDCOMFormat.v5_5_1.rawValue
+    /// ResearchViewModel lives at the top level so a research run can be started
+    /// from any tab (profile detail sheet, tree popover, etc.) and the pipeline
+    /// keeps running while the user navigates elsewhere. Previously it was
+    /// owned by ResearchView, which meant the trigger only fired when that tab
+    /// was visible — forcing a tab switch on every research start.
+    @State private var researchVM = ResearchViewModel()
+    @Environment(SourceRegistry.self) private var registry
+
+    /// In-situ research-progress sheet (Task #48). Driven by a stored flag
+    /// rather than `researchVM.isResearching` so the sheet survives the brief
+    /// moment after research completes — the user can still read the activity
+    /// log and dismiss themselves. Presented after the config sheet dismisses,
+    /// deferred by a tick so macOS doesn't drop the second `.sheet` call.
+    @State private var showResearchProgress: Bool = false
 
     var body: some View {
         NavigationSplitView {
@@ -81,8 +95,8 @@ struct MainView: View {
                 UnifiedTasksView()
             case .sourcing:
                 SourcingIntegrityView()
-            case .research:
-                ResearchView()
+            case .triage:
+                ResearchView(researchVM: researchVM)
             case .workbench:
                 WorkbenchView()
             case .leads:
@@ -139,8 +153,56 @@ struct MainView: View {
             }
         }
         .onChange(of: appState.researchProfileID) { _, newID in
-            if newID != nil {
-                selectedTab = .research
+            // Now treated as "open the research config sheet for this profile"
+            // — every research trigger flows through the mode/scope picker so
+            // settings travel with each run instead of relying on stale global
+            // state on the Research tab.
+            guard let newID,
+                  let profile = appState.snapshot.profiles[newID] else { return }
+            appState.researchProfileID = nil
+            appState.researchConfigProfile = profile
+        }
+        .sheet(item: Binding(
+            get: { appState.researchConfigProfile },
+            set: { appState.researchConfigProfile = $0 }
+        )) { profile in
+            ResearchConfigSheet(profile: profile, snapshot: appState.snapshot) { request in
+                appState.researchConfigProfile = nil
+                appState.researchRequest = request
+            }
+        }
+        .onChange(of: appState.researchRequest?.profileID) { _, _ in
+            // Profile-contextual trigger: applies mode/scope from the request
+            // and kicks off the pipeline. Surface progress in-situ via the
+            // research-progress sheet so the user sees their click did
+            // something — previously the run was silent until they navigated
+            // to the Research tab.
+            guard let request = appState.researchRequest,
+                  let profile = appState.snapshot.profiles[request.profileID] else { return }
+            appState.researchRequest = nil
+            Task { @MainActor in
+                // Wait one runloop tick so the config sheet's dismiss
+                // animation completes before we present the progress sheet —
+                // macOS otherwise silently drops the second `.sheet` call.
+                try? await Task.sleep(for: .milliseconds(200))
+                showResearchProgress = true
+                researchVM.appDatabase = appState.currentDatabase
+                researchVM.selectedMode = request.mode
+                researchVM.selectedScope = request.scope
+                await researchVM.startResearch(
+                    profile: profile,
+                    snapshot: appState.snapshot,
+                    registry: registry
+                )
+            }
+        }
+        .sheet(isPresented: $showResearchProgress) {
+            ResearchProgressSheet(vm: researchVM) {
+                showResearchProgress = false
+                // Hand the user off to the Triage tab so they can act on
+                // any clusters / leads the run produced (or watch it finish
+                // if they closed early while it was still running).
+                selectedTab = .triage
             }
         }
         .sheet(isPresented: .init(
@@ -242,7 +304,7 @@ struct MainView: View {
             // Sidebar tab switching: Cmd+1 ... Cmd+5
             shortcutButton("1", modifiers: .command) { selectedTab = .tree }
             shortcutButton("2", modifiers: .command) { selectedTab = .tasks }
-            shortcutButton("3", modifiers: .command) { selectedTab = .research }
+            shortcutButton("3", modifiers: .command) { selectedTab = .triage }
             shortcutButton("4", modifiers: .command) {
                 if appState.workbenchHasContent { selectedTab = .workbench }
             }
@@ -301,7 +363,11 @@ nonisolated enum SidebarTab: String, CaseIterable {
     case tree = "Tree"
     case tasks = "Tasks"
     case sourcing = "Sourcing"
-    case research = "Research"
+    /// Triage: review cluster matches / leads from a research run, accept or
+    /// defer them. Research itself is now triggered profile-contextually from
+    /// the tree popover — this tab is where the results land for the user to
+    /// act on, not where runs are kicked off.
+    case triage = "Triage"
     case workbench = "Workbench"
     case leads = "Leads"
     case settings = "Settings"

@@ -95,13 +95,28 @@ nonisolated enum TimelineBuilder {
         }
 
         // Life events (M12) — occupation, residence, census, baptism, etc.
+        // Task #52: pull a one-line summary out of any typed `details`
+        // payload (military rank/regiment, probate grant type, burial
+        // cemetery, census household size) so the timeline isn't just a
+        // bare location — full structured grid still lives on the profile
+        // detail.
         for event in lifeEvents where event.profileID == profileID {
+            let location = event.location ?? ""
+            let summary = detailsSummary(event.details)
+            let description: String = {
+                switch (location.isEmpty, summary.isEmpty) {
+                case (true, true): return ""
+                case (false, true): return location
+                case (true, false): return summary
+                case (false, false): return "\(location) — \(summary)"
+                }
+            }()
             events.append(TimelineEvent(
                 id: UUID(),
                 date: event.date ?? event.endDate,
                 kind: .lifeEvent,
                 title: lifeEventTitle(event),
-                description: event.location ?? "",
+                description: description,
                 sources: event.sources,
                 isHypothetical: false,
                 attachedNoteCount: 0,
@@ -190,6 +205,35 @@ nonisolated enum TimelineBuilder {
             return "\(typeName): \(description)"
         }
         return typeName
+    }
+
+    /// One-line compact summary of a `LifeEventDetails` payload. Returns
+    /// empty string when no useful keys are populated. Used to enrich the
+    /// timeline row description without bringing the whole structured
+    /// grid; the grid still renders in the profile-detail inspector.
+    private static func detailsSummary(_ details: LifeEventDetails?) -> String {
+        guard let details else { return "" }
+        switch details {
+        case .military(let m):
+            return [m.rank, m.regiment, m.serviceNumber.map { "no. \($0)" }]
+                .compactMap { $0 }.filter { !$0.isEmpty }
+                .joined(separator: ", ")
+        case .probate(let p):
+            var parts: [String] = []
+            if let g = p.grantType, !g.isEmpty { parts.append(g) }
+            if let age = p.ageAtDeath { parts.append("aged \(age)") }
+            if let r = p.registry, !r.isEmpty { parts.append(r) }
+            return parts.joined(separator: ", ")
+        case .burial(let b):
+            return [b.cemetery, b.plot.map { "plot \($0)" }]
+                .compactMap { $0 }.filter { !$0.isEmpty }
+                .joined(separator: ", ")
+        case .census(let c):
+            var parts: [String] = []
+            if let occ = c.occupation, !occ.isEmpty { parts.append(occ) }
+            if !c.household.isEmpty { parts.append("household of \(c.household.count)") }
+            return parts.joined(separator: ", ")
+        }
     }
 
     // MARK: - Note → date heuristic

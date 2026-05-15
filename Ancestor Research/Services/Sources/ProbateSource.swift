@@ -47,6 +47,9 @@ struct ProbateSource: RecordSource {
         }
         guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
 
+        let summary = Self.activitySummary(query: query, surname: surname)
+        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary))
+
         do {
             var components = URLComponents(string: Self.baseURL + Self.searchEndpoint)!
             var queryItems = [
@@ -77,11 +80,28 @@ struct ProbateSource: RecordSource {
 
             let records = Self.parseJSON(data, surname: surname)
             logger.info("Probate: \(records.count) results for \(surname)")
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count))
             return .results(records)
         } catch {
             logger.error("Probate search failed: \(error.localizedDescription)")
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
             return .unavailable(reason: error.localizedDescription)
         }
+    }
+
+    /// Build a one-line description of a Probate query for the live activity feed.
+    nonisolated static func activitySummary(query: RecordQuery, surname: String) -> String {
+        let searchTerms: String = {
+            if let given = query.givenName, !given.isEmpty { return "\(given) \(surname)" }
+            return surname
+        }()
+        let yearLabel: String
+        switch (query.yearFrom, query.yearTo) {
+        case let (yf?, yt?) where yf == yt: yearLabel = " \(yf)"
+        case let (yf?, yt?): yearLabel = " \(yf)–\(yt)"
+        default: yearLabel = ""
+        }
+        return "Probate Calendar: \(searchTerms)\(yearLabel)"
     }
 
     // MARK: - Parsing (nonisolated static — testable)

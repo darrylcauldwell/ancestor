@@ -1,11 +1,20 @@
 import SwiftUI
 
-/// Per-profile research view — the primary product.
-/// Select a profile → choose mode → run pipeline → review clusters → accept facts.
+/// Triage landing — review pending clusters / leads from past research runs,
+/// trigger whole-tree research, or jump into per-profile pending-facts review.
+///
+/// Per-profile research itself is now kicked off contextually from the tree
+/// popover (which presents `ResearchConfigSheet` with mode/scope + a live
+/// progress sheet). This tab is the place results land for the user to act on,
+/// not where individual runs are started — that's why the depth/scope pickers
+/// and per-row "Research" button have been removed.
 struct ResearchView: View {
     @Environment(AppState.self) private var appState
     @Environment(SourceRegistry.self) private var registry
-    @State private var researchVM = ResearchViewModel()
+    /// Lifted to ContentView so research can be started from any tab without
+    /// the user being forced into the Research tab. ContentView owns the state;
+    /// this view binds to it for display.
+    @Bindable var researchVM: ResearchViewModel
     @State private var wholeTreeVM = WholeTreeResearchViewModel()
     @State private var profileSearchText = ""
 
@@ -49,19 +58,9 @@ struct ResearchView: View {
             #endif
         }
         .navigationTitle(navigationTitle)
-        .onChange(of: appState.researchProfileID) { _, profileID in
-            guard let profileID,
-                  let profile = appState.snapshot.profiles[profileID] else { return }
-            appState.researchProfileID = nil
-            Task {
-                researchVM.appDatabase = appState.currentDatabase
-                await researchVM.startResearch(
-                    profile: profile,
-                    snapshot: appState.snapshot,
-                    registry: registry
-                )
-            }
-        }
+        // Research-trigger onChange handlers live on ContentView so they fire
+        // regardless of which tab is currently visible — letting the profile-
+        // detail sheet kick off a run without forcing a tab switch.
     }
 
     private var navigationTitle: String {
@@ -71,30 +70,24 @@ struct ResearchView: View {
         if researchVM.currentResult != nil {
             return "Review: \(researchVM.selectedProfile?.displayName ?? "")"
         }
-        return "Research"
+        return "Triage"
     }
 
     // MARK: - Profile Selector
 
     private var profileSelector: some View {
         VStack(spacing: 0) {
-            // Search + mode selector
+            // Toolbar: profile filter + whole-tree research entry. Depth/Scope
+            // pickers used to live here but are now part of `ResearchConfigSheet`
+            // shown when the user kicks off research from the tree popover —
+            // per-run settings travel with the run instead of being sticky on
+            // this tab.
             HStack(spacing: 12) {
-                TextField("Search profiles...", text: $profileSearchText)
+                TextField("Filter profiles…", text: $profileSearchText)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 250)
 
-                Picker("Mode", selection: $researchVM.selectedMode) {
-                    Text("Verify").tag(ResearchMode.verify)
-                    Text("Extend").tag(ResearchMode.extend)
-                    Text("Discover").tag(ResearchMode.discover)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 280)
-
                 Spacer()
-
-                modeDescription
 
                 Button("Research All") {
                     Task {
@@ -108,19 +101,26 @@ struct ResearchView: View {
                 .buttonStyle(.glassProminent)
                 .controlSize(.small)
                 .disabled(appState.snapshot.profiles.isEmpty)
+                .help("Run research across every profile in the tree (long-running).")
             }
-            .padding()
+            .padding(.horizontal)
+            .padding(.top)
+            .padding(.bottom, 8)
             Divider()
 
-            // Profile list
+            // Profile list — sorted least-complete first so the user can see
+            // at a glance which profiles still need attention. The per-row
+            // "Research" button has been removed: research is started from
+            // the profile popover in the Tree tab so the depth/scope picker
+            // sheet appears with smart defaults for each subject.
             let profiles = filteredProfiles
             if profiles.isEmpty {
                 ContentUnavailableView {
-                    Label("Research", systemImage: "magnifyingglass")
+                    Label("Nothing to triage", systemImage: "checklist.checked")
                 } description: {
                     Text(appState.snapshot.profiles.isEmpty
-                         ? "Import data to begin research."
-                         : "No profiles match your search.")
+                         ? "Import data or build a tree to begin."
+                         : "No profiles match your filter.")
                 }
             } else {
                 ScrollView {
@@ -137,7 +137,6 @@ struct ResearchView: View {
 
     private func profileRow(_ profile: Profile) -> some View {
         let comp = appState.snapshot.completeness(for: profile.id)
-        let searchable = isSearchable(profile)
 
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
@@ -160,11 +159,6 @@ struct ResearchView: View {
                         .font(AppTypography.cardBody)
                         .foregroundStyle(.secondary)
                 }
-                if !searchable {
-                    Text("Not searchable (born after 1930)")
-                        .font(AppTypography.badge)
-                        .foregroundStyle(.tertiary)
-                }
             }
 
             Spacer()
@@ -180,51 +174,24 @@ struct ResearchView: View {
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)
-                .disabled(frIsRunning || !searchable)
-
-                if !DemoDataGenerator.isDemoMode {
-                    Button("Review") {
-                        pendingReviewProfileID = profile.id
-                        showPendingReview = true
-                    }
-                    .buttonStyle(.glass)
-                    .controlSize(.small)
-                }
+                .disabled(frIsRunning)
             }
-            #else
-            // Review-pending-facts is shared between FR and the deterministic
-            // pipeline; keep it visible.
+            #endif
+
+            // Review pending facts from any previous run (deterministic pipeline
+            // or Field Researcher). The Research entry-point lives on the Tree
+            // tab; this tab only surfaces the *triage* action.
             if !DemoDataGenerator.isDemoMode {
                 Button("Review") {
                     pendingReviewProfileID = profile.id
                     showPendingReview = true
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.glassProminent)
                 .controlSize(.small)
             }
-            #endif
-
-            Button("Research") {
-                Task {
-                    researchVM.appDatabase = appState.currentDatabase
-                    await researchVM.startResearch(
-                        profile: profile,
-                        snapshot: appState.snapshot,
-                        registry: registry
-                    )
-                }
-            }
-            .buttonStyle(.glassProminent)
-            .controlSize(.small)
-            .disabled(!searchable)
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
-    }
-
-    private func isSearchable(_ profile: Profile) -> Bool {
-        guard let birthYear = profile.birthDate?.earliest else { return true }
-        return birthYear <= 1930
     }
 
     private var filteredProfiles: [Profile] {
@@ -393,22 +360,4 @@ struct ResearchView: View {
     }
     #endif
 
-    private var modeDescription: some View {
-        Group {
-            switch researchVM.selectedMode {
-            case .verify:
-                Text("Check existing data against sources")
-                    .font(AppTypography.cardBody)
-                    .foregroundStyle(.secondary)
-            case .extend:
-                Text("Fill missing facts (deaths, marriages)")
-                    .font(AppTypography.cardBody)
-                    .foregroundStyle(.secondary)
-            case .discover:
-                Text("Broad search from scratch")
-                    .font(AppTypography.cardBody)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
 }

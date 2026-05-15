@@ -214,7 +214,10 @@ nonisolated enum StatisticsCalculator {
     private static func hasValue(profile: Profile, field: ProfileField) -> Bool {
         switch field {
         case .firstName: return !(profile.firstName?.isEmpty ?? true)
+        case .middleName: return !(profile.middleName?.isEmpty ?? true)
         case .lastName: return !(profile.lastName?.isEmpty ?? true)
+        case .nickName: return !(profile.nickName?.isEmpty ?? true)
+        case .mothersMaidenName: return !(profile.mothersMaidenName?.isEmpty ?? true)
         case .gender: return profile.gender != nil
         case .birthDate: return profile.birthDate != nil
         case .birthLocation: return !(profile.birthLocation?.isEmpty ?? true)

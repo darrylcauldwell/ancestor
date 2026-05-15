@@ -12,12 +12,17 @@ struct EditPersonView: View {
 
     // MARK: Form state
     @State private var firstName: String = ""
+    @State private var middleName: String = ""
     @State private var lastName: String = ""
+    @State private var nickName: String = ""
+    @State private var mothersMaidenName: String = ""
     @State private var gender: Gender = .unknown
     @State private var birthDateText: String = ""
     @State private var birthLocation: String = ""
+    @State private var birthLocationCode: String? = nil
     @State private var deathDateText: String = ""
     @State private var deathLocation: String = ""
+    @State private var deathLocationCode: String? = nil
     @State private var bio: String = ""
 
     /// Default source for any field whose per-field picker hasn't been
@@ -100,16 +105,34 @@ struct EditPersonView: View {
                     TextField("First name", text: $firstName)
                         .textFieldStyle(.roundedBorder)
                 }
+                fieldWithBadges(field: .middleName, profile: profile) {
+                    TextField("Middle name", text: $middleName)
+                        .textFieldStyle(.roundedBorder)
+                }
                 fieldWithBadges(field: .lastName, profile: profile) {
                     TextField("Last name", text: $lastName)
                         .textFieldStyle(.roundedBorder)
                 }
             }
             if let warning = NameLengthWarning.warningText(forName: firstName)
+                ?? NameLengthWarning.warningText(forName: middleName)
                 ?? NameLengthWarning.warningText(forName: lastName) {
                 Text(warning)
                     .font(AppTypography.cardMeta)
                     .foregroundStyle(AnyShapeStyle(Color.orange))
+            }
+            // Known-as / nickname — common in historical records (Bill for
+            // William, Maggie for Margaret). Kept off `displayName` so the
+            // tree doesn't get noisy.
+            HStack(spacing: 8) {
+                fieldWithBadges(field: .nickName, profile: profile) {
+                    TextField("Known as (optional)", text: $nickName)
+                        .textFieldStyle(.roundedBorder)
+                }
+                fieldWithBadges(field: .mothersMaidenName, profile: profile) {
+                    TextField("Mother's maiden name (optional)", text: $mothersMaidenName)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
             VStack(alignment: .leading, spacing: 4) {
                 sourceBadgeRow(for: .gender, profile: profile)
@@ -138,8 +161,11 @@ struct EditPersonView: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 sourceBadgeRow(for: .birthLocation, profile: profile)
-                TextField("Birth location", text: $birthLocation)
-                    .textFieldStyle(.roundedBorder)
+                LocationPicker(
+                    label: "Birth location",
+                    text: $birthLocation,
+                    locationCode: $birthLocationCode
+                )
                 perFieldSourcePicker(for: .birthLocation, profile: profile)
                 correctOrAlternativePicker(for: .birthLocation, profile: profile)
             }
@@ -151,8 +177,11 @@ struct EditPersonView: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 sourceBadgeRow(for: .deathLocation, profile: profile)
-                TextField("Death location", text: $deathLocation)
-                    .textFieldStyle(.roundedBorder)
+                LocationPicker(
+                    label: "Death location",
+                    text: $deathLocation,
+                    locationCode: $deathLocationCode
+                )
                 perFieldSourcePicker(for: .deathLocation, profile: profile)
                 correctOrAlternativePicker(for: .deathLocation, profile: profile)
             }
@@ -267,7 +296,10 @@ struct EditPersonView: View {
     private func fieldChanged(_ field: ProfileField, profile: Profile) -> Bool {
         switch field {
         case .firstName: return AutoSuggestService.normaliseName(firstName) != original.firstName
+        case .middleName: return AutoSuggestService.normaliseName(middleName) != original.middleName
         case .lastName: return AutoSuggestService.normaliseName(lastName) != original.lastName
+        case .nickName: return AutoSuggestService.normaliseName(nickName) != original.nickName
+        case .mothersMaidenName: return AutoSuggestService.normaliseName(mothersMaidenName) != original.mothersMaidenName
         case .gender:
             let g: Gender? = gender == .unknown ? nil : gender
             return g != original.gender
@@ -328,16 +360,24 @@ struct EditPersonView: View {
     private func loadIfNeeded() {
         guard !didLoad, let profile = appState.snapshot.profiles[profileID] else { return }
         firstName = profile.firstName ?? ""
+        middleName = profile.middleName ?? ""
         lastName = profile.lastName ?? ""
+        nickName = profile.nickName ?? ""
+        mothersMaidenName = profile.mothersMaidenName ?? ""
         gender = profile.gender ?? .unknown
         birthDateText = profile.birthDate?.original ?? ""
         birthLocation = profile.birthLocation ?? ""
+        birthLocationCode = profile.birthLocationCode
         deathDateText = profile.deathDate?.original ?? ""
         deathLocation = profile.deathLocation ?? ""
+        deathLocationCode = profile.deathLocationCode
         bio = profile.bio ?? ""
         original = OriginalSnapshot(
             firstName: profile.firstName,
+            middleName: profile.middleName,
             lastName: profile.lastName,
+            nickName: profile.nickName,
+            mothersMaidenName: profile.mothersMaidenName,
             gender: profile.gender,
             birthDate: profile.birthDate,
             birthLocation: profile.birthLocation,
@@ -380,9 +420,21 @@ struct EditPersonView: View {
         if newFirst != original.firstName {
             changes.append((.firstName, original.firstName, newFirst))
         }
+        let newMiddle = AutoSuggestService.normaliseName(middleName)
+        if newMiddle != original.middleName {
+            changes.append((.middleName, original.middleName, newMiddle))
+        }
         let newLast = AutoSuggestService.normaliseName(lastName)
         if newLast != original.lastName {
             changes.append((.lastName, original.lastName, newLast))
+        }
+        let newNick = AutoSuggestService.normaliseName(nickName)
+        if newNick != original.nickName {
+            changes.append((.nickName, original.nickName, newNick))
+        }
+        let newMMN = AutoSuggestService.normaliseName(mothersMaidenName)
+        if newMMN != original.mothersMaidenName {
+            changes.append((.mothersMaidenName, original.mothersMaidenName, newMMN))
         }
         let newGender: Gender? = gender == .unknown ? nil : gender
         if newGender != original.gender {
@@ -441,6 +493,18 @@ struct EditPersonView: View {
             )
         }
 
+        // Persist the gazetteer-picker's structured codes alongside the freeform
+        // location strings. Bypasses the field-source machinery — codes are
+        // derived metadata, not attributable facts. Always written so that
+        // clearing a match (X-out badge) actually clears the stored code.
+        if let db = appState.currentDatabase {
+            try? db.updateProfileLocationCodes(
+                profileID: profileID,
+                birthCode: birthLocationCode,
+                deathCode: deathLocationCode
+            )
+        }
+
         for change in allChanges where (fieldChoice[change.field] ?? .correct) == .alternative {
             // String fields: record the new typed value as a competing source.
             if let raw = change.newValue, !raw.isEmpty {
@@ -479,7 +543,10 @@ struct EditPersonView: View {
 
     private struct OriginalSnapshot {
         var firstName: String?
+        var middleName: String?
         var lastName: String?
+        var nickName: String?
+        var mothersMaidenName: String?
         var gender: Gender?
         var birthDate: GenealogicalDate?
         var birthLocation: String?

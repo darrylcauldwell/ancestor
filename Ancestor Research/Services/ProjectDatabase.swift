@@ -484,7 +484,14 @@ nonisolated final class ProjectDatabase: Sendable {
         // Per DESIGN.md §5.15 + §5.16. Attachments store metadata; the
         // actual files live in the project's media directory on disk.
         migrator.registerMigration("v10_attachments_goals") { db in
-            try db.create(table: "attachments") { t in
+            // `ifNotExists` is defensive: some pre-v10 builds shipped an
+            // earlier (now-removed) migration that already created
+            // `research_goals` directly, so opening one of those projects
+            // with the current schema tripped a "table already exists"
+            // error on every launch — leaving the project unopenable from
+            // the picker forever. Both CREATEs are no-ops when the table
+            // is already present, which is the correct outcome.
+            try db.create(table: "attachments", options: .ifNotExists) { t in
                 t.column("id", .text).primaryKey()
                 t.column("filename", .text).notNull()
                 t.column("media_type", .text).notNull()         // photo / document / transcription
@@ -497,10 +504,14 @@ nonisolated final class ProjectDatabase: Sendable {
                 t.column("target_json", .text).notNull()        // Full encoded AttachmentTarget
                 t.column("added_at", .datetime).notNull()
             }
-            try db.create(index: "idx_attachments_target",
-                          on: "attachments", columns: ["target_kind", "target_primary_id"])
+            try db.create(
+                index: "idx_attachments_target",
+                on: "attachments",
+                columns: ["target_kind", "target_primary_id"],
+                options: .ifNotExists
+            )
 
-            try db.create(table: "research_goals") { t in
+            try db.create(table: "research_goals", options: .ifNotExists) { t in
                 t.column("id", .text).primaryKey()
                 t.column("title", .text).notNull()
                 t.column("description", .text)
@@ -545,6 +556,115 @@ nonisolated final class ProjectDatabase: Sendable {
             try db.create(index: "idx_audit_rule_overrides_lookup",
                           on: "audit_rule_overrides",
                           columns: ["rule_id", "scope_kind", "scope_profile_id"])
+        }
+
+        // Evidence records — full SourceRecord JSON per profile, so the raw detail
+        // from every source response is preserved rather than thrown away after a
+        // research run. Primary key is composite (profile_id + source_record_id)
+        // via row-id PK + uniqueKey so INSERT OR REPLACE updates in place if the
+        // same source returns an updated row (overwrite-latest semantics).
+        migrator.registerMigration("v13_evidence_records") { db in
+            try db.create(table: "evidence_records") { t in
+                t.primaryKey("id", .text)             // "<profile_id>|<source_record_id>"
+                t.column("profile_id", .text).notNull()
+                t.column("source_id", .text).notNull()
+                t.column("source_record_id", .text).notNull()
+                t.column("record_type", .text).notNull()
+                t.column("verdict", .text).notNull()
+                t.column("record_json", .text).notNull()   // JSON-encoded SourceRecord
+                t.column("citation_full", .text)
+                t.column("citation_url", .text)
+                t.column("scored_at", .datetime).notNull()
+            }
+            try db.create(index: "idx_evidence_records_profile",
+                          on: "evidence_records",
+                          columns: ["profile_id"])
+            try db.create(index: "idx_evidence_records_source",
+                          on: "evidence_records",
+                          columns: ["source_id"])
+        }
+
+        // Structured location identifiers chosen via the LocationPicker
+        // gazetteer typeahead. Travels alongside the freeform display strings
+        // (birth_location, death_location), letting future features like
+        // hierarchical research scope (parish → district → county → national)
+        // resolve the place precisely without re-parsing the display string.
+        migrator.registerMigration("v14_location_codes") { db in
+            try db.alter(table: "profiles") { t in
+                t.add(column: "birth_location_code", .text)
+                t.add(column: "death_location_code", .text)
+            }
+        }
+
+        // Mirror v14's structured-code columns on the other tables that carry
+        // location strings — marriage location on relationships, event location
+        // on life_events. Same gazetteer-derived ID scheme.
+        migrator.registerMigration("v15_marriage_event_location_codes") { db in
+            try db.alter(table: "relationships") { t in
+                t.add(column: "marriage_location_code", .text)
+            }
+            try db.alter(table: "life_events") { t in
+                t.add(column: "location_code", .text)
+            }
+        }
+
+        // Task #41 — record-level user-review status on every evidence row.
+        // Previously, the user's only persisted decision lived in
+        // `record_rejections` (append-only list). That couldn't express
+        // "saved as a lead", couldn't be undone, and was decoupled from the
+        // evidence itself. Folding the status onto `evidence_records` makes
+        // it mutable per-record and survives re-runs (`saveEvidence` is now
+        // careful to preserve user_status across INSERT-OR-REPLACE).
+        //
+        // States:
+        //   "unreviewed" — default; cluster review hasn't been done yet.
+        //   "saved_as_lead" — user wants to keep investigating; also creates
+        //                     a Lead row pointing at this evidence.
+        //   "discarded" — user explicitly rejected; suppressed from future
+        //                 cluster review and from proposed-relative lists.
+        migrator.registerMigration("v16_evidence_user_status") { db in
+            try db.alter(table: "evidence_records") { t in
+                t.add(column: "user_status", .text)
+                    .notNull()
+                    .defaults(to: "unreviewed")
+            }
+            try db.create(
+                index: "idx_evidence_records_user_status",
+                on: "evidence_records",
+                columns: ["profile_id", "user_status"]
+            )
+        }
+
+        // Task #47 — optional middle-name column on profiles. Legacy rows
+        // continue to carry the full given-name string in `first_name`; the
+        // new column is just additive. `Profile.displayName` joins first +
+        // middle + last so both shapes render identically.
+        migrator.registerMigration("v17_profile_middle_name") { db in
+            try db.alter(table: "profiles") { t in
+                t.add(column: "middle_name", .text)
+            }
+        }
+
+        // Task #49 — close the two highest-frequency name gaps the audit
+        // surfaced. `nick_name` carries the familiar / known-as form (used
+        // for search match, not displayName). `mothers_maiden_name` mirrors
+        // how FreeBMD birth indexes record the column post-Sep-1911 —
+        // critical for disambiguating same-named children of different
+        // mothers and as a marriage-search seed.
+        migrator.registerMigration("v18_profile_nick_and_mothers_maiden") { db in
+            try db.alter(table: "profiles") { t in
+                t.add(column: "nick_name", .text)
+                t.add(column: "mothers_maiden_name", .text)
+            }
+        }
+
+        // Task #50 — typed payload for military / probate / burial / census
+        // life events. JSON-encoded `LifeEventDetails` lives in `details_json`;
+        // pre-v19 rows have NULL and continue rendering from `description`.
+        migrator.registerMigration("v19_life_event_typed_details") { db in
+            try db.alter(table: "life_events") { t in
+                t.add(column: "details_json", .text)
+            }
         }
 
         try migrator.migrate(dbQueue)
@@ -655,13 +775,18 @@ nonisolated final class ProjectDatabase: Sendable {
             id: id,
             externalIDs: externalIDs,
             firstName: row["first_name"],
+            middleName: row["middle_name"],
             lastName: row["last_name"],
+            nickName: row["nick_name"],
+            mothersMaidenName: row["mothers_maiden_name"],
             gender: gender,
             attributes: attributes,
             birthDate: birthDate,
             birthLocation: row["birth_location"],
+            birthLocationCode: row["birth_location_code"],
             deathDate: deathDate,
             deathLocation: row["death_location"],
+            deathLocationCode: row["death_location_code"],
             bio: row["bio"],
             isDeleted: isDeleted,
             sources: sources,
@@ -690,6 +815,7 @@ nonisolated final class ProjectDatabase: Sendable {
         let subtypeStr: String = row["subtype"]
 
         let marriageLocation: String? = row["marriage_location"]
+        let marriageLocationCode: String? = row["marriage_location_code"]
 
         return Relationship(
             id: UUID(uuidString: row["id"]) ?? UUID(),
@@ -700,6 +826,7 @@ nonisolated final class ProjectDatabase: Sendable {
             subtype: RelationshipSubtype(rawValue: subtypeStr) ?? .unknown,
             marriageDate: marriageDate,
             marriageLocation: marriageLocation,
+            marriageLocationCode: marriageLocationCode,
             divorceDate: divorceDate
         )
     }
@@ -829,23 +956,26 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         try db.execute(sql: """
-            INSERT INTO profiles (id, external_ids, first_name, last_name, gender,
-                attributes, is_deleted,
+            INSERT INTO profiles (id, external_ids,
+                first_name, middle_name, last_name, nick_name, mothers_maiden_name,
+                gender, attributes, is_deleted,
                 birth_date_original, birth_date_earliest, birth_date_latest, birth_date_qualifier,
-                birth_location,
+                birth_location, birth_location_code,
                 death_date_original, death_date_earliest, death_date_latest, death_date_qualifier,
-                death_location, bio, created_by_transaction_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                death_location, death_location_code, bio, created_by_transaction_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
-                profile.id, externalIDsJSON, profile.firstName, profile.lastName,
+                profile.id, externalIDsJSON,
+                profile.firstName, profile.middleName, profile.lastName,
+                profile.nickName, profile.mothersMaidenName,
                 profile.gender?.rawValue,
                 attributesJSON, profile.isDeleted,
                 profile.birthDate?.original, profile.birthDate?.earliest, profile.birthDate?.latest,
                 profile.birthDate?.qualifier.rawValue,
-                profile.birthLocation,
+                profile.birthLocation, profile.birthLocationCode,
                 profile.deathDate?.original, profile.deathDate?.earliest, profile.deathDate?.latest,
                 profile.deathDate?.qualifier.rawValue,
-                profile.deathLocation, profile.bio, transactionID.uuidString,
+                profile.deathLocation, profile.deathLocationCode, profile.bio, transactionID.uuidString,
             ])
     }
 
@@ -853,16 +983,16 @@ nonisolated final class ProjectDatabase: Sendable {
         try db.execute(sql: """
             INSERT INTO relationships (id, from_id, to_id, type, role, subtype,
                 marriage_date_original, marriage_date_earliest, marriage_date_latest, marriage_date_qualifier,
-                marriage_location,
+                marriage_location, marriage_location_code,
                 divorce_date_original, divorce_date_earliest, divorce_date_latest, divorce_date_qualifier,
                 created_by_transaction_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
                 rel.id.uuidString, rel.from, rel.to, rel.type.rawValue,
                 rel.role?.rawValue, rel.subtype.rawValue,
                 rel.marriageDate?.original, rel.marriageDate?.earliest, rel.marriageDate?.latest,
                 rel.marriageDate?.qualifier.rawValue,
-                rel.marriageLocation,
+                rel.marriageLocation, rel.marriageLocationCode,
                 rel.divorceDate?.original, rel.divorceDate?.earliest, rel.divorceDate?.latest,
                 rel.divorceDate?.qualifier.rawValue,
                 transactionID.uuidString,
@@ -1011,7 +1141,10 @@ nonisolated final class ProjectDatabase: Sendable {
     private static func profileFieldToColumn(_ field: String) -> String? {
         switch field {
         case "firstName": "first_name"
+        case "middleName": "middle_name"
         case "lastName": "last_name"
+        case "nickName": "nick_name"
+        case "mothersMaidenName": "mothers_maiden_name"
         case "gender": "gender"
         case "birthLocation": "birth_location"
         case "deathLocation": "death_location"
@@ -1488,7 +1621,10 @@ nonisolated extension ProjectDatabase {
         let now = Date()
         let fields: [(ProfileField, String?)] = [
             (.firstName, profile.firstName),
+            (.middleName, profile.middleName),
             (.lastName, profile.lastName),
+            (.nickName, profile.nickName),
+            (.mothersMaidenName, profile.mothersMaidenName),
             (.gender, profile.gender?.rawValue),
             (.birthDate, profile.birthDate?.original),
             (.birthLocation, profile.birthLocation),
@@ -1590,6 +1726,24 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// Update the structured location codes on a profile. Bypasses the per-field
+    /// source attribution path because the codes are derived metadata from the
+    /// gazetteer picker, not facts from an external source. Codes can be `nil`
+    /// (user typed freeform that didn't match any gazetteer entry).
+    func updateProfileLocationCodes(
+        profileID: String,
+        birthCode: String?,
+        deathCode: String?
+    ) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE profiles
+                SET birth_location_code = ?, death_location_code = ?
+                WHERE id = ?
+                """, arguments: [birthCode, deathCode, profileID])
+        }
+    }
+
     /// Save a rejected record ID for a profile.
     func saveRejection(profileID: String, recordID: String) throws {
         try dbQueue.write { db in
@@ -1600,13 +1754,23 @@ nonisolated extension ProjectDatabase {
         }
     }
 
-    /// Load rejected record IDs for a profile.
+    /// Load rejected record IDs for a profile. Returns the union of two
+    /// sources: the legacy `record_rejections` table (write-only path for
+    /// derived proposals like ghost-parent inferences that have no
+    /// evidence_records row) and `evidence_records.user_status = 'discarded'`
+    /// (the new canonical path for source-derived records). Older projects
+    /// keep working without re-migration; new code only writes the
+    /// `evidence_records` side via `updateEvidenceUserStatus(...)`.
     func loadRejections(profileID: String) throws -> Set<String> {
         try dbQueue.read { db in
-            let rows = try Row.fetchAll(db, sql: """
+            let legacy = try Row.fetchAll(db, sql: """
                 SELECT record_id FROM record_rejections WHERE profile_id = ?
+                """, arguments: [profileID]).map { $0["record_id"] as String }
+            let modern = try String.fetchAll(db, sql: """
+                SELECT source_record_id FROM evidence_records
+                WHERE profile_id = ? AND user_status = 'discarded'
                 """, arguments: [profileID])
-            return Set(rows.map { $0["record_id"] as String })
+            return Set(legacy).union(modern)
         }
     }
 
@@ -1655,7 +1819,145 @@ nonisolated extension ProjectDatabase {
             }
         }
     }
+
+    // MARK: - Evidence Records
+
+    /// Save a scored record as evidence for a profile. JSON-encodes the full
+    /// SourceRecord so every typed and raw field is preserved. Idempotent —
+    /// re-saving the same (profileID, sourceRecordID) overwrites in place.
+    ///
+    /// `user_status` is **preserved** on conflict (Task #41). If the user has
+    /// already marked this record as `saved_as_lead` or `discarded` in a prior
+    /// run, re-saving the scorer's view must not silently reset that decision.
+    /// `INSERT … ON CONFLICT DO UPDATE` excludes `user_status` from the SET
+    /// clause; on first insert the column's default value (`'unreviewed'`)
+    /// applies.
+    func saveEvidence(profileID: String, scored: ScoredRecord, citationFull: String?, citationURL: String?) throws {
+        let compositeID = EvidenceRecord.compositeID(profileID: profileID, sourceRecordID: scored.record.id)
+        let recordJSON = Self.encodeJSON(scored.record)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO evidence_records
+                (id, profile_id, source_id, source_record_id, record_type, verdict, record_json, citation_full, citation_url, scored_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    source_id = excluded.source_id,
+                    source_record_id = excluded.source_record_id,
+                    record_type = excluded.record_type,
+                    verdict = excluded.verdict,
+                    record_json = excluded.record_json,
+                    citation_full = excluded.citation_full,
+                    citation_url = excluded.citation_url,
+                    scored_at = excluded.scored_at
+                """, arguments: [
+                    compositeID,
+                    profileID,
+                    scored.record.sourceID,
+                    scored.record.id,
+                    scored.record.recordType.rawValue,
+                    scored.verdict.rawValue,
+                    recordJSON,
+                    citationFull,
+                    citationURL,
+                    Date(),
+                ])
+        }
+    }
+
+    /// Load all evidence records for a profile, newest first.
+    func loadEvidenceForProfile(_ profileID: String) throws -> [EvidenceRecord] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, profile_id, source_id, source_record_id, record_type, verdict, record_json, citation_full, citation_url, scored_at, user_status
+                FROM evidence_records
+                WHERE profile_id = ?
+                ORDER BY scored_at DESC
+                """, arguments: [profileID])
+            return rows.compactMap { row in
+                guard let recordType = RecordType(rawValue: row["record_type"] as String),
+                      let verdict = RecordVerdict(rawValue: row["verdict"] as String),
+                      let json = row["record_json"] as String?,
+                      let data = json.data(using: .utf8),
+                      let record = try? JSONDecoder().decode(SourceRecord.self, from: data)
+                else { return nil }
+                // Defensive fallback: pre-v16 rows or unrecognised values
+                // collapse to `.unreviewed` so an upgrade can't strand data
+                // behind a parsing failure.
+                let userStatus = (row["user_status"] as String?)
+                    .flatMap(UserReviewStatus.init(rawValue:)) ?? .unreviewed
+                return EvidenceRecord(
+                    id: row["id"] as String,
+                    profileID: row["profile_id"] as String,
+                    sourceID: row["source_id"] as String,
+                    sourceRecordID: row["source_record_id"] as String,
+                    recordType: recordType,
+                    verdict: verdict,
+                    record: record,
+                    citationFull: row["citation_full"] as String?,
+                    citationURL: row["citation_url"] as String?,
+                    scoredAt: row["scored_at"] as Date,
+                    userStatus: userStatus
+                )
+            }
+        }
+    }
+
+    /// Count of evidence rows for a profile — cheap lookup for badge counts in UI.
+    func evidenceCountForProfile(_ profileID: String) throws -> Int {
+        try dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM evidence_records WHERE profile_id = ?", arguments: [profileID]) ?? 0
+        }
+    }
+
+    /// Set the user-review status for a single evidence row. Idempotent —
+    /// repeating the same call leaves the row unchanged.
+    func updateEvidenceUserStatus(evidenceID: String, status: UserReviewStatus) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE evidence_records SET user_status = ? WHERE id = ?",
+                arguments: [status.rawValue, evidenceID]
+            )
+        }
+    }
+
+    /// Set the user-review status on every evidence row in a profile that
+    /// matches one of `sourceRecordIDs`. Used when the UI applies a decision
+    /// at cluster level (a cluster contains multiple records; one click
+    /// flips them all).
+    func updateEvidenceUserStatus(
+        profileID: String,
+        sourceRecordIDs: [String],
+        status: UserReviewStatus
+    ) throws {
+        guard !sourceRecordIDs.isEmpty else { return }
+        try dbQueue.write { db in
+            let placeholders = Array(repeating: "?", count: sourceRecordIDs.count).joined(separator: ",")
+            try db.execute(
+                sql: """
+                    UPDATE evidence_records
+                    SET user_status = ?
+                    WHERE profile_id = ? AND source_record_id IN (\(placeholders))
+                    """,
+                arguments: StatementArguments([status.rawValue, profileID] + sourceRecordIDs)
+            )
+        }
+    }
+
+    /// Set of source-record IDs the user has discarded for this profile.
+    /// Pulled live from `evidence_records.user_status = 'discarded'`. Replaces
+    /// the old `record_rejections` path — that table still exists for legacy
+    /// rows but is no longer the write target.
+    func loadDiscardedSourceRecordIDs(profileID: String) throws -> Set<String> {
+        try dbQueue.read { db in
+            let ids = try String.fetchAll(db, sql: """
+                SELECT source_record_id FROM evidence_records
+                WHERE profile_id = ? AND user_status = 'discarded'
+                """, arguments: [profileID])
+            return Set(ids)
+        }
+    }
 }
+
 
 // MARK: - Pending Facts
 

@@ -8,11 +8,11 @@ struct SidebarView: View {
     /// reveals tabs as the project earns them — Workbench on first note,
     /// Tasks once a manual project crosses the 5-profile threshold (always
     /// visible for imported projects), Sourcing once any citation exists.
-    /// Tree, Research, Leads, and Settings are always shown.
+    /// Tree, Triage, Leads, and Settings are always shown.
     private var visibleTabs: [SidebarTab] {
         SidebarTab.allCases.filter { tab in
             switch tab {
-            case .tree, .research, .leads, .settings:
+            case .tree, .triage, .leads, .settings:
                 return true
             case .tasks:
                 return appState.tasksTabVisible
@@ -75,7 +75,7 @@ nonisolated extension SidebarTab {
         case .tree: "person.3"
         case .tasks: "checklist"
         case .sourcing: "checkmark.seal"
-        case .research: "globe.desk"
+        case .triage: "checklist.checked"
         case .workbench: "rectangle.grid.2x2"
         case .leads: "person.crop.circle.badge.questionmark"
         case .settings: "gear"

@@ -2,7 +2,7 @@ import Foundation
 
 /// Type-safe profile field identifiers.
 nonisolated enum ProfileField: String, Codable, CaseIterable, Hashable, Sendable {
-    case firstName, lastName, gender
+    case firstName, middleName, lastName, nickName, mothersMaidenName, gender
     case birthDate, birthLocation
     case deathDate, deathLocation
     case bio

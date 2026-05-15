@@ -9,7 +9,21 @@ final class AppState {
     var auditSummary: AuditSummary?
     var availableProjects: [Project] = []
     /// Set to trigger research for a specific profile from the tree view.
+    /// Uses whatever mode/scope is currently set on the Research view model.
     var researchProfileID: String?
+
+    /// Richer profile-contextual research trigger. When set, the Research view
+    /// applies the supplied mode + scope to its view model THEN starts research
+    /// on the named profile — letting research be kicked off from a profile-
+    /// detail sheet with mode/scope picked in context rather than over on the
+    /// Research tab.
+    var researchRequest: ResearchRequest?
+
+    /// Set to a profile to display the research configuration sheet (mode/scope
+    /// picker) from anywhere in the app — tree popover, profile detail, etc.
+    /// ContentView observes and presents the sheet centrally so the sheet looks
+    /// and behaves identically regardless of where research was triggered from.
+    var researchConfigProfile: Profile?
     var isLoading = false
     var loadingMessage: String?
     var errorMessage: String?
@@ -785,7 +799,9 @@ final class AppState {
         date: GenealogicalDate? = nil,
         endDate: GenealogicalDate? = nil,
         location: String? = nil,
+        locationCode: String? = nil,
         description: String? = nil,
+        details: LifeEventDetails? = nil,
         sources: [FieldSource] = [],
         confidence: FactConfidence = .standard,
         sensitive: Bool = false
@@ -794,7 +810,9 @@ final class AppState {
         let event = LifeEvent(
             id: UUID(), profileID: profileID, type: type,
             date: date, endDate: endDate,
-            location: location, description: description,
+            location: location, locationCode: locationCode,
+            description: description,
+            details: details,
             sources: sources, confidence: confidence,
             createdByTransactionID: nil,
             sensitive: sensitive
@@ -1019,7 +1037,10 @@ final class AppState {
     private func stringValue(of field: ProfileField, on profile: Profile) -> String? {
         switch field {
         case .firstName: return profile.firstName
+        case .middleName: return profile.middleName
         case .lastName: return profile.lastName
+        case .nickName: return profile.nickName
+        case .mothersMaidenName: return profile.mothersMaidenName
         case .gender: return profile.gender?.rawValue
         case .birthLocation: return profile.birthLocation
         case .deathLocation: return profile.deathLocation
@@ -1284,6 +1305,18 @@ final class AppState {
     // MARK: - WikiTree
 
     private var wikiTreeClient = WikiTreeClient()
+
+    /// Validate WikiTree credentials without side effects on the project list.
+    /// Used by `NewProjectView` to confirm a login works **before** creating
+    /// a SQLite project file — previously a failed login still produced an
+    /// empty project shell with no UI to retry the credentials (Task #56).
+    /// Throws on auth failure; returns silently on success. The client's
+    /// session cookie persists, so the subsequent full `connectWikiTree`
+    /// call won't re-prompt the user but will simply re-login as part of
+    /// the import flow (cheap; one extra HTTP round trip).
+    func validateWikiTreeLogin(email: String, password: String) async throws {
+        _ = try await wikiTreeClient.login(email: email, password: password)
+    }
 
     /// Connect to WikiTree and fetch ancestor tree from a seed profile.
     /// Single getAncestors call — much more efficient than watchlist + batch.

@@ -31,12 +31,22 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
         self.http = http
     }
     private let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "FreeCen")
-    private var lastRequestTime: ContinuousClock.Instant?
+    /// Scheduled time for the next allowable request. Slot-reservation pattern
+    /// (see FreeBMDSource for the full rationale): callers advance the slot
+    /// synchronously inside the actor so concurrent search() calls each get a
+    /// unique wakeup instant rather than reading the same stale timestamp.
+    private var nextRequestSlot: ContinuousClock.Instant?
     private let requestDelay: Duration = .milliseconds(500)
 
     // Session state
     private var sessionCookie: String?
     private var csrfToken: String?
+    /// In-flight session-establishment task. Without this latch, concurrent
+    /// search() calls all race past the `sessionCookie == nil` check and each
+    /// fetch the form page independently — wasteful and occasionally trips the
+    /// connection pool. With the latch, the first caller does the fetch and
+    /// every other caller awaits the same task.
+    private var sessionEstablishmentTask: Task<Void, Error>?
 
     private var lastSuccessfulSearch: Date?
     private var lastError: String?
@@ -55,16 +65,19 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
         guard query.recordType == .census else { return .outsideCoverage(reason: "FreeCen only provides census records") }
         guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
 
+        let chapmanCode: String
+        if case .freeCen(let p) = query.sourceParams, let code = p.chapmanCode {
+            chapmanCode = code
+        } else {
+            chapmanCode = "DBY"
+        }
+        let year = query.yearFrom  // census year
+
+        let summary = Self.activitySummary(query: query, surname: surname, chapmanCode: chapmanCode, censusYear: year)
+        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary))
+
         do {
             try await ensureSession()
-
-            let chapmanCode: String
-            if case .freeCen(let p) = query.sourceParams, let code = p.chapmanCode {
-                chapmanCode = code
-            } else {
-                chapmanCode = "DBY"
-            }
-            let year = query.yearFrom  // census year
 
             let fields: [String: String] = [
                 "utf8": "✓",
@@ -96,11 +109,15 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
                 )
             }
 
-            guard let html = String(data: data, encoding: .utf8) else { return .unavailable(reason: "Invalid encoding") }
+            guard let html = String(data: data, encoding: .utf8) else {
+                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "Invalid encoding"))
+                return .unavailable(reason: "Invalid encoding")
+            }
             let results = Self.parseSearchResults(html, censusYear: year)
             lastSuccessfulSearch = Date()
             lastError = nil
             logger.info("Search returned \(results.count) results for \(surname)")
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count))
             return .results(results)
 
         } catch {
@@ -108,8 +125,19 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             logger.warning("Search failed: \(error.localizedDescription)")
             sessionCookie = nil
             csrfToken = nil
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
             return .unavailable(reason: error.localizedDescription)
         }
+    }
+
+    /// Build a one-line description of a FreeCen query for the live activity feed.
+    nonisolated static func activitySummary(query: RecordQuery, surname: String, chapmanCode: String, censusYear: Int?) -> String {
+        let searchTerms: String = {
+            if let given = query.givenName, !given.isEmpty { return "\(given) \(surname)" }
+            return surname
+        }()
+        let yearLabel = censusYear.map { " \($0) census" } ?? " census"
+        return "FreeCen \(chapmanCode)\(yearLabel): \(searchTerms)"
     }
 
     // MARK: - Detail Fetching (household)
@@ -140,9 +168,25 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
 
     // MARK: - Session Management
 
+    /// Fetch a fresh session cookie and CSRF token from FreeCen.
+    /// Concurrent callers all await the same establishment task — only one
+    /// network fetch happens at a time even when many search() calls queue
+    /// at the actor.
     private func ensureSession() async throws {
-        guard sessionCookie == nil else { return }
+        if sessionCookie != nil { return }
+        if let inFlight = sessionEstablishmentTask {
+            try await inFlight.value
+            return
+        }
+        let task = Task<Void, Error> { [weak self] in
+            try await self?.performSessionEstablishment()
+        }
+        sessionEstablishmentTask = task
+        defer { sessionEstablishmentTask = nil }
+        try await task.value
+    }
 
+    private func performSessionEstablishment() async throws {
         let data = try await http.get(url: Self.searchFormURL, headers: ["User-Agent": Self.userAgent])
         guard let html = String(data: data, encoding: .utf8) else {
             throw HTTPError.status(code: 0, body: nil)
@@ -166,15 +210,26 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
 
     // MARK: - Rate Limiting
 
+    /// Slot-reservation request pacing. See FreeBMDSource for the rationale.
     private func rateLimitedRequest(_ operation: () async throws -> Data) async throws -> Data {
-        if let lastTime = lastRequestTime {
-            let elapsed = ContinuousClock.now - lastTime
-            if elapsed < requestDelay {
-                try await Task.sleep(for: requestDelay - elapsed)
-            }
+        let scheduledFor = reserveNextSlot()
+        let now = ContinuousClock.now
+        if scheduledFor > now {
+            try await Task.sleep(until: scheduledFor, clock: .continuous)
         }
-        lastRequestTime = .now
         return try await operation()
+    }
+
+    private func reserveNextSlot() -> ContinuousClock.Instant {
+        let now = ContinuousClock.now
+        let scheduledFor: ContinuousClock.Instant
+        if let nextSlot = nextRequestSlot, nextSlot > now {
+            scheduledFor = nextSlot
+        } else {
+            scheduledFor = now
+        }
+        nextRequestSlot = scheduledFor.advanced(by: requestDelay)
+        return scheduledFor
     }
 
     // MARK: - Parsing (static, testable)

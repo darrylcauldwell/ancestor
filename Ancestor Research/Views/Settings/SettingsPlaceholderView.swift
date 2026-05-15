@@ -94,37 +94,27 @@ struct SettingsPlaceholderView: View {
                 }
             }
 
-            Section("Record Sources (\(sourceRegistry.allSources().count))") {
-                ForEach(sourceRegistry.allSources(), id: \.sourceID) { source in
-                    HStack {
-                        // ToS indicator
-                        Image(systemName: tosIcon(source.tosStatus.level))
-                            .foregroundStyle(tosColor(source.tosStatus.level))
-                            .accessibilityLabel("Terms of service status \(source.tosStatus.level)")
+            let allSources = sourceRegistry.allSources()
+            let generalSources = allSources.filter { $0.kind == .general }
+            let localPluginSources = allSources.filter { $0.kind == .localPlugin }
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(source.displayName)
-                                .font(AppTypography.cardTitle)
-                            Text(source.tosStatus.summary)
-                                .font(AppTypography.cardMeta)
-                                .foregroundStyle(.secondary)
-                            if let range = source.coverageYearRange {
-                                Text("Coverage: \(range.lowerBound)–\(range.upperBound)")
-                                    .font(AppTypography.badge)
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
+            Section("General sources (\(generalSources.count))") {
+                ForEach(generalSources, id: \.sourceID) { source in
+                    sourceRow(source)
+                }
+            }
 
-                        Spacer()
-
-                        // Enable/disable toggle
-                        Toggle("", isOn: Binding(
-                            get: { sourceRegistry.isEnabled(source.sourceID) },
-                            set: { sourceRegistry.setEnabled(sourceID: source.sourceID, enabled: $0) }
-                        ))
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
+            if !localPluginSources.isEmpty {
+                Section {
+                    ForEach(localPluginSources, id: \.sourceID) { source in
+                        sourceRow(source)
                     }
+                } header: {
+                    Text("Local sources (\(localPluginSources.count))")
+                } footer: {
+                    Text("Niche sources covering a specific area or record type. Enable the ones your tree intersects.")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.tertiary)
                 }
             }
 
@@ -208,6 +198,38 @@ struct SettingsPlaceholderView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
+    }
+
+    // MARK: - Source Row
+
+    private func sourceRow(_ source: any RecordSource) -> some View {
+        HStack {
+            Image(systemName: tosIcon(source.tosStatus.level))
+                .foregroundStyle(tosColor(source.tosStatus.level))
+                .accessibilityLabel("Terms of service status \(String(describing: source.tosStatus.level))")
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(source.displayName)
+                    .font(AppTypography.cardTitle)
+                Text(source.tosStatus.summary)
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                if let range = source.coverageYearRange {
+                    Text("Coverage: \(range.lowerBound)–\(range.upperBound)")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            Spacer()
+
+            Toggle("", isOn: Binding(
+                get: { sourceRegistry.isEnabled(source.sourceID) },
+                set: { sourceRegistry.setEnabled(sourceID: source.sourceID, enabled: $0) }
+            ))
+            .toggleStyle(.switch)
+            .controlSize(.small)
+        }
     }
 
     // MARK: - ToS Helpers

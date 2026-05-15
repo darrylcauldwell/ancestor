@@ -1,8 +1,13 @@
 import Foundation
+import os
 
 /// Manages project listing, creation, and deletion.
 /// Projects live in Application Support as individual SQLite files.
 nonisolated struct ProjectStore {
+    private static let logger = Logger(
+        subsystem: "dev.dreamfold.Ancestor-Research",
+        category: "ProjectStore"
+    )
     static let projectsDirectory: URL = {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = appSupport.appendingPathComponent("AncestorResearch/projects")
@@ -12,17 +17,43 @@ nonisolated struct ProjectStore {
 
     /// List all available projects by reading SQLite files.
     static func listProjects() -> [Project] {
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: projectsDirectory, includingPropertiesForKeys: nil
-        ) else { return [] }
+        logger.info("listProjects scanning dir: \(projectsDirectory.path, privacy: .public)")
+        let files: [URL]
+        do {
+            files = try FileManager.default.contentsOfDirectory(
+                at: projectsDirectory, includingPropertiesForKeys: nil
+            )
+        } catch {
+            logger.error("listProjects directory scan failed: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
+        let sqliteFiles = files.filter { $0.pathExtension == "sqlite" }
+        logger.info("listProjects found \(sqliteFiles.count, privacy: .public) sqlite files in dir")
 
-        return files
-            .filter { $0.pathExtension == "sqlite" }
-            .compactMap { url in
-                guard let db = try? ProjectDatabase(path: url.path),
-                      let project = try? db.loadProjectMeta() else { return nil }
-                return project
+        var loaded: [Project] = []
+        var dbInitFailures = 0
+        var metaFailures = 0
+        for url in sqliteFiles {
+            do {
+                let db = try ProjectDatabase(path: url.path)
+                do {
+                    if let project = try db.loadProjectMeta() {
+                        loaded.append(project)
+                    } else {
+                        metaFailures += 1
+                        logger.warning("loadProjectMeta returned nil for \(url.lastPathComponent, privacy: .public)")
+                    }
+                } catch {
+                    metaFailures += 1
+                    logger.warning("loadProjectMeta threw for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
+            } catch {
+                dbInitFailures += 1
+                logger.warning("ProjectDatabase init failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
+        }
+        logger.info("listProjects done: loaded=\(loaded.count, privacy: .public) initFail=\(dbInitFailures, privacy: .public) metaFail=\(metaFailures, privacy: .public)")
+        return loaded
     }
 
     /// Create a new project with the given name and data source.

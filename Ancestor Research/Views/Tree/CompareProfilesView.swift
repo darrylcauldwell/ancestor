@@ -181,7 +181,10 @@ struct CompareProfilesView: View {
     private func label(for field: ProfileField) -> String {
         switch field {
         case .firstName: return "First name"
+        case .middleName: return "Middle name"
         case .lastName: return "Last name"
+        case .nickName: return "Nickname"
+        case .mothersMaidenName: return "Mother's maiden name"
         case .gender: return "Gender"
         case .birthDate: return "Birth date"
         case .birthLocation: return "Birth location"

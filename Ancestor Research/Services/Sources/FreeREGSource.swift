@@ -29,8 +29,13 @@ actor FreeREGSource: RecordSource {
     private let http: any HTTPClient
     private let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "FreeREG")
     private var csrfToken: String?
-    private var lastRequestTime: ContinuousClock.Instant?
+    /// Scheduled time for the next allowable request. Slot-reservation pattern
+    /// — see FreeBMDSource for the full rationale.
+    private var nextRequestSlot: ContinuousClock.Instant?
     private let requestDelay: Duration = .milliseconds(1000)
+    /// In-flight session-establishment task. Concurrent search() calls all
+    /// await the same fetch instead of each independently grabbing the CSRF.
+    private var sessionEstablishmentTask: Task<Void, Error>?
 
     init(http: any HTTPClient = SourceHTTPClient.shared) {
         self.http = http
@@ -51,26 +56,32 @@ actor FreeREGSource: RecordSource {
         }
         guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
 
+        // Map record type to FreeREG form value
+        let recordTypeValue: String
+        switch query.recordType {
+        case .baptism, .christening: recordTypeValue = "ba"
+        case .marriage: recordTypeValue = "ma"
+        case .burial: recordTypeValue = "bu"
+        default: recordTypeValue = ""  // All types
+        }
+
+        // Get chapman code from query params.
+        // Dispatcher passes a freeREG param (from .national scope fan-out) or, for
+        // backwards-compat with older call sites, accept a freeCen param too.
+        let chapmanCode: String
+        if case .freeREG(let params) = query.sourceParams, let code = params.chapmanCode {
+            chapmanCode = code
+        } else if case .freeCen(let params) = query.sourceParams, let code = params.chapmanCode {
+            chapmanCode = code
+        } else {
+            chapmanCode = "DBY"
+        }
+
+        let summary = Self.activitySummary(query: query, surname: surname, chapmanCode: chapmanCode)
+        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary))
+
         do {
             try await ensureSession()
-            try await rateLimit()
-
-            // Map record type to FreeREG form value
-            let recordTypeValue: String
-            switch query.recordType {
-            case .baptism, .christening: recordTypeValue = "ba"
-            case .marriage: recordTypeValue = "ma"
-            case .burial: recordTypeValue = "bu"
-            default: recordTypeValue = ""  // All types
-            }
-
-            // Get chapman code from query params or default
-            let chapmanCode: String
-            if case .freeCen(let params) = query.sourceParams, let code = params.chapmanCode {
-                chapmanCode = code
-            } else {
-                chapmanCode = "DBY"
-            }
 
             var fields: [String: String] = [
                 "search_query[last_name]": surname,
@@ -93,32 +104,72 @@ actor FreeREGSource: RecordSource {
                 fields["search_query[end_year]"] = String(yearTo)
             }
 
-            let data = try await http.postForm(
-                url: URL(string: Self.searchPostURL)!,
-                fields: fields,
-                headers: [
-                    "User-Agent": Self.userAgent,
-                    "X-CSRF-Token": csrfToken ?? "",
-                    "Referer": Self.searchFormURL,
-                ]
-            )
+            let data = try await rateLimitedRequest {
+                try await self.http.postForm(
+                    url: URL(string: Self.searchPostURL)!,
+                    fields: fields,
+                    headers: [
+                        "User-Agent": Self.userAgent,
+                        "X-CSRF-Token": self.csrfToken ?? "",
+                        "Referer": Self.searchFormURL,
+                    ]
+                )
+            }
 
             let html = String(data: data, encoding: .utf8) ?? ""
             let records = Self.parseResults(html, recordType: query.recordType)
             logger.info("FreeREG: \(records.count) results for \(surname)")
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count))
             return .results(records)
         } catch {
             csrfToken = nil  // Reset on error
             logger.error("FreeREG search failed: \(error.localizedDescription)")
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
             return .unavailable(reason: error.localizedDescription)
         }
     }
 
+    /// Build a one-line description of a FreeREG query for the live activity feed.
+    nonisolated static func activitySummary(query: RecordQuery, surname: String, chapmanCode: String) -> String {
+        let recordTypeLabel: String = switch query.recordType {
+        case .baptism, .christening: "baptisms"
+        case .marriage: "marriages"
+        case .burial: "burials"
+        default: "parish records"
+        }
+        let searchTerms: String = {
+            if let given = query.givenName, !given.isEmpty { return "\(given) \(surname)" }
+            return surname
+        }()
+        let yearLabel: String
+        switch (query.yearFrom, query.yearTo) {
+        case let (yf?, yt?) where yf == yt: yearLabel = " \(yf)"
+        case let (yf?, yt?): yearLabel = " \(yf)–\(yt)"
+        default: yearLabel = ""
+        }
+        return "FreeREG \(chapmanCode) \(recordTypeLabel): \(searchTerms)\(yearLabel)"
+    }
+
     // MARK: - Session Management
 
+    /// Fetch the CSRF token for FreeREG. Concurrent callers all await the
+    /// same in-flight establishment task — only one network round-trip even
+    /// when many search() calls queue at the actor.
     private func ensureSession() async throws {
-        guard csrfToken == nil else { return }
+        if csrfToken != nil { return }
+        if let inFlight = sessionEstablishmentTask {
+            try await inFlight.value
+            return
+        }
+        let task = Task<Void, Error> { [weak self] in
+            try await self?.performSessionEstablishment()
+        }
+        sessionEstablishmentTask = task
+        defer { sessionEstablishmentTask = nil }
+        try await task.value
+    }
 
+    private func performSessionEstablishment() async throws {
         let data = try await http.get(url: URL(string: Self.searchFormURL)!, headers: [
             "User-Agent": Self.userAgent,
         ])
@@ -143,14 +194,28 @@ actor FreeREGSource: RecordSource {
         }
     }
 
-    private func rateLimit() async throws {
-        if let last = lastRequestTime {
-            let elapsed = ContinuousClock.now - last
-            if elapsed < requestDelay {
-                try await Task.sleep(for: requestDelay - elapsed)
-            }
+    // MARK: - Rate Limiting
+
+    /// Slot-reservation request pacing. See FreeBMDSource for the rationale.
+    private func rateLimitedRequest<T>(_ operation: () async throws -> T) async throws -> T {
+        let scheduledFor = reserveNextSlot()
+        let now = ContinuousClock.now
+        if scheduledFor > now {
+            try await Task.sleep(until: scheduledFor, clock: .continuous)
         }
-        lastRequestTime = .now
+        return try await operation()
+    }
+
+    private func reserveNextSlot() -> ContinuousClock.Instant {
+        let now = ContinuousClock.now
+        let scheduledFor: ContinuousClock.Instant
+        if let nextSlot = nextRequestSlot, nextSlot > now {
+            scheduledFor = nextSlot
+        } else {
+            scheduledFor = now
+        }
+        nextRequestSlot = scheduledFor.advanced(by: requestDelay)
+        return scheduledFor
     }
 
     // MARK: - Parsing (nonisolated static — testable)

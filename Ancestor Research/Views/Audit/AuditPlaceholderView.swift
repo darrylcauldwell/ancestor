@@ -297,13 +297,11 @@ struct GapsPlaceholderView: View {
                                     .font(AppTypography.cardTitle)
                                     .foregroundStyle(comp.score == 0 ? .red : .orange)
 
-                                if isSearchable(profile) {
-                                    Button("Research") {
-                                        appState.researchProfileID = profile.id
-                                    }
-                                    .buttonStyle(.glass)
-                                    .controlSize(.mini)
+                                Button("Research") {
+                                    appState.researchProfileID = profile.id
                                 }
+                                .buttonStyle(.glass)
+                                .controlSize(.mini)
                                 // Per-profile promote: turn the missing-field
                                 // checks into one OpenQuestion per gap with
                                 // QuestionOrigin.fromGap. Menu shows one entry
@@ -392,11 +390,6 @@ struct GapsPlaceholderView: View {
             }
     }
 
-    private func isSearchable(_ profile: Profile) -> Bool {
-        guard let birthYear = profile.birthDate?.earliest else { return true }
-        return birthYear <= 1930
-    }
-
     /// Promote a missing-field gap to an OpenQuestion, recording the field
     /// in `QuestionOrigin.fromGap` so the workbench shows where it came from.
     private func promoteGap(profile: Profile, check: CompletenessCheck) {
@@ -467,7 +460,10 @@ nonisolated extension CompletenessCheck {
         case .field(let field):
             switch field {
             case .firstName: "name"
+            case .middleName: "middle"
             case .lastName: "surname"
+            case .nickName: "nickname"
+            case .mothersMaidenName: "mother's maiden"
             case .gender: "gender"
             case .birthDate: "birth"
             case .birthLocation: "b.loc"

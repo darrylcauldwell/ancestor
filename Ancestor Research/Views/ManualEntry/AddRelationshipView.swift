@@ -23,6 +23,7 @@ struct AddRelationshipView: View {
     @State private var subtype: RelationshipSubtype = .biological
     @State private var marriageDateText: String = ""
     @State private var marriageLocation: String = ""
+    @State private var marriageLocationCode: String? = nil
     /// DESIGN.md §7.5.7 — when the saved edge would be the third (or later)
     /// parent on the receiving profile, the user must explicitly confirm
     /// the subtype. Set to true once they pick a value in the prompt.
@@ -180,8 +181,11 @@ struct AddRelationshipView: View {
         VStack(alignment: .leading, spacing: 6) {
             sectionTitle("Marriage (optional)")
             DateParsePreviewField(label: "Marriage date", text: $marriageDateText)
-            TextField("Marriage location", text: $marriageLocation)
-                .textFieldStyle(.roundedBorder)
+            LocationPicker(
+                label: "Marriage location",
+                text: $marriageLocation,
+                locationCode: $marriageLocationCode
+            )
         }
     }
 
@@ -233,6 +237,7 @@ struct AddRelationshipView: View {
                 type: .spouse, role: nil, subtype: .unknown,
                 marriageDate: GenealogicalDate.parsePreview(marriageDateText).parsed,
                 marriageLocation: AutoSuggestService.normaliseName(marriageLocation),
+                marriageLocationCode: marriageLocationCode,
                 divorceDate: nil
             ))
         case .sibling:
