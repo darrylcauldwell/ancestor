@@ -35,6 +35,12 @@ nonisolated struct ProposedRelative: Sendable, Identifiable {
     /// record that implied the surname; grows when marriage enrichment matches.
     var evidence: [ScoredRecord]
     let confidence: ClusterConfidence
+    /// Inference depth from a directly-observed record. Always `steps >= 1` for
+    /// proposals — a `ProposedRelative` is by definition derived from some
+    /// other record (the child's birth record, the spouse's marriage record).
+    /// Chain captures the provenance trail rendered in tooltip + full-detail
+    /// view. See `RESEARCH_CONFIDENCE_SPEC.md` §3.3.
+    var inferenceDepth: InferenceDepth = InferenceDepth(steps: 1, chain: [])
     /// Candidate marriage records when enrichment found >1 plausible match and
     /// can't pick a given name automatically. Empty when enrichment was
     /// conclusive or didn't run. User picks one during accept.
@@ -116,6 +122,12 @@ nonisolated enum ParentInferenceEngine {
             let parentHigh: Int? = subjectBirthYear.map { $0 - 18 }
             let rel = ProposedRelationship.parentOf(subjectID)
             let confidence = confidenceFor(tier: sourceTier, verdict: fact.verdict)
+            // One inference step away from the birth record. Chain entry
+            // names the source for tooltip / full-detail provenance.
+            let depth = InferenceDepth(
+                steps: 1,
+                chain: ["Parent surname inferred from \(fact.record.sourceID) birth record"]
+            )
 
             // Mother
             let motherID = ProposedRelative.stableID(relationship: rel, gender: .female, surname: maidenName)
@@ -129,7 +141,8 @@ nonisolated enum ParentInferenceEngine {
                     birthYearHigh: parentHigh,
                     relationship: rel,
                     evidence: [fact],
-                    confidence: confidence
+                    confidence: confidence,
+                    inferenceDepth: depth
                 ))
                 seenIDs.insert(motherID)
             }
@@ -148,7 +161,8 @@ nonisolated enum ParentInferenceEngine {
                         birthYearHigh: parentHigh,
                         relationship: rel,
                         evidence: [fact],
-                        confidence: confidence
+                        confidence: confidence,
+                        inferenceDepth: depth
                     ))
                     seenIDs.insert(fatherID)
                 }

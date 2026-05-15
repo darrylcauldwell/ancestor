@@ -29,7 +29,7 @@ nonisolated enum MatchQuality: String, Sendable, Codable, CaseIterable {
     }
 }
 
-extension RecordVerdict {
+nonisolated extension RecordVerdict {
     /// Map a scorer verdict to its UI-facing match-quality label.
     /// The two enums share shape but live in different namespaces — `RecordVerdict`
     /// is the scorer's output; `MatchQuality` is the UI aggregation. Keeping them

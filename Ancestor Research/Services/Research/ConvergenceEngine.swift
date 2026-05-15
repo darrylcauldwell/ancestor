@@ -51,6 +51,30 @@ nonisolated struct ConvergenceEngine {
         return adjustForDirectness(base: baseLevel, records: records, sourceInfoMap: sourceInfoMap)
     }
 
+    /// Produce a `SourcingStrength` summary for a cluster's records.
+    /// `RESEARCH_CONFIDENCE_SPEC` §3.2 — one of three independent confidence
+    /// axes, surfaced directly in the new ConfidenceBadgeView. Uses the same
+    /// lineage-grouping rules as `score(records:sourceInfoMap:)` so the
+    /// "cross-referenced" threshold aligns across all consumers.
+    static func sourcingStrength(
+        for cluster: LifeCluster,
+        sourceInfoMap: [String: SourceInfo]
+    ) -> SourcingStrength {
+        let records = cluster.records.map(\.record)
+        let lineageSet: Set<SourceLineage> = Set(records.compactMap { record in
+            sourceInfoMap[record.common.sourceID]?.lineage
+        })
+        let topTier: SourceTrustTier = records.reduce(.community) { acc, record in
+            let tier = sourceInfoMap[record.common.sourceID]?.trustTier ?? .community
+            return max(acc, tier)
+        }
+        return SourcingStrength(
+            sourceCount: records.count,
+            independentLineageCount: lineageSet.count,
+            topTrustTier: topTier
+        )
+    }
+
     /// Cap convergence level if all supporting evidence is derivative.
     private static func adjustForDirectness(
         base: ConvergenceLevel,

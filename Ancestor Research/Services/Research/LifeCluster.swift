@@ -92,6 +92,28 @@ nonisolated struct LifeCluster: Identifiable, Sendable {
         }
         return "Unknown"
     }
+
+    /// Aggregate match quality across the cluster's records — strongest wins.
+    /// nil only when the cluster is empty. See `RESEARCH_CONFIDENCE_SPEC` §3.1.
+    /// Match quality is computable from records alone — no `sourceInfoMap`
+    /// dependency — so it lives on the cluster as a pure property.
+    var matchQuality: MatchQuality? {
+        MatchQuality.best(of: records.map { $0.verdict.matchQuality })
+    }
+
+    /// Full three-axis confidence for this cluster. Requires `sourceInfoMap`
+    /// to compute the sourcing axis (lineage independence + top trust tier).
+    /// Cluster records are direct evidence; inference depth is always
+    /// `.direct` here — `ProposedRelative` carries depth on its own field for
+    /// inferred entities. See `RESEARCH_CONFIDENCE_SPEC` §3.
+    func evidenceConfidence(sourceInfoMap: [String: SourceInfo]) -> EvidenceConfidence {
+        let sourcing = ConvergenceEngine.sourcingStrength(for: self, sourceInfoMap: sourceInfoMap)
+        return EvidenceConfidence(
+            matchQuality: matchQuality ?? .wrong,
+            sourcing: sourcing,
+            inference: .direct
+        )
+    }
 }
 
 /// Extract district from a source record.
