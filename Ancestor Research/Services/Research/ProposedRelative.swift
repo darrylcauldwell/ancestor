@@ -46,6 +46,24 @@ nonisolated struct ProposedRelative: Sendable, Identifiable {
     /// conclusive or didn't run. User picks one during accept.
     var ambiguousMarriages: [ScoredRecord] = []
 
+    /// Three-axis confidence for a proposed relative — used by
+    /// `ConfidenceBadgeView` in cluster review. Match quality aggregates
+    /// across the evidence records; sourcing uses `ConvergenceEngine`'s
+    /// lineage-grouped count; inference depth is the proposal's own.
+    /// See `RESEARCH_CONFIDENCE_SPEC` §3.
+    func evidenceConfidence(sourceInfoMap: [String: SourceInfo]) -> EvidenceConfidence {
+        let match = MatchQuality.best(of: evidence.map { $0.verdict.matchQuality }) ?? .wrong
+        let sourcing = ConvergenceEngine.sourcingStrength(
+            records: evidence.map(\.record),
+            sourceInfoMap: sourceInfoMap
+        )
+        return EvidenceConfidence(
+            matchQuality: match,
+            sourcing: sourcing,
+            inference: inferenceDepth
+        )
+    }
+
     /// Build a stable id from the components that semantically identify this proposal.
     static func stableID(
         relationship: ProposedRelationship,

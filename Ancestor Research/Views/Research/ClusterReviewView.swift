@@ -571,21 +571,10 @@ struct ClusterReviewView: View {
             )
     }
 
-    private func confidenceBadge(_ confidence: ClusterConfidence) -> some View {
-        let (label, color): (String, Color) = switch confidence {
-        case .strong: ("Strong", .green)
-        case .moderate: ("Moderate", .blue)
-        case .weak: ("Weak", .orange)
-        case .ambiguous: ("Ambiguous", .red)
-        }
-
-        return Text(label)
-            .font(AppTypography.badge)
-            .foregroundStyle(color)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .glassEffect(.regular, in: .capsule)
-    }
+    // Legacy ClusterConfidence badge helper removed in Change 4 — all view
+    // surfaces now render the three-axis ConfidenceBadgeView. The enum
+    // itself stays until Change 5 because BulkReviewView still uses it for
+    // routing decisions (friction-tier classification, not display).
 
     // MARK: - Discoveries
 
@@ -885,7 +874,13 @@ struct ClusterReviewView: View {
                     HStack(spacing: 8) {
                         Text("\(roleLabel): \(surnameLabel)")
                             .font(AppTypography.cardBody)
-                        confidenceBadge(proposal.confidence)
+                        // RESEARCH_CONFIDENCE_SPEC §4.2 Change 4 — proposed-
+                        // relative cards adopt the three-axis badge. A parent
+                        // inferred from a single FreeBMD fact record renders
+                        // as: ✓ Confirmed · 1 source · Inferred — 1 step.
+                        ConfidenceBadgeView(
+                            confidence: proposal.evidenceConfidence(sourceInfoMap: sourceInfoMap)
+                        )
                     }
                     HStack(spacing: 8) {
                         if !rangeLabel.isEmpty {
@@ -1036,18 +1031,33 @@ struct ClusterReviewView: View {
         return lines
     }
 
-    /// Plain-English confidence explanation matching the badge.
+    /// Plain-English confidence explanation matching the badge. Built from
+    /// the three-axis EvidenceConfidence; the prose mirrors the tooltip
+    /// content on each axis of `ConfidenceBadgeView` so screen-reader users
+    /// (or anyone reading without hover) get the same information.
     private func confidenceExplanation(_ proposal: ProposedRelative) -> String {
-        switch proposal.confidence {
-        case .strong:
-            return "Strong — derived from a primary record that fully matched the subject."
-        case .moderate:
-            return "Moderate — derived from a transcribed record that fully matched the subject (verdict: fact)."
-        case .weak:
-            return "Weak — source record matched on name and date but at least one gate (geography or family context) softFailed, so the underlying record is a lead rather than a confirmed fact."
-        case .ambiguous:
-            return "Ambiguous — multiple plausible candidates or contradictions in the evidence."
+        let confidence = proposal.evidenceConfidence(sourceInfoMap: sourceInfoMap)
+        var parts: [String] = []
+
+        switch confidence.matchQuality {
+        case .confirmed:
+            parts.append("Confirmed — record fully matched the subject across all scoring gates.")
+        case .possible:
+            parts.append("Possible — record matched on name and date but at least one gate soft-failed.")
+        case .wrong:
+            parts.append("Wrong person — record fails name or date matching.")
         }
+
+        let s = confidence.sourcing
+        let lineageWord = s.independentLineageCount >= 2 ? "cross-referenced" : "single-lineage"
+        let primaryNote = s.topTrustTier == .primary ? " (primary record)" : ""
+        parts.append("Sourced from \(s.sourceCount) record\(s.sourceCount == 1 ? "" : "s"), \(lineageWord)\(primaryNote).")
+
+        if confidence.inference.isInferred {
+            parts.append("Inferred \(confidence.inference.steps) step\(confidence.inference.steps == 1 ? "" : "s") from a directly-observed record.")
+        }
+
+        return parts.joined(separator: " ")
     }
 
     // MARK: - Source Frontier

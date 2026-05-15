@@ -86,10 +86,22 @@ struct BulkReviewView: View {
     }
 
     private func frictionTier(for cluster: LifeCluster) -> FrictionTier {
-        if cluster.confidence == .ambiguous { return .conflict }
+        // RESEARCH_CONFIDENCE_SPEC §4 — routing now reads off the three-axis
+        // signals directly rather than the legacy ClusterConfidence enum.
+        // The mapping preserves the prior intent:
+        //   conflict      — at least one .impossible verdict in the cluster
+        //                    (records that fail name/date hard checks signal
+        //                     contradictions or wrong-person hits)
+        //   correction    — no .fact records at all (cluster is just leads;
+        //                    the user needs to verify or supply data)
+        //   confirmation  — single-record cluster (sourcing is uncorroborated;
+        //                    asking the user to double-check is friction-light)
+        //   refinement    — otherwise (multi-record, has facts, no conflicts)
+        let hasImpossible = cluster.records.contains { $0.verdict == .impossible }
+        if hasImpossible { return .conflict }
         let hasFacts = cluster.records.contains { $0.verdict == .fact }
         if !hasFacts { return .correction }
-        if cluster.confidence == .weak { return .confirmation }
+        if cluster.records.count <= 1 { return .confirmation }
         return .refinement
     }
 
