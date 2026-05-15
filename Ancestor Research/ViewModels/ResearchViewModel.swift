@@ -17,6 +17,12 @@ final class ResearchViewModel {
     /// Rolling buffer of the most recent activity events for the live feed.
     /// Capped at 30 entries so the UI scrolls cleanly without unbounded growth.
     var recentActivity: [String] = []
+    /// Per-source in-flight query count. Drives the source card's spinner →
+    /// green-tick transition: the card stays on `.searching` until the count
+    /// hits zero. Without this, sources that fan out (FreeBMD across
+    /// districts, FreeCen across census years × chapman codes) would
+    /// oscillate spinner↔tick as each individual query reports back.
+    private var inFlightQueryCounts: [String: Int] = [:]
     private var activitySubscription: Task<Void, Never>?
     /// Owning reference for the outer research Task so the user can stop a run
     /// mid-flight via `cancelResearch()`. Set by the caller after `startResearch`
@@ -70,6 +76,7 @@ final class ResearchViewModel {
         clusterDecisions = [:]
         proposedRelativeDecisions = [:]
         recentActivity = []
+        inFlightQueryCounts = [:]
         errorMessage = nil
         progressMessage = "Preparing research..."
 
@@ -223,26 +230,45 @@ final class ResearchViewModel {
 
     /// Translate an activity event into UI state — per-source spinner + activity feed.
     /// Source status flips to `.searching` on start, back to a result-count display
-    /// on completion, and to `.error` on failure.
-    private func applyActivityEvent(_ event: ResearchActivityEvent) {
+    /// on completion, and to `.error` on failure. Internal (not private) so tests
+    /// can drive activity-event sequences without subscribing to the bus.
+    func applyActivityEvent(_ event: ResearchActivityEvent) {
         // Append to the rolling activity feed (cap at 30 entries — newest at top).
         recentActivity.insert(event.description, at: 0)
         if recentActivity.count > 30 { recentActivity.removeLast(recentActivity.count - 30) }
 
-        // Update per-source status card.
+        // Update per-source status card. A source's "spinner → green-tick"
+        // transition only fires when its in-flight query count drops to zero,
+        // so multi-query sources (FreeBMD fanning across districts, FreeCen
+        // across census years × chapman codes) stay on the spinner for the
+        // full batch rather than oscillating spinner↔tick per query.
         switch event {
         case .sourceQueryStarted(let sourceID, _, _):
+            inFlightQueryCounts[sourceID, default: 0] += 1
             if let idx = sourceStatuses.firstIndex(where: { $0.id == sourceID }) {
                 sourceStatuses[idx].state = .searching
                 sourceStatuses[idx].reason = nil
             }
         case .sourceQueryCompleted(let sourceID, _, let count, _):
+            inFlightQueryCounts[sourceID] = max((inFlightQueryCounts[sourceID] ?? 1) - 1, 0)
             if let idx = sourceStatuses.firstIndex(where: { $0.id == sourceID }) {
-                sourceStatuses[idx].state = .complete
                 sourceStatuses[idx].resultCount += count
+                // Only flip to complete when no more queries are in flight
+                // AND the source hasn't already errored in this batch (error
+                // is sticky — a later success shouldn't paper over an earlier
+                // failure). While the count is still positive, the spinner
+                // stays — THIS particular query finished, but the source as
+                // a whole isn't done yet.
+                let stillInFlight = (inFlightQueryCounts[sourceID] ?? 0) > 0
+                if !stillInFlight && sourceStatuses[idx].state != .error {
+                    sourceStatuses[idx].state = .complete
+                }
             }
         case .sourceError(let sourceID, _, let reason, _):
+            inFlightQueryCounts[sourceID] = max((inFlightQueryCounts[sourceID] ?? 1) - 1, 0)
             if let idx = sourceStatuses.firstIndex(where: { $0.id == sourceID }) {
+                // Errors are sticky — once a source hits an error, the
+                // .error state persists even if subsequent queries succeed.
                 sourceStatuses[idx].state = .error
                 sourceStatuses[idx].reason = reason
             }
