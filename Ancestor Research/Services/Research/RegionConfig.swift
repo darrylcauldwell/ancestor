@@ -131,11 +131,13 @@ nonisolated struct RegionConfig: Codable, Sendable {
         }
     }
 
-    /// Single-hop adjacency lookup. Stub — populated by
-    /// RESEARCH_AXES_SPEC Change 2 once `county-adjacency.json` ships.
-    /// Returns an empty array for every input code until then.
+    /// Single-hop adjacency lookup. Returns the Chapman codes of counties
+    /// bordering the given county; empty array for island chains, sea-bounded
+    /// codes, or unknown inputs. Symmetric — `A in adjacentCounties(B)` iff
+    /// `B in adjacentCounties(A)`, enforced by tests. Backed by
+    /// `Resources/Regions/county-adjacency.json` (RESEARCH_AXES_SPEC Change 2).
     static func adjacentCounties(_ code: String) -> [String] {
-        []
+        CountyAdjacency.shared.neighbours(of: code)
     }
 
     /// Resolve the rich per-county config (parishes, non-local map, etc.) for
