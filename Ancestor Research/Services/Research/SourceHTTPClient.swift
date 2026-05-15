@@ -22,7 +22,7 @@ actor SourceHTTPClient: HTTPClient {
                 request.setValue(value, forHTTPHeaderField: key)
             }
             let (data, response) = try await self.session.data(for: request)
-            try Self.checkHTTPResponse(response)
+            try Self.checkHTTPResponse(response, data: data)
             return data
         }
     }
@@ -39,7 +39,7 @@ actor SourceHTTPClient: HTTPClient {
                 .joined(separator: "&")
             request.httpBody = body.data(using: .utf8)
             let (data, response) = try await self.session.data(for: request)
-            try Self.checkHTTPResponse(response)
+            try Self.checkHTTPResponse(response, data: data)
             return data
         }
     }
@@ -62,14 +62,13 @@ actor SourceHTTPClient: HTTPClient {
         throw lastError ?? HTTPError.status(code: 0, body: nil)
     }
 
-    nonisolated private static func checkHTTPResponse(_ response: URLResponse) throws {
+    nonisolated private static func checkHTTPResponse(_ response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else { return }
         switch http.statusCode {
         case 200..<300: return
         case 401, 403: throw HTTPError.unauthorized
         case 429: throw HTTPError.throttled
-        case 500, 502, 503: throw HTTPError.status(code: http.statusCode, body: nil)
-        default: throw HTTPError.status(code: http.statusCode, body: nil)
+        default: throw HTTPError.status(code: http.statusCode, body: data)
         }
     }
 }

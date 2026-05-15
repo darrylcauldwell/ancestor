@@ -15,7 +15,7 @@ extension HTTPClient {
 }
 
 /// HTTP errors with semantic meaning for source error handling.
-enum HTTPError: Error {
+enum HTTPError: Error, LocalizedError {
     case status(code: Int, body: Data?)
     case unauthorized
     case throttled
@@ -33,6 +33,23 @@ enum HTTPError: Error {
         case .status(let code, _): return [500, 502, 503].contains(code)
         case .throttled: return true
         default: return false
+        }
+    }
+
+    var errorDescription: String? {
+        switch self {
+        case .status(let code, let body):
+            let excerpt = body
+                .flatMap { String(data: $0.prefix(200), encoding: .utf8) }?
+                .replacingOccurrences(of: "\n", with: " ")
+                .trimmingCharacters(in: .whitespaces) ?? ""
+            return excerpt.isEmpty
+                ? "HTTP \(code)"
+                : "HTTP \(code): \(excerpt)"
+        case .unauthorized: return "HTTP 401/403 (unauthorized)"
+        case .throttled: return "HTTP 429 (throttled)"
+        case .timeout: return "request timed out"
+        case .transport(let err): return "transport error: \(err.localizedDescription)"
         }
     }
 }

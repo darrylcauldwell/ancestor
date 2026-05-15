@@ -35,7 +35,10 @@ struct CWGCSource: RecordSource {
 
     // MARK: - Constants
 
-    nonisolated private static let exportURL = "https://www.cwgc.org/ExportCasualtySearch"
+    // Trailing slash is canonical — without it the server replies 301 to
+    // the slashed form. URLSession follows the redirect, but going direct
+    // removes a round-trip and a class of redirect-handling failure modes.
+    nonisolated private static let exportURL = "https://www.cwgc.org/ExportCasualtySearch/"
     nonisolated private static let userAgent = "AncestorResearch/1.0 (macOS; genealogy research tool; github.com/darrylcauldwell/ancestor)"
 
     // MARK: - Search
@@ -84,6 +87,22 @@ struct CWGCSource: RecordSource {
             await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count))
             return .results(records)
 
+        } catch let error as HTTPError {
+            // CWGC server bug (observed 2026-05): Tab=exact + Forename with
+            // zero matches returns HTTP 500 serving the site's branded error
+            // page instead of an empty CSV. The signature `<title>500 | CWGC</title>`
+            // is unique enough to distinguish this from a genuine outage.
+            // Treat it as a successful empty result.
+            if case .status(500, let body?) = error,
+               let html = String(data: body, encoding: .utf8),
+               html.contains("<title>500 | CWGC</title>") {
+                logger.info("CWGC returned its empty-results 500 page for \(surname) — treating as zero matches")
+                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0))
+                return .results([])
+            }
+            logger.warning("CWGC search failed: \(error.localizedDescription)")
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
+            return .unavailable(reason: error.localizedDescription)
         } catch {
             logger.warning("CWGC search failed: \(error.localizedDescription)")
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
