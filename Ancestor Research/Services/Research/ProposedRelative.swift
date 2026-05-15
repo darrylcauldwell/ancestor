@@ -34,7 +34,6 @@ nonisolated struct ProposedRelative: Sendable, Identifiable {
     /// Source records that contributed to this proposal. Starts with the birth
     /// record that implied the surname; grows when marriage enrichment matches.
     var evidence: [ScoredRecord]
-    let confidence: ClusterConfidence
     /// Inference depth from a directly-observed record. Always `steps >= 1` for
     /// proposals — a `ProposedRelative` is by definition derived from some
     /// other record (the child's birth record, the spouse's marriage record).
@@ -139,7 +138,7 @@ nonisolated enum ParentInferenceEngine {
             let parentLow: Int? = subjectBirthYear.map { $0 - 45 }
             let parentHigh: Int? = subjectBirthYear.map { $0 - 18 }
             let rel = ProposedRelationship.parentOf(subjectID)
-            let confidence = confidenceFor(tier: sourceTier, verdict: fact.verdict)
+            _ = sourceTier  // Reserved for future per-source weighting; see RESEARCH_CONFIDENCE_SPEC
             // One inference step away from the birth record. Chain entry
             // names the source for tooltip / full-detail provenance.
             let depth = InferenceDepth(
@@ -159,7 +158,6 @@ nonisolated enum ParentInferenceEngine {
                     birthYearHigh: parentHigh,
                     relationship: rel,
                     evidence: [fact],
-                    confidence: confidence,
                     inferenceDepth: depth
                 ))
                 seenIDs.insert(motherID)
@@ -179,7 +177,6 @@ nonisolated enum ParentInferenceEngine {
                         birthYearHigh: parentHigh,
                         relationship: rel,
                         evidence: [fact],
-                        confidence: confidence,
                         inferenceDepth: depth
                     ))
                     seenIDs.insert(fatherID)
@@ -188,21 +185,5 @@ nonisolated enum ParentInferenceEngine {
         }
 
         return result
-    }
-
-    /// Combine source trust tier with the scorer's verdict to set the proposal's
-    /// confidence. A fact-verdict transcription is moderate; same record as a
-    /// lead drops to weak; community-tier records (if they got through) stay weak
-    /// regardless. Subject-side gates the scorer didn't fully pass should not
-    /// be presented as certainty about the parent identity.
-    private static func confidenceFor(tier: SourceTrustTier, verdict: RecordVerdict) -> ClusterConfidence {
-        switch (tier, verdict) {
-        case (.primary, .fact):       return .strong
-        case (.primary, .lead):       return .moderate
-        case (.transcription, .fact): return .moderate
-        case (.transcription, .lead): return .weak
-        case (.community, _):         return .weak
-        default:                      return .weak
-        }
     }
 }

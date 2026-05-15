@@ -158,7 +158,8 @@ final class ResearchPipeline {
             homeChapmanCode: subject.homeChapmanCode
         )
 
-        logger.info("Clustering: \(clusters.count) clusters — \(clusters.filter { $0.confidence >= .moderate }.count) moderate+")
+        let confirmed = clusters.filter { $0.matchQuality == .confirmed }.count
+        logger.info("Clustering: \(clusters.count) clusters — \(confirmed) with confirmed match quality")
 
         return ResearchResult(
             confirmedFacts: state.confirmedFacts,

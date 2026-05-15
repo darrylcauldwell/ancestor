@@ -139,7 +139,7 @@ struct EvidenceConfidenceWiringTests {
         LifeCluster(
             id: "cluster-x",
             records: records,
-            confidence: .weak,
+            
             lifespanStart: 1900,
             lifespanEnd: 1980
         )

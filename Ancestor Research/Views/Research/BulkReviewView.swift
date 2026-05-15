@@ -71,7 +71,7 @@ struct BulkReviewView: View {
                     profileID: profileID,
                     profileName: profileName,
                     tier: tier,
-                    summary: "\(cluster.displayName) — \(cluster.records.count) records, \(cluster.confidence.rawValue)",
+                    summary: "\(cluster.displayName) — \(cluster.records.count) records, \(tier.rawValue)",
                     cluster: cluster
                 ))
             }

@@ -1,32 +1,15 @@
 import Foundation
 
-/// How confident we are that a cluster represents one real person.
-nonisolated enum ClusterConfidence: String, Codable, Sendable, Comparable {
-    case ambiguous   // contradictions or plausibly different person
-    case weak        // single source or only derivative evidence
-    case moderate    // 2+ records, some corroboration, minor gaps
-    case strong      // 3+ records, 2+ lineages, household match, no contradictions
-
-    private var sortOrder: Int {
-        switch self {
-        case .ambiguous: 0
-        case .weak: 1
-        case .moderate: 2
-        case .strong: 3
-        }
-    }
-
-    static func < (lhs: ClusterConfidence, rhs: ClusterConfidence) -> Bool {
-        lhs.sortOrder < rhs.sortOrder
-    }
-}
-
 /// A candidate life — a group of records believed to be about the same person.
 /// The pipeline outputs clusters, not raw records.
+///
+/// Confidence is no longer a stored single-tier enum — RESEARCH_CONFIDENCE_SPEC
+/// Change 5 removed `ClusterConfidence` in favour of the three-axis
+/// `EvidenceConfidence` model. Callers derive confidence on demand via
+/// `matchQuality` (pure) or `evidenceConfidence(sourceInfoMap:)` (full).
 nonisolated struct LifeCluster: Identifiable, Sendable {
     let id: String
     var records: [ScoredRecord]
-    var confidence: ClusterConfidence
     var lifespanStart: Int
     var lifespanEnd: Int
     var mergeCandidate: String?  // ID of another cluster that might be the same person

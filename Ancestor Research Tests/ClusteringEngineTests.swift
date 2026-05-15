@@ -187,7 +187,10 @@ struct ClusteringEngineTests {
 
     // MARK: - Step 5: Confidence
 
-    @Test func singleRecordGetsWeakConfidence() {
+    @Test func singleRecordClusterIsSingleSourced() {
+        // RESEARCH_CONFIDENCE_SPEC Change 5 — pre-Change-5 assertion was
+        // `.confidence == .weak`. New equivalent: single-source sourcing
+        // (no corroboration), with whatever match-quality the verdict gives.
         let birth = scored(.birth(BirthRecord(
             common: makeCommon(id: "b1"), birthYear: 1834,
             birthDate: nil, birthPlace: nil, quarter: nil,
@@ -196,10 +199,15 @@ struct ClusteringEngineTests {
 
         let clusters = ClusteringEngine.cluster(records: [birth], sourceInfoMap: emptySourceInfo)
         #expect(clusters.count == 1)
-        #expect(clusters[0].confidence == .weak)
+        let conf = clusters[0].evidenceConfidence(sourceInfoMap: emptySourceInfo)
+        #expect(conf.sourcing.sourceCount == 1)
+        #expect(!conf.sourcing.isCrossReferenced)
     }
 
-    @Test func allLeadsGetAmbiguousConfidence() {
+    @Test func allLeadsClusterHasPossibleMatchQuality() {
+        // Pre-Change-5 assertion: `.confidence == .ambiguous`. The new model
+        // surfaces this as match-quality .possible (.lead verdicts produce
+        // .possible; no .fact records present → can't promote to .confirmed).
         let lead1 = scored(.birth(BirthRecord(
             common: makeCommon(id: "b1"), birthYear: 1834,
             birthDate: nil, birthPlace: nil, quarter: nil,
@@ -213,7 +221,7 @@ struct ClusteringEngineTests {
 
         let clusters = ClusteringEngine.cluster(records: [lead1, lead2], sourceInfoMap: emptySourceInfo)
         for cluster in clusters {
-            #expect(cluster.confidence == .ambiguous)
+            #expect(cluster.matchQuality == .possible)
         }
     }
 
@@ -226,7 +234,7 @@ struct ClusteringEngineTests {
             district: "Bakewell", volume: nil, page: nil, mothersMaidenName: nil
         )))
         let cluster = LifeCluster(
-            id: "test", records: [birth], confidence: .weak,
+            id: "test", records: [birth],
             lifespanStart: 1834, lifespanEnd: 1944
         )
 
@@ -257,7 +265,7 @@ struct ClusteringEngineTests {
             district: "Bakewell", volume: nil, page: nil, mothersMaidenName: nil
         )))
         let cluster = LifeCluster(
-            id: "test", records: [birth], confidence: .weak,
+            id: "test", records: [birth],
             lifespanStart: 1834, lifespanEnd: 1944
         )
 

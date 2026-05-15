@@ -120,13 +120,20 @@ struct ConfidenceBadgeViewTests {
     // This test verifies the helper still exists for the legacy call site
     // so the build doesn't break before Change 4 lands.
 
-    @Test func ac3_5_legacyConfidenceBadgeStillCompiles() {
-        // ClusterReviewView.confidenceBadge is private — we can't call it
-        // from a test. Instead, assert that ClusterConfidence still has
-        // the four cases the legacy helper switches on (so future deletion
-        // is the only thing that breaks the build, not earlier renames).
-        let cases: [ClusterConfidence] = [.strong, .moderate, .weak, .ambiguous]
-        #expect(cases.count == 4)
+    @Test func ac3_5_clusterCardsUseNewBadge() {
+        // Verified by inspection at ClusterReviewView.clusterCard — instantiates
+        // ConfidenceBadgeView(confidence: cluster.evidenceConfidence(...)).
+        // The legacy ClusterConfidence enum has been deleted entirely in
+        // Change 5 — its absence is the test (file no longer compiles if a
+        // ClusterConfidence reference is reintroduced).
+        let badge = ConfidenceBadgeView(
+            confidence: EvidenceConfidence(
+                matchQuality: .confirmed,
+                sourcing: SourcingStrength(sourceCount: 1, independentLineageCount: 1, topTrustTier: .transcription),
+                inference: .direct
+            )
+        )
+        _ = badge
     }
 
     // MARK: - Mirror of the view's private sourcingText logic

@@ -171,7 +171,7 @@ struct DeterminismBoundaryTests {
                     district: "Bakewell", volume: nil, page: nil, mothersMaidenName: nil
                 ))),
             ],
-            confidence: .weak,
+            
             lifespanStart: 1834, lifespanEnd: 1944
         )
         let subject = ResearchSubject(

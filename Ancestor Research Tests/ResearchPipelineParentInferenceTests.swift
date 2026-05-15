@@ -277,7 +277,12 @@ struct ResearchPipelineParentInferenceTests {
             existingParents: [],
             sourceInfoMap: transcriptionSources
         )
-        #expect(proposals.first?.confidence == .moderate)
+        // RESEARCH_CONFIDENCE_SPEC Change 5 — proposal.confidence (legacy
+        // ClusterConfidence) removed. Equivalent assertion in the three-axis
+        // model: a fact-verdict birth record proposes parents whose
+        // match-quality is .confirmed.
+        let confidence = proposals.first?.evidenceConfidence(sourceInfoMap: transcriptionSources)
+        #expect(confidence?.matchQuality == .confirmed)
     }
 
     // MARK: - Lead-verdict records also propose parents (broadened gate)
@@ -307,9 +312,12 @@ struct ResearchPipelineParentInferenceTests {
 
         // Both parents proposed even though the source record was a lead
         #expect(proposals.count == 2)
-        // Confidence drops a tier — moderate-tier source as lead → weak
+        // Lead-verdict evidence → match-quality .possible (Change 5 replaces
+        // the old "confidence == .weak" tier check with the explicit
+        // match-quality axis).
         let mother = proposals.first { $0.gender == .female }
-        #expect(mother?.confidence == .weak)
+        let conf = mother?.evidenceConfidence(sourceInfoMap: transcriptionSources)
+        #expect(conf?.matchQuality == .possible)
     }
 
     @Test func impossibleRecordsDoNotProposeParents() {

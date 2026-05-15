@@ -130,8 +130,13 @@ nonisolated struct GPSScorer {
         guard let result else {
             return GPSCriterion(criterion: .conflictResolution, met: false, reason: "Not yet researched")
         }
-        // Check if any clusters have contradictions
-        let ambiguous = result.clusters.filter { $0.confidence == .ambiguous }
+        // RESEARCH_CONFIDENCE_SPEC §4 — "ambiguous" was the pre-Change-5 tier
+        // for clusters with internal contradictions. The new model surfaces
+        // the same signal as "any .impossible record present in the cluster"
+        // (mirrors BulkReviewView.frictionTier).
+        let ambiguous = result.clusters.filter { cluster in
+            cluster.records.contains { $0.verdict == .impossible }
+        }
         if ambiguous.isEmpty {
             return GPSCriterion(
                 criterion: .conflictResolution,
@@ -153,14 +158,21 @@ nonisolated struct GPSScorer {
         guard let result, !result.clusters.isEmpty else {
             return GPSCriterion(criterion: .soundConclusion, met: false, reason: "No clusters to evaluate")
         }
-        let strong = result.clusters.filter { $0.confidence >= .moderate }
+        // RESEARCH_CONFIDENCE_SPEC §4 — pre-Change-5 "moderate+" tier meant
+        // "has fact records and ≥2 records overall". The new model treats
+        // those signals as separate: a cluster qualifies as "sound" if its
+        // match quality is .confirmed (≥1 fact record) AND it has more than
+        // one record to corroborate.
+        let strong = result.clusters.filter { cluster in
+            cluster.matchQuality == .confirmed && cluster.records.count >= 2
+        }
         let met = !strong.isEmpty
         return GPSCriterion(
             criterion: .soundConclusion,
             met: met,
             reason: met
-                ? "\(strong.count) cluster\(strong.count == 1 ? "" : "s") with moderate+ confidence"
-                : "All clusters are weak or ambiguous"
+                ? "\(strong.count) cluster\(strong.count == 1 ? "" : "s") with confirmed identity and corroboration"
+                : "No corroborated confirmed-identity clusters"
         )
     }
 }

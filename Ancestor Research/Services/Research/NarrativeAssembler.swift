@@ -12,8 +12,13 @@ nonisolated struct NarrativeAssembler {
     ) async -> Biography {
         var events: [NarrativeLifeEvent] = []
 
-        // Extract events from clusters
-        for cluster in result.clusters where cluster.confidence >= .moderate {
+        // Extract events from clusters that have at least one confirmed
+        // match (RESEARCH_CONFIDENCE_SPEC §4 — pre-Change-5 ≥.moderate roughly
+        // meant "has facts and is corroborated"; the post-Change-5 equivalent
+        // is matchQuality == .confirmed, which by definition requires a
+        // .fact record. The inner `where scored.verdict == .fact` filter
+        // still excludes any leads within an otherwise-confirmed cluster).
+        for cluster in result.clusters where cluster.matchQuality == .confirmed {
             for scored in cluster.records where scored.verdict == .fact {
                 if let event = extractEvent(from: scored) {
                     events.append(event)

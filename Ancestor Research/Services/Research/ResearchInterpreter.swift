@@ -164,12 +164,15 @@ nonisolated struct ResearchInterpreter {
 
         let assessment = response["assessment"] as? String ?? "unknown"
         let reasoning = response["reasoning"] as? String ?? ""
-        let suggestedConfidence = (response["confidence"] as? String).flatMap { ClusterConfidence(rawValue: $0) }
+        // RESEARCH_CONFIDENCE_SPEC §8 — AI-suggested confidence parsing is
+        // currently out of scope (mapping LLM tier strings into the three-
+        // axis model needs its own design pass). Drop the parse rather than
+        // resurrect the old ClusterConfidence enum just to hold a string.
+        _ = response["confidence"]
 
         return ClusterEvaluation(
             assessment: assessment,
-            reasoning: reasoning,
-            suggestedConfidence: suggestedConfidence
+            reasoning: reasoning
         )
     }
 
@@ -544,7 +547,6 @@ nonisolated private extension String {
 nonisolated struct ClusterEvaluation: Sendable {
     let assessment: String      // same_person, different_people, uncertain
     let reasoning: String
-    let suggestedConfidence: ClusterConfidence?
 }
 
 nonisolated struct DisambiguationResult: Sendable {

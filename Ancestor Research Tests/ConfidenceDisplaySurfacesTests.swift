@@ -19,7 +19,7 @@ struct ConfidenceDisplaySurfacesTests {
     @Test func ac4_1_proposalConfidenceMirrorsEvidenceRecords() {
         let info = makeSourceInfoMap()
         let factRecord = makeFreeBMDRecord(id: "a", verdict: .fact)
-        let proposal = makeProposal(evidence: [factRecord], confidence: .moderate)
+        let proposal = makeProposal(evidence: [factRecord])
         let conf = proposal.evidenceConfidence(sourceInfoMap: info)
         #expect(conf.matchQuality == .confirmed)
         #expect(conf.sourcing.sourceCount == 1)
@@ -30,7 +30,7 @@ struct ConfidenceDisplaySurfacesTests {
         let info = makeSourceInfoMap()
         let leadRecord = makeFreeBMDRecord(id: "x", verdict: .lead)
         let factRecord = makeFreeBMDRecord(id: "y", verdict: .fact)
-        let proposal = makeProposal(evidence: [leadRecord, factRecord], confidence: .moderate)
+        let proposal = makeProposal(evidence: [leadRecord, factRecord])
         let conf = proposal.evidenceConfidence(sourceInfoMap: info)
         // best-of: fact wins
         #expect(conf.matchQuality == .confirmed)
@@ -46,7 +46,7 @@ struct ConfidenceDisplaySurfacesTests {
     @Test func ac4_2_singleFactRecordYieldsConfirmedOneSourceInferredOneStep() {
         let info = makeSourceInfoMap()
         let factRecord = makeFreeBMDRecord(id: "fact", verdict: .fact)
-        let proposal = makeProposal(evidence: [factRecord], confidence: .moderate)
+        let proposal = makeProposal(evidence: [factRecord])
         let conf = proposal.evidenceConfidence(sourceInfoMap: info)
 
         // The user's exact case — what should render as:
@@ -140,7 +140,7 @@ struct ConfidenceDisplaySurfacesTests {
         return ScoredRecord(id: id, record: record, verdict: verdict, gates: [], summary: "")
     }
 
-    private func makeProposal(evidence: [ScoredRecord], confidence: ClusterConfidence) -> ProposedRelative {
+    private func makeProposal(evidence: [ScoredRecord]) -> ProposedRelative {
         ProposedRelative(
             id: "proposal-x",
             proposedSurname: "HOLMES",
@@ -150,7 +150,6 @@ struct ConfidenceDisplaySurfacesTests {
             birthYearHigh: 1958,
             relationship: .parentOf("darryl"),
             evidence: evidence,
-            confidence: confidence,
             inferenceDepth: InferenceDepth(steps: 1, chain: ["FreeBMD birth record"])
         )
     }
@@ -160,7 +159,7 @@ struct ConfidenceDisplaySurfacesTests {
             makeFreeBMDRecord(id: "r\(i)", verdict: v)
         }
         return LifeCluster(
-            id: "c-x", records: records, confidence: .weak,
+            id: "c-x", records: records,
             lifespanStart: 1900, lifespanEnd: 1980
         )
     }

@@ -36,8 +36,10 @@ nonisolated struct ClusteringEngine {
         // Step 4: FLAG merge candidates (never auto-merge)
         flagMergeCandidates(&clusters)
 
-        // Step 5: SCORE cluster confidence
-        scoreConfidence(&clusters, sourceInfoMap: sourceInfoMap, allFacts: viable.filter { $0.verdict == .fact })
+        // RESEARCH_CONFIDENCE_SPEC Change 5 removed the old `scoreConfidence`
+        // step. Callers now derive `EvidenceConfidence` on demand via
+        // `LifeCluster.evidenceConfidence(sourceInfoMap:)`.
+        _ = sourceInfoMap
 
         return clusters
     }
@@ -69,7 +71,6 @@ nonisolated struct ClusteringEngine {
                 clusters.append(LifeCluster(
                     id: "cluster-\(clusters.count)",
                     records: [earliest],
-                    confidence: .weak,
                     lifespanStart: earliestYear - 80,
                     lifespanEnd: latestYear + 5
                 ))
@@ -89,7 +90,6 @@ nonisolated struct ClusteringEngine {
             clusters.append(LifeCluster(
                 id: "cluster-\(clusters.count)",
                 records: [record],
-                confidence: .weak,
                 lifespanStart: year,
                 lifespanEnd: year + 110
             ))
@@ -131,7 +131,6 @@ nonisolated struct ClusteringEngine {
                 clusters.append(LifeCluster(
                     id: "cluster-\(clusters.count)",
                     records: [record],
-                    confidence: .weak,
                     lifespanStart: year - 80,
                     lifespanEnd: year + 5
                 ))
@@ -273,14 +272,17 @@ nonisolated struct ClusteringEngine {
                     clusters[i].records = keepRecords
 
                     let newYear = newRecords.compactMap { yearOf($0) }.min() ?? 1850
-                    var newCluster = LifeCluster(
+                    let newCluster = LifeCluster(
                         id: "cluster-\(clusters.count)",
                         records: newRecords,
-                        confidence: .weak,
                         lifespanStart: newYear,
                         lifespanEnd: newYear + 110
                     )
-                    newCluster.confidence = .ambiguous
+                    // Note: the split cluster is the post-contradiction half.
+                    // Pre-Change-5 we stamped confidence=.ambiguous on it; the
+                    // new model derives that signal at display time from the
+                    // presence of contradictions in the cluster (handled in
+                    // BulkReviewView.frictionTier and the badge's tooltip).
 
                     // Update original cluster's lifespan
                     if let minYear = clusters[i].records.compactMap({ yearOf($0) }).min() {
@@ -407,53 +409,6 @@ nonisolated struct ClusteringEngine {
         // Overlapping location
         let sharedDistricts = a.districts.intersection(b.districts)
         return !sharedDistricts.isEmpty
-    }
-
-    // MARK: - Step 5: Confidence Scoring
-
-    /// Score each cluster's confidence based on convergence and internal consistency.
-    private static func scoreConfidence(
-        _ clusters: inout [LifeCluster],
-        sourceInfoMap: [String: SourceInfo],
-        allFacts: [ScoredRecord]
-    ) {
-        for i in 0..<clusters.count {
-            let records = clusters[i].records
-            let hasContradictions = findContradiction(in: clusters[i]) != nil
-
-            // All leads, no facts → Ambiguous
-            let hasFacts = records.contains { $0.verdict == .fact }
-            if !hasFacts {
-                clusters[i].confidence = .ambiguous
-                continue
-            }
-
-            // Get convergence level from the records
-            let factRecords = records.filter { $0.verdict == .fact }.map { $0.record }
-            let convergence = ConvergenceEngine.score(records: factRecords, sourceInfoMap: sourceInfoMap)
-
-            // Apply confidence derivation table from spec
-            if hasContradictions {
-                clusters[i].confidence = .ambiguous
-            } else {
-                switch convergence {
-                case .confirmed, .probable:
-                    // Additional check: household confirmation + birth-to-death span for Strong
-                    let hasBirth = clusters[i].impliedBirthYear != nil
-                    let hasDeath = clusters[i].impliedDeathYear != nil
-                    let hasHousehold = !clusters[i].householdMembers.isEmpty
-                    if convergence == .confirmed && hasBirth && hasDeath && hasHousehold {
-                        clusters[i].confidence = .strong
-                    } else if convergence == .confirmed || convergence == .probable {
-                        clusters[i].confidence = records.count >= 3 ? .strong : .moderate
-                    }
-                case .possible:
-                    clusters[i].confidence = .moderate
-                case .singleSource, .uncorroborated:
-                    clusters[i].confidence = .weak
-                }
-            }
-        }
     }
 
     // MARK: - Helpers
