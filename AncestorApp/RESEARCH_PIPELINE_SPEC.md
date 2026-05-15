@@ -823,17 +823,19 @@ struct LifeCluster: Identifiable, Sendable {
     let birthYearEstimate: Int?
     let records: [ScoredRecord]
     let convergenceLevel: ConvergenceLevel
-    let confidence: ClusterConfidence
     let narrative: String               // one-paragraph summary of this life
 }
-
-enum ClusterConfidence: String, Sendable {
-    case strong     // multiple independent sources, consistent dates, household confirms
-    case moderate   // some corroboration, minor gaps
-    case weak       // single source or contradictions within the cluster
-    case ambiguous  // could be this person or someone else with the same name
-}
 ```
+
+**Confidence model:** the single-tier `ClusterConfidence` enum (Weak / Moderate /
+Strong / Ambiguous) described in earlier drafts of this spec was retired by
+`RESEARCH_CONFIDENCE_SPEC.md` (committed 2026-05-15). The replacement is a
+three-axis model — **match quality**, **sourcing strength**, **inference
+depth** — derived on demand from a cluster's records rather than stored as a
+single combined tier. See `RESEARCH_CONFIDENCE_SPEC.md` for the canonical
+definitions, UI contract, and acceptance criteria. Callers in this spec that
+referenced `cluster.confidence` should be read as accessing
+`cluster.evidenceConfidence(sourceInfoMap:)` instead.
 
 **Clustering algorithm:**
 1. Group records by (surname, given name, ±5 year birth range, same district/parish)

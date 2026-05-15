@@ -445,8 +445,8 @@ Build 5-10 hand-curated test cases with known ground truth:
 | Test case | Input | Expected clusters | Tests |
 |-----------|-------|-------------------|-------|
 | Thomas Land, b.1834, Wirksworth | 30 records across 3 real people | 3 clusters, strongest for b.1834 | Multi-cluster separation |
-| Unique surname (Cauldwell) | 5 records, all same person | 1 cluster, Strong confidence | Simple case |
-| Common surname (Smith), Belper | 50+ records, 5+ real people | 5+ clusters, most Weak/Ambiguous | Over-splitting preferred |
+| Unique surname (Cauldwell) | 5 records, all same person | 1 cluster, ≥2 lineages cross-referenced | Simple case (was "Strong confidence" pre-RESEARCH_CONFIDENCE_SPEC) |
+| Common surname (Smith), Belper | 50+ records, 5+ real people | 5+ clusters, single-source / contradictions | Over-splitting preferred (was "Weak/Ambiguous" pre-RESEARCH_CONFIDENCE_SPEC) |
 | Person with no birth record | Census + death only | 1 cluster anchored on census | Missing-data handling |
 | Person with contradicting census ages | 1841 age=30, 1851 age=45 | Split into 2 clusters | Contradiction detection |
 
@@ -459,7 +459,7 @@ Build 5-10 hand-curated test cases with known ground truth:
 | 30 records, 3 distinct birth years → 3 clusters | Pass |
 | Census with wife Hannah → assigned to cluster containing marriage to Hannah | Pass |
 | Two births in same cluster → split | Pass |
-| Single record, no corroboration → Weak confidence | Pass |
+| Single record, no corroboration → sourcing.sourceCount == 1, not cross-referenced | Pass |
 | All Find a Grave (derivative) → convergence capped at possible | Pass |
 | Score formula: district match + date match + household match = 1.0 | Pass |
 | Score formula: no district + no date + no household = 0.0, new cluster created | Pass |
