@@ -86,7 +86,9 @@ final class WholeTreeResearchViewModel {
             logger.info("Researching \(idx)/\(queueCount): \(profile.displayName)")
 
             let sourceInfoMap = registry.buildSourceInfoMap()
-            let subject = ResearchSubject.fromProfile(profile, snapshot: snapshot, mode: .extend)
+            let homeChapmanCode = (try? database?.loadProjectMeta())?
+                .resolvedHomeChapmanCode ?? "DBY"
+            let subject = ResearchSubject.fromProfile(profile, snapshot: snapshot, mode: .extend, homeChapmanCode: homeChapmanCode)
             let config = ResearchConfig.extend
 
             let dispatcher = SearchDispatcher(registry: registry, regionConfig: RegionConfig.derbyshire)

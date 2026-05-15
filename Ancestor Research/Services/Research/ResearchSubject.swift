@@ -55,6 +55,11 @@ nonisolated struct ResearchSubject: Sendable {
     var region: Region?
     var mode: ResearchMode
     var familyContext: FamilyContext?
+    /// Chapman code of the subject's home county — drives per-subject scoring
+    /// and dispatch lookups. Defaults to "DBY" (Derbyshire) for legacy data
+    /// where the project's home_chapman_code wasn't set at creation. See
+    /// RESEARCH_AXES_SPEC.md Change 1.
+    var homeChapmanCode: String = "DBY"
 }
 
 /// Known family members for the family context gate.
@@ -108,7 +113,12 @@ nonisolated extension ResearchSubject {
     }
 
     /// Build from an existing profile.
-    static func fromProfile(_ profile: Profile, snapshot: FamilyGraphSnapshot, mode: ResearchMode = .extend) -> ResearchSubject {
+    static func fromProfile(
+        _ profile: Profile,
+        snapshot: FamilyGraphSnapshot,
+        mode: ResearchMode = .extend,
+        homeChapmanCode: String = "DBY"
+    ) -> ResearchSubject {
         // Build family context from the tree
         let spouses = snapshot.spousesOf(profile.id)
         let children = snapshot.childrenOf(profile.id)
@@ -133,7 +143,8 @@ nonisolated extension ResearchSubject {
             gender: profile.gender,
             region: profile.birthLocation.map { .county($0) },
             mode: mode,
-            familyContext: context
+            familyContext: context,
+            homeChapmanCode: homeChapmanCode
         )
     }
 
@@ -142,7 +153,8 @@ nonisolated extension ResearchSubject {
         surname: String?, givenName: String?,
         birthYear: Int?, deathYear: Int?,
         gender: Gender?, location: String?,
-        mode: ResearchMode = .extend
+        mode: ResearchMode = .extend,
+        homeChapmanCode: String = "DBY"
     ) -> ResearchSubject {
         ResearchSubject(
             surname: surname, givenName: givenName,
@@ -151,7 +163,8 @@ nonisolated extension ResearchSubject {
             gender: gender,
             region: location.map { .county($0) },
             mode: mode,
-            familyContext: nil
+            familyContext: nil,
+            homeChapmanCode: homeChapmanCode
         )
     }
 }

@@ -95,7 +95,10 @@ final class ResearchViewModel {
         let sourceInfoMap = registry.buildSourceInfoMap()
 
         // Build subject from profile
-        let subject = ResearchSubject.fromProfile(profile, snapshot: snapshot, mode: selectedMode)
+        let homeChapmanCode = appDatabase
+            .flatMap { try? $0.loadProjectMeta() }?
+            .resolvedHomeChapmanCode ?? "DBY"
+        let subject = ResearchSubject.fromProfile(profile, snapshot: snapshot, mode: selectedMode, homeChapmanCode: homeChapmanCode)
 
         // Show source eligibility
         sourceStatuses = registry.allSources().map { source in

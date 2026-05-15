@@ -153,7 +153,8 @@ final class ResearchPipeline {
         // DETERMINISTIC: cluster records into candidate lives
         let clusters = ClusteringEngine.cluster(
             records: state.scoredRecords,
-            sourceInfoMap: sourceInfoMap
+            sourceInfoMap: sourceInfoMap,
+            homeChapmanCode: subject.homeChapmanCode
         )
 
         logger.info("Clustering: \(clusters.count) clusters — \(clusters.filter { $0.confidence >= .moderate }.count) moderate+")

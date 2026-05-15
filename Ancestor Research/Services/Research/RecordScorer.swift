@@ -240,11 +240,11 @@ nonisolated struct RecordScorer {
 
         let districtClean = district.replacingOccurrences(of: " district", with: "").trimmingCharacters(in: .whitespaces)
 
-        if let nonLocal = ScoringRules.isNonLocal(districtClean) {
+        if let nonLocal = ScoringRules.isNonLocal(districtClean, forHomeChapman: subject.homeChapmanCode) {
             return GateResult(gate: .geography, outcome: .softFail, reason: "\(districtClean) is in \(nonLocal), not local")
         }
 
-        if ScoringRules.isDerbyshireDistrict(districtClean) {
+        if ScoringRules.isLocalDistrict(districtClean, forHomeChapman: subject.homeChapmanCode) {
             return GateResult(gate: .geography, outcome: .pass, reason: "\(districtClean) is in research area")
         }
 

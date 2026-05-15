@@ -385,25 +385,36 @@ nonisolated struct ScoringRules {
     }
 
     // MARK: - Geography (delegates to RegionConfig)
+    //
+    // Each helper takes the subject's home Chapman code (e.g. "DBY", "LEI").
+    // For codes whose RegionConfig isn't yet populated, the rich helpers
+    // (parishes, non-local map) return empty / nil — the scorer downgrades
+    // local-boosting accordingly rather than mis-classifying everything as
+    // "local-Derbyshire" the way it did before parameterisation.
+    // See RESEARCH_AXES_SPEC.md §3 / §8 Change 1.
 
-    /// Check if a district is in the primary research region.
-    static func isDerbyshireDistrict(_ district: String) -> Bool {
-        RegionConfig.derbyshire.isLocalDistrict(district)
+    /// Check if a district is in the subject's home county.
+    static func isLocalDistrict(_ district: String, forHomeChapman code: String) -> Bool {
+        guard let config = RegionConfig.config(forChapmanCode: code) else { return false }
+        return config.isLocalDistrict(district)
     }
 
-    /// Returns the location name if district is outside the research area, else nil.
-    static func isNonLocal(_ district: String) -> String? {
-        RegionConfig.derbyshire.nonLocalLocation(for: district)
+    /// Returns the location name if district is outside the home county, else nil.
+    static func isNonLocal(_ district: String, forHomeChapman code: String) -> String? {
+        guard let config = RegionConfig.config(forChapmanCode: code) else { return nil }
+        return config.nonLocalLocation(for: district)
     }
 
-    /// Return parishes covered by a registration district.
-    static func parishesInDistrict(_ district: String) -> [String] {
-        RegionConfig.derbyshire.parishes(in: district)
+    /// Return parishes covered by a registration district within the home county.
+    static func parishesInDistrict(_ district: String, forHomeChapman code: String) -> [String] {
+        guard let config = RegionConfig.config(forChapmanCode: code) else { return [] }
+        return config.parishes(in: district)
     }
 
-    /// Find which registration district covers a parish.
-    static func districtForParish(_ parish: String) -> String? {
-        RegionConfig.derbyshire.district(for: parish)
+    /// Find which registration district covers a parish within the home county.
+    static func districtForParish(_ parish: String, forHomeChapman code: String) -> String? {
+        guard let config = RegionConfig.config(forChapmanCode: code) else { return nil }
+        return config.district(for: parish)
     }
 
     // MARK: - Reference Data

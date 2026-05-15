@@ -10,8 +10,14 @@ nonisolated struct Project: Codable, Identifiable, Sendable {
     var createdAt: Date
     var lastRefreshed: Date?
     var archivedAt: Date?           // nil = active; non-nil = archived at that moment
+    var homeChapmanCode: String?    // e.g. "DBY". nil = legacy / unknown; callers fall back to "DBY".
 
     var isArchived: Bool { archivedAt != nil }
+
+    /// Resolved home Chapman code with the legacy default ("DBY") applied.
+    /// Use this at every research / scoring call site so the fallback is
+    /// consistent and centrally documented.
+    var resolvedHomeChapmanCode: String { homeChapmanCode ?? "DBY" }
 }
 
 nonisolated enum DataSource: Codable, Sendable {

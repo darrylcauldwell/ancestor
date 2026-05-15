@@ -676,6 +676,17 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // RESEARCH_AXES_SPEC Change 1 — per-subject RegionConfig. NULL on
+        // legacy projects; call sites fall back to "DBY" (behaviour-preserving
+        // for the existing Derbyshire-anchored data). Derived at creation
+        // from the home-person anchor's birth location once the gazetteer
+        // ships (RESEARCH_AND_CLEANSE_SPEC Change 2).
+        migrator.registerMigration("v21_project_home_chapman_code") { db in
+            try db.alter(table: "project_meta") { t in
+                t.add(column: "home_chapman_code", .text)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -859,12 +870,12 @@ nonisolated final class ProjectDatabase: Sendable {
             }
 
             try db.execute(sql: """
-                INSERT OR REPLACE INTO project_meta (id, name, source_kind, source_value, created_at, last_refreshed, home_person_id, archived_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO project_meta (id, name, source_kind, source_value, created_at, last_refreshed, home_person_id, archived_at, home_chapman_code)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
                     project.id.uuidString, project.name, sourceKind, sourceValue,
                     project.createdAt, project.lastRefreshed, project.homePersonID,
-                    project.archivedAt
+                    project.archivedAt, project.homeChapmanCode
                 ])
         }
     }
@@ -890,7 +901,8 @@ nonisolated final class ProjectDatabase: Sendable {
                 homePersonID: homePersonID,
                 createdAt: row["created_at"],
                 lastRefreshed: row["last_refreshed"],
-                archivedAt: row["archived_at"]
+                archivedAt: row["archived_at"],
+                homeChapmanCode: row["home_chapman_code"]
             )
         }
     }

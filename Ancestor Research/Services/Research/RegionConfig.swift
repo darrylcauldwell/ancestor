@@ -116,4 +116,36 @@ nonisolated struct RegionConfig: Codable, Sendable {
         }
         return nil
     }
+
+    // MARK: - Per-subject factories (RESEARCH_AXES_SPEC Change 1)
+
+    /// District map for a given Chapman code. Currently returns the Derbyshire
+    /// map for "DBY" and an empty map for everything else — non-DBY county data
+    /// will be added as it ships. Callers should treat an empty result as "no
+    /// local-district knowledge" and downgrade scoring accordingly rather than
+    /// failing.
+    static func districts(forChapmanCode code: String) -> [String: String] {
+        switch code.uppercased() {
+        case "DBY": return Self.derbyshire.districts
+        default:    return [:]
+        }
+    }
+
+    /// Single-hop adjacency lookup. Stub — populated by
+    /// RESEARCH_AXES_SPEC Change 2 once `county-adjacency.json` ships.
+    /// Returns an empty array for every input code until then.
+    static func adjacentCounties(_ code: String) -> [String] {
+        []
+    }
+
+    /// Resolve the rich per-county config (parishes, non-local map, etc.) for
+    /// a Chapman code. Currently Derbyshire-only — non-DBY codes return nil.
+    /// Callers should fall through to the bare district map (`districts(forChapmanCode:)`)
+    /// when this returns nil.
+    static func config(forChapmanCode code: String) -> RegionConfig? {
+        switch code.uppercased() {
+        case "DBY": return Self.derbyshire
+        default:    return nil
+        }
+    }
 }

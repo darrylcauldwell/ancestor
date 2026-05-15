@@ -108,7 +108,9 @@ final class PendingFactsProcessor {
             let tierEntry = SourceTierRegistry.lookup(url: finding.sourceURL)
 
             // Step 4: Build a SourceRecord and score through 4-gate scorer
-            let subject = ResearchSubject.fromProfile(profile, snapshot: snapshot, mode: .extend)
+            let homeChapmanCode = (try? db.loadProjectMeta())?
+                .resolvedHomeChapmanCode ?? "DBY"
+            let subject = ResearchSubject.fromProfile(profile, snapshot: snapshot, mode: .extend, homeChapmanCode: homeChapmanCode)
             let sourceRecord = buildSourceRecord(from: finding, tierEntry: tierEntry)
 
             if let sourceRecord {

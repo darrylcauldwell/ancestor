@@ -14,7 +14,8 @@ nonisolated struct ClusteringEngine {
     /// Output: life clusters with confidence scores.
     static func cluster(
         records: [ScoredRecord],
-        sourceInfoMap: [String: SourceInfo]
+        sourceInfoMap: [String: SourceInfo],
+        homeChapmanCode: String = "DBY"
     ) -> [LifeCluster] {
         // Filter out impossible records — they don't belong to any life
         let viable = records.filter { $0.verdict != .impossible }
@@ -27,10 +28,10 @@ nonisolated struct ClusteringEngine {
         let unassignedAfterSeed = viable.filter { record in
             !clusters.contains { cluster in cluster.records.contains { $0.id == record.id } }
         }
-        assignRecords(unassignedAfterSeed, to: &clusters)
+        assignRecords(unassignedAfterSeed, to: &clusters, homeChapmanCode: homeChapmanCode)
 
         // Step 3: SPLIT clusters with internal contradictions
-        splitContradictions(&clusters)
+        splitContradictions(&clusters, homeChapmanCode: homeChapmanCode)
 
         // Step 4: FLAG merge candidates (never auto-merge)
         flagMergeCandidates(&clusters)
@@ -101,7 +102,7 @@ nonisolated struct ClusteringEngine {
 
     /// Score each unassigned record against all clusters.
     /// Assign to highest-scoring cluster if score >= 0.4, else create new cluster.
-    private static func assignRecords(_ unassigned: [ScoredRecord], to clusters: inout [LifeCluster]) {
+    private static func assignRecords(_ unassigned: [ScoredRecord], to clusters: inout [LifeCluster], homeChapmanCode: String) {
         // Process in chronological order
         let sorted = unassigned.sorted { yearOf($0) ?? Int.max < yearOf($1) ?? Int.max }
 
@@ -110,7 +111,7 @@ nonisolated struct ClusteringEngine {
             var bestIndex = -1
 
             for (i, cluster) in clusters.enumerated() {
-                let score = assignmentScore(record: record, cluster: cluster)
+                let score = assignmentScore(record: record, cluster: cluster, homeChapmanCode: homeChapmanCode)
                 if score > bestScore {
                     bestScore = score
                     bestIndex = i
@@ -140,9 +141,9 @@ nonisolated struct ClusteringEngine {
 
     /// Weighted assignment score per the spec formula.
     /// score = date_compatibility × 0.4 + location_consistency × 0.3 + household_confirmation × 0.3
-    static func assignmentScore(record: ScoredRecord, cluster: LifeCluster) -> Double {
+    static func assignmentScore(record: ScoredRecord, cluster: LifeCluster, homeChapmanCode: String = "DBY") -> Double {
         let dateScore = dateCompatibility(record: record, cluster: cluster)
-        let locationScore = locationConsistency(record: record, cluster: cluster)
+        let locationScore = locationConsistency(record: record, cluster: cluster, homeChapmanCode: homeChapmanCode)
         let householdScore = householdConfirmation(record: record, cluster: cluster)
         return dateScore * 0.4 + locationScore * 0.3 + householdScore * 0.3
     }
@@ -163,7 +164,7 @@ nonisolated struct ClusteringEngine {
     }
 
     /// 1.0 exact district match, 0.7 same county, 0.3 same region, 0.0 non-local.
-    private static func locationConsistency(record: ScoredRecord, cluster: LifeCluster) -> Double {
+    private static func locationConsistency(record: ScoredRecord, cluster: LifeCluster, homeChapmanCode: String) -> Double {
         guard let recordDistrict = extractRecordDistrict(record.record) else {
             return 0.5 // No location = neutral (spec: doesn't penalise or boost)
         }
@@ -177,20 +178,20 @@ nonisolated struct ClusteringEngine {
             return 1.0
         }
 
-        // Same county (adjacent) — both are Derbyshire districts
-        let recordIsDerby = ScoringRules.isDerbyshireDistrict(recordClean)
-        let clusterHasDerby = cluster.districts.contains { ScoringRules.isDerbyshireDistrict($0) }
-        if recordIsDerby && clusterHasDerby {
+        // Same home county — both are in the subject's research region
+        let recordIsLocal = ScoringRules.isLocalDistrict(recordClean, forHomeChapman: homeChapmanCode)
+        let clusterHasLocal = cluster.districts.contains { ScoringRules.isLocalDistrict($0, forHomeChapman: homeChapmanCode) }
+        if recordIsLocal && clusterHasLocal {
             return 0.7
         }
 
         // Same region — record is local but different county
-        if recordIsDerby || clusterHasDerby {
+        if recordIsLocal || clusterHasLocal {
             return 0.3
         }
 
         // Non-local
-        if ScoringRules.isNonLocal(recordClean) != nil {
+        if ScoringRules.isNonLocal(recordClean, forHomeChapman: homeChapmanCode) != nil {
             return 0.0
         }
 
@@ -258,7 +259,7 @@ nonisolated struct ClusteringEngine {
     /// - Two birth/baptism records → split
     /// - Two death/burial records → split
     /// - Census age-implied birth years differing by >5 → split
-    private static func splitContradictions(_ clusters: inout [LifeCluster]) {
+    private static func splitContradictions(_ clusters: inout [LifeCluster], homeChapmanCode: String) {
         var didSplit = true
 
         // Iterate until no more splits needed
@@ -296,7 +297,7 @@ nonisolated struct ClusteringEngine {
                     }
                     if !remaining.isEmpty {
                         clusters[i].records = keepRecords
-                        assignRecords(remaining, to: &clusters)
+                        assignRecords(remaining, to: &clusters, homeChapmanCode: homeChapmanCode)
                     }
                 }
                 i += 1
