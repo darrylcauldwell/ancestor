@@ -180,7 +180,7 @@ struct MainView: View {
             guard let request = appState.researchRequest,
                   let profile = appState.snapshot.profiles[request.profileID] else { return }
             appState.researchRequest = nil
-            Task { @MainActor in
+            let task = Task { @MainActor in
                 // Wait one runloop tick so the config sheet's dismiss
                 // animation completes before we present the progress sheet —
                 // macOS otherwise silently drops the second `.sheet` call.
@@ -195,6 +195,7 @@ struct MainView: View {
                     registry: registry
                 )
             }
+            researchVM.currentResearchTask = task
         }
         .sheet(isPresented: $showResearchProgress) {
             ResearchProgressSheet(vm: researchVM) {

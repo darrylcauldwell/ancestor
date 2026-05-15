@@ -141,9 +141,15 @@ struct ResearchProgressView: View {
                     .font(AppTypography.cardBody)
                     .lineLimit(1)
                 if let reason = status.reason {
+                    // One-line preview — full text on hover via .help() —
+                    // so a verbose error body (e.g. an HTML 500 payload) can't
+                    // explode the card height and break grid alignment.
                     Text(reason)
                         .font(AppTypography.badge)
                         .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(reason)
                 }
             }
 

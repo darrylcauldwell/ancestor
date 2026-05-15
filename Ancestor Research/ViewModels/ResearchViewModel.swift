@@ -18,6 +18,11 @@ final class ResearchViewModel {
     /// Capped at 30 entries so the UI scrolls cleanly without unbounded growth.
     var recentActivity: [String] = []
     private var activitySubscription: Task<Void, Never>?
+    /// Owning reference for the outer research Task so the user can stop a run
+    /// mid-flight via `cancelResearch()`. Set by the caller after `startResearch`
+    /// kicks off; cleared when the run completes or is cancelled.
+    var currentResearchTask: Task<Void, Never>?
+    var wasCancelled = false
 
     // Review state
     var clusterDecisions: [String: ClusterDecision] = [:]  // cluster.id → decision
@@ -60,6 +65,7 @@ final class ResearchViewModel {
     ) async {
         selectedProfile = profile
         isResearching = true
+        wasCancelled = false
         currentResult = nil
         clusterDecisions = [:]
         proposedRelativeDecisions = [:]
@@ -188,6 +194,27 @@ final class ResearchViewModel {
                 clusterCount: result.clusters.count,
                 gpsScore: gps.score
             )
+        }
+    }
+
+    /// Stop a running research pipeline mid-flight. Cancels the outer task —
+    /// Swift structured concurrency propagates the signal to in-flight URLSession
+    /// requests and any cancellation-aware sub-tasks. Sources that have already
+    /// returned keep their results visible; in-flight sources flip to a
+    /// `cancelled` reason on their status card.
+    func cancelResearch() {
+        guard isResearching else { return }
+        wasCancelled = true
+        currentResearchTask?.cancel()
+        activitySubscription?.cancel()
+        activitySubscription = nil
+        isResearching = false
+        progressMessage = "Cancelled"
+        // Any source still showing `.searching` won't get a completion event —
+        // mark them cancelled so the UI stops spinning.
+        for index in sourceStatuses.indices where sourceStatuses[index].state == .searching {
+            sourceStatuses[index].state = .skipped
+            sourceStatuses[index].reason = "cancelled"
         }
     }
 

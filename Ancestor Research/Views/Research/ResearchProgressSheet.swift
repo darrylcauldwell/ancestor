@@ -11,7 +11,7 @@ struct ResearchProgressSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(vm.isResearching ? "Researching…" : "Research complete")
+                Text(headerTitle)
                     .font(.title2).fontWeight(.semibold)
                 Spacer()
             }
@@ -29,6 +29,15 @@ struct ResearchProgressSheet: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                if vm.isResearching {
+                    Button(role: .destructive) {
+                        vm.cancelResearch()
+                    } label: {
+                        Label("Stop", systemImage: "stop.fill")
+                    }
+                    .buttonStyle(.glass)
+                    .keyboardShortcut(".", modifiers: .command)
+                }
                 Button(vm.isResearching ? "Close" : "Done") { onDismiss() }
                     .buttonStyle(.glassProminent)
                     .keyboardShortcut(.defaultAction)
@@ -40,5 +49,11 @@ struct ResearchProgressSheet: View {
             .background(.regularMaterial)
         }
         .frame(minWidth: 560, minHeight: 520)
+    }
+
+    private var headerTitle: String {
+        if vm.isResearching { return "Researching…" }
+        if vm.wasCancelled { return "Research cancelled" }
+        return "Research complete"
     }
 }
