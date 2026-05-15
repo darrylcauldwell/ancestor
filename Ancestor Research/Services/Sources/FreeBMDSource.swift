@@ -76,7 +76,7 @@ actor FreeBMDSource: RecordSource {
         // Build a human-readable summary like "FreeBMD Belper marriages:
         // Cauldwell × Holmes 1946–1977" for the activity feed.
         let summary = Self.activitySummary(query: query, surname: surname)
-        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary))
+        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
 
         do {
             try await ensureSession()
@@ -95,12 +95,11 @@ actor FreeBMDSource: RecordSource {
                 if case .freeBMD(let p) = query.sourceParams { return p } else { return nil }
             }()
             // Strictness: .loose enables FreeBMD's Phonetic flag for
-            // server-side soundex matching. .variant is handled by the
-            // dispatcher (one query per variant) — each fanned-out query
-            // arrives here at .strict with the variant in `surname`, so
-            // the form body still ends with Phonetic=false. See
-            // RESEARCH_AXES_SPEC §7.
-            let phoneticFlag = query.strictness >= .loose ? "true" : "false"
+            // server-side soundex matching. .variant is the dispatcher's
+            // tier marker — the surname has already been substituted to a
+            // variant before arriving here, so the variant probe itself is
+            // exact-match (Phonetic=false). See RESEARCH_AXES_SPEC §7.
+            let phoneticFlag = query.strictness == .loose ? "true" : "false"
             let fields: [String: String] = [
                 "type": recordType,
                 "surname": surname,
@@ -129,14 +128,14 @@ actor FreeBMDSource: RecordSource {
             }
 
             guard let html = String(data: data, encoding: .utf8) else {
-                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "Invalid encoding"))
+                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "Invalid encoding", strictness: query.strictness))
                 return .unavailable(reason: "Invalid encoding")
             }
             let results = Self.parseSearchResults(html, recordType: query.recordType)
             lastSuccessfulSearch = Date()
             lastError = nil
             logger.info("Search returned \(results.count) results for \(surname)")
-            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count))
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count, strictness: query.strictness))
             return .results(results)
 
         } catch {
@@ -145,7 +144,7 @@ actor FreeBMDSource: RecordSource {
             sessionCookie = nil
             formTokenDB = nil
             formTokenV = nil
-            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
             return .unavailable(reason: error.localizedDescription)
         }
     }

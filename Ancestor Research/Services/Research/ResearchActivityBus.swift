@@ -7,20 +7,39 @@ import Observation
 /// like "FreeBMD Belper births: Cauldwell" or "FreeBMD Derby marriages:
 /// Cauldwell × Holmes".
 nonisolated enum ResearchActivityEvent: Sendable {
-    case sourceQueryStarted(sourceID: String, summary: String)
-    case sourceQueryCompleted(sourceID: String, summary: String, resultCount: Int)
-    case sourceError(sourceID: String, summary: String, reason: String)
+    case sourceQueryStarted(sourceID: String, summary: String, strictness: SearchStrictness = .strict)
+    case sourceQueryCompleted(sourceID: String, summary: String, resultCount: Int, strictness: SearchStrictness = .strict)
+    case sourceError(sourceID: String, summary: String, reason: String, strictness: SearchStrictness = .strict)
     case pipelineStage(message: String)
 
-    /// One-line human description for the activity feed.
-    var description: String {
+    /// Strictness tier this event was issued at. `.strict` for pipeline-stage
+    /// events. Activity feed labels broadened tiers ("Cauldwell — phonetic")
+    /// so the user can tell when the dispatcher has escalated.
+    var strictness: SearchStrictness {
         switch self {
-        case .sourceQueryStarted(_, let summary):
-            return "\(summary) — searching…"
-        case .sourceQueryCompleted(_, let summary, let n):
-            return "\(summary) — \(n) result\(n == 1 ? "" : "s")"
-        case .sourceError(_, let summary, let reason):
-            return "\(summary) — error: \(reason)"
+        case .sourceQueryStarted(_, _, let s):     return s
+        case .sourceQueryCompleted(_, _, _, let s): return s
+        case .sourceError(_, _, _, let s):         return s
+        case .pipelineStage:                       return .strict
+        }
+    }
+
+    /// One-line human description for the activity feed. Non-strict tiers
+    /// pick up a suffix so escalations are visible in the live feed.
+    var description: String {
+        let tierSuffix: String
+        switch strictness {
+        case .strict:  tierSuffix = ""
+        case .loose:   tierSuffix = " (phonetic)"
+        case .variant: tierSuffix = " (variant)"
+        }
+        switch self {
+        case .sourceQueryStarted(_, let summary, _):
+            return "\(summary)\(tierSuffix) — searching…"
+        case .sourceQueryCompleted(_, let summary, let n, _):
+            return "\(summary)\(tierSuffix) — \(n) result\(n == 1 ? "" : "s")"
+        case .sourceError(_, let summary, let reason, _):
+            return "\(summary)\(tierSuffix) — error: \(reason)"
         case .pipelineStage(let msg):
             return msg
         }

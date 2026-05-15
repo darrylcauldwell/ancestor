@@ -49,7 +49,7 @@ struct WirksworthSource: RecordSource {
         guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
 
         let summary = Self.activitySummary(query: query, surname: surname)
-        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary))
+        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
 
         do {
             // First, search the pedigree index for matching surname
@@ -61,7 +61,7 @@ struct WirksworthSource: RecordSource {
 
             guard !matchingPedigrees.isEmpty else {
                 logger.info("Wirksworth: no pedigrees matching \(surname)")
-                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0))
+                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0, strictness: query.strictness))
                 return .results([])
             }
 
@@ -78,11 +78,11 @@ struct WirksworthSource: RecordSource {
             }
 
             logger.info("Wirksworth: \(allRecords.count) records for \(surname)")
-            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: allRecords.count))
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: allRecords.count, strictness: query.strictness))
             return .results(allRecords)
         } catch {
             logger.error("Wirksworth search failed: \(error.localizedDescription)")
-            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
             return .unavailable(reason: error.localizedDescription)
         }
     }

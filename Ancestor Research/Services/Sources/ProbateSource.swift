@@ -48,7 +48,7 @@ struct ProbateSource: RecordSource {
         guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
 
         let summary = Self.activitySummary(query: query, surname: surname)
-        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary))
+        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
 
         do {
             var components = URLComponents(string: Self.baseURL + Self.searchEndpoint)!
@@ -80,11 +80,11 @@ struct ProbateSource: RecordSource {
 
             let records = Self.parseJSON(data, surname: surname)
             logger.info("Probate: \(records.count) results for \(surname)")
-            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count))
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count, strictness: query.strictness))
             return .results(records)
         } catch {
             logger.error("Probate search failed: \(error.localizedDescription)")
-            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
             return .unavailable(reason: error.localizedDescription)
         }
     }

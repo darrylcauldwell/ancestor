@@ -50,7 +50,7 @@ struct CWGCSource: RecordSource {
         guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
 
         let summary = Self.activitySummary(query: query, surname: surname)
-        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary))
+        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
 
         do {
             var components = URLComponents(string: Self.exportURL)!
@@ -78,19 +78,19 @@ struct CWGCSource: RecordSource {
             components.queryItems = queryItems
 
             guard let url = components.url else {
-                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0))
+                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0, strictness: query.strictness))
                 return .results([])
             }
 
             let data = try await http.get(url: url, headers: ["User-Agent": Self.userAgent])
             guard let csv = String(data: data, encoding: .utf8) else {
-                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "Invalid encoding"))
+                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "Invalid encoding", strictness: query.strictness))
                 return .unavailable(reason: "Invalid encoding in CSV response")
             }
 
             let records = Self.parseCSV(csv)
             logger.info("CWGC search returned \(records.count) records for \(surname)")
-            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count))
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count, strictness: query.strictness))
             return .results(records)
 
         } catch let error as HTTPError {
@@ -103,15 +103,15 @@ struct CWGCSource: RecordSource {
                let html = String(data: body, encoding: .utf8),
                html.contains("<title>500 | CWGC</title>") {
                 logger.info("CWGC returned its empty-results 500 page for \(surname) — treating as zero matches")
-                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0))
+                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0, strictness: query.strictness))
                 return .results([])
             }
             logger.warning("CWGC search failed: \(error.localizedDescription)")
-            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
             return .unavailable(reason: error.localizedDescription)
         } catch {
             logger.warning("CWGC search failed: \(error.localizedDescription)")
-            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
             return .unavailable(reason: error.localizedDescription)
         }
     }

@@ -74,16 +74,17 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
         let year = query.yearFrom  // census year
 
         let summary = Self.activitySummary(query: query, surname: surname, chapmanCode: chapmanCode, censusYear: year)
-        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary))
+        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
 
         do {
             try await ensureSession()
 
-            // RESEARCH_AXES_SPEC Change 5: FreeCen exposes a soundex toggle
-            // (the form's "Name Soundex" checkbox). Strict keeps it off;
-            // .loose and .variant flip it on. (Variant fan-out is dispatcher-
-            // side — each fanned-out query arrives here at .strict.)
-            let fuzzyFlag = query.strictness >= .loose ? "1" : "0"
+            // RESEARCH_AXES_SPEC Change 5/6: FreeCen exposes a soundex toggle
+            // (the form's "Name Soundex" checkbox). .loose flips it on for
+            // server-side fuzzy matching. .variant is the dispatcher tier
+            // marker — the surname has already been substituted to a variant
+            // before arriving here, so the variant probe is exact-match.
+            let fuzzyFlag = query.strictness == .loose ? "1" : "0"
             let fields: [String: String] = [
                 "utf8": "✓",
                 "authenticity_token": csrfToken ?? "",
@@ -115,14 +116,14 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             }
 
             guard let html = String(data: data, encoding: .utf8) else {
-                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "Invalid encoding"))
+                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "Invalid encoding", strictness: query.strictness))
                 return .unavailable(reason: "Invalid encoding")
             }
             let results = Self.parseSearchResults(html, censusYear: year)
             lastSuccessfulSearch = Date()
             lastError = nil
             logger.info("Search returned \(results.count) results for \(surname)")
-            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count))
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count, strictness: query.strictness))
             return .results(results)
 
         } catch {
@@ -130,7 +131,7 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             logger.warning("Search failed: \(error.localizedDescription)")
             sessionCookie = nil
             csrfToken = nil
-            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
             return .unavailable(reason: error.localizedDescription)
         }
     }

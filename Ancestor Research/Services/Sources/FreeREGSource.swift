@@ -78,7 +78,7 @@ actor FreeREGSource: RecordSource {
         }
 
         let summary = Self.activitySummary(query: query, surname: surname, chapmanCode: chapmanCode)
-        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary))
+        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
 
         do {
             try await ensureSession()
@@ -88,11 +88,12 @@ actor FreeREGSource: RecordSource {
                 "search_query[chapman_codes][]": chapmanCode,
                 "commit": "Search",
             ]
-            // RESEARCH_AXES_SPEC Change 5: FreeREG exposes a Name Soundex
+            // RESEARCH_AXES_SPEC Change 5/6: FreeREG exposes a Name Soundex
             // checkbox at `search_query[fuzzy]` (form value `"true"`).
-            // .loose and .variant enable it; .strict omits the field
-            // (browser convention for unchecked checkboxes).
-            if query.strictness >= .loose {
+            // .loose enables it. .variant is the dispatcher tier marker —
+            // the surname has been substituted to a variant before arriving,
+            // so the variant probe is exact-match (no fuzzy field).
+            if query.strictness == .loose {
                 fields["search_query[fuzzy]"] = "true"
             }
             if let token = csrfToken {
@@ -126,12 +127,12 @@ actor FreeREGSource: RecordSource {
             let html = String(data: data, encoding: .utf8) ?? ""
             let records = Self.parseResults(html, recordType: query.recordType)
             logger.info("FreeREG: \(records.count) results for \(surname)")
-            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count))
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count, strictness: query.strictness))
             return .results(records)
         } catch {
             csrfToken = nil  // Reset on error
             logger.error("FreeREG search failed: \(error.localizedDescription)")
-            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
             return .unavailable(reason: error.localizedDescription)
         }
     }

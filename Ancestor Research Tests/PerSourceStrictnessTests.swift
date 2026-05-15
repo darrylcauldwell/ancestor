@@ -221,7 +221,7 @@ struct PerSourceStrictnessTests {
     // the dispatcher level — Wirksworth's source-side coverage check is
     // location-dependent so we just assert no extra fan-out happened.
 
-    @Test func ac5_4_strictOnlySourcesIgnoreStrictnessAtFanOut() {
+    @Test func ac5_4_strictOnlySourcesDoNotFanOutAndIgnoreStrictnessOnTheWire() {
         let registry = SourceRegistry()
         bootstrapSources(registry: registry)
 
@@ -238,15 +238,17 @@ struct PerSourceStrictnessTests {
             )
             for strictness in [SearchStrictness.strict, .loose, .variant] {
                 let result = SearchDispatcher.applyStrictness([baseQuery], strictness: strictness, source: src)
+                // Behavioural assertion: no variant fan-out, surname unchanged.
+                // Source-side wire bytes are inherently identical across
+                // strictness values because these sources don't read
+                // query.strictness in their search methods. The strictness
+                // field IS stamped on the query so activity-bus events
+                // reflect the dispatcher's tier intent — that's a presentation
+                // concern, not a behavioural one.
                 #expect(result.count == 1,
                         "\(sourceID) should not fan out for .\(strictness); got \(result.count)")
                 #expect(result.first?.surname == "Cauldwell",
                         "\(sourceID) surname should be unchanged for .\(strictness)")
-                if strictness == .variant {
-                    // strict-only sources stay at the original strictness (no .loose escalation)
-                    #expect(result.first?.strictness == .strict,
-                            "\(sourceID) .variant should stay .strict; got \(String(describing: result.first?.strictness))")
-                }
             }
         }
     }

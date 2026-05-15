@@ -22,13 +22,31 @@ struct SearchDispatcher {
         scope: ResearchScope = .county,
         mode: ResearchMode = .extend
     ) async -> [SourceRecord] {
-        _ = mode  // Reserved for Change 6 — empty-then-broaden flow.
-        let allQueries = buildAllQueries(subject: subject, recordTypes: recordTypes, scope: scope)
+        let ladder = Self.strictnessLadder(for: mode)
+
+        // Enumerate (source, recordType) targets. Per-source coverage check
+        // stays in this top loop — we don't dispatch tiers to sources that
+        // can't cover the year window at all.
+        var targets: [(any RecordSource, RecordType)] = []
+        for recordType in recordTypes {
+            let yearRange = subject.yearRange(for: recordType)
+            for source in registry.enabledSources(for: recordType, region: subject.region) {
+                guard sourceCovers(source, yearRange: yearRange) else { continue }
+                targets.append((source, recordType))
+            }
+        }
 
         return await withTaskGroup(of: [SourceRecord].self) { group in
-            for (source, query) in allQueries {
-                group.addTask { [source, query] in
-                    await source.search(query).records
+            for (source, recordType) in targets {
+                group.addTask { [source, recordType] in
+                    await self.dispatchToSource(
+                        source: source,
+                        subject: subject,
+                        recordType: recordType,
+                        scope: scope,
+                        ladder: ladder,
+                        mode: mode
+                    )
                 }
             }
             var combined: [SourceRecord] = []
@@ -39,28 +57,64 @@ struct SearchDispatcher {
         }
     }
 
-    // MARK: - Query Building
-
-    private func buildAllQueries(
+    /// Walk the strictness ladder for one source. For non-`.all` modes, stop
+    /// at the first tier that returns non-empty results. For `.all`, run every
+    /// tier and let the outer deduplication collapse overlap.
+    private func dispatchToSource(
+        source: any RecordSource,
         subject: ResearchSubject,
-        recordTypes: Set<RecordType>,
-        scope: ResearchScope
-    ) -> [(any RecordSource, RecordQuery)] {
-        var pairs: [(any RecordSource, RecordQuery)] = []
+        recordType: RecordType,
+        scope: ResearchScope,
+        ladder: [SearchStrictness],
+        mode: ResearchMode
+    ) async -> [SourceRecord] {
+        let baseQueries = buildQueries(source: source, subject: subject, recordType: recordType, scope: scope)
+        guard !baseQueries.isEmpty else { return [] }
 
-        for recordType in recordTypes {
-            let yearRange = subject.yearRange(for: recordType)
-            for source in registry.enabledSources(for: recordType, region: subject.region) {
-                // Per-source coverage: skip sources whose declared year range can't
-                // overlap the relevant event window. Sources with no declared range
-                // (unbounded) always pass.
-                guard sourceCovers(source, yearRange: yearRange) else { continue }
-                let queries = buildQueries(source: source, subject: subject, recordType: recordType, scope: scope)
-                pairs.append(contentsOf: queries.map { (source, $0) })
+        var accumulated: [SourceRecord] = []
+        for strictness in ladder {
+            let tierQueries = Self.applyStrictness(baseQueries, strictness: strictness, source: source)
+            guard !tierQueries.isEmpty else { continue }
+
+            // Dedupe identical queries within the tier — variant fan-out can
+            // produce duplicate (source, fields) tuples when a surname has no
+            // variants and `.variant` collapses back to a single .strict query.
+            let batch = await withTaskGroup(of: [SourceRecord].self) { tierGroup in
+                for query in tierQueries {
+                    tierGroup.addTask { [source, query] in
+                        await source.search(query).records
+                    }
+                }
+                var collected: [SourceRecord] = []
+                for await b in tierGroup {
+                    collected.append(contentsOf: b)
+                }
+                return collected
+            }
+            accumulated.append(contentsOf: batch)
+
+            // Empty-then-broaden: stop at the first tier with results unless
+            // mode == .all (which always runs every tier).
+            if mode != .all && !batch.isEmpty {
+                break
             }
         }
-        return pairs
+        return accumulated
     }
+
+    /// Strictness ladder per mode — see RESEARCH_AXES_SPEC §3.1 / §5.2.
+    /// The dispatcher walks this list for each source, stopping early on the
+    /// first non-empty tier (except in `.all` mode, which runs the full list).
+    static func strictnessLadder(for mode: ResearchMode) -> [SearchStrictness] {
+        switch mode {
+        case .verify:   return [.strict]
+        case .extend:   return [.strict, .loose]
+        case .discover: return [.loose, .variant]
+        case .all:      return [.strict, .loose, .variant]
+        }
+    }
+
+    // MARK: - Query Building
 
     private func sourceCovers(_ source: any RecordSource, yearRange: (from: Int?, to: Int?)) -> Bool {
         guard let coverage = source.coverageYearRange else { return true }
@@ -113,19 +167,23 @@ struct SearchDispatcher {
                 return queries.flatMap { q -> [RecordQuery] in
                     let original = q.surname ?? ""
                     let variants = SurnameVariants.shared.variants(of: original)
-                    guard !variants.isEmpty else { return [q] }
-                    // Original query + one per variant. Each fanned-out query
-                    // is itself .strict (the variant IS the exact surname for
-                    // that probe); the .variant tier is a fan-out construct.
-                    let fannedSurnames = [original] + variants
-                    return fannedSurnames.map { q.with(surname: $0) }
+                    let fannedSurnames = variants.isEmpty ? [original] : [original] + variants
+                    // Each fanned-out query carries strictness=.variant so the
+                    // dispatcher's tier-walk and activity-bus events reflect
+                    // the intended tier — the source may still treat it as
+                    // strict-on-the-wire (Phonetic=false), because the variant
+                    // IS the exact surname for that probe.
+                    return fannedSurnames.map { q.with(surname: $0).with(strictness: .variant) }
                 }
             case "cwgc":
-                // No useful variant axis distinct from server soundex.
+                // No useful variant axis distinct from server soundex per §7.
                 return queries.map { $0.with(strictness: .loose) }
             default:
-                // Probate, Wirksworth, FindAGrave — strict-only.
-                return queries
+                // Strict-only sources (Probate, Wirksworth, FindAGrave).
+                // Stamp the requested tier so activity-bus events reflect
+                // dispatcher intent; the source's wire behaviour is unchanged
+                // regardless of strictness because they don't branch on it.
+                return queries.map { $0.with(strictness: .variant) }
             }
         }
     }

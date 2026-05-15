@@ -231,17 +231,17 @@ final class ResearchViewModel {
 
         // Update per-source status card.
         switch event {
-        case .sourceQueryStarted(let sourceID, _):
+        case .sourceQueryStarted(let sourceID, _, _):
             if let idx = sourceStatuses.firstIndex(where: { $0.id == sourceID }) {
                 sourceStatuses[idx].state = .searching
                 sourceStatuses[idx].reason = nil
             }
-        case .sourceQueryCompleted(let sourceID, _, let count):
+        case .sourceQueryCompleted(let sourceID, _, let count, _):
             if let idx = sourceStatuses.firstIndex(where: { $0.id == sourceID }) {
                 sourceStatuses[idx].state = .complete
                 sourceStatuses[idx].resultCount += count
             }
-        case .sourceError(let sourceID, _, let reason):
+        case .sourceError(let sourceID, _, let reason, _):
             if let idx = sourceStatuses.firstIndex(where: { $0.id == sourceID }) {
                 sourceStatuses[idx].state = .error
                 sourceStatuses[idx].reason = reason

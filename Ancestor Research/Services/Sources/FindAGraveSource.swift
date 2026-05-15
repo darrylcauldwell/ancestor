@@ -59,7 +59,7 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         else { fagParams = FindAGraveParams(yearRangeWidth: 5, location: nil) }
 
         let summary = Self.activitySummary(query: query, params: fagParams)
-        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary))
+        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
 
         do {
             var params: [String: String] = [
@@ -88,7 +88,7 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
 
             let urlString = Self.searchURL + "?" + params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }.joined(separator: "&")
             guard let url = URL(string: urlString) else {
-                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0))
+                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0, strictness: query.strictness))
                 return .results([])
             }
 
@@ -104,13 +104,13 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
             lastSuccessfulSearch = Date()
             lastError = nil
             logger.info("Search returned \(results.count) results")
-            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count))
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count, strictness: query.strictness))
             return .results(results)
 
         } catch {
             lastError = error.localizedDescription
             logger.warning("Search failed: \(error.localizedDescription)")
-            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription))
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
             return .unavailable(reason: error.localizedDescription)
         }
     }
