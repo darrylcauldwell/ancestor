@@ -5,6 +5,8 @@ struct SettingsPlaceholderView: View {
     @Environment(AppState.self) private var appState
     @Environment(SourceRegistry.self) private var sourceRegistry
     @State private var wikiTreePassword = ""
+    @State private var cleansePresentation: CleansePresentation?
+    @State private var unresolvableFlagCount: Int = 0
     /// M16.11 — controls whether the tree canvas draws note dots, open-question
     /// markers, focus rings, and tentative-fact glyphs. Hidden state is useful
     /// for printing or screen-shotting a clean tree.
@@ -192,12 +194,48 @@ struct SettingsPlaceholderView: View {
                 }
             }
 
+            Section("Data Cleansing") {
+                Button("Cleanse all profiles") {
+                    cleansePresentation = .allProfiles
+                }
+                .buttonStyle(.glass)
+                Text("Walk every profile in the tree, surfacing ambiguous locations, missing parents, and bare-year dates one at a time.")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.tertiary)
+
+                if unresolvableFlagCount > 0 {
+                    HStack {
+                        Text("Unresolvable flags: \(unresolvableFlagCount)")
+                            .font(AppTypography.cardBody)
+                        Spacer()
+                        Button("Reset all") {
+                            try? appState.currentDatabase?.clearAllCleanseUnresolvableFlags()
+                            refreshUnresolvableFlagCount()
+                        }
+                        .buttonStyle(.glass)
+                        .controlSize(.small)
+                    }
+                    Text("Resetting re-surfaces every finding you previously marked as unresolvable.")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
             Section("Statistics") {
                 NavigationLink("Statistics") { StatisticsView() }
             }
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
+        .onAppear(perform: refreshUnresolvableFlagCount)
+        .sheet(item: $cleansePresentation) { presentation in
+            ProfileCleanseWizard(mode: presentation.mode)
+        }
+    }
+
+    private func refreshUnresolvableFlagCount() {
+        let count = (try? appState.currentDatabase?.loadCleanseUnresolvableFlags().count) ?? 0
+        unresolvableFlagCount = count
     }
 
     // MARK: - Source Row

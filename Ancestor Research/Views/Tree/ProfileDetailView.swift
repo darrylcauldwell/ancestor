@@ -18,6 +18,7 @@ struct ProfileDetailView: View {
     @State private var showingLifeEventEditor: Bool = false
     @State private var editingLifeEvent: LifeEvent?
     @State private var showingAttachmentImporter: Bool = false
+    @State private var cleansePresentation: CleansePresentation?
 
     var body: some View {
         ScrollView {
@@ -145,6 +146,14 @@ struct ProfileDetailView: View {
                     .buttonStyle(.glass)
                     .controlSize(.small)
 
+                    Button {
+                        cleansePresentation = .singleProfile(profile.id)
+                    } label: {
+                        Label("Cleanse", systemImage: "sparkles")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+
                     if let setRoot = onSetRoot {
                         Button("Show as Root") {
                             setRoot()
@@ -183,6 +192,9 @@ struct ProfileDetailView: View {
         }
         .sheet(isPresented: $showingAttachmentImporter) {
             AttachmentImportSheet(target: .profile(id: profile.id))
+        }
+        .sheet(item: $cleansePresentation) { presentation in
+            ProfileCleanseWizard(mode: presentation.mode)
         }
     }
 

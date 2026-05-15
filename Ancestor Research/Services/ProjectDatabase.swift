@@ -687,6 +687,21 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // CLEANSE_WIZARD_SPEC — persistent "user marked this unresolvable"
+        // flag, keyed by (profile_id, field). Lets the wizard skip findings
+        // the user has actively dismissed (e.g. "Madeira (born at sea)" for
+        // a birth location that genuinely can't be resolved). Field is a
+        // free-form string so the same table covers location, date, and
+        // future field types without further migrations.
+        migrator.registerMigration("v22_cleanse_unresolvable_flags") { db in
+            try db.create(table: "cleanse_unresolvable_flags") { t in
+                t.column("profile_id", .text).notNull()
+                t.column("field", .text).notNull()
+                t.column("marked_at", .datetime).notNull()
+                t.primaryKey(["profile_id", "field"])
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -2213,5 +2228,66 @@ nonisolated extension ProjectDatabase {
         }
 
         return transaction
+    }
+}
+
+// MARK: - Cleanse Unresolvable Flags
+//
+// CLEANSE_WIZARD_SPEC §3 — persistent per-(profile, field) flag that hides a
+// finding from the wizard once the user has decided it cannot be resolved.
+// Cleared explicitly from Settings; otherwise survives app restarts.
+nonisolated extension ProjectDatabase {
+
+    /// True if the user has previously marked this (profile, field) as
+    /// unresolvable. Cheap lookup used while generating findings.
+    func isCleanseUnresolvable(profileID: String, field: String) throws -> Bool {
+        try dbQueue.read { db in
+            try Bool.fetchOne(db, sql: """
+                SELECT 1 FROM cleanse_unresolvable_flags
+                WHERE profile_id = ? AND field = ?
+                LIMIT 1
+                """, arguments: [profileID, field]) ?? false
+        }
+    }
+
+    /// All unresolvable-flag keys, for Settings → "Reset unresolvable flags".
+    func loadCleanseUnresolvableFlags() throws -> [(profileID: String, field: String)] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT profile_id, field FROM cleanse_unresolvable_flags
+                ORDER BY marked_at DESC
+                """)
+            return rows.map { ($0["profile_id"] as String, $0["field"] as String) }
+        }
+    }
+
+    /// Set the unresolvable flag for one (profile, field). Idempotent — calling
+    /// twice leaves the row unchanged (marked_at is overwritten).
+    func markCleanseUnresolvable(profileID: String, field: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT OR REPLACE INTO cleanse_unresolvable_flags
+                (profile_id, field, marked_at)
+                VALUES (?, ?, ?)
+                """, arguments: [profileID, field, Date()])
+        }
+    }
+
+    /// Remove the unresolvable flag for one (profile, field). Lets the user
+    /// re-surface a finding they previously dismissed.
+    func clearCleanseUnresolvable(profileID: String, field: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                DELETE FROM cleanse_unresolvable_flags
+                WHERE profile_id = ? AND field = ?
+                """, arguments: [profileID, field])
+        }
+    }
+
+    /// Clear every unresolvable flag. Used from Settings.
+    func clearAllCleanseUnresolvableFlags() throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM cleanse_unresolvable_flags")
+        }
     }
 }

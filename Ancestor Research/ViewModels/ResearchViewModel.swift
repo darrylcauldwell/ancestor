@@ -418,38 +418,8 @@ final class ResearchViewModel {
             errorMessage = "No project open"
             return
         }
-        guard case .parentOf(let subjectID) = proposal.relationship else {
-            errorMessage = "Only parent-of proposals are supported"
-            return
-        }
-
-        let ghostID = UUID().uuidString
-        let ghost = makeGhostProfile(id: ghostID, from: proposal)
-
-        let role: ParentRole = switch proposal.gender {
-        case .male: .father
-        case .female: .mother
-        default: .unspecified
-        }
-
-        let parentEdge = Relationship(
-            id: UUID(),
-            from: ghostID,
-            to: subjectID,
-            type: .parent,
-            role: role,
-            subtype: .biological,
-            marriageDate: nil,
-            marriageLocation: nil,
-            divorceDate: nil
-        )
-
         do {
-            _ = try db.addFamily(
-                profiles: [ghost],
-                relationships: [parentEdge],
-                source: .freebmd
-            )
+            _ = try db.acceptProposedRelative(proposal)
             appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
             proposedRelativeDecisions[proposal.id] = .accepted
         } catch {
@@ -463,41 +433,6 @@ final class ResearchViewModel {
         proposedRelativeDecisions[proposal.id] = .rejected
         guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
         try? db.saveRejection(profileID: profileID, recordID: proposal.id)
-    }
-
-    private func makeGhostProfile(id: String, from proposal: ProposedRelative) -> Profile {
-        let birthDate: GenealogicalDate?
-        switch (proposal.birthYearLow, proposal.birthYearHigh) {
-        case let (lo?, hi?):
-            birthDate = GenealogicalDate(parsing: "BET \(lo) AND \(hi)")
-        case let (lo?, nil):
-            birthDate = GenealogicalDate(parsing: "AFT \(lo)")
-        case let (nil, hi?):
-            birthDate = GenealogicalDate(parsing: "BEF \(hi)")
-        case (nil, nil):
-            birthDate = nil
-        }
-
-        return Profile(
-            id: id,
-            externalIDs: [:],
-            firstName: proposal.proposedGivenName,
-            lastName: proposal.proposedSurname,
-            gender: proposal.gender,
-            attributes: PersonAttributes(
-                nameStatus: proposal.proposedGivenName == nil ? .placeholder : .known,
-                lifeStatus: .normal,
-                privacy: .normal
-            ),
-            birthDate: birthDate,
-            birthLocation: nil,
-            deathDate: nil,
-            deathLocation: nil,
-            bio: nil,
-            isDeleted: false,
-            sources: [:],
-            disputes: [:]
-        )
     }
 
     var acceptedClusters: [LifeCluster] {
