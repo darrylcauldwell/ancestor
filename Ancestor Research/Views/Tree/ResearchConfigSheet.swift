@@ -11,7 +11,7 @@ struct ResearchConfigSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var mode: ResearchMode
-    @State private var scope: ResearchScope = .county
+    @State private var scope: ResearchScope
 
     init(
         profile: Profile,
@@ -21,7 +21,9 @@ struct ResearchConfigSheet: View {
         self.profile = profile
         self.snapshot = snapshot
         self.onRun = onRun
-        self._mode = State(initialValue: Self.defaultMode(for: profile, snapshot: snapshot))
+        let initialMode = Self.defaultMode(for: profile, snapshot: snapshot)
+        self._mode = State(initialValue: initialMode)
+        self._scope = State(initialValue: Self.defaultScope(for: initialMode))
     }
 
     var body: some View {
@@ -55,15 +57,17 @@ struct ResearchConfigSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Scope")
                     .font(.headline)
-                // Picker stays binary in Change 3; the full 5-option .menu
-                // picker lands in Change 7. Tags map onto the new enum:
-                // Local → .county (the old "all home-county districts"),
-                // National → .national (unchanged).
+                // 5-option hierarchy: parish → district → county → adjacent
+                // → national. Menu style keeps the sheet width manageable
+                // (segmented would be too wide for 5 options at 420pt).
                 Picker("Scope", selection: $scope) {
-                    Text("Local").tag(ResearchScope.county)
+                    Text("Parish").tag(ResearchScope.parish)
+                    Text("District").tag(ResearchScope.district)
+                    Text("County").tag(ResearchScope.county)
+                    Text("County + adjacent").tag(ResearchScope.adjacent)
                     Text("National").tag(ResearchScope.national)
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
                 .labelsHidden()
                 Text(scopeDescription)
                     .font(.caption)
@@ -108,7 +112,7 @@ struct ResearchConfigSheet: View {
     /// Default mode picked by what's missing. Sparse profile (no parents +
     /// minimal data) → Discover. Has identity but missing dates → Extend.
     /// Mostly complete → Verify.
-    private static func defaultMode(for profile: Profile, snapshot: FamilyGraphSnapshot) -> ResearchMode {
+    static func defaultMode(for profile: Profile, snapshot: FamilyGraphSnapshot) -> ResearchMode {
         let completeness = snapshot.completeness(for: profile.id)
         let hasParents = snapshot.parentsOf(profile.id).isEmpty == false
         let hasGivenName = (profile.firstName ?? "").isEmpty == false
@@ -121,16 +125,38 @@ struct ResearchConfigSheet: View {
         return .extend
     }
 
+    /// Default scope derived from depth alone — RESEARCH_AXES_SPEC §4.
+    /// Profile completeness doesn't factor in (single-input precedence rule
+    /// avoids the failure modes of a depth × completeness matrix). The user
+    /// can override per-run from the sheet.
+    static func defaultScope(for mode: ResearchMode) -> ResearchScope {
+        switch mode {
+        case .verify:   return .district
+        case .extend:   return .county
+        case .discover: return .adjacent
+        case .all:      return .national
+        }
+    }
+
     private var modeDescription: String {
         let estimate = Self.estimatedDuration(mode: mode, scope: scope)
         let intent: String
+        let strictnessHint: String
         switch mode {
-        case .verify:   intent = "Confirm what's already known against sources. Stops early when corroborated."
-        case .extend:   intent = "Fill missing facts (death, marriage, location). Standard depth."
-        case .discover: intent = "Broad search from scratch. Use for ghost profiles or unfamiliar ancestors."
-        case .all:      intent = "Most thorough preset. Maximum iterations, highest fact cap, no early stop."
+        case .verify:
+            intent = "Confirm what's already known against sources. Stops early when corroborated."
+            strictnessHint = "Exact-name matches only — no phonetic or variant fan-out."
+        case .extend:
+            intent = "Fill missing facts (death, marriage, location). Standard depth."
+            strictnessHint = "Tries exact match first; broadens to phonetic on empty per source."
+        case .discover:
+            intent = "Broad search from scratch. Use for ghost profiles or unfamiliar ancestors."
+            strictnessHint = "Starts with phonetic match; escalates to spelling-variant fan-out if empty."
+        case .all:
+            intent = "Most thorough preset. Maximum iterations, highest fact cap, no early stop."
+            strictnessHint = "Runs every match tier (exact, phonetic, variants) and dedupes."
         }
-        return "\(intent) Estimated \(estimate)."
+        return "\(intent) \(strictnessHint) Estimated \(estimate)."
     }
 
     private var scopeDescription: String {
