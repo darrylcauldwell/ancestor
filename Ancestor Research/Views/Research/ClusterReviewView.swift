@@ -55,6 +55,13 @@ struct ClusterReviewView: View {
 
     @Environment(SourceRegistry.self) private var registry
 
+    /// Cached source-info lookup. Built once per view-render so the new
+    /// ConfidenceBadgeView (and the GPS scorer) can read sourcing strength
+    /// without each call site re-walking the registry.
+    private var sourceInfoMap: [String: SourceInfo] {
+        registry.buildSourceInfoMap()
+    }
+
     private var gpsScore: GPSScore {
         let sourceInfoMap = registry.buildSourceInfoMap()
         let searchedSources = Set(result.allScoredRecords.map(\.record.sourceID))
@@ -133,7 +140,13 @@ struct ClusterReviewView: View {
                     Text(cluster.displayName)
                         .font(AppTypography.cardTitle)
                     HStack(spacing: 8) {
-                        confidenceBadge(cluster.confidence)
+                        // RESEARCH_CONFIDENCE_SPEC §4.2 Change 3 — cluster
+                        // cards adopt the three-axis badge. Proposed-relative
+                        // cards (line below) keep the legacy tier badge until
+                        // Change 4 migrates them.
+                        ConfidenceBadgeView(
+                            confidence: cluster.evidenceConfidence(sourceInfoMap: sourceInfoMap)
+                        )
                         if let birth = cluster.impliedBirthYear {
                             Text("b. ~\(String(birth))")
                                 .font(AppTypography.cardMeta)

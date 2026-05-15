@@ -126,7 +126,12 @@ nonisolated struct RegionConfig: Codable, Sendable {
 
     func district(for parish: String) -> String? {
         let parishLower = parish.lowercased()
-        for (district, parishes) in districtParishes {
+        // Sorted iteration so a parish that appears in multiple districts
+        // (e.g. Wirksworth in Bakewell AND High Peak) returns the same answer
+        // every time — Swift's dict order is non-deterministic and was causing
+        // a test flake before this fix.
+        for district in districtParishes.keys.sorted() {
+            let parishes = districtParishes[district] ?? []
             if parishes.contains(where: { $0.lowercased() == parishLower }) {
                 return district
             }
