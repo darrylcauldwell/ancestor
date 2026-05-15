@@ -46,7 +46,7 @@ nonisolated struct ResearchConfig: Sendable {
         maxIterations: Int,
         maxFacts: Int,
         mode: ResearchMode,
-        scope: ResearchScope = .local
+        scope: ResearchScope = .county
     ) {
         self.maxIterations = maxIterations
         self.maxFacts = maxFacts

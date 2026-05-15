@@ -264,10 +264,14 @@ final class ResearchPipeline {
         yearTo: Int,
         scope: ResearchScope
     ) async -> [ScoredRecord] {
-        // Build district codes for this scope.
+        // Build district codes for this scope. Marriage enrichment is
+        // FreeBMD-only — mirrors the FreeBMD widening logic in
+        // SearchDispatcher.buildQueries; see RESEARCH_AXES_SPEC §5.3.
         let districtCodes: [String]
         switch scope {
-        case .local:
+        case .parish:
+            districtCodes = []
+        case .district, .county, .adjacent:
             districtCodes = Array(dispatcher.regionConfig.districts.values)
         case .national:
             let yr = yearFrom...yearTo

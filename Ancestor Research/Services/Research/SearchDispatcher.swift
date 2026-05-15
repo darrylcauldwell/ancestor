@@ -15,7 +15,7 @@ struct SearchDispatcher {
     func dispatch(
         subject: ResearchSubject,
         recordTypes: Set<RecordType>,
-        scope: ResearchScope = .local
+        scope: ResearchScope = .county
     ) async -> [SourceRecord] {
         let allQueries = buildAllQueries(subject: subject, recordTypes: recordTypes, scope: scope)
 
@@ -63,6 +63,20 @@ struct SearchDispatcher {
         return from <= coverage.upperBound && to >= coverage.lowerBound
     }
 
+    #if DEBUG
+    /// Test seam for `RESEARCH_AXES_SPEC` Change 3 acceptance tests. Lets a test
+    /// inspect the per-source query fan-out for a given scope without going
+    /// through the async network path.
+    func buildQueriesForTest(
+        source: any RecordSource,
+        subject: ResearchSubject,
+        recordType: RecordType,
+        scope: ResearchScope
+    ) -> [RecordQuery] {
+        buildQueries(source: source, subject: subject, recordType: recordType, scope: scope)
+    }
+    #endif
+
     private func buildQueries(
         source: any RecordSource,
         subject: ResearchSubject,
@@ -75,14 +89,26 @@ struct SearchDispatcher {
         case "freebmd":
             // Multi-district: one query per configured district.
             // Nil-surname subjects (ghost mothers) skip FreeBMD.
-            // .local → regionConfig.districts (home-county, ~12 entries).
-            // .national → FreeBMDDistrictCatalogue, year-filtered to skip districts
-            //             that weren't operating in the subject's window (~600 instead of 1125).
+            //
+            // Per RESEARCH_AXES_SPEC §5.3 + §7:
+            //   .parish    → zero queries (FreeBMD has no parish endpoint).
+            //   .district  → transitional widen to .county (subject lacks
+            //                structured location code until prior spec Change 2).
+            //   .county    → RegionConfig.districts(forChapmanCode:) — formerly .local.
+            //   .adjacent  → falls back to .county for FreeBMD: the catalogue
+            //                lacks per-district Chapman affiliation, so we can't
+            //                enumerate adjacent-county districts without that data.
+            //                Honest degradation; logged via spec note.
+            //   .national  → full catalogue, year-filtered.
             guard subject.surname != nil else { return [] }
             let districtCodes: [String]
             switch scope {
-            case .local:
-                districtCodes = Array(regionConfig.districts.values)
+            case .parish:
+                return []
+            case .district, .county, .adjacent:
+                districtCodes = Array(
+                    RegionConfig.districts(forChapmanCode: subject.homeChapmanCode).values
+                )
             case .national:
                 let entries = FreeBMDDistrictCatalogue.shared.covering(
                     yearFrom: yearRange.from, yearTo: yearRange.to
@@ -114,10 +140,17 @@ struct SearchDispatcher {
                 let to = yearRange.to ?? 1911
                 return year >= from && year <= to
             }
+            // Per RESEARCH_AXES_SPEC §5.3 — FreeCen is chapman-coded, not
+            // district-coded, so .district widens to .county. Parish-level
+            // restriction would happen via FreeCenParams.parish, which we
+            // can't populate until prior spec Change 2 ships birthLocationCode.
             let cenChapmanCodes: [String]
             switch scope {
-            case .local:
-                cenChapmanCodes = [regionConfig.chapmanCode]
+            case .parish, .district, .county:
+                cenChapmanCodes = [subject.homeChapmanCode]
+            case .adjacent:
+                cenChapmanCodes = [subject.homeChapmanCode]
+                    + RegionConfig.adjacentCounties(subject.homeChapmanCode)
             case .national:
                 let entries: [UKChapmanCode] = UKChapmanCodes.shared.gbAndChannelIslands()
                 cenChapmanCodes = entries.map { $0.code }
@@ -147,11 +180,16 @@ struct SearchDispatcher {
         case "freereg":
             // Per Chapman code × applicable register types.
             // Local = 1 Chapman code; National = ~70 (England & Wales) covering FreeREG's reach.
+            // Per RESEARCH_AXES_SPEC §5.3 — FreeREG is chapman-coded.
+            // Same widening pattern as FreeCen.
             guard subject.surname != nil else { return [] }
             let regChapmanCodes: [String]
             switch scope {
-            case .local:
-                regChapmanCodes = [regionConfig.chapmanCode]
+            case .parish, .district, .county:
+                regChapmanCodes = [subject.homeChapmanCode]
+            case .adjacent:
+                regChapmanCodes = [subject.homeChapmanCode]
+                    + RegionConfig.adjacentCounties(subject.homeChapmanCode)
             case .national:
                 let entries: [UKChapmanCode] = UKChapmanCodes.shared.englandAndWales()
                 regChapmanCodes = entries.map { $0.code }

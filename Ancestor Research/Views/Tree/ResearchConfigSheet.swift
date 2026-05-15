@@ -11,7 +11,7 @@ struct ResearchConfigSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var mode: ResearchMode
-    @State private var scope: ResearchScope = .local
+    @State private var scope: ResearchScope = .county
 
     init(
         profile: Profile,
@@ -55,8 +55,12 @@ struct ResearchConfigSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Scope")
                     .font(.headline)
+                // Picker stays binary in Change 3; the full 5-option .menu
+                // picker lands in Change 7. Tags map onto the new enum:
+                // Local → .county (the old "all home-county districts"),
+                // National → .national (unchanged).
                 Picker("Scope", selection: $scope) {
-                    Text("Local").tag(ResearchScope.local)
+                    Text("Local").tag(ResearchScope.county)
                     Text("National").tag(ResearchScope.national)
                 }
                 .pickerStyle(.segmented)
@@ -131,7 +135,10 @@ struct ResearchConfigSheet: View {
 
     private var scopeDescription: String {
         switch scope {
-        case .local:    "Home region only — the 12 Derbyshire registration districts."
+        case .parish:   "Home parish only. Limited to FreeREG / FreeCen / Wirksworth (parish-supporting sources)."
+        case .district: "Home registration district. Today falls through to county scope until structured location codes ship."
+        case .county:   "Home county's registration districts — the current local-scope behaviour."
+        case .adjacent: "Home county plus counties bordering it (single hop). Useful for ancestors near a county border."
         case .national: "Every UK registration district (~1,125 districts, year-filtered)."
         }
     }
@@ -140,16 +147,29 @@ struct ResearchConfigSheet: View {
     /// 500ms inter-request throttle and serial dispatch per source — accurate to
     /// within ~50% for typical profiles, depending on how many record types apply.
     /// Shown in the sheet so the user understands the trade-off before clicking Run.
+    /// See RESEARCH_AXES_SPEC §4 for the locked 5×4 table.
     static func estimatedDuration(mode: ResearchMode, scope: ResearchScope) -> String {
         switch (mode, scope) {
-        case (.verify, .local):     return "10–30 sec (often stops early)"
-        case (.extend, .local):     return "1–2 min"
-        case (.discover, .local):   return "1–2 min"
-        case (.all, .local):        return "2–3 min"
-        case (.verify, .national):  return "5–15 min (often stops early)"
-        case (.extend, .national):  return "15–30 min"
-        case (.discover, .national):return "15–30 min"
-        case (.all, .national):     return "30–60 min"
+        case (.verify, .parish):      return "5–15 sec (often stops early)"
+        case (.verify, .district):    return "10–30 sec (often stops early)"
+        case (.verify, .county):      return "30 sec–1 min (often stops early)"
+        case (.verify, .adjacent):    return "1–3 min (often stops early)"
+        case (.verify, .national):    return "3–8 min (often stops early)"
+        case (.extend, .parish):      return "10–30 sec"
+        case (.extend, .district):    return "30 sec–1 min"
+        case (.extend, .county):      return "1–2 min"
+        case (.extend, .adjacent):    return "2–5 min"
+        case (.extend, .national):    return "5–12 min"
+        case (.discover, .parish):    return "15–45 sec"
+        case (.discover, .district):  return "1–2 min"
+        case (.discover, .county):    return "2–4 min"
+        case (.discover, .adjacent):  return "3–8 min"
+        case (.discover, .national):  return "5–15 min"
+        case (.all, .parish):         return "30 sec–1 min"
+        case (.all, .district):       return "2–4 min"
+        case (.all, .county):         return "3–6 min"
+        case (.all, .adjacent):       return "5–12 min"
+        case (.all, .national):       return "8–20 min"
         }
     }
 

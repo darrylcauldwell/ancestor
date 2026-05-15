@@ -765,7 +765,7 @@ struct ClusterReviewView: View {
         } description: {
             VStack(spacing: 12) {
                 Text("No matching records were found across the searched sources.")
-                if vm.selectedScope == .local {
+                if vm.selectedScope < .national {
                     Text("Local search covered your home region only.")
                         .font(AppTypography.cardMeta)
                         .foregroundStyle(.secondary)

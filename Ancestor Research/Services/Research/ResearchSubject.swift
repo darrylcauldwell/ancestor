@@ -26,17 +26,44 @@ nonisolated struct ResearchRequest: Sendable {
 }
 
 /// How widely to fan out scope-aware sources (FreeBMD, FreeCen, FreeREG).
-/// Mode is orthogonal — `local`/`national` controls breadth; `verify`/`extend`/
-/// `discover` controls depth.
+/// Mode is orthogonal — depth (verify/extend/discover/all) is on `ResearchMode`.
 ///
-/// - `local`: query the home region only. ~6 seconds per record type.
-///   Right for the 80% case where the subject is in the user's home county.
-/// - `national`: query the entire UK catalogue. ~9 minutes per record type
-///   for FreeBMD. Right for migrants, surname lookups, or as a fallback
-///   when local came back empty.
-nonisolated enum ResearchScope: String, Sendable {
-    case local
+/// Ordered widening:
+///   parish < district < county < adjacent < national
+///
+/// - `parish`: subject's home parish only. Parish-unsupported sources
+///   (FreeBMD, CWGC, Probate, FindAGrave) return zero queries.
+/// - `district`: subject's home registration district. Sources without a
+///   district axis (FreeREG, FreeCen) widen to `.county` for that source only.
+/// - `county`: all districts in the subject's home county. The old `.local`.
+/// - `adjacent`: home county + counties bordering it (single hop, via
+///   `RegionConfig.adjacentCounties`). FreeBMD falls back to `.county` until
+///   per-county district data exists for non-Derbyshire counties.
+/// - `national`: entire UK catalogue. The old `.national`.
+///
+/// Transitional: until `Profile.birthLocationCode` ships (prior spec's Change 2),
+/// `.parish` and `.district` silently widen to `.county` for any subject lacking
+/// a structured location code. See RESEARCH_AXES_SPEC §3.2.
+nonisolated enum ResearchScope: String, Comparable, Sendable, CaseIterable {
+    case parish
+    case district
+    case county
+    case adjacent
     case national
+
+    private var order: Int {
+        switch self {
+        case .parish: return 0
+        case .district: return 1
+        case .county: return 2
+        case .adjacent: return 3
+        case .national: return 4
+        }
+    }
+
+    static func < (lhs: ResearchScope, rhs: ResearchScope) -> Bool {
+        lhs.order < rhs.order
+    }
 }
 
 /// The person being researched.

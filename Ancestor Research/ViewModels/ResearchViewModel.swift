@@ -7,7 +7,7 @@ final class ResearchViewModel {
     // Input
     var selectedProfile: Profile?
     var selectedMode: ResearchMode = .extend
-    var selectedScope: ResearchScope = .local
+    var selectedScope: ResearchScope = .county
 
     // Pipeline state
     var isResearching = false
