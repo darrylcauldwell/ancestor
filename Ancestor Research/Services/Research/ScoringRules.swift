@@ -394,9 +394,21 @@ nonisolated struct ScoringRules {
     // See RESEARCH_AXES_SPEC.md §3 / §8 Change 1.
 
     /// Check if a district is in the subject's home county.
+    /// Two-tier lookup: the rich per-county RegionConfig (only DBY today)
+    /// matches against its hand-curated districtParishes; for any other
+    /// home county, falls through to FreeBMDDistrictCatalogue's tagged
+    /// entries. Catalogue lookup is case-insensitive on district name.
     static func isLocalDistrict(_ district: String, forHomeChapman code: String) -> Bool {
-        guard let config = RegionConfig.config(forChapmanCode: code) else { return false }
-        return config.isLocalDistrict(district)
+        if let config = RegionConfig.config(forChapmanCode: code),
+           config.isLocalDistrict(district) {
+            return true
+        }
+        let needle = district.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: " district", with: "", options: .caseInsensitive)
+            .lowercased()
+        let upper = code.uppercased()
+        return FreeBMDDistrictCatalogue.shared.districts(forChapmanCode: upper)
+            .contains { $0.name.lowercased() == needle }
     }
 
     /// Returns the location name if district is outside the home county, else nil.
@@ -406,15 +418,26 @@ nonisolated struct ScoringRules {
     }
 
     /// Return parishes covered by a registration district within the home county.
+    /// Prefers the rich per-county RegionConfig when available (DBY only);
+    /// falls through to the FreeBMDDistrictCatalogue's nationally-enriched
+    /// parish lists for everywhere else.
     static func parishesInDistrict(_ district: String, forHomeChapman code: String) -> [String] {
-        guard let config = RegionConfig.config(forChapmanCode: code) else { return [] }
-        return config.parishes(in: district)
+        if let config = RegionConfig.config(forChapmanCode: code) {
+            let local = config.parishes(in: district)
+            if !local.isEmpty { return local }
+        }
+        return FreeBMDDistrictCatalogue.shared.district(named: district)?.parishes ?? []
     }
 
     /// Find which registration district covers a parish within the home county.
+    /// Same two-tier fallback as `parishesInDistrict`.
     static func districtForParish(_ parish: String, forHomeChapman code: String) -> String? {
-        guard let config = RegionConfig.config(forChapmanCode: code) else { return nil }
-        return config.district(for: parish)
+        if let config = RegionConfig.config(forChapmanCode: code),
+           let local = config.district(for: parish) {
+            return local
+        }
+        return FreeBMDDistrictCatalogue.shared
+            .district(forParish: parish, inChapman: code)?.name
     }
 
     // MARK: - Reference Data

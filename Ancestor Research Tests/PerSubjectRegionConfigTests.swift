@@ -17,10 +17,57 @@ struct PerSubjectRegionConfigTests {
     }
 
     @Test func ac1_1_districtsForUnknownCodeReturnsEmpty() {
-        // Non-DBY codes don't have data yet (will fill in as per-county configs ship).
-        // Empty map is honest — callers downgrade local-boosting rather than mis-classify.
-        #expect(RegionConfig.districts(forChapmanCode: "LEI").isEmpty)
+        // Truly unknown Chapman codes return empty.
         #expect(RegionConfig.districts(forChapmanCode: "ZZZ").isEmpty)
+        #expect(RegionConfig.districts(forChapmanCode: "").isEmpty)
+    }
+
+    @Test func ac1_1_districtsForOtherCountiesUsesEnrichedCatalogue() {
+        // After the freebmd-districts.json enrichment, every traditional UK
+        // historical county that the FreeBMD catalogue covers gets a
+        // populated district map via the FreeBMDDistrictCatalogue fallback.
+        let leicester = RegionConfig.districts(forChapmanCode: "LEI")
+        #expect(!leicester.isEmpty, "LEI should have districts from the enriched catalogue")
+        #expect(leicester["Leicester"] != nil, "Leicester town should be a LEI district")
+
+        let kent = RegionConfig.districts(forChapmanCode: "KEN")
+        #expect(!kent.isEmpty, "KEN should have districts")
+    }
+
+    // MARK: - Parish coverage from the national enrichment
+
+    @Test func wirksworthParishMapsToBelperDistrict() {
+        // The user's UX-test case: Wirksworth is a parish in Belper
+        // registration district. Reverse lookup must surface a district.
+        let district = ScoringRules.districtForParish("Wirksworth", forHomeChapman: "DBY")
+        #expect(district != nil)
+        // Wirksworth appears in both Belper and Bakewell historically; either
+        // is acceptable (it's a boundary parish).
+        #expect(district == "Belper" || district == "Bakewell",
+                "expected Belper or Bakewell; got \(String(describing: district))")
+    }
+
+    @Test func parishesAreAvailableForNonDerbyshireCounties() {
+        // Pre-enrichment this returned empty for everywhere except DBY.
+        // Now any district in the FreeBMD catalogue with a populated parish
+        // list works — spot-check across 3 counties from the scrape data.
+        let kent = ScoringRules.parishesInDistrict("Maidstone", forHomeChapman: "KEN")
+        #expect(!kent.isEmpty, "Maidstone (KEN) should have parishes")
+
+        let lei = ScoringRules.parishesInDistrict("Market Harborough", forHomeChapman: "LEI")
+        #expect(!lei.isEmpty, "Market Harborough (LEI) should have parishes")
+
+        let sts = ScoringRules.parishesInDistrict("Lichfield", forHomeChapman: "STS")
+        #expect(!sts.isEmpty, "Lichfield (STS) should have parishes")
+    }
+
+    @Test func parishLookupIsCaseInsensitive() {
+        let lower = ScoringRules.districtForParish("wirksworth", forHomeChapman: "DBY")
+        let upper = ScoringRules.districtForParish("WIRKSWORTH", forHomeChapman: "DBY")
+        let mixed = ScoringRules.districtForParish("Wirksworth", forHomeChapman: "DBY")
+        #expect(lower != nil)
+        #expect(lower == upper)
+        #expect(lower == mixed)
     }
 
     @Test func ac1_1_factoryIsCaseInsensitive() {
@@ -42,14 +89,56 @@ struct PerSubjectRegionConfigTests {
     }
 
     @Test func ac1_2_belperIsNotLocalForLEIHome() {
-        // No LEI data, so Belper isn't claimed as local for a Leicestershire subject.
-        // Once LEI config lands, this stays correct (Belper is in Derbyshire, not Leicestershire).
+        // Belper is in Derbyshire, not Leicestershire — must return false
+        // even though LEI now has its own populated district set via the
+        // enriched catalogue.
         #expect(!ScoringRules.isLocalDistrict("Belper", forHomeChapman: "LEI"))
+    }
+
+    @Test func ac1_2_leicesterIsLocalForLEIHome() {
+        // Spec AC1.2 satisfied in full now — LEI subject sees Leicester as local
+        // (previously this assertion was gated on per-county data not yet shipping).
+        #expect(ScoringRules.isLocalDistrict("Leicester", forHomeChapman: "LEI"))
+        #expect(ScoringRules.isLocalDistrict("LEICESTER", forHomeChapman: "LEI"),
+                "case-insensitive lookup must apply to catalogue path too")
+    }
+
+    @Test func ac1_2_leicesterIsNotLocalForDBYHome() {
+        // Leicester is in Leicestershire, not Derbyshire.
+        #expect(!ScoringRules.isLocalDistrict("Leicester", forHomeChapman: "DBY"))
     }
 
     @Test func ac1_2_unknownCodeReturnsFalseForAllDistricts() {
         #expect(!ScoringRules.isLocalDistrict("Belper", forHomeChapman: "ZZZ"))
         #expect(!ScoringRules.isLocalDistrict("Leicester", forHomeChapman: "ZZZ"))
+    }
+
+    // MARK: - District lookup must be case-insensitive
+    //
+    // Regression: FreeBMD parses district names as uppercase ("BELPER")
+    // and stores them as-is. RegionConfig's districtParishes dict keys are
+    // title case ("Belper"). A case-sensitive lookup silently returned nil,
+    // and the geography gate dropped to `softFail("unknown district: BELPER")`
+    // — turning what should be a confirmed birth record into a "weak lead",
+    // which made downstream parent-inference weak too. Surfaced 2026-05 in
+    // manual UX testing.
+
+    @Test func districtLookupIsCaseInsensitive() {
+        let config = RegionConfig.derbyshire
+        // The stored key is "Belper"; lookups must succeed regardless of case.
+        #expect(config.isLocalDistrict("Belper"))
+        #expect(config.isLocalDistrict("BELPER"))
+        #expect(config.isLocalDistrict("belper"))
+        #expect(config.isLocalDistrict("  Belper  "))
+        #expect(config.isLocalDistrict("Belper district"))
+        #expect(config.isLocalDistrict("BELPER DISTRICT"))
+    }
+
+    @Test func scoringRulesLocalDistrictIsCaseInsensitiveViaForHomeChapman() {
+        // Same bug surface, through the parameterised scoring helper that
+        // RecordScorer.checkGeography actually calls.
+        #expect(ScoringRules.isLocalDistrict("BELPER", forHomeChapman: "DBY"))
+        #expect(ScoringRules.isLocalDistrict("Belper", forHomeChapman: "DBY"))
     }
 
     @Test func ac1_2_nonLocalLookupIsHomeCountyAware() {

@@ -13,8 +13,19 @@ import os
 nonisolated struct FreeBMDDistrict: Codable, Sendable, Hashable {
     let name: String
     let code: String
+    /// Chapman code of the historical county this district belongs to.
+    /// 100% coverage as of the 2026-05 enrichment — every catalogue entry
+    /// tagged from UKBMD's per-county and per-district pages, with hand
+    /// overrides for post-1974 administrative-county districts mapped to
+    /// their predominant historical Chapman code.
+    let chapmanCode: String?
     let startYear: Int?
     let endYear: Int?
+    /// Civil parishes within this registration district, per UKBMD's
+    /// Table 1 listings. nil for districts whose parish list couldn't be
+    /// scraped (404s, format variants). Used by `.parish`-scope queries
+    /// and parish-aware geography scoring.
+    let parishes: [String]?
 
     /// True if this district was operating at any point in the given year range.
     func overlaps(years range: ClosedRange<Int>) -> Bool {
@@ -80,5 +91,35 @@ nonisolated final class FreeBMDDistrictCatalogue: Sendable {
         let upper = yearTo ?? Int.max
         guard lower <= upper else { return [] }
         return covering(years: lower...upper)
+    }
+
+    /// Districts belonging to a given historical county (Chapman code).
+    /// Case-insensitive. Returns empty array for unknown codes or codes
+    /// not yet covered by the enrichment data (post-1974 modern composites).
+    func districts(forChapmanCode code: String) -> [FreeBMDDistrict] {
+        let needle = code.uppercased()
+        return districts.filter { $0.chapmanCode?.uppercased() == needle }
+    }
+
+    /// First district whose name matches the given string (case-insensitive,
+    /// trailing " district" stripped). Useful for reverse-mapping a record's
+    /// district name to its catalogue entry — parishes, Chapman code, etc.
+    func district(named name: String) -> FreeBMDDistrict? {
+        let needle = name.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: " district", with: "", options: .caseInsensitive)
+            .lowercased()
+        return districts.first { $0.name.lowercased() == needle }
+    }
+
+    /// First district that contains the given parish (case-insensitive),
+    /// scoped to a particular Chapman code to disambiguate same-named
+    /// parishes across counties. Returns nil if no match.
+    func district(forParish parish: String, inChapman code: String) -> FreeBMDDistrict? {
+        let needle = parish.lowercased()
+        let upper = code.uppercased()
+        return districts.first { d in
+            d.chapmanCode?.uppercased() == upper
+                && (d.parishes?.contains(where: { $0.lowercased() == needle }) ?? false)
+        }
     }
 }

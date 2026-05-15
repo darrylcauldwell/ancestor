@@ -91,20 +91,37 @@ nonisolated struct RegionConfig: Codable, Sendable {
 
     // MARK: - Lookup helpers (used by ScoringRules)
 
+    /// Strip whitespace and a trailing " district" / " DISTRICT" suffix,
+    /// then lowercase for the case-insensitive lookups below. Sources
+    /// return district names in varying case (FreeBMD uppercases; our
+    /// stored keys are title case), and a case-sensitive dict lookup
+    /// silently returns nil — which manifested as "unknown district:
+    /// BELPER" soft-fails on records that should pass the geography gate.
+    private static func canonicalDistrictKey(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: " district", with: "", options: .caseInsensitive)
+            .lowercased()
+    }
+
     func isLocalDistrict(_ district: String) -> Bool {
-        let clean = district.trimmingCharacters(in: .whitespaces)
-            .replacingOccurrences(of: " district", with: "")
-        return districtParishes[clean] != nil
+        let needle = Self.canonicalDistrictKey(district)
+        return districtParishes.keys.contains { $0.lowercased() == needle }
     }
 
     func nonLocalLocation(for district: String) -> String? {
-        let clean = district.trimmingCharacters(in: .whitespaces)
-            .replacingOccurrences(of: " district", with: "")
-        return nonLocalDistricts[clean]
+        let needle = Self.canonicalDistrictKey(district)
+        for (key, location) in nonLocalDistricts where key.lowercased() == needle {
+            return location
+        }
+        return nil
     }
 
     func parishes(in district: String) -> [String] {
-        districtParishes[district] ?? []
+        let needle = Self.canonicalDistrictKey(district)
+        for (key, parishes) in districtParishes where key.lowercased() == needle {
+            return parishes
+        }
+        return []
     }
 
     func district(for parish: String) -> String? {
@@ -119,16 +136,28 @@ nonisolated struct RegionConfig: Codable, Sendable {
 
     // MARK: - Per-subject factories (RESEARCH_AXES_SPEC Change 1)
 
-    /// District map for a given Chapman code. Currently returns the Derbyshire
-    /// map for "DBY" and an empty map for everything else — non-DBY county data
-    /// will be added as it ships. Callers should treat an empty result as "no
-    /// local-district knowledge" and downgrade scoring accordingly rather than
-    /// failing.
+    /// District map for a given Chapman code. Returns the hand-curated
+    /// Derbyshire map for "DBY" (12 verified entries with parish lists);
+    /// for any other Chapman code, derives from the national
+    /// FreeBMDDistrictCatalogue's enrichment (district name → FreeBMD code
+    /// for every district tagged with that county). 68% of the 1125 catalogue
+    /// entries are tagged in the initial enrichment; untagged districts are
+    /// mostly post-1974 modern composites, fill in over time.
+    /// Empty map signals "no local-district knowledge" — scoring downgrades
+    /// accordingly rather than failing.
     static func districts(forChapmanCode code: String) -> [String: String] {
-        switch code.uppercased() {
-        case "DBY": return Self.derbyshire.districts
-        default:    return [:]
+        let upper = code.uppercased()
+        if upper == "DBY" { return Self.derbyshire.districts }
+        let entries = FreeBMDDistrictCatalogue.shared.districts(forChapmanCode: upper)
+        var map: [String: String] = [:]
+        for entry in entries {
+            // First occurrence wins — districts with successor renames
+            // (e.g. Glossop → High Peak) appear twice in the catalogue
+            // with different validity windows but the same canonical name
+            // would otherwise collide. The earlier-seen entry keeps its slot.
+            if map[entry.name] == nil { map[entry.name] = entry.code }
         }
+        return map
     }
 
     /// Single-hop adjacency lookup. Returns the Chapman codes of counties
