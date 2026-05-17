@@ -33,7 +33,12 @@ struct MarriageEnrichmentTests {
         }
     }
 
-    @Test func nonMatchingReferencesReturnNone() {
+    // The matcher now groups by reference key across both sides — each
+    // unique key is a candidate marriage. A groom at one ref and a bride
+    // at a different ref therefore represent TWO distinct candidate
+    // marriages and should surface as ambiguous (previously these returned
+    // .none, which silently discarded valid one-sided data).
+    @Test func nonMatchingReferencesProduceAmbiguous() {
         let groom = entry(
             surname: "Cauldwell", givenName: "JAMES", spouseSurname: "Holmes",
             district: "Belper", volume: "7C", page: "421"
@@ -43,10 +48,43 @@ struct MarriageEnrichmentTests {
             district: "Derby", volume: "9A", page: "13"
         )
         let outcome = MarriageEnrichmentEngine.match(grooms: [groom], brides: [bride])
-        if case .none = outcome {
-            // ok
+        if case .ambiguous = outcome {
+            // ok — two candidate marriages at two distinct reference tuples
         } else {
-            Issue.record("Expected none, got \(outcome)")
+            Issue.record("Expected ambiguous, got \(outcome)")
+        }
+    }
+
+    // MARK: - One-sided enrichment (FreeBMD returning incomplete results)
+
+    // Empirically observed Cauldwell × Holmes 1969 BELPER: groom-side
+    // returns the marriage but bride-side query comes back without it.
+    // With the matcher grouping by reference key across both sides we
+    // still produce a unique outcome — father gets enriched with the
+    // groom's given name; mother stays surname-only (motherGiven == nil).
+    @Test func groomSideOnlyEnrichesFatherOnly() {
+        let groom = entry(surname: "Cauldwell", givenName: "DAVID N", spouseSurname: "Holmes")
+        let outcome = MarriageEnrichmentEngine.match(grooms: [groom], brides: [])
+        if case .unique(let fGiven, let mGiven, let fEv, let mEv) = outcome {
+            #expect(fGiven == "DAVID N")
+            #expect(mGiven == nil)
+            // Evidence: nil here because the helper uses scored:nil.
+            // What matters is that fEv tracks the groom record and mEv is nil.
+            #expect(fEv == nil)
+            #expect(mEv == nil)
+        } else {
+            Issue.record("Expected unique outcome, got \(outcome)")
+        }
+    }
+
+    @Test func brideSideOnlyEnrichesMotherOnly() {
+        let bride = entry(surname: "Holmes", givenName: "JENNIFER M", spouseSurname: "Cauldwell")
+        let outcome = MarriageEnrichmentEngine.match(grooms: [], brides: [bride])
+        if case .unique(let fGiven, let mGiven, _, _) = outcome {
+            #expect(fGiven == nil)
+            #expect(mGiven == "JENNIFER M")
+        } else {
+            Issue.record("Expected unique outcome, got \(outcome)")
         }
     }
 
@@ -72,18 +110,20 @@ struct MarriageEnrichmentTests {
         }
     }
 
-    @Test func quarterAndVolumeMustMatchToJoin() {
-        // Same year + district + page but DIFFERENT quarter — these are not
-        // the same marriage and should not join.
+    @Test func quarterAndVolumeMismatchProducesAmbiguous() {
+        // Same year + district + page but DIFFERENT quarter — these are
+        // not the same marriage. Reference keys differ, so each side is
+        // its own candidate. Under one-sided enrichment that's two
+        // distinct candidate marriages → ambiguous, not .none.
         let groom = entry(surname: "Cauldwell", givenName: "JAMES", spouseSurname: "Holmes",
                           quarter: "Mar")
         let bride = entry(surname: "Holmes", givenName: "MARGARET", spouseSurname: "Cauldwell",
                           quarter: "Sep")
         let outcome = MarriageEnrichmentEngine.match(grooms: [groom], brides: [bride])
-        if case .none = outcome {
-            // ok
+        if case .ambiguous = outcome {
+            // ok — two candidates at different reference keys
         } else {
-            Issue.record("Quarter mismatch should not join, got \(outcome)")
+            Issue.record("Quarter mismatch should produce ambiguous, got \(outcome)")
         }
     }
 

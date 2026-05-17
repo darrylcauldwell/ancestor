@@ -76,10 +76,18 @@ nonisolated struct RecordScorer {
         }
 
         // VERDICT
-        // Hard fail on name or date → impossible (wrong person or temporally impossible)
-        // All gates pass with no softFails → fact
-        // All gates pass but has softFails (geography/type) → lead (promising but suspicious)
-        // Any hard fail on geography → lead
+        // Hard fail on name → impossible (wrong person).
+        // Hard fail on geography → mode-dependent:
+        //   * Verify / Extend / Discover are focused; a record explicitly
+        //     in another country is noise the user doesn't want cluttering
+        //     a Belper-area sweep → `.impossible`, filtered from clustering.
+        //   * `.all` is the "throw everything at it" mode — the user has
+        //     opted in to maximum recall, so demote to `.lead` and let the
+        //     user assess (covers emigration / overseas service / postings
+        //     that legitimately produce foreign records).
+        // All gates pass with no softFails → fact.
+        // All gates pass but has softFails (geography unknown-district /
+        // family-context noise) → lead.
         let hasSoftFails = gates.contains { $0.outcome == .softFail }
         let verdict: RecordVerdict
         if failed.isEmpty && !hasSoftFails {
@@ -88,6 +96,8 @@ nonisolated struct RecordScorer {
             verdict = .lead
         } else if failed.contains(.name) {
             verdict = .impossible
+        } else if failed.contains(.geography) {
+            verdict = subject.mode == .all ? .lead : .impossible
         } else {
             verdict = .lead
         }
@@ -141,9 +151,20 @@ nonisolated struct RecordScorer {
     // MARK: - Gate 2: Date
 
     private static func checkDate(record: SourceRecord, subject: ResearchSubject, searchType: RecordType) -> GateResult {
-        guard let birthYear = subject.birthYearFrom else {
+        guard let birthLow = subject.birthYearFrom else {
             return GateResult(gate: .date, outcome: .fail, reason: "insufficient date information")
         }
+        // Birth-year *window* — when subject is an accepted proposed relative,
+        // `birthYearFrom`/`birthYearTo` form a range (e.g. 1931–1958, derived
+        // from `subjectBirthYear ± parentAgeWindow`). Previously this gate
+        // checked only against `birthYearFrom`, which made a 1948 record
+        // fail despite landing inside the plausible 1931–1958 window —
+        // blocking recursive auto-promote on every wizard- or proposal-
+        // created ghost profile. The gate now passes for any record year
+        // inside `[low - tol, high + tol]`; the cluster-level hypothesis
+        // verdict downgrades the resulting `.fact` to a `.lead`-equivalent
+        // when the window is wide and corroboration is thin.
+        let birthHigh = subject.birthYearTo ?? birthLow
 
         let recordYear = extractYear(from: record)
         guard let recordYear else {
@@ -151,60 +172,91 @@ nonisolated struct RecordScorer {
         }
 
         let deathYear = subject.deathYearFrom
-        let validation = ScoringRules.validateRecord(recordYear: recordYear, birthYear: birthYear, deathYear: deathYear, recordType: searchType.rawValue)
+        // Validate against the *low* bound to mirror Python parity — pre-
+        // window the engine used birthYearFrom as the single anchor, so
+        // `validateRecord` was always called with that value. Keeping
+        // parity here means existing IMPOSSIBLE rules (married before
+        // birth, died before birth, etc.) still fire.
+        let validation = ScoringRules.validateRecord(recordYear: recordYear, birthYear: birthLow, deathYear: deathYear, recordType: searchType.rawValue)
         if validation.hasPrefix("impossible") {
             return GateResult(gate: .date, outcome: .impossible, reason: validation)
         }
 
+        let windowLabel = birthLow == birthHigh ? "~\(birthLow)" : "\(birthLow)–\(birthHigh)"
+
         switch searchType {
         case .death:
-            let ageAtDeath = recordYear - birthYear
-            // Check age field if available
+            // Age at death is a *range* when birth is a window: ageAtDeath ∈
+            // [recordYear - high, recordYear - low]. Either bound can fire
+            // an impossible rule; pass when any plausible age in the range
+            // falls in the [15, 100] band.
+            let ageAtDeathHigh = recordYear - birthLow
+            let ageAtDeathLow  = recordYear - birthHigh
             if case .death(let dr) = record, let recordedAge = dr.age {
-                if ScoringRules.yearsMatch(recordedAge, ageAtDeath, tolerance: 2) {
-                    return GateResult(gate: .date, outcome: .pass, reason: "age at death \(recordedAge) matches expected \(ageAtDeath)")
-                } else {
-                    return GateResult(gate: .date, outcome: .fail, reason: "age at death \(recordedAge) doesn't match expected \(ageAtDeath)")
+                let matchesAnyAge = (ageAtDeathLow ... ageAtDeathHigh).contains { ScoringRules.yearsMatch(recordedAge, $0, tolerance: 2) }
+                if matchesAnyAge {
+                    return GateResult(gate: .date, outcome: .pass, reason: "age at death \(recordedAge) consistent with birth \(windowLabel)")
                 }
+                return GateResult(gate: .date, outcome: .fail, reason: "age at death \(recordedAge) inconsistent with birth \(windowLabel)")
             }
-            if 15 <= ageAtDeath && ageAtDeath <= 100 {
-                return GateResult(gate: .date, outcome: .pass, reason: "died \(recordYear), age ~\(ageAtDeath) (plausible)")
+            // No recorded age — accept when the ageAtDeath range intersects
+            // the plausible-lifespan band [15, 100].
+            let rangeOverlapsPlausible = ageAtDeathHigh >= 15 && ageAtDeathLow <= 100
+            if rangeOverlapsPlausible {
+                return GateResult(gate: .date, outcome: .pass, reason: "died \(recordYear), age range \(max(15, ageAtDeathLow))–\(min(100, ageAtDeathHigh)) plausible (birth \(windowLabel))")
             }
-            return GateResult(gate: .date, outcome: .fail, reason: "died \(recordYear), age ~\(ageAtDeath) (unusual)")
+            return GateResult(gate: .date, outcome: .fail, reason: "died \(recordYear), age range inconsistent with birth \(windowLabel)")
 
         case .marriage:
-            if !ScoringRules.checkMarriageAge(birthYear: birthYear, marriageYear: recordYear) {
-                return GateResult(gate: .date, outcome: .impossible, reason: "married \(recordYear) at age \(recordYear - birthYear)")
+            // Marriage age against a birth window:
+            //   ageHigh = recordYear - birthLow   (oldest plausible age)
+            //   ageLow  = recordYear - birthHigh  (youngest plausible age)
+            // `checkMarriageAge` returns false when (year - birth) < 16. If
+            // even the OLDEST plausible age is below 16, marriage is
+            // impossible — preserves the parity-with-Python rule that
+            // "married at age 6" is .impossible regardless of mode.
+            let ageHigh = recordYear - birthLow
+            let ageLow  = recordYear - birthHigh
+            if !ScoringRules.checkMarriageAge(birthYear: birthLow, marriageYear: recordYear) {
+                return GateResult(gate: .date, outcome: .impossible, reason: "married \(recordYear) at max age ~\(ageHigh) (birth \(windowLabel))")
             }
-            let age = recordYear - birthYear
-            if 16 <= age && age <= 60 {
-                return GateResult(gate: .date, outcome: .pass, reason: "married \(recordYear), age ~\(age) (typical)")
+            if ageLow > 70 {
+                return GateResult(gate: .date, outcome: .impossible, reason: "married \(recordYear) at minimum age ~\(ageLow) (birth \(windowLabel))")
             }
-            if age > 70 {
-                return GateResult(gate: .date, outcome: .impossible, reason: "married \(recordYear) at age ~\(age)")
+            let typicalOverlap = ageHigh >= 16 && ageLow <= 60
+            if typicalOverlap {
+                return GateResult(gate: .date, outcome: .pass, reason: "married \(recordYear), age range \(max(16, ageLow))–\(min(60, ageHigh)) typical (birth \(windowLabel))")
             }
-            return GateResult(gate: .date, outcome: .fail, reason: "married \(recordYear), age ~\(age) (unusual)")
+            return GateResult(gate: .date, outcome: .fail, reason: "married \(recordYear), age range inconsistent with birth \(windowLabel)")
 
         case .census:
             if case .census(let cr) = record, let censusBirth = cr.birthYear {
-                if ScoringRules.yearsMatch(censusBirth, birthYear, tolerance: ScoringRules.censusAgeTolerance) {
-                    return GateResult(gate: .date, outcome: .pass, reason: "census birth year \(censusBirth) matches ~\(birthYear)")
+                let tol = ScoringRules.censusAgeTolerance
+                let inWindow = censusBirth >= birthLow - tol && censusBirth <= birthHigh + tol
+                if inWindow {
+                    return GateResult(gate: .date, outcome: .pass, reason: "census birth year \(censusBirth) inside window \(windowLabel) ±\(tol)")
                 }
-                let diff = abs(censusBirth - birthYear)
-                return GateResult(gate: .date, outcome: .fail, reason: "census birth year \(censusBirth) is \(diff) years off")
+                let diff = censusBirth < birthLow ? birthLow - censusBirth : censusBirth - birthHigh
+                return GateResult(gate: .date, outcome: .fail, reason: "census birth year \(censusBirth) is \(diff) years outside window \(windowLabel)")
             }
             return GateResult(gate: .date, outcome: .fail, reason: "no birth year in census record")
 
         default:
-            // Birth or unknown
-            if ScoringRules.yearsMatch(recordYear, birthYear, tolerance: ScoringRules.birthYearTolerance) {
-                return GateResult(gate: .date, outcome: .pass, reason: "year \(recordYear) matches ~\(birthYear)")
+            // Birth or unknown — pass when recordYear lands inside the
+            // birth window (±tolerance). The verdict layer treats a pass
+            // here as `.fact`; the cluster's hypothesis verdict then
+            // re-grades wide-window facts to "weakly supported" so they
+            // don't auto-promote on a single record.
+            let tol = ScoringRules.birthYearTolerance
+            let inWindow = recordYear >= birthLow - tol && recordYear <= birthHigh + tol
+            if inWindow {
+                return GateResult(gate: .date, outcome: .pass, reason: "year \(recordYear) inside window \(windowLabel) ±\(tol)")
             }
-            let diff = abs(recordYear - birthYear)
+            let diff = recordYear < birthLow ? birthLow - recordYear : recordYear - birthHigh
             if diff <= 5 {
-                return GateResult(gate: .date, outcome: .fail, reason: "year \(recordYear) is \(diff) years from ~\(birthYear)")
+                return GateResult(gate: .date, outcome: .fail, reason: "year \(recordYear) is \(diff) years outside window \(windowLabel)")
             }
-            return GateResult(gate: .date, outcome: .impossible, reason: "year \(recordYear) is \(diff) years from ~\(birthYear)")
+            return GateResult(gate: .date, outcome: .impossible, reason: "year \(recordYear) is \(diff) years outside window \(windowLabel)")
         }
     }
 
@@ -229,6 +281,17 @@ nonisolated struct RecordScorer {
             case .burial(let r): county = r.burialLocation ?? ""
             default: break
             }
+            // Hard-fail explicitly non-UK locations when the subject's
+            // home Chapman code is UK. Sources like FindAGrave don't honour
+            // scope at the query layer, so a Toronto burial can slip into
+            // the result set even on a county-limited Derbyshire run.
+            // Without this check the gate only soft-fails ("location: …"),
+            // the record becomes a `.lead`, and clutters Triage. The verdict
+            // logic translates geography `.fail` into `.impossible` so the
+            // record is filtered out of clustering entirely.
+            if !county.isEmpty, Self.isObviouslyForeign(county) {
+                return GateResult(gate: .geography, outcome: .fail, reason: "non-UK location: \(String(county.prefix(50)))")
+            }
             if county.lowercased().contains("derby") {
                 return GateResult(gate: .geography, outcome: .pass, reason: "Derbyshire")
             }
@@ -240,6 +303,13 @@ nonisolated struct RecordScorer {
 
         let districtClean = district.replacingOccurrences(of: " district", with: "").trimmingCharacters(in: .whitespaces)
 
+        // Same foreign-country check on the structured district field —
+        // covers sources that put a country name in the district slot
+        // rather than the dedicated location field.
+        if Self.isObviouslyForeign(districtClean) {
+            return GateResult(gate: .geography, outcome: .fail, reason: "non-UK district: \(districtClean)")
+        }
+
         if let nonLocal = ScoringRules.isNonLocal(districtClean, forHomeChapman: subject.homeChapmanCode) {
             return GateResult(gate: .geography, outcome: .softFail, reason: "\(districtClean) is in \(nonLocal), not local")
         }
@@ -249,6 +319,35 @@ nonisolated struct RecordScorer {
         }
 
         return GateResult(gate: .geography, outcome: .softFail, reason: "unknown district: \(districtClean)")
+    }
+
+    /// Recognise locations that are clearly outside the UK so the gate can
+    /// hard-fail them. Word-boundary-padded so short tokens like "USA"
+    /// don't accidentally match substrings (e.g. "Kusano"). Conservative
+    /// list — Scotland / Wales / Ireland are *not* included because they
+    /// have their own Chapman codes and a subject can legitimately have
+    /// records there; this is for definitely-overseas-from-the-UK matches.
+    nonisolated private static let foreignCountryTokens: [String] = [
+        "canada", "australia", "new zealand", "united states",
+        "usa", "south africa", "india",
+        "pakistan", "argentina", "brazil", "mexico", "germany",
+        "france", "spain", "italy", "netherlands", "belgium",
+        "norway", "sweden", "denmark", "china", "japan",
+        "philippines", "kenya", "nigeria", "jamaica", "barbados",
+    ]
+
+    nonisolated private static func isObviouslyForeign(_ text: String) -> Bool {
+        // Pad with separators so short tokens only match as whole words
+        // (avoids "usa" matching "kusano"). Cheap given the modest token list.
+        let lower = " " + text.lowercased()
+            .replacingOccurrences(of: ",", with: " ")
+            .replacingOccurrences(of: ".", with: " ")
+            .replacingOccurrences(of: "/", with: " ")
+            + " "
+        for token in foreignCountryTokens {
+            if lower.contains(" \(token) ") { return true }
+        }
+        return false
     }
 
     // MARK: - Gate 4: Family Context

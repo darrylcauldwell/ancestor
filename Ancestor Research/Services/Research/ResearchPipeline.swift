@@ -39,6 +39,13 @@ final class ResearchPipeline {
                 mode: state.subject.mode
             )
 
+            // Capture prior record IDs before append, so the stopping check
+            // below can detect a "stable point" — an iteration that returned
+            // only records we've already collected. Without this we'd keep
+            // hammering the same dispatch through iterations 2-4 even when
+            // nothing new is being found.
+            let priorRecordIDs = Set(state.scoredRecords.map(\.record.id))
+
             let scored = records.map { record in
                 RecordScorer.classify(
                     record: record,
@@ -48,6 +55,7 @@ final class ResearchPipeline {
             }
 
             state.scoredRecords.append(contentsOf: scored)
+            let newRecordCount = records.filter { !priorRecordIDs.contains($0.id) }.count
 
             // Track search history
             let searchKey = "\(iteration)_\(state.activeRecordTypes.map(\.rawValue).sorted().joined(separator: ","))"
@@ -104,6 +112,7 @@ final class ResearchPipeline {
                 )
                 state.proposedRelatives = enriched
                 state.scoredRecords.append(contentsOf: marriageRecords)
+                state.enrichmentRecordIDs.formUnion(marriageRecords.map(\.id))
                 state.marriageEnrichmentAttempted = true
                 logger.info("Marriage enrichment: \(beforeEnrich)→\(state.proposedRelatives.count) proposals, \(marriageRecords.count) marriage records captured")
             }
@@ -142,18 +151,36 @@ final class ResearchPipeline {
                 break
             }
 
-            // Stable-point detection: if no new records found, stop
+            // Stable-point detection: stop if (a) the dispatcher returned
+            // nothing OR (b) every record was already collected in a prior
+            // iteration. Subject refinement only narrows the search; an
+            // iteration that re-fetches the same records will keep doing so
+            // through the remaining iterations. Bail out and save the
+            // queries — measured ~53% of FreeBMD requests on a typical
+            // extend run come from these redundant iterations.
             if records.isEmpty {
-                logger.info("No new records found, stopping")
+                logger.info("No records returned, stopping")
+                break
+            }
+            if iteration > 1 && newRecordCount == 0 {
+                logger.info("Stable point: iteration \(iteration) re-fetched \(records.count) records, none new — stopping")
                 break
             }
         }
 
         logger.info("Pipeline complete: \(state.confirmedFacts.count) facts, \(state.leads.count) leads, \(state.rejectedRecords.count) rejected")
 
-        // DETERMINISTIC: cluster records into candidate lives
+        // DETERMINISTIC: cluster records into candidate lives.
+        // Marriage-enrichment records describe the parents' marriage, not a
+        // candidate life of the subject — they're surfaced under each parent
+        // `ProposedRelative`'s evidence list instead of as standalone cluster
+        // cards. Filter them out here so the cluster review doesn't show the
+        // parents' marriage as e.g. a "DAVID N CAULDWELL" orphan cluster.
+        let clusterInput = state.scoredRecords.filter {
+            !state.enrichmentRecordIDs.contains($0.id)
+        }
         let clusters = ClusteringEngine.cluster(
-            records: state.scoredRecords,
+            records: clusterInput,
             sourceInfoMap: sourceInfoMap,
             homeChapmanCode: subject.homeChapmanCode
         )
@@ -240,11 +267,33 @@ final class ResearchPipeline {
                 )
                 switch outcome {
                 case .unique(let fatherGiven, let motherGiven, let fatherEv, let motherEv):
-                    logger.info("Marriage match: \(fatherGiven) \(fatherSurname) × \(motherGiven) \(motherSurname)")
-                    enriched[fIdx].proposedGivenName = fatherGiven
-                    enriched[mIdx].proposedGivenName = motherGiven
-                    if let ev = fatherEv { enriched[fIdx].evidence.append(ev) }
-                    if let ev = motherEv { enriched[mIdx].evidence.append(ev) }
+                    // Either or both given names may be nil when FreeBMD
+                    // returned the marriage on only one side of the index.
+                    // Apply whatever we got; leave the missing side's given
+                    // name as nil (proposal stays surname-only there).
+                    let fLabel = fatherGiven ?? "?"
+                    let mLabel = motherGiven ?? "?"
+                    let sideTag: String
+                    switch (fatherGiven, motherGiven) {
+                    case (.some, .some): sideTag = "both sides"
+                    case (.some, .none): sideTag = "groom-side only"
+                    case (.none, .some): sideTag = "bride-side only"
+                    case (.none, .none): sideTag = "neither side (refKey only)"
+                    }
+                    logger.info("Marriage match (\(sideTag)): \(fLabel) \(fatherSurname) × \(mLabel) \(motherSurname)")
+                    if let g = fatherGiven { enriched[fIdx].proposedGivenName = g }
+                    if let g = motherGiven { enriched[mIdx].proposedGivenName = g }
+                    // The marriage record validates both surnames regardless of
+                    // which side carried it (the missing side's surname appears
+                    // in the other side's `Spouse` field). Attach the available
+                    // record to BOTH proposals so the surname-only parent still
+                    // shows a "Cross-validated by" entry — rather than a bare
+                    // "1 source" card that misleadingly suggests no marriage
+                    // was found.
+                    let evForFather = fatherEv ?? motherEv
+                    let evForMother = motherEv ?? fatherEv
+                    if let ev = evForFather { enriched[fIdx].evidence.append(ev) }
+                    if let ev = evForMother { enriched[mIdx].evidence.append(ev) }
                 case .ambiguous(let candidates):
                     logger.info("Marriage enrichment ambiguous: \(candidates.count) candidates for \(fatherSurname) × \(motherSurname)")
                     enriched[fIdx].ambiguousMarriages = candidates

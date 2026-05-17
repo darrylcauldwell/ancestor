@@ -32,17 +32,28 @@ nonisolated enum MarriageEnrichmentEngine {
 
     /// Result of matching one parent pair against marriage-record hits.
     enum MatchOutcome: Sendable {
-        /// Exactly one marriage matched on both sides — both given names known.
-        case unique(fatherGiven: String, motherGiven: String, fatherEvidence: ScoredRecord?, motherEvidence: ScoredRecord?)
-        /// More than one candidate. User picks during accept.
+        /// Exactly one candidate marriage. Given names are optional because
+        /// FreeBMD sometimes returns the marriage on only one side of the
+        /// index — we enrich whatever side(s) we have, leaving the missing
+        /// side surname-only rather than discarding the whole match.
+        case unique(fatherGiven: String?, motherGiven: String?, fatherEvidence: ScoredRecord?, motherEvidence: ScoredRecord?)
+        /// More than one candidate marriage. User picks during accept.
         case ambiguous(candidates: [ScoredRecord])
-        /// Nothing matched. Parents stay surname-only.
+        /// No candidate marriage in the year window.
         case none
     }
 
-    /// Match groom-indexed entries against bride-indexed entries by the BMD
-    /// reference tuple. The same marriage produces the same tuple in both
-    /// directions, so the intersection identifies linked pairs.
+    /// Group groom-indexed and bride-indexed entries by the BMD reference
+    /// tuple `(year, quarter, district, vol, page)`. Each unique reference
+    /// tuple represents one candidate marriage. We enrich whichever side(s)
+    /// reported it — previously the matcher required **both** sides to
+    /// agree at the same key, so a single FreeBMD-side returning an
+    /// incomplete result set (observed in practice: bride-side query for
+    /// Cauldwell × Holmes in BELPER 1946-1977 sometimes omits the 1969
+    /// hit even when the groom-side returns it cleanly) silently produced
+    /// `.none`. One-sided enrichment turns that into a partial win:
+    /// father's given name from groom-side, mother stays surname-only,
+    /// rather than no enrichment at all.
     ///
     /// **Year window**: FreeBMD's year filter is loose — searches for 1946-1977
     /// can return out-of-window context rows (e.g. an 1896 Cauldwell at the same
@@ -53,8 +64,9 @@ nonisolated enum MarriageEnrichmentEngine {
     ///   - grooms: marriages where surname = father's surname, spouse = mother's surname
     ///   - brides: marriages where surname = mother's surname, spouse = father's surname
     ///   - yearWindow: plausible parent-marriage years (subject birth − 30 to + 1).
-    ///     Entries outside this window are discarded before joining.
-    /// - Returns: `unique` if a single matched pair, `ambiguous` if many, `none` otherwise.
+    ///     Entries outside this window are discarded before grouping.
+    /// - Returns: `unique` if exactly one candidate marriage (across either
+    ///   side), `ambiguous` if more than one, `none` otherwise.
     static func match(
         grooms: [MarriageEntry],
         brides: [MarriageEntry],
@@ -82,33 +94,38 @@ nonisolated enum MarriageEnrichmentEngine {
             logger.info("bride: \(b.givenName) \(b.surname) × \(b.spouseSurname), \(b.year) \(b.quarter ?? "?") \(b.district ?? "?") vol \(b.volume ?? "?") p \(b.page ?? "?") → key=\(self.referenceKey(b))")
         }
 
-        // Group brides by reference tuple for O(N + M) join.
-        var bridesByRef: [String: MarriageEntry] = [:]
-        for entry in filteredBrides {
-            bridesByRef[referenceKey(entry)] = entry
+        // Group both sides by reference key. Each unique key = one candidate
+        // marriage. Where both sides agree at a key, we have both given names;
+        // where only one side has a key, we still emit a one-sided enrichment.
+        var byRef: [String: (groom: MarriageEntry?, bride: MarriageEntry?)] = [:]
+        for entry in filteredGrooms {
+            byRef[referenceKey(entry), default: (nil, nil)].groom = entry
         }
-        var pairs: [(groom: MarriageEntry, bride: MarriageEntry)] = []
-        for groom in filteredGrooms {
-            if let bride = bridesByRef[referenceKey(groom)] {
-                pairs.append((groom, bride))
-            }
+        for entry in filteredBrides {
+            byRef[referenceKey(entry), default: (nil, nil)].bride = entry
         }
 
-        switch pairs.count {
+        let candidates = Array(byRef.values)
+
+        switch candidates.count {
         case 0:
             return .none
         case 1:
-            let (g, b) = pairs[0]
+            let c = candidates[0]
             return .unique(
-                fatherGiven: g.givenName,
-                motherGiven: b.givenName,
-                fatherEvidence: g.scored,
-                motherEvidence: b.scored
+                fatherGiven: c.groom?.givenName,
+                motherGiven: c.bride?.givenName,
+                fatherEvidence: c.groom?.scored,
+                motherEvidence: c.bride?.scored
             )
         default:
             // Multiple plausible marriages. Surface as ambiguous so the user
             // chooses one during accept; pipeline does not pick a winner.
-            let evidence: [ScoredRecord] = pairs.compactMap { $0.groom.scored }
+            // Prefer groom evidence if present (carries father's given name),
+            // fall back to bride.
+            let evidence: [ScoredRecord] = candidates.compactMap {
+                $0.groom?.scored ?? $0.bride?.scored
+            }
             return .ambiguous(candidates: evidence)
         }
     }

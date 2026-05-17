@@ -12,6 +12,12 @@ struct ResearchState: Sendable {
     /// Marriage enrichment is expensive (fan-out across districts) and proposals
     /// don't change between iterations — so we only run it once per pipeline run.
     var marriageEnrichmentAttempted: Bool = false
+    /// IDs of records collected during marriage enrichment. Kept in
+    /// `scoredRecords` (so they persist as evidence and are saved to the lead
+    /// store) but excluded from clustering — they're parent attestations,
+    /// not candidate lives of the subject, and surface under the matching
+    /// `ProposedRelative.evidence` instead of as standalone cluster cards.
+    var enrichmentRecordIDs: Set<String> = []
     var activeRecordTypes: Set<RecordType>
     var iteration: Int = 0
 
