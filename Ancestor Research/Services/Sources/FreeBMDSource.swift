@@ -153,7 +153,7 @@ actor FreeBMDSource: RecordSource {
                 await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "Invalid encoding", strictness: query.strictness))
                 return .unavailable(reason: "Invalid encoding")
             }
-            let results = Self.parseSearchResults(html, recordType: query.recordType)
+            let results = Self.parseSearchResults(html, recordType: query.recordType, querySurname: surname)
             lastSuccessfulSearch = Date()
             lastError = nil
             recordSuccess()
@@ -484,7 +484,20 @@ actor FreeBMDSource: RecordSource {
 
     /// Parse the searchData JavaScript array from a FreeBMD results page.
     /// Ported faithfully from Python's _parse_html().
-    nonisolated static func parseSearchResults(_ html: String, recordType: RecordType) -> [SourceRecord] {
+    ///
+    /// `querySurname` is the surname we asked for. FreeBMD's response
+    /// compresses by blanking the surname column when a row's surname
+    /// equals the search query — for our Cauldwell search every row in
+    /// `searchData` IS a Cauldwell record, but rows render as
+    /// `40;;David N;Wheeldon;;Ashbourne;3a;12;...` with `parts[1]` empty.
+    /// Reading that literally gives the record `surname = ""`, which
+    /// fails the name gate and silently drops every record. Filling
+    /// `parts[1]` from the query when it's blank is safe because the
+    /// query constrains the result set to that surname (only loose-mode
+    /// phonetic / variant searches can return foreign surnames, and
+    /// those bypass this code path — they're handled by the dispatcher's
+    /// variant fan-out before parsing).
+    nonisolated static func parseSearchResults(_ html: String, recordType: RecordType, querySurname: String = "") -> [SourceRecord] {
         // Extract JavaScript array: var searchData = new Array ("row1","row2",...);
         let arrayPattern = #"var searchData = new Array \((.*?)\);"#
         guard let regex = try? NSRegularExpression(pattern: arrayPattern, options: .dotMatchesLineSeparators),
@@ -524,7 +537,13 @@ actor FreeBMDSource: RecordSource {
                parts[2] != "Q",
                !parts[2].hasPrefix("/") {
 
-                let surname = parts[1]
+                // Blank surname → FreeBMD compression: row's surname equals
+                // the search query. Fill from `querySurname` so the name
+                // gate sees the correct value. Without this every
+                // post-1900-ish record drops silently because FreeBMD
+                // started eliding the duplicate surname column.
+                let rawSurname = parts[1]
+                let surname = rawSurname.isEmpty ? querySurname : rawSurname
                 let firstname = parts[2].removingPercentEncoding ?? parts[2]
                 let spouseOrMother = (parts[3].removingPercentEncoding ?? parts[3]).trimmingCharacters(in: .whitespaces)
                 let district = parts[5]
