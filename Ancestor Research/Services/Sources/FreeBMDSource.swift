@@ -46,6 +46,26 @@ actor FreeBMDSource: RecordSource {
     private var nextRequestSlot: ContinuousClock.Instant?
     private let requestDelay: Duration = .milliseconds(500)
 
+    /// 429 circuit-breaker state. FreeBMD is a single-volunteer source;
+    /// when they throttle us, the right thing is to stop hitting them for
+    /// a while — not retry harder. After `circuit429Threshold` consecutive
+    /// queries fail with throttling (each having already exhausted their
+    /// in-request retries), the breaker opens for `circuitOpenDuration`
+    /// and *all* subsequent queries park at `awaitCircuitClosed()` until
+    /// the cool-down expires. The first successful query closes the
+    /// breaker and resets the counter.
+    private var consecutive429s: Int = 0
+    private var circuitOpenUntil: ContinuousClock.Instant?
+    private let circuit429Threshold: Int = 3
+    /// Exponential cool-down ladder. First circuit-trip pauses 60s, second
+    /// 5min, third 15min — then `giveUpRequests = true` marks the source
+    /// dead for the rest of the process so subsequent queries fail fast
+    /// rather than feed an obviously hostile throttle window. Designed for
+    /// the daily-quota case where FreeBMD won't recover in seconds.
+    private let circuitCooldownLadder: [Duration] = [.seconds(60), .seconds(300), .seconds(900)]
+    private var circuitTripCount: Int = 0
+    private var giveUpRequests: Bool = false
+
     // Session state (CSRF tokens)
     private var sessionCookie: String?
     private var formTokenDB: String?
@@ -72,6 +92,17 @@ actor FreeBMDSource: RecordSource {
     func search(_ query: RecordQuery) async -> SourceQueryResult {
         guard recordTypes.contains(query.recordType) else { return .outsideCoverage(reason: "FreeBMD does not cover \(query.recordType.rawValue)") }
         guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
+
+        // Park behind the circuit breaker if 429s have been piling up.
+        // Better cooperative behaviour than retrying into an already-
+        // throttled source — see the consecutive429s + circuitOpenUntil
+        // state defined above. When the cool-down ladder runs out,
+        // subsequent queries short-circuit to `.unavailable` so this run
+        // doesn't keep poking a source that's plainly told us to stop.
+        if giveUpRequests {
+            return .unavailable(reason: "FreeBMD throttle exhausted; giving up for this process")
+        }
+        await awaitCircuitClosed()
 
         // Build a human-readable summary like "FreeBMD Belper marriages:
         // Cauldwell × Holmes 1946–1977" for the activity feed.
@@ -116,16 +147,7 @@ actor FreeBMDSource: RecordSource {
                 "find.y": "1",
             ]
 
-            let data = try await rateLimitedRequest {
-                try await self.http.postForm(
-                    url: Self.searchURL,
-                    fields: fields,
-                    headers: [
-                        "User-Agent": Self.userAgent,
-                        "Cookie": self.sessionCookie ?? "",
-                    ]
-                )
-            }
+            let data = try await postSearchWithRetry(fields: fields)
 
             guard let html = String(data: data, encoding: .utf8) else {
                 await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "Invalid encoding", strictness: query.strictness))
@@ -134,19 +156,205 @@ actor FreeBMDSource: RecordSource {
             let results = Self.parseSearchResults(html, recordType: query.recordType)
             lastSuccessfulSearch = Date()
             lastError = nil
+            recordSuccess()
             logger.info("Search returned \(results.count) results for \(surname)")
             await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count, strictness: query.strictness))
             return .results(results)
 
-        } catch {
-            lastError = error.localizedDescription
-            logger.warning("Search failed: \(error.localizedDescription)")
+        } catch is CancellationError {
+            // Intentional pipeline shutdown — preserve session tokens (they
+            // remain valid for subsequent runs in the same process) and
+            // don't surface as an error on the activity feed.
+            return .unavailable(reason: "cancelled")
+        } catch let httpError as HTTPError where httpError.isThrottled {
+            // 429 reached us *after* `postSearchWithRetry` already burned
+            // its 3 in-request retries. Treat it as a clean throttling
+            // signal: preserve session tokens (the session is still valid,
+            // FreeBMD just wants us to back off), advance the circuit-
+            // breaker counter, and surface a polite "throttled" reason.
+            recordThrottle()
+            lastError = "HTTP 429 (throttled)"
+            logger.warning("Search throttled after retries — preserving session, advancing circuit breaker")
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "throttled", strictness: query.strictness))
+            return .unavailable(reason: "throttled")
+        } catch HTTPError.unauthorized {
+            // Genuine auth failure — session is bad, clear it so the next
+            // query re-establishes. This is the only case where clearing
+            // tokens is correct; previously every error cleared them,
+            // turning every transient throttle / timeout into an extra
+            // re-auth round-trip that fed the throttle storm.
             sessionCookie = nil
             formTokenDB = nil
             formTokenV = nil
+            lastError = "unauthorized"
+            logger.warning("Search failed: unauthorized — session cleared")
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "unauthorized", strictness: query.strictness))
+            return .unavailable(reason: "unauthorized")
+        } catch {
+            // Other transient failures (timeouts, 5xx, network blips,
+            // parse errors). Preserve session tokens — they're still valid;
+            // the next attempt will use them and likely succeed.
+            lastError = error.localizedDescription
+            logger.warning("Search failed: \(error.localizedDescription) — session preserved")
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
             return .unavailable(reason: error.localizedDescription)
         }
+    }
+
+    // MARK: - Circuit breaker
+
+    /// Block the current task until the 429 circuit breaker closes. While
+    /// the breaker is open, all in-flight queries park here instead of
+    /// piling on more requests to an already-throttled source. The first
+    /// query past the closed breaker uses preserved tokens (no extra
+    /// re-auth) and the rate limiter resumes its 500ms slot pacing.
+    private func awaitCircuitClosed() async {
+        while let openUntil = circuitOpenUntil {
+            let now = ContinuousClock.now
+            if openUntil <= now {
+                circuitOpenUntil = nil
+                consecutive429s = 0
+                logger.info("FreeBMD circuit breaker closed — resuming")
+                return
+            }
+            let remaining = openUntil - now
+            let remainingSec = max(1, Int(Double(remaining.components.seconds)))
+            logger.info("FreeBMD circuit open — parking query for ~\(remainingSec)s")
+            try? await Task.sleep(until: openUntil, clock: .continuous)
+        }
+    }
+
+    /// Count a 429 and trip the breaker once `circuit429Threshold` queries
+    /// in a row have failed to throttling. The cool-down extends with each
+    /// re-trip via `circuitCooldownLadder` — first trip 60s, second 5min,
+    /// third 15min — and once the ladder is exhausted the source flags
+    /// `giveUpRequests` so future queries short-circuit instead of feeding
+    /// an apparently long-lived throttle window.
+    private func recordThrottle() {
+        consecutive429s += 1
+        guard consecutive429s >= circuit429Threshold && circuitOpenUntil == nil else { return }
+        if circuitTripCount >= circuitCooldownLadder.count {
+            giveUpRequests = true
+            logger.warning("FreeBMD throttle ladder exhausted after \(self.circuitTripCount) trips — giving up on FreeBMD for this process")
+            return
+        }
+        let cooldown = circuitCooldownLadder[circuitTripCount]
+        circuitOpenUntil = ContinuousClock.now.advanced(by: cooldown)
+        circuitTripCount += 1
+        logger.warning("FreeBMD circuit breaker trip #\(self.circuitTripCount) — pausing source for \(cooldown.components.seconds)s")
+    }
+
+    /// Successful response resets the breaker counter and the trip ladder,
+    /// and closes any open circuit. One good response is the strongest
+    /// signal we have that FreeBMD is talking to us again.
+    private func recordSuccess() {
+        if consecutive429s > 0 {
+            consecutive429s = 0
+        }
+        if circuitTripCount > 0 {
+            circuitTripCount = 0
+        }
+        if circuitOpenUntil != nil {
+            circuitOpenUntil = nil
+            logger.info("FreeBMD circuit breaker closed early — successful response")
+        }
+    }
+
+    /// True when the breaker is currently open OR when the source has
+    /// given up entirely for this process. `postSearchWithRetry` checks
+    /// this between attempts so retries park instead of firing into an
+    /// already-hostile throttle.
+    private var isCircuitBlocked: Bool {
+        if giveUpRequests { return true }
+        if let openUntil = circuitOpenUntil, openUntil > ContinuousClock.now { return true }
+        return false
+    }
+
+    /// Up-to-3-attempt wrapper for the search POST. Retries transient HTTP
+    /// failures (timeouts, dropped connections, 5xx, 429) with increasing
+    /// backoff so a single district-query flake during marriage enrichment
+    /// doesn't silently break the matcher join. Bails immediately on
+    /// `CancellationError` — caller handles cancellation specially so the
+    /// session tokens survive normal shutdown.
+    private func postSearchWithRetry(fields: [String: String]) async throws -> Data {
+        // Retry budgets — throttled (429) gets *fewer* attempts than
+        // network blips. 429s don't usually recover in seconds, and each
+        // retry feeds the throttle window; non-throttle transients
+        // (timeouts, 5xx, DNS) reasonably do.
+        let maxAttemptsTransient = 3
+        let maxAttemptsThrottled = 2
+        var attempt = 0
+        while true {
+            // If the breaker has tripped since the last attempt (e.g.
+            // another in-flight query advanced consecutive429s past the
+            // threshold), park here rather than fire another request.
+            // Pre-loop entry into search() also calls awaitCircuitClosed,
+            // but a long retry path needs the same check mid-stream.
+            if isCircuitBlocked {
+                await awaitCircuitClosed()
+                if giveUpRequests {
+                    throw HTTPError.throttled
+                }
+            }
+            attempt += 1
+            do {
+                return try await rateLimitedRequest {
+                    try await self.http.postForm(
+                        url: Self.searchURL,
+                        fields: fields,
+                        headers: [
+                            "User-Agent": Self.userAgent,
+                            "Cookie": self.sessionCookie ?? "",
+                        ]
+                    )
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let err where Self.isTransient(err) {
+                let throttled = (err as? HTTPError)?.isThrottled ?? false
+                let cap = throttled ? maxAttemptsThrottled : maxAttemptsTransient
+                guard attempt < cap else { throw err }
+                let backoff: Duration = throttled
+                    ? .seconds(2)
+                    : .milliseconds(500 * attempt)
+                logger.warning("FreeBMD retryable error (attempt \(attempt)/\(cap), throttled=\(throttled)): \(err.localizedDescription); backing off")
+                try await Task.sleep(for: backoff)
+                continue
+            }
+        }
+    }
+
+    /// A FreeBMD request error worth retrying. Covers HTTPError's own
+    /// `isRetryable` (5xx, 429), plain timeouts, and the URLError codes that
+    /// represent transport-layer transients (dropped connection, DNS hiccup,
+    /// host unreachable). Hard 4xx and parse errors are deliberately excluded
+    /// — those won't change on a retry.
+    nonisolated private static func isTransient(_ error: Error) -> Bool {
+        if let http = error as? HTTPError {
+            if http.isRetryable { return true }
+            if case .timeout = http { return true }
+            if case .transport(let inner) = http, let url = inner as? URLError {
+                switch url.code {
+                case .timedOut, .networkConnectionLost, .notConnectedToInternet,
+                     .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
+                     .resourceUnavailable, .badServerResponse:
+                    return true
+                default:
+                    return false
+                }
+            }
+        }
+        if let url = error as? URLError {
+            switch url.code {
+            case .timedOut, .networkConnectionLost, .notConnectedToInternet,
+                 .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
+                 .resourceUnavailable, .badServerResponse:
+                return true
+            default:
+                return false
+            }
+        }
+        return false
     }
 
     /// Build a one-line description of a FreeBMD query for the live activity feed.
