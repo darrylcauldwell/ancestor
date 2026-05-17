@@ -203,6 +203,77 @@ nonisolated struct ResearchInterpreter {
         return DisambiguationResult(verdict: verdict, reasoning: reasoning)
     }
 
+    // MARK: - Candidate Comparison (cluster-review disambiguation prose)
+
+    /// Generate a side-by-side disambiguation paragraph for two or more
+    /// candidate clusters discovered for the same subject. Designed for the
+    /// cluster-review UI's "Compare candidates" action. Returns nil when
+    /// the model isn't loaded — the caller surfaces a hint to load it in
+    /// Settings rather than silently failing.
+    ///
+    /// The prose lives strictly above the firewall: it explains the records
+    /// in plain English, it never asserts new facts. The deterministic
+    /// engine's scoring / clustering / verdicts are still the source of truth.
+    static func compareCandidates(
+        clusters: [LifeCluster],
+        subject: ResearchSubject
+    ) async -> String? {
+        guard clusters.count >= 2 else { return nil }
+        let llm = LocalInferenceService.shared
+        guard await llm.isAvailable else { return nil }
+
+        let prompt = buildCompareCandidatesPrompt(clusters: clusters, subject: subject)
+        return await llm.reason(
+            prompt: prompt,
+            systemPrompt: Prompts.candidateComparisonSystem,
+            maxTokens: 1024
+        )
+    }
+
+    nonisolated private static func buildCompareCandidatesPrompt(
+        clusters: [LifeCluster],
+        subject: ResearchSubject
+    ) -> String {
+        var parts: [String] = []
+        parts.append("Subject: \(subject.displayName)")
+        if let birthFrom = subject.birthYearFrom {
+            if let birthTo = subject.birthYearTo, birthTo != birthFrom {
+                parts.append("Known birth-year range: \(birthFrom)–\(birthTo)")
+            } else {
+                parts.append("Known birth year: \(birthFrom)")
+            }
+        }
+        if let surname = subject.surname { parts.append("Known surname: \(surname)") }
+        parts.append("Home Chapman code: \(subject.homeChapmanCode)")
+
+        parts.append("")
+        parts.append("The deterministic research engine clustered the returned records into \(clusters.count) candidate lives. Each may or may not be the subject — your job is to compare them.")
+
+        for (idx, cluster) in clusters.enumerated() {
+            parts.append("")
+            parts.append("=== Candidate \(idx + 1): \(cluster.displayName) ===")
+            parts.append("Match quality (deterministic): \(cluster.matchQuality?.rawValue ?? "unknown")")
+            if let by = cluster.impliedBirthYear { parts.append("Implied birth year: \(by)") }
+            if let dy = cluster.impliedDeathYear { parts.append("Implied death year: \(dy)") }
+            let districts = cluster.districts.sorted().joined(separator: ", ")
+            if !districts.isEmpty { parts.append("Districts seen: \(districts)") }
+            parts.append("Records (\(cluster.records.count)):")
+            for rec in cluster.records {
+                let verdict = rec.verdict.rawValue
+                parts.append("  • [\(verdict)] \(rec.summary)")
+            }
+        }
+
+        parts.append("")
+        parts.append("""
+For each candidate above, write 2–3 sentences plainly stating what the records actually say about that life and whether it fits the subject. Highlight what distinguishes the candidates from each other — specific dates, places, parents, occupations. Finish with a one-paragraph summary naming which candidate (if any) best matches the subject and why.
+
+Be concrete, terse, and honest about uncertainty. Never invent facts that aren't in the records.
+""")
+
+        return parts.joined(separator: "\n")
+    }
+
     // MARK: - Rich Strategy (matches Python strategist.suggest_strategy)
 
     /// Ask the reasoning model to analyse research progress and suggest a full strategy.
@@ -623,5 +694,23 @@ nonisolated enum Prompts {
     - Census age discrepancies of ±2 years are normal, ±5+ suggests different person \
     - Same registration district + same quarter + different page = different person \
     Respond with JSON: {"verdict": "wrong_person|wrong_tree|uncertain", "reasoning": "..."}
+    """
+
+    /// Prose-only disambiguation across multiple candidate clusters. No JSON,
+    /// no chain-of-thought visible to the user (the model still uses <think>
+    /// internally, stripped by `LocalInferenceService`). Output is rendered
+    /// directly in a sheet, so the system prompt steers towards clarity and
+    /// brevity rather than a structured response.
+    static let candidateComparisonSystem = """
+    You are a genealogical research assistant helping a researcher choose between candidate matches. \
+    Reason carefully and concisely about each candidate. Focus on disambiguation — what makes one \
+    candidate more or less likely to be the subject than another. Consider: \
+    - Birth-year discrepancies of ±2 years are normal; ±5+ suggest different people \
+    - Same registration district + same quarter + different vol/page = different people sharing a name \
+    - Common names (Mary Smith, John Brown) often have multiple matches in the same county \
+    - Census ages are self-reported and often rounded — don't over-weight small mismatches \
+    - A maiden name in a birth record's mother field can identify or rule out a candidate immediately \
+    Be concrete, terse, and honest about uncertainty. Never invent facts that aren't in the records. \
+    Do not output JSON or markdown headings — plain prose paragraphs only.
     """
 }

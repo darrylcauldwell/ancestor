@@ -100,7 +100,17 @@ struct MainView: View {
             case .workbench:
                 WorkbenchView()
             case .leads:
-                LeadListView()
+                LeadListView(onResearchLead: { lead in
+                    Task { @MainActor in
+                        showResearchProgress = true
+                        researchVM.appDatabase = appState.currentDatabase
+                        await researchVM.startResearch(
+                            lead: lead,
+                            snapshot: appState.snapshot,
+                            registry: registry
+                        )
+                    }
+                })
             case .settings:
                 SettingsPlaceholderView()
             }
@@ -109,6 +119,7 @@ struct MainView: View {
         // Global keyboard shortcuts — DESIGN.md §7.10.1. Hidden buttons
         // register the shortcuts without taking up any visual space.
         .background { keyboardShortcutsLayer }
+        .onAppear { appState.attachSearchRegistry(registry) }
         .toolbar {
             ToolbarItem {
                 Menu {

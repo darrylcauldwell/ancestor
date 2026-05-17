@@ -6,8 +6,21 @@ import os
 final class ResearchViewModel {
     // Input
     var selectedProfile: Profile?
+    /// Lead currently being investigated, if any. Mutually exclusive with
+    /// `selectedProfile` — the cluster review surface checks both so the
+    /// header can show "Investigating: Jane Smith (lead)" without a profile
+    /// in the tree. Set by `startResearch(lead:...)`, cleared by `reset()`.
+    var selectedLead: Lead?
     var selectedMode: ResearchMode = .extend
     var selectedScope: ResearchScope = .county
+
+    /// Display name of whatever's being researched — profile, lead, or
+    /// neither. Triage surfaces use this rather than reaching into
+    /// `selectedProfile?.displayName` so the lead case renders the lead's
+    /// name without needing a synthetic Profile wrapper.
+    var subjectDisplayName: String? {
+        selectedProfile?.displayName ?? selectedLead?.name
+    }
 
     // Pipeline state
     var isResearching = false
@@ -63,6 +76,35 @@ final class ResearchViewModel {
 
     // MARK: - Research Flow
 
+    /// Start research for a Lead — the unified entry point for "Investigate
+    /// this lead" actions. Builds a `ResearchSubject` via the shared
+    /// `ResearchSubject.fromLead` so the dispatcher searches for the lead's
+    /// putative person, not the profile that generated the lead. Skips
+    /// evidence persistence (no profile to attach to yet) but flips the
+    /// lead's status to `.investigated` on completion so the Leads tab
+    /// reflects the work.
+    func startResearch(
+        lead: Lead,
+        snapshot: FamilyGraphSnapshot,
+        registry: SourceRegistry
+    ) async {
+        selectedProfile = nil
+        selectedLead = lead
+        let homeChapmanCode = appDatabase
+            .flatMap { try? $0.loadProjectMeta() }?
+            .resolvedHomeChapmanCode ?? "DBY"
+        let subject = ResearchSubject.fromLead(
+            lead, mode: selectedMode, homeChapmanCode: homeChapmanCode
+        )
+        await runPipeline(
+            subject: subject,
+            snapshot: snapshot,
+            registry: registry,
+            persistProfileID: nil,
+            leadToFinalise: lead
+        )
+    }
+
     /// Start research for a profile.
     func startResearch(
         profile: Profile,
@@ -70,6 +112,36 @@ final class ResearchViewModel {
         registry: SourceRegistry
     ) async {
         selectedProfile = profile
+        selectedLead = nil
+        let homeChapmanCode = appDatabase
+            .flatMap { try? $0.loadProjectMeta() }?
+            .resolvedHomeChapmanCode ?? "DBY"
+        let subject = ResearchSubject.fromProfile(
+            profile, snapshot: snapshot, mode: selectedMode, homeChapmanCode: homeChapmanCode
+        )
+        await runPipeline(
+            subject: subject,
+            snapshot: snapshot,
+            registry: registry,
+            persistProfileID: profile.id,
+            leadToFinalise: nil
+        )
+    }
+
+    /// Shared inner pipeline driver. Sets up the live-activity subscription,
+    /// runs the pipeline, populates `currentResult`, and routes post-pipeline
+    /// persistence based on the caller. Profile callers pass `persistProfileID`
+    /// so evidence rows, child leads, and the run-record land under that
+    /// profile. Lead callers pass `leadToFinalise` so the lead's status flips
+    /// to `.investigated` on completion; evidence persistence is skipped
+    /// because there's no profile to attach it to until the lead is promoted.
+    private func runPipeline(
+        subject: ResearchSubject,
+        snapshot: FamilyGraphSnapshot,
+        registry: SourceRegistry,
+        persistProfileID: String?,
+        leadToFinalise: Lead?
+    ) async {
         isResearching = true
         wasCancelled = false
         currentResult = nil
@@ -98,18 +170,11 @@ final class ResearchViewModel {
             }
         }
 
-        // Build source info map
         let sourceInfoMap = registry.buildSourceInfoMap()
-
-        // Build subject from profile
-        let homeChapmanCode = appDatabase
-            .flatMap { try? $0.loadProjectMeta() }?
-            .resolvedHomeChapmanCode ?? "DBY"
-        let subject = ResearchSubject.fromProfile(profile, snapshot: snapshot, mode: selectedMode, homeChapmanCode: homeChapmanCode)
 
         // Show source eligibility
         sourceStatuses = registry.allSources().map { source in
-            return SourceStatus(
+            SourceStatus(
                 id: source.sourceID,
                 displayName: source.displayName,
                 state: registry.isEnabled(source.sourceID) ? .pending : .skipped,
@@ -118,9 +183,7 @@ final class ResearchViewModel {
             )
         }
 
-        // Choose config based on mode + scope
         let config = ResearchConfig.preset(for: selectedMode).with(scope: selectedScope)
-
         progressMessage = "Searching \(subject.displayName)..."
 
         let dispatcher = SearchDispatcher(
@@ -141,21 +204,19 @@ final class ResearchViewModel {
         activitySubscription?.cancel()
         activitySubscription = nil
 
-        // Update source statuses from results
         updateSourceStatuses(from: result)
-
         logger.info("Research complete: \(result.clusters.count) clusters, \(result.confirmedFacts.count) facts, \(result.leads.count) leads")
 
-        // Persist every scored record as evidence. Lossless capture of typed +
-        // raw fields per source response. Idempotent on (profile, source-record-id),
-        // so re-running research overwrites the same row rather than duplicating.
-        if let db = appDatabase {
+        // Persistence is profile-keyed: evidence rows + child leads +
+        // run-record all need a profileID. Lead-investigation runs skip
+        // these blocks and instead update the lead's own status below.
+        if let profileID = persistProfileID, let db = appDatabase {
             var saved = 0
             for scored in result.allScoredRecords {
                 let citation = CitationRenderer.cite(scored.record)
                 do {
                     try db.saveEvidence(
-                        profileID: profile.id,
+                        profileID: profileID,
                         scored: scored,
                         citationFull: citation.full,
                         citationURL: citation.url
@@ -165,14 +226,11 @@ final class ResearchViewModel {
                     logger.warning("Failed to save evidence for \(scored.record.id): \(error.localizedDescription)")
                 }
             }
-            logger.info("Persisted \(saved)/\(result.allScoredRecords.count) evidence records for \(profile.displayName)")
-        }
+            logger.info("Persisted \(saved)/\(result.allScoredRecords.count) evidence records for \(subject.displayName)")
 
-        // Create leads from scored leads and household discoveries
-        if let db = appDatabase {
             let leadStore = LeadStore(db: db)
             for scored in result.leads {
-                _ = try? await leadStore.createFromScoredRecord(scored, profileID: profile.id)
+                _ = try? await leadStore.createFromScoredRecord(scored, profileID: profileID)
             }
             for member in result.householdMembers {
                 let censusYear = result.allScoredRecords
@@ -180,12 +238,9 @@ final class ResearchViewModel {
                         if case .census(let c) = r.record { return c.censusYear }
                         return nil
                     }.first ?? 1861
-                _ = try? await leadStore.createFromHouseholdMember(member, profileID: profile.id, censusYear: censusYear)
+                _ = try? await leadStore.createFromHouseholdMember(member, profileID: profileID, censusYear: censusYear)
             }
-        }
 
-        // Persist the research run
-        if let db = appDatabase {
             let searchedSources = Set(result.allScoredRecords.map(\.record.sourceID))
             let gps = GPSScorer.score(
                 result: result,
@@ -195,7 +250,7 @@ final class ResearchViewModel {
             )
             try? db.saveResearchRun(
                 id: UUID(),
-                profileID: profile.id,
+                profileID: profileID,
                 mode: selectedMode,
                 startedAt: Date(),
                 completedAt: Date(),
@@ -204,6 +259,24 @@ final class ResearchViewModel {
                 clusterCount: result.clusters.count,
                 gpsScore: gps.score
             )
+        }
+
+        // Lead path: flip status to .investigated so the Leads tab reflects
+        // that this lead has been searched. Evidence stays in memory on the
+        // VM (visible in Triage) until the user promotes the lead.
+        if let lead = leadToFinalise, let db = appDatabase {
+            let updated = Lead(
+                id: lead.id, profileID: lead.profileID,
+                name: lead.name, surname: lead.surname, givenName: lead.givenName,
+                birthYear: lead.birthYear, deathYear: lead.deathYear,
+                relationship: lead.relationship, source: lead.source,
+                status: .investigated, evidence: lead.evidence,
+                createdAt: lead.createdAt,
+                investigatedAt: Date(),
+                resolvedAt: lead.resolvedAt, resolution: lead.resolution
+            )
+            try? db.saveLead(updated)
+            selectedLead = updated
         }
     }
 
@@ -322,6 +395,158 @@ final class ResearchViewModel {
         }
     }
 
+    /// Apply a `.confirmed` cluster to the subject's profile. Differs from
+    /// `acceptCluster` ("Save as lead") by also writing each fact record's
+    /// data into the matching profile fields and attaching the record as a
+    /// citation source.
+    ///
+    /// Overwrite rule: never replace an existing field value (see memory
+    /// `feedback_check_before_overwrite.md` — BMD year-only data is often
+    /// less precise than what the user entered manually). When the column is
+    /// already populated, the record is recorded via `recordAlternativeFact`
+    /// so the citation lands in `field_sources` while the column value stays.
+    func applyCluster(_ cluster: LifeCluster, into appState: AppState) {
+        clusterDecisions[cluster.id] = .accepted
+        guard let db = appState.currentDatabase, let profile = selectedProfile else { return }
+        let ids = cluster.records.map(\.record.id)
+        try? db.updateEvidenceUserStatus(profileID: profile.id, sourceRecordIDs: ids, status: .savedAsLead)
+
+        for scored in cluster.records {
+            // .fact records write to profile fields. Marriage records also
+            // apply when the `familyContext` gate explicitly confirmed a
+            // known-spouse match — that signal is independent of the overall
+            // verdict (which is often dragged down to .lead by FreeBMD-side
+            // gaps in the surname/district columns). The marriage handler is
+            // overwrite-safe, so the worst-case write is a no-op.
+            let isFact = scored.verdict == .fact
+            let isKnownSpouseMarriage = Self.recognisesKnownSpouse(scored)
+            guard isFact || isKnownSpouseMarriage else { continue }
+
+            applyFactToSubject(scored, profile: profile, snapshot: appState.snapshot, db: db)
+            // Non-BMD records (census/burial/probate/parish) still get a LifeEvent
+            // — same path acceptCluster takes. BMD records return nil here.
+            if let event = scored.record.projectToLifeEvent(profileID: profile.id) {
+                _ = try? db.addLifeEventIfAbsent(event)
+            }
+        }
+
+        appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+    }
+
+    /// True when the record is a marriage AND the scorer's `familyContext`
+    /// gate passed because the record's spouse matches the subject's known
+    /// spouse. Used to bypass the `verdict == .fact` filter in `applyCluster`
+    /// for the subject-marriage-to-existing-spouse-edge case where FreeBMD
+    /// transcription gaps demote an otherwise-correct match to `.lead`.
+    nonisolated private static func recognisesKnownSpouse(_ scored: ScoredRecord) -> Bool {
+        guard case .marriage = scored.record else { return false }
+        return scored.gates.contains { $0.gate == .familyContext && $0.outcome == .pass }
+    }
+
+    private func applyFactToSubject(_ scored: ScoredRecord, profile: Profile, snapshot: FamilyGraphSnapshot, db: ProjectDatabase) {
+        let origin = SourceOrigin(identifier: scored.record.sourceID)
+        switch scored.record {
+        case .birth(let r):
+            let dateCandidate = Self.bmdDate(year: r.birthYear, quarter: r.quarter, exact: r.birthDate)
+            applyDateField(.birthDate, existing: profile.birthDate, candidate: dateCandidate, profileID: profile.id, origin: origin, db: db)
+            applyStringField(.birthLocation, existing: profile.birthLocation, candidate: r.birthPlace ?? r.district, profileID: profile.id, origin: origin, db: db)
+        case .death(let r):
+            let dateCandidate = Self.bmdDate(year: r.deathYear, quarter: r.quarter, exact: r.deathDate)
+            applyDateField(.deathDate, existing: profile.deathDate, candidate: dateCandidate, profileID: profile.id, origin: origin, db: db)
+            applyStringField(.deathLocation, existing: profile.deathLocation, candidate: r.deathPlace ?? r.district, profileID: profile.id, origin: origin, db: db)
+        case .marriage(let m):
+            applyMarriageToSubjectSpouseEdge(m, profileID: profile.id, snapshot: snapshot, db: db)
+        case .pedigree, .census, .burial, .military, .probate, .parish:
+            // Non-BMD types fall through to the LifeEvent projection path in applyCluster.
+            break
+        }
+    }
+
+    /// Apply a subject-side marriage record to the spouse edge between this
+    /// subject and the matching spouse profile. Match is by surname (the
+    /// `Spouse` field in BMD post-1912 marriage rows carries the spouse's
+    /// surname). Marriage data is written only into nil columns via
+    /// `fillRelationshipMarriage` — existing values the user typed manually
+    /// are never overwritten (`Check Before Overwrite` rule).
+    private func applyMarriageToSubjectSpouseEdge(
+        _ m: MarriageRecord,
+        profileID: String,
+        snapshot: FamilyGraphSnapshot,
+        db: ProjectDatabase
+    ) {
+        guard let recordSpouseRaw = m.spouseName?.trimmingCharacters(in: .whitespaces),
+              !recordSpouseRaw.isEmpty else { return }
+        // BMD spouse field is normally just a surname (post-1912 marriages).
+        // Defensive split: pick the trailing token in case it's "GIVEN SURNAME".
+        let recordSpouseSurname = (recordSpouseRaw.split(separator: " ").last.map(String.init)
+            ?? recordSpouseRaw).uppercased()
+
+        let spouseEdges = snapshot.relationships.filter { rel in
+            rel.type == .spouse && (rel.from == profileID || rel.to == profileID)
+        }
+        let matched = spouseEdges.first { rel in
+            let otherID = rel.from == profileID ? rel.to : rel.from
+            guard let other = snapshot.profiles[otherID] else { return false }
+            return (other.lastName ?? "").uppercased() == recordSpouseSurname
+        }
+        guard let edge = matched else { return }
+
+        let dateCandidate = Self.bmdDate(year: m.marriageYear, quarter: m.quarter, exact: m.marriageDate)
+        let locationCandidate = m.marriagePlace ?? m.district
+        _ = try? db.fillRelationshipMarriage(
+            relationshipID: edge.id,
+            candidateDate: dateCandidate,
+            candidateLocation: locationCandidate
+        )
+    }
+
+    private func applyDateField(
+        _ field: ProfileField,
+        existing: GenealogicalDate?,
+        candidate: GenealogicalDate?,
+        profileID: String,
+        origin: SourceOrigin,
+        db: ProjectDatabase
+    ) {
+        guard let candidate else { return }
+        if existing == nil {
+            _ = try? db.editProfile(profileID: profileID, changes: [], dateChanges: [(field, nil, candidate)], source: origin)
+        } else {
+            _ = try? db.recordAlternativeFact(profileID: profileID, field: field, rawValue: candidate.original, source: origin)
+        }
+    }
+
+    private func applyStringField(
+        _ field: ProfileField,
+        existing: String?,
+        candidate: String?,
+        profileID: String,
+        origin: SourceOrigin,
+        db: ProjectDatabase
+    ) {
+        guard let trimmed = candidate?.trimmingCharacters(in: .whitespaces), !trimmed.isEmpty else { return }
+        if (existing ?? "").isEmpty {
+            _ = try? db.editProfile(profileID: profileID, changes: [(field, nil, trimmed)], dateChanges: [], source: origin)
+        } else {
+            _ = try? db.recordAlternativeFact(profileID: profileID, field: field, rawValue: trimmed, source: origin)
+        }
+    }
+
+    /// Build a `GenealogicalDate` from a BMD record's year + quarter. BMD
+    /// quarters are labelled by the END month ("Mar quarter" = Jan–Mar);
+    /// year-granularity storage means we keep that nuance in the original
+    /// string ("Mar 1976") rather than in earliest/latest.
+    private static func bmdDate(year: Int?, quarter: String?, exact: String?) -> GenealogicalDate? {
+        if let exact = exact?.trimmingCharacters(in: .whitespaces), !exact.isEmpty {
+            return GenealogicalDate(parsing: exact)
+        }
+        guard let year else { return nil }
+        if let q = quarter?.trimmingCharacters(in: .whitespaces), !q.isEmpty {
+            return GenealogicalDate(parsing: "\(q) \(year)")
+        }
+        return GenealogicalDate(parsing: String(year))
+    }
+
     /// Mark every record in this cluster as `discarded`. Both the new column
     /// and the legacy `record_rejections` table get written: rejections is
     /// still consulted by `loadRejections` (which now unions both views), so
@@ -427,6 +652,78 @@ final class ResearchViewModel {
         }
     }
 
+    /// Apply enrichment data from an already-linked proposed relative onto
+    /// the linked parent (and the parent-pair spouse edge). Mirrors the
+    /// cluster `applyCluster` flow: fill missing values, attach citations,
+    /// never overwrite. Use cases:
+    ///   - Marriage enrichment populated `proposedGivenName` but the user's
+    ///     linked parent had no first name → write the given name.
+    ///   - Cross-validating marriage record in `proposal.evidence[1...]`
+    ///     → fill marriage_date / marriage_location on the spouse edge
+    ///       between this parent and the other linked parent of the subject.
+    /// Returns the number of fields actually written so the UI can surface
+    /// a "nothing to apply" toast when everything is already populated.
+    @discardableResult
+    func applyProposedRelative(_ proposal: ProposedRelative, into appState: AppState) -> Int {
+        guard case .parentOf(let subjectID) = proposal.relationship,
+              let db = appState.currentDatabase else { return 0 }
+        let parents = appState.snapshot.parentsOf(subjectID)
+        guard let parent = parents.first(where: { p in
+            p.gender == proposal.gender &&
+            (p.lastName ?? "").caseInsensitiveCompare(proposal.proposedSurname ?? "") == .orderedSame
+        }) else { return 0 }
+
+        var written = 0
+
+        // Given name: only fill if the linked parent has nothing today.
+        if (parent.firstName ?? "").isEmpty,
+           let given = proposal.proposedGivenName?.trimmingCharacters(in: .whitespaces),
+           !given.isEmpty {
+            let origin = SourceOrigin(identifier: proposal.evidence.first?.record.sourceID ?? "freebmd")
+            _ = try? db.editProfile(
+                profileID: parent.id,
+                changes: [(.firstName, nil, given.capitalized)],
+                dateChanges: [],
+                source: origin
+            )
+            written += 1
+        }
+
+        // Cross-validating records (evidence after the originating birth).
+        // Today only marriage enrichment produces these; future enrichment
+        // types fall through and are recorded as citation-only via the
+        // existing recordAlternativeFact path.
+        let otherParent = parents.first { $0.id != parent.id }
+        for scored in proposal.evidence.dropFirst() {
+            switch scored.record {
+            case .marriage(let m):
+                guard let otherParent else { break }
+                let edge = appState.snapshot.relationships.first { rel in
+                    rel.type == .spouse &&
+                    ((rel.from == parent.id && rel.to == otherParent.id) ||
+                     (rel.from == otherParent.id && rel.to == parent.id))
+                }
+                guard let edge else { break }
+                let dateCandidate = Self.bmdDate(year: m.marriageYear, quarter: m.quarter, exact: m.marriageDate)
+                let locationCandidate = m.marriagePlace ?? m.district
+                _ = try? db.fillRelationshipMarriage(
+                    relationshipID: edge.id,
+                    candidateDate: dateCandidate,
+                    candidateLocation: locationCandidate
+                )
+                written += 1
+            default:
+                break
+            }
+        }
+
+        if written > 0 {
+            appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+            proposedRelativeDecisions[proposal.id] = .accepted
+        }
+        return written
+    }
+
     /// Reject a proposed relative: persist the proposal id so it will not reappear
     /// on subsequent research runs for the same subject.
     func rejectProposedRelative(_ proposal: ProposedRelative) {
@@ -495,9 +792,84 @@ final class ResearchViewModel {
         await startResearch(profile: profile, snapshot: snapshot, registry: registry)
     }
 
+    /// Promote the lead currently in `selectedLead` into a ghost Profile,
+    /// then persist the in-memory `currentResult` evidence under it. Closes
+    /// the loop opened by `startResearch(lead:)` — without promotion, lead-
+    /// investigation findings live only in memory and the Triage Apply
+    /// buttons have no profile target. After promotion the ghost becomes
+    /// `selectedProfile`, so the same cluster cards (no re-fetch) act on
+    /// the new node like a regular profile-based research result.
+    @discardableResult
+    func promoteLeadToProfile(into appState: AppState) -> String? {
+        guard let lead = selectedLead,
+              let db = appState.currentDatabase else { return nil }
+
+        let ghostID: String
+        do {
+            ghostID = try db.promoteLeadToProfile(lead)
+        } catch {
+            errorMessage = "Failed to promote lead: \(error.localizedDescription)"
+            return nil
+        }
+
+        // Refresh snapshot so the new ghost is reachable for downstream
+        // operations (apply paths look it up by ID).
+        appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+
+        // Persist the in-memory research result under the new profile. Same
+        // shape as the profile-research path's persistence block, just
+        // delayed until promotion. Lead-derived runs never write evidence
+        // up-front because there's no profile to attach to.
+        if let result = currentResult {
+            var saved = 0
+            for scored in result.allScoredRecords {
+                let citation = CitationRenderer.cite(scored.record)
+                do {
+                    try db.saveEvidence(
+                        profileID: ghostID,
+                        scored: scored,
+                        citationFull: citation.full,
+                        citationURL: citation.url
+                    )
+                    saved += 1
+                } catch {
+                    logger.warning("Failed to save evidence post-promotion for \(scored.record.id): \(error.localizedDescription)")
+                }
+            }
+            logger.info("Promotion persisted \(saved)/\(result.allScoredRecords.count) evidence records under \(ghostID)")
+
+            // Run-record for the GPS scorer / research-log surfaces.
+            let registrySources = result.allScoredRecords.map(\.record.sourceID)
+            let gps = GPSScorer.score(
+                result: result,
+                sourceInfoMap: [:],
+                searchedSourceCount: Set(registrySources).count,
+                totalSourceCount: max(Set(registrySources).count, 1)
+            )
+            try? db.saveResearchRun(
+                id: UUID(),
+                profileID: ghostID,
+                mode: selectedMode,
+                startedAt: Date(),
+                completedAt: Date(),
+                factCount: result.confirmedFacts.count,
+                leadCount: result.leads.count,
+                clusterCount: result.clusters.count,
+                gpsScore: gps.score
+            )
+        }
+
+        // Hand subject identity over to the new ghost so Triage's apply
+        // paths (which key off `selectedProfile`) now have a real target.
+        selectedProfile = appState.snapshot.profiles[ghostID]
+        selectedLead = nil
+        return ghostID
+    }
+
     /// Reset for a new research session.
     func reset() {
         selectedProfile = nil
+        selectedLead = nil
         currentResult = nil
         clusterDecisions = [:]
         proposedRelativeDecisions = [:]

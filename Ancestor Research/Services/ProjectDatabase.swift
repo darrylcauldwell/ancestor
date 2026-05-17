@@ -1350,6 +1350,74 @@ nonisolated extension ProjectDatabase {
         return transaction
     }
 
+    /// Fill in the marriage_date and/or marriage_location columns of an
+    /// existing spouse relationship — but only where the current value is
+    /// NULL. Mirrors the "Check Before Overwrite" rule applied to profile
+    /// fields: never replace a value the user already supplied. Returns the
+    /// transaction so callers can chain audit / undo.
+    @discardableResult
+    func fillRelationshipMarriage(
+        relationshipID: UUID,
+        candidateDate: GenealogicalDate?,
+        candidateLocation: String?
+    ) throws -> Transaction {
+        let now = Date()
+        let transaction = Transaction(
+            id: UUID(),
+            kind: .manualEdit,
+            undoStrategy: .replay,
+            startedAt: now, completedAt: now,
+            changeCount: 0, profileCount: 0
+        )
+
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO transactions (id, kind, undo_strategy, started_at, completed_at, change_count, profile_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    transaction.id.uuidString,
+                    Self.encodeJSON(transaction.kind),
+                    transaction.undoStrategy.rawValue,
+                    transaction.startedAt, transaction.completedAt,
+                    transaction.changeCount, transaction.profileCount,
+                ])
+
+            // Read current values to honour the nil-only rule.
+            guard let row = try Row.fetchOne(
+                db,
+                sql: "SELECT marriage_date_original, marriage_location FROM relationships WHERE id = ?",
+                arguments: [relationshipID.uuidString]
+            ) else { return }
+
+            let existingDate: String? = row["marriage_date_original"]
+            let existingLocation: String? = row["marriage_location"]
+
+            if existingDate == nil, let date = candidateDate {
+                try db.execute(sql: """
+                    UPDATE relationships SET
+                        marriage_date_original = ?,
+                        marriage_date_earliest = ?,
+                        marriage_date_latest = ?,
+                        marriage_date_qualifier = ?
+                    WHERE id = ?
+                    """, arguments: [
+                        date.original, date.earliest, date.latest,
+                        date.qualifier.rawValue, relationshipID.uuidString,
+                    ])
+            }
+            if (existingLocation ?? "").isEmpty,
+               let loc = candidateLocation?.trimmingCharacters(in: .whitespaces),
+               !loc.isEmpty {
+                try db.execute(
+                    sql: "UPDATE relationships SET marriage_location = ? WHERE id = ?",
+                    arguments: [loc, relationshipID.uuidString]
+                )
+            }
+        }
+
+        return transaction
+    }
+
     /// Update a simple string field on a profile. Creates a FieldChange for undo.
     func updateProfileField(
         profileID: String,

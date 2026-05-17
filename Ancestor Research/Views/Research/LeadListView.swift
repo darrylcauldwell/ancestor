@@ -8,6 +8,12 @@ struct LeadListView: View {
     @State private var filterStatus: LeadStatus?
     @State private var isLoading = false
 
+    /// Callback that runs the research pipeline against a lead. Owned by
+    /// ContentView so it can also flip the shared `showResearchProgress`
+    /// sheet — keeping the trigger out of the parent body's modifier chain,
+    /// which is already at Swift's type-checker complexity ceiling.
+    let onResearchLead: (Lead) -> Void
+
     var body: some View {
         VStack(spacing: 0) {
             // Filter bar
@@ -99,11 +105,12 @@ struct LeadListView: View {
 
             // Actions
             if lead.status == .new || lead.status == .investigated {
-                Button("Investigate") {
-                    Task { await investigateLead(lead) }
+                Button("Research") {
+                    onResearchLead(lead)
                 }
                 .buttonStyle(.glassProminent)
                 .controlSize(.small)
+                .help("Run the research pipeline against this lead's identity (not the profile that generated it). Opens Triage with the results.")
 
                 Button("Dismiss") {
                     dismissLead(lead)
@@ -143,11 +150,6 @@ struct LeadListView: View {
     private func loadLeads() {
         guard let db = appState.currentDatabase else { return }
         leads = (try? db.loadLeads()) ?? []
-    }
-
-    private func investigateLead(_ lead: Lead) async {
-        // Switch to research tab with this lead as subject
-        appState.researchProfileID = lead.profileID
     }
 
     private func dismissLead(_ lead: Lead) {

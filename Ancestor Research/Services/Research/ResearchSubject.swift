@@ -175,6 +175,33 @@ nonisolated extension ResearchSubject {
         )
     }
 
+    /// Build from a Lead. Leads aren't on the tree yet so there's no family
+    /// context to derive — `familyContext` is nil and `profileID` is nil too.
+    /// The subject's identity carries through (surname/given/birth-year) so
+    /// the dispatcher searches for *this* person, not the profile that
+    /// generated the lead. Without this constructor, `investigateLead` was
+    /// re-researching the generating profile rather than the lead itself.
+    static func fromLead(
+        _ lead: Lead,
+        mode: ResearchMode = .extend,
+        homeChapmanCode: String = "DBY"
+    ) -> ResearchSubject {
+        ResearchSubject(
+            profileID: nil,
+            surname: lead.surname,
+            givenName: lead.givenName,
+            birthYearFrom: lead.birthYear,
+            birthYearTo: lead.birthYear,
+            deathYearFrom: lead.deathYear,
+            deathYearTo: lead.deathYear,
+            gender: nil,
+            region: nil,
+            mode: mode,
+            familyContext: nil,
+            homeChapmanCode: homeChapmanCode
+        )
+    }
+
     /// Build from manual user input.
     static func fromUserInput(
         surname: String?, givenName: String?,
