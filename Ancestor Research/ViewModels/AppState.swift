@@ -5,6 +5,45 @@ import SwiftUI
 final class AppState {
     var currentProject: Project?
     var currentDatabase: ProjectDatabase?
+
+    /// Polls `research_run_requests` for queued rows enqueued by the MCP
+    /// `kick_off_research` tool. Created lazily on first project open;
+    /// re-bound to each new database via `start()`. Stopped on close.
+    private var runRequestWatcher: RunRequestWatcher?
+
+    /// Source registry handed in by ContentView at startup so AppState can
+    /// construct a `RunRequestWatcher` without circular dependencies on the
+    /// SwiftUI environment. Hands-off after attachment; the registry is
+    /// nonisolated (it owns no UI state) so it's safe to retain.
+    private var attachedRegistry: SourceRegistry?
+
+    /// One-time hookup called by ContentView on appear. Wires the source
+    /// registry into AppState so subsequent `openProject` calls can spawn
+    /// the run-request watcher. Idempotent: a second call replaces the
+    /// stored registry but leaves any running watcher alone.
+    func attachSearchRegistry(_ registry: SourceRegistry) {
+        attachedRegistry = registry
+        // If a project is already open by the time the registry arrives
+        // (rare but possible on hot reload / multi-window), start the
+        // watcher now so MCP requests don't hang waiting on the next
+        // project switch.
+        if currentDatabase != nil, runRequestWatcher == nil {
+            startRunRequestWatcher()
+        }
+    }
+
+    private func startRunRequestWatcher() {
+        guard let registry = attachedRegistry else { return }
+        if runRequestWatcher == nil {
+            runRequestWatcher = RunRequestWatcher(appState: self, registry: registry)
+        }
+        runRequestWatcher?.start()
+    }
+
+    private func stopRunRequestWatcher() {
+        runRequestWatcher?.stop()
+        runRequestWatcher = nil
+    }
     var snapshot: FamilyGraphSnapshot = .empty
     var auditSummary: AuditSummary?
     var availableProjects: [Project] = []
@@ -24,6 +63,7 @@ final class AppState {
     /// ContentView observes and presents the sheet centrally so the sheet looks
     /// and behaves identically regardless of where research was triggered from.
     var researchConfigProfile: Profile?
+
     var isLoading = false
     var loadingMessage: String?
     var errorMessage: String?
@@ -350,6 +390,7 @@ final class AppState {
             runPostLoadAudit()
             loadWorkbench()
             ensureSession()
+            startRunRequestWatcher()
 
             // Best-effort backup snapshot (M14). Silent on failure so a
             // disk-full or permission glitch never blocks the user from
@@ -369,6 +410,7 @@ final class AppState {
         do {
             // Close the live database first so GRDB releases the file
             // handle before we overwrite it.
+            stopRunRequestWatcher()
             currentDatabase = nil
             try BackupService.restore(projectID: project.id, from: backup)
             openProject(project)
@@ -1286,6 +1328,7 @@ final class AppState {
         do {
             try ProjectStore.deleteProject(id)
             if currentProject?.id == id {
+                stopRunRequestWatcher()
                 currentProject = nil
                 currentDatabase = nil
                 snapshot = .empty
@@ -1300,6 +1343,7 @@ final class AppState {
         do {
             try ProjectStore.archiveProject(id)
             if currentProject?.id == id {
+                stopRunRequestWatcher()
                 currentProject = nil
                 currentDatabase = nil
                 snapshot = .empty
@@ -1320,6 +1364,7 @@ final class AppState {
     }
 
     func closeProject() {
+        stopRunRequestWatcher()
         currentProject = nil
         currentDatabase = nil
         snapshot = .empty

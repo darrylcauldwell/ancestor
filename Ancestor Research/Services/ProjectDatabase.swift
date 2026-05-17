@@ -702,6 +702,74 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // Pending relationship proposals — the firewall analogue of
+        // pending_facts but for edges (parent / spouse). Lets MCP callers
+        // propose a relationship without writing directly to `relationships`;
+        // the app reviews the queue and accepts / rejects exactly the way
+        // it does for fact proposals. INSERT OR IGNORE on id makes the
+        // submit idempotent.
+        migrator.registerMigration("v23_pending_relationships") { db in
+            try db.create(table: "pending_relationships") { t in
+                t.column("id", .text).primaryKey()
+                t.column("from_profile_id", .text).notNull()
+                t.column("to_profile_id", .text).notNull()
+                t.column("rel_type", .text).notNull()          // 'parent' | 'spouse'
+                t.column("role", .text)                        // 'father' | 'mother' | 'unspecified' (parent only)
+                t.column("subtype", .text).notNull().defaults(to: "biological")
+                t.column("review_status", .text).notNull().defaults(to: "pending")
+                t.column("created_at", .datetime).notNull()
+                t.column("source_url", .text)
+                t.column("source_title", .text)
+                t.column("evidence_text", .text)
+                t.column("reasoning", .text)
+                t.column("agent_id", .text)
+            }
+            try db.create(index: "idx_pending_relationships_status",
+                          on: "pending_relationships",
+                          columns: ["review_status"])
+        }
+
+        // Research run requests — Tier 3 of the MCP coverage plan. External
+        // callers (MCP) enqueue a research target here; the app's
+        // RunRequestWatcher dequeues, fires the pipeline, and writes back
+        // the resulting research_run id + status. Lifecycle:
+        //   queued → running → completed (with run_id) | failed (with error)
+        // The caller polls `ancestor://run_status/{id}` to monitor.
+        migrator.registerMigration("v24_research_run_requests") { db in
+            try db.create(table: "research_run_requests") { t in
+                t.column("id", .text).primaryKey()
+                t.column("profile_id", .text)              // nil ⇒ lead-based request
+                t.column("lead_id", .text)                 // nil ⇒ profile-based request
+                t.column("mode", .text).notNull().defaults(to: "extend")
+                t.column("scope", .text).notNull().defaults(to: "county")
+                t.column("status", .text).notNull().defaults(to: "queued")
+                t.column("run_id", .text)                  // populated when complete
+                t.column("error", .text)                   // populated on failure
+                t.column("created_at", .datetime).notNull()
+                t.column("started_at", .datetime)
+                t.column("completed_at", .datetime)
+                t.column("requested_by", .text)            // agent id / 'mcp' / etc.
+            }
+            try db.create(index: "idx_research_run_requests_status",
+                          on: "research_run_requests",
+                          columns: ["status"])
+        }
+
+        // Auto-accept flag on research_run_requests. Off-by-default; only
+        // honoured by the watcher when the AUTOMATION_AUTO_ACCEPT build
+        // flag is set (Debug builds only — release builds physically lack
+        // the auto-accept code path). Values:
+        //   'none'      — manual review as today (default)
+        //   'confirmed' — auto-promote .confirmed proposed relatives during
+        //                 the run, skipping the human-click step. Used by
+        //                 recursive tree build-out scripts to avoid the
+        //                 promote-each-proposal bottleneck.
+        migrator.registerMigration("v25_run_request_auto_accept") { db in
+            try db.alter(table: "research_run_requests") { t in
+                t.add(column: "auto_accept", .text).notNull().defaults(to: "none")
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
