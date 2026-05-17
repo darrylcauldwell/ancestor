@@ -25,24 +25,40 @@ struct ProfileDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 // Header
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(profile.displayName)
-                        .font(.title2)
-                        .fontWeight(.bold)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(profile.displayName)
+                            .font(.title2)
+                            .fontWeight(.bold)
+                        // Name-side source badges. firstName and lastName
+                        // each have their own provenance trail in
+                        // field_sources; surface both inline next to the
+                        // header so the user can see at a glance whether
+                        // the name was typed manually, imported from
+                        // GEDCOM, or inferred from research.
+                        sourceBadges(for: .firstName)
+                        sourceBadges(for: .lastName)
+                    }
                     if let wikiTreeID = profile.wikiTreeID {
                         Text(wikiTreeID)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     let comp = snapshot.completeness(for: profile.id)
-                    HStack(spacing: 4) {
-                        Text("\(comp.score)/\(comp.maximum)")
-                            .font(.caption)
-                            .foregroundStyle(comp.score == comp.maximum ? .green : .orange)
-                        if comp.potentiallyLiving {
-                            Text("(living)")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                    HStack(spacing: 8) {
+                        HStack(spacing: 4) {
+                            Text("\(comp.score)/\(comp.maximum)")
+                                .font(.caption)
+                                .foregroundStyle(comp.score == comp.maximum ? .green : .orange)
+                            if comp.potentiallyLiving {
+                                Text("(living)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
+                        // Pending-facts badge — small orange pill linking
+                        // to the firewall queue for this profile. Hidden
+                        // when zero so it doesn't clutter the common case.
+                        pendingFactsBadge
                     }
                 }
 
@@ -65,7 +81,14 @@ struct ProfileDetailView: View {
 
                 if let gender = profile.gender {
                     LabeledContent("Gender") {
-                        Text(gender.rawValue.capitalized)
+                        HStack(spacing: 6) {
+                            Text(gender.rawValue.capitalized)
+                            // Gender is a sourced field — the wizard, GEDCOM
+                            // import, and per-field source-recording paths
+                            // all write a provenance entry under .gender.
+                            // Previously invisible on the profile detail.
+                            sourceBadges(for: .gender)
+                        }
                     }
                 }
                 hypotheticalLine(for: .gender)
@@ -74,7 +97,12 @@ struct ProfileDetailView: View {
 
                 // Relationships
                 relationshipSection("Parents", profiles: snapshot.parentsOf(profile.id))
-                relationshipSection("Spouses", profiles: snapshot.spousesOf(profile.id))
+                // Spouses get their own renderer so marriage date / location
+                // surface alongside the spouse name. Without this, the
+                // marriage enrichment Apply path writes to the spouse edge
+                // but the user has no way to see that it happened — the
+                // generic relationshipSection only renders profile fields.
+                spousesSection(for: profile, snapshot: snapshot)
                 relationshipSection("Children", profiles: snapshot.childrenOf(profile.id))
                 relationshipSection("Siblings", profiles: snapshot.siblingsOf(profile.id))
 
@@ -478,6 +506,38 @@ struct ProfileDetailView: View {
         }
     }
 
+    /// Count of pending facts awaiting human review for this profile.
+    /// Cheap COUNT(*) query, recomputed each view render so it tracks
+    /// inserts from MCP `submit_evidence` and from the in-app pipeline.
+    private var pendingFactCount: Int {
+        appState.currentDatabase?.pendingFactCount(profileID: profile.id) ?? 0
+    }
+
+    /// Pill that surfaces firewall-queued evidence on the profile detail
+    /// header. Tapping switches to the Triage tab where the user can
+    /// review + accept / discard each entry. Hidden when nothing is
+    /// pending so the badge doesn't accrue visual noise on most profiles.
+    @ViewBuilder
+    private var pendingFactsBadge: some View {
+        let count = pendingFactCount
+        if count > 0 {
+            HStack(spacing: 4) {
+                Image(systemName: "tray.full.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                Text("\(count) pending")
+                    .font(.caption2.weight(.semibold))
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.orange.opacity(0.18))
+            .foregroundStyle(.orange)
+            .clipShape(.capsule)
+            .help("Evidence proposals awaiting human review for this profile. Open Triage to accept or discard them.")
+            .accessibilityLabel("\(count) pending facts")
+            .accessibilityHint("Evidence proposals awaiting human review")
+        }
+    }
+
     @ViewBuilder
     private func sourceBadges(for field: ProfileField) -> some View {
         let sources = profile.sources[field] ?? []
@@ -568,6 +628,57 @@ struct ProfileDetailView: View {
                             Text("b. \(year)")
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Spouses rendered with their marriage edge metadata inlined. Iterates
+    /// the spouse `Relationship` rows directly (rather than going via
+    /// `snapshot.spousesOf`, which returns only profiles) so marriage date
+    /// and location — written by `applyProposedRelative` and
+    /// `applyMarriageToSubjectSpouseEdge` — show up on each spouse line.
+    /// Without this, the enrichment Apply path silently writes to the edge
+    /// but the user has no visible confirmation it happened.
+    @ViewBuilder
+    private func spousesSection(for subject: Profile, snapshot: FamilyGraphSnapshot) -> some View {
+        let spouseEdges = snapshot.relationships.filter { rel in
+            rel.type == .spouse && (rel.from == subject.id || rel.to == subject.id)
+        }
+        if !spouseEdges.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Spouses")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(spouseEdges, id: \.id) { edge in
+                    let otherID = edge.from == subject.id ? edge.to : edge.from
+                    if let spouse = snapshot.profiles[otherID] {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(spouse.displayName)
+                                    .font(.callout)
+                                if let year = spouse.birthDate?.bestYear {
+                                    Text("b. \(year)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            // Marriage metadata, when present. "m." prefix
+                            // mirrors common genealogy abbreviation. Location
+                            // sits on its own line so a long district name
+                            // doesn't crowd the date.
+                            if let date = edge.marriageDate?.original, !date.isEmpty {
+                                Text("m. \(date)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if let location = edge.marriageLocation, !location.isEmpty {
+                                Text(location)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
                     }
                 }

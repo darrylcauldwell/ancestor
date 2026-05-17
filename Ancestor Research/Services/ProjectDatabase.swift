@@ -2076,6 +2076,23 @@ nonisolated extension ProjectDatabase {
 
 nonisolated extension ProjectDatabase {
 
+    /// Cheap count of pending facts awaiting human review for a profile.
+    /// Used by the profile detail header to surface a badge so the user
+    /// can see at a glance that a profile has firewall-queued proposals
+    /// without having to navigate to Triage. Returns 0 on any DB error.
+    func pendingFactCount(profileID: String) -> Int {
+        (try? dbQueue.read { db in
+            try Int.fetchOne(
+                db,
+                sql: """
+                    SELECT COUNT(*) FROM pending_facts
+                    WHERE profile_id = ? AND review_status = 'pending'
+                    """,
+                arguments: [profileID]
+            ) ?? 0
+        }) ?? 0
+    }
+
     func loadPendingFacts(profileID: String) throws -> [[String: Any]] {
         try dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
