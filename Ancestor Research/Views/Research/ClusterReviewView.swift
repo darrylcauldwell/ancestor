@@ -385,12 +385,31 @@ struct ClusterReviewView: View {
 
                 if decision != .accepted && quality != .wrong {
                     if showApply {
-                        Button("Apply") { vm.applyCluster(cluster, into: appState) }
+                        // Show how many records actually get written. The
+                        // predicate is "per-record decision wins over gate":
+                        // user-accepted records force apply, user-rejected
+                        // ones force skip, otherwise the (verdict == .fact ||
+                        // known-spouse marriage) gate decides. Without this
+                        // count the button looks like it'll write everything,
+                        // which the user can't trust on a mixed-quality
+                        // cluster.
+                        let applyCount = cluster.records.filter { rec in
+                            switch vm.recordDecisions[rec.id] {
+                            case .accepted: return true
+                            case .rejected: return false
+                            default:        return ResearchViewModel.wouldApply(rec)
+                            }
+                        }.count
+                        let total = cluster.records.count
+                        let buttonLabel = applyCount == total
+                            ? "Apply \(applyCount)"
+                            : "Apply \(applyCount) of \(total)"
+                        Button(buttonLabel) { vm.applyCluster(cluster, into: appState) }
                             .buttonStyle(.glassProminent)
                             .controlSize(.small)
                             .help(canApplyKnownMarriage
-                                ? "Fill the marriage date / location on the existing spouse relationship (only where currently blank)."
-                                : "Write this record's data to the profile (filling only nil fields) and attach as a citation source.")
+                                ? "Fill the marriage date / location on the existing spouse relationship (only where currently blank). The other \(total - applyCount) records in this cluster stay as evidence history."
+                                : "Write \(applyCount) qualifying record\(applyCount == 1 ? "" : "s") to the profile (filling only nil fields) and attach as citation sources. Records that haven't fully cleared the scoring gates are skipped.")
                     } else {
                         Button("Save as lead") { vm.acceptCluster(cluster) }
                             .buttonStyle(.glassProminent)
@@ -458,6 +477,29 @@ struct ClusterReviewView: View {
                 }
 
                 Spacer()
+
+                // Per-record will-apply indicator — mirrors `applyCluster`'s
+                // effective decision: per-record overrides win over the
+                // default gate predicate, so a user-discarded record reads
+                // as skipped even if it would otherwise apply, and a
+                // force-applied record reads as will-apply even if it didn't
+                // clear the gates.
+                let recordDecision = vm.recordDecisions[scored.id]
+                let effectiveWillApply = recordDecision == .accepted
+                    || (recordDecision != .rejected && ResearchViewModel.wouldApply(scored))
+                if effectiveWillApply {
+                    Label("Will apply", systemImage: "checkmark.circle.fill")
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(.green)
+                        .help("This record will be applied to the profile when you click Apply.")
+                        .accessibilityLabel("Will apply when you click Apply")
+                } else {
+                    Label("Skipped on apply", systemImage: "circle.dashed")
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(.tertiary)
+                        .help("This record stays in the cluster as evidence but isn't written to the profile on Apply (didn't clear the scoring gates or was discarded).")
+                        .accessibilityLabel("Skipped on apply; remains as evidence")
+                }
 
                 Text(scored.record.sourceID.uppercased())
                     .font(AppTypography.sourceBadge)
@@ -563,12 +605,60 @@ struct ClusterReviewView: View {
                             }
                         }
                     }
+
+                    // Per-record overrides — let the user opt-in to applying
+                    // a single lead they've manually verified, or opt-out of
+                    // a record the gate predicate would otherwise apply.
+                    // Cluster-level Apply respects these overrides.
+                    perRecordActions(scored)
                 }
                 .padding(.leading, 24)
                 .padding(.top, 4)
             }
         }
         .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func perRecordActions(_ scored: ScoredRecord) -> some View {
+        let decision = vm.recordDecisions[scored.id]
+        HStack(spacing: 8) {
+            if decision == .accepted {
+                Label("Applied", systemImage: "checkmark.seal.fill")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.green)
+            } else if decision == .rejected {
+                Label("Discarded", systemImage: "trash.fill")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.red)
+            }
+            Spacer()
+            if decision != .accepted {
+                Button("Apply this record") {
+                    vm.applyRecord(scored, into: appState)
+                }
+                .buttonStyle(.glass)
+                .controlSize(.mini)
+                .help("Write just this record's data to the profile and mark it saved-as-lead, overriding the cluster's gate check.")
+            }
+            if decision != .rejected {
+                Button("Discard this record") {
+                    vm.discardRecord(scored)
+                }
+                .buttonStyle(.glass)
+                .controlSize(.mini)
+                .help("Hide this record from future runs. Won't write anything to the profile; cluster Apply will skip it.")
+            }
+            if decision != nil {
+                Button("Reset") {
+                    vm.resetRecordDecision(scored)
+                }
+                .buttonStyle(.glass)
+                .controlSize(.mini)
+                .help("Undo this per-record decision and return to the cluster's default gate behaviour.")
+            }
+        }
+        .padding(.top, 6)
     }
 
     /// Flatten a SourceRecord into label/value pairs for the expanded record-detail panel.

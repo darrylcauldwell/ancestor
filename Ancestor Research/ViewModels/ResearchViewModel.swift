@@ -46,6 +46,12 @@ final class ResearchViewModel {
     // Review state
     var clusterDecisions: [String: ClusterDecision] = [:]  // cluster.id → decision
     var proposedRelativeDecisions: [String: ClusterDecision] = [:]  // proposal.id → decision
+    /// Per-record overrides inside a cluster. Lets a user opt-in to applying
+    /// a single record that didn't clear the gates (e.g. a `.lead` they've
+    /// independently verified) or opt-out of one that did. The cluster-level
+    /// Apply honours these decisions: forced records always apply, discarded
+    /// records always skip, regardless of `wouldApply`. Key is `scored.id`.
+    var recordDecisions: [String: ClusterDecision] = [:]
     var isApplying = false
     var applyMessage: String?
 
@@ -147,6 +153,7 @@ final class ResearchViewModel {
         currentResult = nil
         clusterDecisions = [:]
         proposedRelativeDecisions = [:]
+        recordDecisions = [:]
         recentActivity = []
         inFlightQueryCounts = [:]
         errorMessage = nil
@@ -412,15 +419,18 @@ final class ResearchViewModel {
         try? db.updateEvidenceUserStatus(profileID: profile.id, sourceRecordIDs: ids, status: .savedAsLead)
 
         for scored in cluster.records {
-            // .fact records write to profile fields. Marriage records also
-            // apply when the `familyContext` gate explicitly confirmed a
-            // known-spouse match — that signal is independent of the overall
-            // verdict (which is often dragged down to .lead by FreeBMD-side
-            // gaps in the surname/district columns). The marriage handler is
-            // overwrite-safe, so the worst-case write is a no-op.
-            let isFact = scored.verdict == .fact
-            let isKnownSpouseMarriage = Self.recognisesKnownSpouse(scored)
-            guard isFact || isKnownSpouseMarriage else { continue }
+            // Per-record overrides win over gate predicate.
+            //  • Explicitly accepted → force apply
+            //  • Explicitly rejected → skip
+            //  • Otherwise            → fall back to `wouldApply` gate
+            switch recordDecisions[scored.id] {
+            case .accepted:
+                break                              // force apply below
+            case .rejected:
+                continue                           // user said no
+            default:
+                guard Self.wouldApply(scored) else { continue }
+            }
 
             applyFactToSubject(scored, profile: profile, snapshot: appState.snapshot, db: db)
             // Non-BMD records (census/burial/probate/parish) still get a LifeEvent
@@ -433,14 +443,72 @@ final class ResearchViewModel {
         appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
     }
 
+    // MARK: - Per-record overrides (Task #35)
+
+    /// Force-apply a single record from a cluster — bypasses the
+    /// `wouldApply` gate so a manually-verified lead can still land. Writes
+    /// the record's data to the profile (overwrite-safe, fills nil fields
+    /// only), creates a LifeEvent where applicable, and marks the record's
+    /// `user_status = savedAsLead`. Records the decision so cluster-level
+    /// Apply honours the override too.
+    func applyRecord(_ scored: ScoredRecord, into appState: AppState) {
+        recordDecisions[scored.id] = .accepted
+        guard let db = appState.currentDatabase, let profile = selectedProfile else { return }
+        try? db.updateEvidenceUserStatus(
+            profileID: profile.id,
+            sourceRecordIDs: [scored.record.id],
+            status: .savedAsLead
+        )
+        applyFactToSubject(scored, profile: profile, snapshot: appState.snapshot, db: db)
+        if let event = scored.record.projectToLifeEvent(profileID: profile.id) {
+            _ = try? db.addLifeEventIfAbsent(event)
+        }
+        appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+    }
+
+    /// Discard a single record from a cluster — marks `user_status = discarded`
+    /// and persists a rejection. Subsequent research runs won't re-surface it.
+    /// Cluster-level Apply skips this record even if `wouldApply` would
+    /// otherwise pick it up.
+    func discardRecord(_ scored: ScoredRecord) {
+        recordDecisions[scored.id] = .rejected
+        guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
+        try? db.updateEvidenceUserStatus(
+            profileID: profileID,
+            sourceRecordIDs: [scored.record.id],
+            status: .discarded
+        )
+        try? db.saveRejection(profileID: profileID, recordID: scored.record.id)
+    }
+
+    /// Clear a per-record decision so it falls back to the cluster's
+    /// `wouldApply` gate behaviour and stops appearing as overridden.
+    func resetRecordDecision(_ scored: ScoredRecord) {
+        recordDecisions.removeValue(forKey: scored.id)
+        guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
+        try? db.updateEvidenceUserStatus(
+            profileID: profileID,
+            sourceRecordIDs: [scored.record.id],
+            status: .unreviewed
+        )
+    }
+
     /// True when the record is a marriage AND the scorer's `familyContext`
     /// gate passed because the record's spouse matches the subject's known
     /// spouse. Used to bypass the `verdict == .fact` filter in `applyCluster`
     /// for the subject-marriage-to-existing-spouse-edge case where FreeBMD
     /// transcription gaps demote an otherwise-correct match to `.lead`.
-    nonisolated private static func recognisesKnownSpouse(_ scored: ScoredRecord) -> Bool {
+    nonisolated static func recognisesKnownSpouse(_ scored: ScoredRecord) -> Bool {
         guard case .marriage = scored.record else { return false }
         return scored.gates.contains { $0.gate == .familyContext && $0.outcome == .pass }
+    }
+
+    /// Single source of truth for "would `applyCluster` write this record?".
+    /// Cluster review reads this to surface a per-record badge and to count
+    /// the Apply button label. Mirrors exactly the predicate inside
+    /// `applyCluster`'s loop — if you change one, change both.
+    nonisolated static func wouldApply(_ scored: ScoredRecord) -> Bool {
+        scored.verdict == .fact || recognisesKnownSpouse(scored)
     }
 
     private func applyFactToSubject(_ scored: ScoredRecord, profile: Profile, snapshot: FamilyGraphSnapshot, db: ProjectDatabase) {
@@ -873,6 +941,7 @@ final class ResearchViewModel {
         currentResult = nil
         clusterDecisions = [:]
         proposedRelativeDecisions = [:]
+        recordDecisions = [:]
         sourceStatuses = []
         progressMessage = nil
         errorMessage = nil
