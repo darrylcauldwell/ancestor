@@ -1,6 +1,6 @@
 # Ancestor Research — Privacy Policy
 
-**Last updated:** 26 April 2026
+**Last updated:** 17 May 2026
 
 ## Overview
 
@@ -33,18 +33,6 @@ Only the search parameters listed above are sent. Your full tree data is never t
 ### Local Reasoning Model
 
 The app can optionally load a local AI reasoning model (DeepSeek-R1) using Apple's MLX framework. This model runs entirely on your device using Apple Silicon. No data is sent to any external service for local model inference.
-
-### Field Researcher
-
-The app offers an optional Field Researcher feature that uses the Claude API (by Anthropic) to search the web for genealogical evidence. When enabled:
-
-- You provide your own Claude API key
-- The app sends research context (profile names, dates, locations, and existing source citations) to the Claude API
-- The Claude API may search the web on your behalf
-- Findings are returned to the app and evaluated locally before you review them
-- You control when this feature runs and can disable it at any time
-
-No tree data is sent to Claude unless you explicitly initiate a Field Researcher session.
 
 ## Data Collection
 

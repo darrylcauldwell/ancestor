@@ -1,0 +1,23 @@
+Hello,
+
+Thank you for the feedback on submission 93f96cdf-ae82-4f87-ae2a-c5dc0fd37df8. Both cited issues are addressed in this resubmission.
+
+1. Settings access / Demo Mode
+
+We redesigned the first-launch screen so reviewers and new users no longer need to navigate to Settings to reach a demo tree. The welcome screen now leads with a prominent "Open Sample Tree" button. A single click creates and opens a real 30-profile fictional family project ("Sample Family"). The sidebar then exposes every feature — Tree, Audit, Research, Leads, Settings — so the rest of the app becomes reachable.
+
+The previous reviewer notes (which described a Settings → Demo Mode toggle) have been replaced. The new notes walk through the "Open Sample Tree" path on the welcome screen.
+
+2. Sample GEDCOM download
+
+The .ged file we host on GitHub is plain text, which browsers display inline rather than triggering a download. The new reviewer notes explicitly instruct: right-click the link → "Save Link As..." to save the file to disk. Once downloaded, the file can be imported via:
+
+  - the welcome screen's "Import GEDCOM…" button, or
+  - dragging the .ged file directly onto the welcome window (drop-target added in this build)
+
+The sample file at the same URL remains available and is the same fictional Ashford family used by the Sample Tree button, so reviewers can pick either path.
+
+Both paths are described in the updated review notes attached to this submission.
+
+Best regards,
+Darryl Cauldwell

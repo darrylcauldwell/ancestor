@@ -21,8 +21,5 @@ The app surfaces findings you didn't ask for: household members from census reco
 LOCAL REASONING MODEL
 Optional on-device AI using Apple Silicon — loads a reasoning model (DeepSeek-R1) to suggest research strategy, evaluate evidence clusters, draft biographical summaries, and disambiguate conflicting records. Runs locally, no cloud required.
 
-FIELD RESEARCHER
-Optional integration with the Claude API for deep web research. The Field Researcher reads your full tree context, searches unstructured sources (parish register scans, newspaper archives, local history sites), and contributes findings back through the same evidence pipeline. Every finding is verified, scored, and presented for your approval before entering the tree.
-
 PRIVACY
-Your family tree data stays on your Mac. The app searches external genealogy sources but never uploads your tree. The local reasoning model runs entirely on-device. The Field Researcher feature (optional, requires your own API key) sends research context to the Claude API — no tree data is shared without your explicit action.
+Your family tree data stays on your Mac. The app searches external genealogy sources but never uploads your tree — only search parameters (surname, given name, year range) are sent. The local reasoning model runs entirely on-device. No third-party AI APIs are used; no analytics or telemetry are collected.

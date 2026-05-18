@@ -1,27 +1,43 @@
-DEMO MODE (no data import needed):
+QUICKEST PATH TO REVIEW (no file download or settings needed):
 
-1. Launch the app
-2. Go to Settings (gear icon in the sidebar)
-3. Under "Demo Mode", toggle on "Show demo family tree"
-   — this loads a fictional Ashford family with ~30 profiles across 5 generations
+1. Launch the app.
+2. On the welcome screen, click "View Sample Tree".
+   — This creates and opens a "Sample Family" project containing a fictional
+     30-profile Ashford family across 5 generations. The project persists, so
+     you can close and reopen the app without losing it.
+3. The sidebar now appears with all features available:
+     • Tree — pedigree + descendants navigation
+     • Audit — 18 consistency checks and gap detection
+     • Research — the structured research pipeline
+     • Leads — investigation queue
+     • Settings — preferences, project management, backups
+4. Click any person in the tree to expand details, navigate ancestors, or
+   start research.
 
-With demo mode active you can explore all core features:
+OPTIONAL: TEST GEDCOM IMPORT WITH A SAMPLE FILE
 
-- Tree view: pedigree and descendants navigation, click any person to expand
-- Audit view: 18 consistency checks and gap detection across the demo tree
-- Research view: the structured research pipeline (searches free genealogy sites)
-- Field Researcher: click "Field Research" on any profile row to see the AI research interface — in demo mode this runs a simulated session showing realistic progress, findings count, and cost tracking without requiring an API key
+If you'd like to test the GEDCOM import path specifically, a sample .ged file
+is hosted at:
 
-SAMPLE GEDCOM FILE:
+  https://raw.githubusercontent.com/darrylcauldwell/ancestor/main/samples/ashford-demo.ged
 
-A sample GEDCOM file for import testing is hosted at:
-https://raw.githubusercontent.com/darrylcauldwell/ancestor/main/samples/ashford-demo.ged
+The file is plain-text GEDCOM (.ged), which browsers display inline rather than
+auto-download. To save it: right-click the link → "Save Link As..." (or
+"Download Linked File"). Then in the app:
 
-To import: File > New Project > name it anything > select the downloaded .ged file.
+  - On the welcome screen click "Import GEDCOM (.ged or .gdz)…"
+  - Select the saved ashford-demo.ged file
+  - A new project is created containing the imported tree
 
-API-DEPENDENT FEATURES (optional, not required for core functionality):
+OPTIONAL FEATURES (not required for core review):
 
-- "Field Researcher" uses the Claude API (anthropic.com) to search the web for genealogical evidence. Users provide their own API key in Settings. In demo mode this feature runs a simulated session so no API key is needed.
-- "Reasoning Model" downloads an open-source model (~4 GB) from Hugging Face on first use. No API key required but needs ~7 GB memory.
+- "Reasoning Model" downloads an open-source model (~4 GB) from Hugging Face
+  on first use. No API key required but needs ~7 GB memory. Used for on-device
+  disambiguation, next-search suggestion, and narrative synthesis. Runs entirely
+  on-device via Apple MLX; no data leaves the device.
 
-No login or account is required. All data stays on-device.
+NETWORK USAGE
+
+The app searches public genealogy websites with search parameters only
+(surname, given name, year range). Your tree data is never uploaded. No
+third-party AI APIs are used. No analytics, telemetry, or user accounts.
