@@ -65,19 +65,29 @@ nonisolated enum MarriageEnrichmentEngine {
     ///   - brides: marriages where surname = mother's surname, spouse = father's surname
     ///   - yearWindow: plausible parent-marriage years (subject birth − 30 to + 1).
     ///     Entries outside this window are discarded before grouping.
+    ///   - expectedGroomSpouseSurname: bride's surname the groom must be marrying.
+    ///     Filters out groom-side entries whose `spouseSurname` is anything else —
+    ///     belt-and-braces guard for cases where the upstream source filter
+    ///     leaks noise through (real incident: FreeBMD's `s_surname=Wheeldon`
+    ///     filter returned `John R Cauldwell × Ellis 1933` which the matcher
+    ///     then promoted as the father). When nil, no filter is applied.
+    ///   - expectedBrideSpouseSurname: groom's surname the bride must be
+    ///     marrying. Same belt-and-braces shape on the other side.
     /// - Returns: `unique` if exactly one candidate marriage (across either
     ///   side), `ambiguous` if more than one, `none` otherwise.
     static func match(
         grooms: [MarriageEntry],
         brides: [MarriageEntry],
-        yearWindow: ClosedRange<Int>? = nil
+        yearWindow: ClosedRange<Int>? = nil,
+        expectedGroomSpouseSurname: String? = nil,
+        expectedBrideSpouseSurname: String? = nil
     ) -> MatchOutcome {
         let logger = os.Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "MarriageEnrichment")
 
         // Filter to the parent-marriage year window if provided. Out-of-window
         // records are noise (FreeBMD often returns context rows around the query year).
-        let filteredGrooms: [MarriageEntry]
-        let filteredBrides: [MarriageEntry]
+        var filteredGrooms: [MarriageEntry]
+        var filteredBrides: [MarriageEntry]
         if let window = yearWindow {
             filteredGrooms = grooms.filter { window.contains($0.year) }
             filteredBrides = brides.filter { window.contains($0.year) }
@@ -85,6 +95,33 @@ nonisolated enum MarriageEnrichmentEngine {
         } else {
             filteredGrooms = grooms
             filteredBrides = brides
+        }
+
+        // Spouse-surname guard. Reject entries whose other-party surname
+        // disagrees with the expected pair. Upstream source filters should
+        // already enforce this, but FreeBMD's `s_surname` has been observed
+        // to leak — the matcher must double-check before trusting.
+        if let expected = expectedGroomSpouseSurname?
+            .trimmingCharacters(in: .whitespaces).uppercased(), !expected.isEmpty {
+            let before = filteredGrooms.count
+            filteredGrooms = filteredGrooms.filter {
+                $0.spouseSurname.trimmingCharacters(in: .whitespaces)
+                    .uppercased() == expected
+            }
+            if before != filteredGrooms.count {
+                logger.info("groom-side spouse-surname guard: \(before)→\(filteredGrooms.count) (rejected entries whose spouse ≠ \(expected))")
+            }
+        }
+        if let expected = expectedBrideSpouseSurname?
+            .trimmingCharacters(in: .whitespaces).uppercased(), !expected.isEmpty {
+            let before = filteredBrides.count
+            filteredBrides = filteredBrides.filter {
+                $0.spouseSurname.trimmingCharacters(in: .whitespaces)
+                    .uppercased() == expected
+            }
+            if before != filteredBrides.count {
+                logger.info("bride-side spouse-surname guard: \(before)→\(filteredBrides.count) (rejected entries whose spouse ≠ \(expected))")
+            }
         }
 
         for g in filteredGrooms {

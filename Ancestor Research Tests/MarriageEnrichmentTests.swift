@@ -135,4 +135,100 @@ struct MarriageEnrichmentTests {
             Issue.record("Empty inputs should be none, got \(outcome)")
         }
     }
+
+    // MARK: - Spouse-surname guard
+
+    // Real bug May 2026: FreeBMD's `s_surname=Wheeldon` filter on the groom
+    // side returned `John R Cauldwell × Ellis 1933` (spouse=Ellis, not
+    // Wheeldon). Without the guard, the matcher accepted John R as the only
+    // groom-side candidate and promoted him as the subject's father.
+    @Test func wrongSpouseSurnameOnGroomSideIsRejected() {
+        let groom = entry(
+            surname: "Cauldwell", givenName: "John R", spouseSurname: "Ellis",
+            year: 1933, quarter: "Sep", district: "Derby",
+            volume: "7B", page: "1601"
+        )
+        let bride = entry(
+            surname: "Wheeldon", givenName: "Kathleen D", spouseSurname: "Cauldwell",
+            year: 1946, quarter: "Dec", district: "Belper",
+            volume: "3A", page: "229"
+        )
+        let outcome = MarriageEnrichmentEngine.match(
+            grooms: [groom], brides: [bride],
+            yearWindow: 1917...1948,
+            expectedGroomSpouseSurname: "Wheeldon",
+            expectedBrideSpouseSurname: "Cauldwell"
+        )
+        if case .unique(let fGiven, let mGiven, _, _) = outcome {
+            #expect(fGiven == nil, "father should stay surname-only — John R was rejected because his spouse was Ellis, not Wheeldon")
+            #expect(mGiven == "Kathleen D")
+        } else {
+            Issue.record("Expected unique with mother-only enrichment, got \(outcome)")
+        }
+    }
+
+    @Test func wrongSpouseSurnameOnBrideSideIsRejected() {
+        let groom = entry(
+            surname: "Cauldwell", givenName: "James", spouseSurname: "Holmes",
+            district: "Belper", volume: "7C", page: "421"
+        )
+        let bride = entry(
+            surname: "Holmes", givenName: "Mary", spouseSurname: "Smith",
+            district: "Belper", volume: "7C", page: "999"
+        )
+        let outcome = MarriageEnrichmentEngine.match(
+            grooms: [groom], brides: [bride],
+            expectedGroomSpouseSurname: "Holmes",
+            expectedBrideSpouseSurname: "Cauldwell"
+        )
+        if case .unique(let fGiven, let mGiven, _, _) = outcome {
+            #expect(fGiven == "James")
+            #expect(mGiven == nil, "Mary Holmes × Smith should be rejected — her spouse was Smith, not Cauldwell")
+        } else {
+            Issue.record("Expected unique with father-only enrichment, got \(outcome)")
+        }
+    }
+
+    @Test func spouseSurnameGuardIsCaseAndWhitespaceInsensitive() {
+        // FreeBMD returns surnames in mixed case across queries (groom-side
+        // upper, bride-side title, sometimes vice versa). The guard must
+        // compare case-folded and trimmed values.
+        let groom = entry(
+            surname: "Cauldwell", givenName: "Ernest V", spouseSurname: "  WHEELDON  ",
+            year: 1946, district: "Belper", volume: "3A", page: "229"
+        )
+        let bride = entry(
+            surname: "Wheeldon", givenName: "Kathleen D", spouseSurname: "cauldwell",
+            year: 1946, district: "Belper", volume: "3A", page: "229"
+        )
+        let outcome = MarriageEnrichmentEngine.match(
+            grooms: [groom], brides: [bride],
+            expectedGroomSpouseSurname: "wheeldon",
+            expectedBrideSpouseSurname: "CAULDWELL"
+        )
+        if case .unique(let fGiven, let mGiven, _, _) = outcome {
+            #expect(fGiven == "Ernest V")
+            #expect(mGiven == "Kathleen D")
+        } else {
+            Issue.record("Expected unique both-sides enrichment, got \(outcome)")
+        }
+    }
+
+    @Test func nilSpouseSurnameSkipsGuard() {
+        // Backwards compatibility: callers passing nil for expected spouse
+        // surnames get the pre-guard behaviour (no filtering on spouse).
+        let groom = entry(
+            surname: "Cauldwell", givenName: "John R", spouseSurname: "Ellis"
+        )
+        let outcome = MarriageEnrichmentEngine.match(
+            grooms: [groom], brides: [],
+            expectedGroomSpouseSurname: nil,
+            expectedBrideSpouseSurname: nil
+        )
+        if case .unique(let fGiven, _, _, _) = outcome {
+            #expect(fGiven == "John R")
+        } else {
+            Issue.record("Expected unique fall-back enrichment, got \(outcome)")
+        }
+    }
 }

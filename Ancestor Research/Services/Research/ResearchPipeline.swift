@@ -54,8 +54,18 @@ final class ResearchPipeline {
                 )
             }
 
-            state.scoredRecords.append(contentsOf: scored)
-            let newRecordCount = records.filter { !priorRecordIDs.contains($0.id) }.count
+            // Dedup before appending. Across iterations the dispatcher often
+            // re-fetches the same records — especially in narrow scopes where
+            // the candidate set is small. Without this filter each iteration
+            // adds another copy of every re-found record, so a 2-iteration
+            // run shows every record twice in cluster review (T29.x bug —
+            // confirmed against the David × Holmes 1969 BELPER record which
+            // appeared twice in evidence_records before this guard).
+            // The stable-point detection below catches the "nothing new" case
+            // to break the loop, but only AFTER append has already duplicated.
+            let newScored = scored.filter { !priorRecordIDs.contains($0.record.id) }
+            state.scoredRecords.append(contentsOf: newScored)
+            let newRecordCount = newScored.count
 
             // Track search history
             let searchKey = "\(iteration)_\(state.activeRecordTypes.map(\.rawValue).sorted().joined(separator: ","))"
@@ -222,6 +232,73 @@ final class ResearchPipeline {
         let yearFrom = subjectBirthYear - 30
         let yearTo = subjectBirthYear + 1
 
+        // ── Search-storm prevention (T29) ─────────────────────────────────
+        // ParentInferenceEngine generates one mother proposal per distinct
+        // `mothersMaidenName` across every candidate birth record the
+        // dispatcher returns for the subject. For a non-specific subject
+        // like "Jennifer Holmes 1948" that's dozens of MMNs (Brooks, Hicks,
+        // Sambrook, Dabbs, …) — each spawning a two-sided marriage query
+        // fanned out across every Derbyshire district. Most are noise.
+        //
+        // Gating policy:
+        //   • If both parents are already linked → only enrich the pair
+        //     whose surnames match (typically just one).
+        //   • Else if SubjectIdentityResolver pins one birth record → only
+        //     enrich proposals derived from THAT record's MMN.
+        //   • Else → skip enrichment entirely. Without identity resolution
+        //     or known parents, every pair is suspect.
+        let knownFather = subject.profileID.flatMap { id in
+            snapshot.parentsOf(id).first(where: { $0.gender == .male })
+        }
+        let knownMother = subject.profileID.flatMap { id in
+            snapshot.parentsOf(id).first(where: { $0.gender == .female })
+        }
+        let knownFatherSurname = knownFather?.lastName?
+            .trimmingCharacters(in: .whitespaces)
+        let knownMotherSurname = knownMother?.lastName?
+            .trimmingCharacters(in: .whitespaces)
+        let bothParentsLinked = !(knownFatherSurname?.isEmpty ?? true)
+            && !(knownMotherSurname?.isEmpty ?? true)
+
+        // Identity resolution — pull all .fact birth records from the
+        // proposal evidence (each proposal cites the record it was inferred
+        // from). Deduped because father+mother proposals share evidence.
+        let candidateBirthFacts: [ScoredRecord] = {
+            var seen: Set<String> = []
+            var result: [ScoredRecord] = []
+            for proposal in proposals {
+                for scored in proposal.evidence {
+                    if case .birth = scored.record,
+                       scored.verdict == .fact,
+                       !seen.contains(scored.id) {
+                        seen.insert(scored.id)
+                        result.append(scored)
+                    }
+                }
+            }
+            return result
+        }()
+        let hypotheses: [GeographicHypothesis] = subject.profileID.map { id in
+            GeographicHypothesisGenerator.inferDistricts(
+                for: id,
+                snapshot: snapshot,
+                eventYear: subject.birthYearFrom
+            )
+        } ?? []
+        let identity = SubjectIdentityResolver.resolve(
+            candidateBirthFacts: candidateBirthFacts,
+            hypotheses: hypotheses
+        )
+        let resolvedBirthRecordID: String? = {
+            if case .resolved(let id, _) = identity { return id }
+            return nil
+        }()
+
+        guard bothParentsLinked || resolvedBirthRecordID != nil else {
+            logger.info("Marriage enrichment skipped: subject identity not resolved AND parents not linked — would dispatch one marriage query per candidate MMN (most wrong)")
+            return (proposals, [])
+        }
+
         // Pair mothers with fathers by shared parentOf(subjectID).
         var enriched = proposals
         var collectedMarriageRecords: [ScoredRecord] = []
@@ -238,6 +315,23 @@ final class ResearchPipeline {
                 guard let fatherSurname = father.proposedSurname, !fatherSurname.isEmpty,
                       let motherSurname = mother.proposedSurname, !motherSurname.isEmpty
                 else { continue }
+
+                // Per-pair scoping under the gating policy above.
+                if bothParentsLinked {
+                    let fMatches = fatherSurname.caseInsensitiveCompare(knownFatherSurname ?? "") == .orderedSame
+                    let mMatches = motherSurname.caseInsensitiveCompare(knownMotherSurname ?? "") == .orderedSame
+                    if !(fMatches && mMatches) {
+                        logger.info("Skipping pair \(fatherSurname) × \(motherSurname): doesn't match linked parents \(knownFatherSurname ?? "?") × \(knownMotherSurname ?? "?")")
+                        continue
+                    }
+                } else if let resolvedID = resolvedBirthRecordID {
+                    let fFromResolved = father.evidence.contains { $0.id == resolvedID }
+                    let mFromResolved = mother.evidence.contains { $0.id == resolvedID }
+                    if !(fFromResolved || mFromResolved) {
+                        logger.info("Skipping pair \(fatherSurname) × \(motherSurname): not derived from resolved subject birth record")
+                        continue
+                    }
+                }
 
                 logger.info("Marriage enrichment: \(fatherSurname) × \(motherSurname), \(yearFrom)–\(yearTo)")
 
@@ -263,7 +357,9 @@ final class ResearchPipeline {
                 let outcome = MarriageEnrichmentEngine.match(
                     grooms: grooms,
                     brides: brides,
-                    yearWindow: yearFrom...yearTo
+                    yearWindow: yearFrom...yearTo,
+                    expectedGroomSpouseSurname: motherSurname,
+                    expectedBrideSpouseSurname: fatherSurname
                 )
                 switch outcome {
                 case .unique(let fatherGiven, let motherGiven, let fatherEv, let motherEv):

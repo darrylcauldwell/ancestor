@@ -365,6 +365,48 @@ nonisolated struct ClusteringEngine {
             }
         }
 
+        // Multiple marriages with different spouses → different lives.
+        // Modulo the rare widowed-and-remarried case (which falls back to
+        // user review), three marriages to three different spouses inside
+        // one cluster is almost always over-merging because there's no
+        // fact-anchored birth to pin the cluster temporally. Without this
+        // split rule the David Cauldwell test case grouped his 1969×HOLMES
+        // marriage with two unrelated 1975×JOYNES and 1994×HENNESSY records
+        // because all three landed in the same surname-only cluster.
+        let marriageSpouses: [(ScoredRecord, String)] = cluster.records.compactMap { record in
+            guard case .marriage(let m) = record.record else { return nil }
+            let spouse = (m.spouseName ?? "")
+                .trimmingCharacters(in: .whitespaces)
+                .uppercased()
+            return spouse.isEmpty ? nil : (record, spouse)
+        }
+        let distinctSpouses = Set(marriageSpouses.map(\.1))
+        if distinctSpouses.count >= 2 {
+            // Sort marriages by year. Keep the oldest spouse-group in this
+            // cluster, split the next-distinct-spouse record (and any
+            // sharing that spouse) out. Subsequent split-loop iterations
+            // peel off further distinct spouses.
+            let sortedByYear = marriageSpouses.sorted { (a, b) in
+                (yearOf(a.0) ?? 0) < (yearOf(b.0) ?? 0)
+            }
+            let keepSpouse = sortedByYear.first!.1
+            let splitOut = sortedByYear.filter { $0.1 != keepSpouse }.map(\.0)
+            // Take the first non-keep spouse-group out (peeling, not all at once),
+            // so the split loop can iterate further if there are three+ spouses.
+            let firstSplitSpouse = sortedByYear.first(where: { $0.1 != keepSpouse })!.1
+            let splitRecords = splitOut.filter { record in
+                guard case .marriage(let m) = record.record else { return false }
+                let s = (m.spouseName ?? "")
+                    .trimmingCharacters(in: .whitespaces)
+                    .uppercased()
+                return s == firstSplitSpouse
+            }
+            let keepRecords = cluster.records.filter { record in
+                !splitRecords.contains { $0.id == record.id }
+            }
+            return (keepRecords, splitRecords)
+        }
+
         return nil
     }
 

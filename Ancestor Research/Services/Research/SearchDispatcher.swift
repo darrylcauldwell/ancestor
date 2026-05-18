@@ -160,10 +160,44 @@ struct SearchDispatcher {
         case .strict:
             return queries
         case .loose:
-            return queries.map { $0.with(strictness: .loose) }
+            // Phonetic surname-only search is unbounded — FreeBMD's soundex
+            // for a common name like "Wheeldon" matches Wheldon, Weldon,
+            // Walden, Welton, … across every Derbyshire district × every
+            // record type. With no given-name filter the result set easily
+            // crosses 1000+ per source per run (observed: 6,306 hits in
+            // ~30min on a surname-only Wheeldon ghost). Downgrade to strict
+            // when the query has no given name to keep the query bounded;
+            // marriage-enrichment queries (which pass givenName=nil) get
+            // the same protection. Caller's ladder still falls through to
+            // the variant tier if strict comes back empty.
+            return queries.map { q in
+                if (q.givenName ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
+                    return q.with(strictness: .strict)
+                }
+                return q.with(strictness: .loose)
+            }
         case .variant:
             switch source.sourceID {
             case "freebmd", "freereg", "freecen":
+                // Storm guard (Wheeldon/Holmes case): surname-only variant
+                // fan-out across a wide year window probes every Welton /
+                // Walden / Hulme born in 30+ years × 4 record types ×
+                // every district — thousands of unrelated records. Skip
+                // the tier when ALL queries are surname-only AND span >5
+                // years. Narrow-window probes (e.g. known 1880 birth)
+                // stay bounded and useful for spelling variants.
+                let allSurnameOnly = queries.allSatisfy {
+                    ($0.givenName ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+                }
+                if allSurnameOnly {
+                    let widestWindow: Int = queries.map { q -> Int in
+                        guard let from = q.yearFrom, let to = q.yearTo else { return .max }
+                        return to - from
+                    }.max() ?? .max
+                    if widestWindow > 5 {
+                        return []
+                    }
+                }
                 return queries.flatMap { q -> [RecordQuery] in
                     let original = q.surname ?? ""
                     let variants = SurnameVariants.shared.variants(of: original)
