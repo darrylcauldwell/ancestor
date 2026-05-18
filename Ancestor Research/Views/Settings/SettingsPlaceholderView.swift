@@ -143,33 +143,9 @@ struct SettingsPlaceholderView: View {
                     .foregroundStyle(.tertiary)
             }
 
-            Section("Demo Mode") {
-                Toggle("Show demo family tree", isOn: Binding(
-                    get: { UserDefaults.standard.bool(forKey: "demoModeEnabled") },
-                    set: { enabled in
-                        UserDefaults.standard.set(enabled, forKey: "demoModeEnabled")
-                        if enabled {
-                            let (demoProfiles, demoRelationships) = DemoDataGenerator.generate()
-                            appState.snapshot = FamilyGraphSnapshot(profiles: demoProfiles, relationships: demoRelationships)
-                        } else if let db = appState.currentDatabase {
-                            appState.snapshot = (try? db.buildSnapshot()) ?? .empty
-                        }
-                    }
-                ))
-                Text("Replaces your tree with a fictional Ashford family for screenshots and demos. Your data is not affected.")
-                    .font(AppTypography.badge)
-                    .foregroundStyle(.tertiary)
-            }
-
             Section("Reasoning Model") {
                 reasoningModelSection
             }
-
-            #if !FIELD_RESEARCHER_DISABLED
-            Section("Field Researcher") {
-                fieldResearcherSection
-            }
-            #endif
 
             Section {
                 DisclosureGroup("Backups") {
@@ -343,88 +319,4 @@ struct SettingsPlaceholderView: View {
         }
     }
 
-    // MARK: - Field Researcher
-    #if !FIELD_RESEARCHER_DISABLED
-    @AppStorage("fieldResearcherEnabled") private var frEnabled = false
-    @AppStorage("fieldResearcherModel") private var frModel = "claude-sonnet-4-20250514"
-    @AppStorage("fieldResearcherBudget") private var frBudget = 0.50
-    @State private var frAPIKey = ""
-    @State private var frKeyStatus = ""
-    #endif
-
-    #if !FIELD_RESEARCHER_DISABLED
-    private var fieldResearcherSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Toggle("Enable Field Researcher", isOn: $frEnabled)
-
-            if frEnabled {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        SecureField("Claude API Key", text: $frAPIKey)
-                            .textFieldStyle(.roundedBorder)
-                        Button("Save") {
-                            saveAPIKey(frAPIKey)
-                            frKeyStatus = frAPIKey.isEmpty ? "" : "Saved to Keychain"
-                        }
-                        .buttonStyle(.glass)
-                        .controlSize(.small)
-                    }
-                    if !frKeyStatus.isEmpty {
-                        Text(frKeyStatus)
-                            .font(AppTypography.badge)
-                            .foregroundStyle(.green)
-                    }
-
-                    Picker("Model", selection: $frModel) {
-                        Text("Claude Sonnet 4").tag("claude-sonnet-4-20250514")
-                        Text("Claude Opus 4").tag("claude-opus-4-20250514")
-                    }
-
-                    HStack {
-                        Text("Per-session budget:")
-                            .font(AppTypography.cardBody)
-                        Picker("", selection: $frBudget) {
-                            Text("$0.25").tag(0.25)
-                            Text("$0.50").tag(0.50)
-                            Text("$1.00").tag(1.00)
-                            Text("$2.00").tag(2.00)
-                            Text("$5.00").tag(5.00)
-                        }
-                        .frame(width: 100)
-                    }
-
-                    Text("The Field Researcher uses the Claude API to search the web for evidence not available in structured sources. Findings are verified and scored through the same pipeline as other sources. You pay Claude API costs.")
-                        .font(AppTypography.badge)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-        }
-    }
-
-    private func saveAPIKey(_ key: String) {
-        let data = Data(key.utf8)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "dev.dreamfold.Ancestor-Research.claude-api",
-            kSecAttrAccount as String: "api-key",
-        ]
-        SecItemDelete(query as CFDictionary)
-        var addQuery = query
-        addQuery[kSecValueData as String] = data
-        SecItemAdd(addQuery as CFDictionary, nil)
-    }
-
-    static func loadAPIKey() -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "dev.dreamfold.Ancestor-Research.claude-api",
-            kSecAttrAccount as String: "api-key",
-            kSecReturnData as String: true,
-        ]
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-    #endif
 }

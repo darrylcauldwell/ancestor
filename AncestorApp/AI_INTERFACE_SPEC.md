@@ -1,8 +1,11 @@
-# Field Researcher Specification
+# Field Researcher Specification (DEPRECATED)
+
+**Status:** DEPRECATED — the in-app Claude API integration was removed in May 2026 ahead of App Store submission. The local MLX reasoning model (DeepSeek-R1) is now the sole AI tier, handling disambiguation, next-search suggestion, narrative synthesis, and free-text evidence extraction. The deterministic pipeline (4-gate scorer, clustering, convergence, hypothesis engine) is unchanged and remains the primary engine.
+
+The historical spec below is preserved for reference but does not describe shipping code. The `FieldResearcherMCP` Swift package in this repo is unrelated — it's a developer-only MCP server (no outbound API calls) used to pair-program against the project database from Claude Code.
 
 **Date:** 2026-04-25 (v5 — post-critique revision)  
-**Depends on:** RESEARCH_PIPELINE_SPEC.md (governing spec for the research pipeline)  
-**Status:** Design
+**Depends on:** RESEARCH_PIPELINE_SPEC.md (governing spec for the research pipeline)
 
 ---
 

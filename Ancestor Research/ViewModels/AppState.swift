@@ -345,7 +345,8 @@ final class AppState {
             currentProject = project
             currentDatabase = db
 
-            // Populate via the same DemoDataGenerator used by Settings → Demo Mode.
+            // Populate via DemoDataGenerator — same fictional Ashford family used
+            // by the screenshot tooling. "Open Sample Tree" creates a real project.
             let (demoProfiles, demoRelationships) = DemoDataGenerator.generate()
             try db.addFamily(
                 profiles: Array(demoProfiles.values),

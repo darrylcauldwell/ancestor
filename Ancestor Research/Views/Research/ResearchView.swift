@@ -20,30 +20,6 @@ struct ResearchView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            #if !FIELD_RESEARCHER_DISABLED
-            if frIsRunning {
-                FieldResearcherProgressView(
-                    profileName: frProfileName,
-                    isRunning: $frIsRunning,
-                    status: $frStatus,
-                    findingsCount: $frFindingsCount,
-                    cost: $frCost,
-                    onStop: { frIsRunning = false }
-                )
-            } else if let reviewID = pendingReviewProfileID, showPendingReview {
-                PendingFactsReviewView(profileID: reviewID)
-            } else if wholeTreeVM.isRunning {
-                wholeTreeProgress
-            } else if researchVM.isResearching {
-                ResearchProgressView(vm: researchVM)
-            } else if let result = researchVM.currentResult {
-                ClusterReviewView(vm: researchVM, result: result)
-            } else {
-                profileSelector
-            }
-            #else
-            // Field Researcher compiled out — direct path through the
-            // deterministic research pipeline; no API-key flow.
             if let reviewID = pendingReviewProfileID, showPendingReview {
                 PendingFactsReviewView(profileID: reviewID)
             } else if wholeTreeVM.isRunning {
@@ -55,7 +31,6 @@ struct ResearchView: View {
             } else {
                 profileSelector
             }
-            #endif
         }
         .navigationTitle(navigationTitle)
         // Research-trigger onChange handlers live on ContentView so they fire
@@ -167,28 +142,14 @@ struct ResearchView: View {
                 .font(AppTypography.cardMeta)
                 .foregroundStyle(comp.score == comp.maximum ? .green : .orange)
 
-            #if !FIELD_RESEARCHER_DISABLED
-            if frVisible {
-                Button(frIsRunning ? "Researching..." : "Field Research") {
-                    startFieldResearch(profile: profile)
-                }
-                .buttonStyle(.glass)
-                .controlSize(.small)
-                .disabled(frIsRunning)
+            // Review pending facts from a previous run. The Research entry
+            // point lives on the Tree tab; this tab surfaces the *triage* action.
+            Button("Review") {
+                pendingReviewProfileID = profile.id
+                showPendingReview = true
             }
-            #endif
-
-            // Review pending facts from any previous run (deterministic pipeline
-            // or Field Researcher). The Research entry-point lives on the Tree
-            // tab; this tab only surfaces the *triage* action.
-            if !DemoDataGenerator.isDemoMode {
-                Button("Review") {
-                    pendingReviewProfileID = profile.id
-                    showPendingReview = true
-                }
-                .buttonStyle(.glassProminent)
-                .controlSize(.small)
-            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.small)
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
@@ -259,105 +220,4 @@ struct ResearchView: View {
 
     @State private var showPendingReview = false
     @State private var pendingReviewProfileID: String?
-
-    // MARK: - Field Researcher Integration
-    #if !FIELD_RESEARCHER_DISABLED
-    @AppStorage("fieldResearcherEnabled") private var frEnabled = false
-    @State private var frIsRunning = false
-    @State private var frStatus = ""
-    @State private var frFindingsCount = 0
-    @State private var frCost = 0.0
-    @State private var frProfileName = ""
-
-    /// Whether the Field Researcher UI should be visible.
-    /// Always true in demo mode so reviewers can see the full interface.
-    private var frVisible: Bool {
-        frEnabled || DemoDataGenerator.isDemoMode
-    }
-
-    private func startFieldResearch(profile: Profile) {
-        // In demo mode, run a simulated session without API key or database
-        if DemoDataGenerator.isDemoMode {
-            startDemoFieldResearch(profile: profile)
-            return
-        }
-
-        guard let apiKey = SettingsPlaceholderView.loadAPIKey(), !apiKey.isEmpty else {
-            frStatus = "No API key — configure in Settings"
-            return
-        }
-        guard let db = appState.currentDatabase else { return }
-
-        frIsRunning = true
-        frProfileName = profile.displayName
-        frStatus = "Starting..."
-        frFindingsCount = 0
-        frCost = 0
-        showPendingReview = false
-
-        Task {
-            let api = ClaudeAPIClient(
-                apiKey: apiKey,
-                model: UserDefaults.standard.string(forKey: "fieldResearcherModel") ?? "claude-sonnet-4-20250514"
-            )
-            let budget = UserDefaults.standard.double(forKey: "fieldResearcherBudget")
-            let service = FieldResearcherService(
-                api: api, db: db, snapshot: appState.snapshot,
-                sourceInfoMap: registry.buildSourceInfoMap(),
-                sessionBudget: budget > 0 ? budget : 0.50
-            )
-
-            let result = await service.research(profileID: profile.id)
-            frIsRunning = false
-            frFindingsCount = result.findings.count + result.narrativeFindings.count
-            frCost = result.cost
-            frStatus = "\(frFindingsCount) findings, \(result.leads.count) leads — $\(String(format: "%.2f", result.cost))"
-
-            // Transition to pending facts review
-            if frFindingsCount > 0 {
-                pendingReviewProfileID = profile.id
-                showPendingReview = true
-            }
-        }
-    }
-
-    /// Simulated Field Researcher session for demo mode.
-    /// Shows realistic progress animation without calling the Claude API.
-    private func startDemoFieldResearch(profile: Profile) {
-        frIsRunning = true
-        frProfileName = profile.displayName
-        frStatus = "Building context..."
-        frFindingsCount = 0
-        frCost = 0
-        showPendingReview = false
-
-        Task {
-            try? await Task.sleep(for: .seconds(1.5))
-            frStatus = "Turn 1/8 — reasoning..."
-            try? await Task.sleep(for: .seconds(2))
-
-            frFindingsCount = 1
-            frCost = 0.03
-            frStatus = "Turn 2/8 — reasoning..."
-            try? await Task.sleep(for: .seconds(2))
-
-            frFindingsCount = 2
-            frCost = 0.07
-            frStatus = "Turn 3/8 — reasoning..."
-            try? await Task.sleep(for: .seconds(1.5))
-
-            frFindingsCount = 3
-            frCost = 0.11
-            frStatus = "Turn 4/8 — reasoning..."
-            try? await Task.sleep(for: .seconds(1.5))
-
-            frFindingsCount = 4
-            frCost = 0.14
-
-            frIsRunning = false
-            frStatus = "4 findings, 1 lead — $0.14 (demo)"
-        }
-    }
-    #endif
-
 }

@@ -2,14 +2,13 @@
 
 ## What This Is
 
-A macOS SwiftUI genealogy research app. Digital twin of a family tree with automated research pipeline, 7 structured sources, local reasoning model (MLX/DeepSeek-R1), and a Field Researcher (Claude API) for unstructured web evidence.
+A macOS SwiftUI genealogy research app. Digital twin of a family tree with automated research pipeline, 7 structured sources, and a local reasoning model (MLX/DeepSeek-R1) for probabilistic work (hypothesis generation, disambiguation, narrative synthesis). The in-app Claude API "Field Researcher" was removed in May 2026 ahead of App Store submission — MLX is now the sole reasoning tier.
 
 ## Tech Stack
 
 - **Swift 6.2+**, macOS 26, SwiftUI with Liquid Glass
 - **GRDB** for SQLite persistence
-- **MLX Swift** (mlx-swift-lm) for local reasoning model
-- **Claude API** for Field Researcher
+- **MLX Swift** (mlx-swift-lm) for the local reasoning model (sole AI tier — no third-party API)
 - Build with: `xcodebuild -project "Ancestor Research.xcodeproj" -scheme "Ancestor Research" -destination "platform=macOS" build -skipMacroValidation`
 - Test with: `xcodebuild -project "Ancestor Research.xcodeproj" -scheme "Ancestor Research Tests" -destination "platform=macOS" test -skipMacroValidation`
 
@@ -33,9 +32,9 @@ Each `.sqlite` file is one project (one family tree). The database must exist be
 - **v4**: scored_records, research_discrepancies, pending_facts
 - **v5**: narrative_findings, page_cache, field_researcher_sessions + pending_facts columns
 
-## MCP Server (Field Researcher)
+## MCP Server (developer tooling)
 
-Standalone Swift Package at `FieldResearcherMCP/`. Connects Claude Code to the project database.
+Standalone Swift Package at `FieldResearcherMCP/`. Connects Claude Code (CLI) to the project database for pair-programming and research. **Not shipped with the app** — makes no outbound network calls, exists only as a development surface. The "FieldResearcher" name is legacy; the package is unrelated to the in-app Field Researcher service that was removed in May 2026.
 
 **Build:**
 ```bash
@@ -71,7 +70,7 @@ Views/Research/        — ResearchView, ClusterReviewView, PendingFactsReviewVi
 ## Key Design Decisions
 
 - **Deterministic sandwich**: 4-gate scorer + convergence engine are never overridden by any AI
-- **Evidence Firewall**: Field Researcher findings enter through `pending_facts` → hallucination checks → scorer → human review. AI cannot write to profiles directly.
+- **Evidence Firewall**: External findings (MCP `submit_evidence`, MLX-extracted facts) enter through `pending_facts` → hallucination checks → scorer → human review. AI cannot write to profiles directly.
 - **Source trust from URL, not from AI**: SourceTierRegistry maps cited URLs to trust tiers
 - **When in doubt, split**: Clustering prefers over-splitting (user can merge) over over-merging (hard to undo)
 
@@ -87,5 +86,5 @@ Views/Research/        — ResearchView, ClusterReviewView, PendingFactsReviewVi
 ## Specs
 
 - `AncestorApp/RESEARCH_PIPELINE_SPEC.md` — governing architectural spec (fully implemented)
-- `AncestorApp/AI_INTERFACE_SPEC.md` — Field Researcher spec (fully implemented)
+- `AncestorApp/AI_INTERFACE_SPEC.md` — DEPRECATED. Described the in-app Claude API Field Researcher, which was removed in May 2026 ahead of App Store submission.
 - `AncestorApp/IMPLEMENTATION_PLAN.md` — 12-phase build plan (all complete)

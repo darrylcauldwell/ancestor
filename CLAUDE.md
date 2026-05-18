@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This repo holds two related-but-independent codebases that share the genealogy domain model:
 
 1. **Python research agent** (root: `sources/`, `agent/`, `wikitree/`, `compare_*.py`, `research_agent.py`) — original deterministic CLI that researches a WikiTree profile against 7 free sources. Reference implementation for genealogical rules.
-2. **Swift macOS app** (`Ancestor Research/`, `Ancestor Research.xcodeproj`, `FieldResearcherMCP/`) — the productised SwiftUI app. Ports the Python rules and adds an MLX local model + Claude-API "Field Researcher". This is the active product surface.
+2. **Swift macOS app** (`Ancestor Research/`, `Ancestor Research.xcodeproj`, `FieldResearcherMCP/`) — the productised SwiftUI app. Ports the Python rules and adds an MLX local reasoning model. This is the active product surface. (The in-app Claude API "Field Researcher" was removed in May 2026 ahead of App Store submission; the `FieldResearcherMCP` Swift package is unrelated — it's a developer-only MCP server with no outbound network calls.)
 
 When working in the Swift app, also read `Ancestor Research/CLAUDE.md` — it has app-specific architecture, schema, and MCP wiring.
 
@@ -81,9 +81,13 @@ python import_twin_to_app.py    # one-shot import .wikitree-twin.json → app sq
                                                   Claude Code as MCP server
                                                           ▲
                                                           │
-                                                  Claude Code / API
-                                                  (Field Researcher —
-                                                   unstructured web evidence)
+                                                  Claude Code (dev tooling —
+                                                  not shipped in the app)
+
+   Reasoning tier:                               MLX local model (DeepSeek-R1)
+   in-app probabilistic                          handles disambiguation,
+   work uses ONLY the local MLX                  next-search suggestion,
+   model — no outbound API calls.                free-text evidence extraction.
 ```
 
 Inside the Swift app:
@@ -109,7 +113,7 @@ These are easy to break and the tests will not always catch them:
 ## Specs (read these before non-trivial Swift work)
 
 - `AncestorApp/RESEARCH_PIPELINE_SPEC.md` — governing architectural spec (implemented)
-- `AncestorApp/AI_INTERFACE_SPEC.md` — Field Researcher contract (implemented)
+- `AncestorApp/AI_INTERFACE_SPEC.md` — deprecated; described the in-app Claude API "Field Researcher" which was removed in May 2026 ahead of App Store submission. MLX local model is now the sole reasoning tier.
 - `AncestorApp/IMPLEMENTATION_PLAN.md` — 12-phase build plan (all phases complete)
 - `DESIGN.md` (root, 2536 lines) — end-state product design
 - `GUIDE.md` — Python agent's user guide and session model

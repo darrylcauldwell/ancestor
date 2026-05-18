@@ -5,10 +5,14 @@ import Foundation
 /// No real people — entirely fictitious.
 nonisolated struct DemoDataGenerator {
 
+    /// True only when the binary was launched with `--demo-mode` or in
+    /// screenshot-generation mode. Both are developer/CI paths — there is no
+    /// user-facing toggle. (The Settings Demo Mode toggle was removed in May
+    /// 2026: the "Open Sample Tree" button on the welcome screen creates a
+    /// real persistent project and is the single canonical demo path.)
     static var isDemoMode: Bool {
         ProcessInfo.processInfo.arguments.contains("--demo-mode") ||
-        ScreenshotScreen.isScreenshotMode ||
-        UserDefaults.standard.bool(forKey: "demoModeEnabled")
+        ScreenshotScreen.isScreenshotMode
     }
 
     /// Generate a demo snapshot with ~30 profiles across 5 generations.
