@@ -161,6 +161,12 @@ nonisolated enum ParentInferenceEngine {
                     inferenceDepth: depth
                 ))
                 seenIDs.insert(motherID)
+            } else if let idx = result.firstIndex(where: { $0.id == motherID }),
+                      !result[idx].evidence.contains(where: { $0.id == fact.id }) {
+                // Same proposal already exists from a prior birth record —
+                // accumulate this record's citation so the trail reflects
+                // every contributing record, not just the first one seen.
+                result[idx].evidence.append(fact)
             }
 
             // Father — surname inferred from subject (BMD index does not carry it directly)
@@ -180,6 +186,14 @@ nonisolated enum ParentInferenceEngine {
                         inferenceDepth: depth
                     ))
                     seenIDs.insert(fatherID)
+                } else if let idx = result.firstIndex(where: { $0.id == fatherID }),
+                          !result[idx].evidence.contains(where: { $0.id == fact.id }) {
+                    // Father proposals dedupe to one per subject (stable ID
+                    // keyed on subject's surname which is constant across
+                    // birth records). Accumulate every birth record's
+                    // citation here so the proposal isn't visually wired to
+                    // a single arbitrary record.
+                    result[idx].evidence.append(fact)
                 }
             }
         }

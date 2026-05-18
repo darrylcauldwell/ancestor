@@ -74,6 +74,12 @@ nonisolated struct ResearchSubject: Sendable {
     var profileID: String?
     var surname: String?
     var givenName: String?
+    /// Optional middle name(s). When present, the name gate uses it to reject
+    /// records whose given-name field carries a different middle initial — so
+    /// "Jennifer Margaret" passes "Jennifer M Holmes" but fails "Jennifer A
+    /// Holmes". Match is permissive when the record itself has no middle
+    /// content (records that show only "Jennifer Holmes" still pass).
+    var middleName: String?
     var birthYearFrom: Int?
     var birthYearTo: Int?
     var deathYearFrom: Int?
@@ -159,12 +165,31 @@ nonisolated extension ResearchSubject {
             motherName: parents.first(where: { $0.gender == .female })?.displayName
         )
 
+        // Birth window — hard date wins when present. When absent (common
+        // for parents added by name only via the onboarding wizard), derive a
+        // soft window from the oldest known child's birth year: parents are
+        // typically 18..45 years older than their first child. Without this
+        // fallback the date gate fails with "insufficient date information"
+        // for every record, which downgrades real birth records to leads and
+        // blocks identity resolution + auto-promote. The wide window (~27
+        // years) is automatically downgraded to a "weakly supported" cluster
+        // verdict so we don't auto-promote on thin air.
+        let (birthFrom, birthTo): (Int?, Int?) = {
+            if let date = profile.birthDate, date.earliest != nil || date.latest != nil {
+                return (date.earliest, date.latest)
+            }
+            let childYears = children.compactMap { $0.birthDate?.earliest }
+            guard let oldestChildYear = childYears.min() else { return (nil, nil) }
+            return (oldestChildYear - 45, oldestChildYear - 18)
+        }()
+
         return ResearchSubject(
             profileID: profile.id,
             surname: profile.lastName,
             givenName: profile.firstName,
-            birthYearFrom: profile.birthDate?.earliest,
-            birthYearTo: profile.birthDate?.latest,
+            middleName: profile.middleName,
+            birthYearFrom: birthFrom,
+            birthYearTo: birthTo,
             deathYearFrom: profile.deathDate?.earliest,
             deathYearTo: profile.deathDate?.latest,
             gender: profile.gender,

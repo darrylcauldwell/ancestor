@@ -193,17 +193,33 @@ final class RunRequestWatcher {
         // hypothesis-guided second pass adds corroborating records.
         #if AUTOMATION_AUTO_ACCEPT
         if request.autoAccept == "confirmed" {
-            let promoted = autoAcceptStronglySupportedProposals(
-                proposals: result.proposedRelatives,
-                clusters: result.clusters,
-                sourceInfoMap: sourceInfoMap,
-                db: db
+            // Subject-identity precondition. Closes the Colin-Holmes failure
+            // mode: when the subject has multiple plausible birth records and
+            // no district anchor, the scorer treats several as facts and
+            // downstream inference silently picks one. The resolver demands a
+            // geographic hypothesis (own marriage location, children's birth
+            // locations, etc.) uniquely identify ONE candidate birth before
+            // any proposal is auto-promoted from this run.
+            let identity = resolveSubjectIdentity(
+                subject: subject,
+                result: result,
+                snapshot: appState.snapshot
             )
-            if promoted > 0 {
-                logger.info("Auto-accept: promoted \(promoted) strongly-supported proposed relatives for request \(request.id)")
-                // Refresh snapshot so subsequent runs in the same recursion
-                // see the new ghost profiles + parent edges.
-                appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+            if !identity.isResolved {
+                logger.info("Auto-accept skipped: subject identity not resolved (\(String(describing: identity))) for request \(request.id)")
+            } else {
+                let promoted = autoAcceptStronglySupportedProposals(
+                    proposals: result.proposedRelatives,
+                    clusters: result.clusters,
+                    sourceInfoMap: sourceInfoMap,
+                    db: db
+                )
+                if promoted > 0 {
+                    logger.info("Auto-accept: promoted \(promoted) strongly-supported proposed relatives for request \(request.id)")
+                    // Refresh snapshot so subsequent runs in the same recursion
+                    // see the new ghost profiles + parent edges.
+                    appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+                }
             }
         }
         #endif
@@ -264,6 +280,34 @@ final class RunRequestWatcher {
             promoted += 1
         }
         return promoted
+    }
+
+    /// Generates geographic hypotheses for the subject from family-graph
+    /// signals and runs the identity resolver against this run's birth-fact
+    /// records. Returns `.resolved` only when exactly one candidate birth
+    /// passes the geographic filter; ambiguous or unresolved outcomes block
+    /// auto-promote. Pure-ish — no DB writes, just a read of in-memory state.
+    private func resolveSubjectIdentity(
+        subject: ResearchSubject,
+        result: ResearchResult,
+        snapshot: FamilyGraphSnapshot
+    ) -> SubjectIdentityResolution {
+        guard let subjectID = subject.profileID else {
+            return .unresolved(reason: "subject has no profileID")
+        }
+        let births = result.allScoredRecords.filter { scored in
+            if case .birth = scored.record, scored.verdict == .fact { return true }
+            return false
+        }
+        let hypotheses = GeographicHypothesisGenerator.inferDistricts(
+            for: subjectID,
+            snapshot: snapshot,
+            eventYear: subject.birthYearFrom
+        )
+        return SubjectIdentityResolver.resolve(
+            candidateBirthFacts: births,
+            hypotheses: hypotheses
+        )
     }
     #endif
 

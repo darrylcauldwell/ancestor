@@ -18,6 +18,7 @@ nonisolated enum OnboardingWizardBuilder {
     struct PersonInput: Sendable, Identifiable {
         let id: UUID
         var firstName: String
+        var middleName: String
         var lastName: String
         var gender: Gender?
         var birthDateText: String
@@ -28,12 +29,13 @@ nonisolated enum OnboardingWizardBuilder {
 
         init(
             id: UUID = UUID(),
-            firstName: String, lastName: String, gender: Gender?,
+            firstName: String, middleName: String = "", lastName: String, gender: Gender?,
             birthDateText: String, birthLocation: String,
             birthLocationCode: String? = nil
         ) {
             self.id = id
             self.firstName = firstName
+            self.middleName = middleName
             self.lastName = lastName
             self.gender = gender
             self.birthDateText = birthDateText
@@ -43,6 +45,7 @@ nonisolated enum OnboardingWizardBuilder {
 
         var isPopulated: Bool {
             AutoSuggestService.normaliseName(firstName) != nil ||
+                AutoSuggestService.normaliseName(middleName) != nil ||
                 AutoSuggestService.normaliseName(lastName) != nil ||
                 !birthDateText.trimmingCharacters(in: .whitespaces).isEmpty
         }
@@ -242,6 +245,7 @@ nonisolated enum OnboardingWizardBuilder {
             id: id,
             externalIDs: [:],
             firstName: AutoSuggestService.normaliseName(input.firstName),
+            middleName: AutoSuggestService.normaliseName(input.middleName),
             lastName: AutoSuggestService.normaliseName(input.lastName),
             gender: input.gender ?? fallbackGender,
             attributes: nil,

@@ -17,6 +17,7 @@ struct AddPersonView: View {
 
     // MARK: Form state
     @State private var firstName: String = ""
+    @State private var middleName: String = ""
     @State private var lastName: String = ""
     @State private var gender: Gender = .unknown
     @State private var birthDateText: String = ""
@@ -104,10 +105,13 @@ struct AddPersonView: View {
             HStack(spacing: 8) {
                 TextField("First name", text: $firstName)
                     .textFieldStyle(.roundedBorder)
+                TextField("Middle name (optional)", text: $middleName)
+                    .textFieldStyle(.roundedBorder)
                 TextField("Last name", text: $lastName)
                     .textFieldStyle(.roundedBorder)
             }
             if let warning = NameLengthWarning.warningText(forName: firstName)
+                ?? NameLengthWarning.warningText(forName: middleName)
                 ?? NameLengthWarning.warningText(forName: lastName) {
                 Text(warning)
                     .font(AppTypography.cardMeta)
@@ -267,6 +271,7 @@ struct AddPersonView: View {
 
     private func save() {
         let normalisedFirst = AutoSuggestService.normaliseName(firstName)
+        let normalisedMiddle = AutoSuggestService.normaliseName(middleName)
         let normalisedLast = AutoSuggestService.normaliseName(lastName)
         let birth = GenealogicalDate.parsePreview(birthDateText).parsed
         let death = GenealogicalDate.parsePreview(deathDateText).parsed
@@ -281,6 +286,7 @@ struct AddPersonView: View {
             id: UUID().uuidString,
             externalIDs: [:],
             firstName: normalisedFirst,
+            middleName: normalisedMiddle,
             lastName: normalisedLast,
             gender: gender == .unknown ? nil : gender,
             attributes: attributes == .default ? nil : attributes,

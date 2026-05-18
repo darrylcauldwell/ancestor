@@ -268,6 +268,8 @@ struct OnboardingWizardView: View {
                             HStack(spacing: 6) {
                                 TextField("First name", text: $child.firstName)
                                     .textFieldStyle(.roundedBorder)
+                                TextField("Middle", text: $child.middleName)
+                                    .textFieldStyle(.roundedBorder)
                                 TextField("Last name", text: $child.lastName)
                                     .textFieldStyle(.roundedBorder)
                             }
@@ -396,6 +398,8 @@ struct OnboardingWizardView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 TextField("First name", text: input.firstName)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Middle", text: input.middleName)
                     .textFieldStyle(.roundedBorder)
                 TextField("Last name", text: input.lastName)
                     .textFieldStyle(.roundedBorder)

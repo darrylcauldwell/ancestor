@@ -113,6 +113,7 @@ nonisolated struct RecordScorer {
     private static func checkName(record: SourceRecord, subject: ResearchSubject) -> GateResult {
         let personSurname = (subject.surname ?? "").uppercased().trimmingCharacters(in: .whitespaces)
         let personGiven = (subject.givenName ?? "").uppercased().trimmingCharacters(in: .whitespaces)
+        let personMiddle = (subject.middleName ?? "").uppercased().trimmingCharacters(in: .whitespaces)
 
         var recordSurname = (record.surname ?? "").uppercased().trimmingCharacters(in: .whitespaces)
         var recordGiven = (record.givenName ?? record.name ?? "").uppercased().trimmingCharacters(in: .whitespaces)
@@ -137,7 +138,12 @@ nonisolated struct RecordScorer {
 
         var givenScore = 0.5
         if !recordGiven.isEmpty && !personGiven.isEmpty {
-            givenScore = ScoringRules.nameSimilarity(recordGiven, personGiven)
+            // Compare against just the first token of the record's given-name
+            // field so a record like "JENNIFER M HOLMES" (surname split off
+            // already, leaving "JENNIFER M") still matches subject given name
+            // "JENNIFER" without being penalised by the middle initial.
+            let recordFirstGiven = recordGiven.split(separator: " ").first.map(String.init) ?? recordGiven
+            givenScore = ScoringRules.nameSimilarity(recordFirstGiven, personGiven)
             if givenScore < 0.7 {
                 return GateResult(gate: .name, outcome: .fail, reason: "given name mismatch: \(recordGiven) vs \(personGiven)")
             }
@@ -145,7 +151,57 @@ nonisolated struct RecordScorer {
             return GateResult(gate: .name, outcome: .fail, reason: "no given name in record to compare")
         }
 
+        // Middle-name guard. When subject has a middle name and the record
+        // carries middle content too, require that content to be consistent
+        // — same initial or substring match. Records with no middle content
+        // pass (a bare "Jennifer Holmes" entry shouldn't be rejected for a
+        // "Jennifer Margaret" subject). Closes the May 2026 ambiguity where
+        // five candidate Jennifer Holmes 1947-49 births all passed the gate
+        // because middle initials weren't compared.
+        if !personMiddle.isEmpty, let recordMiddle = extractMiddleContent(from: recordGiven) {
+            if !middleNameMatches(subjectMiddle: personMiddle, recordMiddle: recordMiddle) {
+                return GateResult(gate: .name, outcome: .fail, reason: "middle name mismatch: subject=\(personMiddle) vs record=\(recordMiddle)")
+            }
+        }
+
         return GateResult(gate: .name, outcome: .pass, reason: String(format: "surname=%.2f, given=%.2f", surnameScore, givenScore))
+    }
+
+    /// Extract whatever sits between the first token and the last token of
+    /// the record's given-name field. For "JENNIFER M HOLMES" we already
+    /// split surname off earlier, leaving recordGiven = "JENNIFER M" (or
+    /// "JENNIFER MARGARET"). Return "M" / "MARGARET", or nil when there's
+    /// no middle content to compare.
+    private static func extractMiddleContent(from recordGiven: String) -> String? {
+        let tokens = recordGiven.split(separator: " ").map(String.init)
+        guard tokens.count >= 2 else { return nil }
+        // Everything after the first token is middle content (FreeBMD usually
+        // gives the surname separately so all extra tokens here are middle).
+        return tokens.dropFirst().joined(separator: " ")
+    }
+
+    /// True when the record's middle content is consistent with the subject's
+    /// middle name. Same first initial = match. Substring match (subject
+    /// "MARGARET" contains record "M", or vice versa) = match. Otherwise no.
+    /// Case is already upper at call site.
+    private static func middleNameMatches(subjectMiddle: String, recordMiddle: String) -> Bool {
+        // Compare token-by-token so multi-middle names ("MARY ANN") still work.
+        let subjectTokens = subjectMiddle.split(separator: " ").map(String.init)
+        let recordTokens = recordMiddle.split(separator: " ").map(String.init)
+        // Pair them up; if the subject has more tokens than the record, the
+        // record's content is a prefix subset (subject "MARY ANN", record "M"
+        // → compare M to MARY → first-initial match → pass).
+        let pairs = zip(subjectTokens, recordTokens)
+        for (sub, rec) in pairs {
+            guard let subFirst = sub.first, let recFirst = rec.first else { continue }
+            if subFirst != recFirst { return false }
+            // Full token comparison when both are longer than initials.
+            if sub.count > 1 && rec.count > 1 && sub != rec
+               && !sub.hasPrefix(rec) && !rec.hasPrefix(sub) {
+                return false
+            }
+        }
+        return true
     }
 
     // MARK: - Gate 2: Date

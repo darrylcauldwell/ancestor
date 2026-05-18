@@ -218,6 +218,8 @@ struct AddFamilyView: View {
             HStack(spacing: 8) {
                 TextField("First name", text: slot.firstName)
                     .textFieldStyle(.roundedBorder)
+                TextField("Middle", text: slot.middleName)
+                    .textFieldStyle(.roundedBorder)
                 TextField("Last name", text: slot.lastName)
                     .textFieldStyle(.roundedBorder)
             }
@@ -370,6 +372,7 @@ struct AddFamilyView: View {
                 id: id,
                 externalIDs: [:],
                 firstName: AutoSuggestService.normaliseName(slot.firstName),
+                middleName: AutoSuggestService.normaliseName(slot.middleName),
                 lastName: AutoSuggestService.normaliseName(slot.lastName),
                 gender: (slot.gender == .unknown ? nil : slot.gender) ?? defaultGender,
                 attributes: nil,
@@ -402,6 +405,7 @@ struct AddFamilyView: View {
         var mode: Mode = .new
         var existingID: String?
         var firstName: String = ""
+        var middleName: String = ""
         var lastName: String = ""
         var gender: Gender = .unknown
         var birthDateText: String = ""
