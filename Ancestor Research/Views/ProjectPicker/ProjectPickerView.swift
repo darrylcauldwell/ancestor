@@ -9,19 +9,43 @@ struct ProjectPickerView: View {
     @State private var exportingProjectID: UUID?
     @State private var pendingExportName: String = "project"
     @State private var showingExporter = false
-    @State private var showingImporter = false
 
-    // GEDCOM/GEDZip import (M15)
-    @State private var showingGEDCOMImporter = false
+    /// Single, enum-driven file-import slot. SwiftUI on macOS swallows
+    /// silently when multiple `.fileImporter` modifiers are stacked on the
+    /// same view — only one will trigger and the others get nothing on
+    /// click. Routing every import flavour through one importer slot
+    /// avoids the bug. Set this from any button; the importer modifier
+    /// reads the current target to pick the right content types and the
+    /// result handler routes to the right ingestion path.
+    ///
+    /// Note: the presentation flag is a *separate* `Bool` rather than a
+    /// computed `Binding` over `activeImporter`. SwiftUI calls the
+    /// presented-binding's setter (clearing the target) BEFORE firing
+    /// the result handler, so a computed binding silently nukes the
+    /// target the handler needs to read. Two states, one cleared by
+    /// SwiftUI, the other cleared by the handler.
+    @State private var activeImporter: ImporterTarget?
+    @State private var isImporterPresented: Bool = false
 
-    // GEDCOM "Import as suggestions" — opens an existing project then
-    // routes the picked file through `importGEDCOMAsCorrections` (M22).
-    @State private var showingCorrectionsImporter = false
+    /// Set alongside `activeImporter = .corrections` so the result handler
+    /// knows which existing project the GEDCOM-as-suggestions import is
+    /// targeted at (M22).
     @State private var correctionsTargetProjectID: UUID?
+
+    enum ImporterTarget: Identifiable, Hashable {
+        case ancestor       // .ancestor archive → new project (M13)
+        case gedcom         // .ged or .gdz → new project (M15)
+        case corrections    // .ged → suggestions for an existing project (M22)
+        var id: Self { self }
+    }
 
     // Archive / permanent-delete
     @State private var showArchived = false
     @State private var pendingHardDelete: Project?
+
+    // Drag-and-drop highlight state. Wrapped by .onDrop so the welcome window
+    // shows an accent-coloured border the moment a draggable file is over it.
+    @State private var isDropTargeted = false
 
     private var activeProjects: [Project] {
         appState.availableProjects.filter { !$0.isArchived }
@@ -31,97 +55,35 @@ struct ProjectPickerView: View {
     }
 
     var body: some View {
-        VStack(spacing: 24) {
-            Text(AppConstants.displayName)
-                .font(.largeTitle)
-                .fontWeight(.bold)
-
+        VStack(spacing: 0) {
             if appState.availableProjects.isEmpty {
-                ContentUnavailableView {
-                    Label("No Projects", systemImage: "folder.badge.plus")
-                } description: {
-                    Text("Create a new project, or tap **View Sample Tree** below to explore with fictional data.")
-                }
+                welcomeContent
             } else {
-                VStack(spacing: 8) {
-                    List {
-                        Section {
-                            ForEach(activeProjects) { project in
-                                projectRow(project)
-                                    .contextMenu { activeContextMenu(project) }
-                            }
-                        }
-                        if showArchived && !archivedProjects.isEmpty {
-                            Section("Archived") {
-                                ForEach(archivedProjects) { project in
-                                    projectRow(project)
-                                        .opacity(0.6)
-                                        .contextMenu { archivedContextMenu(project) }
-                                }
-                            }
-                        }
-                    }
-                    .frame(maxWidth: 500, maxHeight: 300)
-
-                    if !archivedProjects.isEmpty {
-                        Toggle(isOn: $showArchived) {
-                            Text("Show archived (\(archivedProjects.count))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                        .frame(maxWidth: 500, alignment: .trailing)
-                    }
-                }
-            }
-
-            HStack(spacing: 12) {
-                Button("New Project") {
-                    showingNewProject = true
-                }
-                .buttonStyle(.glassProminent)
-
-                Button {
-                    showingImporter = true
-                } label: {
-                    Label("Import .ancestor…", systemImage: "tray.and.arrow.down")
-                }
-                .buttonStyle(.glass)
-                .help("Import a .ancestor archive previously exported from this app")
-                .accessibilityHint("Import a .ancestor archive previously exported from this app")
-
-                Button {
-                    showingGEDCOMImporter = true
-                } label: {
-                    Label("Import GEDCOM (.ged or .gdz)…", systemImage: "square.and.arrow.down")
-                }
-                .buttonStyle(.glass)
-                .help("Import a GEDCOM file or GEDZip container into a new project")
-                .accessibilityHint("Import a GEDCOM file or GEDZip container into a new project")
-
-                // Reviewer- and first-user-friendly entry: opens (or creates)
-                // the bundled "Sample Family" project so every feature is
-                // reachable without a GEDCOM file or WikiTree account.
-                Button {
-                    appState.openSampleProject()
-                } label: {
-                    Label("View Sample Tree", systemImage: "tree")
-                }
-                .buttonStyle(.glass)
-                .help("Open a fictional 30-profile family for exploring the app's features")
-                .accessibilityHint("Open a fictional 30-profile family for exploring the app's features")
+                returningContent
             }
 
             if let error = appState.errorMessage {
                 Text(error)
                     .foregroundStyle(.red)
                     .font(.caption)
+                    .padding(.top, 12)
             }
         }
-        .padding(40)
-        .frame(minWidth: 500, minHeight: 400)
+        .padding(36)
+        .frame(minWidth: 700, minHeight: 520)
         .background(.ultraThinMaterial)
+        // Drag a .ged / .gdz / .ancestor file onto the window to import.
+        // Discoverable for first-time users who have a tree file in Finder
+        // and would rather drop than navigate the importer.
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted, perform: handleDrop)
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.accentColor, lineWidth: 3)
+                    .padding(8)
+                    .allowsHitTesting(false)
+            }
+        }
         .sheet(isPresented: $showingNewProject) {
             NewProjectView()
         }
@@ -133,26 +95,20 @@ struct ProjectPickerView: View {
         ) { result in
             handleExportResult(result)
         }
+        // Single importer, enum-driven — see `activeImporter` doc.
         .fileImporter(
-            isPresented: $showingImporter,
-            allowedContentTypes: [.ancestorArchive, .zip, .data],
+            isPresented: $isImporterPresented,
+            allowedContentTypes: contentTypes(for: activeImporter ?? .gedcom),
             allowsMultipleSelection: false
         ) { result in
-            handleImportResult(result)
-        }
-        .fileImporter(
-            isPresented: $showingGEDCOMImporter,
-            allowedContentTypes: [.gedcomFile, .gedZipFile, .data],
-            allowsMultipleSelection: false
-        ) { result in
-            handleGEDCOMImportResult(result)
-        }
-        .fileImporter(
-            isPresented: $showingCorrectionsImporter,
-            allowedContentTypes: [.gedcomFile, .data],
-            allowsMultipleSelection: false
-        ) { result in
-            handleCorrectionsImportResult(result)
+            let target = activeImporter
+            activeImporter = nil
+            switch target {
+            case .ancestor:    handleImportResult(result)
+            case .gedcom:      handleGEDCOMImportResult(result)
+            case .corrections: handleCorrectionsImportResult(result)
+            case .none:        break
+            }
         }
         .confirmationDialog(
             "Delete \"\(pendingHardDelete?.name ?? "")\" permanently?",
@@ -171,6 +127,249 @@ struct ProjectPickerView: View {
             Button("Cancel", role: .cancel) { pendingHardDelete = nil }
         } message: {
             Text("This removes the SQLite file, media, thumbnails, and backups. It cannot be undone.")
+        }
+    }
+
+    // MARK: - Welcome (no projects yet)
+
+    /// First-time / reviewer landing. The hero invites the visitor to open
+    /// the bundled Sample Family in one click — no GEDCOM, no WikiTree
+    /// account, no Settings detour. Secondary actions sit beneath an
+    /// "or start your own" divider with reduced visual weight so the path
+    /// of least resistance is obvious. Aligned with the App Review feedback
+    /// from May 2026 which got stuck on the previous all-buttons-equal layout.
+    @ViewBuilder
+    private var welcomeContent: some View {
+        VStack(spacing: 28) {
+            VStack(spacing: 8) {
+                Text(AppConstants.displayName)
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                Text("Research your family tree against seven free historical sources.")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button {
+                appState.openSampleProject()
+            } label: {
+                HStack(spacing: 14) {
+                    Image(systemName: "tree.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.tint)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Open Sample Tree")
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                        Text("See how the app works with a fictional 30-person family.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .frame(maxWidth: 520, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            .help("Open a fictional 30-profile family for exploring the app's features")
+            .accessibilityHint("Open a fictional 30-profile family for exploring the app's features")
+
+            HStack(spacing: 12) {
+                Rectangle()
+                    .fill(.tertiary)
+                    .frame(maxWidth: 90, maxHeight: 1)
+                Text("or start your own")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Rectangle()
+                    .fill(.tertiary)
+                    .frame(maxWidth: 90, maxHeight: 1)
+            }
+
+            HStack(spacing: 12) {
+                Button {
+                    showingNewProject = true
+                } label: {
+                    Label("New Project", systemImage: "plus")
+                }
+                .buttonStyle(.glass)
+
+                Button {
+                    presentImporter(.gedcom)
+                } label: {
+                    Label("Import GEDCOM…", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.glass)
+
+                Button {
+                    presentImporter(.ancestor)
+                } label: {
+                    Label("Import .ancestor…", systemImage: "tray.and.arrow.down")
+                }
+                .buttonStyle(.glass)
+            }
+
+            VStack(spacing: 4) {
+                Text("Tip: drag a .ged, .gdz or .ancestor file onto this window to import.")
+                Link(
+                    "Exporting from Ancestry, MyHeritage, or FindMyPast?",
+                    destination: URL(string: "https://github.com/darrylcauldwell/ancestor/blob/main/SUPPORT.md#exporting-a-gedcom-from-another-tree-app")!
+                )
+            }
+            .font(.footnote)
+            .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Returning visitor (projects exist)
+
+    /// Streamlined list view shown when at least one project already exists.
+    /// The hero is dropped — the visitor knows what the app is — and the
+    /// list of projects is the primary surface. New Project + Sample Tree
+    /// stay easily reachable from a slim toolbar row above the list.
+    @ViewBuilder
+    private var returningContent: some View {
+        VStack(spacing: 14) {
+            HStack {
+                Text(AppConstants.displayName)
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Spacer()
+                Button {
+                    appState.openSampleProject()
+                } label: {
+                    Label("Sample Tree", systemImage: "tree")
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                .help("Open a fictional 30-profile family for exploring the app's features")
+                Button {
+                    presentImporter(.gedcom)
+                } label: {
+                    Label("Import GEDCOM…", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                Button {
+                    presentImporter(.ancestor)
+                } label: {
+                    Label("Import .ancestor…", systemImage: "tray.and.arrow.down")
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                Button {
+                    showingNewProject = true
+                } label: {
+                    Label("New Project", systemImage: "plus")
+                }
+                .buttonStyle(.glassProminent)
+                .controlSize(.small)
+            }
+            .frame(maxWidth: 620)
+
+            List {
+                Section {
+                    ForEach(activeProjects) { project in
+                        projectRow(project)
+                            .contextMenu { activeContextMenu(project) }
+                    }
+                }
+                if showArchived && !archivedProjects.isEmpty {
+                    Section("Archived") {
+                        ForEach(archivedProjects) { project in
+                            projectRow(project)
+                                .opacity(0.6)
+                                .contextMenu { archivedContextMenu(project) }
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: 620, minHeight: 320)
+
+            if !archivedProjects.isEmpty {
+                Toggle(isOn: $showArchived) {
+                    Text("Show archived (\(archivedProjects.count))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .frame(maxWidth: 620, alignment: .trailing)
+            }
+        }
+    }
+
+    // MARK: - Import target → allowed content types
+
+    /// Show the import file picker for the given target. Always set both
+    /// `activeImporter` AND `isImporterPresented` together — the
+    /// presentation flag drives SwiftUI's panel; the target tells the
+    /// result handler which ingestion path to take. Setting only one
+    /// silently does nothing (the bug fixed in T27.5).
+    private func presentImporter(_ target: ImporterTarget) {
+        activeImporter = target
+        isImporterPresented = true
+    }
+
+    /// Allowed types per import target. `.data` is deliberately omitted —
+    /// including it makes the macOS panel show every file (defeating the
+    /// filter). If users have legitimately misnamed files that the system
+    /// doesn't tag as `.ged`/`.gdz`/`.ancestor`, drag-and-drop still works
+    /// (the drop handler routes by extension).
+    private func contentTypes(for target: ImporterTarget) -> [UTType] {
+        switch target {
+        case .ancestor:    return [.ancestorArchive]
+        case .gedcom:      return [.gedcomFile, .gedZipFile]
+        case .corrections: return [.gedcomFile]
+        }
+    }
+
+    // MARK: - Drag-and-drop handler
+
+    /// Accept a single dropped file URL and route to the right importer
+    /// based on extension. Mirrors the buttons' import paths so behaviour
+    /// is identical whether the user drags or clicks. Returns true to
+    /// claim the drop so the system shows a green plus cursor.
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        provider.loadDataRepresentation(forTypeIdentifier: "public.file-url") { data, _ in
+            guard let data,
+                  let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+            Task { @MainActor in
+                routeImportedFile(url)
+            }
+        }
+        return true
+    }
+
+    /// Branch a dropped URL to the right importer. Mirrors
+    /// `handleGEDCOMImportResult` + `handleImportResult` so the drop path
+    /// produces identical results to clicking the corresponding button.
+    private func routeImportedFile(_ url: URL) {
+        let didStart = url.startAccessingSecurityScopedResource()
+        defer { if didStart { url.stopAccessingSecurityScopedResource() } }
+
+        let ext = url.pathExtension.lowercased()
+        switch ext {
+        case "ancestor", "zip":
+            appState.importProjectArchive(from: url)
+        case "gdz":
+            appState.importGEDZip(from: url)
+        case "ged":
+            let projectName = url.deletingPathExtension().lastPathComponent
+            appState.createAndImportProject(
+                name: projectName.isEmpty ? "Imported GEDCOM" : projectName,
+                source: .gedcom(path: url.path)
+            )
+        default:
+            appState.errorMessage = "Unsupported file: \(url.lastPathComponent). Use .ged, .gdz, or .ancestor."
         }
     }
 
@@ -220,7 +419,7 @@ struct ProjectPickerView: View {
         Button {
             appState.openProject(project)
             correctionsTargetProjectID = project.id
-            showingCorrectionsImporter = true
+            presentImporter(.corrections)
         } label: {
             Label("Import GEDCOM as suggestions…", systemImage: "lightbulb")
         }
