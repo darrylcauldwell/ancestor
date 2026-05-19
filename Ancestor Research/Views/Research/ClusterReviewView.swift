@@ -1052,7 +1052,7 @@ struct ClusterReviewView: View {
     // MARK: - Proposed Relatives
 
     private var visibleProposedRelatives: [ProposedRelative] {
-        vm.visibleProposedRelatives()
+        vm.visibleProposedRelatives(snapshot: appState.snapshot)
     }
 
     private var proposedRelativesSection: some View {
@@ -1362,7 +1362,7 @@ struct ClusterReviewView: View {
     // MARK: - Proposed Siblings
 
     private var visibleSiblings: [SiblingProposal] {
-        vm.visibleSiblings()
+        vm.visibleSiblings(snapshot: appState.snapshot)
     }
 
     private var proposedSiblingsSection: some View {

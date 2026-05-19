@@ -2,53 +2,116 @@ import Foundation
 
 /// `.siblingExists` kind — generator, grader, and expansiveness ladder.
 ///
-/// **T11 scaffold.** The three functions return empty / inconclusive /
-/// nil so the engine compiles and the central switches in
-/// `HypothesisEngine.swift` have somewhere to dispatch. T12-sibling
-/// fills in the real implementations, folding `SiblingInferenceEngine`
-/// in as the grader and `ParentInferenceEngine` + identity resolution
-/// as the generator preconditions.
-///
-/// Per V2 spec §5.2's phased migration, the legacy `findSiblings()`
-/// path in `ResearchPipeline.swift` continues to run in T11 and
-/// T12-sibling Phase 1; this extension only becomes load-bearing at
-/// T12-sibling Phase 2 (when `proposedSiblings` is flipped to derive
-/// from `hypotheses`).
+/// **T12-sibling Phase 2.** The framework path is now the only path:
+/// `ResearchPipeline.research(...)` calls `generate` → `deficitQuery` →
+/// dispatch → `grade`. The legacy `findSiblings()` /
+/// `siblingSearchOutcome` / `buildSiblingExistsHypothesis` triple were
+/// deleted in this phase; this extension is load-bearing.
 nonisolated extension HypothesisEngine {
 
-    /// Emit one hypothesis per `(district, mmn, yearWindow)` when subject
-    /// identity is resolved AND both parents are linked.
+    /// Emit one `.siblingExists` hypothesis when the subject's identity
+    /// is resolved AND both parents are linked AND the resolved birth
+    /// record carries district + year + mother's maiden name. The draft
+    /// is unverified (`.inconclusive`, attempts: 0); the orchestrator
+    /// dispatches the level-1 deficit query and then `gradeSiblingExists`
+    /// settles the verdict.
     ///
-    /// **T12-sibling Phase 1 status**: stub returns `[]`. The hypothesis
-    /// production currently lives in `ResearchPipeline.siblingSearchOutcome`
-    /// + `buildSiblingExistsHypothesis`, which run the legacy
-    /// `findSiblings` dispatch and shape the result into a hypothesis.
-    /// Phase 2 deletes those, moves the dispatch + inference here, and
-    /// this generator becomes the single source of truth.
+    /// Returns `[]` when any precondition fails — distinct from
+    /// "tried, found nothing" which is a `.contradicted` verdict on a
+    /// generated hypothesis.
     static func generateSiblingExists(
         state: ResearchState,
         snapshot: FamilyGraphSnapshot
     ) -> [ResearchHypothesis] {
-        _ = state
-        _ = snapshot
-        return []
+        guard let context = resolveSiblingContext(state: state, snapshot: snapshot) else {
+            return []
+        }
+        let kind = HypothesisKind.siblingExists(
+            district: context.districtName,
+            mmn: context.mmn,
+            yearWindow: context.yearWindow
+        )
+        let now = Date()
+        return [ResearchHypothesis(
+            id: kind.identityKey(subjectProfileID: context.subjectProfileID),
+            subjectProfileID: context.subjectProfileID,
+            kind: kind,
+            verdict: .inconclusive,
+            isModelAssisted: false,
+            supportingEvidence: [],
+            contradictingEvidence: [],
+            reasoning: "Pending grading.",
+            createdAt: now,
+            lastTestedAt: now,
+            attempts: 0,
+            history: []
+        )]
     }
 
-    /// Grade an existing `.siblingExists` hypothesis.
+    /// Grade a `.siblingExists` hypothesis. Reads candidate birth records
+    /// from `state.scoredRecords` (the orchestrator appends the level-1
+    /// deficit query's results before calling the grader) and runs
+    /// `SiblingInferenceEngine.inferSiblings` against them.
     ///
-    /// **T12-sibling Phase 1 status**: stub returns `.inconclusive`.
-    /// Phase 2 replaces this with a real grader that inspects state for
-    /// candidate sibling records (added to state by Phase 2's generator
-    /// dispatch) and applies the `SiblingInferenceEngine` rule.
+    /// `.supported` with `supportingEvidence = candidateRecordIDs` when
+    /// ≥1 candidate passes the surname+MMN+district+age-gap filter;
+    /// `.contradicted` with empty evidence when zero candidates match;
+    /// `.inconclusive` when preconditions stop holding between
+    /// generation and grading (rare — included for correctness, not as
+    /// a failure mode the pipeline exercises).
     static func gradeSiblingExists(
         _ hypothesis: ResearchHypothesis,
         state: ResearchState,
         snapshot: FamilyGraphSnapshot
     ) -> GradeResult {
-        _ = hypothesis
-        _ = state
-        _ = snapshot
-        return .inconclusiveStub
+        guard case .siblingExists(let district, _, let yearWindow) = hypothesis.kind else {
+            return .inconclusiveStub
+        }
+        guard let context = resolveSiblingContext(state: state, snapshot: snapshot) else {
+            return GradeResult(
+                verdict: .inconclusive,
+                isModelAssisted: false,
+                supportingEvidence: [],
+                contradictingEvidence: [],
+                reasoning: "Preconditions no longer hold at grading time (identity or parents)."
+            )
+        }
+        // Filter candidates by the hypothesis's payload, not the freshly
+        // resolved context — payload is the contract grader works under
+        // (matters for stale hypotheses loaded from disk).
+        let upperDistrict = district.uppercased()
+        let candidates = state.scoredRecords.filter { scored in
+            guard case .birth(let birth) = scored.record else { return false }
+            let recordDistrict = (birth.district ?? "")
+                .trimmingCharacters(in: .whitespaces)
+                .uppercased()
+            guard recordDistrict == upperDistrict else { return false }
+            guard let year = birth.birthYear else { return false }
+            return yearWindow.contains(year)
+        }
+        let proposals = SiblingInferenceEngine.inferSiblings(
+            subjectBirthRecord: context.subjectBirth,
+            candidateRecords: candidates,
+            knownFatherID: context.fatherID,
+            knownMotherID: context.motherID,
+            snapshot: snapshot
+        )
+        if proposals.isEmpty {
+            return GradeResult(
+                verdict: .contradicted,
+                isModelAssisted: false,
+                supportingEvidence: [],
+                contradictingEvidence: [],
+                reasoning: "Searched \(district) \(yearWindow.lowerBound)–\(yearWindow.upperBound) for MMN; 0 matching candidates."
+            )
+        }
+        return GradeResult(
+            verdict: .supported,
+            isModelAssisted: false,
+            supportingEvidence: proposals.map(\.candidateRecordID),
+            contradictingEvidence: [],
+            reasoning: "Found \(proposals.count) candidate sibling\(proposals.count == 1 ? "" : "s") in \(district) \(yearWindow.lowerBound)–\(yearWindow.upperBound) sharing MMN."
+        )
     }
 
     /// Expansiveness ladder for `.siblingExists`. Sibling discovery has
@@ -56,26 +119,22 @@ nonisolated extension HypothesisEngine {
     /// record), so the ladder primarily walks strictness:
     ///
     ///   level 1 → strict surname-only birth query in pinned district,
-    ///             year window from the hypothesis payload. Matches the
-    ///             legacy `findSiblings` dispatch.
+    ///             year window from the hypothesis payload.
     ///   ≥ 2    → nil (exhausted)
     ///
-    /// T12-sibling Phase 1 implements level 1 only. Further levels
-    /// (loose tier, adjacent districts) are deferred to T31's empirical
-    /// ladder retune — without harness data they'd be guesses, and the
-    /// existing storm guards (Part I §11.2) make loose-vs-strict a
-    /// no-op for surname-only queries anyway.
+    /// Further levels (loose tier, adjacent districts) are deferred to
+    /// T31's empirical ladder retune — without harness data they'd be
+    /// guesses, and the existing storm guards (Part I §11.2) make
+    /// loose-vs-strict a no-op for surname-only queries anyway.
     static func deficitQuerySiblingExists(
         for hypothesis: ResearchHypothesis,
         atLevel level: Int,
         state: ResearchState
     ) -> RecordQuery? {
-        guard case .siblingExists(_, _, let yearWindow) = hypothesis.kind else {
+        guard case .siblingExists(let districtName, _, let yearWindow) = hypothesis.kind else {
             return nil
         }
-        // The hypothesis carries the district name; map to FreeBMD code.
-        guard case .siblingExists(let districtName, _, _) = hypothesis.kind,
-              let district = FreeBMDDistrictCatalogue.shared.district(named: districtName) else {
+        guard let district = FreeBMDDistrictCatalogue.shared.district(named: districtName) else {
             return nil
         }
         let subjectSurname = state.subject.surname ?? ""
@@ -101,5 +160,76 @@ nonisolated extension HypothesisEngine {
         default:
             return nil   // Exhausted — T31 will revisit the ladder ceiling
         }
+    }
+
+    // MARK: - Shared preconditions
+
+    /// Resolved context for both generator and grader: the subject's
+    /// birth fact, the linked parents, and the (district, MMN, year window)
+    /// that the hypothesis payload encodes. `nil` when any precondition
+    /// fails. Defined here (not on `HypothesisEngine`) so both methods
+    /// can't drift in what they consider "ready to attempt".
+    private struct SiblingContext {
+        let subjectProfileID: String
+        let subjectBirth: ScoredRecord
+        let districtName: String
+        let mmn: String
+        let yearWindow: ClosedRange<Int>
+        let fatherID: String
+        let motherID: String
+    }
+
+    private static func resolveSiblingContext(
+        state: ResearchState,
+        snapshot: FamilyGraphSnapshot
+    ) -> SiblingContext? {
+        // Inlined `state.confirmedFacts` filter — that computed property
+        // is MainActor-isolated on `ResearchState`, and this extension
+        // runs nonisolated. Reading the stored `scoredRecords` array
+        // directly is the standard escape.
+        let birthFacts = state.scoredRecords.filter { scored in
+            guard scored.verdict == .fact else { return false }
+            if case .birth = scored.record { return true }
+            return false
+        }
+        let geoHypotheses: [GeographicHypothesis] = state.subject.profileID.map { id in
+            GeographicHypothesisGenerator.inferDistricts(
+                for: id, snapshot: snapshot, eventYear: state.subject.birthYearFrom
+            )
+        } ?? []
+        let identity = SubjectIdentityResolver.resolve(
+            candidateBirthFacts: birthFacts, hypotheses: geoHypotheses
+        )
+        guard case .resolved(let resolvedID, _) = identity,
+              let subjectBirth = birthFacts.first(where: { $0.id == resolvedID })
+        else { return nil }
+
+        guard let subjectProfileID = state.subject.profileID else { return nil }
+        let parents = snapshot.parentsOf(subjectProfileID)
+        guard let father = parents.first(where: { $0.gender == .male }),
+              let mother = parents.first(where: { $0.gender == .female })
+        else { return nil }
+
+        guard case .birth(let birth) = subjectBirth.record,
+              let districtName = birth.district, !districtName.isEmpty,
+              let subjectYear = birth.birthYear,
+              let surname = birth.common.surname, !surname.isEmpty
+        else { return nil }
+        _ = surname  // generator uses state.subject.surname for query; resolved record's surname is the integrity check
+        guard let mmnRaw = birth.mothersMaidenName?
+            .trimmingCharacters(in: .whitespaces),
+              !mmnRaw.isEmpty else { return nil }
+
+        let yearFrom = subjectYear - SiblingInferenceEngine.maxSiblingAgeGap
+        let yearTo = subjectYear + SiblingInferenceEngine.maxSiblingAgeGap
+        return SiblingContext(
+            subjectProfileID: subjectProfileID,
+            subjectBirth: subjectBirth,
+            districtName: districtName,
+            mmn: mmnRaw,
+            yearWindow: yearFrom...yearTo,
+            fatherID: father.id,
+            motherID: mother.id
+        )
     }
 }

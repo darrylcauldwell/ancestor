@@ -308,11 +308,13 @@ struct ResearchHypothesisPersistenceTests {
         #expect(visible.count == 1)
     }
 
-    // MARK: - HypothesisEngine scaffold (T11 returns empty / inconclusive)
+    // MARK: - HypothesisEngine entry points
 
-    @Test func hypothesisEngine_runAll_passesThroughPersisted_inT11Scaffold() throws {
-        // T11 engine is a scaffold — runAll returns whatever was passed in
-        // without generating new hypotheses. T12 wires generators in.
+    @Test func hypothesisEngine_runAll_passesThroughPersisted() throws {
+        // `runAll` is still the T11-era scaffolding pass-through — T7
+        // wires real generator iteration through it. For T12-sibling
+        // Phase 2 the orchestration calls `generate` / `grade` per-kind
+        // directly from `ResearchPipeline`, not via `runAll`.
         let h = makeHypothesis()
         let result = HypothesisEngine.runAll(
             state: makeEmptyState(),
@@ -323,7 +325,11 @@ struct ResearchHypothesisPersistenceTests {
         #expect(result.first?.id == h.id)
     }
 
-    @Test func hypothesisEngine_generateSiblingExists_returnsEmptyInT11Scaffold() {
+    @Test func hypothesisEngine_generateSiblingExists_returnsEmptyWhenPreconditionsUnmet() {
+        // The generator returns `[]` when there's no resolvable subject
+        // birth fact / no parents linked. T12-sibling Phase 1's real
+        // implementation in `T12SiblingPhase1Tests` covers the happy
+        // path; this test pins the precondition-fail branch.
         let result = HypothesisEngine.generateSiblingExists(
             state: makeEmptyState(),
             snapshot: makeEmptySnapshot()

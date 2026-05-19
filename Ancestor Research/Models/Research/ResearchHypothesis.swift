@@ -95,7 +95,7 @@ nonisolated struct ResearchHypothesis: Identifiable, Sendable, Codable, Equatabl
     let history: [Transition]
 }
 
-extension ResearchHypothesis {
+nonisolated extension ResearchHypothesis {
     /// True iff the verdict is `.supported` AND no model input was used.
     /// Every promotion / auto-accept gate uses this helper — never a
     /// bare `verdict == .supported` comparison. Preserves the
@@ -129,6 +129,15 @@ nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
     /// MarriageEnrichmentEngine.match.
     case parentMarriage(motherSurname: String, fatherSurname: String, windowYears: ClosedRange<Int>)
 
+    /// "This surname belongs to a parent of the subject" (mother → MMN
+    /// from BMD birth index; father → subject's surname). Generator
+    /// emits one hypothesis per (subject birth carrying MMN, parent
+    /// gender) pair. Grader is purely BMD-birth-evidence; marriage
+    /// given-name enrichment lands as a cross-reference from
+    /// `.parentMarriage` via `HypothesisEngine.reconcileParentMarriages`
+    /// (V2 spec §5.2.1). Bundled coupling rejected in the design pass.
+    case parentInferred(gender: Gender, surname: String)
+
     /// "A sibling of the subject exists in this district, sharing this
     /// MMN, born in this year window." Generator emits one hypothesis
     /// per resolved subject birth where both parents are linked;
@@ -153,6 +162,7 @@ nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
         switch self {
         case .subjectIdentity:  return "subjectIdentity"
         case .parentMarriage:   return "parentMarriage"
+        case .parentInferred:   return "parentInferred"
         case .siblingExists:    return "siblingExists"
         case .clusterIsSubject: return "clusterIsSubject"
         case .burialAtParish:   return "burialAtParish"
@@ -171,6 +181,8 @@ nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
             return "subjectIdentity:\(subject):\(window.lowerBound)-\(window.upperBound):\(districtHint ?? "")"
         case .parentMarriage(let mother, let father, let window):
             return "parentMarriage:\(subject):\(father.uppercased())x\(mother.uppercased()):\(window.lowerBound)-\(window.upperBound)"
+        case .parentInferred(let gender, let surname):
+            return "parentInferred:\(subject):\(gender.rawValue):\(surname.uppercased())"
         case .siblingExists(let district, let mmn, let window):
             return "siblingExists:\(subject):\(district.uppercased()):\(mmn.uppercased()):\(window.lowerBound)-\(window.upperBound)"
         case .clusterIsSubject(let clusterID):

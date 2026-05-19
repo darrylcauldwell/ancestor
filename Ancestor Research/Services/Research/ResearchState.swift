@@ -8,15 +8,11 @@ struct ResearchState: Sendable {
     var householdMembers: [HouseholdMember] = []
     var searchHistory: [SearchAttempt] = []
     var discrepancies: [ResearchDiscrepancy] = []
-    var proposedRelatives: [ProposedRelative] = []
-    /// Marriage enrichment is expensive (fan-out across districts) and proposals
-    /// don't change between iterations — so we only run it once per pipeline run.
-    var marriageEnrichmentAttempted: Bool = false
-    /// IDs of records collected during marriage enrichment. Kept in
-    /// `scoredRecords` (so they persist as evidence and are saved to the lead
-    /// store) but excluded from clustering — they're parent attestations,
-    /// not candidate lives of the subject, and surface under the matching
-    /// `ProposedRelative.evidence` instead of as standalone cluster cards.
+    /// IDs of records collected by hypothesis-flow dispatch (marriage
+    /// enrichment, sibling candidate search). Kept in `scoredRecords`
+    /// so they persist as evidence and reach the lead store, but
+    /// excluded from clustering — they answer per-hypothesis questions,
+    /// not "is this another candidate life of the subject".
     var enrichmentRecordIDs: Set<String> = []
     var activeRecordTypes: Set<RecordType>
     var iteration: Int = 0
@@ -101,22 +97,15 @@ nonisolated struct ResearchResult: Sendable {
     let discrepancies: [ResearchDiscrepancy]
     let householdMembers: [HouseholdMember]
     let searchHistory: [SearchAttempt]
-    let proposedRelatives: [ProposedRelative]
-    /// Sibling candidates produced by `SiblingInferenceEngine` after the
-    /// pipeline resolves subject identity and confirms both parents are
-    /// linked. Empty when those preconditions don't hold — caller's UI
-    /// hides the Proposed Siblings section in that case.
-    ///
-    /// **V2 spec transition note**: this field is retained during the
-    /// T12-sibling four-phase migration (V2 spec §5.2). Phase 1 populates
-    /// it from the legacy `findSiblings()` path; Phase 2 derives it from
-    /// `hypotheses`; Phases 3–4 swap UI then delete it. Same applies to
-    /// `proposedRelatives` under T12-parent.
-    let proposedSiblings: [SiblingProposal]
     /// Pipeline-generated research hypotheses (V2 spec §4.1). Populated
-    /// by `HypothesisEngine` after the post-loop phase. Empty during
-    /// T11 (this task) — the scaffolding is in place but no generators
-    /// are wired yet; that's T12's job.
+    /// by `HypothesisEngine` after the post-loop phase. T12 completed
+    /// the migration: `.siblingExists`, `.parentInferred`, and
+    /// `.parentMarriage` hypotheses are the sole sources of truth for
+    /// sibling discovery and parent inference — the legacy
+    /// `proposedSiblings` and `proposedRelatives` fields that mirrored
+    /// them are now deleted. The UI projects through
+    /// `ResearchPipeline.projectSiblingExistsToProposals` /
+    /// `projectParentInferredToProposal` on demand for accept/reject.
     let hypotheses: [ResearchHypothesis]
 
     init(
@@ -127,8 +116,6 @@ nonisolated struct ResearchResult: Sendable {
         discrepancies: [ResearchDiscrepancy],
         householdMembers: [HouseholdMember],
         searchHistory: [SearchAttempt],
-        proposedRelatives: [ProposedRelative] = [],
-        proposedSiblings: [SiblingProposal] = [],
         hypotheses: [ResearchHypothesis] = []
     ) {
         self.confirmedFacts = confirmedFacts
@@ -138,8 +125,6 @@ nonisolated struct ResearchResult: Sendable {
         self.discrepancies = discrepancies
         self.householdMembers = householdMembers
         self.searchHistory = searchHistory
-        self.proposedRelatives = proposedRelatives
-        self.proposedSiblings = proposedSiblings
         self.hypotheses = hypotheses
     }
 

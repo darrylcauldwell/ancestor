@@ -714,13 +714,53 @@ final class ResearchViewModel {
 
     /// Filter proposals by previously-persisted rejections for the subject.
     /// Called after research completes so old rejections suppress the same proposal.
-    func visibleProposedRelatives() -> [ProposedRelative] {
+    ///
+    /// **V2 spec T12-parent Phase 3**: source of truth is now
+    /// `result.hypotheses` (filtered to `.parentInferred` /
+    /// `isDeterministicallySupported`), projected via the pipeline's
+    /// helper on demand — given names and ambiguous marriages come
+    /// from the post-reconciliation hypothesis state. The legacy
+    /// `result.proposedRelatives` field still exists and is still
+    /// populated; Phase 4 deletes it.
+    func visibleProposedRelatives(snapshot: FamilyGraphSnapshot) -> [ProposedRelative] {
         guard let result = currentResult else { return [] }
+        let supportedParentHypotheses = result.hypotheses.filter { h in
+            guard case .parentInferred = h.kind else { return false }
+            return h.isDeterministicallySupported
+        }
+        let subjectForProjection: ResearchSubject? = {
+            guard let profile = selectedProfile else { return nil }
+            return ResearchSubject(
+                profileID: profile.id,
+                surname: profile.lastName,
+                givenName: profile.firstName,
+                middleName: profile.middleName,
+                birthYearFrom: profile.birthDate?.earliest,
+                birthYearTo: profile.birthDate?.latest,
+                deathYearFrom: profile.deathDate?.earliest,
+                deathYearTo: profile.deathDate?.latest,
+                gender: profile.gender,
+                region: nil,
+                mode: .extend,
+                familyContext: nil,
+                homeChapmanCode: "DBY"
+            )
+        }()
+        guard let subject = subjectForProjection else { return [] }
+        let proposals = supportedParentHypotheses.compactMap { h in
+            ResearchPipeline.projectParentInferredToProposal(
+                hypothesis: h,
+                allHypotheses: result.hypotheses,
+                scoredRecords: result.allScoredRecords,
+                subject: subject
+            )
+        }
+        _ = snapshot   // not used directly — projection is snapshot-free
         guard let db = appDatabase, let profileID = selectedProfile?.id else {
-            return result.proposedRelatives
+            return proposals
         }
         let rejected = (try? db.loadRejections(profileID: profileID)) ?? []
-        return result.proposedRelatives.filter { !rejected.contains($0.id) }
+        return proposals.filter { !rejected.contains($0.id) }
     }
 
     /// Accept a proposed relative: create a ghost Profile + parent-of Relationship in one atomic transaction.
@@ -824,13 +864,31 @@ final class ResearchViewModel {
     /// Sibling proposals from the most recent run, filtered by previously-
     /// persisted rejections so re-runs don't keep re-surfacing siblings the
     /// user has dismissed. Same pattern as `visibleProposedRelatives`.
-    func visibleSiblings() -> [SiblingProposal] {
+    ///
+    /// **V2 spec T12-sibling (Phase 4 complete)**: source of truth is
+    /// `result.hypotheses` (filtered to `.siblingExists` /
+    /// `isDeterministicallySupported`), projected via the pipeline's
+    /// helper on demand. The legacy `result.proposedSiblings` field has
+    /// been deleted; this method is the only surface that builds
+    /// `SiblingProposal`s for the accept / reject UI.
+    func visibleSiblings(snapshot: FamilyGraphSnapshot) -> [SiblingProposal] {
         guard let result = currentResult else { return [] }
+        let supportedSiblingHypotheses = result.hypotheses.filter { h in
+            guard case .siblingExists = h.kind else { return false }
+            return h.isDeterministicallySupported
+        }
+        let proposals = supportedSiblingHypotheses.flatMap { h in
+            ResearchPipeline.projectSiblingExistsToProposals(
+                hypothesis: h,
+                scoredRecords: result.allScoredRecords,
+                snapshot: snapshot
+            )
+        }
         guard let db = appDatabase, let profileID = selectedProfile?.id else {
-            return result.proposedSiblings
+            return proposals
         }
         let rejected = (try? db.loadRejections(profileID: profileID)) ?? []
-        return result.proposedSiblings.filter { !rejected.contains($0.id) }
+        return proposals.filter { !rejected.contains($0.id) }
     }
 
     /// Accept a sibling proposal: create a ghost Profile and wire it to BOTH

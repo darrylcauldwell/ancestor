@@ -2,31 +2,18 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// T12-sibling Phase 1 invariants (V2 spec §5.2): the legacy
-/// `proposedSiblings` field and the new `.siblingExists` hypothesis must
-/// agree about which records are sibling candidates.
-///
-/// Phase 1 doesn't yet move the inference into the engine — it ships a
-/// pipeline-side mapping (`buildSiblingExistsHypothesis`) that takes the
-/// legacy `findSiblings` output and shapes it into the hypothesis form.
-/// Both surfaces are populated from the same `SiblingSearchOutcome`, so
-/// equality here is the "didn't accidentally drop data in translation"
-/// check. Phase 2 deletes the legacy path and the hypothesis becomes
-/// the only source of truth.
+/// T12-sibling Phase 2 invariants (V2 spec §5.2). The `.siblingExists`
+/// framework path is now the sole source of truth: `HypothesisEngine`
+/// generates the hypothesis, the orchestrator dispatches the level-1
+/// deficit query, `gradeSiblingExists` grades it, and the projection
+/// helper rebuilds the legacy `SiblingProposal` list from the supported
+/// hypothesis. The Phase 1 file name is preserved so the cross-phase
+/// invariant (supportingEvidence ↔ proposal candidateRecordIDs) keeps
+/// the same regression-test home through the four-phase migration.
 @MainActor
 struct T12SiblingPhase1Tests {
 
     // MARK: - Helpers
-
-    private func date(_ year: Int) -> GenealogicalDate {
-        GenealogicalDate(
-            original: "\(year)",
-            earliest: year,
-            latest: year,
-            isApproximate: false,
-            qualifier: .yearOnly
-        )
-    }
 
     private func birthRecord(
         id: String,
@@ -34,7 +21,8 @@ struct T12SiblingPhase1Tests {
         givenName: String,
         mmn: String?,
         district: String?,
-        year: Int
+        year: Int,
+        verdict: RecordVerdict = .fact
     ) -> ScoredRecord {
         let common = RecordCommon(
             id: id,
@@ -56,42 +44,74 @@ struct T12SiblingPhase1Tests {
             page: nil,
             mothersMaidenName: mmn
         )
-        return ScoredRecord(id: id, record: .birth(birth), verdict: .fact, gates: [], summary: "")
+        return ScoredRecord(id: id, record: .birth(birth), verdict: verdict, gates: [], summary: "")
     }
 
-    // MARK: - buildSiblingExistsHypothesis
+    private func makeProfile(id: String, gender: Gender) -> Profile {
+        Profile(
+            id: id, externalIDs: [:],
+            firstName: nil, lastName: nil, gender: gender,
+            attributes: nil,
+            birthDate: nil, birthLocation: nil,
+            deathDate: nil, deathLocation: nil,
+            bio: nil, isDeleted: false,
+            sources: [:], disputes: [:]
+        )
+    }
 
-    @Test func buildHypothesis_supportedWhenProposalsExist() {
+    private func makeSubject(profileID: String) -> ResearchSubject {
+        ResearchSubject(
+            profileID: profileID, surname: "Cauldwell", givenName: nil,
+            middleName: nil,
+            birthYearFrom: 1976, birthYearTo: 1976,
+            deathYearFrom: nil, deathYearTo: nil,
+            gender: nil, region: nil,
+            mode: .extend, familyContext: nil,
+            homeChapmanCode: "DBY"
+        )
+    }
+
+    /// Snapshot with subject + father + mother and the two parent edges.
+    /// Mirrors the precondition the engine checks (`parentsOf(subject)`
+    /// must return both genders).
+    private func snapshotWithParents(subjectID: String, fatherID: String, motherID: String) -> FamilyGraphSnapshot {
+        let subject = makeProfile(id: subjectID, gender: .male)
+        let father = makeProfile(id: fatherID, gender: .male)
+        let mother = makeProfile(id: motherID, gender: .female)
+        let fatherRel = Relationship(
+            id: UUID(), from: fatherID, to: subjectID,
+            type: .parent, role: .father, subtype: .biological,
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
+        )
+        let motherRel = Relationship(
+            id: UUID(), from: motherID, to: subjectID,
+            type: .parent, role: .mother, subtype: .biological,
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
+        )
+        return FamilyGraphSnapshot(
+            profiles: [subjectID: subject, fatherID: father, motherID: mother],
+            relationships: [fatherRel, motherRel]
+        )
+    }
+
+    // MARK: - generateSiblingExists
+
+    @Test func generate_emitsHypothesisWhenPreconditionsMet() {
+        let subjectID = "subj-profile"
         let subjectRecord = birthRecord(
-            id: "subj", surname: "Cauldwell", givenName: "Darryl",
+            id: "subj-birth", surname: "Cauldwell", givenName: "Darryl",
             mmn: "Holmes", district: "Belper", year: 1976
         )
-        let sister = birthRecord(
-            id: "sister", surname: "Cauldwell", givenName: "Sarah",
-            mmn: "Holmes", district: "Belper", year: 1978
-        )
-        let proposals = SiblingInferenceEngine.inferSiblings(
-            subjectBirthRecord: subjectRecord,
-            candidateRecords: [subjectRecord, sister],
-            knownFatherID: "father-id",
-            knownMotherID: "mother-id",
-            snapshot: FamilyGraphSnapshot(profiles: [:], relationships: [])
-        )
-        #expect(proposals.count == 1)
+        var state = ResearchState(subject: makeSubject(profileID: subjectID))
+        state.scoredRecords = [subjectRecord]
+        let snapshot = snapshotWithParents(subjectID: subjectID, fatherID: "father-id", motherID: "mother-id")
 
-        let h = ResearchPipeline.buildSiblingExistsHypothesis(
-            subjectProfileID: "subj-profile",
-            district: "Belper",
-            mmn: "Holmes",
-            yearWindow: 1956...1996,
-            proposals: proposals
-        )
-
-        #expect(h.verdict == .supported)
-        #expect(h.supportingEvidence == ["sister"])
-        #expect(h.contradictingEvidence.isEmpty)
-        #expect(h.isModelAssisted == false)
-        #expect(h.isDeterministicallySupported == true)
+        let drafts = HypothesisEngine.generateSiblingExists(state: state, snapshot: snapshot)
+        #expect(drafts.count == 1)
+        let h = drafts[0]
+        #expect(h.verdict == .inconclusive)
+        #expect(h.attempts == 0)
+        #expect(h.supportingEvidence.isEmpty)
         if case .siblingExists(let district, let mmn, let window) = h.kind {
             #expect(district == "Belper")
             #expect(mmn == "Holmes")
@@ -101,97 +121,270 @@ struct T12SiblingPhase1Tests {
         }
     }
 
-    @Test func buildHypothesis_contradictedWhenNoProposals() {
-        let h = ResearchPipeline.buildSiblingExistsHypothesis(
-            subjectProfileID: "subj-profile",
-            district: "Belper",
-            mmn: "Holmes",
-            yearWindow: 1956...1996,
-            proposals: []
-        )
-        #expect(h.verdict == .contradicted)
-        #expect(h.supportingEvidence.isEmpty)
-        #expect(h.isDeterministicallySupported == false)
-        #expect(h.reasoning.contains("0 matching candidates"))
-    }
-
-    @Test func buildHypothesis_stableIdAcrossRuns() {
-        let proposals1: [SiblingProposal] = []
-        let proposals2: [SiblingProposal] = []   // identical second run
-        let h1 = ResearchPipeline.buildSiblingExistsHypothesis(
-            subjectProfileID: "subj",
-            district: "Belper",
-            mmn: "Holmes",
-            yearWindow: 1956...1996,
-            proposals: proposals1
-        )
-        let h2 = ResearchPipeline.buildSiblingExistsHypothesis(
-            subjectProfileID: "subj",
-            district: "Belper",
-            mmn: "Holmes",
-            yearWindow: 1956...1996,
-            proposals: proposals2
-        )
-        // Stable ID = re-runs upsert rather than duplicate (Decision 1).
-        #expect(h1.id == h2.id)
-    }
-
-    @Test func buildHypothesis_supportingEvidenceMatches_proposalsCandidateIDs() {
-        // The Phase 1 invariant: hypothesis.supportingEvidence must be
-        // 1:1 with the candidateRecordIDs of the legacy proposals (just
-        // in a different shape). Phase 2 lets the hypothesis become the
-        // source of truth; this test guards against silent drift before
-        // that swap.
+    @Test func generate_returnsEmptyWhenParentsNotLinked() {
+        let subjectID = "subj-profile"
         let subjectRecord = birthRecord(
-            id: "subj", surname: "Cauldwell", givenName: "Darryl",
+            id: "subj-birth", surname: "Cauldwell", givenName: "Darryl",
+            mmn: "Holmes", district: "Belper", year: 1976
+        )
+        var state = ResearchState(subject: makeSubject(profileID: subjectID))
+        state.scoredRecords = [subjectRecord]
+        // Empty snapshot — no parents linked.
+        let snapshot = FamilyGraphSnapshot(profiles: [:], relationships: [])
+
+        let drafts = HypothesisEngine.generateSiblingExists(state: state, snapshot: snapshot)
+        #expect(drafts.isEmpty)
+    }
+
+    @Test func generate_stableIdAcrossRuns() {
+        let subjectID = "subj-profile"
+        let subjectRecord = birthRecord(
+            id: "subj-birth", surname: "Cauldwell", givenName: "Darryl",
+            mmn: "Holmes", district: "Belper", year: 1976
+        )
+        var state = ResearchState(subject: makeSubject(profileID: subjectID))
+        state.scoredRecords = [subjectRecord]
+        let snapshot = snapshotWithParents(subjectID: subjectID, fatherID: "father-id", motherID: "mother-id")
+
+        let first = HypothesisEngine.generateSiblingExists(state: state, snapshot: snapshot)
+        let second = HypothesisEngine.generateSiblingExists(state: state, snapshot: snapshot)
+        #expect(first.count == 1 && second.count == 1)
+        // Stable ID = re-runs upsert rather than duplicate (Decision 1).
+        #expect(first[0].id == second[0].id)
+    }
+
+    // MARK: - gradeSiblingExists
+
+    @Test func grade_supportedWhenCandidateMatches() throws {
+        let subjectID = "subj-profile"
+        let subjectRecord = birthRecord(
+            id: "subj-birth", surname: "Cauldwell", givenName: "Darryl",
+            mmn: "Holmes", district: "Belper", year: 1976
+        )
+        let sisterRecord = birthRecord(
+            id: "sister-birth", surname: "Cauldwell", givenName: "Sarah",
+            mmn: "Holmes", district: "Belper", year: 1978,
+            verdict: .lead   // candidate from sibling dispatch, not a fact
+        )
+        var state = ResearchState(subject: makeSubject(profileID: subjectID))
+        state.scoredRecords = [subjectRecord, sisterRecord]
+        let snapshot = snapshotWithParents(subjectID: subjectID, fatherID: "father-id", motherID: "mother-id")
+
+        let drafts = HypothesisEngine.generateSiblingExists(state: state, snapshot: snapshot)
+        let draft = try #require(drafts.first)
+        let result = HypothesisEngine.gradeSiblingExists(draft, state: state, snapshot: snapshot)
+        #expect(result.verdict == .supported)
+        #expect(result.supportingEvidence == ["sister-birth"])
+        #expect(result.contradictingEvidence.isEmpty)
+    }
+
+    @Test func grade_contradictedWhenNoCandidateMatches() throws {
+        let subjectID = "subj-profile"
+        let subjectRecord = birthRecord(
+            id: "subj-birth", surname: "Cauldwell", givenName: "Darryl",
+            mmn: "Holmes", district: "Belper", year: 1976
+        )
+        var state = ResearchState(subject: makeSubject(profileID: subjectID))
+        state.scoredRecords = [subjectRecord]   // no sibling candidates
+        let snapshot = snapshotWithParents(subjectID: subjectID, fatherID: "father-id", motherID: "mother-id")
+
+        let drafts = HypothesisEngine.generateSiblingExists(state: state, snapshot: snapshot)
+        let draft = try #require(drafts.first)
+        let result = HypothesisEngine.gradeSiblingExists(draft, state: state, snapshot: snapshot)
+        #expect(result.verdict == .contradicted)
+        #expect(result.supportingEvidence.isEmpty)
+        #expect(result.reasoning.contains("0 matching candidates"))
+    }
+
+    // MARK: - Cross-phase regression invariant
+
+    @Test func projection_candidateIDsMatchSupportingEvidence() throws {
+        // The bisectable-commit invariant: after the engine runs end-to-end,
+        // projection of the supported hypothesis must produce SiblingProposals
+        // whose candidateRecordIDs exactly equal the hypothesis's
+        // supportingEvidence. Phase 1 asserted this across two parallel paths;
+        // Phase 2 asserts it across the single source-of-truth path.
+        let subjectID = "subj-profile"
+        let subjectRecord = birthRecord(
+            id: "subj-birth", surname: "Cauldwell", givenName: "Darryl",
             mmn: "Holmes", district: "Belper", year: 1976
         )
         let sister1 = birthRecord(
             id: "sister-1", surname: "Cauldwell", givenName: "Sarah",
-            mmn: "Holmes", district: "Belper", year: 1978
+            mmn: "Holmes", district: "Belper", year: 1978,
+            verdict: .lead
         )
         let sister2 = birthRecord(
             id: "sister-2", surname: "Cauldwell", givenName: "Mary",
-            mmn: "Holmes", district: "Belper", year: 1970
+            mmn: "Holmes", district: "Belper", year: 1970,
+            verdict: .lead
         )
-        let proposals = SiblingInferenceEngine.inferSiblings(
-            subjectBirthRecord: subjectRecord,
-            candidateRecords: [subjectRecord, sister1, sister2],
-            knownFatherID: "father-id",
-            knownMotherID: "mother-id",
-            snapshot: FamilyGraphSnapshot(profiles: [:], relationships: [])
+        var state = ResearchState(subject: makeSubject(profileID: subjectID))
+        state.scoredRecords = [subjectRecord, sister1, sister2]
+        let snapshot = snapshotWithParents(subjectID: subjectID, fatherID: "father-id", motherID: "mother-id")
+
+        let drafts = HypothesisEngine.generateSiblingExists(state: state, snapshot: snapshot)
+        let draft = try #require(drafts.first)
+        let result = HypothesisEngine.gradeSiblingExists(draft, state: state, snapshot: snapshot)
+        let graded = ResearchHypothesis(
+            id: draft.id, subjectProfileID: draft.subjectProfileID, kind: draft.kind,
+            verdict: result.verdict, isModelAssisted: result.isModelAssisted,
+            supportingEvidence: result.supportingEvidence,
+            contradictingEvidence: result.contradictingEvidence,
+            reasoning: result.reasoning,
+            createdAt: draft.createdAt, lastTestedAt: Date(),
+            attempts: 1, history: []
         )
-        let h = ResearchPipeline.buildSiblingExistsHypothesis(
-            subjectProfileID: "subj-profile",
-            district: "Belper",
-            mmn: "Holmes",
-            yearWindow: 1956...1996,
-            proposals: proposals
+        #expect(graded.isDeterministicallySupported)
+
+        let proposals = ResearchPipeline.projectSiblingExistsToProposals(
+            hypothesis: graded,
+            scoredRecords: state.scoredRecords,
+            snapshot: snapshot
         )
-        #expect(Set(h.supportingEvidence) == Set(proposals.map(\.candidateRecordID)))
+        #expect(Set(proposals.map(\.candidateRecordID)) == Set(graded.supportingEvidence))
+        // Father / mother edges thread through from snapshot.
+        #expect(proposals.allSatisfy { $0.fatherID == "father-id" })
+        #expect(proposals.allSatisfy { $0.motherID == "mother-id" })
     }
 
-    // MARK: - deficitQuerySiblingExists
+    // MARK: - Phase 3 / 4 — UI reads from result.hypotheses
+
+    @Test func uiPath_projectsFromHypotheses_producesExpectedProposals() throws {
+        // Phase 3 swapped the UI to derive its sibling list by filtering
+        // `result.hypotheses` for `.siblingExists` /
+        // `isDeterministicallySupported` and projecting through the
+        // pipeline helper. Phase 4 deleted the legacy
+        // `result.proposedSiblings` mirror; this test pins the UI path
+        // as the only surface, asserting it produces the expected
+        // candidate set (id stability, father / mother edges threaded
+        // through from snapshot, ordering preserved from
+        // `supportingEvidence`).
+        let subjectID = "subj-profile"
+        let subjectRecord = birthRecord(
+            id: "subj-birth", surname: "Cauldwell", givenName: "Darryl",
+            mmn: "Holmes", district: "Belper", year: 1976
+        )
+        let sister1 = birthRecord(
+            id: "sister-1", surname: "Cauldwell", givenName: "Sarah",
+            mmn: "Holmes", district: "Belper", year: 1978,
+            verdict: .lead
+        )
+        let sister2 = birthRecord(
+            id: "sister-2", surname: "Cauldwell", givenName: "Mary",
+            mmn: "Holmes", district: "Belper", year: 1970,
+            verdict: .lead
+        )
+        var state = ResearchState(subject: makeSubject(profileID: subjectID))
+        state.scoredRecords = [subjectRecord, sister1, sister2]
+        let snapshot = snapshotWithParents(subjectID: subjectID, fatherID: "father-id", motherID: "mother-id")
+
+        let drafts = HypothesisEngine.generateSiblingExists(state: state, snapshot: snapshot)
+        let draft = try #require(drafts.first)
+        let gradeResult = HypothesisEngine.gradeSiblingExists(draft, state: state, snapshot: snapshot)
+        let graded = ResearchHypothesis(
+            id: draft.id, subjectProfileID: draft.subjectProfileID, kind: draft.kind,
+            verdict: gradeResult.verdict, isModelAssisted: gradeResult.isModelAssisted,
+            supportingEvidence: gradeResult.supportingEvidence,
+            contradictingEvidence: gradeResult.contradictingEvidence,
+            reasoning: gradeResult.reasoning,
+            createdAt: draft.createdAt, lastTestedAt: Date(),
+            attempts: 1, history: []
+        )
+
+        // Phase 4: no `proposedSiblings` field; the engine's hypothesis
+        // list IS the surface.
+        let result = ResearchResult(
+            confirmedFacts: [subjectRecord],
+            leads: [sister1, sister2],
+            allScoredRecords: state.scoredRecords,
+            clusters: [],
+            discrepancies: [],
+            householdMembers: [],
+            searchHistory: [],
+            hypotheses: [graded]
+        )
+
+        // Run the UI path directly on `result` — mirrors
+        // `ResearchViewModel.visibleSiblings(snapshot:)` without the
+        // rejection-store side trip (that's tested separately).
+        let uiProposals = result.hypotheses
+            .filter { h in
+                guard case .siblingExists = h.kind else { return false }
+                return h.isDeterministicallySupported
+            }
+            .flatMap { h in
+                ResearchPipeline.projectSiblingExistsToProposals(
+                    hypothesis: h,
+                    scoredRecords: result.allScoredRecords,
+                    snapshot: snapshot
+                )
+            }
+        // Both sisters surface, ordered to match the hypothesis's
+        // supportingEvidence (which `SiblingInferenceEngine` ordered by
+        // birth year ascending → sister2 1970 before sister1 1978).
+        #expect(uiProposals.map(\.candidateRecordID) == graded.supportingEvidence)
+        #expect(uiProposals.allSatisfy { $0.fatherID == "father-id" })
+        #expect(uiProposals.allSatisfy { $0.motherID == "mother-id" })
+        // Proposal ids are stable across the candidateRecordID — Phase 1's
+        // accept-flow invariant survives the migration.
+        #expect(uiProposals.map(\.id) == uiProposals.map { "siblingOf:father-id:\($0.candidateRecordID)" })
+    }
+
+    @Test func uiPath_skipsContradictedAndInconclusiveHypotheses() throws {
+        // Only `.supported` + `!isModelAssisted` hypotheses contribute
+        // to the UI list — contradicted ones surface in §5.11's archive
+        // view, not the proposed-siblings section. This pins the filter.
+        let subjectID = "subj-profile"
+        let subjectRecord = birthRecord(
+            id: "subj-birth", surname: "Cauldwell", givenName: "Darryl",
+            mmn: "Holmes", district: "Belper", year: 1976
+        )
+        var state = ResearchState(subject: makeSubject(profileID: subjectID))
+        state.scoredRecords = [subjectRecord]   // no candidates
+        let snapshot = snapshotWithParents(subjectID: subjectID, fatherID: "father-id", motherID: "mother-id")
+
+        let drafts = HypothesisEngine.generateSiblingExists(state: state, snapshot: snapshot)
+        let draft = try #require(drafts.first)
+        let gradeResult = HypothesisEngine.gradeSiblingExists(draft, state: state, snapshot: snapshot)
+        #expect(gradeResult.verdict == .contradicted, "test setup requires contradicted grading")
+        let contradicted = ResearchHypothesis(
+            id: draft.id, subjectProfileID: draft.subjectProfileID, kind: draft.kind,
+            verdict: gradeResult.verdict, isModelAssisted: gradeResult.isModelAssisted,
+            supportingEvidence: gradeResult.supportingEvidence,
+            contradictingEvidence: gradeResult.contradictingEvidence,
+            reasoning: gradeResult.reasoning,
+            createdAt: draft.createdAt, lastTestedAt: Date(),
+            attempts: 1, history: []
+        )
+        let uiProposals = [contradicted]
+            .filter { h in
+                guard case .siblingExists = h.kind else { return false }
+                return h.isDeterministicallySupported
+            }
+            .flatMap { h in
+                ResearchPipeline.projectSiblingExistsToProposals(
+                    hypothesis: h,
+                    scoredRecords: state.scoredRecords,
+                    snapshot: snapshot
+                )
+            }
+        #expect(uiProposals.isEmpty)
+    }
+
+    // MARK: - deficitQuerySiblingExists (Phase 1 — unchanged in Phase 2)
 
     @Test func deficitQuery_level1_returnsFreeBMDQuery() throws {
-        let h = ResearchPipeline.buildSiblingExistsHypothesis(
-            subjectProfileID: "subj-profile",
-            district: "Belper",
-            mmn: "Holmes",
-            yearWindow: 1956...1996,
-            proposals: []
+        let subjectID = "subj-profile"
+        let subjectRecord = birthRecord(
+            id: "subj-birth", surname: "Cauldwell", givenName: "Darryl",
+            mmn: "Holmes", district: "Belper", year: 1976
         )
-        var subject = ResearchSubject(
-            profileID: "subj-profile", surname: "Cauldwell", givenName: nil,
-            middleName: nil,
-            birthYearFrom: 1976, birthYearTo: 1976,
-            deathYearFrom: nil, deathYearTo: nil,
-            gender: nil, region: nil,
-            mode: .extend, familyContext: nil,
-            homeChapmanCode: "DBY"
-        )
-        _ = subject
-        let state = ResearchState(subject: subject)
+        var state = ResearchState(subject: makeSubject(profileID: subjectID))
+        state.scoredRecords = [subjectRecord]
+        let snapshot = snapshotWithParents(subjectID: subjectID, fatherID: "father-id", motherID: "mother-id")
+        let drafts = HypothesisEngine.generateSiblingExists(state: state, snapshot: snapshot)
+        let h = try #require(drafts.first)
 
         let query = HypothesisEngine.deficitQuerySiblingExists(
             for: h, atLevel: 1, state: state
@@ -204,37 +397,41 @@ struct T12SiblingPhase1Tests {
         #expect(unwrapped.yearTo == 1996)
     }
 
-    @Test func deficitQuery_level2_returnsNil_inPhase1() {
-        let h = ResearchPipeline.buildSiblingExistsHypothesis(
-            subjectProfileID: "subj-profile",
-            district: "Belper",
-            mmn: "Holmes",
-            yearWindow: 1956...1996,
-            proposals: []
+    @Test func deficitQuery_level2_returnsNil_inPhase2() throws {
+        let subjectID = "subj-profile"
+        let subjectRecord = birthRecord(
+            id: "subj-birth", surname: "Cauldwell", givenName: "Darryl",
+            mmn: "Holmes", district: "Belper", year: 1976
         )
-        let subject = ResearchSubject(
-            profileID: "subj-profile", surname: "Cauldwell", givenName: nil,
-            middleName: nil,
-            birthYearFrom: 1976, birthYearTo: 1976,
-            deathYearFrom: nil, deathYearTo: nil,
-            gender: nil, region: nil,
-            mode: .extend, familyContext: nil,
-            homeChapmanCode: "DBY"
-        )
-        let state = ResearchState(subject: subject)
+        var state = ResearchState(subject: makeSubject(profileID: subjectID))
+        state.scoredRecords = [subjectRecord]
+        let snapshot = snapshotWithParents(subjectID: subjectID, fatherID: "father-id", motherID: "mother-id")
+        let drafts = HypothesisEngine.generateSiblingExists(state: state, snapshot: snapshot)
+        let h = try #require(drafts.first)
+
         let query = HypothesisEngine.deficitQuerySiblingExists(
             for: h, atLevel: 2, state: state
         )
-        #expect(query == nil, "Phase 1 ladder ceiling is level 1; ≥2 is exhausted")
+        #expect(query == nil, "Phase 2 ladder ceiling is level 1; ≥2 is exhausted")
     }
 
     @Test func deficitQuery_returnsNil_whenSubjectSurnameMissing() {
-        let h = ResearchPipeline.buildSiblingExistsHypothesis(
-            subjectProfileID: "subj-profile",
-            district: "Belper",
-            mmn: "Holmes",
-            yearWindow: 1956...1996,
-            proposals: []
+        // Hand-construct a hypothesis directly — the generator would refuse
+        // to emit one without a resolvable subject, so we can't get there
+        // through the normal flow. Surname-on-state is the deficit-query
+        // side's separate gate (the legacy `findSiblings` path checked it
+        // independently of the resolver).
+        let kind = HypothesisKind.siblingExists(
+            district: "Belper", mmn: "Holmes", yearWindow: 1956...1996
+        )
+        let now = Date()
+        let h = ResearchHypothesis(
+            id: kind.identityKey(subjectProfileID: "subj-profile"),
+            subjectProfileID: "subj-profile", kind: kind,
+            verdict: .inconclusive, isModelAssisted: false,
+            supportingEvidence: [], contradictingEvidence: [],
+            reasoning: "", createdAt: now, lastTestedAt: now,
+            attempts: 0, history: []
         )
         let subject = ResearchSubject(
             profileID: "subj-profile", surname: nil, givenName: nil,

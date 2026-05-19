@@ -73,9 +73,13 @@ nonisolated enum HypothesisEngine {
         switch kind {
         case .siblingExists:
             return generateSiblingExists(state: state, snapshot: snapshot)
-        case .subjectIdentity, .parentMarriage, .clusterIsSubject,
+        case .parentInferred:
+            return generateParentInferred(state: state, snapshot: snapshot)
+        case .parentMarriage:
+            return generateParentMarriage(state: state, snapshot: snapshot)
+        case .subjectIdentity, .clusterIsSubject,
              .burialAtParish, .secondMarriage:
-            return []   // T12 fills these in
+            return []   // future kinds
         }
     }
 
@@ -90,10 +94,120 @@ nonisolated enum HypothesisEngine {
         switch hypothesis.kind {
         case .siblingExists:
             return gradeSiblingExists(hypothesis, state: state, snapshot: snapshot)
-        case .subjectIdentity, .parentMarriage, .clusterIsSubject,
+        case .parentInferred:
+            return gradeParentInferred(hypothesis, state: state, snapshot: snapshot)
+        case .parentMarriage:
+            return gradeParentMarriage(hypothesis, state: state, snapshot: snapshot)
+        case .subjectIdentity, .clusterIsSubject,
              .burialAtParish, .secondMarriage:
-            return .inconclusiveStub   // T12 fills these in
+            return .inconclusiveStub   // future kinds
         }
+    }
+
+    // MARK: - Reconciliation
+
+    /// Deterministic post-grading join (V2 spec §5.2.1): walks
+    /// `.supported` `.parentMarriage` hypotheses and writes their
+    /// marriage record IDs + given-name reasoning back onto the
+    /// matching `.parentInferred` hypotheses, so the parent
+    /// hypotheses' `supportingEvidence` and `reasoning` reflect both
+    /// the BMD-birth attestation AND the cross-validated marriage.
+    ///
+    /// Inputs unchanged on disk — this is a pure transformation of
+    /// the in-memory hypothesis list. Idempotent under same inputs;
+    /// rerunning with the same hypotheses yields the same result.
+    /// `isModelAssisted` stays `false` on both sides; deterministic
+    /// gates remain honoured.
+    ///
+    /// Match rule: a `.parentMarriage(motherSurname:M, fatherSurname:F)`
+    /// for subject S cross-references
+    ///   `.parentInferred(gender:.female, surname:M)` for S, and
+    ///   `.parentInferred(gender:.male,   surname:F)` for S.
+    /// Case-insensitive surname comparison so transcriber capitalisation
+    /// drift between BMD-index entries doesn't break the join.
+    static func reconcileParentMarriages(
+        hypotheses: [ResearchHypothesis]
+    ) -> [ResearchHypothesis] {
+        // Index parent hypotheses by (subject, gender, upper(surname))
+        // for O(1) lookup. Only collect supported parent hypotheses —
+        // unsupported ones don't need cross-references attached.
+        struct ParentKey: Hashable {
+            let subject: String
+            let gender: Gender
+            let surname: String   // uppercased
+        }
+        var byIndex: [ParentKey: Int] = [:]
+        for (i, h) in hypotheses.enumerated() {
+            guard case .parentInferred(let gender, let surname) = h.kind else { continue }
+            byIndex[ParentKey(
+                subject: h.subjectProfileID ?? "tree",
+                gender: gender,
+                surname: surname.uppercased()
+            )] = i
+        }
+
+        var updated = hypotheses
+        for marriage in hypotheses {
+            guard marriage.isDeterministicallySupported,
+                  case .parentMarriage(let mother, let father, _) = marriage.kind
+            else { continue }
+            let subject = marriage.subjectProfileID ?? "tree"
+
+            let motherKey = ParentKey(subject: subject, gender: .female, surname: mother.uppercased())
+            let fatherKey = ParentKey(subject: subject, gender: .male,   surname: father.uppercased())
+
+            if let i = byIndex[motherKey] {
+                updated[i] = applyMarriageCrossReference(
+                    to: updated[i], from: marriage
+                )
+            }
+            if let i = byIndex[fatherKey] {
+                updated[i] = applyMarriageCrossReference(
+                    to: updated[i], from: marriage
+                )
+            }
+        }
+        return updated
+    }
+
+    /// Apply one marriage hypothesis's cross-reference to one parent
+    /// hypothesis. Idempotent — if the marriage's record IDs are
+    /// already in the parent's `supportingEvidence` (e.g. from a
+    /// prior `reconcileParentMarriages` call in the same run), they
+    /// aren't duplicated, and the reasoning appendage isn't repeated.
+    private static func applyMarriageCrossReference(
+        to parent: ResearchHypothesis,
+        from marriage: ResearchHypothesis
+    ) -> ResearchHypothesis {
+        let existing = Set(parent.supportingEvidence)
+        var newEvidence = parent.supportingEvidence
+        for id in marriage.supportingEvidence where !existing.contains(id) {
+            newEvidence.append(id)
+        }
+        // Build the cross-reference reasoning sentence once per
+        // marriage. Tag with the marriage's id so a second
+        // reconciliation pass detects "already applied".
+        let marker = "[cross-ref:\(marriage.id)]"
+        let newReasoning: String
+        if parent.reasoning.contains(marker) {
+            newReasoning = parent.reasoning
+        } else {
+            newReasoning = parent.reasoning + " \(marker) " + marriage.reasoning
+        }
+        return ResearchHypothesis(
+            id: parent.id,
+            subjectProfileID: parent.subjectProfileID,
+            kind: parent.kind,
+            verdict: parent.verdict,
+            isModelAssisted: parent.isModelAssisted,
+            supportingEvidence: newEvidence,
+            contradictingEvidence: parent.contradictingEvidence,
+            reasoning: newReasoning,
+            createdAt: parent.createdAt,
+            lastTestedAt: parent.lastTestedAt,
+            attempts: parent.attempts,
+            history: parent.history
+        )
     }
 
     /// Per-kind expansiveness ladder. Returns the focused query for the
@@ -109,9 +223,13 @@ nonisolated enum HypothesisEngine {
         switch hypothesis.kind {
         case .siblingExists:
             return deficitQuerySiblingExists(for: hypothesis, atLevel: level, state: state)
-        case .subjectIdentity, .parentMarriage, .clusterIsSubject,
+        case .parentInferred:
+            return deficitQueryParentInferred(for: hypothesis, atLevel: level, state: state)
+        case .parentMarriage:
+            return deficitQueryParentMarriage(for: hypothesis, atLevel: level, state: state)
+        case .subjectIdentity, .clusterIsSubject,
              .burialAtParish, .secondMarriage:
-            return nil   // T12 fills these in
+            return nil   // future kinds
         }
     }
 }
@@ -123,6 +241,7 @@ nonisolated enum HypothesisEngine {
 nonisolated enum HypothesisKindDiscriminator: String, CaseIterable, Sendable {
     case subjectIdentity
     case parentMarriage
+    case parentInferred
     case siblingExists
     case clusterIsSubject
     case burialAtParish

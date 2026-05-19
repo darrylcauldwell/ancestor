@@ -87,45 +87,10 @@ final class ResearchPipeline {
             // DETERMINISTIC: refine subject from confirmed facts (learned date propagation)
             state.subject = refineSubject(state.subject, from: state.confirmedFacts)
 
-            // DETERMINISTIC: infer relatives from facts AND leads.
-            // The mothersMaidenName field is transcribed from the BMD index and
-            // doesn't depend on geography/family gates passing; if name+year
-            // matched (which is what makes a record fact-or-lead vs. impossible),
-            // the parent surnames it implies are worth surfacing. Confidence on
-            // the resulting ProposedRelative reflects the source verdict.
-            let pre = state.proposedRelatives.count
-            state.proposedRelatives = inferRelatives(
-                from: state.confirmedFacts + state.leads,
-                subject: state.subject,
-                existing: state.proposedRelatives
-            )
-            let post = state.proposedRelatives.count
-            logger.info("inferRelatives: facts=\(state.confirmedFacts.count) leads=\(state.leads.count) → proposals \(pre)→\(post) (subjectID=\(state.subject.profileID ?? "nil"))")
-
-            // DETERMINISTIC: enrich surname-only parent proposals with given names.
-            // For each (mother, father) pair the inference engine produced, fan
-            // out two FreeBMD marriage queries (groom-indexed + bride-indexed).
-            // Same marriage appears under both — matching by reference tuple
-            // yields both first names without ordering a certificate. Honours
-            // the same scope as the surrounding pipeline.
-            // Marriage enrichment runs ONCE per pipeline run (first iteration
-            // where parents are proposed). Honours the same scope as the rest
-            // of the pipeline — most users research in their home county where
-            // their ancestors lived and married. Set scope=.national in the
-            // UI if parents likely married elsewhere.
-            if !state.marriageEnrichmentAttempted && !state.proposedRelatives.isEmpty {
-                let beforeEnrich = state.proposedRelatives.count
-                let (enriched, marriageRecords) = await enrichParentsWithMarriage(
-                    state.proposedRelatives,
-                    subject: state.subject,
-                    scope: config.scope
-                )
-                state.proposedRelatives = enriched
-                state.scoredRecords.append(contentsOf: marriageRecords)
-                state.enrichmentRecordIDs.formUnion(marriageRecords.map(\.id))
-                state.marriageEnrichmentAttempted = true
-                logger.info("Marriage enrichment: \(beforeEnrich)→\(state.proposedRelatives.count) proposals, \(marriageRecords.count) marriage records captured")
-            }
+            // Parent inference + marriage enrichment now run post-loop
+            // via `runParentHypothesisFlow` (V2 spec §5.2 T12-parent
+            // Phase 2). They were here in the iteration loop until the
+            // framework path took over as the source of truth.
 
             // PROBABILISTIC: optional reasoning model suggests next search direction
             // Only between iterations, never rules on specific records
@@ -198,286 +163,567 @@ final class ResearchPipeline {
         let confirmed = clusters.filter { $0.matchQuality == .confirmed }.count
         logger.info("Clustering: \(clusters.count) clusters — \(confirmed) with confirmed match quality")
 
-        // DETERMINISTIC: sibling discovery (T17). Gated on identity resolved
-        // AND both parents linked — the engine returns [] otherwise but the
-        // dispatch is wasted, so check upstream.
-        //
-        // V2 spec T12-sibling Phase 1: capture the full outcome so we can
-        // emit both the legacy `proposedSiblings` list AND the new
-        // `.siblingExists` hypotheses, with `.contradicted` representing
-        // "we tried, found nothing" (distinct from "didn't try" which
-        // emits no hypothesis at all).
-        let siblingOutcome = await siblingSearchOutcome(state: state)
-        let proposedSiblings: [SiblingProposal]
-        let siblingHypotheses: [ResearchHypothesis]
-        switch siblingOutcome {
-        case .skipped(let reason):
-            logger.info("Sibling search skipped: \(reason)")
-            proposedSiblings = []
-            siblingHypotheses = []
-        case .attempted(let district, let mmn, let window, _, _, let proposals):
-            proposedSiblings = proposals
-            siblingHypotheses = [
-                Self.buildSiblingExistsHypothesis(
-                    subjectProfileID: state.subject.profileID,
-                    district: district,
-                    mmn: mmn,
-                    yearWindow: window,
-                    proposals: proposals
-                )
-            ]
+        // DETERMINISTIC: sibling hypothesis flow (V2 spec §5.2,
+        // T12-sibling — engine is the sole source of truth as of Phase 4).
+        // generate → for each draft, dispatch the level-1 deficit query,
+        // append candidates to state (marked for exclusion from
+        // clustering) → grade. The UI projects supported hypotheses to
+        // `SiblingProposal` on demand via
+        // `ResearchViewModel.visibleSiblings(snapshot:)`.
+        let siblingHypotheses = await runSiblingHypothesisFlow(state: &state)
+
+        // DETERMINISTIC: parent hypothesis flow (V2 spec §5.2,
+        // T12-parent — engine is the sole source of truth as of
+        // Phase 2). Generates `.parentInferred` + `.parentMarriage`,
+        // fans out marriage queries across `config.scope`, grades,
+        // and reconciles marriage evidence onto the parent rows.
+        let parentHypotheses = await runParentHypothesisFlow(
+            state: &state, scope: config.scope
+        )
+        let firstPassHypotheses = siblingHypotheses + parentHypotheses
+
+        // T7 second pass (V2 spec §5.3). At most once per research()
+        // call; only fires when there's at least one inconclusive
+        // hypothesis whose per-kind ladder has headroom. Right now
+        // that's principally `.parentMarriage` rows whose first-pass
+        // window came back empty/ambiguous — level-1 retry widens the
+        // window by ±10 years.
+        let allHypotheses = await runSecondPass(
+            state: &state, hypotheses: firstPassHypotheses, scope: config.scope
+        )
+
+        // Re-cluster if the second pass appended records that weren't
+        // tagged as enrichment-only. In current configuration every
+        // second-pass record is tagged (it's evidence for a specific
+        // hypothesis, not a candidate life), so the cluster set is
+        // unchanged — but recompute defensively so future ladder
+        // levels that add un-tagged candidates surface correctly.
+        let postSecondPassClusterInput = state.scoredRecords.filter {
+            !state.enrichmentRecordIDs.contains($0.id)
+        }
+        let finalClusters: [LifeCluster]
+        if postSecondPassClusterInput.count != clusterInput.count {
+            finalClusters = ClusteringEngine.cluster(
+                records: postSecondPassClusterInput,
+                sourceInfoMap: sourceInfoMap,
+                homeChapmanCode: subject.homeChapmanCode
+            )
+            logger.info("Post-second-pass re-clustering: \(finalClusters.count) clusters (was \(clusters.count))")
+        } else {
+            finalClusters = clusters
         }
 
         return ResearchResult(
             confirmedFacts: state.confirmedFacts,
             leads: state.leads,
             allScoredRecords: state.scoredRecords,
-            clusters: clusters,
+            clusters: finalClusters,
             discrepancies: state.discrepancies,
             householdMembers: state.householdMembers,
             searchHistory: state.searchHistory,
-            proposedRelatives: state.proposedRelatives,
-            proposedSiblings: proposedSiblings,
-            hypotheses: siblingHypotheses
+            hypotheses: allHypotheses
         )
     }
 
-    /// T12-sibling Phase 1 helper. Build a single `.siblingExists`
-    /// hypothesis from a sibling search outcome:
-    ///   • `.supported` with `supportingEvidence = candidateRecordIDs`
-    ///     when proposals were found.
-    ///   • `.contradicted` with empty evidence when the query ran but
-    ///     returned no MMN-matching candidates.
-    /// In Phase 2 this builder moves into the engine's `gradeSiblingExists`
-    /// extension and `findSiblings` is deleted entirely.
-    static func buildSiblingExistsHypothesis(
-        subjectProfileID: String?,
-        district: String,
-        mmn: String,
-        yearWindow: ClosedRange<Int>,
-        proposals: [SiblingProposal]
-    ) -> ResearchHypothesis {
-        let kind = HypothesisKind.siblingExists(district: district, mmn: mmn, yearWindow: yearWindow)
+    // MARK: - Parent Hypothesis Flow (V2 spec §5.2 — engine is the
+    //         sole source of truth as of Phase 2)
+
+    /// Run the `.parentInferred` + `.parentMarriage` framework path:
+    ///   1. generate `.parentInferred` drafts (one per parent surname
+    ///      implied by BMD-birth-index records the iteration loop
+    ///      collected),
+    ///   2. grade each — `.supported` when a fact-or-lead birth record
+    ///      attests the surname (mother via MMN, father via subject
+    ///      surname),
+    ///   3. generate `.parentMarriage` drafts — the generator gates on
+    ///      "both parents linked" OR "subject identity resolved" so a
+    ///      non-specific subject doesn't fan out marriage queries
+    ///      across every MMN (V2 spec §5.2.1),
+    ///   4. for each draft, fan out groom-side + bride-side FreeBMD
+    ///      marriage queries across the scope's districts, append the
+    ///      returned records to `state.scoredRecords` (also added to
+    ///      `enrichmentRecordIDs` so any future clustering pass
+    ///      excludes them),
+    ///   5. grade each `.parentMarriage` draft — `MarriageEnrichmentEngine.match`
+    ///      reunites groom-side / bride-side hits at the same reference
+    ///      tuple,
+    ///   6. reconcile — supported `.parentMarriage` record IDs +
+    ///      given-name reasoning cross-reference onto the matching
+    ///      `.parentInferred` rows.
+    private func runParentHypothesisFlow(
+        state: inout ResearchState,
+        scope: ResearchScope
+    ) async -> [ResearchHypothesis] {
+        let parentDrafts = HypothesisEngine.generate(
+            for: .parentInferred, state: state, snapshot: snapshot
+        )
+        let marriageDrafts = HypothesisEngine.generate(
+            for: .parentMarriage, state: state, snapshot: snapshot
+        )
+        if parentDrafts.isEmpty && marriageDrafts.isEmpty { return [] }
+
+        // Grade parent inferreds first — they don't need any further
+        // dispatch (state.scoredRecords already carries the BMD birth
+        // evidence from the iteration loop).
         let now = Date()
-        let supportingEvidence = proposals.map(\.candidateRecordID)
-        let verdict: ResearchHypothesis.Verdict = proposals.isEmpty ? .contradicted : .supported
-        let reasoning: String = proposals.isEmpty
-            ? "Searched \(district) \(yearWindow.lowerBound)–\(yearWindow.upperBound) for MMN \(mmn); 0 matching candidates."
-            : "Found \(proposals.count) candidate sibling\(proposals.count == 1 ? "" : "s") in \(district) \(yearWindow.lowerBound)–\(yearWindow.upperBound) sharing MMN \(mmn)."
-        return ResearchHypothesis(
-            id: kind.identityKey(subjectProfileID: subjectProfileID),
-            subjectProfileID: subjectProfileID,
-            kind: kind,
-            verdict: verdict,
-            isModelAssisted: false,
-            supportingEvidence: supportingEvidence,
-            contradictingEvidence: [],
-            reasoning: reasoning,
-            createdAt: now,
+        let parentGraded: [ResearchHypothesis] = parentDrafts.map { draft in
+            Self.finalizeHypothesis(
+                draft: draft,
+                gradeResult: HypothesisEngine.grade(draft, state: state, snapshot: snapshot),
+                at: now
+            )
+        }
+
+        // Dispatch marriage queries for every gated `.parentMarriage`
+        // draft. Two-sided fan-out per pair (one query per district per
+        // side); records feed back into state so the grader can read
+        // them.
+        for draft in marriageDrafts {
+            guard case .parentMarriage(let motherSurname, let fatherSurname, let window) = draft.kind else { continue }
+            logger.info("Parent marriage dispatch: \(fatherSurname) × \(motherSurname), \(window.lowerBound)–\(window.upperBound)")
+            async let groomSide = dispatchMarriageQuery(
+                surname: fatherSurname, spouseSurname: motherSurname,
+                yearFrom: window.lowerBound, yearTo: window.upperBound, scope: scope
+            )
+            async let brideSide = dispatchMarriageQuery(
+                surname: motherSurname, spouseSurname: fatherSurname,
+                yearFrom: window.lowerBound, yearTo: window.upperBound, scope: scope
+            )
+            let groomScored = await groomSide
+            let brideScored = await brideSide
+            let priorIDs = Set(state.scoredRecords.map(\.id))
+            let newRecords = (groomScored + brideScored).filter { !priorIDs.contains($0.id) }
+            state.scoredRecords.append(contentsOf: newRecords)
+            // Exclusion tag mirrors the sibling-flow pattern — marriage
+            // records describe the parents' marriage, not a candidate
+            // life of the subject, so clustering should ignore them.
+            state.enrichmentRecordIDs.formUnion(newRecords.map(\.id))
+        }
+
+        let marriageGraded: [ResearchHypothesis] = marriageDrafts.map { draft in
+            Self.finalizeHypothesis(
+                draft: draft,
+                gradeResult: HypothesisEngine.grade(draft, state: state, snapshot: snapshot),
+                at: now
+            )
+        }
+
+        return HypothesisEngine.reconcileParentMarriages(
+            hypotheses: parentGraded + marriageGraded
+        )
+    }
+
+    /// Wrap a drafted hypothesis + its grade result into a finalised
+    /// hypothesis with verdict, evidence, history. Shared between the
+    /// sibling and parent flows.
+    private static func finalizeHypothesis(
+        draft: ResearchHypothesis,
+        gradeResult: HypothesisEngine.GradeResult,
+        at now: Date
+    ) -> ResearchHypothesis {
+        ResearchHypothesis(
+            id: draft.id,
+            subjectProfileID: draft.subjectProfileID,
+            kind: draft.kind,
+            verdict: gradeResult.verdict,
+            isModelAssisted: gradeResult.isModelAssisted,
+            supportingEvidence: gradeResult.supportingEvidence,
+            contradictingEvidence: gradeResult.contradictingEvidence,
+            reasoning: gradeResult.reasoning,
+            createdAt: draft.createdAt,
             lastTestedAt: now,
-            attempts: 1,    // Phase 1 always runs one query (the legacy findSiblings dispatch)
+            attempts: 1,
             history: [
                 ResearchHypothesis.Transition(
-                    verdict: verdict,
-                    isModelAssisted: false,
+                    verdict: gradeResult.verdict,
+                    isModelAssisted: gradeResult.isModelAssisted,
                     at: now,
-                    reason: "initial grading from T12-sibling Phase 1 path"
+                    reason: "initial grading"
                 )
             ]
         )
     }
 
-    // MARK: - Marriage Enrichment
-
-    /// Fan out FreeBMD marriage queries for each (mother, father) pair the parent
-    /// inference engine produced, then call MarriageEnrichmentEngine to match
-    /// groom-side vs bride-side hits and fill in given names.
+    /// Project a `.supported` `.parentInferred` hypothesis to the
+    /// `ProposedRelative` shape the UI's accept / reject flow expects.
+    /// Mirrors the legacy `ParentInferenceEngine` output (V2 spec §5.2.1).
     ///
-    /// Returns the (possibly mutated) proposals plus every marriage record found
-    /// during the queries — caller appends those to state.scoredRecords so they
-    /// get persisted as evidence rather than discarded.
-    /// Pairs whose mother given name is already populated are skipped.
-    func enrichParentsWithMarriage(
-        _ proposals: [ProposedRelative],
-        subject: ResearchSubject,
-        scope: ResearchScope
-    ) async -> (proposals: [ProposedRelative], marriageRecords: [ScoredRecord]) {
-        guard let subjectBirthYear = subject.birthYearFrom ?? subject.birthYearTo else {
-            return (proposals, [])
-        }
-        // Window: parents married between birth − 30 and birth + 1.
-        let yearFrom = subjectBirthYear - 30
-        let yearTo = subjectBirthYear + 1
-
-        // ── Search-storm prevention (T29) ─────────────────────────────────
-        // ParentInferenceEngine generates one mother proposal per distinct
-        // `mothersMaidenName` across every candidate birth record the
-        // dispatcher returns for the subject. For a non-specific subject
-        // like "Jennifer Holmes 1948" that's dozens of MMNs (Brooks, Hicks,
-        // Sambrook, Dabbs, …) — each spawning a two-sided marriage query
-        // fanned out across every Derbyshire district. Most are noise.
-        //
-        // Gating policy:
-        //   • If both parents are already linked → only enrich the pair
-        //     whose surnames match (typically just one).
-        //   • Else if SubjectIdentityResolver pins one birth record → only
-        //     enrich proposals derived from THAT record's MMN.
-        //   • Else → skip enrichment entirely. Without identity resolution
-        //     or known parents, every pair is suspect.
-        let knownFather = subject.profileID.flatMap { id in
-            snapshot.parentsOf(id).first(where: { $0.gender == .male })
-        }
-        let knownMother = subject.profileID.flatMap { id in
-            snapshot.parentsOf(id).first(where: { $0.gender == .female })
-        }
-        let knownFatherSurname = knownFather?.lastName?
-            .trimmingCharacters(in: .whitespaces)
-        let knownMotherSurname = knownMother?.lastName?
-            .trimmingCharacters(in: .whitespaces)
-        let bothParentsLinked = !(knownFatherSurname?.isEmpty ?? true)
-            && !(knownMotherSurname?.isEmpty ?? true)
-
-        // Identity resolution — pull all .fact birth records from the
-        // proposal evidence (each proposal cites the record it was inferred
-        // from). Deduped because father+mother proposals share evidence.
-        let candidateBirthFacts: [ScoredRecord] = {
-            var seen: Set<String> = []
-            var result: [ScoredRecord] = []
-            for proposal in proposals {
-                for scored in proposal.evidence {
-                    if case .birth = scored.record,
-                       scored.verdict == .fact,
-                       !seen.contains(scored.id) {
-                        seen.insert(scored.id)
-                        result.append(scored)
-                    }
-                }
-            }
-            return result
-        }()
-        let hypotheses: [GeographicHypothesis] = subject.profileID.map { id in
-            GeographicHypothesisGenerator.inferDistricts(
-                for: id,
-                snapshot: snapshot,
-                eventYear: subject.birthYearFrom
-            )
-        } ?? []
-        let identity = SubjectIdentityResolver.resolve(
-            candidateBirthFacts: candidateBirthFacts,
-            hypotheses: hypotheses
+    /// Call sites: `ResearchViewModel.visibleProposedRelatives` and
+    /// `RunRequestWatcher`'s auto-accept gate. T12-parent Phase 4
+    /// removed the pipeline's mirror call; proposals are now computed
+    /// on demand at the read site.
+    ///
+    /// `allHypotheses` lets the helper pull the matching
+    /// `.parentMarriage` row's candidates (when verdict is
+    /// `.inconclusive` = ambiguous match) into `ambiguousMarriages` so
+    /// the UI can render the disambiguation affordance.
+    static func projectParentInferredToProposal(
+        hypothesis: ResearchHypothesis,
+        allHypotheses: [ResearchHypothesis],
+        scoredRecords: [ScoredRecord],
+        subject: ResearchSubject
+    ) -> ProposedRelative? {
+        guard hypothesis.isDeterministicallySupported,
+              case .parentInferred(let gender, let surname) = hypothesis.kind,
+              let subjectID = subject.profileID
+        else { return nil }
+        let scoredByID = Dictionary(uniqueKeysWithValues: scoredRecords.map { ($0.id, $0) })
+        let evidence = hypothesis.supportingEvidence.compactMap { scoredByID[$0] }
+        let proposedGivenName = extractParentGivenName(
+            gender: gender, surname: surname, from: evidence
         )
-        let resolvedBirthRecordID: String? = {
-            if case .resolved(let id, _) = identity { return id }
-            return nil
+        let subjectBirthYear = subject.birthYearFrom
+        let parentLow = subjectBirthYear.map { $0 - 45 }
+        let parentHigh = subjectBirthYear.map { $0 - 18 }
+        let rel = ProposedRelationship.parentOf(subjectID)
+
+        let ambiguousMarriages: [ScoredRecord] = {
+            for h in allHypotheses {
+                guard h.subjectProfileID == hypothesis.subjectProfileID,
+                      case .parentMarriage(let mother, let father, _) = h.kind,
+                      h.verdict == .inconclusive
+                else { continue }
+                let matches: Bool
+                switch gender {
+                case .female: matches = mother.caseInsensitiveCompare(surname) == .orderedSame
+                case .male:   matches = father.caseInsensitiveCompare(surname) == .orderedSame
+                case .other, .unknown: matches = false
+                }
+                guard matches else { continue }
+                return h.supportingEvidence.compactMap { scoredByID[$0] }
+            }
+            return []
         }()
 
-        guard bothParentsLinked || resolvedBirthRecordID != nil else {
-            logger.info("Marriage enrichment skipped: subject identity not resolved AND parents not linked — would dispatch one marriage query per candidate MMN (most wrong)")
-            return (proposals, [])
-        }
+        // Use the first BMD-birth evidence record (typically only one)
+        // to name the inference chain — mirrors legacy text.
+        let inferredFromSourceID: String = {
+            for scored in evidence {
+                if case .birth = scored.record { return scored.record.sourceID }
+            }
+            return "BMD"
+        }()
+        return ProposedRelative(
+            id: ProposedRelative.stableID(
+                relationship: rel, gender: gender, surname: surname
+            ),
+            proposedSurname: surname,
+            proposedGivenName: proposedGivenName,
+            gender: gender,
+            birthYearLow: parentLow,
+            birthYearHigh: parentHigh,
+            relationship: rel,
+            evidence: evidence,
+            inferenceDepth: InferenceDepth(
+                steps: 1,
+                chain: ["Parent surname inferred from \(inferredFromSourceID) birth record"]
+            ),
+            ambiguousMarriages: ambiguousMarriages
+        )
+    }
 
-        // Pair mothers with fathers by shared parentOf(subjectID).
-        var enriched = proposals
-        var collectedMarriageRecords: [ScoredRecord] = []
-        let fathers = enriched.enumerated().filter { $0.element.gender == .male }
-        let mothers = enriched.enumerated().filter { $0.element.gender == .female }
-
-        for (fIdx, father) in fathers {
-            guard case .parentOf(let fatherSubjectID) = father.relationship else { continue }
-            for (mIdx, mother) in mothers {
-                guard case .parentOf(let motherSubjectID) = mother.relationship,
-                      fatherSubjectID == motherSubjectID else { continue }
-                // Already enriched — skip
-                if mother.proposedGivenName != nil && father.proposedGivenName != nil { continue }
-                guard let fatherSurname = father.proposedSurname, !fatherSurname.isEmpty,
-                      let motherSurname = mother.proposedSurname, !motherSurname.isEmpty
-                else { continue }
-
-                // Per-pair scoping under the gating policy above.
-                if bothParentsLinked {
-                    let fMatches = fatherSurname.caseInsensitiveCompare(knownFatherSurname ?? "") == .orderedSame
-                    let mMatches = motherSurname.caseInsensitiveCompare(knownMotherSurname ?? "") == .orderedSame
-                    if !(fMatches && mMatches) {
-                        logger.info("Skipping pair \(fatherSurname) × \(motherSurname): doesn't match linked parents \(knownFatherSurname ?? "?") × \(knownMotherSurname ?? "?")")
-                        continue
-                    }
-                } else if let resolvedID = resolvedBirthRecordID {
-                    let fFromResolved = father.evidence.contains { $0.id == resolvedID }
-                    let mFromResolved = mother.evidence.contains { $0.id == resolvedID }
-                    if !(fFromResolved || mFromResolved) {
-                        logger.info("Skipping pair \(fatherSurname) × \(motherSurname): not derived from resolved subject birth record")
-                        continue
-                    }
-                }
-
-                logger.info("Marriage enrichment: \(fatherSurname) × \(motherSurname), \(yearFrom)–\(yearTo)")
-
-                async let groomSide = dispatchMarriageQuery(
-                    surname: fatherSurname,
-                    spouseSurname: motherSurname,
-                    yearFrom: yearFrom, yearTo: yearTo,
-                    scope: scope
-                )
-                async let brideSide = dispatchMarriageQuery(
-                    surname: motherSurname,
-                    spouseSurname: fatherSurname,
-                    yearFrom: yearFrom, yearTo: yearTo,
-                    scope: scope
-                )
-                let groomScored = await groomSide
-                let brideScored = await brideSide
-                collectedMarriageRecords.append(contentsOf: groomScored)
-                collectedMarriageRecords.append(contentsOf: brideScored)
-                let grooms = MarriageEnrichmentEngine.entries(from: groomScored)
-                let brides = MarriageEnrichmentEngine.entries(from: brideScored)
-
-                let outcome = MarriageEnrichmentEngine.match(
-                    grooms: grooms,
-                    brides: brides,
-                    yearWindow: yearFrom...yearTo,
-                    expectedGroomSpouseSurname: motherSurname,
-                    expectedBrideSpouseSurname: fatherSurname
-                )
-                switch outcome {
-                case .unique(let fatherGiven, let motherGiven, let fatherEv, let motherEv):
-                    // Either or both given names may be nil when FreeBMD
-                    // returned the marriage on only one side of the index.
-                    // Apply whatever we got; leave the missing side's given
-                    // name as nil (proposal stays surname-only there).
-                    let fLabel = fatherGiven ?? "?"
-                    let mLabel = motherGiven ?? "?"
-                    let sideTag: String
-                    switch (fatherGiven, motherGiven) {
-                    case (.some, .some): sideTag = "both sides"
-                    case (.some, .none): sideTag = "groom-side only"
-                    case (.none, .some): sideTag = "bride-side only"
-                    case (.none, .none): sideTag = "neither side (refKey only)"
-                    }
-                    logger.info("Marriage match (\(sideTag)): \(fLabel) \(fatherSurname) × \(mLabel) \(motherSurname)")
-                    if let g = fatherGiven { enriched[fIdx].proposedGivenName = g }
-                    if let g = motherGiven { enriched[mIdx].proposedGivenName = g }
-                    // The marriage record validates both surnames regardless of
-                    // which side carried it (the missing side's surname appears
-                    // in the other side's `Spouse` field). Attach the available
-                    // record to BOTH proposals so the surname-only parent still
-                    // shows a "Cross-validated by" entry — rather than a bare
-                    // "1 source" card that misleadingly suggests no marriage
-                    // was found.
-                    let evForFather = fatherEv ?? motherEv
-                    let evForMother = motherEv ?? fatherEv
-                    if let ev = evForFather { enriched[fIdx].evidence.append(ev) }
-                    if let ev = evForMother { enriched[mIdx].evidence.append(ev) }
-                case .ambiguous(let candidates):
-                    logger.info("Marriage enrichment ambiguous: \(candidates.count) candidates for \(fatherSurname) × \(motherSurname)")
-                    enriched[fIdx].ambiguousMarriages = candidates
-                    enriched[mIdx].ambiguousMarriages = candidates
-                case .none:
-                    logger.info("Marriage enrichment: no match for \(fatherSurname) × \(motherSurname)")
-                }
+    /// Pull the parent's given name from cross-referenced marriage
+    /// records, if reconciliation attached any. Match by surname-side:
+    /// mother → bride-side entry; father → groom-side entry.
+    private static func extractParentGivenName(
+        gender: Gender,
+        surname: String,
+        from evidence: [ScoredRecord]
+    ) -> String? {
+        let upperSurname = surname.uppercased()
+        for scored in evidence {
+            guard case .marriage(let m) = scored.record else { continue }
+            let recordSurname = (m.common.surname ?? "")
+                .trimmingCharacters(in: .whitespaces)
+                .uppercased()
+            guard recordSurname == upperSurname else { continue }
+            if let given = m.common.givenName?
+                .trimmingCharacters(in: .whitespaces), !given.isEmpty {
+                return given
             }
         }
-        return (enriched, collectedMarriageRecords)
+        return nil
     }
+
+    // MARK: - Sibling Hypothesis Flow (V2 spec §5.2 Phase 2)
+
+    /// Run the `.siblingExists` framework path:
+    ///   1. generate drafts (engine checks preconditions),
+    ///   2. for each draft, build the level-1 deficit query, dispatch it,
+    ///      and append the returned candidate records to `state.scoredRecords`
+    ///      (also added to `enrichmentRecordIDs` so clustering — which ran
+    ///      already — wouldn't have included them; future clustering passes
+    ///      won't either),
+    ///   3. grade each draft against the now-populated state,
+    ///   4. finalise the hypothesis with verdict, evidence, history.
+    ///
+    /// Returns the finalised hypotheses. The pipeline's caller projects
+    /// `.supported` ones back into the legacy `SiblingProposal` shape
+    /// for the UI surface.
+    private func runSiblingHypothesisFlow(
+        state: inout ResearchState
+    ) async -> [ResearchHypothesis] {
+        let drafts = HypothesisEngine.generate(
+            for: .siblingExists,
+            state: state,
+            snapshot: snapshot
+        )
+        guard !drafts.isEmpty else {
+            logger.info("Sibling hypothesis flow: no drafts (preconditions not met)")
+            return []
+        }
+        var graded: [ResearchHypothesis] = []
+        for draft in drafts {
+            if let query = HypothesisEngine.deficitQuery(
+                for: draft, atLevel: 1, state: state
+            ) {
+                let priorIDs = Set(state.scoredRecords.map(\.id))
+                let candidates = await dispatchSiblingCandidateQuery(query)
+                let newCandidates = candidates.filter { !priorIDs.contains($0.id) }
+                logger.info("Sibling deficit-query level 1: \(candidates.count) candidates, \(newCandidates.count) new")
+                state.scoredRecords.append(contentsOf: newCandidates)
+                // Same exclusion trick as marriage enrichment: keep the
+                // records as evidence (and on disk via the lead store)
+                // but hide them from clustering. They answer the
+                // sibling-exists question, not "is there another life of
+                // the subject" — surfacing them as standalone clusters
+                // would confuse the cluster review.
+                state.enrichmentRecordIDs.formUnion(newCandidates.map(\.id))
+            }
+            let result = HypothesisEngine.grade(
+                draft, state: state, snapshot: snapshot
+            )
+            let now = Date()
+            graded.append(ResearchHypothesis(
+                id: draft.id,
+                subjectProfileID: draft.subjectProfileID,
+                kind: draft.kind,
+                verdict: result.verdict,
+                isModelAssisted: result.isModelAssisted,
+                supportingEvidence: result.supportingEvidence,
+                contradictingEvidence: result.contradictingEvidence,
+                reasoning: result.reasoning,
+                createdAt: draft.createdAt,
+                lastTestedAt: now,
+                attempts: 1,
+                history: [
+                    ResearchHypothesis.Transition(
+                        verdict: result.verdict,
+                        isModelAssisted: result.isModelAssisted,
+                        at: now,
+                        reason: "initial grading after level-1 deficit query"
+                    )
+                ]
+            ))
+        }
+        return graded
+    }
+
+    /// Dispatch a focused FreeBMD birth query (built by the engine's
+    /// `deficitQuerySiblingExists`) for sibling candidate discovery.
+    /// Returns each hit as a `.lead`-verdict ScoredRecord — the grader
+    /// uses `SiblingInferenceEngine`'s field-equality rule, not the
+    /// scorer's verdict, to decide which candidates count.
+    private func dispatchSiblingCandidateQuery(
+        _ query: RecordQuery
+    ) async -> [ScoredRecord] {
+        guard let freebmd = dispatcher.registry.allSources().first(where: { $0.sourceID == "freebmd" }) else {
+            return []
+        }
+        let result = await freebmd.search(query)
+        return result.records.map { record in
+            ScoredRecord(id: record.id, record: record, verdict: .lead, gates: [], summary: "")
+        }
+    }
+
+    /// Project a `.supported` `.siblingExists` hypothesis to the
+    /// `SiblingProposal` shape the UI's accept / reject flow expects.
+    /// Empty for non-supported / non-sibling hypotheses, or when the
+    /// supporting evidence record IDs no longer resolve in
+    /// `scoredRecords` (a stale-hypothesis case the UI shouldn't see).
+    ///
+    /// Sole call site: `ResearchViewModel.visibleSiblings(snapshot:)`,
+    /// which feeds `result.allScoredRecords`. Phase 4 of T12-sibling
+    /// removed the pipeline's mirror call; the engine's hypothesis list
+    /// is now the only sibling-discovery surface and proposals are
+    /// computed on demand for view rendering.
+    static func projectSiblingExistsToProposals(
+        hypothesis: ResearchHypothesis,
+        scoredRecords: [ScoredRecord],
+        snapshot: FamilyGraphSnapshot
+    ) -> [SiblingProposal] {
+        guard hypothesis.isDeterministicallySupported,
+              case .siblingExists = hypothesis.kind,
+              let subjectProfileID = hypothesis.subjectProfileID
+        else { return [] }
+        let parents = snapshot.parentsOf(subjectProfileID)
+        guard let father = parents.first(where: { $0.gender == .male }),
+              let mother = parents.first(where: { $0.gender == .female })
+        else { return [] }
+        let scoredByID = Dictionary(uniqueKeysWithValues: scoredRecords.map { ($0.id, $0) })
+        return hypothesis.supportingEvidence.compactMap { recordID -> SiblingProposal? in
+            guard let scored = scoredByID[recordID],
+                  case .birth(let birth) = scored.record else { return nil }
+            return SiblingProposal(
+                id: "siblingOf:\(father.id):\(scored.id)",
+                candidateRecordID: scored.id,
+                proposedSurname: birth.common.surname,
+                proposedGivenName: birth.common.givenName,
+                gender: nil,
+                birthYear: birth.birthYear,
+                district: birth.district,
+                fatherID: father.id,
+                motherID: mother.id,
+                evidence: [scored]
+            )
+        }
+    }
+
+    // MARK: - T7 second pass (V2 spec §5.3)
+
+    /// Hypothesis-guided second pass. Runs at most once per
+    /// `research(...)` call, after the first pass has assembled its
+    /// hypothesis list. For each `.inconclusive` hypothesis whose
+    /// per-kind ladder still has headroom
+    /// (`deficitQuery(for:atLevel: attempts + 1, state:) != nil`),
+    /// dispatches the focused query, appends new evidence to state,
+    /// increments the hypothesis's `attempts`, and re-grades every
+    /// hypothesis (so cross-references via `reconcileParentMarriages`
+    /// pick up newly-supported `.parentMarriage` rows).
+    ///
+    /// Returns the updated hypothesis list. Caller decides whether to
+    /// recompute clusters with the now-larger evidence set (records
+    /// added here are tagged with `enrichmentRecordIDs` so default
+    /// clustering excludes them — matches the first-pass convention).
+    ///
+    /// Stall-detection (V2 spec §5.3 Decision 4) is a two-condition
+    /// gate; T7 first-cut uses the looser condition (b) only —
+    /// "deficit-eligible inconclusive hypothesis exists." Condition
+    /// (a) "dispatcher walked the full strictness ladder" needs
+    /// dispatcher instrumentation that doesn't exist yet and is
+    /// deferred. In practice (b) alone is sufficient because the
+    /// deficit query is a deterministic rewrite of a specific
+    /// hypothesis's inputs — dispatching once for a hypothesis the
+    /// first pass already touched is bounded and cheap.
+    private func runSecondPass(
+        state: inout ResearchState,
+        hypotheses: [ResearchHypothesis],
+        scope: ResearchScope
+    ) async -> [ResearchHypothesis] {
+        let eligible = hypotheses.filter { h in
+            guard h.verdict == .inconclusive else { return false }
+            return HypothesisEngine.deficitQuery(
+                for: h, atLevel: h.attempts + 1, state: state
+            ) != nil
+        }
+        guard !eligible.isEmpty else { return hypotheses }
+        logger.info("T7 second pass: \(eligible.count) deficit-eligible inconclusive hypotheses")
+
+        // Dispatch each eligible hypothesis's deficit query. Records
+        // feed back into state so the re-grade below picks them up.
+        var attemptsByID: [String: Int] = [:]
+        for h in eligible {
+            let nextLevel = h.attempts + 1
+            guard let query = HypothesisEngine.deficitQuery(
+                for: h, atLevel: nextLevel, state: state
+            ) else { continue }
+            let newRecords = await dispatchHypothesisDeficitQuery(
+                query: query, hypothesisKind: h.kind, scope: scope
+            )
+            let priorIDs = Set(state.scoredRecords.map(\.id))
+            let appended = newRecords.filter { !priorIDs.contains($0.id) }
+            state.scoredRecords.append(contentsOf: appended)
+            state.enrichmentRecordIDs.formUnion(appended.map(\.id))
+            attemptsByID[h.id] = nextLevel
+            logger.info("T7 deficit dispatch (\(h.kind.discriminator), level \(nextLevel)): \(newRecords.count) records, \(appended.count) new")
+        }
+
+        // Re-grade every hypothesis with the now-populated state. The
+        // `attempts` counter is bumped only on hypotheses that fired a
+        // deficit query.
+        let now = Date()
+        let regraded: [ResearchHypothesis] = hypotheses.map { h in
+            let result = HypothesisEngine.grade(h, state: state, snapshot: snapshot)
+            let newAttempts = attemptsByID[h.id] ?? h.attempts
+            let transition = ResearchHypothesis.Transition(
+                verdict: result.verdict,
+                isModelAssisted: result.isModelAssisted,
+                at: now,
+                reason: "T7 second-pass re-grading"
+            )
+            return ResearchHypothesis(
+                id: h.id,
+                subjectProfileID: h.subjectProfileID,
+                kind: h.kind,
+                verdict: result.verdict,
+                isModelAssisted: result.isModelAssisted,
+                supportingEvidence: result.supportingEvidence,
+                contradictingEvidence: result.contradictingEvidence,
+                reasoning: result.reasoning,
+                createdAt: h.createdAt,
+                lastTestedAt: now,
+                attempts: newAttempts,
+                history: h.history + (h.verdict != result.verdict ? [transition] : [])
+            )
+        }
+
+        // Reconciliation re-runs so newly-supported `.parentMarriage`
+        // hypotheses get their cross-references threaded onto the
+        // matching `.parentInferred` rows.
+        return HypothesisEngine.reconcileParentMarriages(hypotheses: regraded)
+    }
+
+    /// Per-kind dispatch routing for T7's deficit queries. The
+    /// engine's deficit query returns a single `RecordQuery` per
+    /// level; per-kind orchestration is the seam that handles
+    /// district fan-out (parent-marriage) vs single-source dispatch
+    /// (sibling).
+    private func dispatchHypothesisDeficitQuery(
+        query: RecordQuery,
+        hypothesisKind: HypothesisKind,
+        scope: ResearchScope
+    ) async -> [ScoredRecord] {
+        switch hypothesisKind {
+        case .siblingExists:
+            return await dispatchSiblingCandidateQuery(query)
+        case .parentMarriage(let motherSurname, let fatherSurname, _):
+            // The deficit query for .parentMarriage carries the wider
+            // window in yearFrom/yearTo. Fan out groom-side + bride-side
+            // across the scope's districts (same as the first-pass
+            // marriage dispatch).
+            let yearFrom = query.yearFrom ?? 0
+            let yearTo = query.yearTo ?? 0
+            async let groomSide = dispatchMarriageQuery(
+                surname: fatherSurname, spouseSurname: motherSurname,
+                yearFrom: yearFrom, yearTo: yearTo, scope: scope
+            )
+            async let brideSide = dispatchMarriageQuery(
+                surname: motherSurname, spouseSurname: fatherSurname,
+                yearFrom: yearFrom, yearTo: yearTo, scope: scope
+            )
+            let g = await groomSide
+            let b = await brideSide
+            return g + b
+        case .parentInferred, .subjectIdentity, .clusterIsSubject,
+             .burialAtParish, .secondMarriage:
+            // These kinds either have no ladder (parentInferred,
+            // subjectIdentity, clusterIsSubject) or aren't yet in
+            // V2 scope. deficitQuery returned non-nil so the caller
+            // reached us; honour that even though nothing dispatches.
+            return []
+        }
+    }
+
+    // MARK: - Marriage Dispatch (shared by the parent flow)
+    //
+    // The legacy `enrichParentsWithMarriage` gate-and-pair pipeline
+    // was deleted in T12-parent Phase 2. Its gating moved into
+    // `HypothesisEngine.generateParentMarriage` (V2 spec §5.2.1
+    // gating policy); its matching is now `gradeParentMarriage`;
+    // its cross-validation is `reconcileParentMarriages`. The
+    // FreeBMD-fan-out helpers below survive because the framework's
+    // `runParentHypothesisFlow` still needs them for per-pair
+    // dispatch.
 
     /// Build and dispatch a FreeBMD marriage query through the existing source.
     /// Honours scope by fanning out across the same district set as the main pipeline.
@@ -586,179 +832,6 @@ final class ResearchPipeline {
         case "dec": return "Oct–Dec"
         default: return q
         }
-    }
-
-    // MARK: - Sibling Discovery
-
-    /// Find candidate full siblings of the subject by querying FreeBMD for
-    /// births sharing the subject's surname + registration district + a
-    /// ±20-year window, then filtering via `SiblingInferenceEngine` on
-    /// (surname, MMN, district). Returns [] unless the subject's identity
-    /// is resolved to a unique birth record AND both parents are linked in
-    /// the snapshot — those preconditions are what let the engine produce
-    /// trustworthy peer matches and let the accept flow wire a ghost to
-    /// both parents atomically.
-    ///
-    /// Dispatch is one focused query (single district, single surname) —
-    /// narrower than the main pipeline's per-iteration fan-out, so safe to
-    /// run unconditionally when the preconditions hold.
-    func findSiblings(state: ResearchState) async -> [SiblingProposal] {
-        let outcome = await siblingSearchOutcome(state: state)
-        if case .attempted(_, _, _, _, _, let proposals) = outcome {
-            return proposals
-        }
-        return []
-    }
-
-    /// Result of running the sibling search. Adds an explicit "skipped"
-    /// case so callers can disambiguate "didn't try, preconditions weren't
-    /// met" from "tried, found nothing" — used by T12-sibling Phase 1's
-    /// hypothesis mapping (where `.attempted(empty)` becomes a
-    /// `.contradicted` hypothesis and `.skipped` emits no hypothesis at
-    /// all).
-    enum SiblingSearchOutcome: Sendable {
-        case skipped(reason: String)
-        case attempted(
-            district: String,
-            mmn: String,
-            yearWindow: ClosedRange<Int>,
-            fatherID: String,
-            motherID: String,
-            proposals: [SiblingProposal]
-        )
-    }
-
-    /// Run the sibling search and return the full outcome — same dispatch
-    /// + inference as `findSiblings(state:)` but carries the (district,
-    /// mmn, yearWindow) signature out so callers can build hypotheses
-    /// for both supported and contradicted verdicts.
-    func siblingSearchOutcome(state: ResearchState) async -> SiblingSearchOutcome {
-        let birthFacts = state.confirmedFacts.filter {
-            if case .birth = $0.record { return true }
-            return false
-        }
-        let hypotheses: [GeographicHypothesis] = state.subject.profileID.map { id in
-            GeographicHypothesisGenerator.inferDistricts(
-                for: id,
-                snapshot: snapshot,
-                eventYear: state.subject.birthYearFrom
-            )
-        } ?? []
-        let identity = SubjectIdentityResolver.resolve(
-            candidateBirthFacts: birthFacts,
-            hypotheses: hypotheses
-        )
-        guard case .resolved(let resolvedID, _) = identity,
-              let subjectBirth = birthFacts.first(where: { $0.id == resolvedID })
-        else {
-            return .skipped(reason: "subject identity not resolved")
-        }
-
-        // Both parents must be linked — accept-flow writes two parent edges.
-        guard let subjectProfileID = state.subject.profileID else {
-            return .skipped(reason: "subject has no profile ID")
-        }
-        let parents = snapshot.parentsOf(subjectProfileID)
-        guard let father = parents.first(where: { $0.gender == .male }),
-              let mother = parents.first(where: { $0.gender == .female })
-        else {
-            return .skipped(reason: "both parents not linked in tree")
-        }
-
-        guard case .birth(let birth) = subjectBirth.record,
-              let districtName = birth.district, !districtName.isEmpty,
-              let subjectYear = birth.birthYear,
-              let subjectSurname = birth.common.surname, !subjectSurname.isEmpty
-        else {
-            return .skipped(reason: "subject birth record missing district / year / surname")
-        }
-        guard let mmnRaw = birth.mothersMaidenName?.trimmingCharacters(in: .whitespaces),
-              !mmnRaw.isEmpty else {
-            return .skipped(reason: "subject birth record missing mother's maiden name")
-        }
-        guard let district = FreeBMDDistrictCatalogue.shared.district(named: districtName) else {
-            logger.info("Sibling search skipped: district \"\(districtName)\" not in FreeBMD catalogue")
-            return .skipped(reason: "district \(districtName) not in FreeBMD catalogue")
-        }
-
-        let yearFrom = subjectYear - SiblingInferenceEngine.maxSiblingAgeGap
-        let yearTo = subjectYear + SiblingInferenceEngine.maxSiblingAgeGap
-
-        let candidates = await dispatchSiblingQuery(
-            surname: subjectSurname,
-            districtCode: district.code,
-            yearFrom: yearFrom, yearTo: yearTo
-        )
-        logger.info("Sibling search: \(candidates.count) candidate births in \(districtName) \(yearFrom)–\(yearTo)")
-
-        let proposals = SiblingInferenceEngine.inferSiblings(
-            subjectBirthRecord: subjectBirth,
-            candidateRecords: candidates,
-            knownFatherID: father.id,
-            knownMotherID: mother.id,
-            snapshot: snapshot
-        )
-
-        return .attempted(
-            district: districtName,
-            mmn: mmnRaw,
-            yearWindow: yearFrom...yearTo,
-            fatherID: father.id,
-            motherID: mother.id,
-            proposals: proposals
-        )
-    }
-
-    /// Dispatch a focused FreeBMD birth query for sibling discovery.
-    /// Surname-only, no given name, single district, full ±20-year window.
-    /// Inference engine filters on MMN/district equality, so we deliberately
-    /// don't run the records through RecordScorer — the verdict/gates are
-    /// irrelevant to the sibling match rule.
-    private func dispatchSiblingQuery(
-        surname: String,
-        districtCode: String,
-        yearFrom: Int,
-        yearTo: Int
-    ) async -> [ScoredRecord] {
-        guard let freebmd = dispatcher.registry.allSources().first(where: { $0.sourceID == "freebmd" }) else {
-            return []
-        }
-        let query = RecordQuery(
-            surname: surname,
-            givenName: nil,
-            recordType: .birth,
-            yearFrom: yearFrom, yearTo: yearTo,
-            gender: nil, region: nil,
-            sourceParams: .freeBMD(FreeBMDParams(
-                districtCode: districtCode,
-                wildcardSurname: false,
-                motherSurname: nil,
-                spouseSurname: nil
-            ))
-        )
-        let result = await freebmd.search(query)
-        return result.records.map { record in
-            ScoredRecord(id: record.id, record: record, verdict: .lead, gates: [], summary: "")
-        }
-    }
-
-    // MARK: - Parent Inference
-
-    /// Wraps `ParentInferenceEngine.infer` with snapshot-derived `existingParents`.
-    /// Pure logic lives in the engine; this method just supplies the snapshot context.
-    func inferRelatives(
-        from facts: [ScoredRecord],
-        subject: ResearchSubject,
-        existing: [ProposedRelative]
-    ) -> [ProposedRelative] {
-        let parents = subject.profileID.map { snapshot.parentsOf($0) } ?? []
-        return ParentInferenceEngine.infer(
-            from: facts,
-            subject: subject,
-            existingParents: parents,
-            sourceInfoMap: sourceInfoMap,
-            existing: existing
-        )
     }
 
     // MARK: - Discrepancy Detection

@@ -208,8 +208,24 @@ final class RunRequestWatcher {
             if !identity.isResolved {
                 logger.info("Auto-accept skipped: subject identity not resolved (\(String(describing: identity))) for request \(request.id)")
             } else {
+                // T12-parent Phase 4: `result.proposedRelatives` was
+                // deleted; project supported `.parentInferred` rows on
+                // demand. Same shape as `ResearchViewModel.visibleProposedRelatives`.
+                let projectedProposals: [ProposedRelative] = result.hypotheses
+                    .filter { h in
+                        guard case .parentInferred = h.kind else { return false }
+                        return h.isDeterministicallySupported
+                    }
+                    .compactMap { h in
+                        ResearchPipeline.projectParentInferredToProposal(
+                            hypothesis: h,
+                            allHypotheses: result.hypotheses,
+                            scoredRecords: result.allScoredRecords,
+                            subject: subject
+                        )
+                    }
                 let promoted = autoAcceptStronglySupportedProposals(
-                    proposals: result.proposedRelatives,
+                    proposals: projectedProposals,
                     clusters: result.clusters,
                     sourceInfoMap: sourceInfoMap,
                     db: db
