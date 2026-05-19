@@ -250,10 +250,41 @@ def emit_fam(fam, fam_xref, indi_xref_by_id):
     return lines
 
 
-def export(twin_path, out_path, submitter):
+def export(twin_path, out_path, submitter, include_wt_ids=None):
     data = json.loads(Path(twin_path).read_text())
-    nodes = data['graph']['nodes']
+    all_nodes = data['graph']['nodes']
     synced_at = data.get('synced_at', '')
+
+    if include_wt_ids:
+        # Filter to the requested WikiTree IDs (e.g. "Cauldwell-100"); strip
+        # parent/spouse refs that point outside the set so the resulting
+        # GEDCOM has no orphan xrefs.
+        wanted = set(include_wt_ids)
+        nodes = [n for n in all_nodes if n.get('Name') in wanted]
+        included_int_ids = {n['Id'] for n in nodes}
+        # Rewrite each node to null out Father/Mother/Spouses that fall
+        # outside the include set. The wrapped objects are shallow-copied
+        # so we don't mutate the loaded twin data.
+        cleaned = []
+        for n in nodes:
+            n2 = dict(n)
+            if n2.get('Father') and n2['Father'] not in included_int_ids:
+                n2['Father'] = 0
+            if n2.get('Mother') and n2['Mother'] not in included_int_ids:
+                n2['Mother'] = 0
+            sps = []
+            for sp in (n2.get('Spouses') or []):
+                try:
+                    sp_id = int(sp.get('Id'))
+                except (TypeError, ValueError):
+                    continue
+                if sp_id in included_int_ids:
+                    sps.append(sp)
+            n2['Spouses'] = sps
+            cleaned.append(n2)
+        nodes = cleaned
+    else:
+        nodes = all_nodes
 
     indi_xref_by_id = {n['Id']: f'I{n["Id"]}' for n in nodes}
 
@@ -326,18 +357,27 @@ def export(twin_path, out_path, submitter):
 
 
 def main():
-    parser = argparse.ArgumentParser(prog='python -m wikitree.twin_to_gedcom')
+    parser = argparse.ArgumentParser(
+        prog='python -m wikitree.twin_to_gedcom',
+        description='Export the WikiTree digital twin to GEDCOM 5.5.1.'
+    )
     parser.add_argument('--input', default='.wikitree-twin.json',
                         help='Twin JSON path (default: .wikitree-twin.json)')
     parser.add_argument('--output', default='Cauldwell Family Tree.twin-export.ged',
                         help='Output GEDCOM path')
     parser.add_argument('--submitter', default='Darryl Cauldwell',
                         help='Name to use for the SUBM record')
+    parser.add_argument('--include', default=None,
+                        help='Comma-separated WikiTree IDs to include '
+                             '(e.g. "Cauldwell-100,Cauldwell-102"). When set, '
+                             'parent/spouse refs to non-included individuals '
+                             'are stripped so no orphan xrefs land in the output.')
     args = parser.parse_args()
 
     if not Path(args.input).exists():
         raise SystemExit(f'Input not found: {args.input}')
-    export(args.input, args.output, args.submitter)
+    include = [s.strip() for s in args.include.split(',')] if args.include else None
+    export(args.input, args.output, args.submitter, include_wt_ids=include)
 
 
 if __name__ == '__main__':
