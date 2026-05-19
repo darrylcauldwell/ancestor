@@ -881,15 +881,15 @@ Deficit query for `.inconclusive`: retry the same district with the next strictn
 
 #### T12-parent — fold `.parentInferred` and `.parentMarriage` into the framework
 
-**Gate**: before Phase 1 of T12-parent, a short **design pass** resolves the marriage-enrichment coupling — does `.parentInferred` contain enrichment evidence internally, or do `.parentInferred` and `.parentMarriage` exist as two cross-referencing kinds? Resolved in a one-section spec addendum, not a code change. Phase 1 begins only after the design pass lands.
+**Gate (resolved 2026-05-19, see §5.2.1):** the marriage-enrichment coupling question is closed — `.parentInferred` and `.parentMarriage` are two cross-referencing kinds with a deterministic reconciliation step in `HypothesisEngine.runAll`. Phase 1 contract reflects that decision.
 
 **What lands across phases:**
 
 | Phase | What changes |
 |---|---|
-| 1 | `.parentInferred(gender, surname)` and (per design pass) `.parentMarriage(motherSurname, fatherSurname, window)` kinds added with their generate / grade / deficit-query clauses. Generator runs against subject's confirmed birth records carrying MMN, mirroring `ParentInferenceEngine.infer`. `result.hypotheses` carries the new kinds. `result.proposedRelatives` still populated by the legacy `ParentInferenceEngine` + `MarriageEnrichmentEngine` paths. Both surfaces verified identical via tests. |
-| 2 | Flip source of truth: `proposedRelatives` becomes a derived projection from `result.hypotheses`. Legacy inference paths deleted. Cross-validation between `.parentInferred` and `.parentMarriage` (one hypothesis enriches the other's `reasoning` and `supportingEvidence`) implemented via the engine, not via in-place mutation. Output verified identical to Phase 1. |
-| 3 | UI swaps to read `result.hypotheses` directly. The "Already linked" detection, "Apply" action, and marriage-enrichment cross-validation cards re-target the new source. Bigger view diff than T12-sibling Phase 3 — the parent UI has more affordances. |
+| 1 | Both `.parentInferred(gender, surname)` and `.parentMarriage(motherSurname, fatherSurname, window)` kinds added together with their generate / grade / deficit-query clauses (separate extension files per Decision 5). `HypothesisEngine.reconcileParentMarriages` lands in the central engine and is called at the end of `runAll`. `result.hypotheses` carries both new kinds with the marriage evidence already cross-referenced onto the parent hypotheses. `result.proposedRelatives` still populated by the legacy `ParentInferenceEngine.infer` + `enrichParentsWithMarriage` paths. Both surfaces verified projection-equal via tests. |
+| 2 | Flip source of truth: `proposedRelatives` becomes a derived projection from `result.hypotheses` (supported `.parentInferred`s, with marriage evidence already folded in by reconciliation). Legacy inference paths deleted. Output verified identical to Phase 1. |
+| 3 | UI swaps to read `result.hypotheses` directly. The "Already linked" detection, "Apply" action, and marriage-enrichment cross-validation cards re-target the new source — see §5.2.1 for how each affordance maps onto the two kinds. Bigger view diff than T12-sibling Phase 3. |
 | 4 | Delete `proposedRelatives` field. Pure deletion. |
 
 **Why this ordering (T11 → T12-sibling → T12-parent):**
@@ -901,6 +901,47 @@ Deficit query for `.inconclusive`: retry the same district with the next strictn
 **Eval criterion (cross-phase regression):** for both sub-projects, the per-profile output after each phase exhibits **projection-equality on the legacy field's shape** to the prior phase's output on a 5–10 profile snapshot corpus. "Projection-equality" excludes timestamps (`createdAt`, `lastTestedAt`), JSON key ordering inside payloads, and `attempts` counter values — these are expected to differ across runs and don't constitute behaviour change. The on-disk persistence layer itself is tested separately via dedicated upsert / round-trip unit tests, not via the cross-phase regression.
 
 Final phases gain the new transparency: `.contradicted` hypotheses now surface with reasoning rather than vanishing silently.
+
+#### 5.2.1 Marriage-enrichment design pass — addendum
+
+**Status:** Resolved 2026-05-19, ahead of T12-parent Phase 1. Closes §10.1.
+
+**Question:** does `.parentInferred(gender, surname)` contain marriage-enrichment evidence **internally** (one kind whose grader both proposes a parent and runs the marriage dispatch), or do `.parentInferred` and `.parentMarriage(motherSurname, fatherSurname, window)` exist as **two cross-referencing kinds** (one engine reconciles them post-grading)?
+
+**Decision:** **two cross-referencing kinds.** `.parentInferred` claims "this surname belongs to a parent." `.parentMarriage` claims "a BMD marriage joins these two surnames in the plausible window." The engine reconciles the two during `runAll`: a supported `.parentMarriage` writes a cross-reference back onto the matching mother + father `.parentInferred` hypotheses (their `supportingEvidence` gains the marriage record ID, their `reasoning` gains the "given name X from .parentMarriage:Y" sentence). The reconciliation is deterministic and idempotent.
+
+**Why two kinds, not one bundled kind:**
+
+1. **Per-kind deficit-query ladders diverge.** An inconclusive `.parentInferred` (no birth record carrying MMN found) needs the main pipeline's whole-profile widening ladder — broaden the BMD birth search. An inconclusive `.parentMarriage` (no marriage hit) needs §6.5's scope-first-then-strictness walk — widen the year window from ±30 to ±40, then try the next adjacent county. Different ladders mean different `deficitQuery*` clauses (Decision 5). A bundled kind would fold both ladders into one switch that has to discriminate by inspecting evidence — clumsy, and impossible to keep exhaustive at the compiler level.
+
+2. **Verdicts have to be separately observable.** A user asking "why is this parent proposal weak?" deserves to see *which* underlying claim failed: parent not proposable from any birth record (no MMN), or proposable but no marriage found to disambiguate the given name. §5.11's "investigate this hypothesis" UI is the whole point of the framework; bundling collapses the two failure modes into one opaque verdict.
+
+3. **Generator chaining matches the engine's pattern.** `.parentMarriage` naturally feeds off `.parentInferred` output: only when both mother and father parent-hypotheses are supported is there a (mother, father) pair worth marriage-searching. This is the same pattern `.siblingExists` already uses with respect to `.subjectIdentity` — chains compose cleanly through `state`. Bundling collapses the chain into one grader body, which is harder to follow, harder to test, and harder to retune (T31's per-kind ladder retuning has to fish out the sub-claim).
+
+4. **Identity-key stability under upsert.** One marriage links two parents. With one bundled kind, the marriage's record ID is duplicated across mother's and father's `.parentInferred.supportingEvidence` lists; re-runs can't dedupe across them. With two kinds, the marriage is one `.parentMarriage` row keyed by `parentMarriage:\(subject):\(motherSurname)x\(fatherSurname):\(window)`, the parent rows store the cross-reference once, and Decision 1's upsert semantics keep the on-disk state consistent across runs.
+
+5. **Symmetry with the rest of the framework.** Every other kind in §4.1's enum carries one self-contained claim. `.subjectIdentity` is identity, not identity-plus-household. `.siblingExists` is sibling-exists, not sibling-plus-marriage-of-parents. Bundling enrichment into `.parentInferred` would be the framework's only kind hosting a sub-claim — an inconsistency that propagates into how `runAll` orders work, how the UI explains verdicts, and how new kinds (which the framework is designed to absorb without architectural change — §10.3) negotiate the precedent.
+
+**Mechanics of cross-referencing:**
+
+- `HypothesisEngine.generate(for: .parentInferred, ...)` emits one `.parentInferred` per (subject birth record, parent gender) pair carrying MMN — mirroring today's `ParentInferenceEngine.infer`. Father side uses `subject.surname`; mother side uses the birth record's `mothersMaidenName`.
+- `HypothesisEngine.grade(_:state:snapshot:)` for `.parentInferred` is purely BMD-birth-evidence: verdict `.supported` when ≥1 fact-or-lead birth record carries the MMN; `.contradicted` only when explicit no-parents context exists (foundling, abandoned-at-birth — out of V2 scope, will be `.inconclusive` in practice); `.inconclusive` if no birth record found.
+- `HypothesisEngine.generate(for: .parentMarriage, ...)` walks supported `.parentInferred` pairs (same subject, opposite genders, surnames present) and emits one `.parentMarriage(motherSurname, fatherSurname, window)` per pair. Window is `subjectBirthYear − 30 ... subjectBirthYear + 1` (today's pipeline default — T31 may retune).
+- `HypothesisEngine.grade(_:state:snapshot:)` for `.parentMarriage` runs `MarriageEnrichmentEngine.match` against state's marriage records (the orchestration appends them via the `.parentMarriage` deficit query, same pattern as `.siblingExists` Phase 2): `.unique` → `.supported` with `supportingEvidence = [marriageRecordID]` and reasoning citing the BMD reference tuple; `.ambiguous` → `.inconclusive` with `supportingEvidence = [allCandidateIDs]`; `.none` → `.contradicted`.
+- **Reconciliation step:** after `runAll` grades every kind, a new function `HypothesisEngine.reconcileParentMarriages(hypotheses:state:)` walks `.supported` `.parentMarriage` hypotheses and, for each, finds the two `.parentInferred` hypotheses they cross-reference. It appends the marriage record ID(s) to each parent's `supportingEvidence` and a sentence ("given name '\(given)' from marriage '\(parentMarriage.id)'") to each parent's `reasoning`. The reconciliation is a pure join over the hypothesis list — no dispatch, no model — so `isModelAssisted` on the parent hypotheses stays `false` and `isDeterministicallySupported` is preserved. Cross-references are recomputed on every run from the current hypothesis set, so persistence is upsert-safe (the parents' `supportingEvidence` may change between runs but only deterministically, and the union of evidence IDs the upsert sees is monotonic over the rejection-free re-run path).
+- **Ambiguous marriages** stay attached to the `.parentMarriage` hypothesis (as its `supportingEvidence`); the parent hypotheses inherit the union via reconciliation but don't redundantly carry `ambiguousMarriages`. The UI (§5.11) reads the marriage hypothesis to render the disambiguation affordance.
+
+**Implementation impact on T12-parent phase table (§5.2):**
+
+- **Phase 1**: both kinds land together in the same commit. Two extension files (`HypothesisEngine+ParentInferred.swift`, `HypothesisEngine+ParentMarriage.swift`); central switches gain two clauses each. `reconcileParentMarriages` lives in `HypothesisEngine.swift`. Legacy `ParentInferenceEngine.infer` + `enrichParentsWithMarriage` continue to populate `result.proposedRelatives`; both surfaces verified projection-equal via tests (same equality criterion as T12-sibling Phase 1).
+- **Phase 2**: `result.proposedRelatives` becomes a projection of supported `.parentInferred` hypotheses (with reconciliation already having folded marriage evidence in). Legacy paths deleted. The projection helper signature mirrors `projectSiblingExistsToProposals(hypothesis:scoredRecords:snapshot:)` — `scoredRecords` for the evidence lookup, `snapshot` for the "already-linked" comparison.
+- **Phase 3**: UI swap is heavier than T12-sibling Phase 3 because of three affordances: "Already linked" detection (joins parent hypothesis surname/gender against `snapshot.parentsOf(subjectID)`), "Apply" action (creates ghost profile + parent edge from the hypothesis), and the ambiguous-marriage disambiguation card (reads the `.parentMarriage` hypothesis). All three retarget to read `result.hypotheses` directly.
+- **Phase 4**: pure deletion of `proposedRelatives`. The projection helper survives — sole caller is the ViewModel, same shape as T12-sibling Phase 4 outcome.
+
+**What this does not address:**
+
+- The §10.1 question is the *coupling* question — one kind vs two. The numeric details of the marriage year window (`±30`/`±40`/`+1` etc.) and the per-kind ladder ceiling are still subject to T31's empirical retune. They're recorded in §5.2.1 as the starting values, not as the canonical answers.
+- `secondMarriage` (a future kind in §4.1) is intentionally not coupled to `.parentMarriage`. The two are independent claims about different windows in the subject's life.
 
 ---
 
@@ -1292,7 +1333,7 @@ Full phase-by-phase contract in §5.2 (T12-sibling).
 
 **Resolution**: **yes, with the same four-phase pattern as T12-sibling, sequenced after it.** The argument for folding it: consistency. The earlier argument against (UI complexity) is solved by the phasing — Phase 3 absorbs the UI surgery in one bisectable commit, Phase 4 deletes the legacy field.
 
-A short **marriage-enrichment design pass** sits between T12-sibling Phase 4 and T12-parent Phase 1 to resolve whether `.parentInferred` and `.parentMarriage` are one bundled hypothesis or two cross-referencing kinds (residual question §10.1).
+A short **marriage-enrichment design pass** sat between T12-sibling Phase 4 and T12-parent Phase 1 to resolve whether `.parentInferred` and `.parentMarriage` are one bundled hypothesis or two cross-referencing kinds (residual question §10.1). Resolved 2026-05-19: two cross-referencing kinds — see §5.2.1.
 
 Rejected alternative (defer to follow-up task): leaves the framework asymmetric for an unbounded period, and re-builds context cost when we eventually do it.
 
@@ -1383,7 +1424,7 @@ Recommended session-by-session sequence (engine work first, then UX reframe, the
 
 1. **T11** (~1–2 sessions). `ResearchHypothesis` type with `attempts` field, `v8` migration including `attempts` column, persistence helpers, central-switch scaffolding in `HypothesisEngine.swift` plus the first `HypothesisEngine+<Kind>.swift` extension file, MCP read-only exposure. Unit-test round-trip.
 2. **T12-sibling** (~2–3 sessions). Four bisectable commits (Phase 1–4) folding `.siblingExists` in. Cross-phase regression asserts projection-equality (§5.2 wording, not byte-equality).
-3. **T12-parent design pass** (~½ session, doc only). Spec addendum resolving the marriage-enrichment coupling — one bundled `.parentInferred` kind whose grader includes enrichment, vs two cross-referencing `.parentInferred` + `.parentMarriage` kinds. Decision recorded before code.
+3. **T12-parent design pass** (~½ session, doc only — **completed 2026-05-19, see §5.2.1**). Spec addendum resolved the marriage-enrichment coupling: two cross-referencing `.parentInferred` + `.parentMarriage` kinds reconciled by a deterministic post-grading step in `HypothesisEngine.runAll`.
 4. **T12-parent** (~3–4 sessions). Four bisectable commits folding parents + marriage enrichment in per the design pass. T12-parent Phase 3 (UI re-targeting: "Already linked" + Apply + marriage-enrichment cross-validation cards) is the **biggest schedule risk** in this sequence — the parent UI has the most affordances. Budget conservatively.
 
 **Measurement infrastructure**
@@ -1435,7 +1476,7 @@ Holdovers, explicitly out of scope:
 
 Small, well-bounded questions that don't require resolution before T11 starts. Each will surface naturally during the task that gates it and is captured here so it isn't lost.
 
-1. **Marriage-enrichment coupling** (gates T12-parent Phase 1). Should `.parentInferred` contain enrichment evidence internally, or do `.parentInferred` and `.parentMarriage` exist as two cross-referencing kinds with the engine reconciling them? Resolved by the half-session design pass between T12-sibling completion and T12-parent Phase 1 (per §8 sequence step 3).
+1. **Marriage-enrichment coupling** (gated T12-parent Phase 1). Should `.parentInferred` contain enrichment evidence internally, or do `.parentInferred` and `.parentMarriage` exist as two cross-referencing kinds with the engine reconciling them? **Resolved 2026-05-19, ahead of T12-parent Phase 1 — see §5.2.1.** Outcome: two cross-referencing kinds with a deterministic reconciliation step in `HypothesisEngine.runAll`.
 
 2. **Escape-valve threshold for Local→API escalation (T8, T9)**. The eval harness will give us per-task miss-rate numbers; the threshold at which we file an "escalate to Claude API" task is TBD pending those numbers.
 
