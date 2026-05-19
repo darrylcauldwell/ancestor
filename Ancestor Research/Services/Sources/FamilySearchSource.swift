@@ -1,0 +1,806 @@
+import Foundation
+import os
+
+/// FamilySearch — 2000+ historical-record collections, parish registers,
+/// civil registration, censuses (UK + global), military, probate,
+/// immigration, etc.
+/// https://www.familysearch.org
+/// Access: cookie-authenticated website backend until App Store / Partner
+/// approval lands and OAuth becomes available.
+/// Auth: session cookies captured via WKWebView (`FamilySearchAuthView`),
+/// persisted in Keychain via `FamilySearchCookieStore`.
+/// Coverage: globally vast; we treat as worldwide with date range nil.
+///
+/// See AncestorApp/FAMILYSEARCH_SOURCE_SPEC.md for the full design.
+/// First-cut scope per §9.1: search-only, multi-persona parse,
+/// nine RecordType cases, collection-title pattern trust tiering.
+actor FamilySearchSource: RecordSource, AuthenticatingSource {
+
+    // MARK: - RecordSource protocol
+
+    nonisolated let sourceID = "familysearch"
+    nonisolated let displayName = "FamilySearch"
+    nonisolated let recordTypes: Set<RecordType> = [
+        .birth, .death, .marriage, .census, .burial,
+        .military, .probate, .baptism, .christening, .parish,
+    ]
+    nonisolated let coverageYearRange: ClosedRange<Int>? = nil
+    nonisolated let coverageRegions: Set<Region> = [.englandAndWales, .scotland, .ireland, .commonwealthMilitary]
+    nonisolated let dataLineage: SourceLineage = .independentTranscription(of: "various")
+    nonisolated let trustTier: SourceTrustTier = .transcription
+    nonisolated let evidenceDirectness: EvidenceDirectness = .directTranscription
+    nonisolated let tosStatus = SourceToSStatus(
+        level: .restricted,
+        summary: "Authenticated; cookie-based until OAuth API access is approved"
+    )
+
+    // MARK: - AuthenticatingSource protocol
+
+    nonisolated let credentialLabel = "FamilySearch session cookies"
+
+    func setCredential(_ value: String) async {
+        // Cookies are managed by FamilySearchCookieStore; this hook is here
+        // for protocol completeness. The Settings UI captures via WKWebView
+        // and writes to the cookie store directly.
+    }
+
+    func clearCredentials() async {
+        await FamilySearchCookieStore.shared.clear()
+    }
+
+    // MARK: - State
+
+    private let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "FamilySearch")
+
+    /// Rate-limit pacing — 1 req/sec is the conservative start per §10 of
+    /// the spec; FamilySearch publishes no rate limits for the cookie path.
+    private var nextRequestSlot: ContinuousClock.Instant?
+    private let requestDelay: Duration = .seconds(1)
+
+    /// 429 circuit-breaker mirroring the FreeBMDSource pattern. Same
+    /// philosophy: when throttled, stop hitting them rather than retry
+    /// harder.
+    private var consecutive429s: Int = 0
+    private var circuitOpenUntil: ContinuousClock.Instant?
+    private let circuit429Threshold: Int = 3
+    private let circuitCooldownLadder: [Duration] = [.seconds(60), .seconds(300), .seconds(900)]
+    private var circuitTripCount: Int = 0
+    private var giveUpRequests: Bool = false
+
+    private var lastSuccessfulSearch: Date?
+    private var lastError: String?
+
+    // MARK: - Constants
+
+    nonisolated private static let searchURL = URL(string: "https://www.familysearch.org/service/search/hr/v2/personas")!
+    nonisolated private static let arkBase = "https://www.familysearch.org/ark:/61903/1:1:"
+    /// Safari UA mirrors what the Python plugin sends — FamilySearch rejects
+    /// default URLSession UAs as bot traffic.
+    nonisolated private static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3.1 Safari/605.1.15"
+
+    // MARK: - Search
+
+    func search(_ query: RecordQuery) async -> SourceQueryResult {
+        guard recordTypes.contains(query.recordType) else {
+            return .outsideCoverage(reason: "FamilySearch does not surface \(query.recordType.rawValue) records via this plugin")
+        }
+        guard let surname = query.surname, !surname.isEmpty else {
+            return .results([])
+        }
+
+        guard let cookieHeader = await FamilySearchCookieStore.shared.cookieHeader() else {
+            return .requiresAuth(message: "Sign in to FamilySearch in Settings to enable this source")
+        }
+
+        if giveUpRequests {
+            return .unavailable(reason: "FamilySearch throttle exhausted; giving up for this process")
+        }
+        await awaitCircuitClosed()
+        await throttleIfNeeded()
+
+        let summary = Self.activitySummary(query: query, surname: surname)
+        await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
+
+        let url = Self.buildSearchURL(query: query, surname: surname)
+
+        do {
+            let data = try await fetch(url: url, cookieHeader: cookieHeader)
+            let records = try Self.parseSearchResponse(data: data, query: query)
+            lastSuccessfulSearch = Date()
+            lastError = nil
+            recordSuccess()
+            logger.info("Search returned \(records.count) records for \(surname)")
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count, strictness: query.strictness))
+            return .results(records)
+        } catch is CancellationError {
+            return .unavailable(reason: "cancelled")
+        } catch let httpError as HTTPError where httpError.isThrottled {
+            recordThrottle()
+            lastError = "HTTP 429 (throttled)"
+            logger.warning("Search throttled — advancing circuit breaker")
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "throttled", strictness: query.strictness))
+            return .unavailable(reason: "throttled")
+        } catch HTTPError.unauthorized {
+            // Cookie expired or invalidated — distinct from "never had cookies",
+            // and the UI should distinguish so the user knows to re-auth rather
+            // than guess what's wrong. Don't clear cookies automatically — the
+            // user might want to inspect them.
+            lastError = "session expired"
+            logger.warning("Search failed: session expired")
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "session expired", strictness: query.strictness))
+            return .requiresAuth(message: "FamilySearch session expired — re-authenticate in Settings")
+        } catch {
+            lastError = error.localizedDescription
+            logger.warning("Search failed: \(error.localizedDescription)")
+            await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
+            return .unavailable(reason: error.localizedDescription)
+        }
+    }
+
+    // MARK: - URL construction
+
+    nonisolated private static func buildSearchURL(query: RecordQuery, surname: String) -> URL {
+        // Mirrors the Python plugin's parameter shape. Per §10 open questions,
+        // server-side `q.recordType` and `q.collectionId` filtering remain
+        // untested — first cut sends only the parameters the Python plugin
+        // confirmed working, and filters record-type client-side via
+        // per-persona fact inspection in the parser.
+        var components = URLComponents(url: searchURL, resolvingAgainstBaseURL: false)!
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "q.surname", value: surname),
+            URLQueryItem(name: "count", value: "20"),
+            URLQueryItem(name: "offset", value: "0"),
+            URLQueryItem(name: "m.defaultFacets", value: "on"),
+        ]
+        if let given = query.givenName, !given.isEmpty {
+            items.append(URLQueryItem(name: "q.givenName", value: given))
+        }
+        if let gender = query.gender {
+            items.append(URLQueryItem(name: "q.sex", value: gender == .male ? "Male" : "Female"))
+        }
+        // Map the recordType to the most relevant date/place axis. The
+        // server doesn't strictly filter on these but it does score
+        // relevance against them.
+        if let from = query.yearFrom, let to = query.yearTo {
+            switch query.recordType {
+            case .birth, .baptism, .christening:
+                items.append(URLQueryItem(name: "q.birthLikeDate.from", value: String(from)))
+                items.append(URLQueryItem(name: "q.birthLikeDate.to", value: String(to)))
+            case .death, .burial:
+                items.append(URLQueryItem(name: "q.deathLikeDate.from", value: String(from)))
+                items.append(URLQueryItem(name: "q.deathLikeDate.to", value: String(to)))
+            case .marriage:
+                items.append(URLQueryItem(name: "q.marriageLikeDate.from", value: String(from)))
+                items.append(URLQueryItem(name: "q.marriageLikeDate.to", value: String(to)))
+            case .census:
+                items.append(URLQueryItem(name: "q.residenceDate.from", value: String(from)))
+                items.append(URLQueryItem(name: "q.residenceDate.to", value: String(to)))
+            default:
+                items.append(URLQueryItem(name: "q.anyDate.from", value: String(from)))
+                items.append(URLQueryItem(name: "q.anyDate.to", value: String(to)))
+            }
+        }
+        components.queryItems = items
+        return components.url!
+    }
+
+    // MARK: - HTTP
+
+    private func fetch(url: URL, cookieHeader: String) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        request.setValue("en-GB,en;q=0.9", forHTTPHeaderField: "Accept-Language")
+        request.setValue("https://www.familysearch.org/en/search/record/results", forHTTPHeaderField: "Referer")
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        switch status {
+        case 200: return data
+        case 401, 403: throw HTTPError.unauthorized
+        case 429: throw HTTPError.throttled
+        case 200...299: return data
+        default: throw HTTPError.status(code: status, body: data)
+        }
+    }
+
+    // MARK: - Circuit breaker
+
+    private func awaitCircuitClosed() async {
+        while let openUntil = circuitOpenUntil {
+            let now = ContinuousClock.now
+            if openUntil <= now {
+                circuitOpenUntil = nil
+                consecutive429s = 0
+                logger.info("FamilySearch circuit breaker closed — resuming")
+                return
+            }
+            try? await Task.sleep(until: openUntil, clock: .continuous)
+        }
+    }
+
+    private func recordThrottle() {
+        consecutive429s += 1
+        guard consecutive429s >= circuit429Threshold && circuitOpenUntil == nil else { return }
+        if circuitTripCount >= circuitCooldownLadder.count {
+            giveUpRequests = true
+            logger.warning("FamilySearch throttle ladder exhausted after \(self.circuitTripCount) trips — giving up for this process")
+            return
+        }
+        let cooldown = circuitCooldownLadder[circuitTripCount]
+        circuitOpenUntil = ContinuousClock.now.advanced(by: cooldown)
+        circuitTripCount += 1
+        logger.warning("FamilySearch circuit breaker trip #\(self.circuitTripCount) — pausing for \(cooldown.components.seconds)s")
+    }
+
+    private func recordSuccess() {
+        if consecutive429s > 0 { consecutive429s = 0 }
+        if circuitTripCount > 0 { circuitTripCount = 0 }
+        if circuitOpenUntil != nil {
+            circuitOpenUntil = nil
+            logger.info("FamilySearch circuit breaker closed early — successful response")
+        }
+    }
+
+    /// Synchronously advance the request slot so concurrent callers get
+    /// distinct timings — mirrors FreeBMDSource's race-safe pacing.
+    private func throttleIfNeeded() async {
+        let now = ContinuousClock.now
+        let mySlot: ContinuousClock.Instant
+        if let scheduled = nextRequestSlot, scheduled > now {
+            mySlot = scheduled
+            nextRequestSlot = scheduled.advanced(by: requestDelay)
+        } else {
+            mySlot = now
+            nextRequestSlot = now.advanced(by: requestDelay)
+        }
+        if mySlot > now {
+            try? await Task.sleep(until: mySlot, clock: .continuous)
+        }
+    }
+
+    // MARK: - Activity summary
+
+    nonisolated static func activitySummary(query: RecordQuery, surname: String) -> String {
+        let given = query.givenName.flatMap { $0.isEmpty ? nil : $0 } ?? ""
+        let person = given.isEmpty ? surname : "\(given) \(surname)"
+        let kind = query.recordType.rawValue
+        if let from = query.yearFrom, let to = query.yearTo {
+            return "FamilySearch \(kind): \(person) \(from)–\(to)"
+        }
+        return "FamilySearch \(kind): \(person)"
+    }
+}
+
+// MARK: - GEDCOMx parser (multi-persona, §5.0)
+
+extension FamilySearchSource {
+
+    /// Parse a `/service/search/hr/v2/personas` JSON response into
+    /// `[SourceRecord]`. Per spec §5.0, every persona in an entry's
+    /// `persons[]` produces one candidate SourceRecord; relationships[]
+    /// is used to tag household-role context on each.
+    nonisolated static func parseSearchResponse(data: Data, query: RecordQuery) throws -> [SourceRecord] {
+        let envelope = try JSONDecoder().decode(SearchEnvelope.self, from: data)
+        var out: [SourceRecord] = []
+        for entry in envelope.entries ?? [] {
+            let gx = entry.content?.gedcomx
+            guard let persons = gx?.persons, !persons.isEmpty else { continue }
+
+            let collectionTitle = gx?.sourceDescriptions?.first?.titles?.first?.value ?? ""
+            let collectionARK = gx?.sourceDescriptions?.first?.about ?? ""
+            let completeness = gx?.sourceDescriptions?.first?.coverage?.first?.completeness
+
+            // Build a person-id → index lookup for relationship tagging.
+            var idToIndex: [String: Int] = [:]
+            for (i, p) in persons.enumerated() {
+                if let id = p.id { idToIndex[id] = i }
+            }
+            let householdRoles = Self.deriveHouseholdRoles(
+                persons: persons,
+                relationships: gx?.relationships ?? [],
+                idToIndex: idToIndex
+            )
+
+            for (i, persona) in persons.enumerated() {
+                guard let record = buildRecord(
+                    persona: persona,
+                    personaIndex: i,
+                    householdRole: householdRoles[persona.id ?? ""],
+                    siblingsAndKin: persons.enumerated().compactMap { (j, other) in
+                        j == i ? nil : (other, householdRoles[other.id ?? ""])
+                    },
+                    relationships: gx?.relationships ?? [],
+                    collectionTitle: collectionTitle,
+                    collectionARK: collectionARK,
+                    collectionCompleteness: completeness,
+                    queryRecordType: query.recordType
+                ) else { continue }
+                out.append(record)
+            }
+        }
+        return out
+    }
+
+    /// Decide the record's household role for each persona based on the
+    /// relationships array: ParentChild flagging on the child side, Couple
+    /// for spouses. Other roles fall through to "household_member" as a
+    /// catch-all that survives until §8.1's hypothesis kinds enrich it.
+    nonisolated private static func deriveHouseholdRoles(
+        persons: [GxPerson],
+        relationships: [GxRelationship],
+        idToIndex: [String: Int]
+    ) -> [String: String] {
+        var roles: [String: String] = [:]
+        // First persona is typically the primary subject; others default
+        // to "household_member" until a relationship promotes them.
+        for (i, p) in persons.enumerated() {
+            guard let id = p.id else { continue }
+            roles[id] = i == 0 ? "principal" : "household_member"
+        }
+        for rel in relationships {
+            let type = rel.type?.split(separator: "/").last.map(String.init) ?? ""
+            guard let p1 = rel.person1?.resourceId, let p2 = rel.person2?.resourceId else { continue }
+            switch type {
+            case "ParentChild":
+                // person1 = parent, person2 = child
+                if roles[p1] == "household_member" { roles[p1] = "parent" }
+                if roles[p2] == "household_member" { roles[p2] = "child" }
+            case "Couple":
+                if roles[p1] == "household_member" { roles[p1] = "spouse" }
+                if roles[p2] == "household_member" { roles[p2] = "spouse" }
+            default:
+                break
+            }
+        }
+        return roles
+    }
+
+    /// Build a single SourceRecord for one persona. Returns nil if the
+    /// persona has no extractable identity (no name AND no facts).
+    nonisolated private static func buildRecord(
+        persona: GxPerson,
+        personaIndex: Int,
+        householdRole: String?,
+        siblingsAndKin: [(GxPerson, String?)],
+        relationships: [GxRelationship],
+        collectionTitle: String,
+        collectionARK: String,
+        collectionCompleteness: Double?,
+        queryRecordType: RecordType
+    ) -> SourceRecord? {
+        let nameForm = persona.names?.first?.nameForms?.first
+        let fullName = nameForm?.fullText
+        let givenName = nameForm?.parts?.first(where: { ($0.type ?? "").hasSuffix("/Given") })?.value
+        let surname = nameForm?.parts?.first(where: { ($0.type ?? "").hasSuffix("/Surname") })?.value
+        // `sex` is captured into rawFields below; not yet a first-class
+        // RecordCommon field (spec §5.2 notes this as a future addition).
+        let sex: String? = persona.gender?.type.flatMap { $0.split(separator: "/").last.map(String.init) }
+        _ = sex
+
+        // Determine the record's primary event type from the persona's
+        // facts. Per spec §5.0 this varies per persona — a child in a
+        // census record gets `.census`; their christening date (if also
+        // surfaced) doesn't override.
+        let primaryFact = pickPrimaryFact(facts: persona.facts ?? [], queryHint: queryRecordType)
+        let recordRecordType = primaryFact.map { recordType(forGedcomxFact: $0.type ?? "") } ?? queryRecordType
+
+        // Collect every fact as a rawFields entry — even when the typed
+        // record struct doesn't surface it. Preserves the long-tail
+        // GEDCOMx vocabulary for later promotion (spec §9.1 "log
+        // unmapped types in rawFields").
+        var rawFields: [String: String] = [:]
+        for fact in persona.facts ?? [] {
+            let typeName = fact.type?.split(separator: "/").last.map(String.init) ?? "fact"
+            if let date = fact.date?.original {
+                rawFields["fact.\(typeName).date"] = date
+            }
+            if let formal = fact.date?.formal {
+                rawFields["fact.\(typeName).date.formal"] = formal
+            }
+            if let place = fact.place?.original {
+                rawFields["fact.\(typeName).place"] = place
+            }
+            if let placeARK = fact.place?.normalized?.first?.description {
+                rawFields["fact.\(typeName).placeARK"] = placeARK
+            }
+        }
+        for field in persona.fields ?? [] {
+            let typeName = field.type?.split(separator: "/").last.map(String.init) ?? "field"
+            // Capture both Original and Interpreted when both present;
+            // per spec §5.2 the cost is two extra string-stores.
+            for value in field.values ?? [] {
+                let kind = value.type?.split(separator: "/").last.map(String.init) ?? ""
+                if kind == "Original" {
+                    rawFields["field.\(typeName).original"] = value.text ?? ""
+                } else if kind == "Interpreted" {
+                    rawFields["field.\(typeName).interpreted"] = value.text ?? ""
+                } else if let v = value.text {
+                    rawFields["field.\(typeName)"] = v
+                }
+            }
+        }
+
+        if let personaID = persona.id {
+            rawFields["ark"] = "\(arkBase)\(personaID)"
+            rawFields["personaID"] = personaID
+        }
+        rawFields["collection.title"] = collectionTitle
+        if !collectionARK.isEmpty { rawFields["collection.ark"] = collectionARK }
+        if let c = collectionCompleteness { rawFields["collection.completeness"] = String(c) }
+        if let role = householdRole { rawFields["household.role"] = role }
+        rawFields["primary"] = personaIndex == 0 ? "true" : "false"
+        if let principal = persona.principal, principal { rawFields["principal"] = "true" }
+
+        // Stable per-persona record ID; falls back to a deterministic hash
+        // if persona.id is missing (defensive — spec assumes it's present).
+        let recordID = persona.id ?? "fs-\(collectionARK.hashValue)-\(personaIndex)"
+        let detailURL = persona.id.map { "\(arkBase)\($0)" }
+        let common = RecordCommon(
+            id: recordID,
+            sourceID: "familysearch",
+            name: fullName,
+            surname: surname,
+            givenName: givenName,
+            detailURL: detailURL,
+            rawFields: rawFields
+        )
+
+        // Extract date/place fields into typed record struct fields
+        // when the record type maps to one of the typed structs.
+        let date = primaryFact?.date?.original
+        let formalYear = primaryFact?.date?.formal.flatMap(Self.yearFromFormal)
+        let yearFromOriginal = date.flatMap(Self.yearFromOriginal)
+        let year = formalYear ?? yearFromOriginal
+        let place = primaryFact?.place?.original
+
+        switch recordRecordType {
+        case .birth, .baptism, .christening:
+            // Map christening/baptism to the parish-record struct since it
+            // carries `eventType`. Pure birth records → .birth.
+            if recordRecordType == .birth {
+                let mmn = extractMothersMaidenName(relationships: relationships, personaID: persona.id, allPersons: siblingsAndKin.map(\.0))
+                return .birth(BirthRecord(
+                    common: common,
+                    birthYear: year, birthDate: date,
+                    birthPlace: place,
+                    quarter: nil, district: nil, volume: nil, page: nil,
+                    mothersMaidenName: mmn
+                ))
+            } else {
+                return .parish(ParishRecord(
+                    common: common,
+                    eventType: recordRecordType.rawValue,
+                    eventDate: date, eventYear: year,
+                    parish: place, county: nil,
+                    fatherName: nil, motherName: nil
+                ))
+            }
+        case .death:
+            return .death(DeathRecord(
+                common: common,
+                deathYear: year, deathDate: date,
+                deathPlace: place,
+                age: extractAge(rawFields: rawFields),
+                quarter: nil, district: nil, volume: nil, page: nil,
+                spouseSurname: nil
+            ))
+        case .burial:
+            return .burial(BurialRecord(
+                common: common,
+                deathDate: nil, deathYear: nil,
+                birthDate: nil, birthYear: nil,
+                burialLocation: place, cemetery: nil,
+                memorialID: nil, inscription: nil, bio: nil,
+                isVeteran: false
+            ))
+        case .marriage:
+            // Spouse name from relationships[].Couple — for personas that
+            // are one half of a couple-relationship inside this record.
+            let spouseName = extractSpouseName(relationships: relationships, personaID: persona.id, otherPersons: siblingsAndKin.map(\.0))
+            return .marriage(MarriageRecord(
+                common: common,
+                marriageYear: year, marriageDate: date,
+                marriagePlace: place,
+                quarter: nil, district: nil, volume: nil, page: nil,
+                spouseName: spouseName
+            ))
+        case .census:
+            // Build typed household members from the sibling personas.
+            let household = siblingsAndKin.map { (other, role) -> HouseholdMember in
+                let nm = other.names?.first?.nameForms?.first?.fullText ?? ""
+                let ageStr = other.fields?.first(where: { ($0.type ?? "").hasSuffix("/Age") })?.values?.first?.text
+                let age = ageStr.flatMap(Int.init)
+                return HouseholdMember(
+                    name: nm,
+                    relationship: role ?? "household_member",
+                    age: age,
+                    birthYear: nil,
+                    birthPlace: nil,
+                    occupation: nil,
+                    sex: other.gender?.type.flatMap { $0.split(separator: "/").last.map(String.init) }
+                )
+            }
+            return .census(CensusRecord(
+                common: common,
+                censusYear: year ?? 0,
+                age: extractAge(rawFields: rawFields),
+                birthYear: nil, birthPlace: nil, birthCounty: nil,
+                relationship: householdRole,
+                occupation: rawFields["fact.Occupation.date"] ?? rawFields["fact.Occupation.place"],
+                address: nil, parish: nil, district: nil,
+                household: household.isEmpty ? nil : household
+            ))
+        case .probate:
+            return .probate(ProbateRecord(
+                common: common,
+                deathDate: nil, deathYear: nil,
+                probateDate: date, birthDate: nil,
+                ageAtDeath: extractAge(rawFields: rawFields),
+                address: place, grantType: nil,
+                registry: nil, probateNumber: nil,
+                regimentNumber: nil
+            ))
+        case .military:
+            return .military(MilitaryRecord(
+                common: common,
+                rank: nil, regiment: nil, unit: nil,
+                serviceNumber: nil, dateOfDeath: date,
+                deathYear: year,
+                age: extractAge(rawFields: rawFields),
+                cemetery: nil, graveRef: nil,
+                additionalInfo: nil
+            ))
+        case .parish:
+            return .parish(ParishRecord(
+                common: common,
+                eventType: primaryFact?.type?.split(separator: "/").last.map(String.init),
+                eventDate: date, eventYear: year,
+                parish: place, county: nil,
+                fatherName: nil, motherName: nil
+            ))
+        case .pedigree:
+            return .pedigree(PedigreeRecord(
+                common: common,
+                birthYear: nil, deathYear: nil,
+                spouse: nil, marriageYear: nil,
+                occupation: nil, location: nil, generation: nil
+            ))
+        }
+    }
+
+    /// Choose the per-persona record's primary fact. Prefer a fact whose
+    /// type aligns with the query's record-type hint; fall back to first
+    /// available fact when no aligned fact exists (still a useful
+    /// candidate for clustering).
+    nonisolated private static func pickPrimaryFact(facts: [GxFact], queryHint: RecordType) -> GxFact? {
+        let hintedTypes: Set<String> = {
+            switch queryHint {
+            case .birth: return ["Birth", "BirthRegistration"]
+            case .baptism, .christening: return ["Baptism", "Christening", "AdultChristening"]
+            case .death: return ["Death", "DeathRegistration"]
+            case .burial: return ["Burial", "Cremation"]
+            case .marriage: return ["Marriage", "MarriageBanns", "MarriageRegistration"]
+            case .census: return ["Census", "Residence"]
+            case .probate: return ["Probate", "Will"]
+            case .military: return ["MilitaryService", "MilitaryDischarge", "MilitaryDraftRegistration", "MilitaryInduction", "MilitaryAward"]
+            case .parish: return ["Baptism", "Christening", "Burial", "Marriage"]
+            case .pedigree: return []
+            }
+        }()
+        if let hit = facts.first(where: { fact in
+            guard let suffix = fact.type?.split(separator: "/").last else { return false }
+            return hintedTypes.contains(String(suffix))
+        }) {
+            return hit
+        }
+        return facts.first
+    }
+
+    /// Map a GEDCOMx fact-type URI to a RecordType case. Default to the
+    /// query's record type when unmapped — the parser's outer loop has
+    /// already established the broad axis.
+    nonisolated private static func recordType(forGedcomxFact uri: String) -> RecordType {
+        let suffix = uri.split(separator: "/").last.map(String.init) ?? ""
+        switch suffix {
+        case "Birth", "BirthRegistration": return .birth
+        case "Baptism": return .baptism
+        case "Christening", "AdultChristening": return .christening
+        case "Death", "DeathRegistration": return .death
+        case "Burial", "Cremation": return .burial
+        case "Marriage", "MarriageBanns", "MarriageRegistration": return .marriage
+        case "Census", "Residence": return .census
+        case "Probate", "Will": return .probate
+        case "MilitaryService", "MilitaryDischarge", "MilitaryDraftRegistration",
+             "MilitaryInduction", "MilitaryAward": return .military
+        default: return .parish // safest catch-all for the long tail of
+                                // parish-register-ish facts that the
+                                // first cut doesn't model individually
+        }
+    }
+
+    /// Parse a year from a `date.formal` value like "+1875-03-12" or "+1875".
+    nonisolated private static func yearFromFormal(_ formal: String) -> Int? {
+        let trimmed = formal.hasPrefix("+") ? String(formal.dropFirst()) : formal
+        let yearPart = trimmed.split(separator: "-").first.map(String.init) ?? trimmed
+        return Int(yearPart)
+    }
+
+    /// Heuristic year extraction from a `date.original` string like
+    /// "12 Mar 1875" or "abt 1875".
+    nonisolated private static func yearFromOriginal(_ original: String) -> Int? {
+        // Find a 3-or-4-digit substring that's a plausible year.
+        let pattern = #"\b(1[5-9]\d{2}|20\d{2})\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(original.startIndex..., in: original)
+        if let match = regex.firstMatch(in: original, range: range),
+           let r = Range(match.range, in: original) {
+            return Int(original[r])
+        }
+        return nil
+    }
+
+    /// Pull an Age field from the rawFields dict (where the parser already
+    /// preserved it). FamilySearch census records carry the age as a
+    /// per-persona `Age` field; non-census records typically don't.
+    nonisolated private static func extractAge(rawFields: [String: String]) -> Int? {
+        if let s = rawFields["field.Age"] ?? rawFields["field.Age.interpreted"] ?? rawFields["field.Age.original"] {
+            return Int(s.trimmingCharacters(in: .whitespaces))
+        }
+        return nil
+    }
+
+    /// Try to pull a spouse's name from the relationships array — the
+    /// persona who shares a `Couple` relationship with us.
+    nonisolated private static func extractSpouseName(relationships: [GxRelationship], personaID: String?, otherPersons: [GxPerson]) -> String? {
+        guard let pid = personaID else { return nil }
+        for rel in relationships {
+            let type = rel.type?.split(separator: "/").last.map(String.init) ?? ""
+            guard type == "Couple" else { continue }
+            let p1 = rel.person1?.resourceId
+            let p2 = rel.person2?.resourceId
+            let spouseID = (p1 == pid) ? p2 : (p2 == pid ? p1 : nil)
+            guard let sid = spouseID, let spouse = otherPersons.first(where: { $0.id == sid }) else { continue }
+            return spouse.names?.first?.nameForms?.first?.fullText
+        }
+        return nil
+    }
+
+    /// Mother's maiden name extraction — find the mother via ParentChild
+    /// relationship, then take her surname. Surfaced specifically because
+    /// `BirthRecord.mothersMaidenName` is load-bearing for sibling
+    /// inference (see `SiblingInferenceEngine`).
+    nonisolated private static func extractMothersMaidenName(relationships: [GxRelationship], personaID: String?, allPersons: [GxPerson]) -> String? {
+        guard let pid = personaID else { return nil }
+        for rel in relationships {
+            let type = rel.type?.split(separator: "/").last.map(String.init) ?? ""
+            guard type == "ParentChild" else { continue }
+            // ParentChild: person1 = parent, person2 = child
+            guard rel.person2?.resourceId == pid else { continue }
+            guard let parentID = rel.person1?.resourceId,
+                  let parent = allPersons.first(where: { $0.id == parentID }) else { continue }
+            // Heuristic: mother is the female parent. Fall back to the
+            // first parent if gender isn't surfaced.
+            let isMother = parent.gender?.type.flatMap { $0.split(separator: "/").last.map(String.init) } == "Female"
+            if isMother {
+                return parent.names?.first?.nameForms?.first?.parts?.first(where: {
+                    ($0.type ?? "").hasSuffix("/Surname")
+                })?.value
+            }
+        }
+        return nil
+    }
+}
+
+// MARK: - GEDCOMx envelope (Codable)
+
+/// Top-level shape of the `/service/search/hr/v2/personas` response.
+/// Only the fields the parser reads are modelled; everything else falls
+/// through and is ignored by Codable's default behaviour.
+nonisolated private struct SearchEnvelope: Decodable {
+    let entries: [SearchEntry]?
+    let results: Int?
+}
+
+nonisolated private struct SearchEntry: Decodable {
+    let content: EntryContent?
+    let score: Double?
+    let id: String?
+    let title: String?
+}
+
+nonisolated private struct EntryContent: Decodable {
+    let gedcomx: GxRoot?
+}
+
+nonisolated private struct GxRoot: Decodable {
+    let persons: [GxPerson]?
+    let relationships: [GxRelationship]?
+    let sourceDescriptions: [GxSourceDescription]?
+}
+
+nonisolated private struct GxPerson: Decodable {
+    let id: String?
+    let names: [GxName]?
+    let gender: GxGender?
+    let facts: [GxFact]?
+    let fields: [GxField]?
+    let principal: Bool?
+}
+
+nonisolated private struct GxName: Decodable {
+    let nameForms: [GxNameForm]?
+}
+
+nonisolated private struct GxNameForm: Decodable {
+    let fullText: String?
+    let parts: [GxNamePart]?
+}
+
+nonisolated private struct GxNamePart: Decodable {
+    let type: String?
+    let value: String?
+}
+
+nonisolated private struct GxGender: Decodable {
+    let type: String?
+}
+
+nonisolated private struct GxFact: Decodable {
+    let type: String?
+    let date: GxDate?
+    let place: GxPlace?
+}
+
+nonisolated private struct GxDate: Decodable {
+    let original: String?
+    let formal: String?
+}
+
+nonisolated private struct GxPlace: Decodable {
+    let original: String?
+    let normalized: [GxNormalizedPlace]?
+}
+
+nonisolated private struct GxNormalizedPlace: Decodable {
+    let value: String?
+    let description: String?  // place ARK
+}
+
+nonisolated private struct GxField: Decodable {
+    let type: String?
+    let values: [GxFieldValue]?
+}
+
+nonisolated private struct GxFieldValue: Decodable {
+    let type: String?
+    let text: String?
+}
+
+nonisolated private struct GxRelationship: Decodable {
+    let type: String?
+    let person1: GxPersonRef?
+    let person2: GxPersonRef?
+    let facts: [GxFact]?
+}
+
+nonisolated private struct GxPersonRef: Decodable {
+    let resourceId: String?
+}
+
+nonisolated private struct GxSourceDescription: Decodable {
+    let id: String?
+    let about: String?
+    let titles: [GxValue]?
+    let coverage: [GxCoverage]?
+}
+
+nonisolated private struct GxValue: Decodable {
+    let value: String?
+}
+
+nonisolated private struct GxCoverage: Decodable {
+    let completeness: Double?
+}

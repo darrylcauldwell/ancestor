@@ -16,6 +16,8 @@ func bootstrapSources(registry: SourceRegistry) {
     registry.register(FreeCenSource())
     registry.register(FreeREGSource())
 
-    // Future sources — uncomment when implemented:
-    // registry.register(FamilySearchSource())  // Only when OAuth is available
+    // Tier 3: Authenticated (cookie session via WKWebView capture).
+    // FamilySearch will swap to OAuth bearer-token transport when App Store /
+    // Partner approval lands — see AncestorApp/FAMILYSEARCH_SOURCE_SPEC.md.
+    registry.register(FamilySearchSource())
 }

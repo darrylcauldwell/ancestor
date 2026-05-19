@@ -333,6 +333,10 @@ nonisolated enum SourceQueryResult: Sendable {
     case unavailable(reason: String)
     case throttled(retryAfter: Duration)
     case outsideCoverage(reason: String)
+    /// Source needs credentials it doesn't have (or has expired ones).
+    /// UI should prompt the user to authenticate; pipeline should treat
+    /// the search as "didn't get to try" — see FAMILYSEARCH_SOURCE_SPEC §11.1.
+    case requiresAuth(message: String)
 
     var records: [SourceRecord] {
         if case .results(let r) = self { return r } else { return [] }
