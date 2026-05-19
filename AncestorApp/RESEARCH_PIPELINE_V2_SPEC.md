@@ -571,7 +571,7 @@ Important inventory for Part II to push against:
 5. **Family-graph plausibility for solo candidates.** A FreeBMD lead with right name + right year + right district passes scoring without checking "is this birth year inside the known parents' fertility window?". (G6.)
 6. **Subtle merge detection.** `DiffEngine` catches near-exact duplicates. `John Caudwell Ashbourne 1845` ≈ `Jon Cauldwell Wirksworth 1845` slips through. (G7.)
 7. **Evaluation harness.** No way today to measure "did this change improve coverage?" against a held-out corpus. Every improvement is "ship and hope."
-8. **Persisted research hypotheses.** Each `findSiblings`, each `GeographicHypothesisGenerator` call, each `SubjectIdentityResolver` resolution is recomputed from scratch. None of these are written to disk as hypotheses against which a second pass could be graded. (T11/T12 target.)
+8. **Persisted research hypotheses.** Each `findSiblings` (T17, shipped), each `GeographicHypothesisGenerator` call, each `SubjectIdentityResolver` resolution is recomputed from scratch. None of these results is written to disk as a hypothesis against which a second pass could be graded; verdict transitions across runs are invisible to the user. (T11/T12 target.)
 9. **Hypothesis-guided second pass.** No mechanism re-runs the pipeline with focused queries derived from the *result* of the first pass. (T7 target.)
 10. **MLX as planner / disambiguator.** The model only suggests record types between iterations and writes prose for the user. It doesn't propose hypotheses, doesn't grade, doesn't propose specific next searches. (T8/T9 target.)
 
@@ -711,6 +711,14 @@ struct ResearchHypothesis: Identifiable, Sendable {
     /// Last time the verdict was recomputed.
     let lastTestedAt: Date
 
+    /// How many levels of the per-kind expansiveness ladder have been
+    /// dispatched against this hypothesis. T7's stall-recovery and the
+    /// user's "investigate further" gesture both increment this on each
+    /// deficit-query dispatch. When `deficitQuery(for: h, atLevel: attempts + 1, …)`
+    /// returns `nil`, the hypothesis is exhausted at that kind's ladder
+    /// ceiling and the UI archives it under a collapsible section.
+    var attempts: Int
+
     /// Trail of (verdict, timestamp) so the UI can show "weak last run → supported now."
     let history: [VerdictTransition]
 }
@@ -773,13 +781,13 @@ enum HypothesisEngine {
 }
 ```
 
-Each `HypothesisKind` participates via **three central switches** in `HypothesisEngine` (Decision 5):
+Each `HypothesisKind` participates via **three thin central switches** in `HypothesisEngine.swift`, each of which dispatches to per-kind logic that lives in a `HypothesisEngine+<Kind>.swift` extension file (Decision 5). The central switches stay small and exhaustive; the per-kind logic stays adjacent (all three operations for `.siblingExists` live in `HypothesisEngine+SiblingExists.swift` and so on).
 
 1. **`generate(for kind:state:snapshot:)`** — `(...) -> [ResearchHypothesis]`. Returns 0..N candidate hypotheses (typically deterministic: `.siblingExists` generates one per resolved subject birth where both parents are linked).
 2. **`grade(_ hypothesis:state:snapshot:)`** — `(...) -> GradeResult`. Pure function over current evidence; returns `(verdict, supportingIDs, contradictingIDs, reasoning)`.
-3. **`deficitQuery(for hypothesis:state:)`** — `(...) -> RecordQuery?`. Declares what one focused query would flip the verdict, or `nil` if the kind has no deterministic deficit query (T7 falls through to T8's MLX next-search in that case).
+3. **`deficitQuery(for hypothesis:atLevel:state:)`** — `(...) -> RecordQuery?`. Per-kind expansiveness ladder: returns the focused query for the given level on this hypothesis, or `nil` when the level exceeds the kind's ladder ceiling. Callers pass `attempts + 1`; the call site (T7 stall-recovery or the user "investigate further" gesture) is what differs, not the function. `nil` is the exhaustion signal — no separate state flag needed.
 
-All three switches live alongside each other in `HypothesisEngine.swift` so every kind's behaviour is greppable in one place. Adding a kind = add the case to `HypothesisKind` + add a clause to each of the three switches; the compiler enforces completeness.
+Adding a kind = add the case to `HypothesisKind` + add a clause to each central switch + add an extension file with the kind's three operations as static methods. The compiler enforces completeness on the central switches.
 
 The existing one-offs slot in as generators + graders:
 
@@ -797,7 +805,7 @@ The existing one-offs slot in as generators + graders:
 let hypotheses: [ResearchHypothesis]
 ```
 
-…and **loses** the bespoke `proposedSiblings` field (sibling proposals become `.siblingExists` hypotheses; `proposedRelatives` is the only legacy field that stays, because parent inference predates this framework and has deeply embedded UI affordances. Migration plan: keep both surfaces in V2; consolidate in V3.)
+…and progressively loses **both** bespoke proposal fields: `proposedSiblings` is removed by the final phase of T12-sibling (sibling proposals become `.siblingExists` hypotheses; see §5.2); `proposedRelatives` is removed by the final phase of T12-parent (parent proposals become `.parentInferred` / `.parentMarriage` hypotheses). Decision 3 commits to migrating both rather than leaving one as legacy.
 
 ### 4.3 Persistence (T11)
 
@@ -810,11 +818,13 @@ CREATE TABLE research_hypotheses (
     kind_discriminator TEXT NOT NULL,
     kind_payload TEXT NOT NULL,         -- JSON
     verdict TEXT NOT NULL,
+    is_model_assisted INTEGER NOT NULL DEFAULT 0,
     supporting_evidence TEXT NOT NULL,  -- JSON array of record IDs
     contradicting_evidence TEXT NOT NULL,
     reasoning TEXT NOT NULL,
     created_at DATETIME NOT NULL,
     last_tested_at DATETIME NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0, -- expansiveness levels dispatched so far
     history TEXT NOT NULL,              -- JSON array of VerdictTransition
     user_rejected INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (subject_profile_id) REFERENCES profiles(id)
@@ -888,7 +898,9 @@ Deficit query for `.inconclusive`: retry the same district with the next strictn
 - T12-sibling is the smaller test of the framework. Sibling discovery was added recently (T17) so the existing UI is narrow and the surgery is contained.
 - T12-parent is the deeper change — older, more deeply integrated, more UI affordances. Doing it after T12-sibling lets us stress the framework once before tackling the bigger lift, and lets us write the marriage-enrichment design pass with full context.
 
-**Eval criterion:** for both sub-projects, the per-profile hypothesis set after each phase is byte-identical to the prior phase's output on a 5–10 profile snapshot corpus. Final phases gain the new transparency: `.contradicted` hypotheses now surface with reasoning rather than vanishing silently.
+**Eval criterion (cross-phase regression):** for both sub-projects, the per-profile output after each phase exhibits **projection-equality on the legacy field's shape** to the prior phase's output on a 5–10 profile snapshot corpus. "Projection-equality" excludes timestamps (`createdAt`, `lastTestedAt`), JSON key ordering inside payloads, and `attempts` counter values — these are expected to differ across runs and don't constitute behaviour change. The on-disk persistence layer itself is tested separately via dedicated upsert / round-trip unit tests, not via the cross-phase regression.
+
+Final phases gain the new transparency: `.contradicted` hypotheses now surface with reasoning rather than vanishing silently.
 
 ---
 
@@ -896,23 +908,22 @@ Deficit query for `.inconclusive`: retry the same district with the next strictn
 
 **What lands:**
 - A second-pass entry point in `ResearchPipeline` that runs after the first pass completes: `researchSecondPass(firstResult:state:)`.
-- The pass examines `firstResult.hypotheses` and selects those with `verdict == .inconclusive` and `kind` whose grader supports "what would I need to flip this?" — call it a *deficit query*.
-- For each, issue **one focused query** designed to settle the hypothesis. Examples:
-  - `.subjectIdentity` inconclusive (≥2 candidates after geographic filter) → query FreeCen 1881/1891/1901 in each candidate's district for the same household; whichever district produces a credible parents-and-subject household resolves it.
-  - `.clusterIsSubject` weak (one cluster, one fact, no corroboration) → re-query an adjacent district at the next strictness tier.
-  - `.parentMarriage` inconclusive (no marriage hit) → widen the year window from ±30 to ±40, OR try the next adjacent county.
-- Append new evidence to `state`, re-run `HypothesisEngine.runAll`, recompute clusters.
+- The pass examines `firstResult.hypotheses` and selects those with `verdict == .inconclusive` and a non-nil result from `deficitQuery(for: h, atLevel: h.attempts + 1, state: s)` (per Decision 5 — `nil` at any level means the kind's ladder ceiling is reached).
+- For each, dispatch the returned query, append new evidence to `state`, increment the hypothesis's `attempts`, re-run `HypothesisEngine.runAll`, recompute clusters. Per-kind examples of what level transitions look like:
+  - `.subjectIdentity` inconclusive (≥2 candidates after geographic filter) → level N might query FreeCen 1881/1891/1901 in each candidate's district for the same household; whichever district produces a credible parents-and-subject household resolves it.
+  - `.clusterIsSubject` weak (one cluster, one fact, no corroboration) → level N re-queries an adjacent district at the next strictness tier.
+  - `.parentMarriage` inconclusive (no marriage hit) → level N widens the year window from ±30 to ±40, level N+1 tries the next adjacent county.
 
-**Stall-detection contract (Decision 4)**:
+**Stall-detection contract (Decision 4)** — two-condition gate (the spec uses this phrase throughout):
 
-T7 fires the second pass when **both** are true:
+T7 fires the second pass iff both conditions hold:
 
 1. **Variant-exhaustion**: the dispatcher has walked the full strictness ladder for every applicable source in the first pass (no headroom in the existing tier mechanism), AND
-2. **Deficit-eligible inconclusive hypothesis**: the first pass produced at least one `.inconclusive` hypothesis whose `deficitQuery(for:)` returns non-nil.
+2. **Deficit-eligible inconclusive hypothesis**: the first pass produced at least one `.inconclusive` hypothesis whose `deficitQuery(for: h, atLevel: h.attempts + 1, state: s)` returns non-nil.
 
-The second pass runs **at most once** per `research(...)` call. Cost ceiling: roughly N additional focused queries where N = count of deficit-eligible inconclusive hypotheses (typically 1–3 in practice).
+The second pass runs **at most once** per `research(...)` call. Cost ceiling: roughly N additional focused queries where N = count of deficit-eligible inconclusive hypotheses (typically 1–3 in practice). Deficit queries respect the existing storm guards in `SearchDispatcher` (Part I §11.2) — they go through the dispatcher's normal path, not around it. A per-kind ladder that would trip a storm guard at level N causes the dispatcher to return empty for that level; the engine re-grades, increments `attempts`, and on next invocation the same hypothesis may request level N+1 (or be exhausted if no further levels exist).
 
-Hypotheses with `deficitQuery == nil` fall through to T8's MLX next-search fallback (§5.4) — the rules have explicitly given up, so we ask the model.
+Hypotheses where `deficitQuery(..., atLevel: attempts + 1, ...) == nil` are **exhausted** — the kind's ladder ceiling reached. The UI archives these (see §5.11) and they fall through to T8's MLX next-search fallback (§5.4) for one last try.
 
 **Why deterministic and not MLX:** every kind's deficit query is a deterministic rewrite of its own grader's inputs. "Try the next adjacent district" is graph traversal; "widen the year window" is arithmetic. MLX shouldn't decide where to look when the rules know perfectly well.
 
@@ -924,8 +935,14 @@ Hypotheses with `deficitQuery == nil` fall through to T8's MLX next-search fallb
 
 **What lands:**
 - An MLX prompt + a `ResearchInterpreter.suggestForWeakHypothesis(hypothesis:state:availableSources:)` entry point.
-- Wired into T7's second pass: when T7 finds an inconclusive hypothesis whose generator has **no deficit query** (the rules genuinely don't know what to try), T8 is the fallback. It asks the model "given this hypothesis and what we know, what would you search?"
+- Wired into T7's second pass: when T7 finds an inconclusive hypothesis that is **exhausted** at its kind's deficit-query ladder (`deficitQuery(..., atLevel: attempts + 1, ...) == nil`), T8 is the fallback. It asks the model "given this hypothesis and what we know, what would you search?"
 - Output is restricted to `(sourceID, recordType, queryHints)` — structured, not free-form. The deterministic dispatcher still builds and runs the query.
+
+**Relationship to the existing `suggestNextSearch` (Part I §5.1 step 9)**: these are different prompts at different lifecycle points and they coexist.
+
+- `suggestNextSearch` runs **between iterations within Pass 1**, before any clustering. Question: "what record types should the next iteration add to `activeRecordTypes`?" Output: a record-type suggestion. Coarse, broad, advisory.
+- `suggestForWeakHypothesis` runs **in Pass 2**, after clustering and hypothesis grading, on a specific exhausted-ladder hypothesis. Question: "this specific hypothesis is stuck; what one focused query might shift it?" Output: a concrete `(sourceID, recordType, queryHints)` triple. Fine-grained, hypothesis-specific.
+- They cannot be merged because their inputs differ: the first has only an iterating subject and partial scoring; the second has a complete graded hypothesis with an exhausted ladder and full evidence. The prompts and the calling contexts are different enough that one function doing both would be a thin wrapper, not a real abstraction.
 
 **Why local MLX, not Claude API (Decision 7)**:
 
@@ -946,7 +963,7 @@ Both `verdict` and `isModelAssisted = true` are set on hypotheses T8 influences 
 **What lands:**
 - `ResearchInterpreter.disambiguateIdentity(candidates:state:)` entry point.
 - Wired into the `.subjectIdentity` grader: when `SubjectIdentityResolver.resolve` returns `.ambiguous`, AND T7's deterministic deficit query also doesn't resolve it (e.g. census didn't disambiguate), AND the candidates have free-text fields the deterministic resolver can't compare (notes, occupations, partial addresses in raw record fields), T9 asks the model "given these candidates and what we know about the subject, which is most plausible?"
-- Output is again structured: `(preferredCandidateID, confidence, reasoning)`. The resolver only acts on it when `confidence ≥ threshold` (TBD), and even then the hypothesis grading flags it as model-assisted.
+- Output is again structured: `(preferredCandidateID, confidence, reasoning)`. The resolver only acts on it when `confidence ≥ threshold` (see §5.5.1), and even then the hypothesis grading flags it as model-assisted.
 
 **Why MLX is right here and not for grading:**
 
@@ -957,6 +974,18 @@ Tie-breaks that T9 settles set `isModelAssisted = true` on the resulting hypothe
 Same App Store / local-vs-API rationale as T8 (Decision 7): MLX now, escape valve to API later if eval harness shows quality is insufficient.
 
 **Eval criterion:** held-out corpus of profiles where `SubjectIdentityResolver` returns `.ambiguous`; measure resolution rate via T9, with user-agreement as the success signal. Target: ≥50% user-agreement on tie-breaks. Low target because tie-breaks are inherently hard.
+
+#### 5.5.1 Threshold policy
+
+The confidence threshold is load-bearing — set too high and T9 is a no-op; set too low and the model overrules the rules in disguise. The threshold must be set by rule, not by guess:
+
+> The shipped threshold is the lowest value `θ` such that user-agreement rate on the eval-harness disambiguation corpus (per §5.8) at threshold `θ` is **≥ 75%**. Below 75%, the threshold is raised until either the rate clears or no remaining tie-breaks pass.
+
+The specific numeric value of `θ` is TBD until the harness has corpus data. The setting rule is fixed now. Concretely this means:
+
+- T9 can ship with the threshold pinned at "always reject" (no model output ever acted on) until the harness produces enough data to set `θ` defensibly. That's not a no-op ship — the prompt, the structured-output parsing, and the wiring are real work; only the gate value is deferred.
+- A T9-influenced verdict that doesn't clear `θ` falls through to leaving the hypothesis at `.inconclusive`. The user still sees the candidates and can pick manually via the candidate-comparison UX (see §5.12).
+- The threshold can be re-tuned as the corpus grows. Each re-tune ships with the per-threshold agreement-rate curve in the commit message.
 
 ---
 
@@ -973,34 +1002,185 @@ Same App Store / local-vs-API rationale as T8 (Decision 7): MLX now, escape valv
 
 ---
 
-### 5.7 T31 — Empirical retuning of research modes (out of band)
+### 5.7 T31 — Empirical retuning of the expansiveness ladder
 
-**Out of architectural scope, in scope for the eval harness.** Today the four research modes (`.verify`, `.extend`, `.discover`, `.all`) have hand-picked iteration counts (2, 4, 4, 6) and fact caps (20, 50, 100, 200). These were guesses.
+**Reshaped from the original framing.** The original T31 retuned per-mode iteration counts and fact caps for the four research modes (`.verify`, `.extend`, `.discover`, `.all`). After Section 4.3 of the spec walk-through, those modes collapse into a single auto-escalating expansiveness ladder (see §5.10). T31 now retunes:
+
+1. The default level → (strictness, scope) mapping for whole-profile research (the user-facing four-level ladder in §5.10).
+2. Each hypothesis kind's expansiveness ladder defined by its `deficitQuerySiblingExists` / `deficitQuerySubjectIdentity` / etc. function (which levels exist, what they query).
+3. The satisfaction threshold (`StopPolicy.satisfied` cutoff) — how strong a verdict counts as "enough" to stop auto-escalating.
 
 **What lands:**
-- The eval harness from §5.8 (build once, use everywhere).
-- A short experiment that runs every mode against the held-out corpus and reports precision/recall/runtime per mode.
-- Updated `ResearchConfig` constants based on observed knees in the precision/recall curve.
+- The eval harness from §5.8 used as the measurement instrument.
+- A short experiment that runs the certified corpus through the framework, varying:
+  - The level → (strictness, scope) mapping
+  - Each kind's ladder ceiling
+  - The satisfaction threshold
+- Diagnostic output per hypothesis kind: at what level did this kind resolve? at what level did it exhaust? — this is the per-kind reporting from §5.8 (refinement 1), repurposed for tuning.
+- Updated constants in whichever module(s) own the ladder mappings.
 
-**Build order:** T31 depends on the eval harness, which is also a prerequisite for T8/T9. Recommended order: eval harness lands first (§5.8), T31 then runs as a one-shot experiment to retune the constants.
+**Build order:** T31 depends on the eval harness (§5.8), the Research button collapse (§5.10) which introduces the user-facing ladder, and at least T11/T12 having stabilised so the hypothesis kinds aren't moving. Recommended order: eval harness → §5.10 ladder ships with default mappings (informed-guess, not measured) → T31 runs as a one-shot experiment and re-pins the mappings with data behind them.
 
 ---
 
-### 5.8 Eval harness (prerequisite for T8 / T9 / T31)
+### 5.8 Eval harness (prerequisite for T7 / T8 / T9 / T31)
 
-Not a numbered task, but a load-bearing piece of infrastructure that ships before T8 / T9 / T31 can have defensible deltas. The portfolio doc (`archive/LLM_RESEARCH_OPTIONS.md` §9) sketched this; Decision 6 commits to its shape with three refinements and a starter-then-grow corpus strategy.
+Not a numbered task, but load-bearing infrastructure that ships before T7 / T8 / T9 / T31 can have defensible deltas. The portfolio doc (`archive/LLM_RESEARCH_OPTIONS.md` §9) sketched this; Decision 6 commits to its shape with three refinements; the spec walk-through review extended that with **tiered corpus targets**, a **two-corpus structure**, an **evidence reproduction rate** metric, a **GEDCOM citation matcher** sub-deliverable, and a **difficulty stratification rule** for corpus growth.
 
-**What lands:**
+#### 5.8.1 Tiered corpus targets
 
-- **Corpus**: starts at **3 hand-curated profiles** drawn from the user's real tree, each with a documented ground-truth `.fact` set + "should remain absent" set (the hallucination-guardrail check). Grows over time as the user finds more difficult cases worth canonicalising — the file format is append-only so new profiles slot in without churn.
-- **Runner**: a CLI scheme target (`swift run eval` or equivalent) that invokes `ResearchPipeline.research(...)` against each profile in the corpus. **Snapshot-based** (refinement 2): each profile evaluates against a frozen snapshot of the family graph at that profile's id, taken at eval-start, so running T11 / T12 doesn't drift the corpus as accepted relatives land back in the tree.
-- **Metrics**: precision (% of `.fact` verdicts matching ground truth), recall (% of ground-truth facts surfaced as `.fact`), contradiction count. Reported **per hypothesis kind** (refinement 1) so each task's eval criterion maps onto its kind's `.supported / .contradicted / .inconclusive` distribution.
-- **Reporting**: per-kind metrics for diagnosis, plus a **single headline number** (refinement 3) — "net `.supported` deterministic hypotheses across the corpus" — that goes into commit messages as the before/after delta.
-- **CI**: optional; manual `swift run eval` is enough to start.
+Corpus size is gated by which decision the harness is asked to back. Three-profile numbers can't carry irreversible ship decisions; growing the corpus to fit the decision is a load-bearing rule.
 
-**Eval criterion** (recursive but real): the harness itself is "successful" once each currently-pending task can be reasoned about with a before/after number rather than handwaving.
+| Stage | Corpus size | Decisions backed | Rationale |
+|---|---|---|---|
+| T11 / T12 ship | 3 profiles | Structural plumbing only | The byte-equality (projection-equality) regression between phases is the real safety net at this stage, not the harness. |
+| T7 ships with a defensible delta | 10–12 profiles | First task with eval-harness-backed commit message; T7's "≥30% of stalled profiles gain ≥1 new `.supported` hypothesis" target needs n where 30% is materially different from noise. | At n=3 the discrete result is 0/3 → 3/3 with standard error ≈26%; not interpretable. |
+| T8 / T9 escape-valve to API; T31 ladder retune | 20–30 profiles | Irreversible or shipping decisions (re-introducing outbound AI calls; pinning ladder constants). Confidence intervals must not straddle the decision threshold. | The App Store posture cost of escalating to API is real (per Decision 7); the number behind that decision has to be defensible. |
 
-**Build order:** ships **before** T7 (so T7 has a measurable uplift number on landing), **before** T8 / T9 (mandatory — these can't be evaluated without it), and **before** T31 (which is purely the harness applied to mode constants).
+This is not a deferral — the corpus grows over time as the user encounters difficult cases worth canonicalising — but it is a **gate**: tasks at each stage cannot ship before the corpus reaches the appropriate size.
+
+#### 5.8.2 Two-corpus structure
+
+The user's GEDCOM contains ~300 profiles with citations on many, plus some known errors. You can't use the tree as ground truth for a system whose job is partly to correct the tree. The fix is to acknowledge two corpora doing different work:
+
+| Corpus | Size | Cost | Used for |
+|---|---|---|---|
+| **Certified subset** | 20–30 profiles, manually verified | High (30 min — several hours per profile, depending on citation density) | Precision/recall, per-kind metrics, evidence reproduction rate. Drawn from the GEDCOM via stratified sampling across difficulty axes (see §5.8.4). |
+| **Known-errors corpus** | Grows over time, append-only | Low (write down the correction as you find it) | Regression suite: "does V2 surface the errors I already know about?". A growing hit-rate on a list of known errors is a cleaner signal than precision/recall on a partly-wrong corpus. |
+| **Full-regression set** | ~270 profiles, free | Zero | "Didn't break anything obvious" nightly check; runs V2 against all uncertified profiles and surfaces large deltas vs current pipeline output. No ground truth — just regression detection. |
+
+#### 5.8.3 Metrics
+
+- **Precision** (% of `.fact` verdicts matching ground truth) on the certified subset.
+- **Recall** (% of ground-truth facts surfaced as `.fact`) on the certified subset.
+- **Contradiction count** (per profile) on the certified subset.
+- **Evidence reproduction rate** (new, refinement 3.3): for each certified profile, the fraction of its existing citations that V2's pipeline surfaces. Tests the *process*, not just the outcome. V2 finding the same fact via different evidence is genuine independent corroboration (a ConvergenceEngine win); V2 finding the same fact via fewer sources is a coverage gap.
+- All four metrics reported **per hypothesis kind** (refinement 1) so each task's eval criterion maps onto its kind's `.supported / .contradicted / .inconclusive` distribution.
+
+#### 5.8.4 Difficulty stratification
+
+Corpus growth prioritises **hard cases over headcount**. Three easy canonical profiles plus seven straightforward ones leaves you with n=10 that doesn't stress the framework. The selection rule is:
+
+> Every corpus addition must increase the corpus's coverage on at least one difficulty axis: known stallers (G2-shaped); known ambiguous-identity (T9's target); known multi-cluster contradictions (G5-shaped); known sparse-evidence subjects (single-lineage cases); foreign-record edge cases (`.all` mode). At all times the corpus must include at least one "should remain absent" hallucination guardrail subject.
+
+When the corpus reaches each tier (3 → 10–12 → 20–30) the additions are explicitly chosen for stratification breadth, not for "ease of curation."
+
+#### 5.8.5 GEDCOM citation matcher (sub-deliverable)
+
+To compute evidence reproduction rate, GEDCOM citation strings (a mix of URLs, structured references, and free prose accumulated over years) must map to the pipeline's internal source records. A short matcher — likely 50–150 lines near `SourceTierRegistry`, or as a new `CitationMatcher` — does this mapping.
+
+**Sub-task before implementation**: a small survey of GEDCOM citation cleanliness (20 random samples categorised into clean URL / structured text / free prose) determines whether the matcher is a half-session of clear regex/URL parsing, or a multi-session task requiring fuzzy text matching. Survey lands before the harness work begins.
+
+#### 5.8.6 Runner
+
+- A CLI scheme target (`swift run eval` or equivalent) invokes `ResearchPipeline.research(...)` against each profile in whichever corpus is selected.
+- **Snapshot-based** (refinement 2): each profile evaluates against a frozen `FamilyGraphSnapshot` taken at eval-start, so running T11 / T12 doesn't drift the corpus as accepted relatives land back in the tree.
+- Reporting: per-kind metrics for diagnosis, plus a **single headline number** (refinement 3) — "net `.supported` deterministic hypotheses across the certified corpus" — for commit-message deltas. Evidence reproduction rate prints as a secondary line.
+- CI: optional; manual `swift run eval` is enough to start.
+
+#### 5.8.7 Build order
+
+Ships **before** T7 (so T7 has a measurable uplift number on landing — corpus at 10–12 profiles), **before** T8 / T9 (mandatory, corpus at 20–30 profiles), and **before** T31 (which is purely the harness applied to ladder constants — corpus at 20–30 profiles). The starter 3-profile corpus ships alongside the runner; the 10–12 and 20–30 milestones gate downstream tasks.
+
+---
+
+### 5.9 Pipeline incrementality refactor (new task)
+
+**Why**: today `ResearchPipeline.research(subject:config:)` is a monolithic call — kicks off, runs to completion, returns one result. Section 4.2 of the spec walk-through identified that "research as a discrete event" doesn't match the actual user mental model (research is something the user guides, watches, and may want to pause / continue / redirect). The Research-button collapse in §5.10 depends on the pipeline being able to *yield between levels*; this refactor is the prerequisite.
+
+**What lands**:
+
+- `ResearchPipeline.research(...)` decomposes into a level-by-level state machine. Each level runs to completion, yields a `ResearchState`, and the caller decides whether to invoke the next level.
+- `ResearchState` becomes persistable. Today it's in-memory only (Part I §5.3). Now it's serialisable and stored against the in-progress research session (probably a new `research_sessions` row keyed by profile + started-at).
+- New entry points: `startResearch(subject:initialLevel:)` returns a session handle; `continueResearch(session:)` runs the next level and yields; `pauseResearch(session:)` persists state and exits; `resumeResearch(session:)` rehydrates and is ready to continue. No behaviour change in the deterministic core — same dispatcher, same scorer, same clustering, same hypothesis engine. Just chunked execution.
+- Existing call sites (UI flows, MCP tools, test harness) migrate to the new entry points. The legacy monolithic `research(subject:config:)` survives as a convenience wrapper that runs every level eagerly — but underneath it uses the new state machine.
+
+**Eval criterion**: byte-identical (modulo projection-equality as in §5.2) result between a single eager invocation of the legacy wrapper and a level-by-level invocation of the new entry points, across the certified corpus.
+
+**Build order**: lands after T11 / T12-sibling / T12-parent stabilise (so the hypothesis-engine integration isn't moving while the pipeline core is being refactored). T31 retuning and §5.10 / §5.11 user-facing changes both depend on this landing first.
+
+---
+
+### 5.10 Research button collapse + auto-escalation UX (new task)
+
+**Why**: today the user picks one of four research modes (`.verify`, `.extend`, `.discover`, `.all`) before they have any results — exactly the choice they can't make well because they don't know what the search will surface. The modes also bundle three independent knobs (strictness ladder, iteration count, fact cap) into one. Section 4.2 of the walk-through proposed collapsing this into a single Research button with auto-escalation up a four-level expansiveness ladder.
+
+**What lands**:
+
+- `ResearchMode` collapses to a `StopPolicy` enum with three cases: `.firstFact` (stop after one `.fact` lands; replaces `.verify`), `.satisfied` (stop when satisfaction threshold met; replaces `.extend` / `.discover`), `.exhaustive` (run every level; replaces `.all`). Existing modes map to stop policies during migration.
+- A single Research button in the UI, replacing the mode picker. Power users can change the stop policy from settings; default is `.satisfied`.
+- A **default four-level expansiveness ladder** for whole-profile research, mapping each level to a (strictness, scope) pair:
+
+  | Level | Strictness | Scope | Cost | Purpose |
+  |---|---|---|---|---|
+  | 1 | strict | district | 1× | Cheapest; lands if existing data is right |
+  | 2 | loose | district | ~2× | Same location, spelling tolerance |
+  | 3 | loose | county | ~10× | Widen location, keep loose match |
+  | 4 | variant | adjacent | ~30× | Exhausted: every variant, every nearby district |
+
+  `.national` scope sits **outside** the default ladder as an explicit override for "still nothing, give me everything," avoiding the cost cliff between level 4 (~30×) and a hypothetical level 5 (~300×).
+
+- **Per-kind override**: each `HypothesisKind` defines its own expansiveness ladder via `deficitQuery*` (Decision 5). `.subjectIdentity` walks scope first (until identity is resolved, strictness doesn't apply to a specific location). `.siblingExists` walks strictness first (district is already pinned). `.parentMarriage` walks scope first then strictness. The whole-profile ladder above is the default for the user-facing "search this profile" gesture; the per-kind ladders fire under T7's deficit-query path and the "investigate this hypothesis" gesture in §5.11.
+- A **progress indicator** + interactive **continue** affordance between levels. After level 1 completes, the user sees results-so-far plus "Continue to level 2 (~2× cost, broader spelling tolerance)?". This is load-bearing UX — without interactive continue, the collapse is just "research takes longer," not a paradigm shift.
+- The progress indicator must support **pause** and **resume**: the user can navigate away and come back, with state preserved per §5.9. The default model is pause-and-resume (not background continuation, which adds notifications surface area we haven't designed).
+
+**Eval criterion**: harness-driven; the default ladder mapping is informed-guess at landing time and is later retuned in T31 with eval data behind it. The progress indicator and continue affordance are user-tested rather than harness-tested.
+
+**Build order**: depends on §5.9 (pipeline incrementality) being in place. T31 retunes the default ladder mappings after this lands.
+
+---
+
+### 5.11 Hypothesis investigation as user action (new task)
+
+**Why**: today's lead list grows large and overwhelming. Most leads sit unsifted because the volume exceeds practical triage. Leads have high consumption cost (sift one by one) and low individual value (most are wrong), so they accumulate as a dead-end output. Section 4.1 of the walk-through proposed surfacing lead-only clusters as user-facing `.clusterIsSubject` hypothesis cards with an "investigate further" action that runs focused research — the same machinery T7 uses for automatic stall-recovery, exposed as a user gesture.
+
+**Architectural fit is essentially free**: `.clusterIsSubject` is already in the enumerated `HypothesisKind` cases (§4.1). `ClusteringEngine` already groups leads alongside facts. `deficitQuery(for:atLevel:state:)` (Decision 5) is the exact mechanism for "what focused query would settle this?". The new work is the user-facing entry point and a lifecycle state machine.
+
+**What lands**:
+
+- A `ResearchPipeline.investigateHypothesis(_:)` (or equivalent) entry point. Takes a hypothesis ID, dispatches the next deficit-query level, increments `attempts`, re-grades. Returns the updated hypothesis. Same as T7's per-hypothesis path, but driven by a UI gesture rather than the variant-exhaustion gate.
+- **Hypothesis lifecycle state machine** layered over the existing `verdict` axis:
+  - `active` — hypothesis is current; UI shows "investigate further" affordance.
+  - `exhausted` — `deficitQuery(..., atLevel: attempts + 1, ...) == nil`; UI archives the hypothesis under a collapsible "exhausted" section per profile, still revivable.
+  - `archived` — user-dismissed; UI hides unless explicitly recalled.
+  - `re-promoted` — new evidence (typically from a re-run after new transcriptions land at a source) flips a previously-exhausted hypothesis back to active. Automatic; the user sees a "previously exhausted hypothesis revived" badge.
+  - State is computed from `(verdict, attempts, exhausted-at-ceiling, user_rejected, recently-graded)`; not stored as a separate column.
+- **UI surface in cluster review** (and a dedicated tab/section if cluster review can't carry the weight): hypothesis cards showing the cluster's candidate identity, current verdict, evidence, attempt-count + ladder level, "investigate further" / "archive" / "promote to ghost profile" actions.
+- **Lookahead UX**: clicking "investigate further" first reveals what the next level would do ("Next attempt: search loose name match in adjacent Belper district, ~2× cost"). User confirms; query dispatches. Powered by `deficitQuery(...)`'s level lookahead (Decision 5, reason 2).
+
+**Eval criterion**: held-out corpus of profiles with many lead-only clusters; measure (a) how many clusters the user investigates per session before/after this lands, (b) how many investigations resolve a hypothesis. No precision/recall here — this is a UX win, not a coverage win.
+
+**Build order**: depends on T11 (hypothesis type), T12 (engine + persisted `.clusterIsSubject` hypotheses), T7 (deficit-query machinery), §5.9 (pipeline incrementality — `investigateHypothesis` is a level dispatch on an existing session). Recommended slot: after T7 lands.
+
+---
+
+### 5.12 Design passes needed (UX surfaces requiring their own specs)
+
+Five user-facing surfaces emerged from the spec walk-through that are either underspecified in this V2 relative to their importance, or that fall out of the §5.10 / §5.11 reframe. Each deserves its own design pass; the notes here flag the issue, not the design.
+
+#### 5.12.1 Discrepancy review surface
+
+Part I §10 describes discrepancy detection in real depth — severity table, convergence-upgrade rule, per-source tolerances — but the spec doesn't describe **where the user sees discrepancies** or what they do with them. This is one of the most directly actionable outputs of the pipeline ("the record says 1898, your tree says 1899") and risks being buried inside cluster review.
+
+Likely shape: a dedicated review queue, sortable by severity, with triage actions ("the record is right" / "the tree is right" / "needs more research"). The `DiscrepancySeverityTable` already provides the sort key.
+
+#### 5.12.2 Candidate-comparison UX (the Colin-Holmes case)
+
+Part I §9.3 calls out the failure mode `SubjectIdentityResolver` fixes — but the fix is deferring to user choice. When `.resolve` returns `.ambiguous`, the user picks. Today's affordance is `ResearchInterpreter.compareCandidates` — a paragraph of MLX prose. For a decision that cascades into wrong parents, wrong siblings, and wrong lines of descent, prose alone is thin.
+
+Likely shape: a structured side-by-side — both candidates' records, family contexts, geographic signals, evidence strength, with differences highlighted. MLX prose is one element on the page, not the whole page. This is one of the highest-stakes UX moments in the pipeline and the place where T9 (§5.5) falls back to user choice when its threshold isn't met.
+
+#### 5.12.3 Search transparency — "why didn't we find X?"
+
+Users know things the system didn't find. "My ancestor married in Manchester, why isn't that here?" Today the answer is in `searchHistory` and `negative_searches` (Part I §14) but not surfaced. Making it user-visible turns a black box into a collaborator: which sources were queried, with what parameters, at what scope, returning what counts. Combined with the four-level ladder (§5.10), the user can see "we ran levels 1–3, level 3 was district X loose match, found 0" and either escalate manually or correct an upstream assumption.
+
+#### 5.12.4 Verdict transitions across runs
+
+§4.1's `VerdictTransition` history field is genuinely powerful and currently invisible. A "since last run" diff at the top of the research result — "3 new `.supported` hypotheses, 1 dropped from `.supported` to `.inconclusive` (new contradicting evidence), 2 hypotheses now have more lineages" — is the answer to "why bother re-running?" The data is being stored; the UX is a delta-view affordance.
+
+#### 5.12.5 Confidence badge dimensionality
+
+The `SourcingStrength` three-axis badge (Part I §8.4) currently shows source count, lineage count, and top trust tier. With the hypothesis framework, there are now potentially five dimensions of confidence on a single finding: verdict, `isModelAssisted`, source count, lineage count, top trust tier. That's too much for a glance. Likely shape: a primary indicator (verdict + model-assisted state) with the source-strength axes as a secondary, on-hover detail.
 
 ---
 
@@ -1050,17 +1230,20 @@ Not a numbered task, but a load-bearing piece of infrastructure that ships befor
 │       T12 sub-project (proposedSiblings, then proposedRelatives).       │
 └─────────────────────────────────────────────────────────────────────────┘
 
-Persistence: research_hypotheses (v8) — upserted across runs.
+Persistence: research_hypotheses (v8) — upserted across runs, with attempts column tracking expansiveness ladder progress.
+             research_sessions (new in §5.9) — persisted ResearchState for pause/resume.
              record_rejections (v2) — extended to reject by hypothesis ID.
              evidence_records (v4) — unchanged.
 ```
+
+The diagram describes the **engine** lifecycle. User-facing surfaces sit above it: the single Research button + auto-escalation (§5.10) drives Pass 1 level-by-level via §5.9's incremental entry points; hypothesis investigation cards (§5.11) drive Pass 2's deficit queries on user gesture. Both go through the same engine paths shown here — they're not separate code paths.
 
 **Key invariants preserved**:
 
 - Deterministic-wins. Graders are rules; MLX (T8/T9) only enters when rules return `.inconclusive` / `.ambiguous`.
 - Evidence Firewall. Hypothesis verdicts don't write to Profile or Relationship; user accept actions still go through `acceptProposedRelative` / `acceptSiblingProposal` paths.
 - Apply contract. Overwrite-safe fill-nil-only.
-- Re-runnability. Same project + same code = same hypothesis set + same verdicts (modulo MLX nondeterminism in T8/T9, which is annotated on the hypothesis).
+- **Re-runnability is preserved for deterministically-graded hypotheses only.** For any hypothesis whose `isModelAssisted == true`, the verdict (and any field derived from it — `isDeterministicallySupported`, auto-promote eligibility, downstream UI badges) **may differ between runs of the same project on the same code**. The `isModelAssisted` flag is the visible annotation; every consumer gates accordingly via `isDeterministicallySupported`. The deterministic subset of hypotheses retains the "same project + same code = same output" guarantee.
 
 ---
 
@@ -1068,11 +1251,34 @@ Persistence: research_hypotheses (v8) — upserted across runs.
 
 Eight substantive design choices resolved during the 2026-05-19 spec walk-through, plus one carry-over from the original spec draft. Each is now load-bearing for the corresponding task. Section numbers match the walk-through order so inline "Decision N" references throughout the spec resolve to "§7.N".
 
-### 7.1 — `HypothesisKind` shape
+### 7.1 — `HypothesisKind` shape and per-kind code organisation
 
-**Resolution**: **closed Swift enum with associated values**. Adding a new kind requires touching the enum + three central switches in `HypothesisEngine` (generate / grade / deficitQuery) — explicit, greppable, compile-time exhaustive.
+**Resolution**: **closed Swift enum with associated values, with per-kind logic decomposed into extension files**. The three central switches in `HypothesisEngine.swift` stay thin entry points — each switch dispatches to per-kind static methods defined in a `HypothesisEngine+<Kind>.swift` extension. All three operations for a given kind (`generate*`, `grade*`, `deficitQuery*`) live adjacent in one file. This keeps compile-time exhaustiveness on the central switches (the original reason for closed-enum) while preserving per-kind colocation as the kind set grows.
 
-Rejected alternative (protocol-based, open kinds): more open but worse for persistence (type-erased payloads) and loses compile-time exhaustiveness. The openness doesn't buy us much because each kind requires per-case domain logic anyway.
+```swift
+// HypothesisEngine.swift — entry points + thin central switches (stable, ~150 lines)
+enum HypothesisEngine {
+    static func generate(for kind: HypothesisKind, state: ResearchState, snapshot: ...) -> [ResearchHypothesis] {
+        switch kind {
+        case .siblingExists:   return generateSiblingExists(state: state, ...)
+        case .subjectIdentity: return generateSubjectIdentity(...)
+        // ... compiler enforces every case
+        }
+    }
+    // grade and deficitQuery follow the same pattern
+}
+
+// HypothesisEngine+SiblingExists.swift — all three operations for one kind, contiguous
+extension HypothesisEngine {
+    static func generateSiblingExists(...) -> [ResearchHypothesis] { ... }
+    static func gradeSiblingExists(...) -> GradeResult { ... }
+    static func deficitQuerySiblingExists(for: ResearchHypothesis, atLevel: Int, state: ...) -> RecordQuery? { ... }
+}
+```
+
+Rejected alternative (protocol-based, open kinds): more open but worse for persistence (type-erased payloads) and loses compile-time exhaustiveness on the central dispatch.
+
+Rejected alternative (all three switches and all per-kind logic in one `HypothesisEngine.swift`): at six kinds the file is ~600 lines; at the spec's enumerated kinds plus future ones (death-in-district, occupation-trajectory, etc.) it climbs to 1500–2000 lines with three parallel switches that must stay aligned per kind. The colocation argument that motivated closed-enum is better served by extension-per-kind files, which place each kind's three operations adjacent rather than scattered across three sections of a god-file. Drift risk (generator assumptions diverging from grader assumptions) goes down. Decomposition is cheap now (T11/T12 scaffold the structure from scratch), expensive later.
 
 ### 7.2 — Migration of `proposedSiblings` (T12-sibling)
 
@@ -1096,13 +1302,23 @@ Rejected alternative (defer to follow-up task): leaves the framework asymmetric 
 
 Rejected alternatives: zero-new-facts iteration (fires too often, wastes source quota on cases where the rules haven't tried everything yet); confidence-floor stall (adds extra knobs to tune per mode, when the existing verdict axis is the better signal); variant-exhaustion alone (fires even when there's nothing concrete to retry).
 
-The two-condition contract requires every kind to declare a deficit query — costed in T11 anyway, so no new cost.
+The two-condition gate requires every kind to declare a deficit query — costed in T11 anyway, so no new cost.
 
-### 7.5 — Deficit query declaration style
+### 7.5 — Deficit query declaration style and ladder shape
 
-**Resolution**: **central switch in `HypothesisEngine`** alongside the `generate` and `grade` switches. All three switches live in one file, keyed off the same `HypothesisKind` enum.
+**Resolution**: **central switch in `HypothesisEngine`** dispatching to per-kind extension methods (per Decision 1's revised organisation). Signature: `deficitQuery(for hypothesis:atLevel:state:) -> RecordQuery?`. Each kind defines its own expansiveness ladder; `nil` at any level = the kind's ceiling reached = hypothesis exhausted (the exhaustion signal, not a separate state flag).
 
-Rejected alternative (per-kind handler structs in separate files): co-locates the three pieces nicely per kind but spreads kind-handling across the codebase. We chose the central-switch pattern in §7.1 and this decision applies the same logic — one place to find every kind's behaviour.
+Why level-parameterised, not state-driven:
+
+1. **Pure function consistency.** `generate` and `grade` are pure. Reading `attempts` inside `deficitQuery` would make it the odd one out.
+2. **Lookahead.** Callers can preview the next attempt's query without committing — drives "next attempt will widen scope to county — continue?" in the user-facing investigation UX (§5.11). State-driven would have to commit to compute.
+3. **Per-kind ladder length falls out.** `.siblingExists` might have 4 levels, `.subjectIdentity` might have 6 (scope-walking has more granularity), `.parentMarriage` might have 3. Each kind's switch handles whatever levels are meaningful and returns `nil` above its ceiling. No global "max levels" constant; no per-kind metadata.
+
+The `attempts` field on `ResearchHypothesis` is the caller's bookmark. T7's stall-recovery and the user's "investigate further" gesture both compute `nextLevel = attempts + 1`, call `deficitQuery(for: h, atLevel: nextLevel, state: s)`, dispatch the result if non-nil, re-grade, increment `attempts`. Same mechanism, two entry points.
+
+Rejected alternative (state-driven, no level parameter): conflates "what's the next query?" with "where are we?". Loses lookahead.
+
+Rejected alternative (per-kind handler structs in separate files): co-locates three pieces nicely per kind but loses the central exhaustive switch. Extension-per-kind in §7.1 captures the colocation benefit without the dispatch cost.
 
 Rejected alternative (discovered, via reflection): magical, fragile, not seriously considered.
 
@@ -1138,35 +1354,67 @@ Mitigation for the flag's mild error-prone-ness: every consumer uses `isDetermin
 
 ## 8. Build order
 
-Strict dependencies (post-decisions):
+Strict dependencies (post-decisions, including the §5.9 / §5.10 / §5.11 reframe additions):
 
 ```
 T11 (type + v8 migration + persistence helpers)
  └─→ T12-sibling Phase 1–4 (.siblingExists folds in)
       └─→ T12-parent design-pass (marriage-enrichment coupling)
            └─→ T12-parent Phase 1–4 (.parentInferred + .parentMarriage fold in)
-                ├─→ Eval harness (§5.8)
-                │    ├─→ T7 (second pass; deficit queries)
-                │    │    ├─→ T8 (MLX next-search for T7-stuck)
-                │    │    └─→ T9 (MLX disambiguation for residual ambiguity)
-                │    └─→ T31 (mode retuning, one-shot experiment)
-                └─→ T23 (Sample Tree tour, any time post-T12)
+                ├─→ Eval harness runner + 3-profile starter corpus (§5.8)
+                │    ├─→ §5.9 Pipeline incrementality refactor
+                │    │    ├─→ T7 (second pass; deficit queries via level-dispatch)
+                │    │    │    [requires corpus at 10–12 profiles]
+                │    │    ├─→ §5.10 Research button collapse + auto-escalation UX
+                │    │    └─→ §5.11 Hypothesis investigation as user action
+                │    │         └─→ T8 (MLX next-search for exhausted-ladder)
+                │    │              [requires corpus at 20–30 profiles]
+                │    │              └─→ T9 (MLX disambiguation for residual ambiguity)
+                │    │                   [requires corpus at 20–30 profiles]
+                │    └─→ T31 (ladder retuning, one-shot experiment)
+                │         [requires corpus at 20–30 profiles + §5.10 landed]
+                ├─→ T23 (Sample Tree tour, any time post-T12)
+                └─→ §5.12 Design passes (each its own deliverable, parallel)
 ```
 
-Recommended session-by-session sequence:
+Recommended session-by-session sequence (engine work first, then UX reframe, then MLX bolt-ons):
 
-1. **T11** (~1–2 sessions). `ResearchHypothesis` type, `v8` migration, persistence helpers, MCP read-only exposure. Unit-test round-trip.
-2. **T12-sibling** (~2–3 sessions). Four bisectable commits (Phase 1–4) folding `.siblingExists` in. Tests assert byte-identical output to T17's existing engine between phases.
+**Engine foundation**
+
+1. **T11** (~1–2 sessions). `ResearchHypothesis` type with `attempts` field, `v8` migration including `attempts` column, persistence helpers, central-switch scaffolding in `HypothesisEngine.swift` plus the first `HypothesisEngine+<Kind>.swift` extension file, MCP read-only exposure. Unit-test round-trip.
+2. **T12-sibling** (~2–3 sessions). Four bisectable commits (Phase 1–4) folding `.siblingExists` in. Cross-phase regression asserts projection-equality (§5.2 wording, not byte-equality).
 3. **T12-parent design pass** (~½ session, doc only). Spec addendum resolving the marriage-enrichment coupling — one bundled `.parentInferred` kind whose grader includes enrichment, vs two cross-referencing `.parentInferred` + `.parentMarriage` kinds. Decision recorded before code.
-4. **T12-parent** (~3–4 sessions). Four bisectable commits folding parents + marriage enrichment in per the design pass. Tests assert byte-identical output to existing `ParentInferenceEngine` + `MarriageEnrichmentEngine` between phases.
-5. **Eval harness** (~1–2 sessions). §5.8 deliverables: runner, 3-profile starter corpus with ground-truth annotations, per-kind reporting, single-headline summary.
-6. **T7** (~2 sessions). Second-pass loop, deterministic deficit queries only. First task with eval-harness-backed delta in its commit message.
-7. **T31** (~1 session). One-shot retuning experiment using the harness.
-8. **T8** (~2 sessions). MLX fallback for T7-stuck hypotheses with no deficit query. Sets `isModelAssisted = true`.
-9. **T9** (~2 sessions). MLX tie-break for residual `.subjectIdentity` ambiguity. Sets `isModelAssisted = true`.
-10. **T23** (~1–2 sessions). Sample Tree tour. Slot in anywhere after T12-parent stabilises.
+4. **T12-parent** (~3–4 sessions). Four bisectable commits folding parents + marriage enrichment in per the design pass. T12-parent Phase 3 (UI re-targeting: "Already linked" + Apply + marriage-enrichment cross-validation cards) is the **biggest schedule risk** in this sequence — the parent UI has the most affordances. Budget conservatively.
 
-Estimated total: 16–21 sessions. Each task commit-message carries the eval-harness delta (from §5.8 onwards). T11 / T12 commits use byte-equality regression tests as their delta.
+**Measurement infrastructure**
+
+5. **Eval harness runner + 3-profile starter corpus** (~1–2 sessions). §5.8 runner, snapshot-based eval, per-kind reporting, headline number, evidence reproduction rate (requires GEDCOM citation matcher — see step 5a). The starter corpus ships here; growth to 10–12 and 20–30 profiles happens between later steps as a side task.
+   - **5a.** *(half-session or multi-session, depending)* GEDCOM citation cleanliness survey (20 random samples) and citation matcher implementation (§5.8.5).
+
+**UX reframe foundation**
+
+6. **§5.9 Pipeline incrementality refactor** (~2–3 sessions). Level-by-level state machine, persistable `ResearchState`, `startResearch` / `continueResearch` / `pauseResearch` / `resumeResearch` entry points. Legacy monolithic `research(...)` wraps the new path. Cross-implementation regression on certified corpus.
+
+**Deterministic stall-recovery + auto-escalation**
+
+7. **T7** (~2 sessions). Second-pass loop via `deficitQuery(for: h, atLevel: h.attempts + 1, state: s)`. First task with eval-harness-backed delta in its commit message. *Requires corpus at 10–12 profiles before this commit lands.*
+
+**User-facing reframe**
+
+8. **§5.10 Research button collapse + auto-escalation UX** (~2–3 sessions). `ResearchMode` → `StopPolicy` migration; single Research button; default four-level expansiveness ladder; progress indicator + interactive continue; pause-and-resume.
+9. **§5.11 Hypothesis investigation as user action** (~2–3 sessions). `investigateHypothesis(_:)` entry point; lifecycle state machine (active / exhausted / archived / re-promoted); cluster cards in cluster review; lookahead UX on "investigate further."
+
+**MLX bolt-ons**
+
+10. **T8** (~2 sessions). MLX fallback for exhausted-ladder hypotheses. Sets `isModelAssisted = true`. *Requires corpus at 20–30 profiles.*
+11. **T9** (~2 sessions). MLX tie-break for residual `.subjectIdentity` ambiguity. Sets `isModelAssisted = true`. Ships with threshold pinned at "always reject" until corpus gives `θ` per §5.5.1. *Requires corpus at 20–30 profiles.*
+
+**Tuning + parallel UX work**
+
+12. **T31** (~1 session). One-shot retuning experiment using the harness; re-pins the §5.10 default ladder mapping and per-kind ladders. *Requires corpus at 20–30 profiles and §5.10 landed.*
+13. **T23 + §5.12 design passes** — slot in parallel to the engine sequence above where they fit. T23 (Sample Tree tour) and the five §5.12 design passes (discrepancy review, candidate comparison, search transparency, verdict transitions, confidence badge consolidation) are independent of each other and of the main engine pipeline; each is ~1–3 sessions on its own.
+
+Estimated total: **24–32 sessions** (up from the original V2 estimate of 16–21, reflecting the reframe additions). The engine foundation (steps 1–7) is the original V2 scope at ~12–16 sessions; the UX reframe (steps 8–9, 13) plus extended MLX work and corpus growth adds ~12–16 sessions. Each task commit-message carries the appropriate eval delta (projection-equality for T11 / T12; corpus-based for T7 onwards).
 
 ---
 
@@ -1189,21 +1437,38 @@ Small, well-bounded questions that don't require resolution before T11 starts. E
 
 1. **Marriage-enrichment coupling** (gates T12-parent Phase 1). Should `.parentInferred` contain enrichment evidence internally, or do `.parentInferred` and `.parentMarriage` exist as two cross-referencing kinds with the engine reconciling them? Resolved by the half-session design pass between T12-sibling completion and T12-parent Phase 1 (per §8 sequence step 3).
 
-2. **MLX confidence threshold for T9 tie-breaks**. T9 only acts on the model's preferred candidate when its self-reported confidence ≥ some threshold. The threshold is "TBD when harness lands" — to be set empirically once we can measure agreement-rate per threshold value.
+2. **Escape-valve threshold for Local→API escalation (T8, T9)**. The eval harness will give us per-task miss-rate numbers; the threshold at which we file an "escalate to Claude API" task is TBD pending those numbers.
 
-3. **Escape-valve threshold for Local→API escalation (T8, T9)**. The eval harness will give us per-task miss-rate numbers; the threshold at which we file a "escalate to Claude API" task is TBD pending those numbers.
+3. **Hypothesis kinds we haven't yet enumerated.** §4.1's enum lists the kinds we know we need (`subjectIdentity`, `parentMarriage`, `siblingExists`, `clusterIsSubject`, `burialAtParish`, `secondMarriage`). The framework is designed to absorb new kinds without architectural change. Future kinds (death-in-district, occupation-trajectory, address-change-event) are out of V2 scope but slot in via the same three-switch + extension-file pattern when their task lands.
 
-4. **Hypothesis kinds we haven't yet enumerated.** §4.1's enum lists the kinds we know we need (`subjectIdentity`, `parentMarriage`, `siblingExists`, `clusterIsSubject`, `burialAtParish`, `secondMarriage`). The framework is designed to absorb new kinds without architectural change. Future kinds (death-in-district, occupation-trajectory, address-change-event) are out of V2 scope but slot in via the same three-switch pattern when their task lands.
+4. **`history` array growth policy.** §4.1's `history: [VerdictTransition]` grows on every re-grading. After 100 re-runs of a stable subject the array is 100 entries. Decision needed before T11 ships: append-only on **verdict change** (skip identity-grade no-change events) is the recommended starting policy; revisit and add compaction-above-N if the harness shows unbounded growth on the certified corpus.
+
+Note: the T9 threshold policy was upgraded out of this list — it's now §5.5.1 because the setting rule (not just the numeric value) is load-bearing for T9 to ship at all.
 
 ---
 
 ## 11. Net summary
 
-This Part is the single architectural pivot from bespoke "research question → bespoke engine" to a generalisable `ResearchHypothesis` framework. Five of the seven remaining tasks (T7, T8, T9, T11, T12) compose around it. Two (T23, T31) sit outside as independent. The eval harness (§5.8) is the load-bearing prerequisite for T7 / T8 / T9 / T31 — it ships between T12 and T7.
+This Part is the architectural pivot from bespoke "research question → bespoke engine" to a generalisable `ResearchHypothesis` framework, **plus** the user-facing reframe that exposes the framework as a single Research button with auto-escalation and per-hypothesis investigation. The seven existing tasks compose around it:
+
+- **Engine foundation**: T11, T12 (sibling + parent sub-projects).
+- **Deterministic stall-recovery**: T7.
+- **MLX bolt-ons** (gated on eval-harness data): T8, T9.
+- **Independent**: T23 (Sample Tree tour), T31 (now ladder retuning, not mode retuning).
+
+Plus three new task slots from the §5.10–5.11 reframe:
+
+- **Pipeline incrementality** (§5.9) — prerequisite for the user-facing reframe.
+- **Research button collapse + four-level expansiveness ladder** (§5.10).
+- **Hypothesis investigation as user action** (§5.11).
+
+And five UX design passes (§5.12) running in parallel where they fit: discrepancy review, candidate comparison, search transparency, verdict transitions across runs, confidence badge consolidation.
+
+The eval harness (§5.8) is the load-bearing prerequisite for T7 / T8 / T9 / T31. Corpus size gates downstream tasks: 3 profiles → ships with T11/T12; 10–12 → required before T7; 20–30 → required before T8 / T9 / T31.
 
 Eight design decisions resolved on 2026-05-19 (see §7) close the holistic-alignment gate that prompted this spec. Implementation begins with T11.
 
-Invariants preserved through V2: deterministic-wins (rules grade, model never overrules); Evidence Firewall (hypothesis verdicts don't write to Profile or Relationship); Apply contract (overwrite-safe fill-nil-only); re-runnability (same project + code = same deterministic hypothesis set, modulo `isModelAssisted` annotation on T8/T9-influenced verdicts).
+Invariants preserved through V2: deterministic-wins (rules grade, model never overrules); Evidence Firewall (hypothesis verdicts don't write to Profile or Relationship); Apply contract (overwrite-safe fill-nil-only). Re-runnability is preserved for **deterministically-graded hypotheses only** — `isModelAssisted == true` hypotheses may vary between runs; consumers gate via `isDeterministicallySupported`.
 
 ---
 
