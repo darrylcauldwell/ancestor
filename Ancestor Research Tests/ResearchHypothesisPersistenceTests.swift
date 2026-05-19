@@ -331,13 +331,9 @@ struct ResearchHypothesisPersistenceTests {
         #expect(result.isEmpty)
     }
 
-    @Test func hypothesisEngine_deficitQuery_returnsNilInT11Scaffold() {
-        let h = makeHypothesis()
-        let result = HypothesisEngine.deficitQuery(
-            for: h, atLevel: 1, state: makeEmptyState()
-        )
-        #expect(result == nil)
-    }
+    // (T11's `deficitQuery_returnsNilInT11Scaffold` test was superseded
+    //  by T12-sibling Phase 1's real ladder implementation — see
+    //  `T12SiblingPhase1Tests.deficitQuery_level1_returnsFreeBMDQuery`.)
 
     // MARK: - Helpers
 

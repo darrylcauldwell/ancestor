@@ -201,7 +201,32 @@ final class ResearchPipeline {
         // DETERMINISTIC: sibling discovery (T17). Gated on identity resolved
         // AND both parents linked — the engine returns [] otherwise but the
         // dispatch is wasted, so check upstream.
-        let proposedSiblings = await findSiblings(state: state)
+        //
+        // V2 spec T12-sibling Phase 1: capture the full outcome so we can
+        // emit both the legacy `proposedSiblings` list AND the new
+        // `.siblingExists` hypotheses, with `.contradicted` representing
+        // "we tried, found nothing" (distinct from "didn't try" which
+        // emits no hypothesis at all).
+        let siblingOutcome = await siblingSearchOutcome(state: state)
+        let proposedSiblings: [SiblingProposal]
+        let siblingHypotheses: [ResearchHypothesis]
+        switch siblingOutcome {
+        case .skipped(let reason):
+            logger.info("Sibling search skipped: \(reason)")
+            proposedSiblings = []
+            siblingHypotheses = []
+        case .attempted(let district, let mmn, let window, _, _, let proposals):
+            proposedSiblings = proposals
+            siblingHypotheses = [
+                Self.buildSiblingExistsHypothesis(
+                    subjectProfileID: state.subject.profileID,
+                    district: district,
+                    mmn: mmn,
+                    yearWindow: window,
+                    proposals: proposals
+                )
+            ]
+        }
 
         return ResearchResult(
             confirmedFacts: state.confirmedFacts,
@@ -212,7 +237,53 @@ final class ResearchPipeline {
             householdMembers: state.householdMembers,
             searchHistory: state.searchHistory,
             proposedRelatives: state.proposedRelatives,
-            proposedSiblings: proposedSiblings
+            proposedSiblings: proposedSiblings,
+            hypotheses: siblingHypotheses
+        )
+    }
+
+    /// T12-sibling Phase 1 helper. Build a single `.siblingExists`
+    /// hypothesis from a sibling search outcome:
+    ///   • `.supported` with `supportingEvidence = candidateRecordIDs`
+    ///     when proposals were found.
+    ///   • `.contradicted` with empty evidence when the query ran but
+    ///     returned no MMN-matching candidates.
+    /// In Phase 2 this builder moves into the engine's `gradeSiblingExists`
+    /// extension and `findSiblings` is deleted entirely.
+    static func buildSiblingExistsHypothesis(
+        subjectProfileID: String?,
+        district: String,
+        mmn: String,
+        yearWindow: ClosedRange<Int>,
+        proposals: [SiblingProposal]
+    ) -> ResearchHypothesis {
+        let kind = HypothesisKind.siblingExists(district: district, mmn: mmn, yearWindow: yearWindow)
+        let now = Date()
+        let supportingEvidence = proposals.map(\.candidateRecordID)
+        let verdict: ResearchHypothesis.Verdict = proposals.isEmpty ? .contradicted : .supported
+        let reasoning: String = proposals.isEmpty
+            ? "Searched \(district) \(yearWindow.lowerBound)–\(yearWindow.upperBound) for MMN \(mmn); 0 matching candidates."
+            : "Found \(proposals.count) candidate sibling\(proposals.count == 1 ? "" : "s") in \(district) \(yearWindow.lowerBound)–\(yearWindow.upperBound) sharing MMN \(mmn)."
+        return ResearchHypothesis(
+            id: kind.identityKey(subjectProfileID: subjectProfileID),
+            subjectProfileID: subjectProfileID,
+            kind: kind,
+            verdict: verdict,
+            isModelAssisted: false,
+            supportingEvidence: supportingEvidence,
+            contradictingEvidence: [],
+            reasoning: reasoning,
+            createdAt: now,
+            lastTestedAt: now,
+            attempts: 1,    // Phase 1 always runs one query (the legacy findSiblings dispatch)
+            history: [
+                ResearchHypothesis.Transition(
+                    verdict: verdict,
+                    isModelAssisted: false,
+                    at: now,
+                    reason: "initial grading from T12-sibling Phase 1 path"
+                )
+            ]
         )
     }
 
@@ -532,6 +603,36 @@ final class ResearchPipeline {
     /// narrower than the main pipeline's per-iteration fan-out, so safe to
     /// run unconditionally when the preconditions hold.
     func findSiblings(state: ResearchState) async -> [SiblingProposal] {
+        let outcome = await siblingSearchOutcome(state: state)
+        if case .attempted(_, _, _, _, _, let proposals) = outcome {
+            return proposals
+        }
+        return []
+    }
+
+    /// Result of running the sibling search. Adds an explicit "skipped"
+    /// case so callers can disambiguate "didn't try, preconditions weren't
+    /// met" from "tried, found nothing" — used by T12-sibling Phase 1's
+    /// hypothesis mapping (where `.attempted(empty)` becomes a
+    /// `.contradicted` hypothesis and `.skipped` emits no hypothesis at
+    /// all).
+    enum SiblingSearchOutcome: Sendable {
+        case skipped(reason: String)
+        case attempted(
+            district: String,
+            mmn: String,
+            yearWindow: ClosedRange<Int>,
+            fatherID: String,
+            motherID: String,
+            proposals: [SiblingProposal]
+        )
+    }
+
+    /// Run the sibling search and return the full outcome — same dispatch
+    /// + inference as `findSiblings(state:)` but carries the (district,
+    /// mmn, yearWindow) signature out so callers can build hypotheses
+    /// for both supported and contradicted verdicts.
+    func siblingSearchOutcome(state: ResearchState) async -> SiblingSearchOutcome {
         let birthFacts = state.confirmedFacts.filter {
             if case .birth = $0.record { return true }
             return false
@@ -550,16 +651,18 @@ final class ResearchPipeline {
         guard case .resolved(let resolvedID, _) = identity,
               let subjectBirth = birthFacts.first(where: { $0.id == resolvedID })
         else {
-            return []
+            return .skipped(reason: "subject identity not resolved")
         }
 
         // Both parents must be linked — accept-flow writes two parent edges.
-        guard let subjectProfileID = state.subject.profileID else { return [] }
+        guard let subjectProfileID = state.subject.profileID else {
+            return .skipped(reason: "subject has no profile ID")
+        }
         let parents = snapshot.parentsOf(subjectProfileID)
         guard let father = parents.first(where: { $0.gender == .male }),
               let mother = parents.first(where: { $0.gender == .female })
         else {
-            return []
+            return .skipped(reason: "both parents not linked in tree")
         }
 
         guard case .birth(let birth) = subjectBirth.record,
@@ -567,11 +670,15 @@ final class ResearchPipeline {
               let subjectYear = birth.birthYear,
               let subjectSurname = birth.common.surname, !subjectSurname.isEmpty
         else {
-            return []
+            return .skipped(reason: "subject birth record missing district / year / surname")
+        }
+        guard let mmnRaw = birth.mothersMaidenName?.trimmingCharacters(in: .whitespaces),
+              !mmnRaw.isEmpty else {
+            return .skipped(reason: "subject birth record missing mother's maiden name")
         }
         guard let district = FreeBMDDistrictCatalogue.shared.district(named: districtName) else {
             logger.info("Sibling search skipped: district \"\(districtName)\" not in FreeBMD catalogue")
-            return []
+            return .skipped(reason: "district \(districtName) not in FreeBMD catalogue")
         }
 
         let yearFrom = subjectYear - SiblingInferenceEngine.maxSiblingAgeGap
@@ -584,12 +691,21 @@ final class ResearchPipeline {
         )
         logger.info("Sibling search: \(candidates.count) candidate births in \(districtName) \(yearFrom)–\(yearTo)")
 
-        return SiblingInferenceEngine.inferSiblings(
+        let proposals = SiblingInferenceEngine.inferSiblings(
             subjectBirthRecord: subjectBirth,
             candidateRecords: candidates,
             knownFatherID: father.id,
             knownMotherID: mother.id,
             snapshot: snapshot
+        )
+
+        return .attempted(
+            district: districtName,
+            mmn: mmnRaw,
+            yearWindow: yearFrom...yearTo,
+            fatherID: father.id,
+            motherID: mother.id,
+            proposals: proposals
         )
     }
 

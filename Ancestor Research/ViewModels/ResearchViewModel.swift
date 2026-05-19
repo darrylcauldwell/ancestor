@@ -240,6 +240,20 @@ final class ResearchViewModel {
             }
             logger.info("Persisted \(saved)/\(result.allScoredRecords.count) evidence records for \(subject.displayName)")
 
+            // T12-sibling Phase 1: persist pipeline-generated hypotheses
+            // alongside evidence. Upsert preserves created_at and the
+            // user_rejected flag across re-runs (V2 spec §4.3). Read path
+            // is the MCP `ancestor://research_hypotheses/{id}` resource
+            // and (in T12 Phase 3) the cluster-review UI.
+            if !result.hypotheses.isEmpty {
+                do {
+                    try db.upsertHypotheses(result.hypotheses)
+                    logger.info("Persisted \(result.hypotheses.count) hypotheses for \(subject.displayName)")
+                } catch {
+                    logger.warning("Failed to persist hypotheses: \(error.localizedDescription)")
+                }
+            }
+
             let leadStore = LeadStore(db: db)
             for scored in result.leads {
                 _ = try? await leadStore.createFromScoredRecord(scored, profileID: profileID)

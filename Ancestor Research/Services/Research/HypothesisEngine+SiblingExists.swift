@@ -17,8 +17,14 @@ import Foundation
 nonisolated extension HypothesisEngine {
 
     /// Emit one hypothesis per `(district, mmn, yearWindow)` when subject
-    /// identity is resolved AND both parents are linked. T11 stub
-    /// returns empty.
+    /// identity is resolved AND both parents are linked.
+    ///
+    /// **T12-sibling Phase 1 status**: stub returns `[]`. The hypothesis
+    /// production currently lives in `ResearchPipeline.siblingSearchOutcome`
+    /// + `buildSiblingExistsHypothesis`, which run the legacy
+    /// `findSiblings` dispatch and shape the result into a hypothesis.
+    /// Phase 2 deletes those, moves the dispatch + inference here, and
+    /// this generator becomes the single source of truth.
     static func generateSiblingExists(
         state: ResearchState,
         snapshot: FamilyGraphSnapshot
@@ -28,8 +34,12 @@ nonisolated extension HypothesisEngine {
         return []
     }
 
-    /// Grade an existing `.siblingExists` hypothesis. T11 stub returns
-    /// `.inconclusive`.
+    /// Grade an existing `.siblingExists` hypothesis.
+    ///
+    /// **T12-sibling Phase 1 status**: stub returns `.inconclusive`.
+    /// Phase 2 replaces this with a real grader that inspects state for
+    /// candidate sibling records (added to state by Phase 2's generator
+    /// dispatch) and applies the `SiblingInferenceEngine` rule.
     static func gradeSiblingExists(
         _ hypothesis: ResearchHypothesis,
         state: ResearchState,
@@ -41,27 +51,55 @@ nonisolated extension HypothesisEngine {
         return .inconclusiveStub
     }
 
-    /// Expansiveness ladder for `.siblingExists`. Per V2 spec §5.10's
-    /// per-kind override discussion, sibling discovery has district
-    /// already pinned (from the subject's resolved birth record), so
-    /// it walks strictness first:
+    /// Expansiveness ladder for `.siblingExists`. Sibling discovery has
+    /// district already pinned (from the subject's resolved birth
+    /// record), so the ladder primarily walks strictness:
     ///
-    ///   level 1 → strict surname match in pinned district, ±20yr
-    ///   level 2 → loose surname match in pinned district, ±20yr
-    ///   level 3 → loose surname match in adjacent districts
-    ///   level 4 → variant-tier surname match in pinned district
-    ///   ≥ 5    → nil (exhausted)
+    ///   level 1 → strict surname-only birth query in pinned district,
+    ///             year window from the hypothesis payload. Matches the
+    ///             legacy `findSiblings` dispatch.
+    ///   ≥ 2    → nil (exhausted)
     ///
-    /// T11 stub returns nil at every level (the engine isn't dispatching
-    /// queries yet; T7 wires that up).
+    /// T12-sibling Phase 1 implements level 1 only. Further levels
+    /// (loose tier, adjacent districts) are deferred to T31's empirical
+    /// ladder retune — without harness data they'd be guesses, and the
+    /// existing storm guards (Part I §11.2) make loose-vs-strict a
+    /// no-op for surname-only queries anyway.
     static func deficitQuerySiblingExists(
         for hypothesis: ResearchHypothesis,
         atLevel level: Int,
         state: ResearchState
     ) -> RecordQuery? {
-        _ = hypothesis
-        _ = level
-        _ = state
-        return nil
+        guard case .siblingExists(_, _, let yearWindow) = hypothesis.kind else {
+            return nil
+        }
+        // The hypothesis carries the district name; map to FreeBMD code.
+        guard case .siblingExists(let districtName, _, _) = hypothesis.kind,
+              let district = FreeBMDDistrictCatalogue.shared.district(named: districtName) else {
+            return nil
+        }
+        let subjectSurname = state.subject.surname ?? ""
+        guard !subjectSurname.isEmpty else { return nil }
+
+        switch level {
+        case 1:
+            return RecordQuery(
+                surname: subjectSurname,
+                givenName: nil,
+                recordType: .birth,
+                yearFrom: yearWindow.lowerBound,
+                yearTo: yearWindow.upperBound,
+                gender: nil,
+                region: nil,
+                sourceParams: .freeBMD(FreeBMDParams(
+                    districtCode: district.code,
+                    wildcardSurname: false,
+                    motherSurname: nil,
+                    spouseSurname: nil
+                ))
+            )
+        default:
+            return nil   // Exhausted — T31 will revisit the ladder ceiling
+        }
     }
 }
