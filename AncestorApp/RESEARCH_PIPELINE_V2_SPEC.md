@@ -809,7 +809,7 @@ let hypotheses: [ResearchHypothesis]
 
 ### 4.3 Persistence (T11)
 
-New SQL migration `v8_research_hypotheses`:
+New SQL migration `v26_research_hypotheses`:
 
 ```sql
 CREATE TABLE research_hypotheses (
@@ -1230,7 +1230,7 @@ The `SourcingStrength` three-axis badge (Part I §8.4) currently shows source co
 │       T12 sub-project (proposedSiblings, then proposedRelatives).       │
 └─────────────────────────────────────────────────────────────────────────┘
 
-Persistence: research_hypotheses (v8) — upserted across runs, with attempts column tracking expansiveness ladder progress.
+Persistence: research_hypotheses (v26) — upserted across runs, with attempts column tracking expansiveness ladder progress.
              research_sessions (new in §5.9) — persisted ResearchState for pause/resume.
              record_rejections (v2) — extended to reject by hypothesis ID.
              evidence_records (v4) — unchanged.
@@ -1357,7 +1357,7 @@ Mitigation for the flag's mild error-prone-ness: every consumer uses `isDetermin
 Strict dependencies (post-decisions, including the §5.9 / §5.10 / §5.11 reframe additions):
 
 ```
-T11 (type + v8 migration + persistence helpers)
+T11 (type + v26 migration + persistence helpers)
  └─→ T12-sibling Phase 1–4 (.siblingExists folds in)
       └─→ T12-parent design-pass (marriage-enrichment coupling)
            └─→ T12-parent Phase 1–4 (.parentInferred + .parentMarriage fold in)

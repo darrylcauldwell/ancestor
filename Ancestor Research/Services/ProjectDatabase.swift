@@ -770,6 +770,39 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // MARK: v26 — ResearchHypothesis persistence
+        // Pipeline-generated, deterministic, testable claims. Distinct from
+        // the v7 `hypotheses` table (workbench, user-authored). Re-runs of
+        // the pipeline upsert keyed on `id`; user-rejection persists via the
+        // `user_rejected` flag. The `attempts` column tracks expansiveness
+        // ladder progress for T7 / §5.11 deficit-query dispatch.
+        // See AncestorApp/RESEARCH_PIPELINE_V2_SPEC.md Part II §4.3.
+        migrator.registerMigration("v26_research_hypotheses") { db in
+            try db.create(table: "research_hypotheses") { t in
+                t.column("id", .text).primaryKey()
+                t.column("subject_profile_id", .text)
+                    .references("profiles", onDelete: .cascade)
+                t.column("kind_discriminator", .text).notNull()
+                t.column("kind_payload", .text).notNull()          // JSON
+                t.column("verdict", .text).notNull()
+                t.column("is_model_assisted", .integer).notNull().defaults(to: 0)
+                t.column("supporting_evidence", .text).notNull()   // JSON array
+                t.column("contradicting_evidence", .text).notNull()// JSON array
+                t.column("reasoning", .text).notNull()
+                t.column("created_at", .datetime).notNull()
+                t.column("last_tested_at", .datetime).notNull()
+                t.column("attempts", .integer).notNull().defaults(to: 0)
+                t.column("history", .text).notNull()               // JSON array of VerdictTransition
+                t.column("user_rejected", .integer).notNull().defaults(to: 0)
+            }
+            try db.create(index: "idx_research_hypotheses_subject",
+                          on: "research_hypotheses",
+                          columns: ["subject_profile_id"])
+            try db.create(index: "idx_research_hypotheses_verdict",
+                          on: "research_hypotheses",
+                          columns: ["verdict"])
+        }
+
         try migrator.migrate(dbQueue)
     }
 

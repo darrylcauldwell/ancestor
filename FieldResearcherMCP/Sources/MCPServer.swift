@@ -157,6 +157,7 @@ actor MCPHandler {
                 resource("ancestor://life_events/{id}", "Life Events", "Census / burial / probate / military / parish events attached to a profile"),
                 resource("ancestor://lineage/{id}", "Lineage Walk", "Direct ancestors and descendants of a profile. Append ?depth=N (default 4) to bound."),
                 resource("ancestor://audit_overrides", "Audit Overrides", "Persisted rule mutes / snoozes / threshold overrides (live audit findings need the app)"),
+                resource("ancestor://research_hypotheses/{id}", "Research Hypotheses", "Pipeline-generated research hypotheses for a profile (V2 spec §4.1). Each row carries kind, verdict, isModelAssisted flag, evidence ids, reasoning, attempts counter (expansiveness-ladder progress), and verdict history. Excludes user-rejected by default."),
             ]
         ]
     }
@@ -231,6 +232,10 @@ actor MCPHandler {
             guard let parsed = extractIDAndQuery(uri, prefix: "ancestor://evidence/")
             else { throw MCPError.invalidParams("missing profile id") }
             content = try evidenceForProfile(id: parsed.id)
+        case _ where uri.hasPrefix("ancestor://research_hypotheses/"):
+            guard let parsed = extractIDAndQuery(uri, prefix: "ancestor://research_hypotheses/")
+            else { throw MCPError.invalidParams("missing profile id") }
+            content = try researchHypothesesForProfile(id: parsed.id)
         case _ where uri.hasPrefix("ancestor://life_events/"):
             guard let parsed = extractIDAndQuery(uri, prefix: "ancestor://life_events/")
             else { throw MCPError.invalidParams("missing profile id") }
@@ -1433,6 +1438,56 @@ actor MCPHandler {
     /// `AuditEngine` in-process inside the app — so MCP can't return them
     /// here. The overrides themselves are useful context for a caller
     /// proposing fixes.
+    /// Per-profile read of the `research_hypotheses` table (migration
+    /// v26). Returns pipeline-generated hypotheses with verdict,
+    /// evidence ids, reasoning, attempts counter, and history.
+    /// User-rejected rows are excluded — they stay in the table for
+    /// dedup but aren't surfaced via this resource. Empty until T12
+    /// wires generators in; T11 ships the read path so external tooling
+    /// can see hypothesis state immediately.
+    func researchHypothesesForProfile(id: String) throws -> String {
+        try db.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, kind_discriminator, kind_payload, verdict,
+                       is_model_assisted, supporting_evidence,
+                       contradicting_evidence, reasoning, created_at,
+                       last_tested_at, attempts, history
+                FROM research_hypotheses
+                WHERE subject_profile_id = ? AND user_rejected = 0
+                ORDER BY last_tested_at DESC
+                """, arguments: [id])
+            let iso = ISO8601DateFormatter()
+            let hypotheses = rows.map { row -> [String: Any] in
+                var h: [String: Any] = [
+                    "id": row["id"] as String? ?? "",
+                    "kind": row["kind_discriminator"] as String? ?? "",
+                    "verdict": row["verdict"] as String? ?? "",
+                    "is_model_assisted": (row["is_model_assisted"] as Int? ?? 0) != 0,
+                    "reasoning": row["reasoning"] as String? ?? "",
+                    "attempts": row["attempts"] as Int? ?? 0,
+                ]
+                if let d: Date = row["created_at"] {
+                    h["created_at"] = iso.string(from: d)
+                }
+                if let d: Date = row["last_tested_at"] {
+                    h["last_tested_at"] = iso.string(from: d)
+                }
+                // Inline JSON payloads as raw strings — the consumer
+                // (Claude, scripts) decides whether to parse.
+                if let s: String = row["kind_payload"] { h["kind_payload"] = s }
+                if let s: String = row["supporting_evidence"] { h["supporting_evidence"] = s }
+                if let s: String = row["contradicting_evidence"] { h["contradicting_evidence"] = s }
+                if let s: String = row["history"] { h["history"] = s }
+                return h
+            }
+            return Self.jsonString([
+                "profile_id": id,
+                "count": hypotheses.count,
+                "hypotheses": hypotheses,
+            ])
+        }
+    }
+
     func auditOverrides() throws -> String {
         try db.read { db in
             let rows = try Row.fetchAll(db, sql: """

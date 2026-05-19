@@ -106,7 +106,18 @@ nonisolated struct ResearchResult: Sendable {
     /// pipeline resolves subject identity and confirms both parents are
     /// linked. Empty when those preconditions don't hold — caller's UI
     /// hides the Proposed Siblings section in that case.
+    ///
+    /// **V2 spec transition note**: this field is retained during the
+    /// T12-sibling four-phase migration (V2 spec §5.2). Phase 1 populates
+    /// it from the legacy `findSiblings()` path; Phase 2 derives it from
+    /// `hypotheses`; Phases 3–4 swap UI then delete it. Same applies to
+    /// `proposedRelatives` under T12-parent.
     let proposedSiblings: [SiblingProposal]
+    /// Pipeline-generated research hypotheses (V2 spec §4.1). Populated
+    /// by `HypothesisEngine` after the post-loop phase. Empty during
+    /// T11 (this task) — the scaffolding is in place but no generators
+    /// are wired yet; that's T12's job.
+    let hypotheses: [ResearchHypothesis]
 
     init(
         confirmedFacts: [ScoredRecord],
@@ -117,7 +128,8 @@ nonisolated struct ResearchResult: Sendable {
         householdMembers: [HouseholdMember],
         searchHistory: [SearchAttempt],
         proposedRelatives: [ProposedRelative] = [],
-        proposedSiblings: [SiblingProposal] = []
+        proposedSiblings: [SiblingProposal] = [],
+        hypotheses: [ResearchHypothesis] = []
     ) {
         self.confirmedFacts = confirmedFacts
         self.leads = leads
@@ -128,6 +140,7 @@ nonisolated struct ResearchResult: Sendable {
         self.searchHistory = searchHistory
         self.proposedRelatives = proposedRelatives
         self.proposedSiblings = proposedSiblings
+        self.hypotheses = hypotheses
     }
 
     static let empty = ResearchResult(
