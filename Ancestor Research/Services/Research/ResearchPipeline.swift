@@ -198,6 +198,11 @@ final class ResearchPipeline {
         let confirmed = clusters.filter { $0.matchQuality == .confirmed }.count
         logger.info("Clustering: \(clusters.count) clusters — \(confirmed) with confirmed match quality")
 
+        // DETERMINISTIC: sibling discovery (T17). Gated on identity resolved
+        // AND both parents linked — the engine returns [] otherwise but the
+        // dispatch is wasted, so check upstream.
+        let proposedSiblings = await findSiblings(state: state)
+
         return ResearchResult(
             confirmedFacts: state.confirmedFacts,
             leads: state.leads,
@@ -206,7 +211,8 @@ final class ResearchPipeline {
             discrepancies: state.discrepancies,
             householdMembers: state.householdMembers,
             searchHistory: state.searchHistory,
-            proposedRelatives: state.proposedRelatives
+            proposedRelatives: state.proposedRelatives,
+            proposedSiblings: proposedSiblings
         )
     }
 
@@ -508,6 +514,115 @@ final class ResearchPipeline {
         case "sep": return "Jul–Sep"
         case "dec": return "Oct–Dec"
         default: return q
+        }
+    }
+
+    // MARK: - Sibling Discovery
+
+    /// Find candidate full siblings of the subject by querying FreeBMD for
+    /// births sharing the subject's surname + registration district + a
+    /// ±20-year window, then filtering via `SiblingInferenceEngine` on
+    /// (surname, MMN, district). Returns [] unless the subject's identity
+    /// is resolved to a unique birth record AND both parents are linked in
+    /// the snapshot — those preconditions are what let the engine produce
+    /// trustworthy peer matches and let the accept flow wire a ghost to
+    /// both parents atomically.
+    ///
+    /// Dispatch is one focused query (single district, single surname) —
+    /// narrower than the main pipeline's per-iteration fan-out, so safe to
+    /// run unconditionally when the preconditions hold.
+    func findSiblings(state: ResearchState) async -> [SiblingProposal] {
+        let birthFacts = state.confirmedFacts.filter {
+            if case .birth = $0.record { return true }
+            return false
+        }
+        let hypotheses: [GeographicHypothesis] = state.subject.profileID.map { id in
+            GeographicHypothesisGenerator.inferDistricts(
+                for: id,
+                snapshot: snapshot,
+                eventYear: state.subject.birthYearFrom
+            )
+        } ?? []
+        let identity = SubjectIdentityResolver.resolve(
+            candidateBirthFacts: birthFacts,
+            hypotheses: hypotheses
+        )
+        guard case .resolved(let resolvedID, _) = identity,
+              let subjectBirth = birthFacts.first(where: { $0.id == resolvedID })
+        else {
+            return []
+        }
+
+        // Both parents must be linked — accept-flow writes two parent edges.
+        guard let subjectProfileID = state.subject.profileID else { return [] }
+        let parents = snapshot.parentsOf(subjectProfileID)
+        guard let father = parents.first(where: { $0.gender == .male }),
+              let mother = parents.first(where: { $0.gender == .female })
+        else {
+            return []
+        }
+
+        guard case .birth(let birth) = subjectBirth.record,
+              let districtName = birth.district, !districtName.isEmpty,
+              let subjectYear = birth.birthYear,
+              let subjectSurname = birth.common.surname, !subjectSurname.isEmpty
+        else {
+            return []
+        }
+        guard let district = FreeBMDDistrictCatalogue.shared.district(named: districtName) else {
+            logger.info("Sibling search skipped: district \"\(districtName)\" not in FreeBMD catalogue")
+            return []
+        }
+
+        let yearFrom = subjectYear - SiblingInferenceEngine.maxSiblingAgeGap
+        let yearTo = subjectYear + SiblingInferenceEngine.maxSiblingAgeGap
+
+        let candidates = await dispatchSiblingQuery(
+            surname: subjectSurname,
+            districtCode: district.code,
+            yearFrom: yearFrom, yearTo: yearTo
+        )
+        logger.info("Sibling search: \(candidates.count) candidate births in \(districtName) \(yearFrom)–\(yearTo)")
+
+        return SiblingInferenceEngine.inferSiblings(
+            subjectBirthRecord: subjectBirth,
+            candidateRecords: candidates,
+            knownFatherID: father.id,
+            knownMotherID: mother.id,
+            snapshot: snapshot
+        )
+    }
+
+    /// Dispatch a focused FreeBMD birth query for sibling discovery.
+    /// Surname-only, no given name, single district, full ±20-year window.
+    /// Inference engine filters on MMN/district equality, so we deliberately
+    /// don't run the records through RecordScorer — the verdict/gates are
+    /// irrelevant to the sibling match rule.
+    private func dispatchSiblingQuery(
+        surname: String,
+        districtCode: String,
+        yearFrom: Int,
+        yearTo: Int
+    ) async -> [ScoredRecord] {
+        guard let freebmd = dispatcher.registry.allSources().first(where: { $0.sourceID == "freebmd" }) else {
+            return []
+        }
+        let query = RecordQuery(
+            surname: surname,
+            givenName: nil,
+            recordType: .birth,
+            yearFrom: yearFrom, yearTo: yearTo,
+            gender: nil, region: nil,
+            sourceParams: .freeBMD(FreeBMDParams(
+                districtCode: districtCode,
+                wildcardSurname: false,
+                motherSurname: nil,
+                spouseSurname: nil
+            ))
+        )
+        let result = await freebmd.search(query)
+        return result.records.map { record in
+            ScoredRecord(id: record.id, record: record, verdict: .lead, gates: [], summary: "")
         }
     }
 

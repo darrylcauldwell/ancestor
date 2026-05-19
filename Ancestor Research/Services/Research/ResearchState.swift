@@ -102,6 +102,11 @@ nonisolated struct ResearchResult: Sendable {
     let householdMembers: [HouseholdMember]
     let searchHistory: [SearchAttempt]
     let proposedRelatives: [ProposedRelative]
+    /// Sibling candidates produced by `SiblingInferenceEngine` after the
+    /// pipeline resolves subject identity and confirms both parents are
+    /// linked. Empty when those preconditions don't hold — caller's UI
+    /// hides the Proposed Siblings section in that case.
+    let proposedSiblings: [SiblingProposal]
 
     init(
         confirmedFacts: [ScoredRecord],
@@ -111,7 +116,8 @@ nonisolated struct ResearchResult: Sendable {
         discrepancies: [ResearchDiscrepancy],
         householdMembers: [HouseholdMember],
         searchHistory: [SearchAttempt],
-        proposedRelatives: [ProposedRelative] = []
+        proposedRelatives: [ProposedRelative] = [],
+        proposedSiblings: [SiblingProposal] = []
     ) {
         self.confirmedFacts = confirmedFacts
         self.leads = leads
@@ -121,6 +127,7 @@ nonisolated struct ResearchResult: Sendable {
         self.householdMembers = householdMembers
         self.searchHistory = searchHistory
         self.proposedRelatives = proposedRelatives
+        self.proposedSiblings = proposedSiblings
     }
 
     static let empty = ResearchResult(

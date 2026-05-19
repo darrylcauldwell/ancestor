@@ -80,6 +80,79 @@ nonisolated extension ProjectDatabase {
             disputes: [:]
         )
     }
+
+    /// Create a ghost profile for an accepted sibling proposal and wire it to
+    /// BOTH parents of the subject in one atomic transaction. Returns the new
+    /// ghost profile ID. The caller (`ResearchViewModel.acceptSibling`) is
+    /// responsible for snapshot refresh and decision tracking.
+    @discardableResult
+    func acceptSiblingProposal(_ proposal: SiblingProposal) throws -> String {
+        let ghostID = UUID().uuidString
+        let ghost = Self.makeGhostProfile(id: ghostID, from: proposal)
+
+        let fatherEdge = Relationship(
+            id: UUID(),
+            from: proposal.fatherID,
+            to: ghostID,
+            type: .parent,
+            role: .father,
+            subtype: .biological,
+            marriageDate: nil,
+            marriageLocation: nil,
+            divorceDate: nil
+        )
+        let motherEdge = Relationship(
+            id: UUID(),
+            from: proposal.motherID,
+            to: ghostID,
+            type: .parent,
+            role: .mother,
+            subtype: .biological,
+            marriageDate: nil,
+            marriageLocation: nil,
+            divorceDate: nil
+        )
+
+        _ = try addFamily(
+            profiles: [ghost],
+            relationships: [fatherEdge, motherEdge],
+            source: .freebmd
+        )
+
+        return ghostID
+    }
+
+    /// Construct the ghost Profile that backs an accepted sibling proposal.
+    /// Mirrors `makeGhostProfile(id:from:)` for `ProposedRelative` — the
+    /// fields available differ (sibling has a concrete birth year and
+    /// district; parent has a low/high range), so we build them in their
+    /// natural shapes here rather than coercing through a common type.
+    static func makeGhostProfile(id: String, from proposal: SiblingProposal) -> Profile {
+        let birthDate: GenealogicalDate? = proposal.birthYear.flatMap { year in
+            GenealogicalDate(parsing: "ABT \(year)")
+        }
+
+        return Profile(
+            id: id,
+            externalIDs: [:],
+            firstName: proposal.proposedGivenName,
+            lastName: proposal.proposedSurname,
+            gender: proposal.gender,
+            attributes: PersonAttributes(
+                nameStatus: proposal.proposedGivenName == nil ? .placeholder : .known,
+                lifeStatus: .normal,
+                privacy: .normal
+            ),
+            birthDate: birthDate,
+            birthLocation: proposal.district,
+            deathDate: nil,
+            deathLocation: nil,
+            bio: nil,
+            isDeleted: false,
+            sources: [:],
+            disputes: [:]
+        )
+    }
 }
 
 /// Errors surfaced by the cleanse engine and shared accept-relative helper.

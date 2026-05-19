@@ -46,6 +46,10 @@ final class ResearchViewModel {
     // Review state
     var clusterDecisions: [String: ClusterDecision] = [:]  // cluster.id → decision
     var proposedRelativeDecisions: [String: ClusterDecision] = [:]  // proposal.id → decision
+    /// User decision on each sibling proposal — same accept / reject contract
+    /// as proposed relatives, keyed by `SiblingProposal.id`. Persisted via the
+    /// shared rejection store so rejected siblings don't reappear on re-runs.
+    var siblingDecisions: [String: ClusterDecision] = [:]
     /// Per-record overrides inside a cluster. Lets a user opt-in to applying
     /// a single record that didn't clear the gates (e.g. a `.lead` they've
     /// independently verified) or opt-out of one that did. The cluster-level
@@ -153,6 +157,7 @@ final class ResearchViewModel {
         currentResult = nil
         clusterDecisions = [:]
         proposedRelativeDecisions = [:]
+        siblingDecisions = [:]
         recordDecisions = [:]
         recentActivity = []
         inFlightQueryCounts = [:]
@@ -800,6 +805,45 @@ final class ResearchViewModel {
         try? db.saveRejection(profileID: profileID, recordID: proposal.id)
     }
 
+    // MARK: - Sibling Proposal Decisions
+
+    /// Sibling proposals from the most recent run, filtered by previously-
+    /// persisted rejections so re-runs don't keep re-surfacing siblings the
+    /// user has dismissed. Same pattern as `visibleProposedRelatives`.
+    func visibleSiblings() -> [SiblingProposal] {
+        guard let result = currentResult else { return [] }
+        guard let db = appDatabase, let profileID = selectedProfile?.id else {
+            return result.proposedSiblings
+        }
+        let rejected = (try? db.loadRejections(profileID: profileID)) ?? []
+        return result.proposedSiblings.filter { !rejected.contains($0.id) }
+    }
+
+    /// Accept a sibling proposal: create a ghost Profile and wire it to BOTH
+    /// parent profiles in one atomic transaction. Refreshes the AppState
+    /// snapshot so the new sibling shows up in the tree.
+    func acceptSibling(_ proposal: SiblingProposal, into appState: AppState) {
+        guard let db = appState.currentDatabase else {
+            errorMessage = "No project open"
+            return
+        }
+        do {
+            _ = try db.acceptSiblingProposal(proposal)
+            appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+            siblingDecisions[proposal.id] = .accepted
+        } catch {
+            errorMessage = "Failed to create sibling: \(error.localizedDescription)"
+        }
+    }
+
+    /// Reject a sibling proposal: persist the proposal id so it won't reappear
+    /// on subsequent research runs for the same subject.
+    func rejectSibling(_ proposal: SiblingProposal) {
+        siblingDecisions[proposal.id] = .rejected
+        guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
+        try? db.saveRejection(profileID: profileID, recordID: proposal.id)
+    }
+
     var acceptedClusters: [LifeCluster] {
         currentResult?.clusters.filter { clusterDecisions[$0.id] == .accepted } ?? []
     }
@@ -941,6 +985,7 @@ final class ResearchViewModel {
         currentResult = nil
         clusterDecisions = [:]
         proposedRelativeDecisions = [:]
+        siblingDecisions = [:]
         recordDecisions = [:]
         sourceStatuses = []
         progressMessage = nil

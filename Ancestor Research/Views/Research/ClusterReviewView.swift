@@ -24,6 +24,11 @@ struct ClusterReviewView: View {
                             proposedRelativesSection
                         }
 
+                        // Proposed Siblings (peer inference from BMD MMN match)
+                        if !visibleSiblings.isEmpty {
+                            proposedSiblingsSection
+                        }
+
                         ForEach(result.clusters) { cluster in
                             clusterCard(cluster)
                         }
@@ -1352,6 +1357,105 @@ struct ClusterReviewView: View {
         }
 
         return parts.joined(separator: " ")
+    }
+
+    // MARK: - Proposed Siblings
+
+    private var visibleSiblings: [SiblingProposal] {
+        vm.visibleSiblings()
+    }
+
+    private var proposedSiblingsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Proposed Siblings")
+                    .font(AppTypography.cardTitle)
+                Text("\(visibleSiblings.count)")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.secondary)
+            }
+            Text("Birth records sharing the subject's surname, mother's maiden name, and registration district. Accept to add a ghost profile wired to both parents.")
+                .font(AppTypography.cardMeta)
+                .foregroundStyle(.secondary)
+
+            ForEach(visibleSiblings) { proposal in
+                proposedSiblingRow(proposal)
+            }
+        }
+        .padding(14)
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+    }
+
+    private func proposedSiblingRow(_ proposal: SiblingProposal) -> some View {
+        let decision = vm.siblingDecisions[proposal.id]
+        let nameLabel: String = {
+            let given = proposal.proposedGivenName?.capitalized ?? "?"
+            let surname = proposal.proposedSurname ?? "?"
+            return "\(given) \(surname)"
+        }()
+        let yearLabel = proposal.birthYear.map { "b. \($0)" } ?? ""
+        let districtLabel = proposal.district ?? ""
+        let subjectName = vm.selectedProfile?.displayName ?? "subject"
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Image(systemName: "person.2.fill")
+                    .foregroundStyle(.blue)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(nameLabel)
+                        .font(AppTypography.cardBody)
+                    HStack(spacing: 8) {
+                        if !yearLabel.isEmpty {
+                            Text(yearLabel)
+                                .font(AppTypography.cardMeta)
+                                .foregroundStyle(.secondary)
+                        }
+                        if !districtLabel.isEmpty {
+                            Text(districtLabel)
+                                .font(AppTypography.cardMeta)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("· sibling of \(subjectName)")
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.secondary)
+                    }
+                    // Show the evidence record summary so the user can see
+                    // what's behind the proposal without expanding anything.
+                    if let evidence = proposal.evidence.first {
+                        Text(evidence.summary)
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer()
+
+                if decision == .accepted {
+                    Label("Added", systemImage: "checkmark.circle.fill")
+                        .font(AppTypography.cardBody)
+                        .foregroundStyle(.green)
+                } else if decision == .rejected {
+                    Label("Rejected", systemImage: "xmark.circle.fill")
+                        .font(AppTypography.cardBody)
+                        .foregroundStyle(.red)
+                } else {
+                    Button("Accept") {
+                        vm.acceptSibling(proposal, into: appState)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.small)
+                    .help("Create a ghost profile for this sibling and wire it to both of \(subjectName)'s parents.")
+
+                    Button("Reject") {
+                        vm.rejectSibling(proposal)
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .opacity(decision == .rejected ? 0.5 : 1.0)
     }
 
     // MARK: - Source Frontier
