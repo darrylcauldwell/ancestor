@@ -89,6 +89,9 @@ wirksworth_data.json
 # FamilySearch data (ToS restricts automated access — never commit)
 familysearch_*
 fs_*
+# But do track the design spec — case-insensitive match catches the upper-case
+# filename on macOS APFS; the exception is explicit.
+!AncestorApp/FAMILYSEARCH_SOURCE_SPEC.md
 
 # App page cache (fetched web pages)
 page-cache/
