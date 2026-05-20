@@ -18,6 +18,7 @@ actor FreeBMDSource: RecordSource {
 
     nonisolated let sourceID = "freebmd"
     nonisolated let displayName = "FreeBMD"
+    nonisolated let descriptiveName = "UK Births, Deaths & Marriages Index (FreeBMD)"
     nonisolated let recordTypes: Set<RecordType> = [.birth, .death, .marriage]
     nonisolated let coverageYearRange: ClosedRange<Int>? = 1837...1983
     nonisolated let coverageRegions: Set<Region> = [.englandAndWales]
@@ -131,13 +132,30 @@ actor FreeBMDSource: RecordSource {
             // variant before arriving here, so the variant probe itself is
             // exact-match (Phonetic=false). See RESEARCH_AXES_SPEC §7.
             let phoneticFlag = query.strictness == .loose ? "true" : "false"
+            // FreeBMD's `given` field does literal/prefix matching against
+            // only the first given name in the registered record (the row
+            // format is `…;FIRST_GIVEN;…`, multi-given records like
+            // "Ernest V" don't surface to multi-token queries). Sending
+            // "Ernest Victor" returns zero matches even when the record
+            // exists; sending "Ernest" matches "Ernest V" / "Ernest Victor"
+            // alike via prefix. Strip to the first whitespace-separated
+            // token so the dispatcher's `subject.givenName` ("Ernest
+            // Victor") becomes a usable FreeBMD query.
+            //
+            // Year filter only engages when `sq` (start quarter) and `eq`
+            // (end quarter) are also present — without them FreeBMD
+            // silently widens to "all years" and the multi-thousand result
+            // set then fails downstream filters. Default to the full year
+            // (Q1–Q4). See diagnostic notes in commit message.
             let fields: [String: String] = [
                 "type": recordType,
                 "surname": surname,
-                "given": query.givenName ?? "",
+                "given": Self.firstGivenName(query.givenName) ?? "",
                 "s_surname": params?.spouseSurname ?? "",
                 "s_given": "",
+                "sq": "1",
                 "start": query.yearFrom.map(String.init) ?? "",
+                "eq": "4",
                 "end": query.yearTo.map(String.init) ?? "",
                 "districtid": params?.districtCode ?? "",
                 "Phonetic": phoneticFlag,
@@ -361,6 +379,16 @@ actor FreeBMDSource: RecordSource {
     /// Resolves the district code to its display name when possible (catalogue
     /// covers all 1125 UK districts) and includes the search terms so the user
     /// can tell what each line means.
+    /// First whitespace-separated token of a given-name string, trimmed.
+    /// `nil` / empty input returns `nil`. Used to coerce multi-given names
+    /// (e.g. "Ernest Victor") to FreeBMD's first-given-only filter.
+    nonisolated static func firstGivenName(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        guard let first = raw.split(whereSeparator: { $0.isWhitespace }).first else { return nil }
+        let trimmed = String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     nonisolated static func activitySummary(query: RecordQuery, surname: String) -> String {
         let recordTypeLabel: String = switch query.recordType {
         case .birth: "births"
