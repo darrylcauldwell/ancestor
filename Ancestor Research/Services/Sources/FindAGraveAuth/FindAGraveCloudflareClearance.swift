@@ -152,16 +152,47 @@ final class FindAGraveCloudflareClearance: NSObject, WKNavigationDelegate {
         finish(.failure(AcquisitionError.timeout))
     }
 
-    /// Returns true if cf_clearance is now present (and finish has been
-    /// called); false to keep polling.
+    /// Returns true if acquisition succeeded (and finish has been called);
+    /// false to keep polling.
+    ///
+    /// Two success paths:
+    ///   1. **Challenge served and passed** — Cloudflare issued a JS
+    ///      challenge, WKWebView solved it, `cf_clearance` cookie present.
+    ///   2. **No challenge served** — Cloudflare risk-scored this request
+    ///      as low risk and served the real page directly. No
+    ///      `cf_clearance` minted because there was nothing to solve, but
+    ///      `__cf_bm` (bot-management) cookie present + page title
+    ///      indicates the real Find a Grave page. This is the common case
+    ///      when WKWebView's Safari fingerprint passes silently.
+    ///
+    /// Path 2 was missing from the original implementation, which only
+    /// looked for `cf_clearance` and timed out forever when Cloudflare
+    /// didn't bother challenging — a real-world observed case.
     private func checkForClearance() async -> Bool {
         guard let webView else { return false }
         let cookies = await webView.configuration.websiteDataStore.httpCookieStore.allCookies()
         let fagCookies = cookies.filter { $0.domain.contains("findagrave.com") }
-        guard fagCookies.contains(where: { $0.name == "cf_clearance" }) else { return false }
-        logger.info("Captured \(fagCookies.count) Find a Grave cookies (including cf_clearance)")
-        finish(.success(fagCookies))
-        return true
+
+        // Path 1: challenge passed.
+        if fagCookies.contains(where: { $0.name == "cf_clearance" }) {
+            logger.info("Captured \(fagCookies.count) Find a Grave cookies (challenge passed; cf_clearance present)")
+            finish(.success(fagCookies))
+            return true
+        }
+
+        // Path 2: no challenge served. Need __cf_bm (Cloudflare engaged
+        // at all) AND the page actually loaded (title contains
+        // "find a grave" but not "just a moment...").
+        guard fagCookies.contains(where: { $0.name == "__cf_bm" }) else { return false }
+        let titleResult = try? await webView.evaluateJavaScript("document.title") as? String
+        let title = titleResult ?? ""
+        let lowerTitle = title.lowercased()
+        if lowerTitle.contains("find a grave") && !lowerTitle.contains("just a moment") {
+            logger.info("Captured \(fagCookies.count) Find a Grave cookies (no challenge served; title='\(title)')")
+            finish(.success(fagCookies))
+            return true
+        }
+        return false
     }
 
     private func logCookieDiagnostic() async {
