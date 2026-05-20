@@ -157,3 +157,154 @@ struct RecordScorerMiddleNameTests {
         #expect(result.verdict != .impossible)
     }
 }
+
+// MARK: - Probate / burial death-axis tests
+
+/// Tests for the unification of `.death` / `.probate` / `.burial` in
+/// `RecordScorer.checkDate`'s `searchType` switch. Pre-fix, probate records
+/// fell through to the default `birth-window` branch and got marked
+/// `.impossible` — a death-year record (e.g. 1980) compared against a
+/// birth-year window (e.g. 1900±tol) failed by decades. Post-fix, all
+/// three share the death-axis logic — record year vs birth year →
+/// ageAtDeath in plausible-lifespan band [15, 100], with recorded age
+/// cross-checked when present.
+///
+/// Fixtures are neutral: a fictional John Smith born 1900, died 1980,
+/// Derbyshire address (county hardcoded in the geography gate as a
+/// passing region).
+struct RecordScorerProbateTests {
+
+    // MARK: - Helpers
+
+    private func neutralSubject() -> ResearchSubject {
+        ResearchSubject(
+            surname: "Smith",
+            givenName: "John",
+            middleName: nil,
+            birthYearFrom: 1900,
+            birthYearTo: 1900,
+            gender: .male,
+            region: .englandAndWales,
+            mode: .extend
+        )
+    }
+
+    private func probateRecord(
+        name: String = "John Smith",
+        surname: String = "Smith",
+        given: String = "John",
+        deathYear: Int? = 1980,
+        ageAtDeath: Int? = 80,
+        address: String? = "Derbyshire"
+    ) -> SourceRecord {
+        .probate(ProbateRecord(
+            common: RecordCommon(
+                id: "probate-\(deathYear ?? 0)",
+                sourceID: "probate",
+                name: name,
+                surname: surname,
+                givenName: given,
+                detailURL: nil,
+                rawFields: [:]
+            ),
+            deathDate: nil,
+            deathYear: deathYear,
+            probateDate: nil,
+            birthDate: nil,
+            ageAtDeath: ageAtDeath,
+            address: address,
+            grantType: "PROBATE",
+            registry: nil,
+            probateNumber: nil,
+            regimentNumber: nil
+        ))
+    }
+
+    private func burialRecord(
+        name: String = "John Smith",
+        surname: String = "Smith",
+        given: String = "John",
+        deathYear: Int? = 1980,
+        location: String? = "Derbyshire"
+    ) -> SourceRecord {
+        .burial(BurialRecord(
+            common: RecordCommon(
+                id: "burial-\(deathYear ?? 0)",
+                sourceID: "findagrave",
+                name: name,
+                surname: surname,
+                givenName: given,
+                detailURL: nil,
+                rawFields: [:]
+            ),
+            deathDate: nil,
+            deathYear: deathYear,
+            birthDate: nil,
+            birthYear: nil,
+            burialLocation: location,
+            cemetery: nil,
+            memorialID: nil,
+            inscription: nil,
+            bio: nil,
+            isVeteran: false
+        ))
+    }
+
+    // MARK: - Tests
+
+    @Test func probateRecordPromotesOnDeathAxisMatch() {
+        // 1900-born subject + probate showing ageAtDeath=80 + Derbyshire
+        // address → .fact. Pre-fix this record was marked .impossible
+        // because the default branch compared the 1980 record year against
+        // the 1900±tol birth window and failed by ~80 years.
+        let result = RecordScorer.classify(
+            record: probateRecord(),
+            subject: neutralSubject(),
+            searchType: .probate
+        )
+        #expect(result.verdict == .fact)
+    }
+
+    @Test func probateRecordWithWrongNameStaysImpossible() {
+        // Name gate must still reject obvious wrong-persons. Regression
+        // check that the death-axis branch hasn't relaxed the name gate.
+        let result = RecordScorer.classify(
+            record: probateRecord(
+                name: "Mary Jones",
+                surname: "Jones",
+                given: "Mary"
+            ),
+            subject: neutralSubject(),
+            searchType: .probate
+        )
+        #expect(result.verdict == .impossible)
+    }
+
+    @Test func probateWithContradictoryAgeAtDeathFailsDateGate() {
+        // Recorded ageAtDeath must be consistent with (deathYear - birthYear).
+        // 1900-born, deathYear=1980 implies ageAtDeath ~80; a record claiming
+        // ageAtDeath=30 is internally contradictory → date gate `.fail`,
+        // verdict drops below `.fact`. (When no recorded age is present the
+        // gate falls back to the [15, 100] plausibility band; with a
+        // recorded age it's the consistency check that matters.)
+        let result = RecordScorer.classify(
+            record: probateRecord(deathYear: 1980, ageAtDeath: 30),
+            subject: neutralSubject(),
+            searchType: .probate
+        )
+        #expect(result.verdict != .fact)
+    }
+
+    @Test func burialRecordPromotesOnDeathAxisMatch() {
+        // Burial parity — the same shared branch covers .burial. Name
+        // match + Derbyshire location + plausible death year → .fact.
+        // Pre-fix, burial records were falling through to the default
+        // birth-window branch too.
+        let result = RecordScorer.classify(
+            record: burialRecord(),
+            subject: neutralSubject(),
+            searchType: .burial
+        )
+        #expect(result.verdict == .fact)
+    }
+}

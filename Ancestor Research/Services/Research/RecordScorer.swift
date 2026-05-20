@@ -241,14 +241,30 @@ nonisolated struct RecordScorer {
         let windowLabel = birthLow == birthHigh ? "~\(birthLow)" : "\(birthLow)–\(birthHigh)"
 
         switch searchType {
-        case .death:
+        case .death, .probate, .burial:
+            // Probate/burial records carry a death year too (per
+            // `extractYear` they return `deathYear`), so the death-axis
+            // logic applies — record year is the death year, not a birth
+            // year. Without this branch a 2017 probate record on a 1919-
+            // born subject failed the default birth-window check by 98
+            // years → impossible. With this branch the same record passes
+            // when ageAtDeath is plausible. Spec §22 follow-up.
+            //
             // Age at death is a *range* when birth is a window: ageAtDeath ∈
             // [recordYear - high, recordYear - low]. Either bound can fire
             // an impossible rule; pass when any plausible age in the range
             // falls in the [15, 100] band.
             let ageAtDeathHigh = recordYear - birthLow
             let ageAtDeathLow  = recordYear - birthHigh
-            if case .death(let dr) = record, let recordedAge = dr.age {
+            // Recorded age comes from different fields per record shape:
+            // death records use `age`, probate records use `ageAtDeath`,
+            // burial records typically have no recorded age.
+            let recordedAge: Int? = {
+                if case .death(let dr) = record { return dr.age }
+                if case .probate(let pr) = record { return pr.ageAtDeath }
+                return nil
+            }()
+            if let recordedAge {
                 let matchesAnyAge = (ageAtDeathLow ... ageAtDeathHigh).contains { ScoringRules.yearsMatch(recordedAge, $0, tolerance: 2) }
                 if matchesAnyAge {
                     return GateResult(gate: .date, outcome: .pass, reason: "age at death \(recordedAge) consistent with birth \(windowLabel)")
@@ -335,6 +351,7 @@ nonisolated struct RecordScorer {
             switch record {
             case .census(let r): county = r.birthCounty ?? r.birthPlace ?? ""
             case .burial(let r): county = r.burialLocation ?? ""
+            case .probate(let r): county = r.address ?? ""
             default: break
             }
             // Hard-fail explicitly non-UK locations when the subject's
