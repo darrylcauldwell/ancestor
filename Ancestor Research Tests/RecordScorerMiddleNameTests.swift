@@ -148,6 +148,90 @@ struct RecordScorerMiddleNameTests {
         #expect(nameGate.outcome == .pass)
     }
 
+    @Test func multiTokenGivenSplitsImpliedMiddle() {
+        // GEDCOM imports the full given string into firstName and leaves
+        // middleName empty (parseGEDCOMName returns "Ernest Victor" as one
+        // value). Without compensation, an "Ernest Peter" record would
+        // pass the gate against an "Ernest Victor" subject because both
+        // share "ERNEST" as their first token. The scorer now treats the
+        // second token of subject.givenName as the effective middle when
+        // middleName is empty.
+        let result = RecordScorer.classify(
+            record: birthRecord(givenName: "Ernest Peter", surname: "Cauldwell", year: 1919),
+            subject: ResearchSubject(
+                surname: "Cauldwell",
+                givenName: "Ernest Victor",
+                middleName: nil,
+                birthYearFrom: 1919,
+                birthYearTo: 1919,
+                gender: .male,
+                region: .englandAndWales,
+                mode: .extend
+            ),
+            searchType: .birth
+        )
+        guard let nameGate = result.gates.first(where: { $0.gate == .name }) else {
+            Issue.record("expected a name gate result")
+            return
+        }
+        #expect(nameGate.outcome == .fail)
+    }
+
+    @Test func multiTokenGivenStillAcceptsMatchingMiddle() {
+        // Symmetric to the above — "Ernest V" / "Ernest Victor" record
+        // SHOULD pass against subject with given="Ernest Victor" and no
+        // explicit middleName. The implicit-middle derivation produces
+        // personMiddle="VICTOR", which matches the record's "V" via the
+        // existing first-initial rule.
+        let result = RecordScorer.classify(
+            record: birthRecord(givenName: "Ernest V", surname: "Cauldwell", year: 1919),
+            subject: ResearchSubject(
+                surname: "Cauldwell",
+                givenName: "Ernest Victor",
+                middleName: nil,
+                birthYearFrom: 1919,
+                birthYearTo: 1919,
+                gender: .male,
+                region: .englandAndWales,
+                mode: .extend
+            ),
+            searchType: .birth
+        )
+        #expect(result.verdict != .impossible)
+    }
+
+    @Test func explicitMiddleFieldStillWinsWhenSet() {
+        // When middleName IS set, trust the explicit value. Subject
+        // given="Mary Ann" + middle="Susanne" should NOT split "Ann" as
+        // the effective middle; the user told us "Susanne" is the middle.
+        // Record "Mary Ann Holmes" should pass — record's "Ann" doesn't
+        // mismatch subject's explicit middle "Susanne" because the gate
+        // matches first-initial-or-substring, and "Ann"+"Susanne" don't
+        // share that. Confirms the explicit field still wins.
+        let result = RecordScorer.classify(
+            record: birthRecord(givenName: "Mary Ann", surname: "Holmes", year: 1948),
+            subject: ResearchSubject(
+                surname: "Holmes",
+                givenName: "Mary Ann",
+                middleName: "Susanne",
+                birthYearFrom: 1948,
+                birthYearTo: 1948,
+                gender: .female,
+                region: .englandAndWales,
+                mode: .extend
+            ),
+            searchType: .birth
+        )
+        // Record middle "Ann" vs subject middle "Susanne" — first
+        // initials A vs S — fail. Confirms explicit middleName isn't
+        // overridden by the implicit-split rule.
+        guard let nameGate = result.gates.first(where: { $0.gate == .name }) else {
+            Issue.record("expected a name gate result")
+            return
+        }
+        #expect(nameGate.outcome == .fail)
+    }
+
     @Test func subjectMiddleIsCaseInsensitive() {
         let result = RecordScorer.classify(
             record: birthRecord(givenName: "JENNIFER M"),

@@ -112,8 +112,37 @@ nonisolated struct RecordScorer {
 
     private static func checkName(record: SourceRecord, subject: ResearchSubject) -> GateResult {
         let personSurname = (subject.surname ?? "").uppercased().trimmingCharacters(in: .whitespaces)
-        let personGiven = (subject.givenName ?? "").uppercased().trimmingCharacters(in: .whitespaces)
-        let personMiddle = (subject.middleName ?? "").uppercased().trimmingCharacters(in: .whitespaces)
+        let personGivenRaw = (subject.givenName ?? "").uppercased().trimmingCharacters(in: .whitespaces)
+        let personMiddleField = (subject.middleName ?? "").uppercased().trimmingCharacters(in: .whitespaces)
+
+        // Derive effective given + middle for matching. GEDCOM import puts
+        // the full given string (e.g. "Ernest Victor") into firstName and
+        // leaves middleName empty — `GEDCOMParser.parseGEDCOMName` returns
+        // the whole pre-surname segment as one string, no middle split.
+        // Without compensation, the middle-name guard at line ~191 below
+        // never fires for any imported profile, and an "Ernest Peter"
+        // record would pass the gate against an "Ernest Victor" subject
+        // because both share "ERNEST" as their first token.
+        //
+        // Rule: when `subject.middleName` is explicitly set, trust it.
+        // Otherwise, if `subject.givenName` has multiple tokens, treat
+        // the first token as effective given and the rest as effective
+        // middle.
+        let personGiven: String
+        let personMiddle: String
+        if !personMiddleField.isEmpty {
+            personGiven = personGivenRaw
+            personMiddle = personMiddleField
+        } else {
+            let givenTokens = personGivenRaw.split(separator: " ").map(String.init)
+            if givenTokens.count >= 2 {
+                personGiven = givenTokens[0]
+                personMiddle = givenTokens.dropFirst().joined(separator: " ")
+            } else {
+                personGiven = personGivenRaw
+                personMiddle = ""
+            }
+        }
 
         var recordSurname = (record.surname ?? "").uppercased().trimmingCharacters(in: .whitespaces)
         var recordGiven = (record.givenName ?? record.name ?? "").uppercased().trimmingCharacters(in: .whitespaces)
