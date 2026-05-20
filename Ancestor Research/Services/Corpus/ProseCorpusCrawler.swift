@@ -38,7 +38,23 @@ actor ProseCorpusCrawler {
 
     struct Configuration: Sendable {
         let seedURL: URL
-        /// 1–8. Spec §6.2 default 4. Capped at init.
+        /// 1–12. Capped at init. Default is 10 — biased toward
+        /// "grab everything reachable" because the target sites
+        /// (parish records, local-history portals, GENUKI-style
+        /// volunteer sites) are hand-written HTML with deep nav
+        /// hierarchies that aren't depth-optimised.
+        ///
+        /// Spec §6.2 originally suggested 4 but P8 empirical
+        /// testing on Wirksworth (the canonical example) showed
+        /// depth-4 captures only ~8% of the site — 174 of 2,187
+        /// pages. Volunteer-site hierarchies are commonly 5-7
+        /// hops from the seed (index → menu → category → letter
+        /// → surname → person → pedigree), and orphan pages
+        /// reachable only via in-content cross-references push
+        /// even further. The page-budget cap (10,000 default) is
+        /// the real safety net against runaway crawls; depth is
+        /// just a secondary guard against pathological link
+        /// structures (e.g. infinite calendar pages).
         let maxDepth: Int
         /// Spec §6.2 default 10,000.
         let pageBudget: Int
@@ -64,7 +80,7 @@ actor ProseCorpusCrawler {
 
         init(
             seedURL: URL,
-            maxDepth: Int = 4,
+            maxDepth: Int = 10,
             pageBudget: Int = 10_000,
             linkFilter: LinkFilter? = nil,
             userAgent: String = Configuration.defaultUserAgent,
@@ -73,7 +89,7 @@ actor ProseCorpusCrawler {
             useSitemap: Bool = true
         ) {
             self.seedURL = seedURL
-            self.maxDepth = max(1, min(8, maxDepth))
+            self.maxDepth = max(1, min(12, maxDepth))
             self.pageBudget = max(1, pageBudget)
             self.linkFilter = linkFilter
             self.userAgent = userAgent

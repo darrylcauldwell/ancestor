@@ -16,7 +16,7 @@ struct AddProseCorpusSheet: View {
 
     @State private var urlString: String = ""
     @State private var displayTitle: String = ""
-    @State private var crawlDepth: Int = 4
+    @State private var crawlDepth: Int = 10
     @State private var pageBudget: Int = 10_000
     @State private var linkFilterKind: LinkFilterKind = .none
     @State private var linkFilterPattern: String = ""
@@ -154,10 +154,10 @@ struct AddProseCorpusSheet: View {
                         get: { Double(crawlDepth) },
                         set: { crawlDepth = Int($0) }
                     ),
-                    in: 1...8,
+                    in: 1...12,
                     step: 1
                 )
-                Text("How many link-hops from the seed to follow. Defaults to 4 — most volunteer sites are 2-3 hops deep.")
+                Text("How many link-hops from the seed to follow. Defaults to 10 — volunteer genealogy sites are typically deeply nested (index → menu → category → letter → person), and the page budget below is the real safety net against runaway crawls.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -143,7 +143,7 @@ nonisolated struct ProseCorpusAdder {
     func commitAdd(
         seedURL: URL,
         displayTitle: String,
-        crawlDepth: Int = 4,
+        crawlDepth: Int = 10,
         pageBudget: Int = 10_000,
         linkFilter: ProseCorpusCrawler.LinkFilter? = nil
     ) throws -> AddResult {
@@ -167,7 +167,7 @@ nonisolated struct ProseCorpusAdder {
             addedByUserAt: nowDate,
             schemaVersion: ProseCorpusManifest.currentSchemaVersion,
             crawlerVersion: ProseCorpusStorage.crawlerVersion,
-            crawlDepth: clamp(crawlDepth, min: 1, max: 8),
+            crawlDepth: clamp(crawlDepth, min: 1, max: 12),
             linkFilter: linkFilter?.serialised,
             pageBudget: max(1, pageBudget),
             firstBuiltAt: nil,

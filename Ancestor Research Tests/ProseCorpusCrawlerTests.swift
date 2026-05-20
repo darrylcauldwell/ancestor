@@ -182,11 +182,11 @@ struct ProseCorpusCrawlerTests {
 
     // MARK: - Configuration clamping
 
-    @Test func configurationClampsMaxDepthToOneToEight() {
+    @Test func configurationClampsMaxDepthToOneToTwelve() {
         let low = ProseCorpusCrawler.Configuration(seedURL: URL(string: "http://x.com")!, maxDepth: 0)
         #expect(low.maxDepth == 1)
         let high = ProseCorpusCrawler.Configuration(seedURL: URL(string: "http://x.com")!, maxDepth: 99)
-        #expect(high.maxDepth == 8)
+        #expect(high.maxDepth == 12)
     }
 
     @Test func configurationClampsPageBudgetToAtLeastOne() {

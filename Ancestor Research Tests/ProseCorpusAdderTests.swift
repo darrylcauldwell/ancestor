@@ -205,10 +205,10 @@ struct ProseCorpusAdderTests {
         let result = try adder.commitAdd(
             seedURL: seed,
             displayTitle: "Example",
-            crawlDepth: 99,          // → clamped to 8
+            crawlDepth: 99,          // → clamped to 12 (max)
             pageBudget: 0            // → clamped to 1
         )
-        #expect(result.manifest.crawlDepth == 8)
+        #expect(result.manifest.crawlDepth == 12)
         #expect(result.manifest.pageBudget == 1)
     }
 
