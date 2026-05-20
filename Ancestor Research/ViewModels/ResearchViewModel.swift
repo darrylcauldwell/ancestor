@@ -27,6 +27,14 @@ final class ResearchViewModel {
     var currentResult: ResearchResult?
     var progressMessage: String?
     var sourceStatuses: [SourceStatus] = []
+    /// Top-K prose-corpus candidates for the current run. Populated
+    /// after the structured pipeline completes (see `runPipeline`).
+    /// Empty when no prose corpora are registered or when the subject
+    /// has no surname. Surfaced inline beside the structured results;
+    /// the activity log already shows the search itself via the
+    /// `ProseCorpusSource` events. P6 adds MLX extraction over this
+    /// list for `.discover`/`.all` modes.
+    var proseCandidates: [ProseCandidate] = []
     /// Rolling buffer of the most recent activity events for the live feed.
     /// Capped at 30 entries so the UI scrolls cleanly without unbounded growth.
     var recentActivity: [String] = []
@@ -161,6 +169,7 @@ final class ResearchViewModel {
         recordDecisions = [:]
         recentActivity = []
         inFlightQueryCounts = [:]
+        proseCandidates = []
         errorMessage = nil
         progressMessage = "Preparing research..."
 
@@ -209,6 +218,19 @@ final class ResearchViewModel {
         )
 
         let result = await pipeline.research(subject: subject, config: config)
+
+        // Prose-corpus retrieval — fan out the subject across every
+        // registered prose corpus and store the top-K candidates for
+        // the UI. Runs after the structured pipeline so its activity
+        // events land at the end of the live feed; the existing
+        // `activitySubscription` is still alive, so the user sees
+        // "Prose corpora Cauldwell — searching… → 5 results".
+        //
+        // K-per-mode mirrors spec §9.3: verify/extend keep the
+        // shortlist small (no MLX cost yet), discover widens to 5
+        // and `.all` to 8. P6 will route this same shortlist
+        // through MLX extraction; for now it's lookup-only.
+        proseCandidates = await fetchProseCandidates(subject: subject, registry: registry, mode: selectedMode)
 
         currentResult = result
         isResearching = false
@@ -375,6 +397,78 @@ final class ResearchViewModel {
             // Pipeline stages don't bind to a single source; only the feed shows them.
             break
         }
+    }
+
+    // MARK: - Prose-corpus retrieval
+
+    /// Fan a subject out across every registered prose corpus and
+    /// return the top-K candidates. Returns an empty array when no
+    /// `ProseCorpusSource` is registered (e.g. Application Support
+    /// was unreachable at bootstrap), when the subject has no
+    /// surname (the SQL's INNER JOIN gate), or when no corpora are
+    /// registered. Never throws — per-corpus errors are logged
+    /// inside `ProseCorpusSource` and the rest of the dispatch
+    /// continues.
+    private func fetchProseCandidates(
+        subject: ResearchSubject,
+        registry: SourceRegistry,
+        mode: ResearchMode
+    ) async -> [ProseCandidate] {
+        guard let proseSource = registry.source(for: "prose-corpus") as? ProseCorpusSource else {
+            return []
+        }
+        guard registry.isEnabled("prose-corpus") else { return [] }
+        guard let surname = subject.surname, !surname.isEmpty else { return [] }
+
+        let query = Self.buildProseQuery(subject: subject, surname: surname)
+        let limit = Self.proseCorpusLimit(for: mode)
+        return await proseSource.searchCandidates(query: query, limit: limit)
+    }
+
+    /// K-per-mode mapping per PROSE_CORPUS_SPEC.md §9.3. Verify and
+    /// extend keep the shortlist small; discover widens to 5; .all
+    /// runs through 8.
+    nonisolated static func proseCorpusLimit(for mode: ResearchMode) -> Int {
+        switch mode {
+        case .verify:   return 3
+        case .extend:   return 3
+        case .discover: return 5
+        case .all:      return 8
+        }
+    }
+
+    /// Build a single `RecordQuery` for the prose source. The prose
+    /// source ignores `recordType` (its result isn't record-typed
+    /// in the structured sense) and `sourceParams`; what matters is
+    /// surname, given name, year range, and region. We use the
+    /// widest plausible year window — birth-year floor to death-year
+    /// ceiling, with a `birth + 95` fallback when the death window
+    /// is unknown — so a corpus page that talks about the subject
+    /// at any point in their life still scores.
+    nonisolated static func buildProseQuery(subject: ResearchSubject, surname: String) -> RecordQuery {
+        let yearFrom: Int? = subject.birthYearFrom
+        let yearTo: Int?
+        if let dt = subject.deathYearTo {
+            yearTo = dt
+        } else if let dt = subject.deathYearFrom {
+            yearTo = dt + 2
+        } else if let bt = subject.birthYearTo {
+            yearTo = bt + 95
+        } else if let bf = subject.birthYearFrom {
+            yearTo = bf + 95
+        } else {
+            yearTo = nil
+        }
+        return RecordQuery(
+            surname: surname,
+            givenName: subject.givenName,
+            recordType: .pedigree,
+            yearFrom: yearFrom,
+            yearTo: yearTo,
+            gender: subject.gender,
+            region: subject.region,
+            sourceParams: .generic
+        )
     }
 
     private func updateSourceStatuses(from result: ResearchResult) {
