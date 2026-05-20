@@ -124,6 +124,8 @@ struct SettingsPlaceholderView: View {
                 }
             }
 
+            ProseCorporaSettingsView()
+
             if isManualProject {
                 Section("Onboarding") {
                     Button("Re-launch wizard") {

@@ -13,12 +13,34 @@ struct Ancestor_ResearchApp: App {
         return registry
     }()
 
+    /// Shared across windows — the corpus registry lives in
+    /// Application Support, is machine-wide, and a crawl initiated
+    /// from one settings window must be visible from another. Single
+    /// instance is correct. Failure to resolve Application Support is
+    /// non-fatal: the service falls back to an in-memory registry
+    /// rooted at a temp directory so the Settings UI still renders
+    /// (the Add button simply won't persist across launches).
+    @State private var proseCorpusService: ProseCorpusService = {
+        if let service = try? ProseCorpusService.makeForProduction() {
+            return service
+        }
+        // Degraded mode — Application Support unreachable. The temp
+        // directory at least keeps the app launchable; the user sees
+        // an empty Prose Corpora section with no entries.
+        let fallbackBase = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("AncestorResearchFallback", isDirectory: true)
+        let registry = ProseCorpusRegistry(baseDirectory: fallbackBase)
+        let adder = ProseCorpusAdder(registry: registry, http: SourceHTTPClient.shared)
+        return ProseCorpusService(adder: adder)
+    }()
+
     @State private var quitKeyMonitor: QuitKeyMonitor = QuitKeyMonitor()
 
     var body: some Scene {
         WindowGroup(id: "main") {
             ContentRoot()
                 .environment(sourceRegistry)
+                .environment(proseCorpusService)
                 .onAppear { quitKeyMonitor.install() }
         }
         .commands {
