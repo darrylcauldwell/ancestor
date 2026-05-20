@@ -290,10 +290,24 @@ nonisolated struct ProseCorpusManifest: Codable, Equatable, Sendable {
     let robotsTxtURL: URL
     var robotsTxtFetchedAt: Date?
     let userAgent: String
+    /// Stop reason from the most recent crawl, persisted so partial-
+    /// crawl warnings survive app restart. `nil` means "never synced"
+    /// or "pre-P7 manifest, no record" — UI treats those the same as
+    /// "no warning". Stored as the rawValue from `CrawlStopReason`
+    /// so we don't bake the enum into the manifest schema.
+    var lastSyncStopReason: String?
 
     /// Has this corpus produced at least one successful crawl? Drives
     /// the Settings UI's "Sync" vs "Build" affordance.
     var hasBeenBuilt: Bool { firstBuiltAt != nil }
+
+    /// `true` when the last crawl stopped for a reason that left the
+    /// corpus only partially populated. Surfaces a warning chip in
+    /// the Settings UI so the user knows the corpus isn't authoritative.
+    var lastSyncWasPartial: Bool {
+        guard let reason = lastSyncStopReason else { return false }
+        return CrawlStopReason(rawValue: reason)?.isPartial == true
+    }
 
     static let currentSchemaVersion: Int = 1
 
@@ -314,6 +328,62 @@ nonisolated struct ProseCorpusManifest: Codable, Equatable, Sendable {
         case robotsTxtURL = "robots_txt_url"
         case robotsTxtFetchedAt = "robots_txt_fetched_at"
         case userAgent = "user_agent"
+        case lastSyncStopReason = "last_sync_stop_reason"
+    }
+}
+
+/// String-keyed projection of `ProseCorpusCrawler.CrawlReport.StopReason`
+/// used to persist a partial-crawl warning across app launches. The
+/// enum's `seedFailed(String)` case stores the underlying reason as
+/// the rawValue's suffix (`"seed_failed:<reason>"`) — UI surfaces the
+/// suffix verbatim when warning about a failed seed so the user
+/// doesn't have to dig into logs.
+nonisolated enum CrawlStopReason: Sendable, Equatable {
+    case complete
+    case budgetExhausted
+    case circuitBreakerExhausted
+    case seedFailed(reason: String)
+
+    var rawValue: String {
+        switch self {
+        case .complete: return "complete"
+        case .budgetExhausted: return "budget_exhausted"
+        case .circuitBreakerExhausted: return "circuit_breaker_exhausted"
+        case .seedFailed(let reason): return "seed_failed:\(reason)"
+        }
+    }
+
+    init?(rawValue: String) {
+        switch rawValue {
+        case "complete": self = .complete
+        case "budget_exhausted": self = .budgetExhausted
+        case "circuit_breaker_exhausted": self = .circuitBreakerExhausted
+        default:
+            if rawValue.hasPrefix("seed_failed:") {
+                self = .seedFailed(reason: String(rawValue.dropFirst("seed_failed:".count)))
+            } else {
+                return nil
+            }
+        }
+    }
+
+    /// Whether this stop reason should surface a partial-crawl
+    /// warning. Only `.complete` is clean; everything else means
+    /// the user should know the corpus is incomplete.
+    var isPartial: Bool {
+        if case .complete = self { return false }
+        return true
+    }
+
+    /// One-line label for the Settings UI chip. Distinct from
+    /// `rawValue` (which is the on-disk encoding).
+    var displayLabel: String {
+        switch self {
+        case .complete: return "Crawl complete"
+        case .budgetExhausted: return "Page budget reached — partial corpus"
+        case .circuitBreakerExhausted: return "Host throttled — partial corpus"
+        case .seedFailed(let reason): return "Seed failed: \(reason)"
+        }
     }
 }
 

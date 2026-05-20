@@ -10,8 +10,49 @@ struct PendingFactsReviewView: View {
     @State private var processedFindings: [ProcessedFinding] = []
     @State private var isProcessing = false
     @State private var narrativeFindings: [NarrativeFindingRow] = []
+    @State private var agentFilter: AgentFilter = .all
 
     let profileID: String
+
+    /// Filter the review surface by agent origin. The prose-corpus
+    /// subsystem emits facts under `prose-extractor:<corpus_id>`
+    /// agent IDs; the MCP field-researcher emits under
+    /// `field-researcher` or `claude-code`. The filter chip lets the
+    /// user isolate prose-extracted findings (typically softer
+    /// evidence, narrative-heavy) from structured MCP submissions
+    /// when reviewing.
+    enum AgentFilter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case proseCorpus = "Prose corpora"
+        case fieldResearcher = "Field researcher"
+
+        var id: Self { self }
+
+        func matches(agentID: String) -> Bool {
+            switch self {
+            case .all: return true
+            case .proseCorpus: return agentID.hasPrefix("prose-extractor:")
+            case .fieldResearcher: return !agentID.hasPrefix("prose-extractor:")
+            }
+        }
+    }
+
+    private var visibleFindings: [ProcessedFinding] {
+        processedFindings.filter { agentFilter.matches(agentID: $0.finding.agentID) }
+    }
+
+    private var visibleNarratives: [NarrativeFindingRow] {
+        narrativeFindings.filter { agentFilter.matches(agentID: $0.agentID) }
+    }
+
+    /// `true` when at least one prose-extracted finding is present
+    /// in either pending facts or narratives. Drives the filter
+    /// picker's visibility — the toolbar stays clean for users who
+    /// don't have prose corpora configured.
+    private var hasProseExtractedFindings: Bool {
+        processedFindings.contains(where: { $0.finding.agentID.hasPrefix("prose-extractor:") })
+            || narrativeFindings.contains(where: { $0.agentID.hasPrefix("prose-extractor:") })
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,29 +70,40 @@ struct PendingFactsReviewView: View {
                     Text("Run the Field Researcher to discover evidence from unstructured sources.")
                 }
             } else {
+                let shownFindings = visibleFindings
+                let shownNarratives = visibleNarratives
                 ScrollView {
                     LazyVStack(spacing: 10) {
+                        if shownFindings.isEmpty && shownNarratives.isEmpty {
+                            ContentUnavailableView {
+                                Label("Nothing matches this filter", systemImage: "line.3.horizontal.decrease.circle")
+                            } description: {
+                                Text("Switch to \"All\" to see every pending finding.")
+                            }
+                            .padding(.top, 32)
+                        }
+
                         // Structured findings
-                        if !processedFindings.isEmpty {
+                        if !shownFindings.isEmpty {
                             Text("Evidence Findings")
                                 .font(AppTypography.cardTitle)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal)
 
-                            ForEach(processedFindings) { finding in
+                            ForEach(shownFindings) { finding in
                                 findingCard(finding)
                             }
                         }
 
                         // Narrative findings
-                        if !narrativeFindings.isEmpty {
+                        if !shownNarratives.isEmpty {
                             Text("Narrative Findings")
                                 .font(AppTypography.cardTitle)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal)
                                 .padding(.top, 8)
 
-                            ForEach(narrativeFindings) { narrative in
+                            ForEach(shownNarratives) { narrative in
                                 narrativeCard(narrative)
                             }
                         }
@@ -73,6 +125,20 @@ struct PendingFactsReviewView: View {
             if let profile = appState.snapshot.profiles[profileID] {
                 Text(profile.displayName)
                     .font(AppTypography.cardTitle)
+            }
+
+            // Agent-origin filter. Only rendered when there's any
+            // prose-extracted finding present — keeps the toolbar
+            // uncluttered for users who don't have prose corpora set up.
+            if hasProseExtractedFindings {
+                Picker("Filter", selection: $agentFilter) {
+                    ForEach(AgentFilter.allCases) { filter in
+                        Text(filter.rawValue).tag(filter)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 360)
+                .labelsHidden()
             }
 
             Spacer()
@@ -313,7 +379,8 @@ struct PendingFactsReviewView: View {
                     dateOrPeriod: row["date_or_period"] as String?,
                     sourceURL: row["source_url"] as String? ?? "",
                     sourceTitle: row["source_title"] as String? ?? "",
-                    evidenceText: row["evidence_text"] as String? ?? ""
+                    evidenceText: row["evidence_text"] as String? ?? "",
+                    agentID: row["agent_id"] as String? ?? "unknown"
                 )
             }
         }) ?? []
@@ -415,4 +482,10 @@ struct NarrativeFindingRow: Identifiable {
     let sourceURL: String
     let sourceTitle: String
     let evidenceText: String
+    /// Agent that produced the narrative. Drives the
+    /// `PendingFactsReviewView` filter chip — narratives carrying
+    /// `prose-extractor:<corpus_id>` come from the prose-corpus
+    /// subsystem; everything else comes from the MCP field-researcher
+    /// or in-app submissions.
+    let agentID: String
 }

@@ -213,5 +213,19 @@ final class ProseCorpusService {
         var totalBytes: Int { manifest?.totalBytes ?? 0 }
         var hasBeenBuilt: Bool { manifest?.hasBeenBuilt ?? false }
         var lastSyncedAt: Date? { manifest?.lastSyncedAt }
+        /// `true` when the most recent crawl left the corpus partial
+        /// (page-budget exhausted, host throttling, seed failure).
+        /// Persisted in the manifest so the warning survives app
+        /// restart; drives the Settings UI chip.
+        var lastSyncWasPartial: Bool { manifest?.lastSyncWasPartial ?? false }
+        /// Human-readable label for the partial-crawl chip. `nil`
+        /// when the corpus has never synced or the last sync was
+        /// clean.
+        var lastSyncStopReasonLabel: String? {
+            guard let raw = manifest?.lastSyncStopReason,
+                  let reason = CrawlStopReason(rawValue: raw),
+                  reason.isPartial else { return nil }
+            return reason.displayLabel
+        }
     }
 }

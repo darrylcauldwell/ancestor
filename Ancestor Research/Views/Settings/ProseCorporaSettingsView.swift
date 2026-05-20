@@ -107,6 +107,17 @@ struct ProseCorporaSettingsView: View {
                 Spacer()
                 rowActions(row)
             }
+            // Persistent partial-crawl warning — survives restart via
+            // the manifest's `last_sync_stop_reason` field. Distinct
+            // from `lastReportSummary` below, which shows the
+            // immediately-post-sync delta (+N new, ~N updated) for
+            // the current session only.
+            if let label = row.lastSyncStopReasonLabel {
+                Label(label, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.vertical, 2)
+            }
             if let report = service.lastReports[row.sourceID] {
                 lastReportSummary(report)
             }

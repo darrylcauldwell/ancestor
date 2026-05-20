@@ -238,17 +238,34 @@ nonisolated struct ProseCorpusAdder {
         // Update manifest post-crawl. `firstBuiltAt` is set on the
         // first sync that produced at least one page; afterwards it's
         // immutable. `lastSyncedAt` updates every sync.
+        // `lastSyncStopReason` carries the partial-crawl warning
+        // across app restarts so the Settings UI can render a chip
+        // without depending on session-only `lastReports`.
         let nowDate = now()
         if manifest.firstBuiltAt == nil && report.pagesProcessed > 0 {
             manifest.firstBuiltAt = nowDate
         }
         manifest.lastSyncedAt = nowDate
         manifest.robotsTxtFetchedAt = nowDate
+        manifest.lastSyncStopReason = Self.crawlStopReason(from: report.stop).rawValue
         let stats = try storage.corpusStats()
         manifest.pageCount = stats.pageCount
         manifest.totalBytes = stats.totalBytes
         try storage.writeManifest(manifest)
         return report
+    }
+
+    /// Translate the crawler's in-memory `StopReason` into the
+    /// `CrawlStopReason` projection persisted in the manifest. Pure
+    /// function so callers (UI, tests) can also use it without
+    /// running a crawl.
+    nonisolated static func crawlStopReason(from stop: ProseCorpusCrawler.StopReason) -> CrawlStopReason {
+        switch stop {
+        case .complete: return .complete
+        case .budgetExhausted: return .budgetExhausted
+        case .circuitBreakerExhausted: return .circuitBreakerExhausted
+        case .seedFailed(let reason): return .seedFailed(reason: reason)
+        }
     }
 
     // MARK: - Remove (registry row + corpus directory)
