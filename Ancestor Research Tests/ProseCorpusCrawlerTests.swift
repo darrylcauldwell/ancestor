@@ -75,6 +75,35 @@ struct ProseCorpusCrawlerTests {
         #expect(links.first?.fragment == nil)
     }
 
+    @Test func linkExtractorHandlesUnquotedHrefAttributes() {
+        // Wirksworth-style 1990s hand-coded HTML uses unquoted
+        // attribute values. The earlier quoted-only regex dropped
+        // every one of these, producing ~13% site coverage. Mixed
+        // input (some quoted, some unquoted, some single-quoted)
+        // must all extract.
+        let html = """
+        <A HREF=ARTICLES.htm>Articles</A> |
+        <A HREF="91-COUNC.htm">Council</A> |
+        <A HREF='PEDIGREE.htm'>Pedigrees</A>
+        """
+        let base = URL(string: "http://example.com/")!
+        let links = LinkExtractor.extract(html: html, baseURL: base).map(\.absoluteString)
+        #expect(links.contains("http://example.com/ARTICLES.htm"))
+        #expect(links.contains("http://example.com/91-COUNC.htm"))
+        #expect(links.contains("http://example.com/PEDIGREE.htm"))
+        #expect(links.count == 3)
+    }
+
+    @Test func linkExtractorUnquotedHrefStopsAtWhitespace() {
+        // Unquoted href value terminates at whitespace or `>`. Adjacent
+        // attributes after the unquoted value must not bleed into the
+        // captured URL.
+        let html = "<a href=page.htm class=link>Link</a>"
+        let base = URL(string: "http://example.com/")!
+        let links = LinkExtractor.extract(html: html, baseURL: base).map(\.absoluteString)
+        #expect(links == ["http://example.com/page.htm"])
+    }
+
     @Test func linkExtractorSkipsNonHTTPSchemes() {
         let html = """
         <a href="mailto:a@b">m</a>

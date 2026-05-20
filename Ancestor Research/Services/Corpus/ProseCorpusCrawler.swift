@@ -815,8 +815,22 @@ nonisolated enum Sitemap {
 /// from the body — Wirksworth's pedigree index pages are entirely
 /// chrome-shaped, every useful link lives inside a navigation block).
 nonisolated enum LinkExtractor {
+    /// Captures `<a href=...>` in three flavours seen in genealogy
+    /// volunteer HTML:
+    ///   `<a href="...">`   — double-quoted (modern)
+    ///   `<a href='...'>`   — single-quoted
+    ///   `<a href=...>`     — bare / unquoted (1990s-era hand-coded)
+    ///
+    /// Wirksworth's index, for example, uses the unquoted form for
+    /// most of its menu bar (`<A HREF=ARTICLES.htm>Articles</A>`)
+    /// while sprinkling quoted hrefs elsewhere. The earlier
+    /// quoted-only regex silently dropped every unquoted link and
+    /// produced ~13% coverage vs the site's self-reported 2,187
+    /// pages on a depth-10 crawl. Capture groups are alternatives:
+    /// only one is non-empty per match; the extractor picks the
+    /// first non-empty.
     static func extract(html: String, baseURL: URL) -> [URL] {
-        let pattern = "<a\\b[^>]*\\bhref\\s*=\\s*([\"'])([^\"']*)\\1[^>]*>"
+        let pattern = #"<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+))"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
             return []
         }
@@ -824,16 +838,21 @@ nonisolated enum LinkExtractor {
         var seen: Set<String> = []
         var out: [URL] = []
         for match in regex.matches(in: html, range: range) {
-            guard match.numberOfRanges >= 3,
-                  let r = Range(match.range(at: 2), in: html) else { continue }
-            let raw = String(html[r]).trimmingCharacters(in: .whitespaces)
-            if raw.isEmpty { continue }
-            let lower = raw.lowercased()
+            // Three capture groups, exactly one matches.
+            var raw: String?
+            for groupIndex in 1...3 where match.range(at: groupIndex).location != NSNotFound {
+                if let r = Range(match.range(at: groupIndex), in: html) {
+                    raw = String(html[r]).trimmingCharacters(in: .whitespaces)
+                    break
+                }
+            }
+            guard let rawHref = raw, !rawHref.isEmpty else { continue }
+            let lower = rawHref.lowercased()
             if lower.hasPrefix("javascript:") || lower.hasPrefix("mailto:") || lower.hasPrefix("tel:") {
                 continue
             }
-            if raw.hasPrefix("#") { continue }
-            guard let resolved = URL(string: raw, relativeTo: baseURL)?.absoluteURL else { continue }
+            if rawHref.hasPrefix("#") { continue }
+            guard let resolved = URL(string: rawHref, relativeTo: baseURL)?.absoluteURL else { continue }
             // Strip the fragment for de-dup — anchors point at the same
             // document so we don't fetch it twice.
             var components = URLComponents(url: resolved, resolvingAgainstBaseURL: false) ?? URLComponents()
