@@ -46,7 +46,26 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
 
     nonisolated private static let baseURL = "https://www.findagrave.com"
     nonisolated private static let searchURL = "\(baseURL)/memorial/search"
-    nonisolated private static let userAgent = "AncestorResearch/1.0 (macOS; genealogy research tool; github.com/darrylcauldwell/ancestor)"
+    /// Real Safari UA. The prior bot-identifying UA ("AncestorResearch/1.0
+    /// … genealogy research tool …") was triggering Find a Grave's anti-bot
+    /// stack — detail fetches were returning the block page instead of the
+    /// memorial. The UA alone isn't enough (FAG also fingerprints headers
+    /// and TLS), but it removes the most obvious self-tell.
+    nonisolated private static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3.1 Safari/605.1.15"
+
+    /// Browser-shaped request headers for navigation-style GETs (memorial
+    /// detail pages). The Sec-Fetch-* set is what Safari sends on a normal
+    /// in-tab page load — omitting them is itself a bot signal these days.
+    nonisolated private static let browserHeaders: [String: String] = [
+        "User-Agent": userAgent,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-GB,en;q=0.9",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+    ]
 
     // MARK: - Search
 
@@ -71,8 +90,16 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
             if let surname = query.surname, !surname.isEmpty {
                 params["lastname"] = surname
             }
-            if let given = query.givenName, !given.isEmpty {
-                params["firstname"] = given
+            // Find a Grave's `firstname` parameter does prefix matching
+            // against the first registered given name only. Memorials with
+            // names like "Ernest Victor Cauldwell" are indexed as
+            // firstname="Ernest" + middlename="Victor"; sending the full
+            // multi-given string ("Ernest Victor") returns zero matches.
+            // Strip to the first token so the dispatcher's `Ernest Victor`
+            // subject becomes a usable FAG query — mirrors the fix for
+            // FreeBMD's `given` field.
+            if let firstGiven = Self.firstGivenName(query.givenName), !firstGiven.isEmpty {
+                params["firstname"] = firstGiven
             }
             if let yearFrom = query.yearFrom {
                 params["birthyear"] = String(yearFrom)
@@ -92,12 +119,16 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
                 return .results([])
             }
 
+            var searchHeaders: [String: String] = [
+                "User-Agent": Self.userAgent,
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json, text/html, */*",
+            ]
+            if let cookieHeader = await ensureCloudflareClearance() {
+                searchHeaders["Cookie"] = cookieHeader
+            }
             let data = try await rateLimitedRequest {
-                try await self.http.get(url: url, headers: [
-                    "User-Agent": Self.userAgent,
-                    "X-Requested-With": "XMLHttpRequest",
-                    "Accept": "application/json, text/html, */*",
-                ])
+                try await self.http.get(url: url, headers: searchHeaders)
             }
 
             let results = Self.parseSearchResults(data)
@@ -116,6 +147,16 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
     }
 
     /// Build a one-line description of a FindAGrave query for the live activity feed.
+    /// First whitespace-separated token of a given-name string, trimmed.
+    /// Used to coerce multi-given names ("Ernest Victor") to Find a Grave's
+    /// first-given-only filter. Mirrors `FreeBMDSource.firstGivenName`.
+    nonisolated static func firstGivenName(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        guard let first = raw.split(whereSeparator: { $0.isWhitespace }).first else { return nil }
+        let trimmed = String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     nonisolated static func activitySummary(query: RecordQuery, params: FindAGraveParams) -> String {
         let searchTerms: String = {
             let surname = query.surname ?? ""
@@ -144,8 +185,12 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         }
 
         do {
+            var detailHeaders = Self.browserHeaders
+            if let cookieHeader = await ensureCloudflareClearance() {
+                detailHeaders["Cookie"] = cookieHeader
+            }
             let data = try await rateLimitedRequest {
-                try await self.http.get(url: url, headers: ["User-Agent": Self.userAgent])
+                try await self.http.get(url: url, headers: detailHeaders)
             }
             guard let html = String(data: data, encoding: .utf8) else {
                 return .unavailable(reason: "Invalid encoding in response")
@@ -157,6 +202,31 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         } catch {
             logger.warning("Detail fetch failed for memorial \(memorialID): \(error.localizedDescription)")
             return .unavailable(reason: error.localizedDescription)
+        }
+    }
+
+    // MARK: - Cloudflare clearance (§22)
+    //
+    // Find a Grave is fronted by Cloudflare's JS-challenge bot management.
+    // URLSession can't solve the challenge alone, so the first time we
+    // need to talk to FAG in this process we spawn a hidden WKWebView via
+    // `FindAGraveCloudflareClearance`, let it execute the JS, capture the
+    // `cf_clearance` cookie, and reuse it for subsequent URLSession
+    // requests. The cookie persists in Keychain across launches (~30 day
+    // Cloudflare lifetime) so most runs don't pay the WKWebView cost.
+
+    private func ensureCloudflareClearance() async -> String? {
+        if await FindAGraveCookieStore.shared.hasValidClearance(),
+           let header = await FindAGraveCookieStore.shared.cookieHeader() {
+            return header
+        }
+        do {
+            let cookies = try await FindAGraveCloudflareClearance.acquire()
+            await FindAGraveCookieStore.shared.store(cookies)
+            return await FindAGraveCookieStore.shared.cookieHeader()
+        } catch {
+            logger.warning("Cloudflare clearance acquisition failed: \(error.localizedDescription) — Find a Grave requests will run without cookies and likely return zero results")
+            return nil
         }
     }
 
@@ -244,8 +314,31 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         }
     }
 
-    /// Parse memorial detail HTML into a SourceRecord.
+    /// Parse memorial detail HTML into a SourceRecord. Returns nil when the
+    /// HTML doesn't look like a memorial page (e.g. Find a Grave's anti-bot
+    /// block page returns a generic site shell with the title "Find a Grave
+    /// - Millions of Cemetery Records" and none of the schema.org memorial
+    /// markup). Without this guard a block response would parse into a
+    /// garbage record carrying raw HTML in the name field, score impossible
+    /// for the wrong reason, and clutter evidence.
     nonisolated static func parseMemorialDetail(_ html: String, memorialID: Int) -> SourceRecord? {
+        // Memorial-page sanity check. Real memorials carry at least one of:
+        //   - schema.org itemprop birthDate / deathDate / name
+        //   - the in-page inscription / fullBio / partBio / memPhoto markers
+        // Block pages and captcha shells carry none of these. Bail early so
+        // we don't synthesise a half-parsed record.
+        let memorialMarkers = [
+            #"itemprop="birthDate""#,
+            #"itemprop="deathDate""#,
+            #"id="inscriptionValue""#,
+            #"id="fullBio""#,
+            #"id="partBio""#,
+            #"id="memPhoto""#,
+        ]
+        guard memorialMarkers.contains(where: { html.contains($0) }) else {
+            return nil
+        }
+
         // Name from <title>
         let name: String
         if let match = html.range(of: #"<title>([^(]+)\s*\("#, options: .regularExpression) {

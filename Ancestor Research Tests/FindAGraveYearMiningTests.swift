@@ -109,6 +109,48 @@ struct FindAGraveYearMiningTests {
         #expect(burial.inscription == "1919 — 2017")
     }
 
+    @Test func parserRejectsAntiBotBlockPage() {
+        // The shape of Find a Grave's anti-bot / captcha shell — generic
+        // site title, no schema.org memorial markup, no inscription/bio
+        // divs. Without the guard this would parse a garbage record with
+        // "Find a Grave - Millions of Cemetery Records" as the name.
+        let html = """
+        <html>
+          <head>
+            <title>Find a Grave - Millions of Cemetery Records</title>
+            <meta name="google-site-verification" content="Wbl3..." />
+          </head>
+          <body>
+            <div>Please verify you are human</div>
+          </body>
+        </html>
+        """
+        let record = FindAGraveSource.parseMemorialDetail(html, memorialID: 12345)
+        #expect(record == nil)
+    }
+
+    @Test func parserAcceptsRealMemorialEvenWithoutInscription() {
+        // A real memorial may lack inscriptionValue/fullBio (some are
+        // minimal listings) but will carry schema.org itemprops — the
+        // guard should accept this.
+        let html = """
+        <html>
+          <head><title>Ernest Cauldwell - Find a Grave Memorial</title></head>
+          <body>
+            <span itemprop="birthDate">1919</span>
+            <span itemprop="deathDate">2017</span>
+          </body>
+        </html>
+        """
+        guard let record = FindAGraveSource.parseMemorialDetail(html, memorialID: 12345),
+              case .burial(let burial) = record else {
+            Issue.record("Expected a burial record")
+            return
+        }
+        #expect(burial.birthYear == 1919)
+        #expect(burial.deathYear == 2017)
+    }
+
     @Test func parserPrefersItempropOverInscription() {
         // Both itemprop dates AND inscription are present — itemprop wins.
         let html = """
