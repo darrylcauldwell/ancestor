@@ -309,16 +309,14 @@ struct SettingsPlaceholderView: View {
                 .accessibilityLabel("Terms of service status \(String(describing: source.tosStatus.level))")
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(source.displayName)
+                Text(source.descriptiveName)
                     .font(AppTypography.cardTitle)
                 Text(source.tosStatus.summary)
                     .font(AppTypography.cardMeta)
                     .foregroundStyle(.secondary)
-                if let range = source.coverageYearRange {
-                    Text("Coverage: \(range.lowerBound)–\(range.upperBound)")
-                        .font(AppTypography.badge)
-                        .foregroundStyle(.tertiary)
-                }
+                Text(Self.coverageLabel(for: source))
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.tertiary)
             }
 
             Spacer()
@@ -333,6 +331,17 @@ struct SettingsPlaceholderView: View {
     }
 
     // MARK: - ToS Helpers
+
+    /// Human-readable coverage line for any source. Bounded sources render
+    /// the year range; unbounded ones (FamilySearch, Find a Grave — both
+    /// worldwide and undated) render "Worldwide, all years" so every row in
+    /// the Settings list has parity.
+    private static func coverageLabel(for source: any RecordSource) -> String {
+        if let range = source.coverageYearRange {
+            return "Coverage: \(range.lowerBound)–\(range.upperBound)"
+        }
+        return "Coverage: worldwide, all years"
+    }
 
     private func tosIcon(_ level: SourceToSStatus.ToSLevel) -> String {
         switch level {

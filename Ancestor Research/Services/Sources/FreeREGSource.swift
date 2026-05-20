@@ -13,6 +13,7 @@ actor FreeREGSource: RecordSource {
 
     nonisolated let sourceID = "freereg"
     nonisolated let displayName = "FreeREG"
+    nonisolated let descriptiveName = "UK Parish Registers (FreeREG)"
     nonisolated let recordTypes: Set<RecordType> = [.baptism, .marriage, .burial, .parish]
     nonisolated let coverageYearRange: ClosedRange<Int>? = 1500...1900
     nonisolated let coverageRegions: Set<Region> = [.englandAndWales]

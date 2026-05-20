@@ -31,6 +31,11 @@ protocol RecordSource: Sendable {
     nonisolated var evidenceDirectness: EvidenceDirectness { get }
     nonisolated var tosStatus: SourceToSStatus { get }
     nonisolated var kind: SourceKind { get }
+    /// Long-form "what is this source" name for Settings UI. The
+    /// short canonical `displayName` is what citations and activity-feed
+    /// summaries use; `descriptiveName` is for educating the user about
+    /// what an acronym actually covers. Defaults to `displayName`.
+    nonisolated var descriptiveName: String { get }
 
     func search(_ query: RecordQuery) async -> SourceQueryResult
 }
@@ -38,6 +43,11 @@ protocol RecordSource: Sendable {
 extension RecordSource {
     /// Default kind — most sources are general-purpose. Local plugins override.
     nonisolated var kind: SourceKind { .general }
+
+    /// Default descriptive name = canonical display name. Sources whose
+    /// canonical name is an acronym (CWGC, FreeBMD, FreeCen, FreeREG)
+    /// override to spell it out for the Settings list.
+    nonisolated var descriptiveName: String { displayName }
 }
 
 /// Sources that can fetch full detail for a specific record.

@@ -12,6 +12,7 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
 
     nonisolated let sourceID = "freecen"
     nonisolated let displayName = "FreeCen"
+    nonisolated let descriptiveName = "UK Census Transcriptions (FreeCen)"
     nonisolated let recordTypes: Set<RecordType> = [.census]
     nonisolated let coverageYearRange: ClosedRange<Int>? = 1841...1911
     nonisolated let coverageRegions: Set<Region> = [.englandAndWales]

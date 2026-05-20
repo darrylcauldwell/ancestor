@@ -13,6 +13,7 @@ struct CWGCSource: RecordSource {
 
     nonisolated let sourceID = "cwgc"
     nonisolated let displayName = "CWGC"
+    nonisolated let descriptiveName = "Commonwealth War Graves Commission (CWGC)"
     nonisolated let recordTypes: Set<RecordType> = [.death, .burial]
     nonisolated let coverageYearRange: ClosedRange<Int>? = 1914...1947
     nonisolated let coverageRegions: Set<Region> = [.commonwealthMilitary]
