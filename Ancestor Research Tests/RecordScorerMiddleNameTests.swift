@@ -260,13 +260,18 @@ struct RecordScorerProbateTests {
 
     // MARK: - Helpers
 
-    private func neutralSubject(deathLocation: String? = nil) -> ResearchSubject {
+    private func neutralSubject(
+        deathLocation: String? = nil,
+        deathYear: Int? = nil
+    ) -> ResearchSubject {
         ResearchSubject(
             surname: "Smith",
             givenName: "John",
             middleName: nil,
             birthYearFrom: 1900,
             birthYearTo: 1900,
+            deathYearFrom: deathYear,
+            deathYearTo: deathYear,
             gender: .male,
             region: .englandAndWales,
             deathLocation: deathLocation,
@@ -459,6 +464,57 @@ struct RecordScorerProbateTests {
             record: probateRecord(address: nil, registry: "Truro"),
             subject: neutralSubject(deathLocation: "Chesterfield, Derbyshire, England"),
             searchType: .probate
+        )
+        #expect(result.verdict == .fact)
+    }
+
+    @Test func burialRecordFailsWhenSubjectHasDifferentKnownDeathYear() {
+        // The Ernest-Sr false positive: subject known to have died 1980,
+        // a burial record showing a 1959 death (~21 years off) shouldn't
+        // promote even though ageAtDeath=59 against birth 1900 is
+        // plausible. The new death-year-vs-recordYear check rejects.
+        let result = RecordScorer.classify(
+            record: burialRecord(deathYear: 1959, location: "Derbyshire"),
+            subject: neutralSubject(deathYear: 1980),
+            searchType: .burial
+        )
+        // Verdict drops below fact (date gate fails).
+        #expect(result.verdict != .fact)
+    }
+
+    @Test func burialRecordPassesWhenSubjectsKnownDeathYearMatches() {
+        // Regression: subject's known death year matches the record's,
+        // so the new check passes; existing ageAtDeath plausibility
+        // still applies and verdict reaches .fact.
+        let result = RecordScorer.classify(
+            record: burialRecord(deathYear: 1980, location: "Derbyshire"),
+            subject: neutralSubject(deathYear: 1980),
+            searchType: .burial
+        )
+        #expect(result.verdict == .fact)
+    }
+
+    @Test func burialRecordPassesWithinTolerance() {
+        // Tolerance of ±2 years accommodates minor date variance
+        // (probate filed in the year following death, parish-register
+        // burial dated days after secular death certificate, etc.).
+        let result = RecordScorer.classify(
+            record: burialRecord(deathYear: 1981, location: "Derbyshire"),
+            subject: neutralSubject(deathYear: 1980),
+            searchType: .burial
+        )
+        #expect(result.verdict == .fact)
+    }
+
+    @Test func burialRecordWhenSubjectDeathYearUnknownFallsBackToAgePlausibility() {
+        // When subject's death year isn't known, the new check is
+        // skipped and we fall back to the existing ageAtDeath
+        // plausibility gate. Preserves the original burial promotion
+        // path for subjects still being researched.
+        let result = RecordScorer.classify(
+            record: burialRecord(deathYear: 1980, location: "Derbyshire"),
+            subject: neutralSubject(deathYear: nil),
+            searchType: .burial
         )
         #expect(result.verdict == .fact)
     }

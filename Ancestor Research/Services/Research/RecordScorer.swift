@@ -278,7 +278,26 @@ nonisolated struct RecordScorer {
             // born subject failed the default birth-window check by 98
             // years → impossible. With this branch the same record passes
             // when ageAtDeath is plausible. Spec §22 follow-up.
-            //
+
+            // First constraint: when subject's death year is known,
+            // record year must match it within tolerance. Closes the
+            // Ernest-Sr-1959 false positive against Ernest-Victor-died-
+            // 2017 — both are plausible ageAtDeath against birth 1919,
+            // but only the 2017 record actually concerns this subject.
+            // Without explicit deathYear (estimated subject or research
+            // still discovering it), skip this constraint and fall to
+            // ageAtDeath plausibility below.
+            if let known = subject.deathYearFrom {
+                let knownHigh = subject.deathYearTo ?? known
+                let deathTol = 2   // year tolerance — matches birth tolerance scale
+                let lower = known - deathTol
+                let upper = knownHigh + deathTol
+                if recordYear < lower || recordYear > upper {
+                    let diff = recordYear < lower ? (lower - recordYear) : (recordYear - upper)
+                    return GateResult(gate: .date, outcome: .fail, reason: "death year \(recordYear) is \(diff) years outside subject's known death window \(known)–\(knownHigh)")
+                }
+            }
+
             // Age at death is a *range* when birth is a window: ageAtDeath ∈
             // [recordYear - high, recordYear - low]. Either bound can fire
             // an impossible rule; pass when any plausible age in the range
