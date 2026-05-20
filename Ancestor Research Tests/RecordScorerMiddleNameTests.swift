@@ -280,7 +280,8 @@ struct RecordScorerProbateTests {
         given: String = "John",
         deathYear: Int? = 1980,
         ageAtDeath: Int? = 80,
-        address: String? = "Derbyshire"
+        address: String? = "Derbyshire",
+        registry: String? = nil
     ) -> SourceRecord {
         .probate(ProbateRecord(
             common: RecordCommon(
@@ -299,7 +300,7 @@ struct RecordScorerProbateTests {
             ageAtDeath: ageAtDeath,
             address: address,
             grantType: "PROBATE",
-            registry: nil,
+            registry: registry,
             probateNumber: nil,
             regimentNumber: nil
         ))
@@ -418,6 +419,48 @@ struct RecordScorerProbateTests {
             searchType: .probate
         )
         #expect(result.verdict == .lead)
+    }
+
+    @Test func probateWithoutAddressPassesWhenRegistryCoversSubject() {
+        // Registry-based catchment match. Manchester District Probate
+        // Registry covers Derbyshire (among others); a Manchester-filed
+        // probate for a Derbyshire-home subject passes geography even
+        // without an estate address. This is the record-side
+        // counterpart to the subject-side deathLocation check, and is
+        // more specific (it uses data on the record, not assumptions).
+        let result = RecordScorer.classify(
+            record: probateRecord(address: nil, registry: "Manchester"),
+            subject: neutralSubject(deathLocation: nil),
+            searchType: .probate
+        )
+        #expect(result.verdict == .fact)
+    }
+
+    @Test func probateWithoutAddressFailsWhenRegistryMismatch() {
+        // Bristol registry covers SW England (SOM/GLS/DEV/etc.), not
+        // Derbyshire. A Bristol-filed probate for a Derbyshire-home
+        // subject is suspicious — likely a different person of the
+        // same name from the SW. Soft-fail → lead, not fact, even
+        // though we have a record-side signal.
+        let result = RecordScorer.classify(
+            record: probateRecord(address: nil, registry: "Bristol"),
+            subject: neutralSubject(deathLocation: nil),
+            searchType: .probate
+        )
+        #expect(result.verdict == .lead)
+    }
+
+    @Test func probateWithUnknownRegistryFallsThroughToDeathLocation() {
+        // When the registry isn't in our catchment table, fall through
+        // to the existing subject-deathLocation check. This preserves
+        // backward-compatible behaviour for the Probate Calendar's
+        // long-tail of pre-reorganisation registries.
+        let result = RecordScorer.classify(
+            record: probateRecord(address: nil, registry: "Truro"),
+            subject: neutralSubject(deathLocation: "Chesterfield, Derbyshire, England"),
+            searchType: .probate
+        )
+        #expect(result.verdict == .fact)
     }
 
     @Test func burialRecordPromotesOnDeathAxisMatch() {

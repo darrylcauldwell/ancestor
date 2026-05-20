@@ -405,17 +405,29 @@ nonisolated struct RecordScorer {
             // & Wales (ProbateSource.coverageRegions). But blanket-passing
             // on that grounds is too loose: a "John Smith" probate from
             // anywhere in the UK would auto-promote to .fact for any
-            // Cauldwell subject. Use subject-side death-location context
-            // (Profile.deathLocation → ResearchSubject.deathLocation) to
-            // validate: when the subject is known to have died in a UK
-            // county that matches the record's class-invariant region,
-            // pass. When the subject's death location is unknown or
-            // non-UK, fall through to softFail (→ verdict .lead, awaiting
-            // user review). Spec §23 first slice.
-            if case .probate = record,
-               let dl = subject.deathLocation,
-               dl.lowercased().contains("derby") {
-                return GateResult(gate: .geography, outcome: .pass, reason: "subject's death location \(dl) overlaps Probate UK coverage")
+            // Cauldwell subject. Use record-side registry data first (most
+            // specific), then subject-side death-location context as a
+            // fallback. Spec §23.
+            if case .probate(let r) = record {
+                // Registry catchment — strongest signal when known.
+                // Manchester registry covers DBY/LAN/CHS/CUL/WES/GTM;
+                // a Manchester-grant for a Derbyshire subject passes.
+                // A Brighton-grant for a Derbyshire subject would softFail
+                // here (catchment mismatch suggests a different person of
+                // the same name from a different region).
+                if let catchment = ProbateRegistryCatchment.chapmanCodes(forRegistry: r.registry) {
+                    if catchment.contains(subject.homeChapmanCode.uppercased()) {
+                        return GateResult(gate: .geography, outcome: .pass, reason: "registry \(r.registry ?? "?") covers \(subject.homeChapmanCode)")
+                    }
+                    return GateResult(gate: .geography, outcome: .softFail, reason: "registry \(r.registry ?? "?") catchment doesn't cover \(subject.homeChapmanCode)")
+                }
+                // Registry unknown — fall back to subject's free-text death
+                // location. Less precise than a structured catchment match
+                // but useful when the registry is missing or our map
+                // doesn't cover it.
+                if let dl = subject.deathLocation, dl.lowercased().contains("derby") {
+                    return GateResult(gate: .geography, outcome: .pass, reason: "subject's death location \(dl) overlaps Probate UK coverage")
+                }
             }
             return GateResult(gate: .geography, outcome: .softFail, reason: "no location data")
         }
