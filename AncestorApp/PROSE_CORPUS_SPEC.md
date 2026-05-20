@@ -321,7 +321,7 @@ The converter is a pure function: HTML in, markdown out, no I/O. It is callable 
 ### 7.2 Stripped
 
 - All `<script>`, `<style>`, `<noscript>` blocks.
-- Navigation chrome: `<nav>`, `<header>`, `<footer>`, and any element whose class or id contains `nav`, `menu`, `sidebar`, `breadcrumb`. The match is exact lowercased substring on the element's literal class/id attribute.
+- Navigation chrome: `<nav>`, `<header>`, `<footer>`, and any element whose class or id contains any of: `nav`, `menu`, `sidebar`, `breadcrumb`, `header`, `footer`. The match is lowercased substring on the element's literal class/id attribute. (Genealogy volunteer sites overwhelmingly use class="footer-row" or id="header-banner" rather than the semantic tag names, so the keyword list includes both.)
 - Comments (`<!-- … -->`).
 - Empty elements after stripping.
 - All event-handler attributes (`onclick`, etc.).

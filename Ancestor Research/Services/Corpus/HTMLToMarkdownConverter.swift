@@ -191,25 +191,43 @@ nonisolated struct HTMLToMarkdownConverter {
 
     // MARK: - Cleanup
 
-    /// Final pass over emitter output: decode entities, normalise whitespace,
-    /// trim trailing whitespace per line, collapse 3+ blank lines to 2.
+    /// Final pass over emitter output: decode entities, normalise
+    /// whitespace OUTSIDE fenced code blocks (pre content must survive
+    /// verbatim per spec §7.1), trim trailing whitespace per line,
+    /// collapse 3+ blank lines to 2.
     private static func cleanup(_ s: String) -> String {
         var out = decodeEntities(s)
 
-        // Normalise spaces and tabs to single spaces (outside the literal
-        // newlines the emitter has already laid down).
-        out = out.replacingOccurrences(
-            of: "[ \t]+",
-            with: " ",
-            options: .regularExpression
-        )
-
-        // Trim trailing whitespace per line.
-        out = out.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.replacingOccurrences(of: "[ \t]+$", with: "", options: .regularExpression) }
-            .joined(separator: "\n")
+        // Whitespace normalisation must skip `<pre>` content — those
+        // blocks live between paired ``` fences in the emitter output.
+        // Walk fence-by-fence: collapse runs of horizontal whitespace
+        // and trim trailing per line OUTSIDE fences only.
+        let segments = out.components(separatedBy: "```")
+        var rebuilt = ""
+        for (i, seg) in segments.enumerated() {
+            let insideFence = (i % 2 == 1)
+            if insideFence {
+                rebuilt.append(seg)
+            } else {
+                var s = seg.replacingOccurrences(
+                    of: "[ \t]+",
+                    with: " ",
+                    options: .regularExpression
+                )
+                s = s.split(separator: "\n", omittingEmptySubsequences: false)
+                    .map { $0.replacingOccurrences(of: "[ \t]+$", with: "", options: .regularExpression) }
+                    .joined(separator: "\n")
+                rebuilt.append(s)
+            }
+            if i < segments.count - 1 {
+                rebuilt.append("```")
+            }
+        }
+        out = rebuilt
 
         // Collapse runs of 3+ blank lines to exactly 2 newlines (one blank).
+        // Safe to do globally — even inside fences, a real source file
+        // shouldn't have 3+ consecutive blank lines.
         while out.contains("\n\n\n") {
             out = out.replacingOccurrences(of: "\n\n\n", with: "\n\n")
         }
@@ -234,13 +252,10 @@ nonisolated struct HTMLToMarkdownConverter {
         for (entity, replacement) in named {
             out = out.replacingOccurrences(of: entity, with: replacement)
         }
-        // Numeric entities: &#N; and &#xH;
-        out = out.replacingOccurrences(
-            of: #"&#(\d+);"#,
-            with: "$1",
-            options: .regularExpression
-        )
-        // The above lost the codepoint context — handle properly via NSRegex.
+        // Numeric entities: &#N; and &#xH;. NSRegex preserves the captured
+        // codepoint so the replacement closure can resolve it to a real
+        // Unicode scalar; a flat replacingOccurrences would only have the
+        // digits and lose the entity-shape information.
         out = replaceMatches(in: out, pattern: #"&#(\d+);"#) { match in
             guard let n = Int(match), let scalar = Unicode.Scalar(n) else { return nil }
             return String(Character(scalar))
@@ -293,10 +308,18 @@ private nonisolated struct MarkdownEmitter {
     /// Buffer for link text — collected between `<a>` and `</a>`.
     private var linkTextStack: [String] = []
     /// Class/id substrings that mark navigation chrome we skip entirely.
-    private static let chromeKeywords = ["nav", "menu", "sidebar", "breadcrumb"]
-    /// Depth of chrome we're currently inside; any non-zero value suppresses
-    /// text emission until we exit.
-    private var insideChrome: Int = 0
+    /// "header" and "footer" included alongside the spec §7.2 list because
+    /// genealogy sites overwhelmingly use class="footer-row" or
+    /// id="header-banner" rather than semantic `<header>`/`<footer>` tags.
+    private static let chromeKeywords = ["nav", "menu", "sidebar", "breadcrumb", "header", "footer"]
+    /// Stack of tag names that opened chrome regions. Each open-chrome
+    /// push records the tag name; we pop on the matching close. Necessary
+    /// because chrome is often signalled by class attribute on a
+    /// non-semantic element (`<div class="navbar">`), and a flat depth
+    /// counter wouldn't know which closing tag should decrement it — the
+    /// inner `<p>` close of an unrelated paragraph mustn't exit chrome.
+    private var chromeStack: [String] = []
+    private var insideChrome: Bool { !chromeStack.isEmpty }
 
     private enum ListKind { case unordered, ordered }
 
@@ -306,7 +329,7 @@ private nonisolated struct MarkdownEmitter {
             case .text(let raw):
                 if insidePre > 0 {
                     output.append(raw)
-                } else if insideChrome > 0 {
+                } else if insideChrome {
                     continue
                 } else {
                     appendTextNormalised(raw)
@@ -366,11 +389,16 @@ private nonisolated struct MarkdownEmitter {
     // MARK: tag handling
 
     private mutating func handleOpen(name: String, attrs: [String: String]) {
-        if isChrome(attrs: attrs) {
-            insideChrome += 1
+        // Open is chrome if the tag itself is a semantic chrome element
+        // (nav/header/footer/aside) OR its class/id substring-matches the
+        // chrome keyword list. Either signal pushes the tag name onto the
+        // stack; the matching close pops.
+        let semanticChrome: Set<String> = ["nav", "header", "footer", "aside"]
+        if semanticChrome.contains(name) || isChrome(attrs: attrs) {
+            chromeStack.append(name)
             return
         }
-        if insideChrome > 0 { return }
+        if insideChrome { return }
 
         switch name {
         case "h1": ensureBlankLine(); output.append("# ")
@@ -431,10 +459,16 @@ private nonisolated struct MarkdownEmitter {
     }
 
     private mutating func handleClose(name: String) {
-        // Track chrome exit. We don't know if the matching open was chrome
-        // unless we maintained a stack — for the v1 tag set this is good
-        // enough because nav/header/footer don't nest in genealogy HTML.
-        // The `insideChrome` counter still gates emission correctly.
+        // Chrome exit: if this close's tag name matches the top of the
+        // chrome stack, we're leaving a chrome region. Pop and return
+        // without emitting any markdown for the close.
+        if let top = chromeStack.last, top == name {
+            chromeStack.removeLast()
+            return
+        }
+        // Inside chrome and not the closing match — suppress entirely.
+        if insideChrome { return }
+
         switch name {
         case "h1", "h2", "h3", "h4", "h5", "h6":
             output.append("\n\n")
@@ -482,8 +516,6 @@ private nonisolated struct MarkdownEmitter {
             if insideTable > 0 { ensureLineBreak() }
         case "td", "th":
             if insideTable > 0, !output.hasSuffix(" ") { output.append(" ") }
-        case "nav", "header", "footer", "aside":
-            if insideChrome > 0 { insideChrome -= 1 }
         default:
             break
         }
