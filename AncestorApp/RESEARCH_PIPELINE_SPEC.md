@@ -1085,3 +1085,312 @@ Whole-tree research is a power-user batch mode. The primary product is per-profi
 6. Total time: 2-3 minutes research, 2-3 minutes review
 
 If this doesn't work well, whole-tree mode won't save it. Build this first, make it excellent, then add batch modes.
+
+---
+
+## 21. Source-surfaced images (media capture from external sources)
+
+**Status:** Proposed. No code yet — none of the seven shipping source plugins captures any image data, even when the upstream response carries it.
+
+**Catalyst:** The 2026-05 fix to `FindAGraveSource.swift` that mines years from inscription/bio free text exposed a larger gap. The memorial-detail HTML carries `<img id="memPhoto">` and a photo-gallery section that `parseMemorialDetail` (lines ~248-331) never touches. Headstone photos with carved dates are some of the strongest direct evidence a free source produces — and we throw them away on every fetch.
+
+The user framing, verbatim: *"Some sources return images relating to members of tree, I don't think we capture these presently but we should and store them linked to profile."*
+
+Treat this section as the seed for a dedicated **`AncestorApp/SOURCE_IMAGES_SPEC.md`** if it grows past the first cut described in §21.6 — much of the data-model and UI surface deserves its own document. For now it lives here because the question is fundamentally about the research pipeline: *what does a source return, where does it land, and how does it count as evidence?*
+
+There is an earlier, more ambitious treatment in `AncestorApp/archive/SOURCE_INTEGRATION_SPEC.md` §14 (Image Management). That section predates the current product and proposes a separate `ResearchImage` table and a per-project `Images/` filesystem layout. It is preserved as a reference for shape but is **not the current plan** — see §21.4 for why the existing `attachments` table is the better starting point.
+
+### 21.1 Source-by-source inventory
+
+Audit of the seven shipping source plugins under `Ancestor Research/Services/Sources/`. For each: does the upstream response carry image references? Does the parser surface them? File:line cites the point at which an image-bearing payload is parsed and the image fields are dropped.
+
+| Source | Image-bearing payload | What the parser does today | Cite |
+|---|---|---|---|
+| **Find a Grave** | Headstone photo (`<img id="memPhoto">`), photo gallery (portrait, additional cemetery shots, military emblems), volunteer-uploaded | Drops them entirely — `parseMemorialDetail` extracts inscription/bio/cemetery/plot but never queries any `<img>` tag or photo-gallery div. `BurialRecord` (RecordTypes.swift:78) has no image field. | `FindAGraveSource.swift:248-331` |
+| **CWGC** | Cemetery photographs and (for many casualties) a headstone or memorial-panel photo on the casualty-details page; downloadable certificate PDF | Drops them — `parseCSV` (the only ingest path) consumes the CSV export which is text-only. The detail-page HTML at `cwgc.org/find-records/.../casualty-details/{id}/` carries the imagery and is never fetched. | `CWGCSource.swift:142-213` (parseCSV is text-only); detail HTML is never touched |
+| **FamilySearch** | Image waypoints (digitised microfilm scans) referenced from `sourceDescriptions[].links[]`, plus a `RectangleRegion` source-reference qualifier (FAMILYSEARCH_SOURCE_SPEC §5.5) marking *which row on the page* this persona occupies. Also Memories (user-uploaded portraits, certificates, family photos attached to FamilySearch tree persons) | The current parser decodes a narrow subset of GEDCOMx. `GxRoot` (FamilySearchSource.swift:750-754) decodes `persons`, `relationships`, `sourceDescriptions` but **not** `links`. `GxSourceDescription` (FamilySearchSource.swift:825-830) decodes `about/titles/coverage` but not links. There is no Memories endpoint integration. | `FamilySearchSource.swift:746-754, 825-830` — `links: [...]` field absent on decoded structs |
+| **Wirksworth** | Pedigree pages occasionally embed scanned images of original pedigree-book pages (HTML `<img>` tags); some pages include parish-register photos | Drops them — the parser is text-only (`parsePedigreePage` walks `<PRE>` and narrative HTML; `<img>` tags don't have a code path) | `WirksworthSource.swift:108+, 145+` |
+| **FreeBMD** | None directly (index only). But the index entries carry GRO reference fields (volume / page) that *point to* a registry image obtainable separately. | Parser captures volume/page in `rawFields` but does not synthesise a GRO image link. | `FreeBMDSource.swift` — no image fields in `BirthRecord`/`DeathRecord`/`MarriageRecord` (RecordTypes.swift:26-61) |
+| **FreeCen** | None directly (transcription only). But each entry carries piece/folio/page from the underlying TNA census, which is the address of a TNA digitised page image. | Parser captures piece/folio/page/schedule/house_number/address in `rawFields` (FreeCenSource.swift:351) but does not link to the TNA image. | `FreeCenSource.swift:351` |
+| **FreeREG** | None — transcription only. Some parish-register transcriptions reference originals at FamilySearch (cross-source link). | No image handling. | `FreeREGSource.swift` |
+| **Probate** | Modern grants page sometimes links to a will-document PDF (post-1996 digital grants); older calendar entries have no image. The Nuxeo JSON response may carry a document URL. | Parser does not extract any URL beyond the grant text. | `ProbateSource.swift` |
+
+**Direct-evidence sources where we drop images today:** Find a Grave, CWGC, FamilySearch, Wirksworth.
+
+**Index sources where we have a reference but no synthesised image URL:** FreeBMD (GRO volume/page), FreeCen (TNA piece/folio/page).
+
+**Transcription-only, no image:** FreeREG.
+
+**Modern-records source, image rare:** Probate.
+
+### 21.2 What's already in the data model
+
+The repo already has an `attachments` table (migration `v10_attachments_goals`, `ProjectDatabase.swift:486-512`) and an `Attachment` model (`Models/Attachment.swift`). It was originally scoped to **user-uploaded** media per DESIGN.md §5.15 — photos and documents the user drags onto a profile, life event, or field source.
+
+Shape today:
+
+```swift
+struct Attachment {
+    let id: UUID
+    var filename: String
+    var mediaType: AttachmentType         // .photo / .document / .transcription
+    var caption: String?
+    var dateTaken: Date?
+    var locationTaken: String?
+    let relativePath: String              // relative to project media dir on disk
+    let attachedTo: AttachmentTarget      // .profile(id) / .lifeEvent(id) / .fieldSource(entityID, field)
+    let addedAt: Date
+}
+```
+
+The `AttachmentTarget` union (`Attachment.swift:44-68`) already supports targeting a profile, a life event, or a specific `(entityID, field)` field-source row. That's a near-fit for source-surfaced images — a headstone photo from Find a Grave logically attaches to the burial life event *and* corroborates the death-date field source.
+
+**What's missing for source-surfaced media:**
+
+1. **Provenance fields.** No `sourceID`, no `sourceRecordID`, no `originalURL`. We can't tell a user-uploaded photo from one we downloaded from cwgc.org. This is load-bearing for §21.5 (trust + evidence weight).
+2. **Subtype.** The current `AttachmentType` enum has only `photo / document / transcription`. For source-surfaced media we need to distinguish headstone / portrait / certificate / document scan / cemetery / pedigree (the categories the archived `SOURCE_INTEGRATION_SPEC §14.2` already enumerated; we should adopt that list).
+3. **URL-only vs blob-cached.** No `fetchStatus` to indicate "URL recorded, file not downloaded yet" vs "downloaded and on disk at `relativePath`."
+4. **Source-record link.** No FK to `source_records.id` — we can't trace a photo back to the search hit that surfaced it.
+
+There is **no existing media table other than `attachments`.** Schema is at v26 (`ProjectDatabase.swift:780`); the CLAUDE.md schema summary that lists v1-v5 is stale and should be updated.
+
+### 21.3 Open question: extend `attachments` vs new `source_media` table
+
+Two viable shapes. Pick one before implementation; both have real costs.
+
+**Option A — extend `attachments` with provenance columns.** Add `source_id`, `source_record_id`, `original_url`, `fetch_status`, and refine `media_type` to the six-category subtype list. Keep one table, one query path, one inspector UI section. The cost is mixing user-curated media (which the user "owns") with discovered media (which we surfaced and the user may not even know about yet). A user clicking "delete photo" on something they uploaded behaves differently from clicking it on something the pipeline pulled in.
+
+**Option B — new `source_media` table** parallel to `attachments`. Discovered images live there until the user "accepts" them, at which point they're either promoted into `attachments` (and the source-media row marked accepted) or remain in source-media as evidence-only. The cost is duplication: two queries to render a profile's image strip, two delete paths, two export rules.
+
+Recommendation, not decision: **Option B** mirrors the existing Evidence Firewall pattern (§13) — `pending_facts` for proposed facts is separate from the `field_sources` table for accepted ones. Source-surfaced media is to user-curated media as `pending_facts` is to `field_sources`. The user "accepting" a Find a Grave headstone photo via TreeDiffView is the analogue of accepting a date — it crosses the firewall.
+
+Defer the final call to the implementer; both paths leave room to switch later. What is **not** deferrable is recording provenance the moment a parser sees an image URL.
+
+### 21.4 Proposed data-model additions (Option B sketch)
+
+```swift
+/// An image (or PDF) surfaced by a source plugin during research, attached
+/// to the profile the surfacing search was about. Lives behind the
+/// Evidence Firewall: pipeline writes, user accepts in TreeDiffView.
+struct SourceMediaCandidate: Codable, Identifiable, Sendable {
+    let id: UUID
+    let profileID: String
+    let sourceID: String                  // "findagrave", "cwgc", "familysearch", ...
+    let sourceRecordID: String            // FK into source_records.id
+    let mediaKind: SourceMediaKind
+    let originalURL: String               // canonical, never null at insert
+    let caption: String?                  // alt text or scraped figure caption
+    let mimeTypeHint: String?             // "image/jpeg", "application/pdf"
+    let fetchStatus: FetchStatus          // urlOnly / cached / failed(reason)
+    let cachedRelativePath: String?       // populated when fetchStatus == .cached
+    let cachedAt: Date?
+    let cachedByteSize: Int64?
+    let discoveredAt: Date
+    let createdByTransactionID: String    // undo-tracked like every other firewall write
+    var acceptedAt: Date?                 // user accepted into permanent attachments
+    var promotedAttachmentID: UUID?       // FK into attachments.id when accepted
+}
+
+enum SourceMediaKind: String, Codable {
+    case headstone, portrait, certificate, documentScan, cemetery, pedigree, other
+}
+
+enum FetchStatus: Codable {
+    case urlOnly                          // we know the URL, file not on disk
+    case cached                           // file is on disk at cachedRelativePath
+    case failed(reason: String)           // tried to fetch, host returned error
+}
+```
+
+Migration shape:
+
+```sql
+CREATE TABLE source_media (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    source_record_id TEXT NOT NULL,
+    media_kind TEXT NOT NULL,
+    original_url TEXT NOT NULL,
+    caption TEXT,
+    mime_type_hint TEXT,
+    fetch_status TEXT NOT NULL DEFAULT 'urlOnly',
+    cached_relative_path TEXT,
+    cached_at DATETIME,
+    cached_byte_size INTEGER,
+    discovered_at DATETIME NOT NULL,
+    created_by_transaction_id TEXT NOT NULL,
+    accepted_at DATETIME,
+    promoted_attachment_id TEXT,
+    FOREIGN KEY (source_record_id) REFERENCES source_records(id),
+    FOREIGN KEY (promoted_attachment_id) REFERENCES attachments(id)
+);
+CREATE INDEX idx_source_media_profile ON source_media (profile_id);
+CREATE INDEX idx_source_media_record ON source_media (source_record_id);
+```
+
+`RecordCommon.rawFields` is the wrong home (string-only, no schema, lost on re-parse). The parsers should populate a new optional `discoveredMedia: [SourceMediaURL]` on `RecordCommon` (or per-typed-record where it makes sense) and the persistence layer is responsible for writing rows into `source_media` keyed off `source_records.id`. Keeping `discoveredMedia` on the typed record (not just `rawFields`) means tests can assert on it and the scorer can read it.
+
+### 21.5 Open question: do images count toward the 4-gate scorer / evidence directness?
+
+Today's `EvidenceDirectness` ladder (`Models/Research/EvidenceDirectness.swift`) is `.primary / .independentTranscription / .derivative / .communityEdited`. A Find a Grave memorial is `.derivative` because the volunteer transcribed dates from a headstone they did not necessarily photograph. **But a Find a Grave memorial with a headstone photo carrying the carved dates collapses that gap** — the user (or, post-MLX, the local model) can read the dates off the stone themselves. The transcription stops being a chain-of-custody risk because the photo is the primary record.
+
+Three positions, all defensible:
+
+1. **Images don't affect scoring.** They're decoration / verification aid. The transcription is what enters the pipeline; the photo is what the user looks at when reviewing.
+2. **Images upgrade directness, deterministically.** A Find a Grave record with an attached headstone photo of the actual gravestone gets re-tiered from `.derivative` to `.primary` for the death-date field specifically. (Birth date and name still derivative — the volunteer transcribed those from the stone.)
+3. **Images are an MLX-task.** The local model OCRs/reads the headstone photo, emits its own structured facts, those go through `pending_facts` as an independent source. The Find a Grave transcription stays derivative; the local-model extraction becomes a fresh primary-tier signal that converges with it.
+
+Recommendation, not decision: **(3) is the only one that respects the deterministic sandwich** (§2.3). Position (2) would let the *presence* of an image dictate scoring, which makes the scorer dependent on a network fetch having succeeded — non-deterministic. Position (3) treats the image as fresh data, lets the convergence engine decide, and keeps the scorer pure.
+
+This is an open question because position (3) implies wiring images into the MLX pipeline (vision-capable model? Tesseract pre-pass? defer until DeepSeek-R1 ships a vision variant?), and that's a separate spec. For the first cut, **adopt (1)**: capture and display, no scoring impact. Revisit when the local-vision story exists.
+
+### 21.6 First-cut scope (one focused session)
+
+**Goal:** Source-surfaced images flow into a persistent table, are visible on the profile inspector, and survive across sessions. No download-by-default; no scoring impact; no GEDCOM export.
+
+**In scope:**
+
+- Migration `v27_source_media` adding the table from §21.4.
+- `SourceMediaCandidate` model + read/write in a new `ProjectDatabase+SourceMedia.swift`.
+- `RecordCommon` (or per-record-type) gains optional `discoveredMedia: [SourceMediaURL]`.
+- **Find a Grave first** (highest-yield, lowest-risk). `parseMemorialDetail` extracts:
+  - Hero photo from `<img id="memPhoto" src="...">` → kind `.headstone` if visible carving / dates / inscription text suggests gravestone, else `.portrait`. Without a vision model the parser can't reliably classify; default to `.headstone` for the hero photo on a memorial page (it's the gravestone shot 80%+ of the time) and `.portrait` for any additional photos in the gallery. Mark this as a "known imperfect classifier" comment in code.
+  - Up to N gallery photos (cap at 20 per memorial; observed memorials rarely exceed this and an unbounded loop on hostile HTML is a footgun).
+- **CWGC second.** Extend the source to fetch the casualty-details HTML page (already linked from `casualty_id`) and extract the headstone/memorial photograph plus the certificate PDF URL.
+- **FamilySearch third.** Decode `links[]` on `GxSourceDescription` (FamilySearchSource.swift:825-830) and capture the image-waypoint URL + the `RectangleRegion` qualifier from FAMILYSEARCH_SOURCE_SPEC §5.5 alongside it. The waypoint URL plus the rectangle is what enables the "deep-link to the exact row on the scanned page" UX from FAMILYSEARCH_SOURCE_SPEC §8.4.
+- URL-only persistence by default. **No automatic download.** A "Download" affordance on each media row in the inspector triggers a fetch with the same rate-limit + auth contract as the parent source.
+- Inspector UI: a collapsed-by-default "Source-discovered images (N)" disclosure under the existing Sources section on the profile detail view. Tapping a row opens the URL in the system browser; tapping "Download" fetches and re-renders inline.
+
+**Out of scope for first cut:**
+
+- Wirksworth pedigree-page image extraction (low yield, parser changes risky).
+- FreeBMD GRO image-link synthesis (depends on GRO scheme; not a free image).
+- FreeCen TNA image-link synthesis (same).
+- Probate will-PDF (depends on Nuxeo response shape we haven't probed).
+- Memories endpoint integration on FamilySearch (Tier 1 roadmap per FAMILYSEARCH_SOURCE_SPEC §13).
+- Image-driven evidence promotion (§21.5 position 2 or 3).
+- GEDCOM `OBJE` export — needs decision on whether to embed paths or copy files alongside the `.ged`.
+- Vision-model OCR of headstones.
+- Copyright/redistribution surfacing in shared exports (will need a confirm-on-export check per archived §14.8).
+- Background eviction of cached blobs to manage disk.
+
+### 21.7 Storage strategy: URL-only vs blob-cached
+
+Both are needed, and the tradeoffs argue for "URL recorded on discovery, blob cached on demand" — the `fetchStatus` field in §21.4 encodes the lifecycle.
+
+Why URL is not enough:
+
+- **Find a Grave memorials get deleted.** Volunteers occasionally remove memorials; their image CDN URLs 404 from that point on. If we recorded the URL in 2026 and only fetch it in 2030 when the user reviews the profile, we may have lost the evidence. Cache early.
+- **FamilySearch image waypoints require an authenticated session.** A URL alone is useless without the right cookies, and cookies expire every 1-2 hours (FAMILYSEARCH_SOURCE_SPEC §11.2). If we don't cache at discovery time, fetching later may require a re-auth interaction we can't always provide.
+
+Why URL-only is enough as the default:
+
+- **Disk usage at scale.** A tree of 5k profiles, each with 2-3 discovered images at ~1 MB average, is ~10-15 GB. Most users will never look at most of these.
+- **Bandwidth and politeness.** Auto-downloading on every research run multiplies our footprint on volunteer sites by an order of magnitude. Find a Grave already rate-limits us at 500 ms; CWGC and FamilySearch likewise. Image downloads should be opt-in.
+
+**Proposed policy:**
+
+- On parse, always write a `source_media` row with `fetchStatus = .urlOnly` and the URL.
+- **Auto-cache** when *any* of: the source is Find a Grave (volunteer deletion risk); the source requires auth and we have a valid session right now (FamilySearch — fetch while we can); the image is small (`<200KB` heuristic, from `Content-Length` HEAD) so cost is negligible.
+- **Manual cache** ("Download" button) for everything else.
+- **Settings toggle**: "Cache all source-discovered images automatically" (default off) for power users who want the offline archive.
+
+This is the same pattern as the existing `page_cache` (migration v5, `ProjectDatabase.swift:260+`) — speculative caching of source HTML for re-parse. Source media is the binary analogue.
+
+### 21.8 Trust + provenance
+
+Every `source_media` row carries `sourceID` and `sourceRecordID`. The trust tier of the media is inherited from the source — there is no LLM-driven "this looks like a real headstone" judgement (cf. §2.1 invariant: source trust is URL-derived). A Find a Grave photo is `.community`-tier evidence by virtue of being from Find a Grave, regardless of how authoritative the image *looks*.
+
+When the user accepts a `source_media` row into permanent `attachments` (via the §21.3 Option B promote path), the new `Attachment` row carries `sourceID` and `originalURL` columns (added to the existing table) so the provenance chain is preserved indefinitely. The user can later see "this photo came from Find a Grave memorial #12345 on 2026-05-20" even after the upstream URL 404s.
+
+### 21.9 Cross-references
+
+- **FAMILYSEARCH_SOURCE_SPEC §5.5** — image-pixel-region anchors via `RectangleRegion`. The first-cut work in §21.6 must capture both the image URL from `sourceDescriptions[].links[]` *and* the rectangle qualifier in `rawFields["sourceQualifier"]` together; they're only useful as a pair. The FS spec captures the rectangle as a future-UX concern; this spec is what turns it into stored media.
+- **FAMILYSEARCH_SOURCE_SPEC §8.4** — "Image-availability badge" — was scoped as a UI affordance over an unfetched URL. Once the work in §21.6 lands, that badge graduates to "View / Download" with the rectangle highlight overlay.
+- **FAMILYSEARCH_SOURCE_SPEC §13** (Tier-1 roadmap) — Memories read endpoint. User-uploaded portraits and family photos attached to FS tree persons. Out of scope for §21.6 first cut but is the obvious second step on the FamilySearch side.
+- **DESIGN.md §5.15** — user-uploaded attachments. The Option B promote path (§21.3) is the bridge between this spec's discovered media and DESIGN's user-curated attachments.
+- **`AncestorApp/archive/SOURCE_INTEGRATION_SPEC.md` §14** — earlier, more comprehensive image-management spec from before the product was hardened. Specifically §14.4 (`ResearchImage` model), §14.5 (Find a Grave URL extraction), §14.7 (GEDCOM `OBJE` export), §14.8 (copyright per source) are worth re-reading when this work starts.
+- **Evidence Firewall, §13 of this spec** — `source_media` writes go through the firewall (`created_by_transaction_id`, user-accepts-to-promote pattern). Don't let parsers write directly to `attachments`.
+
+---
+
+## 22. Cross-source enrichment — the FamilySearch → Find a Grave bridge
+
+**Status:** First cut shipped 2026-05-20. Spec records the pattern for future cross-source bridges.
+
+### 22.1 The problem this solves
+
+FamilySearch's `/service/search/hr/v2/personas` endpoint acts as an aggregator across many underlying databases — civil registration, censuses, parish registers, and importantly **Find a Grave memorials**. When a query surfaces a FAG-hosted memorial, the GEDCOMx response carries:
+
+- The deceased's name and the burial place
+- An `ExtRecordId` field containing the FAG memorial number
+- A `sourceDescriptions[0].titles[0].value` of "Find a Grave Index" (or similar)
+- **No `Birth`, `Death`, or `Burial` fact with a date.** FS's index of FAG carries the structured persona but not the inscribed dates.
+
+That last point is load-bearing. A FAG memorial whose inscription says "1919 — 2017" is one of the strongest free-source pieces of death-date evidence available — but the FS aggregator does not surface those dates. Without intervention the record stalls as a lead, the 4-gate scorer can't promote it (no year axis to match against), and the next-iteration `refineSubject` (§ pipeline iteration loop) never gets a death year to propagate to the other 7 sources.
+
+Concrete case: Ernest Victor Cauldwell's research run found his FAG memorial via FS, with name + Wirksworth + nothing else. Probate for the same person carrying "ERNEST VICTOR CAULDWELL, ADMINISTRATION 2017-02-14" was already in evidence — scored `impossible` because the subject had no death year to converge against. Two pieces of evidence one fact-confirmation apart, and the pipeline couldn't close the loop.
+
+### 22.2 The bridge
+
+In the parser (`FamilySearchSource.swift`):
+
+- For any persona whose collection title matches `Find a Grave`, extract the FAG memorial id from `rawFields["field.ExtRecordId.original"]` (or `.interpreted`, or unmarked variant). Strip non-digit prefixes defensively.
+- Populate the resulting `BurialRecord.memorialID` so the pipeline can route on it.
+
+In the pipeline (`ResearchPipeline.swift`):
+
+- Between dispatch and score, run `enrichFagBridge(records:existingIDs:)`. For every `FamilySearch`-sourced burial record where `memorialID` is set but `deathYear` is nil and the FAG-detail id is not already in evidence, call `FindAGraveSource.fetchDetail(recordID: "findagrave_\(memorialID)")`.
+- **Append the FAG-detail record alongside the original FS persona**, do not replace. Both score independently; the scorer's convergence engine reunites them in clustering. Replacing would silently downgrade the FS persona's trust tier (FS is `.transcription`, FAG is `.community`), which is a scorer call the bridge has no business making.
+
+The FAG detail parser already mines the inscription / bio for year ranges (`FindAGraveSource.extractYearsFromMemorialText`, landed earlier in this session). So once the bridge places the record in FAG's pipeline, the year extraction is automatic.
+
+### 22.3 Why the bridge belongs in the pipeline, not in the source
+
+Two reasons:
+
+1. **The source should stay independent.** `FamilySearchSource` calling `FindAGraveSource` couples two source plugins that are otherwise free to evolve independently. The pipeline is the right level for cross-source orchestration — it already orchestrates dispatch, scoring, clustering, hypothesis generation.
+2. **The bridge needs the pipeline's state.** Skipping memorials already seen in a prior iteration (the `existingIDs` argument) requires knowing what records the pipeline has accumulated so far. A source plugin doesn't see that.
+
+### 22.4 First-cut scope and what's deferred
+
+**In scope:**
+
+- FS-to-FAG bridge described above.
+- One follow-up fetch per FS burial persona per run. Rate-limited via the existing FAG 500ms-per-request gate.
+- Deduplication across iterations of the main pipeline loop.
+
+**Out of scope for first cut:**
+
+- **Generalised bridge framework.** This is one hand-rolled case. If we add a second (e.g. FreeBMD → GRO image-link synthesis, or CWGC → detail-page image fetch), generalise then — premature now.
+- **Bridge from non-FS sources to FAG.** FAG hits can also come directly from `FindAGraveSource.search`; those already go through `fetchDetail` via the search→detail pattern. Only the FS aggregator needed bridging.
+- **MLX-driven decision to bridge.** The bridge is deterministic — collection-title match + missing year. No model judgement involved.
+
+### 22.5 Convergence behaviour after bridging
+
+When the bridge fires, the pipeline accumulates:
+
+- **Record A**: FS burial persona, sourceID=familysearch, memorialID=N, deathYear=nil. Tier `.transcription`.
+- **Record B**: FAG burial detail, sourceID=findagrave, memorialID=N, deathYear=Y (from inscription mining). Tier `.community`.
+
+Both records share the same memorial ID. The scorer's convergence engine treats two records pointing to the same memorial as independent attestations — A confirms the *existence* of the memorial via FS, B confirms the *content* of the memorial via FAG. They converge on:
+
+- Name (both have it)
+- Place (both have it — FS as `place.original` on the burial fact, FAG as `burialLocation`)
+- Death year (only B has it; A's scoring against the now-refined subject improves)
+
+The subject-refinement step (`refineSubject` in `ResearchPipeline.swift`) then folds the death year into the subject for the *next* iteration. Downstream sources get a tighter query: FreeBMD death index narrows to year=Y, Probate likewise, FreeREG parish-burial likewise. This is the cross-source propagation the pipeline was designed for — the bridge unblocks it for the FAG case.
+
+### 22.6 Open questions
+
+- **Does FAG `fetchDetail` actually return a record when given a memorial id we found via FS?** The FAG memorial url scheme is stable (`/memorial/<id>`), so this should work — but FS's `ExtRecordId` might encode the id in a non-obvious form on some collections. First-run telemetry will tell us; the bridge fails closed (keeps the FS record alone) if the detail fetch returns no results.
+- **Should the bridge attempt to fetch even when `deathYear` is present?** Today we only bridge when the year is missing. But the FAG detail also has inscription text and a headstone photo (per §21) that we never see otherwise. Tradeoff: extra rate-limit cost vs. richer evidence. Defer until §21's image capture work lands — then a bridge fetch picks up both at once.
+- **What if FS has its own death year for the persona** (unlikely for FAG-sourced personas but possible)? In that case FS already attests the year via its own record and the bridge is moot; we keep the existing skip-when-year-present logic.
+
+### 22.7 Cross-references
+
+- **`FindAGraveSource.parseMemorialDetail`** — the inscription / bio year-mining the bridge depends on.
+- **`refineSubject` in `ResearchPipeline.swift`** — the cross-source propagation mechanism the bridge unblocks.
+- **§21 (this spec)** — Find a Grave image capture is the obvious next-step enrichment from a triggered bridge fetch.
+- **`FAMILYSEARCH_SOURCE_SPEC.md` §5.0** — multi-persona parsing; the bridge keys off the per-persona `ExtRecordId` field captured into `rawFields`.
