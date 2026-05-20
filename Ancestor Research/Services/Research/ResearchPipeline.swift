@@ -32,7 +32,7 @@ final class ResearchPipeline {
             logger.info("Pipeline iteration \(iteration)/\(config.maxIterations) for \(subject.displayName)")
 
             // DETERMINISTIC: dispatch and score
-            let records = await dispatcher.dispatch(
+            let dispatchedRecords = await dispatcher.dispatch(
                 subject: state.subject,
                 recordTypes: state.activeRecordTypes,
                 scope: config.scope,
@@ -45,6 +45,15 @@ final class ResearchPipeline {
             // hammering the same dispatch through iterations 2-4 even when
             // nothing new is being found.
             let priorRecordIDs = Set(state.scoredRecords.map(\.record.id))
+
+            // Cross-source enrichment: when FamilySearch's aggregator
+            // surfaces a Find a Grave memorial without the inscribed dates,
+            // schedule a follow-up FAG detail fetch so the inscription /
+            // bio mining can recover the death year. Spec §22.
+            let records = await enrichFagBridge(
+                dispatchedRecords,
+                existingIDs: priorRecordIDs
+            )
 
             let scored = records.map { record in
                 RecordScorer.classify(
@@ -832,6 +841,61 @@ final class ResearchPipeline {
         case "dec": return "Oct–Dec"
         default: return q
         }
+    }
+
+    // MARK: - FamilySearch → Find a Grave bridge (spec §22)
+    //
+    // When `FamilySearchSource` surfaces a Find a Grave memorial via the
+    // FS aggregator endpoint, the GEDCOMx persona carries the FAG memorial
+    // id (via ExtRecordId) but no inscribed dates — FS's search response
+    // doesn't include inscription text. Without intervention, a perfect
+    // name+place match with no year stalls as a lead, the 4-gate scorer
+    // can't promote it, and the next-iteration subject refinement
+    // (`refineSubject`) never gets a death year to propagate.
+    //
+    // The bridge: any `FamilySearch` burial record whose `memorialID` is
+    // set but `deathYear` is nil triggers a follow-up
+    // `FindAGraveSource.fetchDetail` call. The FAG detail parser mines
+    // the inscription / bio for years (FindAGraveSource extension landed
+    // earlier this session). The enriched FAG-detail record is appended
+    // *alongside* the original FS persona — both score independently and
+    // converge naturally in the cluster.
+    //
+    // Skip records whose memorial id is already present in
+    // `existingIDs` (a prior iteration's bridge ran): keeps the FAG
+    // 500ms-per-request rate-limit happy.
+
+    private func enrichFagBridge(
+        _ records: [SourceRecord],
+        existingIDs: Set<String>
+    ) async -> [SourceRecord] {
+        guard let fagAny = dispatcher.registry.allSources().first(where: { $0.sourceID == "findagrave" }),
+              let fagDetail = fagAny as? any DetailFetchingSource else {
+            return records
+        }
+        var out: [SourceRecord] = []
+        out.reserveCapacity(records.count)
+        for record in records {
+            out.append(record)
+            guard case .burial(let burial) = record,
+                  record.sourceID == "familysearch",
+                  let memorialID = burial.memorialID,
+                  burial.deathYear == nil
+            else { continue }
+            let detailID = "findagrave_\(memorialID)"
+            // Skip if we've already pulled this FAG memorial in a prior
+            // iteration. Both the FAG-detail record's id and any other
+            // representation of the same memorial would carry this id.
+            if existingIDs.contains(detailID) { continue }
+            let result = await fagDetail.fetchDetail(recordID: detailID)
+            guard case .results(let detail) = result, let enriched = detail.first else {
+                logger.info("FAG bridge: detail fetch returned no result for memorial \(memorialID)")
+                continue
+            }
+            logger.info("FAG bridge: enriched memorial \(memorialID) alongside FS persona")
+            out.append(enriched)
+        }
+        return out
     }
 
     // MARK: - Discrepancy Detection
