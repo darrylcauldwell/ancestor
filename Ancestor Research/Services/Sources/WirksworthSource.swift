@@ -14,7 +14,13 @@ struct WirksworthSource: RecordSource {
     nonisolated let sourceID = "wirksworth"
     nonisolated let displayName = "Wirksworth Parish Records"
     nonisolated let recordTypes: Set<RecordType> = [.pedigree, .parish]
-    nonisolated let coverageYearRange: ClosedRange<Int>? = 1550...1860
+    // Coverage corrected 2026-05-20: the project's own homepage banner
+    // ("WIRKSWORTH Parish Records 1600-1900") and the published CENSUS
+    // page (1841-1891 transcriptions) establish the actual range. The
+    // prior 1550-1860 window was 50 years too early on the low side
+    // (parish registers start ~1600) and 40 years too tight on the high
+    // side (missed Edwardian + early-WWI Derbyshire ancestors).
+    nonisolated let coverageYearRange: ClosedRange<Int>? = 1600...1900
     nonisolated let coverageRegions: Set<Region> = [.parish("Wirksworth", county: "Derbyshire")]
     nonisolated let dataLineage: SourceLineage = .independentTranscription(of: "parish-registers")
     nonisolated let trustTier: SourceTrustTier = .transcription
