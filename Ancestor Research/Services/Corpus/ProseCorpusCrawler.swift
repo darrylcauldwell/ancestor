@@ -109,6 +109,30 @@ actor ProseCorpusCrawler {
             }
         }
 
+        /// Serialised form used by the manifest's `link_filter` field —
+        /// `"glob:<pattern>"` or `"regex:<pattern>"`. Pairs with
+        /// `LinkFilter.init(serialised:)` for round-trip.
+        var serialised: String {
+            switch self {
+            case .glob(let pattern): return "glob:\(pattern)"
+            case .regex(let pattern): return "regex:\(pattern)"
+            }
+        }
+
+        /// Parse a manifest-style serialised filter. Returns nil for
+        /// nil or empty input, or for an unrecognised kind prefix —
+        /// the caller treats those as "follow everything".
+        init?(serialised: String?) {
+            guard let raw = serialised, !raw.isEmpty else { return nil }
+            if raw.hasPrefix("glob:") {
+                self = .glob(String(raw.dropFirst("glob:".count)))
+            } else if raw.hasPrefix("regex:") {
+                self = .regex(String(raw.dropFirst("regex:".count)))
+            } else {
+                return nil
+            }
+        }
+
         private static func globToRegex(_ glob: String) -> String {
             var out = "^"
             for ch in glob {
@@ -336,7 +360,7 @@ actor ProseCorpusCrawler {
                 // each as same-host (enqueue) or external (log).
                 let links = LinkExtractor.extract(html: html, baseURL: url)
                 for link in links {
-                    if isSameRegistrableHost(link, asSeed: configuration.seedURL) {
+                    if Self.sameRegistrableHost(link, configuration.seedURL) {
                         enqueue(url: link, depth: depth + 1)
                     } else {
                         // De-dupe externals so we don't blow up the report
@@ -396,12 +420,16 @@ actor ProseCorpusCrawler {
     /// List support is a follow-up; the genealogy volunteer sites we
     /// target rarely span subdomains beyond `www.example.com` ↔
     /// `example.com`.
-    nonisolated private func isSameRegistrableHost(_ a: URL, asSeed seed: URL) -> Bool {
-        guard let ha = normaliseHost(a), let hs = normaliseHost(seed) else { return false }
-        return ha == hs
+    ///
+    /// Static so the site verifier (P3 add-corpus flow) can call it
+    /// without instantiating a crawler. Same-host logic lives in one
+    /// place — moving it would scatter the registrable-host contract.
+    nonisolated static func sameRegistrableHost(_ a: URL, _ b: URL) -> Bool {
+        guard let ha = normaliseHost(a), let hb = normaliseHost(b) else { return false }
+        return ha == hb
     }
 
-    nonisolated private func normaliseHost(_ url: URL) -> String? {
+    nonisolated static func normaliseHost(_ url: URL) -> String? {
         guard var host = url.host?.lowercased() else { return nil }
         if host.hasPrefix("www.") { host.removeFirst(4) }
         return host

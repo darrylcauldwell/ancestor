@@ -319,7 +319,12 @@ nonisolated struct ProseCorpusManifest: Codable, Equatable, Sendable {
 
 // MARK: - Manifest I/O on ProseCorpusStorage
 
-extension ProseCorpusStorage {
+/// `nonisolated` so callers in non-MainActor contexts (e.g. the
+/// `ProseCorpusAdder` orchestrator and the `ProseCorpusCrawler` actor)
+/// can invoke these. Without the annotation, the project's Swift 6.2
+/// default-isolation setting would make every extension method
+/// implicitly MainActor and lock the manifest behind UI threading.
+nonisolated extension ProseCorpusStorage {
     /// Read `manifest.json`. Returns `nil` for a corpus that has been
     /// added but never crawled (the manifest is written by the crawler,
     /// not at add-time — though P3 wires add-time to write an initial

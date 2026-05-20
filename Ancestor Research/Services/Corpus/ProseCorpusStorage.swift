@@ -308,6 +308,28 @@ nonisolated struct ProseCorpusStorage {
         }
     }
 
+    /// Quick aggregate of the corpus footprint — page count and total
+    /// bytes of all `.md` files under `pages/`. Used to populate
+    /// `ProseCorpusManifest.pageCount` and `.totalBytes` after a sync.
+    /// O(n) over the page directory; APFS handles 10⁵ entries fine.
+    func corpusStats() throws -> (pageCount: Int, totalBytes: Int) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: pagesDirectory.path) else { return (0, 0) }
+        let contents = try fm.contentsOfDirectory(
+            at: pagesDirectory,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        )
+        var pageCount = 0
+        var totalBytes = 0
+        for url in contents where url.pathExtension == "md" {
+            pageCount += 1
+            let attrs = try fm.attributesOfItem(atPath: url.path)
+            totalBytes += (attrs[.size] as? Int) ?? 0
+        }
+        return (pageCount, totalBytes)
+    }
+
     // MARK: - Internal helpers
 
     private func createDirectoriesIfNeeded() throws {
