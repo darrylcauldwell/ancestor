@@ -20,4 +20,12 @@ func bootstrapSources(registry: SourceRegistry) {
     // FamilySearch will swap to OAuth bearer-token transport when App Store /
     // Partner approval lands — see AncestorApp/FAMILYSEARCH_SOURCE_SPEC.md.
     registry.register(FamilySearchSource())
+
+    // Tier 4: User-added prose corpora (parish records, local-history sites).
+    // Failure to resolve Application Support is non-fatal — the user just
+    // loses prose-corpus retrieval for this launch, structured sources
+    // continue to work. See PROSE_CORPUS_SPEC.md §6, §9.
+    if let proseSource = try? ProseCorpusSource.makeForProduction() {
+        registry.register(proseSource)
+    }
 }
