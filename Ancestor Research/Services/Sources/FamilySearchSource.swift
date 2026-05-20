@@ -352,21 +352,21 @@ extension FamilySearchSource {
     ) -> Int? {
         let title = collectionTitle.lowercased()
         guard title.contains("find a grave") || title.contains("findagrave") else { return nil }
-        var candidates: [String?] = [
+        // Only ExtRecordId is reliable. The earlier persona-id fallback
+        // ("p_<digits>" → strip-and-parse) was based on a wrong assumption:
+        // FS's persona id is an internal opaque identifier (12 digits) with
+        // no relationship to FAG's actual memorial numbering (typically 7–9
+        // digits). Verified by manual check on memorial 271612558 vs FS
+        // persona p_304726395949 — different orders of magnitude, different
+        // namespaces. The fallback was generating IDs that always 404'd.
+        // When ExtRecordId is absent, the right path is FindAGraveSource's
+        // own `search()` (with first-given-only fix applied), not a
+        // speculative bridge.
+        let candidates = [
             rawFields["field.ExtRecordId.original"],
             rawFields["field.ExtRecordId.interpreted"],
             rawFields["field.ExtRecordId"],
         ]
-        // Fallback: when ExtRecordId is missing, the FS persona id itself
-        // often encodes the FAG memorial number (the aggregator pass-through
-        // retains the upstream identifier as the persona suffix, e.g.
-        // FS persona "p_304726395949" → FAG memorial 304726395949). Spec §22.
-        // If the stripped id doesn't resolve to a real memorial, the
-        // bridge's `fetchDetail` returns no results and we silently no-op —
-        // bounded cost (one extra HTTP per FAG-flavoured persona).
-        if let personaID = rawFields["personaID"] {
-            candidates.append(personaID.hasPrefix("p_") ? String(personaID.dropFirst(2)) : personaID)
-        }
         for candidate in candidates {
             guard let raw = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { continue }
             if let id = Int(raw) { return id }

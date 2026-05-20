@@ -187,30 +187,21 @@ struct FamilySearchSourceTests {
         #expect(id == nil)
     }
 
-    @Test func fallsBackToPersonaIdWhenExtRecordIdMissing() {
-        // Real-world Ernest case: FAG-flavoured FS persona arrives with no
-        // ExtRecordId field, but the persona id itself encodes the FAG
-        // memorial number — "p_304726395949" → 304726395949.
+    @Test func returnsNilOnFagCollectionWhenOnlyPersonaIdAvailable() {
+        // FS persona ids ("p_<12-digit-number>") are FS-internal identifiers
+        // with no relationship to FAG memorial numbering. Verified manually
+        // against Ernest Cauldwell — FS persona p_304726395949 vs real FAG
+        // memorial 271612558. An earlier speculative fallback that stripped
+        // "p_" and used the rest as a memorial id always 404'd; this test
+        // pins that the fallback is GONE — when only personaID is available
+        // (no ExtRecordId), the extractor returns nil so the bridge doesn't
+        // fire on bogus targets.
         let raw = ["personaID": "p_304726395949"]
         let id = FamilySearchSource.extractFindAGraveMemorialID(
             collectionTitle: "Find A Grave Index",
             rawFields: raw
         )
-        #expect(id == 304726395949)
-    }
-
-    @Test func extRecordIdBeatsPersonaIdWhenBothPresent() {
-        // When the structured field is present, prefer it — the persona-id
-        // fallback is only meant to fire when ExtRecordId is absent.
-        let raw = [
-            "field.ExtRecordId.original": "11111",
-            "personaID": "p_99999",
-        ]
-        let id = FamilySearchSource.extractFindAGraveMemorialID(
-            collectionTitle: "Find A Grave Index",
-            rawFields: raw
-        )
-        #expect(id == 11111)
+        #expect(id == nil)
     }
 
     @Test func stripsNonDigitPrefixFromMemorialId() {
