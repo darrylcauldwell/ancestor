@@ -47,6 +47,15 @@ struct ClusterReviewView: View {
                             discoveriesSection
                         }
 
+                        // Prose-corpus candidates (P5 retrieval, P6 MLX
+                        // extraction). Shown when the research run found
+                        // at least one same-host prose page mentioning
+                        // the subject. Extracted facts/narratives flow
+                        // separately into the Pending Facts review.
+                        if !vm.proseCandidates.isEmpty {
+                            proseCandidatesSection
+                        }
+
                         // Source frontier
                         sourceFrontierSection
                     }
@@ -944,6 +953,65 @@ struct ClusterReviewView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(.quaternary, lineWidth: 1)
         )
+    }
+
+    /// Prose-corpus matches surfaced from the user's added corpora.
+    /// Read-only — clicking a row opens the original page in the
+    /// default browser. Extracted facts/narratives (P6) flow through
+    /// the existing Pending Facts review surface; this section is
+    /// the "here are the pages we found about this person" log so
+    /// the user can spot-check what the corpus surfaced.
+    private var proseCandidatesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Prose Corpus Matches")
+                    .font(AppTypography.cardTitle)
+                Text("\(vm.proseCandidates.count)")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.secondary)
+            }
+
+            ForEach(vm.proseCandidates) { candidate in
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(candidate.title ?? candidate.sourceURL)
+                            .font(AppTypography.cardBody)
+                            .lineLimit(1)
+                        if let url = URL(string: candidate.sourceURL) {
+                            Link(candidate.sourceURL, destination: url)
+                                .font(AppTypography.badge)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        } else {
+                            Text(candidate.sourceURL)
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        HStack(spacing: 10) {
+                            Label("\(candidate.surnameHits)", systemImage: "person.text.rectangle")
+                                .help("Surname mentions")
+                            Label("\(candidate.yearHits)", systemImage: "calendar")
+                                .help("Year mentions in range")
+                            Label("\(candidate.placeHits)", systemImage: "mappin")
+                                .help("Place mentions in region")
+                            Spacer()
+                            Text("score \(candidate.score)")
+                                .foregroundStyle(.tertiary)
+                        }
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 4)
+            }
+        }
+        .padding(14)
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
     }
 
     private var discoveriesSection: some View {

@@ -140,6 +140,19 @@ actor ProseCorpusSource: RecordSource {
         indexCache.removeValue(forKey: corpusID)
     }
 
+    /// Load the markdown body for a candidate by opening the corpus's
+    /// `ProseCorpusStorage` and reading the `.md` file at the page
+    /// hash. Returns nil if the file is missing or malformed —
+    /// callers (the P6 prose extractor) treat that as "skip this
+    /// candidate" rather than failing the whole run.
+    func loadPageBody(forCandidate candidate: ProseCandidate) -> (frontmatter: PageFrontmatter, body: String)? {
+        let storage = ProseCorpusStorage(
+            baseDirectory: registryBaseDirectory,
+            sourceID: candidate.sourceID
+        )
+        return try? storage.readPage(pageHash: candidate.pageHash)
+    }
+
     // MARK: - searchCandidates — the real entry point
 
     /// Run a prose-corpus search across every registered corpus and

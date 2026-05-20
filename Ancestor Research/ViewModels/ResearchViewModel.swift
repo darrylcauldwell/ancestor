@@ -228,9 +228,28 @@ final class ResearchViewModel {
         //
         // K-per-mode mirrors spec §9.3: verify/extend keep the
         // shortlist small (no MLX cost yet), discover widens to 5
-        // and `.all` to 8. P6 will route this same shortlist
-        // through MLX extraction; for now it's lookup-only.
+        // and `.all` to 8.
         proseCandidates = await fetchProseCandidates(subject: subject, registry: registry, mode: selectedMode)
+
+        // Prose-corpus MLX extraction (P6, spec §11) — only fires in
+        // `.discover` / `.all` modes. Reads each candidate's body
+        // from disk, runs the local reasoning model, routes
+        // extracted facts through `pending_facts` and narratives
+        // through `narrative_findings`. Profile-keyed; lead-only
+        // runs (no profileID) skip this just like they skip
+        // structured evidence persistence above.
+        if (selectedMode == .discover || selectedMode == .all),
+           let profileID = persistProfileID,
+           let db = appDatabase,
+           !proseCandidates.isEmpty {
+            await runProseExtraction(
+                candidates: proseCandidates,
+                subject: subject,
+                profileID: profileID,
+                registry: registry,
+                db: db
+            )
+        }
 
         currentResult = result
         isResearching = false
@@ -435,6 +454,65 @@ final class ResearchViewModel {
         case .discover: return 5
         case .all:      return 8
         }
+    }
+
+    /// Run MLX-driven prose-corpus extraction for the top-K
+    /// candidates and persist the resulting facts/narratives. Failure
+    /// per candidate is swallowed (logged) — the UI just shows the
+    /// candidates that did produce output. Re-entrant: the
+    /// `EvidenceFirewall.idempotencyKey` ensures duplicate rows
+    /// across runs are silently dropped by the INSERT OR IGNORE
+    /// path.
+    private func runProseExtraction(
+        candidates: [ProseCandidate],
+        subject: ResearchSubject,
+        profileID: String,
+        registry: SourceRegistry,
+        db: ProjectDatabase
+    ) async {
+        guard let proseSource = registry.source(for: "prose-corpus") as? ProseCorpusSource else {
+            return
+        }
+        // Only attempt extraction when the local reasoning model is
+        // loaded — calling reasonJSON without a loaded model returns
+        // nil per LocalInferenceService, but the user benefits from
+        // an honest activity-feed line instead of N quiet no-ops.
+        let modelReady = await LocalInferenceService.shared.isAvailable
+        guard modelReady else {
+            await ResearchActivityBus.shared.publish(
+                .pipelineStage(message: "Prose extraction skipped — local reasoning model not loaded.")
+            )
+            return
+        }
+        let extractor = ProseCorpusExtractor(llm: DefaultProseExtractionLLM())
+        await ResearchActivityBus.shared.publish(
+            .pipelineStage(message: "Extracting facts from \(candidates.count) prose page\(candidates.count == 1 ? "" : "s")…")
+        )
+        var savedFacts = 0
+        var savedNarratives = 0
+        for candidate in candidates {
+            guard let page = await proseSource.loadPageBody(forCandidate: candidate) else {
+                logger.warning("Prose extractor skipping missing page \(candidate.id)")
+                continue
+            }
+            let result = await extractor.extract(
+                candidate: candidate,
+                body: page.body,
+                subject: subject,
+                profileID: profileID
+            )
+            for fact in result.facts {
+                do { try db.savePendingFact(fact); savedFacts += 1 }
+                catch { logger.warning("Failed to save prose pending fact \(fact.id): \(error.localizedDescription)") }
+            }
+            for narrative in result.narratives {
+                do { try db.saveNarrativeFinding(narrative); savedNarratives += 1 }
+                catch { logger.warning("Failed to save prose narrative \(narrative.id): \(error.localizedDescription)") }
+            }
+        }
+        await ResearchActivityBus.shared.publish(
+            .pipelineStage(message: "Prose extraction complete — \(savedFacts) fact\(savedFacts == 1 ? "" : "s"), \(savedNarratives) narrative\(savedNarratives == 1 ? "" : "s") for review.")
+        )
     }
 
     /// Build a single `RecordQuery` for the prose source. The prose

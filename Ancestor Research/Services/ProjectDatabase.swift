@@ -2236,6 +2236,31 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// Insert a pending fact submitted by an external agent (MCP, the
+    /// prose-corpus extractor). Uses `INSERT OR IGNORE` so re-runs that
+    /// produce the same deterministic `id` (idempotency key) don't
+    /// duplicate rows. The MCP server has its own inline SQL for the
+    /// same table; this method is the typed Swift equivalent that
+    /// in-process agents like `ProseCorpusExtractor` go through.
+    func savePendingFact(_ fact: PendingFact) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO pending_facts
+                (id, profile_id, fact_kind, value_json, sources_json, review_status, created_at,
+                 source_url, source_title, evidence_text, reasoning, agent_id, verification_status)
+                VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    fact.id, fact.profileID, fact.field, fact.value,
+                    "{}",  // sources_json placeholder — Evidence Firewall reconstructs from source_url/title columns
+                    fact.submittedAt,
+                    fact.sourceURL, fact.sourceTitle,
+                    String(fact.evidenceText.prefix(200)),
+                    fact.reasoning, fact.agentID,
+                    fact.verificationStatus.rawValue,
+                ])
+        }
+    }
+
     func saveNarrativeFinding(_ finding: NarrativeFinding) throws {
         try dbQueue.write { db in
             try db.execute(sql: """
