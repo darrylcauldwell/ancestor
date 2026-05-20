@@ -86,6 +86,13 @@ nonisolated struct ResearchSubject: Sendable {
     var deathYearTo: Int?
     var gender: Gender?
     var region: Region?
+    /// Free-text death location from `Profile.deathLocation`. Used by the
+    /// scorer's geography gate to validate record-side evidence whose own
+    /// location data is missing — e.g. UK Probate Calendar records, which
+    /// often carry only registry name + grant type with no estate address.
+    /// First slice of the broader location-code plumbing (spec §23, prior
+    /// "Change 2"); structured `deathLocationCode` follows when that lands.
+    var deathLocation: String?
     var mode: ResearchMode
     var familyContext: FamilyContext?
     /// Chapman code of the subject's home county — drives per-subject scoring
@@ -194,6 +201,7 @@ nonisolated extension ResearchSubject {
             deathYearTo: profile.deathDate?.latest,
             gender: profile.gender,
             region: profile.birthLocation.map { .county($0) },
+            deathLocation: profile.deathLocation,
             mode: mode,
             familyContext: context,
             homeChapmanCode: homeChapmanCode

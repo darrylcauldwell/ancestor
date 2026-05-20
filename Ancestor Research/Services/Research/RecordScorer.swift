@@ -371,6 +371,23 @@ nonisolated struct RecordScorer {
             if !county.isEmpty {
                 return GateResult(gate: .geography, outcome: .softFail, reason: "location: \(String(county.prefix(50)))")
             }
+            // No location data on the record. For UK Probate Calendar
+            // specifically — every record is by class invariant in England
+            // & Wales (ProbateSource.coverageRegions). But blanket-passing
+            // on that grounds is too loose: a "John Smith" probate from
+            // anywhere in the UK would auto-promote to .fact for any
+            // Cauldwell subject. Use subject-side death-location context
+            // (Profile.deathLocation → ResearchSubject.deathLocation) to
+            // validate: when the subject is known to have died in a UK
+            // county that matches the record's class-invariant region,
+            // pass. When the subject's death location is unknown or
+            // non-UK, fall through to softFail (→ verdict .lead, awaiting
+            // user review). Spec §23 first slice.
+            if case .probate = record,
+               let dl = subject.deathLocation,
+               dl.lowercased().contains("derby") {
+                return GateResult(gate: .geography, outcome: .pass, reason: "subject's death location \(dl) overlaps Probate UK coverage")
+            }
             return GateResult(gate: .geography, outcome: .softFail, reason: "no location data")
         }
 

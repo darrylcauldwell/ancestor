@@ -176,7 +176,7 @@ struct RecordScorerProbateTests {
 
     // MARK: - Helpers
 
-    private func neutralSubject() -> ResearchSubject {
+    private func neutralSubject(deathLocation: String? = nil) -> ResearchSubject {
         ResearchSubject(
             surname: "Smith",
             givenName: "John",
@@ -185,6 +185,7 @@ struct RecordScorerProbateTests {
             birthYearTo: 1900,
             gender: .male,
             region: .englandAndWales,
+            deathLocation: deathLocation,
             mode: .extend
         )
     }
@@ -293,6 +294,46 @@ struct RecordScorerProbateTests {
             searchType: .probate
         )
         #expect(result.verdict != .fact)
+    }
+
+    @Test func probateWithoutAddressPassesWhenSubjectDeathLocationIsUK() {
+        // The deathLocation plumbing (Profile.deathLocation →
+        // ResearchSubject.deathLocation) lets the geography gate pass on
+        // subject-side context when the record has no address — the case
+        // for post-1996 UK probate grants where Nuxeo omits estate address.
+        // Subject's known UK death location compensates.
+        let result = RecordScorer.classify(
+            record: probateRecord(address: nil),
+            subject: neutralSubject(deathLocation: "Chesterfield, Derbyshire, England"),
+            searchType: .probate
+        )
+        #expect(result.verdict == .fact)
+    }
+
+    @Test func probateWithoutAddressOrSubjectDeathLocationStaysLead() {
+        // Without subject-side context (deathLocation nil) the gate must
+        // soft-fail rather than blanket-passing — otherwise a coincidental
+        // name+year match anywhere in the UK would auto-promote a wrong
+        // person's probate to `.fact`. Verdict downgrades to `.lead`.
+        let result = RecordScorer.classify(
+            record: probateRecord(address: nil),
+            subject: neutralSubject(deathLocation: nil),
+            searchType: .probate
+        )
+        #expect(result.verdict == .lead)
+    }
+
+    @Test func probateWithoutAddressFailsWhenSubjectDiedAbroad() {
+        // The leniency on missing record address only fires when subject's
+        // death location overlaps the source's coverage region (UK for
+        // Probate Calendar). A subject who died abroad shouldn't auto-promote
+        // on a UK probate match — falls through to softFail → lead.
+        let result = RecordScorer.classify(
+            record: probateRecord(address: nil),
+            subject: neutralSubject(deathLocation: "Sydney, Australia"),
+            searchType: .probate
+        )
+        #expect(result.verdict == .lead)
     }
 
     @Test func burialRecordPromotesOnDeathAxisMatch() {
