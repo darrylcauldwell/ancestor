@@ -139,15 +139,21 @@ actor FamilySearchSource: RecordSource, AuthenticatingSource {
 
     // MARK: - URL construction
 
-    nonisolated private static func buildSearchURL(query: RecordQuery, surname: String) -> URL {
+    nonisolated static func buildSearchURL(query: RecordQuery, surname: String) -> URL {
         // Mirrors the Python plugin's parameter shape. Per §10 open questions,
         // server-side `q.recordType` and `q.collectionId` filtering remain
         // untested — first cut sends only the parameters the Python plugin
         // confirmed working, and filters record-type client-side via
         // per-persona fact inspection in the parser.
+        //
+        // Per spec §4.3 the `~` modifier opts out of FamilySearch's default
+        // phonetic/Soundex matching on a name field. At .strict we send it
+        // on surname so Cauldwell stops matching Colwell/Caldwell/Calkins;
+        // given names stay phonetic so Ernest can still match Ernie etc.
+        let surnameValue = query.strictness == .strict ? "\(surname)~" : surname
         var components = URLComponents(url: searchURL, resolvingAgainstBaseURL: false)!
         var items: [URLQueryItem] = [
-            URLQueryItem(name: "q.surname", value: surname),
+            URLQueryItem(name: "q.surname", value: surnameValue),
             URLQueryItem(name: "count", value: "20"),
             URLQueryItem(name: "offset", value: "0"),
             URLQueryItem(name: "m.defaultFacets", value: "on"),
@@ -284,6 +290,16 @@ extension FamilySearchSource {
     /// is used to tag household-role context on each.
     nonisolated static func parseSearchResponse(data: Data, query: RecordQuery) throws -> [SourceRecord] {
         let envelope = try JSONDecoder().decode(SearchEnvelope.self, from: data)
+        // Acceptable surnames for this query. At .strict and .variant the set
+        // contains only the dispatcher-supplied surname. At .loose it is
+        // broadened to the registered transcription variants from
+        // surname-variants.json — but NOT the long tail of phonetic / Soundex
+        // matches FamilySearch widens to server-side (Colwell, Owens, Calkins
+        // …) which add noise without evidence. Household personas with
+        // non-matching surnames are still preserved as siblingsAndKin context
+        // on the principal's record; they just don't become standalone
+        // SourceRecord candidates for the subject's identity.
+        let allowedSurnames = Self.allowedSurnames(for: query)
         var out: [SourceRecord] = []
         for entry in envelope.entries ?? [] {
             let gx = entry.content?.gedcomx
@@ -305,6 +321,9 @@ extension FamilySearchSource {
             )
 
             for (i, persona) in persons.enumerated() {
+                if let allowed = allowedSurnames {
+                    guard let personaSurname = personaSurname(persona), allowed.contains(personaSurname) else { continue }
+                }
                 guard let record = buildRecord(
                     persona: persona,
                     personaIndex: i,
@@ -322,6 +341,77 @@ extension FamilySearchSource {
             }
         }
         return out
+    }
+
+    /// Extract a Find a Grave memorial id from a FAG-collection persona's
+    /// raw fields. Returns nil when the collection isn't Find a Grave, or
+    /// when no parseable ExtRecordId is present. Public for testing.
+    nonisolated static func extractFindAGraveMemorialID(
+        collectionTitle: String,
+        rawFields: [String: String]
+    ) -> Int? {
+        let title = collectionTitle.lowercased()
+        guard title.contains("find a grave") || title.contains("findagrave") else { return nil }
+        var candidates: [String?] = [
+            rawFields["field.ExtRecordId.original"],
+            rawFields["field.ExtRecordId.interpreted"],
+            rawFields["field.ExtRecordId"],
+        ]
+        // Fallback: when ExtRecordId is missing, the FS persona id itself
+        // often encodes the FAG memorial number (the aggregator pass-through
+        // retains the upstream identifier as the persona suffix, e.g.
+        // FS persona "p_304726395949" → FAG memorial 304726395949). Spec §22.
+        // If the stripped id doesn't resolve to a real memorial, the
+        // bridge's `fetchDetail` returns no results and we silently no-op —
+        // bounded cost (one extra HTTP per FAG-flavoured persona).
+        if let personaID = rawFields["personaID"] {
+            candidates.append(personaID.hasPrefix("p_") ? String(personaID.dropFirst(2)) : personaID)
+        }
+        for candidate in candidates {
+            guard let raw = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { continue }
+            if let id = Int(raw) { return id }
+            // FAG memorial IDs sometimes arrive prefixed (e.g. "memorial-12345").
+            // Pull the trailing run of digits as a fallback.
+            if let digits = raw.split(whereSeparator: { !$0.isNumber }).last, let id = Int(digits) {
+                return id
+            }
+        }
+        return nil
+    }
+
+    /// Acceptable surnames for `query`, lowercased. `nil` means "no surname
+    /// filter — accept everything" (when the query itself has no surname).
+    /// At .strict / .variant only the dispatcher-supplied surname is allowed.
+    /// At .loose, the registered transcription variants from
+    /// surname-variants.json are also allowed; phonetic / Soundex matches the
+    /// server returns beyond that set are rejected client-side.
+    nonisolated static func allowedSurnames(for query: RecordQuery) -> Set<String>? {
+        guard let want = query.surname?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines),
+              !want.isEmpty else { return nil }
+        switch query.strictness {
+        case .strict, .variant:
+            return [want]
+        case .loose:
+            var set: Set<String> = [want]
+            for variant in SurnameVariants.shared.variants(of: want) {
+                set.insert(variant)
+            }
+            return set
+        }
+    }
+
+    /// Lowercased surname for a persona, preferring the structured Surname
+    /// part and falling back to the last whitespace-separated token of
+    /// `fullText` when the parts array is absent.
+    nonisolated private static func personaSurname(_ persona: GxPerson) -> String? {
+        let nameForm = persona.names?.first?.nameForms?.first
+        if let surname = nameForm?.parts?.first(where: { ($0.type ?? "").hasSuffix("/Surname") })?.value {
+            return surname.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let full = nameForm?.fullText, let last = full.split(separator: " ").last {
+            return String(last).lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return nil
     }
 
     /// Decide the record's household role for each persona based on the
@@ -488,12 +578,23 @@ extension FamilySearchSource {
                 spouseSurname: nil
             ))
         case .burial:
+            // When this persona came via the FamilySearch aggregator on a
+            // Find a Grave collection, the GEDCOMx fields carry the FAG
+            // memorial id in `ExtRecordId`. Surface it as `memorialID` so
+            // the pipeline's FAG bridge (ResearchPipeline.enrichFagBridge,
+            // spec §22) can schedule a follow-up FindAGraveSource.fetchDetail
+            // and mine the inscription / bio for the death year that the FS
+            // search response doesn't carry.
+            let memorialID = Self.extractFindAGraveMemorialID(
+                collectionTitle: collectionTitle,
+                rawFields: rawFields
+            )
             return .burial(BurialRecord(
                 common: common,
                 deathDate: nil, deathYear: nil,
                 birthDate: nil, birthYear: nil,
                 burialLocation: place, cemetery: nil,
-                memorialID: nil, inscription: nil, bio: nil,
+                memorialID: memorialID, inscription: nil, bio: nil,
                 isVeteran: false
             ))
         case .marriage:
