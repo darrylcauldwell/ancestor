@@ -260,6 +260,11 @@ struct SearchDispatcher {
                 )
                 districtCodes = entries.map(\.code)
             }
+            // Spouse surname only meaningful for marriage searches —
+            // the s_surname URL field powers "Cauldwell × Holmes"-style
+            // marriage queries. For births/deaths it's ignored by the
+            // source; harmless to pass through. Spec §23.
+            let spouseSurnameForBMD: String? = (recordType == .marriage) ? subject.familyContext?.spouseSurname : nil
             return districtCodes.map { code in
                 RecordQuery(
                     surname: subject.surname,
@@ -273,7 +278,7 @@ struct SearchDispatcher {
                         districtCode: code,
                         wildcardSurname: false,
                         motherSurname: nil,
-                        spouseSurname: nil
+                        spouseSurname: spouseSurnameForBMD
                     ))
                 )
             }
