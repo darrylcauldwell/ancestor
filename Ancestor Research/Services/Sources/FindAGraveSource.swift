@@ -119,18 +119,21 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
                 return .results([])
             }
 
-            var searchHeaders: [String: String] = [
-                "User-Agent": Self.userAgent,
-                "X-Requested-With": "XMLHttpRequest",
-                "Accept": "application/json, text/html, */*",
-            ]
-            if let cookieHeader = await ensureCloudflareClearance() {
-                searchHeaders["Cookie"] = cookieHeader
+            // All FAG fetches go through WKWebView (spec §22). URLSession's
+            // TLS fingerprint differs from Safari's and Cloudflare scores
+            // it as a bot; mixing surfaces is structurally fragile because
+            // cookies captured by WKWebView don't carry the TLS profile
+            // URLSession then re-presents. WKWebView IS Safari, so the
+            // surface is consistent end-to-end.
+            //
+            // For the search endpoint (ajax=true → JSON response),
+            // WKWebView's built-in JSON viewer renders the response into
+            // the DOM; `document.body.textContent` extracts the raw JSON
+            // text which parseSearchResults can consume directly.
+            let jsonText = try await rateLimitedRequest {
+                try await FindAGraveBrowserFetcher.fetchText(url: url)
             }
-            let data = try await rateLimitedRequest {
-                try await self.http.get(url: url, headers: searchHeaders)
-            }
-
+            let data = Data(jsonText.utf8)
             let results = Self.parseSearchResults(data)
             lastSuccessfulSearch = Date()
             lastError = nil
@@ -185,15 +188,11 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         }
 
         do {
-            var detailHeaders = Self.browserHeaders
-            if let cookieHeader = await ensureCloudflareClearance() {
-                detailHeaders["Cookie"] = cookieHeader
-            }
-            let data = try await rateLimitedRequest {
-                try await self.http.get(url: url, headers: detailHeaders)
-            }
-            guard let html = String(data: data, encoding: .utf8) else {
-                return .unavailable(reason: "Invalid encoding in response")
+            // All FAG fetches via WKWebView — see search() for rationale.
+            // Detail pages are HTML; `documentElement.outerHTML` gives us
+            // the schema.org markup parseMemorialDetail expects.
+            let html = try await rateLimitedRequest {
+                try await FindAGraveBrowserFetcher.fetchHTML(url: url)
             }
             if let record = Self.parseMemorialDetail(html, memorialID: memorialID) {
                 return .results([record])
@@ -237,7 +236,7 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
     /// caller synchronously advances `nextRequestSlot` so 12+ concurrent
     /// search()/fetchDetail() calls get unique slots instead of all reading
     /// the same stale `lastRequestTime` and waking simultaneously.
-    private func rateLimitedRequest(_ operation: () async throws -> Data) async throws -> Data {
+    private func rateLimitedRequest<T>(_ operation: () async throws -> T) async throws -> T {
         let scheduledFor = reserveNextSlot()
         let now = ContinuousClock.now
         if scheduledFor > now {
