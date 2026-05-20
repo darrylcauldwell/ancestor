@@ -207,7 +207,19 @@ final class FindAGraveBrowserFetcher: NSObject, WKNavigationDelegate {
 
     private func handleDidFinish() async {
         guard !finished, let webView else { return }
-        // Two cases at didFinish:
+        // For text-mode fetches (the AJAX JSON endpoint), WKWebView's
+        // built-in JSON viewer renders the response into a DOM that has
+        // no meaningful `document.title` — empty title would otherwise
+        // fail the `isLikelyRealPage` gate and we'd time out waiting for
+        // a real-page-title that never comes. Extract immediately on
+        // didFinish for text mode; for HTML mode, keep the title gate
+        // because Cloudflare's challenge page also returns text but with
+        // title "Just a moment...".
+        if extractMode == .text {
+            await extractAndFinish()
+            return
+        }
+        // HTML mode below. Two cases at didFinish:
         // (a) The real page loaded directly (no challenge served). We can
         //     extract immediately.
         // (b) Cloudflare's challenge page loaded. We need to wait for the

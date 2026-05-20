@@ -101,14 +101,19 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
             if let firstGiven = Self.firstGivenName(query.givenName), !firstGiven.isEmpty {
                 params["firstname"] = firstGiven
             }
-            if let yearFrom = query.yearFrom {
-                params["birthyear"] = String(yearFrom)
-                params["birthyearfilter"] = String(fagParams.yearRangeWidth)
-            }
-            if let yearTo = query.yearTo {
-                params["deathyear"] = String(yearTo)
-                params["deathyearfilter"] = String(fagParams.yearRangeWidth)
-            }
+            // Year filtering deliberately omitted. The previous code mapped
+            // `query.yearFrom` → `birthyear` and `query.yearTo` → `deathyear`,
+            // but those are the bounds of a single search-window axis (e.g.
+            // for a burial record type, both refer to death year ±2), not
+            // separate birth/death year values. For Ernest the query
+            // produced birthyear=2015/deathyear=2019 — a 4-year-old child,
+            // returning zero memorial hits.
+            //
+            // Until FAG gets proper subject-side birth+death year plumbing
+            // via FindAGraveParams (§23 work), name-and-location search is
+            // the correct narrowing — uncommon UK surnames like Cauldwell
+            // return manageable result sets without year filters, and the
+            // scorer's date gate catches any wrong-year hits downstream.
             if let location = fagParams.location, !location.isEmpty {
                 params["location"] = location
             }
