@@ -214,6 +214,27 @@ nonisolated struct ProseCorpusAdder {
         let crawler = ProseCorpusCrawler(configuration: config, storage: storage, http: http)
         let report = await crawler.crawl()
 
+        // Index refresh — runs over every markdown file the crawler
+        // just wrote, content-hash-skipping unchanged pages. Spec
+        // §8.2 idempotency means re-running sync against a clean
+        // corpus does zero index writes. Failure here is non-fatal:
+        // the crawler's pages are on disk; the next sync can retry
+        // indexing without re-crawling.
+        do {
+            let index = try ProseCorpusIndex(path: storage.corpusDirectory.appendingPathComponent("index.sqlite").path)
+            let indexer = ProseCorpusIndexer(
+                storage: storage,
+                index: index,
+                gazetteer: LocationGazetteer.shared.all(),
+                now: now
+            )
+            _ = try indexer.refresh()
+        } catch {
+            // Surface to logs; manifest update still happens so the
+            // user sees an updated last_synced_at and page_count.
+            Self.logger.error("Index refresh failed for \(sourceID, privacy: .public): \(String(describing: error), privacy: .public)")
+        }
+
         // Update manifest post-crawl. `firstBuiltAt` is set on the
         // first sync that produced at least one page; afterwards it's
         // immutable. `lastSyncedAt` updates every sync.
