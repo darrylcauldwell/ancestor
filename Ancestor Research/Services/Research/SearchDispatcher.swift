@@ -375,6 +375,36 @@ struct SearchDispatcher {
             }
             return []
 
+        case "familysearch":
+            // FamilySearch accepts a wide axis set — surname/given plus
+            // birth/death place, spouse surname+given, and father/mother
+            // surname+given. Each axis tightens the search. Subject-side
+            // values come from Profile + linked-relative profiles via
+            // FamilyContext; nil-defaults safely skip parameters we
+            // can't fill. Spec §23.
+            let context = subject.familyContext
+            return [RecordQuery(
+                surname: subject.surname,
+                givenName: subject.givenName,
+                recordType: recordType,
+                yearFrom: yearRange.from,
+                yearTo: yearRange.to,
+                gender: subject.gender,
+                region: subject.region,
+                sourceParams: .generic,
+                birthPlace: subject.region.flatMap { region in
+                    if case .county(let name) = region { return name }
+                    return nil
+                },
+                deathPlace: subject.deathLocation,
+                spouseSurname: context?.spouseSurname,
+                spouseGivenName: context?.spouseGivenName,
+                fatherSurname: context?.fatherSurname,
+                fatherGivenName: context?.fatherGivenName,
+                motherSurname: context?.motherSurname,
+                motherGivenName: context?.motherGivenName
+            )]
+
         default:
             // Generic single query for FindAGrave and others
             return [RecordQuery(

@@ -186,6 +186,38 @@ actor FamilySearchSource: RecordSource, AuthenticatingSource {
                 items.append(URLQueryItem(name: "q.anyDate.to", value: String(to)))
             }
         }
+
+        // Family-context axes (spec §23). Each is optional on RecordQuery
+        // and only emitted when the dispatcher populated it from subject
+        // + FamilyContext. Every additional axis tightens the search:
+        // q.birthLikePlace narrows from "Cauldwells in the world" to
+        // "Cauldwells in Derbyshire"; q.spouseSurname can find Ernest's
+        // marriage in one query without enumerating all his year ranges.
+        if let p = query.birthPlace, !p.isEmpty {
+            items.append(URLQueryItem(name: "q.birthLikePlace", value: p))
+        }
+        if let p = query.deathPlace, !p.isEmpty {
+            items.append(URLQueryItem(name: "q.deathLikePlace", value: p))
+        }
+        if let s = query.spouseSurname, !s.isEmpty {
+            items.append(URLQueryItem(name: "q.spouseSurname", value: s))
+        }
+        if let g = query.spouseGivenName, !g.isEmpty {
+            items.append(URLQueryItem(name: "q.spouseGivenName", value: g))
+        }
+        if let s = query.fatherSurname, !s.isEmpty {
+            items.append(URLQueryItem(name: "q.fatherSurname", value: s))
+        }
+        if let g = query.fatherGivenName, !g.isEmpty {
+            items.append(URLQueryItem(name: "q.fatherGivenName", value: g))
+        }
+        if let s = query.motherSurname, !s.isEmpty {
+            items.append(URLQueryItem(name: "q.motherSurname", value: s))
+        }
+        if let g = query.motherGivenName, !g.isEmpty {
+            items.append(URLQueryItem(name: "q.motherGivenName", value: g))
+        }
+
         components.queryItems = items
         return components.url!
     }

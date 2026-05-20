@@ -43,6 +43,69 @@ struct FamilySearchSourceTests {
         #expect(surnameItem == "Caldwell")
     }
 
+    // MARK: - Family-context axes (spec §23)
+
+    @Test func emitsAllFamilyContextAxesWhenPopulated() {
+        // When all axes are populated, every corresponding q.* param
+        // appears in the URL. Single test covers the eight new
+        // parameters — emission is mechanical per-axis so one positive
+        // case + one negative is enough to pin the contract.
+        let q = RecordQuery(
+            surname: "Cauldwell", givenName: "Ernest",
+            recordType: .death,
+            yearFrom: nil, yearTo: nil,
+            gender: .male, region: nil,
+            sourceParams: .generic,
+            strictness: .strict,
+            birthPlace: "Loscoe, Derbyshire",
+            deathPlace: "Chesterfield, Derbyshire",
+            spouseSurname: "Wheeldon",
+            spouseGivenName: "Kathleen",
+            fatherSurname: "Cauldwell",
+            fatherGivenName: "George",
+            motherSurname: "Ward",
+            motherGivenName: "Mary"
+        )
+        let url = FamilySearchSource.buildSearchURL(query: q, surname: "Cauldwell")
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let byName = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value) })
+        #expect(byName["q.birthLikePlace"] == "Loscoe, Derbyshire")
+        #expect(byName["q.deathLikePlace"] == "Chesterfield, Derbyshire")
+        #expect(byName["q.spouseSurname"] == "Wheeldon")
+        #expect(byName["q.spouseGivenName"] == "Kathleen")
+        #expect(byName["q.fatherSurname"] == "Cauldwell")
+        #expect(byName["q.fatherGivenName"] == "George")
+        #expect(byName["q.motherSurname"] == "Ward")
+        #expect(byName["q.motherGivenName"] == "Mary")
+    }
+
+    @Test func familyContextAxesOmittedWhenNil() {
+        // When axes are nil (the default for any subject without a
+        // populated FamilyContext / linked relatives / known locations),
+        // the q.* params don't appear at all. Avoids emitting empty
+        // q.spouseSurname= that the server might interpret as
+        // "search for records with no spouse".
+        let q = RecordQuery(
+            surname: "Cauldwell", givenName: "Ernest",
+            recordType: .death,
+            yearFrom: nil, yearTo: nil,
+            gender: .male, region: nil,
+            sourceParams: .generic,
+            strictness: .strict
+        )
+        let url = FamilySearchSource.buildSearchURL(query: q, surname: "Cauldwell")
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let names = Set(items.map(\.name))
+        #expect(!names.contains("q.birthLikePlace"))
+        #expect(!names.contains("q.deathLikePlace"))
+        #expect(!names.contains("q.spouseSurname"))
+        #expect(!names.contains("q.spouseGivenName"))
+        #expect(!names.contains("q.fatherSurname"))
+        #expect(!names.contains("q.fatherGivenName"))
+        #expect(!names.contains("q.motherSurname"))
+        #expect(!names.contains("q.motherGivenName"))
+    }
+
     @Test func givenNameStaysPhonetic() {
         // Given names keep server-side phonetics on at every strictness so
         // Ernest can still match Ernie etc. Only surname gets the `~`.

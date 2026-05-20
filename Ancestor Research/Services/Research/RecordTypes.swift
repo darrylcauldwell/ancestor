@@ -209,6 +209,16 @@ nonisolated enum SourceRecord: Identifiable, Sendable, Codable {
 // MARK: - Record Query
 
 /// Search parameters — source adapters extract what they need.
+///
+/// Common axes (surname, given, year range, gender, region) sit at the
+/// top level so any source can read them. Source-specific configuration
+/// (FreeBMD district code, FAG year-range width, etc.) lives in
+/// `sourceParams`. The trailing block of optional family-context axes
+/// (birthPlace, deathPlace, spouse/parent surnames + given names) lets
+/// the dispatcher plumb tree-side context into source queries — FS
+/// reads `q.spouseSurname` / `q.fatherSurname`/etc., FreeBMD reads
+/// `motherSurname`/`spouseSurname` via its own params struct (populated
+/// from the same source). Spec §23.
 nonisolated struct RecordQuery: Sendable {
     let surname: String?
     let givenName: String?
@@ -225,6 +235,20 @@ nonisolated struct RecordQuery: Sendable {
     /// empty-then-broaden flow.
     let strictness: SearchStrictness
 
+    // MARK: Family-context axes (spec §23)
+    // All optional. Source URL builders cherry-pick what they understand —
+    // FS uses all of them, FreeBMD uses spouse+mother surname, FAG uses
+    // birthPlace as `location`. nil means "axis not available for this
+    // subject" (e.g. parents not on the tree).
+    let birthPlace: String?
+    let deathPlace: String?
+    let spouseSurname: String?
+    let spouseGivenName: String?
+    let fatherSurname: String?
+    let fatherGivenName: String?
+    let motherSurname: String?
+    let motherGivenName: String?
+
     /// Custom init so `strictness` can be defaulted without losing the
     /// memberwise calling convention (Swift drops defaulted `let` fields
     /// from the synthesised init).
@@ -237,7 +261,15 @@ nonisolated struct RecordQuery: Sendable {
         gender: Gender?,
         region: Region?,
         sourceParams: SourceQueryParams,
-        strictness: SearchStrictness = .strict
+        strictness: SearchStrictness = .strict,
+        birthPlace: String? = nil,
+        deathPlace: String? = nil,
+        spouseSurname: String? = nil,
+        spouseGivenName: String? = nil,
+        fatherSurname: String? = nil,
+        fatherGivenName: String? = nil,
+        motherSurname: String? = nil,
+        motherGivenName: String? = nil
     ) {
         self.surname = surname
         self.givenName = givenName
@@ -248,6 +280,14 @@ nonisolated struct RecordQuery: Sendable {
         self.region = region
         self.sourceParams = sourceParams
         self.strictness = strictness
+        self.birthPlace = birthPlace
+        self.deathPlace = deathPlace
+        self.spouseSurname = spouseSurname
+        self.spouseGivenName = spouseGivenName
+        self.fatherSurname = fatherSurname
+        self.fatherGivenName = fatherGivenName
+        self.motherSurname = motherSurname
+        self.motherGivenName = motherGivenName
     }
 
     /// Builder helpers for the dispatcher's strictness ladder (Change 5).
@@ -256,7 +296,11 @@ nonisolated struct RecordQuery: Sendable {
         RecordQuery(
             surname: surname, givenName: givenName, recordType: recordType,
             yearFrom: yearFrom, yearTo: yearTo, gender: gender, region: region,
-            sourceParams: sourceParams, strictness: strictness
+            sourceParams: sourceParams, strictness: strictness,
+            birthPlace: birthPlace, deathPlace: deathPlace,
+            spouseSurname: spouseSurname, spouseGivenName: spouseGivenName,
+            fatherSurname: fatherSurname, fatherGivenName: fatherGivenName,
+            motherSurname: motherSurname, motherGivenName: motherGivenName
         )
     }
 
@@ -264,7 +308,11 @@ nonisolated struct RecordQuery: Sendable {
         RecordQuery(
             surname: surname, givenName: givenName, recordType: recordType,
             yearFrom: yearFrom, yearTo: yearTo, gender: gender, region: region,
-            sourceParams: sourceParams, strictness: strictness
+            sourceParams: sourceParams, strictness: strictness,
+            birthPlace: birthPlace, deathPlace: deathPlace,
+            spouseSurname: spouseSurname, spouseGivenName: spouseGivenName,
+            fatherSurname: fatherSurname, fatherGivenName: fatherGivenName,
+            motherSurname: motherSurname, motherGivenName: motherGivenName
         )
     }
 }

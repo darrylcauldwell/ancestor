@@ -103,12 +103,29 @@ nonisolated struct ResearchSubject: Sendable {
 }
 
 /// Known family members for the family context gate.
+///
+/// Split given/surname fields exist alongside the legacy `…Name` display
+/// strings because most source query APIs accept surname and given name
+/// as separate parameters (FamilySearch `q.fatherSurname`/`q.motherSurname`,
+/// FreeBMD's `motherSurname`/`spouseSurname` params, FAG's
+/// `firstname`+`lastname`). The display strings stay for any consumer
+/// that wants the formatted form.
+///
+/// For `motherSurname`: falls back to the subject's `mothersMaidenName`
+/// when the mother isn't a linked profile but the MMN is recorded on
+/// the subject (a common case for early-19th-century work where the
+/// mother's identity is partially known via the subject's birth-index).
 nonisolated struct FamilyContext: Sendable {
     let spouseName: String?
     let spouseSurname: String?
+    let spouseGivenName: String?
     let childNames: [String]
     let fatherName: String?
+    let fatherSurname: String?
+    let fatherGivenName: String?
     let motherName: String?
+    let motherSurname: String?
+    let motherGivenName: String?
 }
 
 nonisolated extension ResearchSubject {
@@ -164,12 +181,23 @@ nonisolated extension ResearchSubject {
         let children = snapshot.childrenOf(profile.id)
         let parents = snapshot.parentsOf(profile.id)
 
+        let father = parents.first(where: { $0.gender == .male })
+        let mother = parents.first(where: { $0.gender == .female })
         let context = FamilyContext(
             spouseName: spouses.first?.displayName,
             spouseSurname: spouses.first?.lastName,
+            spouseGivenName: spouses.first?.firstName,
             childNames: children.map(\.displayName),
-            fatherName: parents.first(where: { $0.gender == .male })?.displayName,
-            motherName: parents.first(where: { $0.gender == .female })?.displayName
+            fatherName: father?.displayName,
+            fatherSurname: father?.lastName,
+            fatherGivenName: father?.firstName,
+            motherName: mother?.displayName,
+            // Mother's surname falls back to the subject's MMN when the
+            // mother isn't a linked profile but is recorded via the
+            // birth-index entry on the subject itself — common for early
+            // generations where mother's identity is partial.
+            motherSurname: mother?.lastName ?? profile.mothersMaidenName,
+            motherGivenName: mother?.firstName
         )
 
         // Birth window — hard date wins when present. When absent (common
