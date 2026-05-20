@@ -288,6 +288,19 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         // Plot
         let plot = extractDivContent("plotValueLabel", from: html)
 
+        // Structured itemprop dates first; fall back to mining inscription
+        // and bio when a memorial omits the schema.org markup but carries
+        // dates in the free-text inscription ("1919 — 2017") or biography.
+        // Without this fallback, otherwise-perfect name+place matches can't
+        // be promoted past the 4-gate scorer's year axis.
+        let itempropBirthYear = ScoringRules.extractYear(from: birthDate ?? "")
+        let itempropDeathYear = ScoringRules.extractYear(from: deathDate ?? "")
+        let (textBirthYear, textDeathYear): (Int?, Int?) = (itempropBirthYear == nil || itempropDeathYear == nil)
+            ? extractYearsFromMemorialText([inscription, bio].compactMap { $0 }.joined(separator: "\n"))
+            : (nil, nil)
+        let finalBirthYear = itempropBirthYear ?? textBirthYear
+        let finalDeathYear = itempropDeathYear ?? textDeathYear
+
         let common = RecordCommon(
             id: "findagrave_\(memorialID)",
             sourceID: "findagrave",
@@ -305,9 +318,9 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         return .burial(BurialRecord(
             common: common,
             deathDate: deathDate,
-            deathYear: ScoringRules.extractYear(from: deathDate ?? ""),
+            deathYear: finalDeathYear,
             birthDate: birthDate,
-            birthYear: ScoringRules.extractYear(from: birthDate ?? ""),
+            birthYear: finalBirthYear,
             burialLocation: locParts.joined(separator: ", "),
             cemetery: cemetery,
             memorialID: memorialID,
@@ -315,6 +328,86 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
             bio: bio,
             isVeteran: false  // not available from detail page
         ))
+    }
+
+    /// Extract birth and death years from free-text memorial inscription or
+    /// biography. Find a Grave memorials sometimes lack schema.org itemprop
+    /// dates but carry dates in the inscription ("1919 — 2017") or bio
+    /// ("born 18 August 1919, died 6 January 2017"). Best-effort fallback;
+    /// returns (nil, nil) when no plausible year can be extracted.
+    ///
+    /// Strategy, in priority order — first hit wins per axis:
+    ///   1. Explicit "born/birth ... YEAR" → birth; "died/death ... YEAR" → death.
+    ///   2. A year range like "YEAR-YEAR" / "YEAR — YEAR" / "YEAR to YEAR"
+    ///      with the earlier year as birth and the later as death.
+    ///   3. Two or more distinct years in the text — earliest → birth,
+    ///      latest → death.
+    ///   4. A lone year is treated as the death year (memorials emphasise it).
+    nonisolated static func extractYearsFromMemorialText(_ text: String) -> (birth: Int?, death: Int?) {
+        guard !text.isEmpty else { return (nil, nil) }
+        let normalised = text
+            .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(of: "–", with: "-")
+
+        var birth: Int? = nil
+        var death: Int? = nil
+
+        // (1) Explicit prefixes — match a year within ~30 chars of the keyword
+        // so "born in 1919" / "died 6 January 2017" both hit.
+        if let m = firstYear(matching: #"\b(?:born|birth)\b[^\n.;]{0,30}?\b(1[0-9]\d{2}|20[0-2]\d)\b"#, in: normalised) {
+            birth = m
+        }
+        if let m = firstYear(matching: #"\b(?:died|death|deceased)\b[^\n.;]{0,30}?\b(1[0-9]\d{2}|20[0-2]\d)\b"#, in: normalised) {
+            death = m
+        }
+
+        // (2) Year range — "1919-2017", "1919 — 2017", "1919 to 2017".
+        if birth == nil || death == nil {
+            let rangePattern = #"\b(1[0-9]\d{2}|20[0-2]\d)\s*(?:-|to)\s*(1[0-9]\d{2}|20[0-2]\d)\b"#
+            if let regex = try? NSRegularExpression(pattern: rangePattern, options: .caseInsensitive),
+               let match = regex.firstMatch(in: normalised, range: NSRange(normalised.startIndex..., in: normalised)),
+               let r1 = Range(match.range(at: 1), in: normalised),
+               let r2 = Range(match.range(at: 2), in: normalised),
+               let a = Int(normalised[r1]), let b = Int(normalised[r2]),
+               a <= b {
+                if birth == nil { birth = a }
+                if death == nil { death = b }
+            }
+        }
+
+        // (3) and (4) — distinct years scanned out of any free-text remainder.
+        if birth == nil || death == nil {
+            let years = allYears(in: normalised)
+            if years.count >= 2 {
+                if birth == nil { birth = years.min() }
+                if death == nil { death = years.max() }
+            } else if let only = years.first, death == nil {
+                death = only
+            }
+        }
+
+        // Cross-check — a death year before a birth year is nonsense and
+        // probably means we picked up unrelated dates from bio prose
+        // (e.g. "served WWII 1939-1945" elsewhere in a long biography).
+        if let b = birth, let d = death, d < b {
+            return (nil, nil)
+        }
+        return (birth, death)
+    }
+
+    nonisolated private static func firstYear(matching pattern: String, in text: String) -> Int? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let r = Range(match.range(at: 1), in: text) else { return nil }
+        return Int(text[r])
+    }
+
+    nonisolated private static func allYears(in text: String) -> [Int] {
+        let pattern = #"\b(1[0-9]\d{2}|20[0-2]\d)\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let nsText = text as NSString
+        let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        return matches.compactMap { Int(nsText.substring(with: $0.range)) }
     }
 
     // MARK: - HTML Parsing Helpers
