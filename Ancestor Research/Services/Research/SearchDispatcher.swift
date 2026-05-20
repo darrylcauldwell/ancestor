@@ -260,11 +260,24 @@ struct SearchDispatcher {
                 )
                 districtCodes = entries.map(\.code)
             }
-            // Spouse surname only meaningful for marriage searches —
-            // the s_surname URL field powers "Cauldwell × Holmes"-style
-            // marriage queries. For births/deaths it's ignored by the
-            // source; harmless to pass through. Spec §23.
+            // FreeBMD's s_surname field is overloaded per record type
+            // (see FreeBMDSource): spouse surname for marriages,
+            // mother's maiden name for births, unused for deaths.
+            // Dispatcher fills the correct axis from FamilyContext.
+            //
+            // MMN gating: GRO birth indexes only carry mother's maiden
+            // name from Sep 1911. Filtering pre-Sep-1911 births by MMN
+            // returns zero hits because the column is empty for that
+            // era. Gate on yearFrom >= 1912 so we only attach MMN when
+            // the entire year window is in the MMN era (1911 itself is
+            // ambiguous — Q1–Q2 lacks MMN, Q3–Q4 has it). Spec §23.
             let spouseSurnameForBMD: String? = (recordType == .marriage) ? subject.familyContext?.spouseSurname : nil
+            let spouseGivenForBMD: String? = (recordType == .marriage) ? subject.familyContext?.spouseGivenName : nil
+            let motherSurnameForBMD: String? = {
+                guard recordType == .birth else { return nil }
+                guard let yf = yearRange.from, yf >= 1912 else { return nil }
+                return subject.familyContext?.motherSurname
+            }()
             return districtCodes.map { code in
                 RecordQuery(
                     surname: subject.surname,
@@ -277,9 +290,10 @@ struct SearchDispatcher {
                     sourceParams: .freeBMD(FreeBMDParams(
                         districtCode: code,
                         wildcardSurname: false,
-                        motherSurname: nil,
+                        motherSurname: motherSurnameForBMD,
                         spouseSurname: spouseSurnameForBMD
-                    ))
+                    )),
+                    spouseGivenName: spouseGivenForBMD
                 )
             }
 
@@ -410,8 +424,34 @@ struct SearchDispatcher {
                 motherGivenName: context?.motherGivenName
             )]
 
+        case "findagrave":
+            // FAG's `location` query param filters memorials by burial
+            // location free-text (state / town / cemetery). deathLocation
+            // is the closest semantic match for where someone is buried;
+            // fall back to region (county name from birthLocation) when
+            // death location is unknown. Spec §23.
+            let fagLocation: String? = {
+                if let dl = subject.deathLocation, !dl.isEmpty { return dl }
+                if case .county(let name) = subject.region { return name }
+                return nil
+            }()
+            return [RecordQuery(
+                surname: subject.surname,
+                givenName: subject.givenName,
+                recordType: recordType,
+                yearFrom: yearRange.from,
+                yearTo: yearRange.to,
+                gender: subject.gender,
+                region: subject.region,
+                sourceParams: .findAGrave(FindAGraveParams(
+                    yearRangeWidth: 5,
+                    location: fagLocation
+                ))
+            )]
+
         default:
-            // Generic single query for FindAGrave and others
+            // Generic single query for Probate, Wirksworth, and any
+            // future sources without dispatcher-side custom axes.
             return [RecordQuery(
                 surname: subject.surname,
                 givenName: subject.givenName,

@@ -86,6 +86,30 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             // marker — the surname has already been substituted to a variant
             // before arriving here, so the variant probe is exact-match.
             let fuzzyFlag = query.strictness == .loose ? "1" : "0"
+
+            // Sex filter: FreeCen's select takes "M"/"F"/"" — narrows
+            // common-name results (Smith, Jones) by ~50%. Unknown/other
+            // genders fall through to empty so we don't accidentally
+            // erase legitimate hits. Spec §23.
+            let sexValue: String = {
+                switch query.gender {
+                case .male: return "M"
+                case .female: return "F"
+                default: return ""
+                }
+            }()
+
+            // FreeCenParams.birthYearRange narrows the census-year sweep
+            // by birth year. Without it FreeCen returns every census-year
+            // record of every "John Smith" — useless for disambiguation.
+            // start_year / end_year are inclusive integer years; absent
+            // params leave them blank for backwards compatibility.
+            let (startYear, endYear): (String, String) = {
+                guard case .freeCen(let p) = query.sourceParams,
+                      let range = p.birthYearRange else { return ("", "") }
+                return (String(range.lowerBound), String(range.upperBound))
+            }()
+
             let fields: [String: String] = [
                 "utf8": "✓",
                 "authenticity_token": csrfToken ?? "",
@@ -95,9 +119,9 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
                 "search_query[fuzzy]": fuzzyFlag,
                 "search_query[search_nearby_places]": "0",
                 "search_query[disabled]": "0",
-                "search_query[start_year]": "",
-                "search_query[end_year]": "",
-                "search_query[sex]": "",
+                "search_query[start_year]": startYear,
+                "search_query[end_year]": endYear,
+                "search_query[sex]": sexValue,
                 "search_query[marital_status]": "",
                 "search_query[occupation]": "",
                 "search_query[chapman_codes][]": chapmanCode,

@@ -120,11 +120,29 @@ actor FreeBMDSource: RecordSource {
             default: "All"
             }
 
-            // Pull source-specific params. `spouseSurname` powers marriage
-            // enrichment — "Cauldwell × Holmes" marriages get found by setting
-            // surname=Cauldwell and s_surname=Holmes (or vice versa).
+            // Pull source-specific params. The wire field `s_surname` is
+            // overloaded by record type: spouse surname for marriages
+            // (Cauldwell × Holmes), mother's maiden name for births
+            // (post-Sep-1911 only — pre-1912 GRO indexes don't carry MMN),
+            // and unused for deaths. Dispatcher decides which axis to fill
+            // and only one is non-nil for any given record type.
             let params: FreeBMDParams? = {
                 if case .freeBMD(let p) = query.sourceParams { return p } else { return nil }
+            }()
+            let sSurnameValue: String = {
+                switch query.recordType {
+                case .marriage: return params?.spouseSurname ?? ""
+                case .birth:    return params?.motherSurname ?? ""
+                default:        return ""
+                }
+            }()
+            // s_given: spouse first-given for marriages (Cauldwell × Mary
+            // Holmes narrows tighter than just × Holmes). FreeBMD's column
+            // is first-given only — same first-token rule as `given`.
+            // Unused for births/deaths.
+            let sGivenValue: String = {
+                guard query.recordType == .marriage else { return "" }
+                return Self.firstGivenName(query.spouseGivenName) ?? ""
             }()
             // Strictness: .loose enables FreeBMD's Phonetic flag for
             // server-side soundex matching. .variant is the dispatcher's
@@ -151,8 +169,8 @@ actor FreeBMDSource: RecordSource {
                 "type": recordType,
                 "surname": surname,
                 "given": Self.firstGivenName(query.givenName) ?? "",
-                "s_surname": params?.spouseSurname ?? "",
-                "s_given": "",
+                "s_surname": sSurnameValue,
+                "s_given": sGivenValue,
                 "sq": "1",
                 "start": query.yearFrom.map(String.init) ?? "",
                 "eq": "4",
