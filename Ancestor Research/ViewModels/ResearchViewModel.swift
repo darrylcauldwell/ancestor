@@ -296,7 +296,14 @@ final class ResearchViewModel {
             }
 
             let leadStore = LeadStore(db: db)
+            // Profile-aware lead filter: rejects death-shaped records
+            // for living profiles and namesake leads outside the
+            // precise-birth-year window. See LeadFilter for rules.
+            let leadFilter = snapshot.profiles[profileID].map(LeadFilter.deriving(from:))
             for scored in result.leads {
+                if let filter = leadFilter, !filter.accepts(scored) {
+                    continue
+                }
                 _ = try? await leadStore.createFromScoredRecord(scored, profileID: profileID)
             }
             for member in result.householdMembers {

@@ -170,12 +170,21 @@ final class RunRequestWatcher {
         )
 
         let result = await pipeline.research(subject: subject, config: config)
+        // Build a lead filter from the subject profile (when present)
+        // so the persistence step can reject obviously-wrong
+        // namesakes — alive-but-probate-record, far-off birth year,
+        // etc. The filter is `nil` for lead-investigation runs (no
+        // profile yet exists to filter against).
+        let leadFilter: LeadFilter? = profileIDForPersistence
+            .flatMap { appState.snapshot.profiles[$0] }
+            .map(LeadFilter.deriving(from:))
         let runID = persistResult(
             result: result,
             mode: mode,
             sourceInfoMap: sourceInfoMap,
             profileID: profileIDForPersistence,
             leadToFinalise: leadForFinalise,
+            leadFilter: leadFilter,
             db: db
         )
 
@@ -337,6 +346,7 @@ final class RunRequestWatcher {
         sourceInfoMap: [String: SourceInfo],
         profileID: String?,
         leadToFinalise: Lead?,
+        leadFilter: LeadFilter?,
         db: ProjectDatabase
     ) -> String? {
         var savedRunID: UUID? = nil
@@ -353,8 +363,15 @@ final class RunRequestWatcher {
             // Spawn child leads from this run's scored leads + household
             // members, same as the UI path.
             let leadStore = LeadStore(db: db)
-            Task.detached(priority: .utility) { [result] in
+            Task.detached(priority: .utility) { [result, leadFilter] in
                 for scored in result.leads {
+                    // Filter obviously-wrong namesakes before they
+                    // ever enter the leads table. See LeadFilter
+                    // for the alive-vs-dead + precise-birth-year
+                    // rules.
+                    if let filter = leadFilter, !filter.accepts(scored) {
+                        continue
+                    }
                     _ = try? await leadStore.createFromScoredRecord(scored, profileID: profileID)
                 }
                 for member in result.householdMembers {
