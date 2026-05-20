@@ -61,7 +61,10 @@ struct ProseCorporaSettingsView: View {
             AddProseCorpusSheet()
         }
         .sheet(item: $corpusPendingRemoval) { row in
-            RemoveConfirmationSheet(row: row) {
+            RemoveConfirmationSheet(
+                row: row,
+                isSyncing: service.syncingSourceIDs.contains(row.sourceID)
+            ) {
                 Task { await service.remove(sourceID: row.sourceID) }
             }
         }
@@ -168,7 +171,11 @@ struct ProseCorporaSettingsView: View {
             }
             .buttonStyle(.borderless)
             .help("Remove corpus")
-            .disabled(service.syncingSourceIDs.contains(row.sourceID))
+            // Intentionally not disabled during sync — a user staring
+            // at three duplicate in-flight crawls needs to be able to
+            // cancel them. The remove confirmation sheet warns about
+            // the in-flight crawl getting interrupted on its next
+            // disk write.
         }
     }
 
@@ -215,6 +222,10 @@ struct ProseCorporaSettingsView: View {
 /// disappears the moment Cmd+Tab moves focus elsewhere.
 private struct RemoveConfirmationSheet: View {
     let row: ProseCorpusService.Row
+    /// `true` when a crawl is in flight for this corpus. The
+    /// confirmation copy gains an "in-flight crawl will be
+    /// interrupted" line so the user isn't surprised.
+    let isSyncing: Bool
     let onConfirm: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -240,6 +251,12 @@ private struct RemoveConfirmationSheet: View {
                     Text("This corpus has never been built. Removing it just clears the registry entry.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                }
+                if isSyncing {
+                    Label("A crawl is currently running. It will be interrupted on its next disk write.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .padding(.top, 4)
                 }
             }
             HStack {

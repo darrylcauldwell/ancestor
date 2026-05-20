@@ -138,10 +138,16 @@ final class ProseCorpusService {
                 linkFilter: linkFilter
             )
             try loadFromDisk()
-            // Kick off the first crawl immediately. The Settings UI
-            // shows progress via syncingSourceIDs; failures land in
-            // lastError and lastReports.
-            await sync(sourceID: result.entry.sourceID)
+            // Kick off the first crawl in a detached Task so `add()`
+            // returns as soon as the registry entry is durable — the
+            // Add sheet can dismiss immediately instead of blocking
+            // on the 5-20 minute crawl. Without this, the sheet just
+            // sits there and a user who re-clicks "Add and Crawl"
+            // spawns N duplicate corpora. The list row's spinner
+            // (driven by syncingSourceIDs) is the surface that shows
+            // the crawl is running.
+            let sourceID = result.entry.sourceID
+            Task { await self.sync(sourceID: sourceID) }
         } catch {
             lastError = "Add failed: \(error)"
             logger.error("Add failed: \(String(describing: error), privacy: .public)")

@@ -25,6 +25,12 @@ struct AddProseCorpusSheet: View {
     /// Cleared when the URL field changes so stale verifications
     /// never gate an Add against the wrong seed.
     @State private var verifiedURL: URL?
+    /// `true` while `service.add(...)` is in flight. Disables the
+    /// Add button + shows "Adding…" so a user who taps twice in
+    /// quick succession doesn't accidentally enqueue duplicate
+    /// crawls of the same URL (the bug that produced the original
+    /// triple-Wirksworth situation).
+    @State private var isAdding: Bool = false
 
     private enum LinkFilterKind: String, CaseIterable, Identifiable {
         case none, glob, regex
@@ -51,12 +57,27 @@ struct AddProseCorpusSheet: View {
     }
 
     /// Add is only enabled after a verification that applies to the
-    /// current URL field, and the verification is not blocking.
+    /// current URL field, and the verification is not blocking, and
+    /// we aren't already mid-Add.
     private var canAdd: Bool {
+        guard !isAdding else { return false }
         guard verificationApplies, let v = service.pendingVerification else { return false }
         if v.hasBlockingProblems { return false }
         if displayTitle.trimmingCharacters(in: .whitespaces).isEmpty { return false }
         return true
+    }
+
+    /// Existing corpus row whose seed URL matches what the user has
+    /// typed, if any. Drives the duplicate-warning label in the
+    /// verification panel. Spec §3.3 deliberately allows multiple
+    /// corpora per URL (collision suffixes), so we don't block —
+    /// just warn loudly enough that the user can't triple-click
+    /// the Add button by mistake.
+    private var existingCorpusForSeed: ProseCorpusService.Row? {
+        guard let parsed = parsedURL else { return nil }
+        return service.corpora.first { row in
+            row.seedURL == parsed
+        }
     }
 
     var body: some View {
@@ -244,6 +265,11 @@ struct AddProseCorpusSheet: View {
                         }
                     }
                 }
+                if let existing = existingCorpusForSeed {
+                    Label("A corpus for this URL already exists as \"\(existing.displayTitle)\". Adding another will create a duplicate.", systemImage: "doc.on.doc.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
         }
     }
@@ -253,8 +279,18 @@ struct AddProseCorpusSheet: View {
             Button("Cancel") { dismiss() }
                 .keyboardShortcut(.cancelAction)
             Spacer()
-            Button("Add and Crawl") {
+            Button {
                 Task { await runAdd() }
+            } label: {
+                if isAdding {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Adding…")
+                    }
+                } else {
+                    Text("Add and Crawl")
+                }
             }
             .buttonStyle(.glassProminent)
             .disabled(!canAdd)
@@ -277,6 +313,7 @@ struct AddProseCorpusSheet: View {
 
     private func runAdd() async {
         guard let url = parsedURL else { return }
+        isAdding = true
         let filter: ProseCorpusCrawler.LinkFilter? = {
             let trimmed = linkFilterPattern.trimmingCharacters(in: .whitespaces)
             guard linkFilterKind != .none, !trimmed.isEmpty else { return nil }
@@ -293,6 +330,11 @@ struct AddProseCorpusSheet: View {
             pageBudget: pageBudget,
             linkFilter: filter
         )
+        // `service.add` now returns as soon as the registry entry is
+        // durable (the crawl runs detached) — dismissing here puts
+        // the user straight back into the Settings list where the
+        // new row's spinner shows the crawl is running.
+        isAdding = false
         dismiss()
     }
 }
