@@ -130,23 +130,120 @@ struct LeadFilterTests {
         #expect(filter.isAlive == false)
     }
 
+    @Test func derivingPreciseDeathYearWhenSet() {
+        let profile = makeProfile(birthDate: "1916", deathDate: "1999")
+        let filter = LeadFilter.deriving(from: profile)
+        #expect(filter.preciseDeathYear == 1999)
+    }
+
+    @Test func derivingPreciseDeathYearIsNilForLivingProfile() {
+        let profile = makeProfile(birthDate: "1948")
+        let filter = LeadFilter.deriving(from: profile)
+        #expect(filter.preciseDeathYear == nil)
+    }
+
+    // MARK: - Filter 3: precise-death-year window (Reginald scenario)
+
+    @Test func deceasedProfileRejectsFarOffNamesakeProbate() {
+        // Reginald scenario: died 1999. A 1978 probate for "Reginald Holmes"
+        // is provably not him.
+        let filter = LeadFilter(
+            preciseBirthYear: 1916,
+            birthYearTolerance: 5,
+            preciseDeathYear: 1999,
+            deathYearTolerance: 5,
+            isAlive: false
+        )
+        let probate = makeScoredProbate(deathYear: 1978)
+        #expect(filter.accepts(probate) == false)
+    }
+
+    @Test func deceasedProfileRejectsFarOffNamesakeBurial() {
+        let filter = LeadFilter(
+            preciseBirthYear: 1916,
+            birthYearTolerance: 5,
+            preciseDeathYear: 1999,
+            deathYearTolerance: 5,
+            isAlive: false
+        )
+        let burial = makeScoredBurial(deathYear: 1883)  // Brompton 1883 ≠ Reg's 1999
+        #expect(filter.accepts(burial) == false)
+    }
+
+    @Test func deceasedProfileAcceptsOwnProbate() {
+        // Reg's actual ADMINISTRATION 1999-03-26 — exact-year match.
+        let filter = LeadFilter(
+            preciseBirthYear: 1916,
+            birthYearTolerance: 5,
+            preciseDeathYear: 1999,
+            deathYearTolerance: 5,
+            isAlive: false
+        )
+        let probate = makeScoredProbate(deathYear: 1999)
+        #expect(filter.accepts(probate) == true)
+    }
+
+    @Test func deceasedProfileAcceptsProbateWithinTolerance() {
+        // Death year 2001 — transcription error / probate 2 years after
+        // death is realistic. Within ±5 — accept.
+        let filter = LeadFilter(
+            preciseBirthYear: 1916,
+            birthYearTolerance: 5,
+            preciseDeathYear: 1999,
+            deathYearTolerance: 5,
+            isAlive: false
+        )
+        let probate = makeScoredProbate(deathYear: 2001)
+        #expect(filter.accepts(probate) == true)
+    }
+
+    @Test func deceasedProfileWithoutPreciseDeathFallsThrough() {
+        // If gedcom death is a range (no precise year), filter 3
+        // doesn't fire — the namesake probate still surfaces for
+        // human review. Conservative.
+        let filter = LeadFilter(
+            preciseBirthYear: 1916,
+            birthYearTolerance: 5,
+            preciseDeathYear: nil,
+            deathYearTolerance: 5,
+            isAlive: false
+        )
+        let probate = makeScoredProbate(deathYear: 1978)
+        #expect(filter.accepts(probate) == true)
+    }
+
+    @Test func filter3DoesNotAffectBirthOrMarriageRecords() {
+        // Filter 3 only gates death-shaped records. Marriage records
+        // shouldn't be rejected by the death-year check even when the
+        // profile has a precise death year.
+        let filter = LeadFilter(
+            preciseBirthYear: nil,
+            birthYearTolerance: 5,
+            preciseDeathYear: 1999,
+            deathYearTolerance: 5,
+            isAlive: false
+        )
+        let marriage = makeScoredMarriage()
+        #expect(filter.accepts(marriage) == true)
+    }
+
     // MARK: - Filter 1: alive vs death-shaped records (Jennifer scenario)
 
     @Test func aliveProfileRejectsProbateRecords() {
-        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, isAlive: true)
+        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, preciseDeathYear: nil, deathYearTolerance: 5, isAlive: true)
         let probate = makeScoredProbate(deathYear: 2020)
         #expect(filter.accepts(probate) == false)
     }
 
     @Test func aliveProfileRejectsBurialRecords() {
-        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, isAlive: true)
+        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, preciseDeathYear: nil, deathYearTolerance: 5, isAlive: true)
         let burial = makeScoredBurial(deathYear: 2020)
         #expect(filter.accepts(burial) == false)
     }
 
     @Test func deceasedProfileAcceptsProbateRecords() {
         // Profile Reginald (1916-1999) — his probate should land.
-        let filter = LeadFilter(preciseBirthYear: 1916, birthYearTolerance: 5, isAlive: false)
+        let filter = LeadFilter(preciseBirthYear: 1916, birthYearTolerance: 5, preciseDeathYear: nil, deathYearTolerance: 5, isAlive: false)
         let probate = makeScoredProbate(deathYear: 1999)
         #expect(filter.accepts(probate) == true)
     }
@@ -154,14 +251,14 @@ struct LeadFilterTests {
     @Test func aliveProfileStillAcceptsBirthRecord() {
         // Birth record for a living profile is exactly what we want
         // to surface. Filter 1 must not over-reach.
-        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, isAlive: true)
+        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, preciseDeathYear: nil, deathYearTolerance: 5, isAlive: true)
         let birth = makeScoredBirth(birthYear: 1948)
         #expect(filter.accepts(birth) == true)
     }
 
     @Test func aliveProfileStillAcceptsMarriageRecord() {
         // Marriage during life is fine for a living profile.
-        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, isAlive: true)
+        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, preciseDeathYear: nil, deathYearTolerance: 5, isAlive: true)
         let marriage = makeScoredMarriage()
         #expect(filter.accepts(marriage) == true)
     }
@@ -171,7 +268,7 @@ struct LeadFilterTests {
     @Test func preciseBirthYearRejectsCandidateOutsideWindow() {
         // Profile born 1948, candidate "Jennifer Holmes" born 1932 →
         // 16 years off, well outside the ±5 tolerance. Reject.
-        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, isAlive: true)
+        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, preciseDeathYear: nil, deathYearTolerance: 5, isAlive: true)
         let birth = makeScoredBirth(birthYear: 1932)
         #expect(filter.accepts(birth) == false)
     }
@@ -179,27 +276,27 @@ struct LeadFilterTests {
     @Test func preciseBirthYearAcceptsCandidateInsideWindow() {
         // Within ±5 — could plausibly be a transcription error for
         // the right person. Keep.
-        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, isAlive: true)
+        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, preciseDeathYear: nil, deathYearTolerance: 5, isAlive: true)
         let birth = makeScoredBirth(birthYear: 1950)
         #expect(filter.accepts(birth) == true)
     }
 
     @Test func preciseBirthYearAcceptsExactMatch() {
-        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, isAlive: true)
+        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, preciseDeathYear: nil, deathYearTolerance: 5, isAlive: true)
         let birth = makeScoredBirth(birthYear: 1948)
         #expect(filter.accepts(birth) == true)
     }
 
     @Test func preciseBirthYearAcceptsEdgeOfWindow() {
         // |1953 - 1948| == 5 — exactly on the boundary, accept.
-        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, isAlive: true)
+        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, preciseDeathYear: nil, deathYearTolerance: 5, isAlive: true)
         let edge = makeScoredBirth(birthYear: 1953)
         #expect(filter.accepts(edge) == true)
     }
 
     @Test func preciseBirthYearRejectsJustBeyondWindow() {
         // |1954 - 1948| == 6, beyond ±5.
-        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, isAlive: true)
+        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, preciseDeathYear: nil, deathYearTolerance: 5, isAlive: true)
         let beyond = makeScoredBirth(birthYear: 1954)
         #expect(filter.accepts(beyond) == false)
     }
@@ -207,7 +304,7 @@ struct LeadFilterTests {
     @Test func filterFallsThroughWhenNoPreciseBirthYear() {
         // Profile with a birth-year range (or no birth at all) cannot
         // use the precise-window filter — record passes.
-        let filter = LeadFilter(preciseBirthYear: nil, birthYearTolerance: 5, isAlive: true)
+        let filter = LeadFilter(preciseBirthYear: nil, birthYearTolerance: 5, preciseDeathYear: nil, deathYearTolerance: 5, isAlive: true)
         let birth = makeScoredBirth(birthYear: 1900)
         #expect(filter.accepts(birth) == true)
     }
@@ -215,7 +312,7 @@ struct LeadFilterTests {
     @Test func filterFallsThroughWhenCandidateHasNoBirthYear() {
         // Marriage records don't carry candidate birth year — filter 2
         // doesn't fire, marriage still accepted (filter 1 already passed).
-        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, isAlive: true)
+        let filter = LeadFilter(preciseBirthYear: 1948, birthYearTolerance: 5, preciseDeathYear: nil, deathYearTolerance: 5, isAlive: true)
         let marriage = makeScoredMarriage()
         #expect(filter.accepts(marriage) == true)
     }

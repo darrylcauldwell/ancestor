@@ -10,7 +10,13 @@ import Foundation
 /// living) jumped from 17 → 260 leads run-to-run because the
 /// dispatcher's loose tier produced a Holmes-surname trawl spanning
 /// birth years 1928-1968 plus 8 probate records of dead Jennifer
-/// Holmeses — none of whom are her.
+/// Holmeses — none of whom are her. A second closed-loop pass on
+/// Reginald Holmes (d. 1 Jan 1999) found 48 FindAGrave memorials of
+/// OTHER Reginald Holmeses (1883, 1900, 1906, 1909, 1943, 1978 …)
+/// passing the original two filters because Reginald is dead
+/// (filter 1 doesn't fire) and FAG burials don't carry birth_year
+/// (filter 2 doesn't fire) — closing the gap requires a third
+/// death-year axis.
 ///
 /// Three filters applied in order:
 ///
@@ -24,11 +30,12 @@ import Foundation
 ///    engine's birth axis already uses ±2, so the namesake filter
 ///    sits one notch wider to avoid stomping on the structured
 ///    pipeline's own scoring.
-/// 3. **Sentinel-year hits**: census-derived records with the
-///    sentinel "1916" or "1920" birth years that the household-
-///    extractor sometimes synthesises when the page didn't carry
-///    an age — these get rejected when they clash with a known
-///    precise birth year.
+/// 3. **Precise-death-year window**: deceased profiles with a
+///    precise death year reject death-shaped records whose own
+///    death year is outside ±`deathYearTolerance`. Catches the
+///    FindAGrave-namesake pattern: Reginald died 1999, every
+///    Reginald-Holmes memorial with a death year outside 1994-2004
+///    is provably someone else.
 ///
 /// What this filter deliberately does NOT do:
 /// - It doesn't gate by gender. SourceRecord doesn't carry gender
@@ -50,6 +57,13 @@ nonisolated struct LeadFilter: Sendable {
     /// Maximum |candidate − preciseBirthYear| accepted as a lead.
     /// Defaults to 5; expose for tests.
     let birthYearTolerance: Int
+    /// Precise death year — set when the profile has a precise
+    /// gedcom death date. Mirror of `preciseBirthYear` for the
+    /// death axis; gates filter 3.
+    let preciseDeathYear: Int?
+    /// Maximum |candidate − preciseDeathYear| accepted as a lead.
+    /// Defaults to 5.
+    let deathYearTolerance: Int
     /// `true` when the profile has no death date in the tree — the
     /// filter treats them as living and rejects death-shaped
     /// records.
@@ -57,10 +71,17 @@ nonisolated struct LeadFilter: Sendable {
 
     /// Build a filter from a tree profile. Pure function; no I/O.
     static func deriving(from profile: Profile) -> LeadFilter {
-        let precise: Int? = {
+        let preciseBirth: Int? = {
             guard let birth = profile.birthDate,
                   let earliest = birth.earliest,
                   let latest = birth.latest,
+                  earliest == latest else { return nil }
+            return earliest
+        }()
+        let preciseDeath: Int? = {
+            guard let death = profile.deathDate,
+                  let earliest = death.earliest,
+                  let latest = death.latest,
                   earliest == latest else { return nil }
             return earliest
         }()
@@ -73,8 +94,10 @@ nonisolated struct LeadFilter: Sendable {
             return death.earliest == nil && death.latest == nil
         }()
         return LeadFilter(
-            preciseBirthYear: precise,
+            preciseBirthYear: preciseBirth,
             birthYearTolerance: 5,
+            preciseDeathYear: preciseDeath,
+            deathYearTolerance: 5,
             isAlive: isAlive
         )
     }
@@ -91,6 +114,17 @@ nonisolated struct LeadFilter: Sendable {
         // precise, reject when they're more than `tolerance` apart.
         if let known = preciseBirthYear, let candidate = Self.candidateBirthYear(scored.record) {
             if abs(candidate - known) > birthYearTolerance {
+                return false
+            }
+        }
+        // Filter 3 — precise death year window. For deceased
+        // profiles with a precise death year, death-shaped records
+        // carrying their own death year are rejected when more
+        // than `tolerance` apart. Catches the FindAGrave-namesake
+        // pattern: dead-profile leads were the gap filter 1 didn't
+        // close (filter 1 only fires for alive profiles).
+        if let known = preciseDeathYear, let candidate = Self.candidateDeathYear(scored.record) {
+            if abs(candidate - known) > deathYearTolerance {
                 return false
             }
         }
@@ -119,6 +153,20 @@ nonisolated struct LeadFilter: Sendable {
         case .burial(let r): return r.birthYear
         case .pedigree(let r): return r.birthYear
         case .death, .marriage, .probate, .military, .parish: return nil
+        }
+    }
+
+    /// Extract the candidate's death-year hint from a record. Mirror
+    /// of `candidateBirthYear` for the death axis — birth/census/
+    /// marriage/parish/pedigree don't carry a death year by their
+    /// nature, so they fall through and filter 3 doesn't gate them.
+    nonisolated static func candidateDeathYear(_ record: SourceRecord) -> Int? {
+        switch record {
+        case .death(let r): return r.deathYear
+        case .burial(let r): return r.deathYear
+        case .probate(let r): return r.deathYear
+        case .military(let r): return r.deathYear
+        case .birth, .census, .marriage, .parish, .pedigree: return nil
         }
     }
 }
