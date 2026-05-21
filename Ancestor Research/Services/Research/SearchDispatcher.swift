@@ -20,7 +20,8 @@ struct SearchDispatcher {
         subject: ResearchSubject,
         recordTypes: Set<RecordType>,
         scope: ResearchScope = .county,
-        mode: ResearchMode = .extend
+        mode: ResearchMode = .extend,
+        cache: QueryCache? = nil
     ) async -> [SourceRecord] {
         let ladder = Self.strictnessLadder(for: mode)
 
@@ -45,7 +46,8 @@ struct SearchDispatcher {
                         recordType: recordType,
                         scope: scope,
                         ladder: ladder,
-                        mode: mode
+                        mode: mode,
+                        cache: cache
                     )
                 }
             }
@@ -66,7 +68,8 @@ struct SearchDispatcher {
         recordType: RecordType,
         scope: ResearchScope,
         ladder: [SearchStrictness],
-        mode: ResearchMode
+        mode: ResearchMode,
+        cache: QueryCache?
     ) async -> [SourceRecord] {
         let baseQueries = buildQueries(source: source, subject: subject, recordType: recordType, scope: scope)
         guard !baseQueries.isEmpty else { return [] }
@@ -81,8 +84,8 @@ struct SearchDispatcher {
             // variants and `.variant` collapses back to a single .strict query.
             let batch = await withTaskGroup(of: [SourceRecord].self) { tierGroup in
                 for query in tierQueries {
-                    tierGroup.addTask { [source, query] in
-                        await source.search(query).records
+                    tierGroup.addTask { [source, query, cache] in
+                        await QueryCache.wrappedSearch(source: source, query: query, cache: cache)
                     }
                 }
                 var collected: [SourceRecord] = []

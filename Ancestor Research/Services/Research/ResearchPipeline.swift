@@ -22,6 +22,11 @@ final class ResearchPipeline {
     /// Run the research pipeline for a subject.
     func research(subject: ResearchSubject, config: ResearchConfig) async -> ResearchResult {
         var state = ResearchState(subject: subject)
+        // Per-run query cache. Lives for the duration of this profile's
+        // pipeline only — discarded when this function returns so cross-
+        // profile pollution is impossible. Eliminates the 4× redundancy
+        // of re-issuing identical district queries in each iteration.
+        let queryCache = QueryCache()
 
         for iteration in 1...config.maxIterations {
             state.iteration = iteration
@@ -36,7 +41,8 @@ final class ResearchPipeline {
                 subject: state.subject,
                 recordTypes: state.activeRecordTypes,
                 scope: config.scope,
-                mode: state.subject.mode
+                mode: state.subject.mode,
+                cache: queryCache
             )
 
             // Capture prior record IDs before append, so the stopping check
@@ -187,7 +193,7 @@ final class ResearchPipeline {
         // fans out marriage queries across `config.scope`, grades,
         // and reconciles marriage evidence onto the parent rows.
         let parentHypotheses = await runParentHypothesisFlow(
-            state: &state, scope: config.scope
+            state: &state, scope: config.scope, cache: queryCache
         )
         let firstPassHypotheses = siblingHypotheses + parentHypotheses
 
@@ -221,6 +227,11 @@ final class ResearchPipeline {
         } else {
             finalClusters = clusters
         }
+
+        let cacheStats = await queryCache.stats()
+        let total = cacheStats.hits + cacheStats.misses
+        let hitRate = total > 0 ? Double(cacheStats.hits) / Double(total) : 0
+        logger.info("QueryCache for \(subject.displayName): \(cacheStats.hits) hits / \(cacheStats.misses) misses (\(Int(hitRate * 100))%), \(cacheStats.entries) entries")
 
         return ResearchResult(
             confirmedFacts: state.confirmedFacts,
@@ -261,7 +272,8 @@ final class ResearchPipeline {
     ///      `.parentInferred` rows.
     private func runParentHypothesisFlow(
         state: inout ResearchState,
-        scope: ResearchScope
+        scope: ResearchScope,
+        cache: QueryCache? = nil
     ) async -> [ResearchHypothesis] {
         let parentDrafts = HypothesisEngine.generate(
             for: .parentInferred, state: state, snapshot: snapshot
@@ -292,11 +304,11 @@ final class ResearchPipeline {
             logger.info("Parent marriage dispatch: \(fatherSurname) × \(motherSurname), \(window.lowerBound)–\(window.upperBound)")
             async let groomSide = dispatchMarriageQuery(
                 surname: fatherSurname, spouseSurname: motherSurname,
-                yearFrom: window.lowerBound, yearTo: window.upperBound, scope: scope
+                yearFrom: window.lowerBound, yearTo: window.upperBound, scope: scope, cache: cache
             )
             async let brideSide = dispatchMarriageQuery(
                 surname: motherSurname, spouseSurname: fatherSurname,
-                yearFrom: window.lowerBound, yearTo: window.upperBound, scope: scope
+                yearFrom: window.lowerBound, yearTo: window.upperBound, scope: scope, cache: cache
             )
             let groomScored = await groomSide
             let brideScored = await brideSide
@@ -741,7 +753,8 @@ final class ResearchPipeline {
         spouseSurname: String,
         yearFrom: Int,
         yearTo: Int,
-        scope: ResearchScope
+        scope: ResearchScope,
+        cache: QueryCache? = nil
     ) async -> [ScoredRecord] {
         // Build district codes for this scope. Marriage enrichment is
         // FreeBMD-only — mirrors the FreeBMD widening logic in
@@ -785,8 +798,8 @@ final class ResearchPipeline {
         // because we're matching by reference tuple, not by name+date gates.
         var allRecords: [SourceRecord] = []
         for q in queries {
-            let result = await freebmd.search(q)
-            allRecords.append(contentsOf: result.records)
+            let records = await QueryCache.wrappedSearch(source: freebmd, query: q, cache: cache)
+            allRecords.append(contentsOf: records)
         }
         // Wrap each in a ScoredRecord with a rich per-record summary — so the
         // cluster review row shows what was actually found (year, district,
