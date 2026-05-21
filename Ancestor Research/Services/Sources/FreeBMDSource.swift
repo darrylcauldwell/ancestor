@@ -20,7 +20,19 @@ actor FreeBMDSource: RecordSource {
     nonisolated let displayName = "FreeBMD"
     nonisolated let descriptiveName = "UK Births, Deaths & Marriages Index (FreeBMD)"
     nonisolated let recordTypes: Set<RecordType> = [.birth, .death, .marriage]
-    nonisolated let coverageYearRange: ClosedRange<Int>? = 1837...1983
+    /// FreeBMD's GRO transcription extends to 1999 for births/deaths/marriages
+    /// per empirical probing (2026-05) — see `start`/`end` clamping below for
+    /// why this matters. Earlier comments said 1983; that's the published
+    /// "complete" cutoff but FreeBMD does return partial-coverage records past
+    /// that, and crucially returns a non-results page (no `searchData` var)
+    /// when the wire's `end` year exceeds the cap. Without the clamp every
+    /// marriage query for a living/recent subject silently returns 0.
+    /// FreeBMD's index ceiling — used both as the declared coverage and as
+    /// the clamp in `start`/`end` wire-field construction. Probing in
+    /// 2026-05 found year=1999 returns results, year=2000+ returns a
+    /// non-results page. Bump as FreeBMD extends.
+    nonisolated static let coverageUpperBound = 1999
+    nonisolated let coverageYearRange: ClosedRange<Int>? = 1837...1999
     nonisolated let coverageRegions: Set<Region> = [.englandAndWales]
     nonisolated let dataLineage: SourceLineage = .independentTranscription(of: "GRO-indexes")
     nonisolated let trustTier: SourceTrustTier = .transcription
@@ -165,6 +177,17 @@ actor FreeBMDSource: RecordSource {
             // silently widens to "all years" and the multi-thousand result
             // set then fails downstream filters. Default to the full year
             // (Q1–Q4). See diagnostic notes in commit message.
+            //
+            // Clamp `end` to FreeBMD's index ceiling. When the request's
+            // end year exceeds coverage, FreeBMD does not return an empty
+            // results page — it returns a 35KB page with no `searchData`
+            // variable at all, which the parser correctly reads as zero
+            // rows. Result: every marriage / death query for a living or
+            // recent-deceased subject silently returned 0 across all
+            // districts (e.g. Ernest × Wheeldon 1946 Belper, query window
+            // 1935–2017). Clamping makes the same query return the record.
+            let coverageCeiling = Self.coverageUpperBound
+            let clampedEnd: Int? = query.yearTo.map { min($0, coverageCeiling) }
             let fields: [String: String] = [
                 "type": recordType,
                 "surname": surname,
@@ -174,7 +197,7 @@ actor FreeBMDSource: RecordSource {
                 "sq": "1",
                 "start": query.yearFrom.map(String.init) ?? "",
                 "eq": "4",
-                "end": query.yearTo.map(String.init) ?? "",
+                "end": clampedEnd.map(String.init) ?? "",
                 "districtid": params?.districtCode ?? "",
                 "Phonetic": phoneticFlag,
                 "db": formTokenDB ?? "",
