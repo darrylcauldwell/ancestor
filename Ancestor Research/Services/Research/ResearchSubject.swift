@@ -73,6 +73,15 @@ nonisolated struct ResearchSubject: Sendable {
     /// Required for parent-inference to create real parent-of edges.
     var profileID: String?
     var surname: String?
+    /// Optional married surname for women whose `surname` carries the
+    /// maiden name. Populated from `Profile.marriedSurname` (explicit
+    /// user entry only — not derived from spouse, because divorce /
+    /// remarriage / widowhood can change the surname-at-death in ways
+    /// a single spouse-relationship can't capture). Used to fan out
+    /// death-shape queries (death, burial, probate, military) so both
+    /// surnames are probed. Nil for males and for women whose surname
+    /// never changed.
+    var marriedSurname: String? = nil
     var givenName: String?
     /// Optional middle name(s). When present, the name gate uses it to reject
     /// records whose given-name field carries a different middle initial — so
@@ -155,6 +164,41 @@ nonisolated extension ResearchSubject {
         }
     }
 
+    /// Surnames to probe for `recordType`, deduplicated, in priority order.
+    ///
+    /// Most record types only need the canonical `surname` (the tree's
+    /// stored name — maiden for women per genealogy convention). Death-
+    /// shape record types — death, burial, probate, military — also
+    /// probe `marriedSurname` when set, because UK indexes file
+    /// deceased married women under married surname:
+    ///   - Probate Calendar (e.g. KATHLEEN DOROTHY CAULDWELL, not Wheeldon)
+    ///   - FreeBMD GRO Deaths post-1969 (under registered surname)
+    ///   - Find A Grave memorials erected by family
+    ///   - Census post-marriage (.census also probes married)
+    ///
+    /// Both maiden and married are probed (not just married) because
+    /// divorce / reversion can put a record under maiden surname even
+    /// for a previously-married woman. Cost is one extra query per
+    /// district per death-shape record type when `marriedSurname` is
+    /// distinct from `surname` — acceptable.
+    ///
+    /// Returns `[]` if `surname` is nil.
+    func surnamesToProbe(for recordType: RecordType) -> [String] {
+        guard let surname else { return [] }
+        let probesMarriedAxis: Bool = switch recordType {
+        case .death, .burial, .probate, .military, .census: true
+        default: false
+        }
+        guard probesMarriedAxis,
+              let married = marriedSurname,
+              !married.isEmpty,
+              married.caseInsensitiveCompare(surname) != .orderedSame
+        else {
+            return [surname]
+        }
+        return [surname, married]
+    }
+
     /// Refine the subject from confirmed facts (learned date propagation).
     func refined(withBirthYear: Int? = nil, withDeathYear: Int? = nil) -> ResearchSubject {
         var s = self
@@ -221,6 +265,7 @@ nonisolated extension ResearchSubject {
         return ResearchSubject(
             profileID: profile.id,
             surname: profile.lastName,
+            marriedSurname: profile.marriedSurname,
             givenName: profile.firstName,
             middleName: profile.middleName,
             birthYearFrom: birthFrom,

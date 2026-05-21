@@ -20,6 +20,21 @@ nonisolated struct Profile: Codable, Identifiable, Sendable {
     /// don't have to back-fill on migration.
     var middleName: String?
     var lastName: String?
+    /// Surname after marriage, for women whose `lastName` carries the
+    /// maiden surname (the genealogy convention this app inherited).
+    /// Required to find death-shape records (UK probate calendar files
+    /// deceased married women under married surname; FreeBMD post-1969
+    /// death indexes same; FAG memorials erected by family also tend to
+    /// inscribe married surname). Two ways this gets populated:
+    ///   1. ResearchSubject derives it from spouse.lastName when a
+    ///      spouse-relationship exists on the tree — covers ~80% of cases.
+    ///   2. User enters it explicitly via the profile editor when they
+    ///      only ever knew the relative by married surname and the
+    ///      husband isn't a tree profile.
+    /// `displayName` deliberately uses `lastName` (maiden) so the tree
+    /// view stays consistent with the genealogy convention; UI surfaces
+    /// the married surname where it matters (research scope, audit).
+    var marriedSurname: String?
     /// Familiar / known-as name. Common in historical records and search
     /// (e.g. "Bill" for William). Doesn't replace `firstName` — sits alongside
     /// it so a profile can be matched on either form. Not included in

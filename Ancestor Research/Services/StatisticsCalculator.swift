@@ -216,6 +216,7 @@ nonisolated enum StatisticsCalculator {
         case .firstName: return !(profile.firstName?.isEmpty ?? true)
         case .middleName: return !(profile.middleName?.isEmpty ?? true)
         case .lastName: return !(profile.lastName?.isEmpty ?? true)
+        case .marriedSurname: return !(profile.marriedSurname?.isEmpty ?? true)
         case .nickName: return !(profile.nickName?.isEmpty ?? true)
         case .mothersMaidenName: return !(profile.mothersMaidenName?.isEmpty ?? true)
         case .gender: return profile.gender != nil

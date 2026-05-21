@@ -803,6 +803,30 @@ nonisolated final class ProjectDatabase: Sendable {
                           columns: ["verdict"])
         }
 
+        // MARK: v27 — Married surname for women whose tree surname is maiden
+        //
+        // Genealogy convention has been to store women under their birth
+        // (maiden) surname so birth/parents'/marriage searches work. But
+        // death-shape records (death index, probate, FAG memorials, post-
+        // marriage census) file women under their married surname. With
+        // single-surname profiles, those records silently miss.
+        //
+        // Two cases this covers:
+        //   1. Spouse is on the tree but UI workflow stored woman as
+        //      maiden — derived fallback (FamilyContext.spouseSurname)
+        //      handles this without needing the explicit field.
+        //   2. Spouse not on tree, user only ever knew her by married
+        //      surname — explicit `married_surname` is the only place to
+        //      record it.
+        //
+        // Column is nullable; existing rows default to NULL. Source
+        // dispatch uses explicit-OR-derived in that order.
+        migrator.registerMigration("v27_married_surname") { db in
+            try db.alter(table: "profiles") { t in
+                t.add(column: "married_surname", .text)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -913,6 +937,7 @@ nonisolated final class ProjectDatabase: Sendable {
             firstName: row["first_name"],
             middleName: row["middle_name"],
             lastName: row["last_name"],
+            marriedSurname: row["married_surname"],
             nickName: row["nick_name"],
             mothersMaidenName: row["mothers_maiden_name"],
             gender: gender,
@@ -1103,16 +1128,17 @@ nonisolated final class ProjectDatabase: Sendable {
 
         try db.execute(sql: """
             INSERT INTO profiles (id, external_ids,
-                first_name, middle_name, last_name, nick_name, mothers_maiden_name,
+                first_name, middle_name, last_name, married_surname, nick_name, mothers_maiden_name,
                 gender, attributes, is_deleted,
                 birth_date_original, birth_date_earliest, birth_date_latest, birth_date_qualifier,
                 birth_location, birth_location_code,
                 death_date_original, death_date_earliest, death_date_latest, death_date_qualifier,
                 death_location, death_location_code, bio, created_by_transaction_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
                 profile.id, externalIDsJSON,
                 profile.firstName, profile.middleName, profile.lastName,
+                profile.marriedSurname,
                 profile.nickName, profile.mothersMaidenName,
                 profile.gender?.rawValue,
                 attributesJSON, profile.isDeleted,
@@ -1289,6 +1315,7 @@ nonisolated final class ProjectDatabase: Sendable {
         case "firstName": "first_name"
         case "middleName": "middle_name"
         case "lastName": "last_name"
+        case "marriedSurname": "married_surname"
         case "nickName": "nick_name"
         case "mothersMaidenName": "mothers_maiden_name"
         case "gender": "gender"

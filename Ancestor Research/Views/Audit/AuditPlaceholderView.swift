@@ -462,6 +462,7 @@ nonisolated extension CompletenessCheck {
             case .firstName: "name"
             case .middleName: "middle"
             case .lastName: "surname"
+            case .marriedSurname: "married"
             case .nickName: "nickname"
             case .mothersMaidenName: "mother's maiden"
             case .gender: "gender"

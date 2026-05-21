@@ -33,6 +33,7 @@ nonisolated enum ProfileDiff {
         case .firstName: return profile.firstName
         case .middleName: return profile.middleName
         case .lastName: return profile.lastName
+        case .marriedSurname: return profile.marriedSurname
         case .nickName: return profile.nickName
         case .mothersMaidenName: return profile.mothersMaidenName
         case .gender: return profile.gender?.rawValue

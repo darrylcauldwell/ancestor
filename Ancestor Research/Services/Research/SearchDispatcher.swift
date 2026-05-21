@@ -281,23 +281,30 @@ struct SearchDispatcher {
                 guard let yf = yearRange.from, yf >= 1912 else { return nil }
                 return subject.familyContext?.motherSurname
             }()
-            return districtCodes.map { code in
-                RecordQuery(
-                    surname: subject.surname,
-                    givenName: subject.givenName,
-                    recordType: recordType,
-                    yearFrom: yearRange.from,
-                    yearTo: yearRange.to,
-                    gender: subject.gender,
-                    region: subject.region,
-                    sourceParams: .freeBMD(FreeBMDParams(
-                        districtCode: code,
-                        wildcardSurname: false,
-                        motherSurname: motherSurnameForBMD,
-                        spouseSurname: spouseSurnameForBMD
-                    )),
-                    spouseGivenName: spouseGivenForBMD
-                )
+            // Surname fan-out: death-shape and post-marriage census record
+            // types probe both maiden and married surnames for women whose
+            // tree-stored `surname` is the maiden name. See
+            // `ResearchSubject.surnamesToProbe`.
+            let surnamesToTry = subject.surnamesToProbe(for: recordType)
+            return surnamesToTry.flatMap { surnameToTry in
+                districtCodes.map { code in
+                    RecordQuery(
+                        surname: surnameToTry,
+                        givenName: subject.givenName,
+                        recordType: recordType,
+                        yearFrom: yearRange.from,
+                        yearTo: yearRange.to,
+                        gender: subject.gender,
+                        region: subject.region,
+                        sourceParams: .freeBMD(FreeBMDParams(
+                            districtCode: code,
+                            wildcardSurname: false,
+                            motherSurname: motherSurnameForBMD,
+                            spouseSurname: spouseSurnameForBMD
+                        )),
+                        spouseGivenName: spouseGivenForBMD
+                    )
+                }
             }
 
         case "freecen":
@@ -325,22 +332,25 @@ struct SearchDispatcher {
             let birthRange = subject.birthYearFrom.flatMap { from in
                 subject.birthYearTo.map { to in from...to }
             }
-            return censusYears.flatMap { year in
-                cenChapmanCodes.map { code in
-                    RecordQuery(
-                        surname: subject.surname,
-                        givenName: subject.givenName,
-                        recordType: .census,
-                        yearFrom: year,
-                        yearTo: year,
-                        gender: subject.gender,
-                        region: subject.region,
-                        sourceParams: .freeCen(FreeCenParams(
-                            chapmanCode: code,
-                            censusYear: year,
-                            birthYearRange: birthRange
-                        ))
-                    )
+            let cenSurnames = subject.surnamesToProbe(for: .census)
+            return cenSurnames.flatMap { surnameToTry in
+                censusYears.flatMap { year in
+                    cenChapmanCodes.map { code in
+                        RecordQuery(
+                            surname: surnameToTry,
+                            givenName: subject.givenName,
+                            recordType: .census,
+                            yearFrom: year,
+                            yearTo: year,
+                            gender: subject.gender,
+                            region: subject.region,
+                            sourceParams: .freeCen(FreeCenParams(
+                                chapmanCode: code,
+                                censusYear: year,
+                                birthYearRange: birthRange
+                            ))
+                        )
+                    }
                 }
             }
 
@@ -362,21 +372,24 @@ struct SearchDispatcher {
                 regChapmanCodes = entries.map { $0.code }
             }
             // FreeREG splits by register type; recordType drives this on the source side.
-            return regChapmanCodes.map { code in
-                RecordQuery(
-                    surname: subject.surname,
-                    givenName: subject.givenName,
-                    recordType: recordType,
-                    yearFrom: yearRange.from,
-                    yearTo: yearRange.to,
-                    gender: subject.gender,
-                    region: subject.region,
-                    sourceParams: .freeREG(FreeREGParams(
-                        registerType: nil,
-                        parish: nil,
-                        chapmanCode: code
-                    ))
-                )
+            let regSurnames = subject.surnamesToProbe(for: recordType)
+            return regSurnames.flatMap { surnameToTry in
+                regChapmanCodes.map { code in
+                    RecordQuery(
+                        surname: surnameToTry,
+                        givenName: subject.givenName,
+                        recordType: recordType,
+                        yearFrom: yearRange.from,
+                        yearTo: yearRange.to,
+                        gender: subject.gender,
+                        region: subject.region,
+                        sourceParams: .freeREG(FreeREGParams(
+                            registerType: nil,
+                            parish: nil,
+                            chapmanCode: code
+                        ))
+                    )
+                }
             }
 
         case "cwgc":
@@ -405,27 +418,30 @@ struct SearchDispatcher {
             // FamilyContext; nil-defaults safely skip parameters we
             // can't fill. Spec §23.
             let context = subject.familyContext
-            return [RecordQuery(
-                surname: subject.surname,
-                givenName: subject.givenName,
-                recordType: recordType,
-                yearFrom: yearRange.from,
-                yearTo: yearRange.to,
-                gender: subject.gender,
-                region: subject.region,
-                sourceParams: .generic,
-                birthPlace: subject.region.flatMap { region in
-                    if case .county(let name) = region { return name }
-                    return nil
-                },
-                deathPlace: subject.deathLocation,
-                spouseSurname: context?.spouseSurname,
-                spouseGivenName: context?.spouseGivenName,
-                fatherSurname: context?.fatherSurname,
-                fatherGivenName: context?.fatherGivenName,
-                motherSurname: context?.motherSurname,
-                motherGivenName: context?.motherGivenName
-            )]
+            let fsSurnames = subject.surnamesToProbe(for: recordType)
+            return fsSurnames.map { surnameToTry in
+                RecordQuery(
+                    surname: surnameToTry,
+                    givenName: subject.givenName,
+                    recordType: recordType,
+                    yearFrom: yearRange.from,
+                    yearTo: yearRange.to,
+                    gender: subject.gender,
+                    region: subject.region,
+                    sourceParams: .generic,
+                    birthPlace: subject.region.flatMap { region in
+                        if case .county(let name) = region { return name }
+                        return nil
+                    },
+                    deathPlace: subject.deathLocation,
+                    spouseSurname: context?.spouseSurname,
+                    spouseGivenName: context?.spouseGivenName,
+                    fatherSurname: context?.fatherSurname,
+                    fatherGivenName: context?.fatherGivenName,
+                    motherSurname: context?.motherSurname,
+                    motherGivenName: context?.motherGivenName
+                )
+            }
 
         case "findagrave":
             // FAG's `location` query param filters memorials by burial
@@ -438,33 +454,42 @@ struct SearchDispatcher {
                 if case .county(let name) = subject.region { return name }
                 return nil
             }()
-            return [RecordQuery(
-                surname: subject.surname,
-                givenName: subject.givenName,
-                recordType: recordType,
-                yearFrom: yearRange.from,
-                yearTo: yearRange.to,
-                gender: subject.gender,
-                region: subject.region,
-                sourceParams: .findAGrave(FindAGraveParams(
-                    yearRangeWidth: 5,
-                    location: fagLocation
-                ))
-            )]
+            let fagSurnames = subject.surnamesToProbe(for: recordType)
+            return fagSurnames.map { surnameToTry in
+                RecordQuery(
+                    surname: surnameToTry,
+                    givenName: subject.givenName,
+                    recordType: recordType,
+                    yearFrom: yearRange.from,
+                    yearTo: yearRange.to,
+                    gender: subject.gender,
+                    region: subject.region,
+                    sourceParams: .findAGrave(FindAGraveParams(
+                        yearRangeWidth: 5,
+                        location: fagLocation
+                    ))
+                )
+            }
 
         default:
             // Generic single query for Probate, Wirksworth, and any
             // future sources without dispatcher-side custom axes.
-            return [RecordQuery(
-                surname: subject.surname,
-                givenName: subject.givenName,
-                recordType: recordType,
-                yearFrom: yearRange.from,
-                yearTo: yearRange.to,
-                gender: subject.gender,
-                region: subject.region,
-                sourceParams: .generic
-            )]
+            // Fan-out to married surname when applicable — critical
+            // for Probate (UK Calendar files married women under married
+            // surname).
+            let genericSurnames = subject.surnamesToProbe(for: recordType)
+            return genericSurnames.map { surnameToTry in
+                RecordQuery(
+                    surname: surnameToTry,
+                    givenName: subject.givenName,
+                    recordType: recordType,
+                    yearFrom: yearRange.from,
+                    yearTo: yearRange.to,
+                    gender: subject.gender,
+                    region: subject.region,
+                    sourceParams: .generic
+                )
+            }
         }
     }
 

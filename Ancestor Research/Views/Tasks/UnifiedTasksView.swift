@@ -635,6 +635,7 @@ private struct TaskRow: View {
             case .firstName: return "name"
             case .middleName: return "middle"
             case .lastName: return "surname"
+            case .marriedSurname: return "married"
             case .nickName: return "nickname"
             case .mothersMaidenName: return "mother's maiden"
             case .gender: return "gender"

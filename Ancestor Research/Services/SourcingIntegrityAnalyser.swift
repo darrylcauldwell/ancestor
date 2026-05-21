@@ -58,6 +58,7 @@ nonisolated enum SourcingIntegrityAnalyser {
         case .firstName: return nonEmpty(profile.firstName)
         case .middleName: return nonEmpty(profile.middleName)
         case .lastName: return nonEmpty(profile.lastName)
+        case .marriedSurname: return nonEmpty(profile.marriedSurname)
         case .nickName: return nonEmpty(profile.nickName)
         case .mothersMaidenName: return nonEmpty(profile.mothersMaidenName)
         case .gender:

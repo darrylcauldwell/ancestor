@@ -14,6 +14,7 @@ struct EditPersonView: View {
     @State private var firstName: String = ""
     @State private var middleName: String = ""
     @State private var lastName: String = ""
+    @State private var marriedSurname: String = ""
     @State private var nickName: String = ""
     @State private var mothersMaidenName: String = ""
     @State private var gender: Gender = .unknown
@@ -120,6 +121,18 @@ struct EditPersonView: View {
                 Text(warning)
                     .font(AppTypography.cardMeta)
                     .foregroundStyle(AnyShapeStyle(Color.orange))
+            }
+            // Married surname — surfaced for women whose `lastName` carries
+            // the maiden name (genealogy convention). UK Probate Calendar,
+            // post-marriage census, and FAG memorials file deceased married
+            // women under married surname; recording it here lets the
+            // research pipeline fan-out queries to find those records.
+            // Hidden for male profiles to avoid clutter.
+            if gender == .female {
+                fieldWithBadges(field: .marriedSurname, profile: profile) {
+                    TextField("Married surname (optional)", text: $marriedSurname)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
             // Known-as / nickname — common in historical records (Bill for
             // William, Maggie for Margaret). Kept off `displayName` so the
@@ -298,6 +311,7 @@ struct EditPersonView: View {
         case .firstName: return AutoSuggestService.normaliseName(firstName) != original.firstName
         case .middleName: return AutoSuggestService.normaliseName(middleName) != original.middleName
         case .lastName: return AutoSuggestService.normaliseName(lastName) != original.lastName
+        case .marriedSurname: return AutoSuggestService.normaliseName(marriedSurname) != original.marriedSurname
         case .nickName: return AutoSuggestService.normaliseName(nickName) != original.nickName
         case .mothersMaidenName: return AutoSuggestService.normaliseName(mothersMaidenName) != original.mothersMaidenName
         case .gender:
@@ -362,6 +376,7 @@ struct EditPersonView: View {
         firstName = profile.firstName ?? ""
         middleName = profile.middleName ?? ""
         lastName = profile.lastName ?? ""
+        marriedSurname = profile.marriedSurname ?? ""
         nickName = profile.nickName ?? ""
         mothersMaidenName = profile.mothersMaidenName ?? ""
         gender = profile.gender ?? .unknown
@@ -376,6 +391,7 @@ struct EditPersonView: View {
             firstName: profile.firstName,
             middleName: profile.middleName,
             lastName: profile.lastName,
+            marriedSurname: profile.marriedSurname,
             nickName: profile.nickName,
             mothersMaidenName: profile.mothersMaidenName,
             gender: profile.gender,
@@ -427,6 +443,10 @@ struct EditPersonView: View {
         let newLast = AutoSuggestService.normaliseName(lastName)
         if newLast != original.lastName {
             changes.append((.lastName, original.lastName, newLast))
+        }
+        let newMarried = AutoSuggestService.normaliseName(marriedSurname)
+        if newMarried != original.marriedSurname {
+            changes.append((.marriedSurname, original.marriedSurname, newMarried))
         }
         let newNick = AutoSuggestService.normaliseName(nickName)
         if newNick != original.nickName {
@@ -545,6 +565,7 @@ struct EditPersonView: View {
         var firstName: String?
         var middleName: String?
         var lastName: String?
+        var marriedSurname: String?
         var nickName: String?
         var mothersMaidenName: String?
         var gender: Gender?

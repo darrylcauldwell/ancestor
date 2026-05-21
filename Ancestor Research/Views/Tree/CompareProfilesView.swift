@@ -183,6 +183,7 @@ struct CompareProfilesView: View {
         case .firstName: return "First name"
         case .middleName: return "Middle name"
         case .lastName: return "Last name"
+        case .marriedSurname: return "Married surname"
         case .nickName: return "Nickname"
         case .mothersMaidenName: return "Mother's maiden name"
         case .gender: return "Gender"
