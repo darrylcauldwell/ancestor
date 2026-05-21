@@ -193,7 +193,16 @@ actor FreeBMDSource: RecordSource {
             lastSuccessfulSearch = Date()
             lastError = nil
             recordSuccess()
-            logger.info("Search returned \(results.count) results for \(surname)")
+            if results.isEmpty {
+                let hasSearchData = html.contains("var searchData = new Array")
+                let captchaHit = html.lowercased().contains("captcha") || html.contains("Please prove you are human")
+                let dataMarker = html.range(of: "var searchData = new Array (")
+                    .map { String(html[$0.upperBound...].prefix(200)).replacingOccurrences(of: "\n", with: "\\n") }
+                    ?? "<no searchData>"
+                logger.info("\(summary, privacy: .public) → 0 results [htmlLen=\(html.count) hasSearchData=\(hasSearchData) captcha=\(captchaHit) head=\(dataMarker, privacy: .public)]")
+            } else {
+                logger.info("\(summary, privacy: .public) → \(results.count) results")
+            }
             await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count, strictness: query.strictness))
             return .results(results)
 

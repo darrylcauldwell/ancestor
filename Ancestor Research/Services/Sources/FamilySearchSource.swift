@@ -109,7 +109,7 @@ actor FamilySearchSource: RecordSource, AuthenticatingSource {
             lastSuccessfulSearch = Date()
             lastError = nil
             recordSuccess()
-            logger.info("Search returned \(records.count) records for \(surname)")
+            logger.info("\(summary, privacy: .public) → \(records.count) records")
             await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count, strictness: query.strictness))
             return .results(records)
         } catch is CancellationError {
@@ -305,10 +305,18 @@ actor FamilySearchSource: RecordSource, AuthenticatingSource {
         let given = query.givenName.flatMap { $0.isEmpty ? nil : $0 } ?? ""
         let person = given.isEmpty ? surname : "\(given) \(surname)"
         let kind = query.recordType.rawValue
+        var axes: [String] = []
+        if let s = query.spouseSurname, !s.isEmpty { axes.append("spouse=\(s)") }
+        if let s = query.fatherSurname, !s.isEmpty { axes.append("father=\(s)") }
+        if let s = query.motherSurname, !s.isEmpty { axes.append("mother=\(s)") }
+        if let p = query.birthPlace, !p.isEmpty { axes.append("birthPlace=\(p)") }
+        if let p = query.deathPlace, !p.isEmpty { axes.append("deathPlace=\(p)") }
+        if let g = query.gender { axes.append("sex=\(g == .male ? "M" : "F")") }
+        let axisSuffix = axes.isEmpty ? "" : " [\(axes.joined(separator: ", "))]"
         if let from = query.yearFrom, let to = query.yearTo {
-            return "FamilySearch \(kind): \(person) \(from)–\(to)"
+            return "FamilySearch \(kind): \(person) \(from)–\(to)\(axisSuffix)"
         }
-        return "FamilySearch \(kind): \(person)"
+        return "FamilySearch \(kind): \(person)\(axisSuffix)"
     }
 }
 
