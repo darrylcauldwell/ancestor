@@ -105,9 +105,22 @@ nonisolated struct LeadFilter: Sendable {
     /// Returns `true` when the scored record may be persisted as a
     /// lead. `false` rejects.
     func accepts(_ scored: ScoredRecord) -> Bool {
-        // Filter 1 — alive profiles reject death-shaped records.
-        if isAlive && Self.isDeathShaped(scored.record) {
-            return false
+        // Filter 1 — alive profiles reject any record that asserts
+        // a death year. Two paths into this gate:
+        //   a) record shape is death-shaped (probate/burial/etc.)
+        //   b) record is .pedigree (or similar narrative shape)
+        //      that nevertheless carries a non-nil deathYear claim
+        // Either way, the candidate person died — provably not this
+        // alive profile. FamilySearch person records returned as
+        // `.pedigree` with a deathYear are the realistic case for
+        // path (b); see candidateDeathYear's docstring.
+        if isAlive {
+            if Self.isDeathShaped(scored.record) {
+                return false
+            }
+            if Self.candidateDeathYear(scored.record) != nil {
+                return false
+            }
         }
         // Filter 2 — precise birth year window. If the record carries
         // its own birth-year hint and the known birth year is
@@ -156,17 +169,30 @@ nonisolated struct LeadFilter: Sendable {
         }
     }
 
-    /// Extract the candidate's death-year hint from a record. Mirror
-    /// of `candidateBirthYear` for the death axis — birth/census/
-    /// marriage/parish/pedigree don't carry a death year by their
-    /// nature, so they fall through and filter 3 doesn't gate them.
+    /// Extract the candidate's death-year hint from a record. Five
+    /// SourceRecord shapes carry a death year:
+    ///   - `.death` / `.burial` / `.probate` / `.military` —
+    ///     death-shaped by definition
+    ///   - `.pedigree` — narrative records (FamilySearch person
+    ///     entries, Wirksworth pedigrees, etc.) optionally carry
+    ///     a death year on `PedigreeRecord.deathYear`.
+    ///
+    /// `.birth` / `.census` / `.marriage` / `.parish` don't —
+    /// they fall through and filter 3 doesn't gate them.
+    ///
+    /// Real-world bug this catches (post-Filter-3 v1 closed-loop):
+    /// FamilySearch returns person-style records as `.pedigree`,
+    /// including ones with `deathYear: 2009 age 65`. Kathleen
+    /// (d. 2016) had one such namesake leak through pass 5
+    /// because `.pedigree` wasn't in the death-year extractor.
     nonisolated static func candidateDeathYear(_ record: SourceRecord) -> Int? {
         switch record {
         case .death(let r): return r.deathYear
         case .burial(let r): return r.deathYear
         case .probate(let r): return r.deathYear
         case .military(let r): return r.deathYear
-        case .birth, .census, .marriage, .parish, .pedigree: return nil
+        case .pedigree(let r): return r.deathYear
+        case .birth, .census, .marriage, .parish: return nil
         }
     }
 }

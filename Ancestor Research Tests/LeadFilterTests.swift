@@ -212,6 +212,55 @@ struct LeadFilterTests {
         #expect(filter.accepts(probate) == true)
     }
 
+    @Test func aliveProfileRejectsPedigreeWithDeathYear() {
+        // FamilySearch-style person record returned as .pedigree
+        // with a death year — closes the gap that leaked one such
+        // record for Kathleen in pass 5. For an alive profile, any
+        // record asserting a death year is wrong-person.
+        let filter = LeadFilter(
+            preciseBirthYear: 1948,
+            birthYearTolerance: 5,
+            preciseDeathYear: nil,
+            deathYearTolerance: 5,
+            isAlive: true
+        )
+        let common = RecordCommon(id: "ped-1", sourceID: "familysearch", name: "Jennifer Holmes", surname: "Holmes", givenName: "Jennifer", detailURL: nil, rawFields: [:])
+        let pedigree = PedigreeRecord(common: common, birthYear: nil, deathYear: 2009, spouse: nil, marriageYear: nil, occupation: nil, location: nil, generation: nil)
+        let scored = ScoredRecord.test(record: .pedigree(pedigree))
+        #expect(filter.accepts(scored) == false)
+    }
+
+    @Test func aliveProfileAcceptsPedigreeWithoutDeathYear() {
+        // A pedigree record about a living person can carry birth /
+        // occupation / location without a death claim. Should pass.
+        let filter = LeadFilter(
+            preciseBirthYear: 1948,
+            birthYearTolerance: 5,
+            preciseDeathYear: nil,
+            deathYearTolerance: 5,
+            isAlive: true
+        )
+        let common = RecordCommon(id: "ped-2", sourceID: "wirksworth", name: "Jennifer Holmes", surname: "Holmes", givenName: "Jennifer", detailURL: nil, rawFields: [:])
+        let pedigree = PedigreeRecord(common: common, birthYear: 1948, deathYear: nil, spouse: nil, marriageYear: nil, occupation: "shepherd", location: "Bolehill", generation: 3)
+        let scored = ScoredRecord.test(record: .pedigree(pedigree))
+        #expect(filter.accepts(scored) == true)
+    }
+
+    @Test func deceasedProfileRejectsPedigreeWithFarOffDeathYear() {
+        // Closes the Kathleen leak (2009 vs known 2016, 7 years off).
+        let filter = LeadFilter(
+            preciseBirthYear: 1922,
+            birthYearTolerance: 5,
+            preciseDeathYear: 2016,
+            deathYearTolerance: 5,
+            isAlive: false
+        )
+        let common = RecordCommon(id: "ped-3", sourceID: "familysearch", name: "Kathleen Wheeldon", surname: "Wheeldon", givenName: "Kathleen", detailURL: nil, rawFields: [:])
+        let pedigree = PedigreeRecord(common: common, birthYear: nil, deathYear: 2009, spouse: nil, marriageYear: nil, occupation: nil, location: nil, generation: nil)
+        let scored = ScoredRecord.test(record: .pedigree(pedigree))
+        #expect(filter.accepts(scored) == false)
+    }
+
     @Test func filter3DoesNotAffectBirthOrMarriageRecords() {
         // Filter 3 only gates death-shaped records. Marriage records
         // shouldn't be rejected by the death-year check even when the
