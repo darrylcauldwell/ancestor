@@ -64,8 +64,8 @@ struct T7SecondPassTests {
         )
         let h = makeHypothesis(kind: kind, verdict: .inconclusive, attempts: 1)
         let state = makeState()
-        let q = HypothesisEngine.deficitQuery(for: h, atLevel: h.attempts + 1, state: state)
-        #expect(q == nil, "sibling level-2 is exhausted in current ladder")
+        let queries = HypothesisEngine.deficitQuery(for: h, atLevel: h.attempts + 1, state: state)
+        #expect(queries.isEmpty, "sibling level-2 is exhausted in current ladder")
     }
 
     @Test func eligibility_inconclusiveParentMarriageAtLevel2_returnsQuery_eligible() {
@@ -77,11 +77,11 @@ struct T7SecondPassTests {
         )
         let h = makeHypothesis(kind: kind, verdict: .inconclusive, attempts: 1)
         let state = makeState()
-        let q = HypothesisEngine.deficitQuery(for: h, atLevel: h.attempts + 1, state: state)
-        #expect(q != nil, "parentMarriage level-2 widens window — eligible for retry")
+        let queries = HypothesisEngine.deficitQuery(for: h, atLevel: h.attempts + 1, state: state)
+        #expect(!queries.isEmpty, "parentMarriage level-2 widens window — eligible for retry")
         // Window widens by ±10 years (per the deficit-query
         // implementation).
-        if let q {
+        if let q = queries.first {
             #expect(q.yearFrom == 1936)
             #expect(q.yearTo == 1987)
             #expect(q.recordType == .marriage)
@@ -100,8 +100,8 @@ struct T7SecondPassTests {
         // The deficit query itself still returns non-nil (level-2
         // exists structurally) — the eligibility filter in
         // runSecondPass gates on verdict separately.
-        let q = HypothesisEngine.deficitQuery(for: h, atLevel: h.attempts + 1, state: state)
-        #expect(q != nil)
+        let queries = HypothesisEngine.deficitQuery(for: h, atLevel: h.attempts + 1, state: state)
+        #expect(!queries.isEmpty)
         // But the orchestrator's predicate must reject this:
         #expect(h.verdict != .inconclusive, "supported hypotheses must be filtered out at the verdict gate")
     }
@@ -125,8 +125,8 @@ struct T7SecondPassTests {
         let h = makeHypothesis(kind: kind, attempts: 1)
         let state = makeState()
         for level in 1...5 {
-            let q = HypothesisEngine.deficitQuery(for: h, atLevel: level, state: state)
-            #expect(q == nil, "parentInferred has no ladder — level \(level) must return nil")
+            let queries = HypothesisEngine.deficitQuery(for: h, atLevel: level, state: state)
+            #expect(queries.isEmpty, "parentInferred has no ladder — level \(level) must return empty")
         }
     }
 
@@ -143,8 +143,8 @@ struct T7SecondPassTests {
         )
         let h = makeHypothesis(kind: kind, verdict: .inconclusive, attempts: 0)
         let state = makeState()
-        let q = HypothesisEngine.deficitQuery(for: h, atLevel: h.attempts + 1, state: state)
-        let unwrapped = try! #require(q)
+        let queries = HypothesisEngine.deficitQuery(for: h, atLevel: h.attempts + 1, state: state)
+        let unwrapped = try! #require(queries.first)
         #expect(unwrapped.yearFrom == 1946)
         #expect(unwrapped.yearTo == 1977)
     }
@@ -158,8 +158,8 @@ struct T7SecondPassTests {
         )
         let h = makeHypothesis(kind: kind, verdict: .inconclusive, attempts: 2)
         let state = makeState()
-        let q = HypothesisEngine.deficitQuery(for: h, atLevel: h.attempts + 1, state: state)
-        #expect(q == nil, "parentMarriage level-3 ceiling reached")
+        let queries = HypothesisEngine.deficitQuery(for: h, atLevel: h.attempts + 1, state: state)
+        #expect(queries.isEmpty, "parentMarriage level-3 ceiling reached")
     }
 
     // MARK: - Re-grading shape

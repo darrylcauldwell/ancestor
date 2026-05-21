@@ -386,15 +386,20 @@ struct T12SiblingPhase1Tests {
         let drafts = HypothesisEngine.generateSiblingExists(state: state, snapshot: snapshot)
         let h = try #require(drafts.first)
 
-        let query = HypothesisEngine.deficitQuerySiblingExists(
+        let queries = HypothesisEngine.deficitQuerySiblingExists(
             for: h, atLevel: 1, state: state
         )
-        let unwrapped = try #require(query)
+        let unwrapped = try #require(queries.first)
         #expect(unwrapped.surname == "Cauldwell")
         #expect(unwrapped.givenName == nil)
         #expect(unwrapped.recordType == .birth)
         #expect(unwrapped.yearFrom == 1956)
         #expect(unwrapped.yearTo == 1996)
+        // Level-1 fan-out: expect ALL districts in the subject's home
+        // Chapman code (DBY = ~12 districts). Pre-fix this returned a
+        // single birth-district query; the audit found ~50% of siblings
+        // born in different DBY districts than the subject.
+        #expect(queries.count >= 2, "should fan out to multiple DBY districts (was \(queries.count))")
     }
 
     @Test func deficitQuery_level2_returnsNil_inPhase2() throws {
@@ -409,10 +414,10 @@ struct T12SiblingPhase1Tests {
         let drafts = HypothesisEngine.generateSiblingExists(state: state, snapshot: snapshot)
         let h = try #require(drafts.first)
 
-        let query = HypothesisEngine.deficitQuerySiblingExists(
+        let queries = HypothesisEngine.deficitQuerySiblingExists(
             for: h, atLevel: 2, state: state
         )
-        #expect(query == nil, "Phase 2 ladder ceiling is level 1; ≥2 is exhausted")
+        #expect(queries.isEmpty, "Phase 2 ladder ceiling is level 1; ≥2 is exhausted")
     }
 
     @Test func deficitQuery_returnsNil_whenSubjectSurnameMissing() {
@@ -443,9 +448,9 @@ struct T12SiblingPhase1Tests {
             homeChapmanCode: "DBY"
         )
         let state = ResearchState(subject: subject)
-        let query = HypothesisEngine.deficitQuerySiblingExists(
+        let queries = HypothesisEngine.deficitQuerySiblingExists(
             for: h, atLevel: 1, state: state
         )
-        #expect(query == nil, "no surname on subject = no query to dispatch")
+        #expect(queries.isEmpty, "no surname on subject = no queries to dispatch")
     }
 }

@@ -495,13 +495,18 @@ final class ResearchPipeline {
         }
         var graded: [ResearchHypothesis] = []
         for draft in drafts {
-            if let query = HypothesisEngine.deficitQuery(
+            let queries = HypothesisEngine.deficitQuery(
                 for: draft, atLevel: 1, state: state
-            ) {
+            )
+            if !queries.isEmpty {
                 let priorIDs = Set(state.scoredRecords.map(\.id))
-                let candidates = await dispatchSiblingCandidateQuery(query)
-                let newCandidates = candidates.filter { !priorIDs.contains($0.id) }
-                logger.info("Sibling deficit-query level 1: \(candidates.count) candidates, \(newCandidates.count) new")
+                var allCandidates: [ScoredRecord] = []
+                for query in queries {
+                    let candidates = await dispatchSiblingCandidateQuery(query)
+                    allCandidates.append(contentsOf: candidates)
+                }
+                let newCandidates = allCandidates.filter { !priorIDs.contains($0.id) }
+                logger.info("Sibling deficit-query level 1: \(queries.count) districts → \(allCandidates.count) candidates, \(newCandidates.count) new")
                 state.scoredRecords.append(contentsOf: newCandidates)
                 // Same exclusion trick as marriage enrichment: keep the
                 // records as evidence (and on disk via the lead store)
@@ -633,9 +638,9 @@ final class ResearchPipeline {
     ) async -> [ResearchHypothesis] {
         let eligible = hypotheses.filter { h in
             guard h.verdict == .inconclusive else { return false }
-            return HypothesisEngine.deficitQuery(
+            return !HypothesisEngine.deficitQuery(
                 for: h, atLevel: h.attempts + 1, state: state
-            ) != nil
+            ).isEmpty
         }
         guard !eligible.isEmpty else { return hypotheses }
         logger.info("T7 second pass: \(eligible.count) deficit-eligible inconclusive hypotheses")
@@ -645,18 +650,28 @@ final class ResearchPipeline {
         var attemptsByID: [String: Int] = [:]
         for h in eligible {
             let nextLevel = h.attempts + 1
-            guard let query = HypothesisEngine.deficitQuery(
+            let queries = HypothesisEngine.deficitQuery(
                 for: h, atLevel: nextLevel, state: state
-            ) else { continue }
-            let newRecords = await dispatchHypothesisDeficitQuery(
-                query: query, hypothesisKind: h.kind, scope: scope
             )
+            guard !queries.isEmpty else { continue }
+            var appended: [ScoredRecord] = []
+            var appendedIDs: Set<String> = []
             let priorIDs = Set(state.scoredRecords.map(\.id))
-            let appended = newRecords.filter { !priorIDs.contains($0.id) }
+            var totalNewRecords = 0
+            for query in queries {
+                let newRecords = await dispatchHypothesisDeficitQuery(
+                    query: query, hypothesisKind: h.kind, scope: scope
+                )
+                totalNewRecords += newRecords.count
+                for r in newRecords where !priorIDs.contains(r.id) && !appendedIDs.contains(r.id) {
+                    appended.append(r)
+                    appendedIDs.insert(r.id)
+                }
+            }
             state.scoredRecords.append(contentsOf: appended)
             state.enrichmentRecordIDs.formUnion(appended.map(\.id))
             attemptsByID[h.id] = nextLevel
-            logger.info("T7 deficit dispatch (\(h.kind.discriminator), level \(nextLevel)): \(newRecords.count) records, \(appended.count) new")
+            logger.info("T7 deficit dispatch (\(h.kind.discriminator), level \(nextLevel)): \(queries.count) queries → \(totalNewRecords) records, \(appended.count) new")
         }
 
         // Re-grade every hypothesis with the now-populated state. The

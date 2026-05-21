@@ -130,35 +130,58 @@ nonisolated extension HypothesisEngine {
         for hypothesis: ResearchHypothesis,
         atLevel level: Int,
         state: ResearchState
-    ) -> RecordQuery? {
+    ) -> [RecordQuery] {
         guard case .siblingExists(let districtName, _, let yearWindow) = hypothesis.kind else {
-            return nil
-        }
-        guard let district = FreeBMDDistrictCatalogue.shared.district(named: districtName) else {
-            return nil
+            return []
         }
         let subjectSurname = state.subject.surname ?? ""
-        guard !subjectSurname.isEmpty else { return nil }
+        guard !subjectSurname.isEmpty else { return [] }
 
+        // Audit finding (pass 13 + Helen Clare Cauldwell case): a sibling
+        // search restricted to the subject's birth district silently misses
+        // ~50% of real siblings. In UK practice, the second child is
+        // commonly born at a different hospital (mother visiting her own
+        // mother, regional maternity unit, etc.) — landing in a different
+        // GRO registration district from the subject. For Darryl b. 1976
+        // Belper, his actual sister Helen Clare Cauldwell is registered in
+        // Derby 3A/177S — same county (DBY), different district.
+        //
+        // Fix: at level 1, expand to all districts in the subject's home
+        // Chapman code. QueryCache dedupes any overlap (the birth district
+        // is in the set). Cost: ~12 queries per sibling-search on a DBY
+        // tree vs 1; acceptable because sibling search runs once per
+        // profile per pipeline run.
         switch level {
         case 1:
-            return RecordQuery(
-                surname: subjectSurname,
-                givenName: nil,
-                recordType: .birth,
-                yearFrom: yearWindow.lowerBound,
-                yearTo: yearWindow.upperBound,
-                gender: nil,
-                region: nil,
-                sourceParams: .freeBMD(FreeBMDParams(
-                    districtCode: district.code,
-                    wildcardSurname: false,
-                    motherSurname: nil,
-                    spouseSurname: nil
-                ))
-            )
+            let countyDistricts = RegionConfig.districts(forChapmanCode: state.subject.homeChapmanCode)
+            // Keep birth district first for log readability — it's where
+            // most siblings actually appear.
+            var orderedCodes: [String] = []
+            if let birthDistrict = FreeBMDDistrictCatalogue.shared.district(named: districtName) {
+                orderedCodes.append(birthDistrict.code)
+            }
+            for code in countyDistricts.values where !orderedCodes.contains(code) {
+                orderedCodes.append(code)
+            }
+            return orderedCodes.map { code in
+                RecordQuery(
+                    surname: subjectSurname,
+                    givenName: nil,
+                    recordType: .birth,
+                    yearFrom: yearWindow.lowerBound,
+                    yearTo: yearWindow.upperBound,
+                    gender: nil,
+                    region: nil,
+                    sourceParams: .freeBMD(FreeBMDParams(
+                        districtCode: code,
+                        wildcardSurname: false,
+                        motherSurname: nil,
+                        spouseSurname: nil
+                    ))
+                )
+            }
         default:
-            return nil   // Exhausted — T31 will revisit the ladder ceiling
+            return []   // Exhausted — T31 will revisit the ladder ceiling
         }
     }
 

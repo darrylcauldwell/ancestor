@@ -219,7 +219,7 @@ nonisolated enum HypothesisEngine {
         for hypothesis: ResearchHypothesis,
         atLevel level: Int,
         state: ResearchState
-    ) -> RecordQuery? {
+    ) -> [RecordQuery] {
         switch hypothesis.kind {
         case .siblingExists:
             return deficitQuerySiblingExists(for: hypothesis, atLevel: level, state: state)
@@ -229,7 +229,7 @@ nonisolated enum HypothesisEngine {
             return deficitQueryParentMarriage(for: hypothesis, atLevel: level, state: state)
         case .subjectIdentity, .clusterIsSubject,
              .burialAtParish, .secondMarriage:
-            return nil   // future kinds
+            return []   // future kinds
         }
     }
 }

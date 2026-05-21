@@ -162,8 +162,8 @@ nonisolated extension HypothesisEngine {
         for hypothesis: ResearchHypothesis,
         atLevel level: Int,
         state: ResearchState
-    ) -> RecordQuery? {
+    ) -> [RecordQuery] {
         _ = (hypothesis, level, state)
-        return nil
+        return []
     }
 }

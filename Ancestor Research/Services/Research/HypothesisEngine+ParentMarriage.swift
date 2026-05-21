@@ -259,9 +259,9 @@ nonisolated extension HypothesisEngine {
         for hypothesis: ResearchHypothesis,
         atLevel level: Int,
         state: ResearchState
-    ) -> RecordQuery? {
+    ) -> [RecordQuery] {
         guard case .parentMarriage(let motherSurname, let fatherSurname, let window) = hypothesis.kind else {
-            return nil
+            return []
         }
         _ = state
         let (yearFrom, yearTo): (Int, Int)
@@ -273,9 +273,9 @@ nonisolated extension HypothesisEngine {
             yearFrom = window.lowerBound - 10
             yearTo = window.upperBound + 10
         default:
-            return nil   // Exhausted — T31 will revisit the ladder ceiling
+            return []   // Exhausted — T31 will revisit the ladder ceiling
         }
-        return RecordQuery(
+        return [RecordQuery(
             surname: fatherSurname,
             givenName: nil,
             recordType: .marriage,
@@ -289,6 +289,6 @@ nonisolated extension HypothesisEngine {
                 motherSurname: nil,
                 spouseSurname: motherSurname
             ))
-        )
+        )]
     }
 }
