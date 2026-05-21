@@ -64,23 +64,31 @@ actor MCPHandler {
             }
 
             let id = request["id"]
+            let isNotification = (id == nil)
             let method = request["method"] as? String ?? ""
             let params = request["params"] as? [String: Any] ?? [:]
 
-            let response: Any
+            let envelope: [String: Any]
             do {
-                response = try await handle(method: method, params: params)
+                let result = try await handle(method: method, params: params)
+                if isNotification { continue }
+                envelope = [
+                    "jsonrpc": "2.0",
+                    "id": id as Any,
+                    "result": result,
+                ]
             } catch {
-                response = ["error": ["code": -32603, "message": error.localizedDescription]]
+                if isNotification { continue }
+                let code: Int
+                if case MCPError.methodNotFound = error { code = -32601 } else { code = -32603 }
+                envelope = [
+                    "jsonrpc": "2.0",
+                    "id": id as Any,
+                    "error": ["code": code, "message": error.localizedDescription],
+                ]
             }
 
-            let result: [String: Any] = [
-                "jsonrpc": "2.0",
-                "id": id as Any,
-                "result": response,
-            ]
-
-            if let resultData = try? JSONSerialization.data(withJSONObject: result),
+            if let resultData = try? JSONSerialization.data(withJSONObject: envelope),
                let resultString = String(data: resultData, encoding: .utf8) {
                 print(resultString)
                 fflush(stdout)
@@ -95,7 +103,7 @@ actor MCPHandler {
         // MCP lifecycle
         case "initialize":
             return initializeResponse()
-        case "initialized":
+        case "initialized", "notifications/initialized", "notifications/cancelled":
             return [String: Any]()
 
         // Resources
@@ -402,6 +410,25 @@ actor MCPHandler {
                     ],
                     required: ["request_id"]
                 ),
+                // Auto-approval — see AncestorApp/AUTO_APPROVAL_VIA_MCP_SPEC.md.
+                // Rules' authority extends to commit when the gate evaluator
+                // says unambiguous; ambiguous facts still go to human review.
+                tool(
+                    name: "approve_pending_fact",
+                    description: "Approve a pending fact via the deterministic gate. Commits to the profile + field_sources only if the fact passes every criterion (trust tier, convergence with existing sources, no would-be dispute, field is in the auto-approvable set). Refuses with a reason code otherwise; the fact stays pending for human review.",
+                    properties: [
+                        "pending_fact_id": ["type": "string", "description": "The pending_facts row ID to evaluate and commit."],
+                    ],
+                    required: ["pending_fact_id"]
+                ),
+                tool(
+                    name: "inspect_approval_decision",
+                    description: "Dry-run of approve_pending_fact. Runs the same gate evaluator but commits nothing. Returns 'would_approve' with the satisfied criteria or 'would_refuse' with the failing reason.",
+                    properties: [
+                        "pending_fact_id": ["type": "string", "description": "The pending_facts row ID to evaluate."],
+                    ],
+                    required: ["pending_fact_id"]
+                ),
             ]
         ]
     }
@@ -447,6 +474,10 @@ actor MCPHandler {
             return try kickOffResearch(arguments)
         case "get_run_status":
             return try getRunStatus(arguments)
+        case "approve_pending_fact":
+            return try approvePendingFact(arguments)
+        case "inspect_approval_decision":
+            return try inspectApprovalDecision(arguments)
         case _ where name == "get_run_status" || name.hasPrefix("ancestor://run_status/"):
             return try getRunStatus(arguments)
         default:
@@ -1642,6 +1673,375 @@ actor MCPHandler {
                 "required": required,
             ] as [String: Any],
         ]
+    }
+
+    // MARK: - Auto-approval (AUTO_APPROVAL_VIA_MCP_SPEC.md)
+    //
+    // The deterministic gate runs entirely inside the MCP package; it
+    // does not import the app's research module. The implementation is
+    // deliberately a *conservative subset* of what the app's full review
+    // does — anything the gate cannot judge unambiguously refuses, and
+    // the fact remains in `pending_facts` for normal human review.
+
+    /// Fields the gate is allowed to commit. Names/gender/bio are
+    /// excluded by design — identity-shaping or narrative, see the spec.
+    static let autoApprovableFields: Set<String> = [
+        "birthDate", "deathDate", "baptismDate", "burialDate",
+        "birthLocation", "deathLocation",
+        "marriageDate", "marriageLocation",
+        "occupation", "address",
+    ]
+
+    /// URL hosts treated as primary or secondary trust tier. Conservative
+    /// allow-list — anything off this list refuses with
+    /// `trust_tier_insufficient`. Extend with care; each addition expands
+    /// what the rules can commit without a human keystroke.
+    static let trustedHosts: Set<String> = [
+        "freebmd.org.uk", "www.freebmd.org.uk",
+        "freecen.org.uk", "www.freecen.org.uk", "search.freecen.org.uk",
+        "freereg.org.uk", "www.freereg.org.uk",
+        "familysearch.org", "www.familysearch.org",
+        "cwgc.org", "www.cwgc.org",
+        "probatesearch.service.gov.uk",
+        "wirksworth.org.uk", "www.wirksworth.org.uk",
+        "findagrave.com", "www.findagrave.com",
+    ]
+
+    func approvePendingFact(_ args: [String: Any]) throws -> [String: Any] {
+        guard let pendingFactID = args["pending_fact_id"] as? String else {
+            throw MCPError.invalidParams("approve_pending_fact requires pending_fact_id")
+        }
+
+        let decision = try evaluateApproval(pendingFactID: pendingFactID)
+        switch decision {
+        case .refuse(let reason, let detail):
+            let payload: [String: Any] = [
+                "status": "refused",
+                "reason": reason,
+                "detail": detail,
+                "pending_fact_id": pendingFactID,
+                "still_pending": true,
+            ]
+            let json = (try? String(data: JSONSerialization.data(withJSONObject: payload, options: .prettyPrinted), encoding: .utf8)) ?? "{}"
+            return ["content": [["type": "text", "text": json]]]
+        case .approve(let criteria):
+            let committed = try commitPendingFact(pendingFactID: pendingFactID, criteria: criteria)
+            var payload: [String: Any] = [
+                "status": "approved",
+                "pending_fact_id": pendingFactID,
+                "criteria_met": criteria,
+            ]
+            payload["profile_id"] = committed.profileID
+            payload["field"] = committed.field
+            payload["value"] = committed.value
+            payload["committed_at"] = ISO8601DateFormatter().string(from: committed.committedAt)
+            let json = (try? String(data: JSONSerialization.data(withJSONObject: payload, options: .prettyPrinted), encoding: .utf8)) ?? "{}"
+            return ["content": [["type": "text", "text": json]]]
+        }
+    }
+
+    func inspectApprovalDecision(_ args: [String: Any]) throws -> [String: Any] {
+        guard let pendingFactID = args["pending_fact_id"] as? String else {
+            throw MCPError.invalidParams("inspect_approval_decision requires pending_fact_id")
+        }
+
+        let decision = try evaluateApproval(pendingFactID: pendingFactID)
+        let payload: [String: Any]
+        switch decision {
+        case .approve(let criteria):
+            payload = [
+                "status": "would_approve",
+                "pending_fact_id": pendingFactID,
+                "criteria_met": criteria,
+            ]
+        case .refuse(let reason, let detail):
+            payload = [
+                "status": "would_refuse",
+                "pending_fact_id": pendingFactID,
+                "reason": reason,
+                "detail": detail,
+            ]
+        }
+        let json = (try? String(data: JSONSerialization.data(withJSONObject: payload, options: .prettyPrinted), encoding: .utf8)) ?? "{}"
+        return ["content": [["type": "text", "text": json]]]
+    }
+
+    /// Outcome of evaluating a pending fact against the gate.
+    enum ApprovalDecision {
+        case approve(criteria: [String: Any])
+        case refuse(reason: String, detail: String)
+    }
+
+    struct ApprovalCommit {
+        let profileID: String
+        let field: String
+        let value: String
+        let committedAt: Date
+    }
+
+    /// Read-only evaluation against the gate. Used by both
+    /// `approve_pending_fact` and `inspect_approval_decision` — keeps
+    /// the rule logic single-rooted so the dry-run can't drift from
+    /// the live commit.
+    func evaluateApproval(pendingFactID: String) throws -> ApprovalDecision {
+        try db.read { db in
+            guard let row = try Row.fetchOne(db, sql: "SELECT * FROM pending_facts WHERE id = ?", arguments: [pendingFactID]) else {
+                return .refuse(
+                    reason: "pending_fact_not_found",
+                    detail: "No pending_facts row with id \(pendingFactID)."
+                )
+            }
+
+            let factKind: String = row["fact_kind"] ?? ""
+            let value: String = row["value_json"] ?? ""
+            let profileID: String = row["profile_id"] ?? ""
+            let sourceURL: String? = row["source_url"]
+            let sourceTitle: String = row["source_title"] ?? ""
+            let reviewStatus: String = row["review_status"] ?? "pending"
+
+            // Already processed (accepted/rejected) — no-op refuse.
+            guard reviewStatus == "pending" else {
+                return .refuse(
+                    reason: "pending_fact_already_processed",
+                    detail: "Pending fact already in status '\(reviewStatus)'."
+                )
+            }
+
+            // Auto-approvable field set.
+            guard Self.autoApprovableFields.contains(factKind) else {
+                return .refuse(
+                    reason: "field_not_auto_approvable",
+                    detail: "Field '\(factKind)' is excluded from auto-approval. Names, gender, and bio are always human-reviewed."
+                )
+            }
+
+            // Trust tier — URL host must be in the trusted list.
+            guard let url = sourceURL, !url.isEmpty,
+                  let host = Self.urlHost(url) else {
+                return .refuse(
+                    reason: "trust_tier_insufficient",
+                    detail: "Pending fact has no source URL to classify."
+                )
+            }
+            guard Self.trustedHosts.contains(host) else {
+                return .refuse(
+                    reason: "trust_tier_insufficient",
+                    detail: "Source host '\(host)' is not on the auto-approval trusted-host list."
+                )
+            }
+
+            // Existing field_sources for this (profile, field): split into
+            // corroborating (same value) vs. conflicting (different value).
+            let profileField = Self.profileFieldFor(factKind: factKind)
+            let existingRows = try Row.fetchAll(db, sql: """
+                SELECT raw FROM field_sources
+                WHERE entity_id = ? AND entity_kind = 'profile' AND field = ?
+                """, arguments: [profileID, profileField])
+
+            var corroboratingLineages: Set<String> = []
+            var conflicts: [String] = []
+            for r in existingRows {
+                let raw: String = r["raw"] ?? ""
+                let existingValue = Self.extractValueFromRaw(raw)
+                if existingValue.isEmpty { continue }
+                if Self.valuesMatch(existingValue, value, field: factKind) {
+                    if let lineage = Self.lineageLabelFromRaw(raw) {
+                        corroboratingLineages.insert(lineage)
+                    }
+                } else {
+                    conflicts.append(existingValue)
+                }
+            }
+
+            if !conflicts.isEmpty {
+                return .refuse(
+                    reason: "would_create_dispute",
+                    detail: "Existing field value(s) [\(conflicts.joined(separator: "; "))] conflict with proposed '\(value)'."
+                )
+            }
+
+            // Convergence: need at least 2 independent lineages. The
+            // pending fact's own lineage (its URL host) counts once;
+            // corroborating field_sources with distinct source titles
+            // each count once more.
+            var independentLineages = corroboratingLineages
+            independentLineages.insert(host)
+
+            guard independentLineages.count >= 2 else {
+                return .refuse(
+                    reason: "convergence_insufficient",
+                    detail: "Need ≥ 2 independent lineages; found \(independentLineages.count) (\(independentLineages.sorted().joined(separator: ", "))). Pending fact must corroborate at least one existing source from a different lineage."
+                )
+            }
+
+            return .approve(criteria: [
+                "trustTier": "primary_or_secondary",
+                "sourceHost": host,
+                "sourceTitle": sourceTitle,
+                "independentLineageCount": independentLineages.count,
+                "lineages": independentLineages.sorted(),
+                "wouldCreateDispute": false,
+                "fieldAutoApprovable": true,
+                "field": factKind,
+                "value": value,
+                "profileID": profileID,
+            ])
+        }
+    }
+
+    /// Commit the pending fact. Mirrors the app's `acceptFinding` write
+    /// shape (profiles + field_sources + pending_facts update) plus the
+    /// new approval metadata columns introduced by v28.
+    func commitPendingFact(pendingFactID: String, criteria: [String: Any]) throws -> ApprovalCommit {
+        try db.write { db in
+            guard let row = try Row.fetchOne(db, sql: "SELECT * FROM pending_facts WHERE id = ?", arguments: [pendingFactID]) else {
+                throw MCPError.invalidParams("pending fact \(pendingFactID) disappeared between evaluation and commit")
+            }
+
+            let factKind: String = row["fact_kind"] ?? ""
+            let value: String = row["value_json"] ?? ""
+            let profileID: String = row["profile_id"] ?? ""
+            let sourceTitle: String = row["source_title"] ?? ""
+
+            // Apply to profile column where one exists. Occupation /
+            // address don't map to a column (they're narrative life-event
+            // details); the field_sources row still records the evidence.
+            let (column, datePrefix) = Self.profileColumnFor(factKind: factKind)
+            if let column = column {
+                try db.execute(
+                    sql: "UPDATE profiles SET \(column) = ? WHERE id = ?",
+                    arguments: [value, profileID]
+                )
+                if !datePrefix.isEmpty, let year = Self.extractYear(from: value) {
+                    try db.execute(
+                        sql: "UPDATE profiles SET \(datePrefix)_earliest = ?, \(datePrefix)_latest = ? WHERE id = ?",
+                        arguments: [year, year, profileID]
+                    )
+                }
+            }
+
+            // field_sources row — same shape as the app's acceptFinding.
+            let profileField = Self.profileFieldFor(factKind: factKind)
+            try db.execute(sql: """
+                INSERT INTO field_sources (entity_id, entity_kind, field, origin, raw, added_at)
+                VALUES (?, 'profile', ?, 'field-researcher', ?, ?)
+                """, arguments: [
+                    profileID, profileField,
+                    "\(value) [\(sourceTitle)]",
+                    Date(),
+                ])
+
+            // pending_facts: accepted + approval metadata.
+            let now = Date()
+            let criteriaJSON = (try? String(
+                data: JSONSerialization.data(withJSONObject: criteria, options: []),
+                encoding: .utf8
+            )) ?? "{}"
+            try db.execute(sql: """
+                UPDATE pending_facts SET
+                    review_status = 'accepted',
+                    verification_status = 'verified',
+                    reviewed_at = ?,
+                    approval_method = 'rules',
+                    approval_rule_ids = ?,
+                    approved_at = ?
+                WHERE id = ?
+                """, arguments: [now, criteriaJSON, now, pendingFactID])
+
+            return ApprovalCommit(
+                profileID: profileID,
+                field: factKind,
+                value: value,
+                committedAt: now
+            )
+        }
+    }
+
+    // MARK: - Auto-approval helpers (pure, testable)
+
+    static func urlHost(_ urlString: String) -> String? {
+        URL(string: urlString)?.host?.lowercased()
+    }
+
+    /// Map a pending_facts.fact_kind to the corresponding
+    /// `field_sources.field` value. Mirrors the app-side mapping in
+    /// `PendingFactsReviewView.addFieldSource`.
+    static func profileFieldFor(factKind: String) -> String {
+        switch factKind {
+        case "birthDate", "baptismDate": return "birthDate"
+        case "deathDate", "burialDate": return "deathDate"
+        case "birthLocation": return "birthLocation"
+        case "deathLocation": return "deathLocation"
+        case "marriageDate": return "marriageDate"
+        case "marriageLocation": return "marriageLocation"
+        default: return factKind
+        }
+    }
+
+    /// Map a fact_kind to the (column, datePrefix) on `profiles` it
+    /// writes. Returns (nil, "") for fields with no scalar column —
+    /// those are narrative (occupation, address) and only land in
+    /// field_sources.
+    static func profileColumnFor(factKind: String) -> (String?, String) {
+        switch factKind {
+        case "birthDate", "baptismDate": return ("birth_date_original", "birth_date")
+        case "deathDate", "burialDate": return ("death_date_original", "death_date")
+        case "birthLocation": return ("birth_location", "")
+        case "deathLocation": return ("death_location", "")
+        default: return (nil, "")
+        }
+    }
+
+    /// Extract a 4-digit year from a free-text date string. Mirrors
+    /// `EvidenceFirewall.extractYear` semantics conservatively — first
+    /// year in [1000, 2099] wins.
+    static func extractYear(from value: String) -> Int? {
+        let pattern = #"\b(1[0-9]{3}|20[0-9]{2})\b"#
+        guard let range = value.range(of: pattern, options: .regularExpression) else {
+            return nil
+        }
+        return Int(value[range])
+    }
+
+    /// `field_sources.raw` stores "VALUE [Source Title]" or just "VALUE".
+    /// Pull the leading value out for comparison.
+    static func extractValueFromRaw(_ raw: String) -> String {
+        if let bracket = raw.firstIndex(of: "[") {
+            return String(raw[..<bracket]).trimmingCharacters(in: .whitespaces)
+        }
+        return raw.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// `field_sources.raw` carries a trailing "[Source Title]" segment;
+    /// this returns that label, used as a lineage proxy. Different
+    /// source titles count as different lineages — crude, conservative,
+    /// and biased toward refusing.
+    static func lineageLabelFromRaw(_ raw: String) -> String? {
+        guard let open = raw.firstIndex(of: "["),
+              let close = raw.firstIndex(of: "]"),
+              open < close else {
+            return nil
+        }
+        let inner = raw[raw.index(after: open)..<close]
+        let trimmed = inner.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? nil : trimmed.lowercased()
+    }
+
+    /// Whether two field values represent the same fact. Field-aware:
+    /// date fields compare extracted years; everything else compares
+    /// case-insensitively after trimming. Conservative — a value that
+    /// is *less specific* (broader place, less specific date) than the
+    /// existing one is treated as conflicting, not corroborating.
+    static func valuesMatch(_ a: String, _ b: String, field: String) -> Bool {
+        let aT = a.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let bT = b.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if aT == bT { return true }
+        if field.hasSuffix("Date") {
+            if let aY = extractYear(from: a), let bY = extractYear(from: b) {
+                return aY == bY
+            }
+        }
+        return false
     }
 }
 

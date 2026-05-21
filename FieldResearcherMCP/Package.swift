@@ -15,5 +15,10 @@ let package = Package(
             ],
             path: "Sources"
         ),
+        .testTarget(
+            name: "FieldResearcherMCPTests",
+            dependencies: ["FieldResearcherMCP"],
+            path: "Tests/FieldResearcherMCPTests"
+        ),
     ]
 )

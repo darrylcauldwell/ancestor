@@ -827,6 +827,28 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // MARK: v28 — Auto-approval metadata on pending_facts
+        //
+        // Per AncestorApp/AUTO_APPROVAL_VIA_MCP_SPEC.md, the MCP server
+        // gains tools that can commit a pending fact when the deterministic
+        // rules judge it unambiguous. Three nullable columns distinguish a
+        // user keystroke from a rules-driven commit and record which gate
+        // criteria approved it, so the audit trail survives.
+        //
+        //   approval_method:   'user' | 'rules'  (NULL while pending)
+        //   approval_rule_ids: JSON of the gate criteria that approved
+        //   approved_at:       distinct from reviewed_at; preserves the
+        //                      existing semantic of reviewed_at as "user
+        //                      review timestamp" while letting us query
+        //                      auto-approvals cleanly.
+        migrator.registerMigration("v28_pending_facts_approval_metadata") { db in
+            try db.alter(table: "pending_facts") { t in
+                t.add(column: "approval_method", .text)
+                t.add(column: "approval_rule_ids", .text)
+                t.add(column: "approved_at", .datetime)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
