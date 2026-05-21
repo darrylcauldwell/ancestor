@@ -14,7 +14,6 @@ struct ProfilePopoverView: View {
     var onFocusHere: () -> Void
     var onShowDetail: () -> Void
     var onResearch: (() -> Void)?
-    var onEdit: (() -> Void)?
     var onAddRelative: ((AutoSuggestService.RelationContext) -> Void)?
     var onAddRelationship: (() -> Void)?
     var onRemove: (() -> Void)?
@@ -257,28 +256,21 @@ struct ProfilePopoverView: View {
                     .buttonStyle(.glass)
                     .controlSize(.small)
             }
-            if onEdit != nil || onAddRelative != nil {
+            if let onAddRelative {
                 HStack {
-                    if let onEdit {
-                        Button("Edit") { onEdit() }
-                            .buttonStyle(.glass)
-                            .controlSize(.small)
-                    }
                     Spacer()
-                    if let onAddRelative {
-                        Menu("Add…") {
-                            Button("Add Child") { onAddRelative(.child) }
-                            Button("Add Spouse") { onAddRelative(.spouse) }
-                            Button("Add Parent") { onAddRelative(.parent) }
-                            Button("Add Sibling") { onAddRelative(.sibling) }
-                            if let onAddRelationship {
-                                Divider()
-                                Button("Connect to existing person…") { onAddRelationship() }
-                            }
+                    Menu("Add…") {
+                        Button("Add Child") { onAddRelative(.child) }
+                        Button("Add Spouse") { onAddRelative(.spouse) }
+                        Button("Add Parent") { onAddRelative(.parent) }
+                        Button("Add Sibling") { onAddRelative(.sibling) }
+                        if let onAddRelationship {
+                            Divider()
+                            Button("Connect to existing person…") { onAddRelationship() }
                         }
-                        .menuStyle(.borderlessButton)
-                        .controlSize(.small)
                     }
+                    .menuStyle(.borderlessButton)
+                    .controlSize(.small)
                 }
             }
             if onRemove != nil || onRemoveBranch != nil || (onToggleFocus != nil && hasActiveFocus) {

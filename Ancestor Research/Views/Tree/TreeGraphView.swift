@@ -67,10 +67,10 @@ struct TreeGraphView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            GeometryReader { geo in
-                let canvasSize = geo.size
+        GeometryReader { geo in
+            let canvasSize = geo.size
 
+            ZStack(alignment: .topTrailing) {
                 ZStack {
                     // Layer 1: Canvas
                     treeCanvas(canvasSize: canvasSize)
@@ -148,23 +148,31 @@ struct TreeGraphView: View {
                 .onChange(of: canvasSize) { _, newSize in
                     treeVM.lastCanvasSize = newSize
                 }
-            }
-            .frame(minWidth: 400)
 
-            // Inspector sidebar (on demand)
-            if treeVM.showInspector,
-               let selectedID = treeVM.selectedProfileID,
-               let profile = appState.snapshot.profiles[selectedID] {
-                ProfileDetailView(
-                    profile: profile,
-                    snapshot: appState.snapshot,
-                    onSetRoot: {
-                        treeVM.recenter(on: selectedID, snapshot: appState.snapshot,
-                                       canvasSize: treeVM.lastCanvasSize,
-                                       reduceMotion: reduceMotion)
-                    }
-                )
-                .frame(width: 300)
+                // Floating profile card. Overlays the tree canvas in the
+                // top-right corner; the card itself carries the Liquid
+                // Glass chrome. Read and edit modes share the surface — the
+                // Edit button on the card flips its `isEditing` toggle
+                // rather than presenting a separate sheet.
+                if treeVM.showInspector,
+                   let selectedID = treeVM.selectedProfileID,
+                   let profile = appState.snapshot.profiles[selectedID] {
+                    ProfileDetailView(
+                        profile: profile,
+                        snapshot: appState.snapshot,
+                        onSetRoot: {
+                            treeVM.recenter(on: selectedID, snapshot: appState.snapshot,
+                                           canvasSize: treeVM.lastCanvasSize,
+                                           reduceMotion: reduceMotion)
+                        },
+                        onClose: {
+                            treeVM.showInspector = false
+                        }
+                    )
+                    .frame(minWidth: 380, idealWidth: 420, maxWidth: 460,
+                           maxHeight: canvasSize.height - 32)
+                    .padding(16)
+                }
             }
         }
         .toolbar { toolbarContent }
@@ -1087,10 +1095,6 @@ struct TreeGraphView: View {
                 onResearch: {
                     treeVM.popoverProfileID = nil
                     appState.researchProfileID = popoverID
-                },
-                onEdit: {
-                    treeVM.popoverProfileID = nil
-                    editProfileID = SheetID(id: popoverID)
                 },
                 onAddRelative: { relation in
                     treeVM.popoverProfileID = nil

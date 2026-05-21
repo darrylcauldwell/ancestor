@@ -1,210 +1,118 @@
 import SwiftUI
 
-/// Inspector panel showing full profile details with source badges.
+/// Unified profile card — read inspector and edit form on the same surface,
+/// rendered as a floating Liquid Glass card. The Edit button flips
+/// `isEditing` in place: the shared layout switches `Text` → `TextField`,
+/// the action row swaps to Cancel + Save Changes, and the heavy edit
+/// machinery (per-field source picker, Correct/Alternative, citation)
+/// slides in below.
+///
+/// Step 4 of `AncestorApp/PROFILE_VIEW_UNIFY_SPEC.md`: removes the modal
+/// `EditPersonView` sheet from the inspector flow. External callsites
+/// (audit / tree-graph context menu) still open `EditPersonView`, which is
+/// now a thin sheet wrapper that hosts this view with
+/// `startInEditMode: true`.
 struct ProfileDetailView: View {
     let profile: Profile
     let snapshot: FamilyGraphSnapshot
     var onSetRoot: (() -> Void)?
+    /// Caller-provided dismissal. When non-nil, an X button renders in the
+    /// card's top-right corner. The tree-graph host wires this up to
+    /// `treeVM.showInspector = false`; the modal wrapper leaves it nil and
+    /// relies on the sheet's own close affordance.
+    var onClose: (() -> Void)?
+    /// Skip the read inspector and open straight into edit mode. Used by
+    /// `EditPersonView` (the sheet wrapper) so the audit / context-menu
+    /// edit flows still land directly on the form.
+    var startInEditMode: Bool = false
 
     @Environment(AppState.self) private var appState
-    /// M24 — when true (Settings → Accessibility → "Differentiate without
-    /// colour"), state-colour signals are paired with shape/glyph alternatives.
-    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
-    @State private var showingEdit: Bool = false
+
+    // MARK: - Edit-mode form state (moved from `EditPersonView`)
+
+    @State private var isEditing: Bool = false
+    @State private var firstName: String = ""
+    @State private var middleName: String = ""
+    @State private var lastName: String = ""
+    @State private var marriedSurname: String = ""
+    @State private var nickName: String = ""
+    @State private var mothersMaidenName: String = ""
+    @State private var gender: Gender = .unknown
+    @State private var birthDateText: String = ""
+    @State private var birthLocation: String = ""
+    @State private var birthLocationCode: String? = nil
+    @State private var deathDateText: String = ""
+    @State private var deathLocation: String = ""
+    @State private var deathLocationCode: String? = nil
+    @State private var bio: String = ""
+
+    @State private var defaultSource: SourceOrigin = .manualMemory
+    @State private var sourcePerField: [ProfileField: SourceOrigin] = [:]
+    @State private var fieldChoice: [ProfileField: ChangeMode] = [:]
+    @State private var citation: Citation?
+    @State private var quality: EvidenceQuality?
+    @State private var original: OriginalSnapshot = .empty
+
+    enum ChangeMode: String, Hashable {
+        case correct
+        case alternative
+    }
+
+    // MARK: - Read-mode sheets
+
     @State private var showingTimeline: Bool = false
-    @State private var showingNoteComposer: Bool = false
-    @State private var editingNote: WorkbenchNote?
     @State private var showingRelationshipCalculator: Bool = false
-    @State private var showingLifeEventEditor: Bool = false
-    @State private var editingLifeEvent: LifeEvent?
-    @State private var showingAttachmentImporter: Bool = false
     @State private var cleansePresentation: CleansePresentation?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                // Header
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(profile.displayName)
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        // Name-side source badges. firstName and lastName
-                        // each have their own provenance trail in
-                        // field_sources; surface both inline next to the
-                        // header so the user can see at a glance whether
-                        // the name was typed manually, imported from
-                        // GEDCOM, or inferred from research.
-                        sourceBadges(for: .firstName)
-                        sourceBadges(for: .lastName)
-                    }
-                    if let wikiTreeID = profile.wikiTreeID {
-                        Text(wikiTreeID)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    let comp = snapshot.completeness(for: profile.id)
-                    HStack(spacing: 8) {
-                        HStack(spacing: 4) {
-                            Text("\(comp.score)/\(comp.maximum)")
-                                .font(.caption)
-                                .foregroundStyle(comp.score == comp.maximum ? .green : .orange)
-                            if comp.potentiallyLiving {
-                                Text("(living)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                        // Pending-facts badge — small orange pill linking
-                        // to the firewall queue for this profile. Hidden
-                        // when zero so it doesn't clutter the common case.
-                        pendingFactsBadge
-                    }
+                if onClose != nil {
+                    closeButtonRow
                 }
 
-                Divider()
+                SharedProfileLayout(
+                    profile: profile,
+                    snapshot: snapshot,
+                    editable: isEditing,
+                    bindings: isEditing ? makeBindings() : nil
+                )
 
-                // Per-gap research entry points (Task #39). When a profile is
-                // missing facts the user can act on each one in-place rather
-                // than running a whole-profile sweep. Each row sets the same
-                // researchConfigProfile that the whole-profile Research button
-                // does — `ResearchConfigSheet` then picks an appropriate
-                // default mode for the subject. We don't yet pass a focus
-                // hint through to the sheet; that's a future refinement.
-                missingFactsSection
-
-                // Fields with source badges
-                fieldRow("Birth", value: profile.birthDate?.original, place: profile.birthLocation, field: .birthDate)
-                hypotheticalLine(for: .birthDate)
-                fieldRow("Death", value: profile.deathDate?.original, place: profile.deathLocation, field: .deathDate)
-                hypotheticalLine(for: .deathDate)
-
-                if let gender = profile.gender {
-                    LabeledContent("Gender") {
-                        HStack(spacing: 6) {
-                            Text(gender.rawValue.capitalized)
-                            // Gender is a sourced field — the wizard, GEDCOM
-                            // import, and per-field source-recording paths
-                            // all write a provenance entry under .gender.
-                            // Previously invisible on the profile detail.
-                            sourceBadges(for: .gender)
-                        }
-                    }
-                }
-                hypotheticalLine(for: .gender)
-
-                Divider()
-
-                // Relationships
-                relationshipSection("Parents", profiles: snapshot.parentsOf(profile.id))
-                // Spouses get their own renderer so marriage date / location
-                // surface alongside the spouse name. Without this, the
-                // marriage enrichment Apply path writes to the spouse edge
-                // but the user has no way to see that it happened — the
-                // generic relationshipSection only renders profile fields.
-                spousesSection(for: profile, snapshot: snapshot)
-                relationshipSection("Children", profiles: snapshot.childrenOf(profile.id))
-                relationshipSection("Siblings", profiles: snapshot.siblingsOf(profile.id))
-
-                // Disputes
-                if !profile.disputes.isEmpty {
+                if isEditing {
+                    sourceDetailsSection(profile: profile)
                     Divider()
-                    Text("Disputes")
-                        .font(.headline)
-                        .foregroundStyle(.orange)
-                    ForEach(Array(profile.disputes.values), id: \.field) { dispute in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(dispute.field.rawValue)
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                            Text(dispute.reason.rawValue)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            ForEach(dispute.competingSources, id: \.raw) { source in
-                                Text("  \(source.origin.identifier): \(source.raw)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                    }
+                    sourceSection
                 }
 
-                // Life Events (M12) — censuses, occupations, residences, baptisms, etc.
                 Divider()
-                lifeEventsSection
-
-                // Attachments (M13) — photos, scans, transcriptions
-                Divider()
-                attachmentsSection
-
-                // Notes (M8 W1) — surfaces workbench thinking in context
-                Divider()
-                notesSection
-
-                // Actions
-                Divider()
-                HStack(spacing: 8) {
-                    Button("Edit") {
-                        showingEdit = true
-                    }
-                    .buttonStyle(.glass)
-                    .controlSize(.small)
-
-                    Button {
-                        showingTimeline = true
-                    } label: {
-                        Label("Timeline", systemImage: "calendar")
-                    }
-                    .buttonStyle(.glass)
-                    .controlSize(.small)
-
-                    Button {
-                        showingRelationshipCalculator = true
-                    } label: {
-                        Label("Relationship to…", systemImage: "person.2")
-                    }
-                    .buttonStyle(.glass)
-                    .controlSize(.small)
-
-                    Button {
-                        appState.researchConfigProfile = profile
-                    } label: {
-                        Label("Research", systemImage: "magnifyingglass")
-                    }
-                    .buttonStyle(.glass)
-                    .controlSize(.small)
-
-                    Button {
-                        cleansePresentation = .singleProfile(profile.id)
-                    } label: {
-                        Label("Cleanse", systemImage: "sparkles")
-                    }
-                    .buttonStyle(.glass)
-                    .controlSize(.small)
-
-                    if let setRoot = onSetRoot {
-                        Button("Show as Root") {
-                            setRoot()
-                        }
-                        .buttonStyle(.glassProminent)
-                        .controlSize(.small)
-                    }
-                }
+                actionRow
             }
-            .padding()
+            .padding(20)
         }
-        .sheet(isPresented: $showingEdit) {
-            EditPersonView(profileID: profile.id)
+        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.18), radius: 20, x: 0, y: 8)
+        .onAppear {
+            if startInEditMode {
+                populate()
+                isEditing = true
+            }
+        }
+        .onChange(of: profile.id) { _, _ in
+            // Selection changed — exit edit without saving and let the
+            // next Edit click repopulate from the new profile. Preserves
+            // the in-progress edit accidentally would invite a save against
+            // the wrong subject.
+            isEditing = false
+        }
+        .onChange(of: isEditing) { _, nowEditing in
+            // Repopulate on every entry to edit mode so the form always
+            // reflects the persisted profile, not a stale buffer from a
+            // previous cancelled session.
+            if nowEditing { populate() }
         }
         .sheet(isPresented: $showingTimeline) {
             ProfileTimelineView(profileID: profile.id)
                 .frame(minWidth: 540, minHeight: 600)
-        }
-        .sheet(isPresented: $showingNoteComposer) {
-            NoteComposerView(initial: nil, attachedTo: .profile(id: profile.id))
-        }
-        .sheet(item: $editingNote) { note in
-            NoteComposerView(initial: note, attachedTo: note.attachedTo)
         }
         .sheet(isPresented: $showingRelationshipCalculator) {
             RelationshipCalculatorView(
@@ -212,477 +120,433 @@ struct ProfileDetailView: View {
                 initialTargetID: profile.id
             )
         }
-        .sheet(isPresented: $showingLifeEventEditor) {
-            LifeEventEditorView(mode: .add(profileID: profile.id))
-        }
-        .sheet(item: $editingLifeEvent) { event in
-            LifeEventEditorView(mode: .edit(event))
-        }
-        .sheet(isPresented: $showingAttachmentImporter) {
-            AttachmentImportSheet(target: .profile(id: profile.id))
-        }
         .sheet(item: $cleansePresentation) { presentation in
             ProfileCleanseWizard(mode: presentation.mode)
         }
     }
 
-    /// Per-gap research entry points (Task #39). Lists each missing fact /
-    /// relationship from the completeness check and offers a Research button
-    /// per item. Each button opens the standard `ResearchConfigSheet` for the
-    /// profile — the sheet's smart-default mode picker already adapts to the
-    /// subject's shape, so a per-gap button on a ghost profile lands on
-    /// Discover and on a near-complete profile lands on Verify. Targeted-focus
-    /// hinting (e.g. "fill death record specifically") is deliberately not
-    /// passed through yet; the pipeline doesn't act on it and the current
-    /// signposting value comes from the entry point, not the dispatch.
-    @ViewBuilder
-    private var missingFactsSection: some View {
-        let comp = snapshot.completeness(for: profile.id)
-        if !comp.missing.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Missing facts")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
-                ForEach(comp.missing, id: \.self) { gap in
-                    HStack(spacing: 8) {
-                        Image(systemName: "questionmark.circle")
-                            .foregroundStyle(.tertiary)
-                            .font(.callout)
-                        Text(gap.label)
-                            .font(.callout)
-                        Spacer()
-                        Button("Research") {
-                            appState.researchConfigProfile = profile
-                        }
-                        .buttonStyle(.glass)
-                        .controlSize(.small)
-                    }
-                }
+    // MARK: - Layout pieces
+
+    private var closeButtonRow: some View {
+        HStack {
+            Spacer()
+            Button {
+                onClose?()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 18, height: 18)
             }
-            Divider()
+            .buttonStyle(.glass)
+            .controlSize(.mini)
+            .help("Close")
+            .accessibilityLabel("Close profile")
         }
     }
 
     @ViewBuilder
-    private var notesSection: some View {
-        let attachedNotes = appState.notesForProfile(profile.id)
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Notes")
-                    .font(.headline)
+    private var actionRow: some View {
+        if isEditing {
+            HStack(spacing: 8) {
                 Spacer()
-                Button {
-                    showingNoteComposer = true
-                } label: {
-                    Label("New", systemImage: "plus")
-                        .labelStyle(.iconOnly)
+                Button("Cancel") {
+                    isEditing = false
                 }
                 .buttonStyle(.glass)
-                .controlSize(.mini)
-            }
-            if attachedNotes.isEmpty {
-                Text("No notes for this person yet.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            } else {
-                ForEach(attachedNotes) { note in
-                    Button {
-                        editingNote = note
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack {
-                                Text(note.tag.displayName)
-                                    .font(.caption2)
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .glassEffect(.regular, in: .capsule)
-                                Spacer()
-                                Text(note.updatedAt, style: .relative)
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            LinkAwareNoteText(content: note.content, snapshot: snapshot) { other in
-                                appState.researchProfileID = other.id
-                            }
-                            .font(.caption)
-                            .multilineTextAlignment(.leading)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
+                .controlSize(.small)
+                .keyboardShortcut(.cancelAction)
 
-    /// Interactive list of life events for this profile (M12). Tap a row to
-    /// edit; tap "+ New" in the header to add. The editor sheet handles both.
-    @ViewBuilder
-    private var lifeEventsSection: some View {
-        let events = appState.lifeEventsForProfile(profile.id)
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Life Events")
-                    .font(.headline)
-                Spacer()
-                Text("\(events.count)")
-                    .font(AppTypography.cardMeta)
-                    .foregroundStyle(.tertiary)
-                Button {
-                    showingLifeEventEditor = true
-                } label: {
-                    Label("New", systemImage: "plus")
-                        .labelStyle(.iconOnly)
+                Button("Save Changes") {
+                    save()
+                    isEditing = false
                 }
-                .buttonStyle(.glass)
-                .controlSize(.mini)
+                .buttonStyle(.glassProminent)
+                .controlSize(.small)
+                .disabled(!hasChanges || !namesWithinLimit)
+                .keyboardShortcut(.defaultAction)
             }
-            if events.isEmpty {
-                Text("No life events yet.")
-                    .font(AppTypography.cardMeta)
-                    .foregroundStyle(.tertiary)
-            } else {
-                ForEach(events) { event in
-                    Button {
-                        editingLifeEvent = event
-                    } label: {
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: event.type.systemImage)
-                                .frame(width: 18)
-                                .foregroundStyle(.secondary)
-                                .accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 6) {
-                                    Text(event.type.displayName)
-                                        .font(AppTypography.cardBody.weight(.semibold))
-                                    if let year = event.sortYear {
-                                        Text(String(year))
-                                            .font(AppTypography.cardMeta)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                if let description = event.description, !description.isEmpty {
-                                    Text(description)
-                                        .font(AppTypography.cardBody)
-                                }
-                                if let location = event.location, !location.isEmpty {
-                                    Text(location)
-                                        .font(AppTypography.cardMeta)
-                                        .foregroundStyle(.secondary)
-                                }
-                                // Task #52 — surface the typed details
-                                // payload below the freeform description so
-                                // structured fields the source emitted
-                                // (rank, cemetery, household, etc.) are
-                                // actually visible to the user. Falls
-                                // through silently when `details` is nil.
-                                if let details = event.details {
-                                    LifeEventDetailsView(details: details)
-                                }
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.vertical, 2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    /// Photos / PDFs / typed transcriptions attached to this profile (M13).
-    /// Tile grid lives in AttachmentGalleryView; the header opens the importer.
-    @ViewBuilder
-    private var attachmentsSection: some View {
-        let attachments = appState.attachmentsForProfile(profile.id)
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Attachments")
-                    .font(.headline)
-                Spacer()
-                Text("\(attachments.count)")
-                    .font(AppTypography.cardMeta)
-                    .foregroundStyle(.tertiary)
-                Button {
-                    showingAttachmentImporter = true
-                } label: {
-                    Label("New", systemImage: "plus")
-                        .labelStyle(.iconOnly)
-                }
-                .buttonStyle(.glass)
-                .controlSize(.mini)
-            }
-            AttachmentGalleryView(profileID: profile.id)
-        }
-    }
-
-    /// Render any active `.fieldValue` hypotheses targeting this profile for
-    /// the given field as italic + muted text. Per DESIGN.md §7.7.7 line
-    /// "Hypothetical field value → italic, muted text in inspector."
-    @ViewBuilder
-    private func hypotheticalLine(for field: ProfileField) -> some View {
-        let alternatives = appState.hypotheses.filter { h in
-            guard h.status == .active else { return false }
-            if case .fieldValue(let pid, let f, _) = h.claim {
-                return pid == profile.id && f == field
-            }
-            return false
-        }
-        if !alternatives.isEmpty {
-            ForEach(alternatives, id: \.id) { h in
-                if case .fieldValue(_, _, let value) = h.claim {
-                    HStack(spacing: 4) {
-                        Image(systemName: "lightbulb")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .accessibilityHidden(true)
-                        Text("Hypothesised: ")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .italic()
-                        Text(value)
-                            .font(.caption)
-                            .italic()
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.leading, 4)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func fieldRow(_ label: String, value: String?, place: String?, field: ProfileField) -> some View {
-        if value != nil || place != nil {
-            let sources = profile.sources[field] ?? []
-            let confidence = effectiveConfidence(sources)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(label)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    sourceBadges(for: field)
-                }
-                if let v = value {
-                    HStack(spacing: 4) {
-                        valueText(v, confidence: confidence)
-                        if confidence == .wellEvidenced {
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(AppTypography.badge)
-                                .foregroundStyle(.green)
-                                .help("Well evidenced — multiple independent sources agree.")
-                                .accessibilityLabel("Well evidenced")
-                                .accessibilityHint("Multiple independent sources agree.")
-                        }
-                    }
-                }
-                if let p = place {
-                    Text(p)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    /// Render the field value with confidence styling. Tentative fields get a
-    /// dashed orange underline and a tooltip; standard/wellEvidenced render
-    /// without altering the text colour (the wellEvidenced checkmark is added
-    /// separately by the caller).
-    @ViewBuilder
-    private func valueText(_ value: String, confidence: FactConfidence?) -> some View {
-        if confidence == .tentative {
-            Text(value)
-                .font(.body)
-                .underline(true, pattern: .dash, color: .orange)
-                .help("Tentative — committed but watching for more evidence.")
-                .accessibilityHint("Tentative — committed but watching for more evidence.")
         } else {
-            Text(value)
-                .font(.body)
-        }
-    }
-
-    /// Count of pending facts awaiting human review for this profile.
-    /// Cheap COUNT(*) query, recomputed each view render so it tracks
-    /// inserts from MCP `submit_evidence` and from the in-app pipeline.
-    private var pendingFactCount: Int {
-        appState.currentDatabase?.pendingFactCount(profileID: profile.id) ?? 0
-    }
-
-    /// Pill that surfaces firewall-queued evidence on the profile detail
-    /// header. Tapping switches to the Triage tab where the user can
-    /// review + accept / discard each entry. Hidden when nothing is
-    /// pending so the badge doesn't accrue visual noise on most profiles.
-    @ViewBuilder
-    private var pendingFactsBadge: some View {
-        let count = pendingFactCount
-        if count > 0 {
-            HStack(spacing: 4) {
-                Image(systemName: "tray.full.fill")
-                    .font(.system(size: 9, weight: .semibold))
-                Text("\(count) pending")
-                    .font(.caption2.weight(.semibold))
-            }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Color.orange.opacity(0.18))
-            .foregroundStyle(.orange)
-            .clipShape(.capsule)
-            .help("Evidence proposals awaiting human review for this profile. Open Triage to accept or discard them.")
-            .accessibilityLabel("\(count) pending facts")
-            .accessibilityHint("Evidence proposals awaiting human review")
-        }
-    }
-
-    @ViewBuilder
-    private func sourceBadges(for field: ProfileField) -> some View {
-        let sources = profile.sources[field] ?? []
-        HStack(spacing: 2) {
-            ForEach(sources, id: \.raw) { source in
-                HStack(spacing: 3) {
-                    // M24 — colourblind / high-contrast users see a glyph
-                    // (`?` for tentative, `✓` for well evidenced) in place
-                    // of the colour-only dot. Default-contrast users keep
-                    // the existing dot rendering unchanged.
-                    if let dot = sourceConfidenceDotColor(source.confidence) {
-                        if let glyph = sourceConfidenceGlyph(source.confidence),
-                           differentiateWithoutColor {
-                            Image(systemName: glyph)
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(dot)
-                        } else {
-                            Circle()
-                                .fill(dot)
-                                .frame(width: 5, height: 5)
-                        }
-                    }
-                    Text(source.origin.identifier.uppercased())
-                        .font(.system(size: 8, weight: .bold))
+            HStack(spacing: 8) {
+                Button("Edit") {
+                    isEditing = true
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .glassEffect(.regular, in: .capsule)
-                .help(sourceConfidenceHelp(source.confidence))
-                .accessibilityLabel("Source \(source.origin.identifier)")
-                .accessibilityHint(sourceConfidenceHelp(source.confidence))
+                .buttonStyle(.glass)
+                .controlSize(.small)
+
+                Button {
+                    showingTimeline = true
+                } label: {
+                    Label("Timeline", systemImage: "calendar")
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+
+                Button {
+                    showingRelationshipCalculator = true
+                } label: {
+                    Label("Relationship to…", systemImage: "person.2")
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+
+                Button {
+                    appState.researchConfigProfile = profile
+                } label: {
+                    Label("Research", systemImage: "magnifyingglass")
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+
+                Button {
+                    cleansePresentation = .singleProfile(profile.id)
+                } label: {
+                    Label("Cleanse", systemImage: "sparkles")
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+
+                if let setRoot = onSetRoot {
+                    Button("Show as Root") {
+                        setRoot()
+                    }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.small)
+                }
             }
         }
     }
 
-    /// SF Symbol glyph paired with the per-source confidence dot when the
-    /// user has Differentiate Without Colour enabled. Routed through
-    /// `HighContrastShape` so the mapping lives in one place.
-    private func sourceConfidenceGlyph(_ confidence: FactConfidence?) -> String? {
-        switch confidence {
-        case .tentative:
-            return HighContrastShape.differentiator(
-                for: .sourceConfidenceTentative,
-                differentiateWithoutColor: true
+    // MARK: - Edit machinery
+
+    private func makeBindings() -> ProfileEditBindings {
+        ProfileEditBindings(
+            firstName: $firstName,
+            middleName: $middleName,
+            lastName: $lastName,
+            marriedSurname: $marriedSurname,
+            nickName: $nickName,
+            mothersMaidenName: $mothersMaidenName,
+            gender: $gender,
+            birthDateText: $birthDateText,
+            birthLocation: $birthLocation,
+            birthLocationCode: $birthLocationCode,
+            deathDateText: $deathDateText,
+            deathLocation: $deathLocation,
+            deathLocationCode: $deathLocationCode,
+            bio: $bio
+        )
+    }
+
+    /// Per-changed-field source picker + Correct/Alternative toggle. Mirrors
+    /// the prior `EditPersonView` implementation — empty when nothing has
+    /// changed, so the card stays quiet until the user touches a field.
+    @ViewBuilder
+    private func sourceDetailsSection(profile: Profile) -> some View {
+        let changedFields = ProfileField.allCases.filter { fieldChanged($0, profile: profile) }
+        if !changedFields.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionTitle("Source details for changed fields")
+                ForEach(changedFields, id: \.self) { field in
+                    changedFieldRow(field: field, profile: profile)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func changedFieldRow(field: ProfileField, profile: Profile) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(displayLabel(for: field))
+                .font(AppTypography.cardMeta.weight(.semibold))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                SourcePicker(
+                    selection: Binding(
+                        get: { sourcePerField[field] ?? defaultSource },
+                        set: { sourcePerField[field] = $0 }
+                    ),
+                    label: "Source"
+                )
+                .pickerStyle(.menu)
+                .controlSize(.small)
+
+                if hasImportedSource(field, profile: profile) {
+                    Picker("", selection: Binding(
+                        get: { fieldChoice[field] ?? .correct },
+                        set: { fieldChoice[field] = $0 }
+                    )) {
+                        Text("Correct").tag(ChangeMode.correct)
+                        Text("Alternative").tag(ChangeMode.alternative)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .controlSize(.mini)
+                }
+            }
+        }
+    }
+
+    private func displayLabel(for field: ProfileField) -> String {
+        switch field {
+        case .firstName: return "First name"
+        case .middleName: return "Middle name"
+        case .lastName: return "Last name"
+        case .marriedSurname: return "Married surname"
+        case .nickName: return "Known as"
+        case .mothersMaidenName: return "Mother's maiden name"
+        case .gender: return "Gender"
+        case .birthDate: return "Birth date"
+        case .birthLocation: return "Birth location"
+        case .deathDate: return "Death date"
+        case .deathLocation: return "Death location"
+        case .bio: return "Biography"
+        }
+    }
+
+    private var sourceSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Default source for this edit")
+            SourcePicker(selection: $defaultSource)
+                .pickerStyle(.menu)
+                .onChange(of: defaultSource) { _, newValue in
+                    for field in ProfileField.allCases where sourcePerField[field] == nil {
+                        sourcePerField[field] = newValue
+                    }
+                }
+            Text("Set per field above — this default applies to fields you don't override.")
+                .font(AppTypography.cardMeta)
+                .foregroundStyle(.tertiary)
+            CitationEntryView(
+                citation: $citation,
+                quality: $quality,
+                repositorySuggestions: CitationSuggestService.repositories(snapshot: appState.snapshot),
+                collectionSuggestions: CitationSuggestService.collections(snapshot: appState.snapshot)
             )
-        case .wellEvidenced:
-            return HighContrastShape.differentiator(
-                for: .sourceConfidenceWellEvidenced,
-                differentiateWithoutColor: true
+        }
+    }
+
+    private func hasImportedSource(_ field: ProfileField, profile: Profile) -> Bool {
+        (profile.sources[field] ?? []).contains { !$0.origin.isManual }
+    }
+
+    private func fieldChanged(_ field: ProfileField, profile: Profile) -> Bool {
+        switch field {
+        case .firstName: return AutoSuggestService.normaliseName(firstName) != original.firstName
+        case .middleName: return AutoSuggestService.normaliseName(middleName) != original.middleName
+        case .lastName: return AutoSuggestService.normaliseName(lastName) != original.lastName
+        case .marriedSurname: return AutoSuggestService.normaliseName(marriedSurname) != original.marriedSurname
+        case .nickName: return AutoSuggestService.normaliseName(nickName) != original.nickName
+        case .mothersMaidenName: return AutoSuggestService.normaliseName(mothersMaidenName) != original.mothersMaidenName
+        case .gender:
+            let g: Gender? = gender == .unknown ? nil : gender
+            return g != original.gender
+        case .birthDate:
+            return GenealogicalDate.parsePreview(birthDateText).parsed != original.birthDate
+        case .birthLocation:
+            return AutoSuggestService.normaliseName(birthLocation) != original.birthLocation
+        case .deathDate:
+            return GenealogicalDate.parsePreview(deathDateText).parsed != original.deathDate
+        case .deathLocation:
+            return AutoSuggestService.normaliseName(deathLocation) != original.deathLocation
+        case .bio:
+            let trimmed = bio.trimmingCharacters(in: .whitespacesAndNewlines)
+            let new: String? = trimmed.isEmpty ? nil : trimmed
+            return new != original.bio
+        }
+    }
+
+    private func sectionTitle(_ text: String) -> some View {
+        Text(text)
+            .font(AppTypography.cardMeta.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .textCase(.uppercase)
+    }
+
+    /// Populate the form state from the current profile. Called on entry
+    /// to edit mode (and on initial appearance when `startInEditMode` is
+    /// true). Idempotent — safe to call repeatedly.
+    private func populate() {
+        firstName = profile.firstName ?? ""
+        middleName = profile.middleName ?? ""
+        lastName = profile.lastName ?? ""
+        marriedSurname = profile.marriedSurname ?? ""
+        nickName = profile.nickName ?? ""
+        mothersMaidenName = profile.mothersMaidenName ?? ""
+        gender = profile.gender ?? .unknown
+        birthDateText = profile.birthDate?.original ?? ""
+        birthLocation = profile.birthLocation ?? ""
+        birthLocationCode = profile.birthLocationCode
+        deathDateText = profile.deathDate?.original ?? ""
+        deathLocation = profile.deathLocation ?? ""
+        deathLocationCode = profile.deathLocationCode
+        bio = profile.bio ?? ""
+        original = OriginalSnapshot(
+            firstName: profile.firstName,
+            middleName: profile.middleName,
+            lastName: profile.lastName,
+            marriedSurname: profile.marriedSurname,
+            nickName: profile.nickName,
+            mothersMaidenName: profile.mothersMaidenName,
+            gender: profile.gender,
+            birthDate: profile.birthDate,
+            birthLocation: profile.birthLocation,
+            deathDate: profile.deathDate,
+            deathLocation: profile.deathLocation,
+            bio: profile.bio
+        )
+        // Reset per-field overrides and choice buffers for this edit session.
+        citation = nil
+        quality = nil
+        fieldChoice = [:]
+        defaultSource = SourceDefaults.defaultSource(
+            context: .relativeOf(
+                profileID: profile.id,
+                primarySource: profile.primarySource
             )
-        case .standard, .none:
-            return nil
+        )
+        sourcePerField = [:]
+        for field in ProfileField.allCases {
+            sourcePerField[field] = defaultSource
         }
     }
 
-    /// Map a per-source confidence to a tinted dot. Standard / nil renders
-    /// nothing — only the two non-default cases earn a visual.
-    private func sourceConfidenceDotColor(_ confidence: FactConfidence?) -> Color? {
-        switch confidence {
-        case .tentative: return .orange
-        case .wellEvidenced: return .green
-        case .standard, .none: return nil
-        }
+    private var hasChanges: Bool {
+        !buildChanges().isEmpty || !buildDateChanges().isEmpty
     }
 
-    /// Tooltip for source pills. Empty when there's nothing to say so the
-    /// pill itself stays uninterrupted on hover.
-    private func sourceConfidenceHelp(_ confidence: FactConfidence?) -> String {
-        switch confidence {
-        case .tentative: return "Source marked tentative — watching for more evidence."
-        case .wellEvidenced: return "Source marked well evidenced."
-        case .standard, .none: return ""
-        }
+    private var namesWithinLimit: Bool {
+        firstName.count <= AutoSuggestService.nameHardLimitLength
+            && lastName.count <= AutoSuggestService.nameHardLimitLength
     }
 
-    @ViewBuilder
-    private func relationshipSection(_ title: String, profiles: [Profile]) -> some View {
-        if !profiles.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(profiles) { relative in
-                    HStack {
-                        Text(relative.displayName)
-                            .font(.callout)
-                        if let year = relative.birthDate?.bestYear {
-                            Text("b. \(year)")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                }
+    private func buildChanges() -> [(field: ProfileField, oldValue: String?, newValue: String?)] {
+        var changes: [(ProfileField, String?, String?)] = []
+        let newFirst = AutoSuggestService.normaliseName(firstName)
+        if newFirst != original.firstName {
+            changes.append((.firstName, original.firstName, newFirst))
+        }
+        let newMiddle = AutoSuggestService.normaliseName(middleName)
+        if newMiddle != original.middleName {
+            changes.append((.middleName, original.middleName, newMiddle))
+        }
+        let newLast = AutoSuggestService.normaliseName(lastName)
+        if newLast != original.lastName {
+            changes.append((.lastName, original.lastName, newLast))
+        }
+        let newMarried = AutoSuggestService.normaliseName(marriedSurname)
+        if newMarried != original.marriedSurname {
+            changes.append((.marriedSurname, original.marriedSurname, newMarried))
+        }
+        let newNick = AutoSuggestService.normaliseName(nickName)
+        if newNick != original.nickName {
+            changes.append((.nickName, original.nickName, newNick))
+        }
+        let newMMN = AutoSuggestService.normaliseName(mothersMaidenName)
+        if newMMN != original.mothersMaidenName {
+            changes.append((.mothersMaidenName, original.mothersMaidenName, newMMN))
+        }
+        let newGender: Gender? = gender == .unknown ? nil : gender
+        if newGender != original.gender {
+            changes.append((.gender, original.gender?.rawValue, newGender?.rawValue))
+        }
+        let newBirthLoc = AutoSuggestService.normaliseName(birthLocation)
+        if newBirthLoc != original.birthLocation {
+            changes.append((.birthLocation, original.birthLocation, newBirthLoc))
+        }
+        let newDeathLoc = AutoSuggestService.normaliseName(deathLocation)
+        if newDeathLoc != original.deathLocation {
+            changes.append((.deathLocation, original.deathLocation, newDeathLoc))
+        }
+        let trimmedBio = bio.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newBio: String? = trimmedBio.isEmpty ? nil : trimmedBio
+        if newBio != original.bio {
+            changes.append((.bio, original.bio, newBio))
+        }
+        return changes.map { ($0.0, $0.1, $0.2) }
+    }
+
+    private func buildDateChanges() -> [(field: ProfileField, oldDate: GenealogicalDate?, newDate: GenealogicalDate?)] {
+        var dateChanges: [(ProfileField, GenealogicalDate?, GenealogicalDate?)] = []
+        let newBirth = GenealogicalDate.parsePreview(birthDateText).parsed
+        if newBirth != original.birthDate {
+            dateChanges.append((.birthDate, original.birthDate, newBirth))
+        }
+        let newDeath = GenealogicalDate.parsePreview(deathDateText).parsed
+        if newDeath != original.deathDate {
+            dateChanges.append((.deathDate, original.deathDate, newDeath))
+        }
+        return dateChanges.map { ($0.0, $0.1, $0.2) }
+    }
+
+    private func save() {
+        let allChanges = buildChanges()
+        let allDateChanges = buildDateChanges()
+
+        let correctChanges = allChanges.filter { (fieldChoice[$0.field] ?? .correct) == .correct }
+        let correctDateChanges = allDateChanges.filter { (fieldChoice[$0.field] ?? .correct) == .correct }
+
+        if !correctChanges.isEmpty || !correctDateChanges.isEmpty {
+            appState.editProfile(
+                id: profile.id,
+                changes: correctChanges,
+                dateChanges: correctDateChanges,
+                source: defaultSource,
+                sourceByField: sourcePerField
+            )
+        }
+
+        if let db = appState.currentDatabase {
+            try? db.updateProfileLocationCodes(
+                profileID: profile.id,
+                birthCode: birthLocationCode,
+                deathCode: deathLocationCode
+            )
+        }
+
+        for change in allChanges where (fieldChoice[change.field] ?? .correct) == .alternative {
+            if let raw = change.newValue, !raw.isEmpty {
+                appState.recordAlternativeFact(
+                    profileID: profile.id, field: change.field,
+                    rawValue: raw, source: sourcePerField[change.field] ?? defaultSource
+                )
+            }
+        }
+        for change in allDateChanges where (fieldChoice[change.field] ?? .correct) == .alternative {
+            if let raw = change.newDate?.original, !raw.isEmpty {
+                appState.recordAlternativeFact(
+                    profileID: profile.id, field: change.field,
+                    rawValue: raw, source: sourcePerField[change.field] ?? defaultSource
+                )
+            }
+        }
+
+        let hasCitation = (citation != nil && !(citation?.isEmpty ?? true)) || quality != nil
+        if hasCitation {
+            let changedFields: [ProfileField] = allChanges.map(\.field) + allDateChanges.map(\.field)
+            for field in changedFields {
+                appState.attachCitation(
+                    profileID: profile.id, field: field,
+                    origin: sourcePerField[field] ?? defaultSource,
+                    citation: citation, quality: quality
+                )
             }
         }
     }
 
-    /// Spouses rendered with their marriage edge metadata inlined. Iterates
-    /// the spouse `Relationship` rows directly (rather than going via
-    /// `snapshot.spousesOf`, which returns only profiles) so marriage date
-    /// and location — written by `applyProposedRelative` and
-    /// `applyMarriageToSubjectSpouseEdge` — show up on each spouse line.
-    /// Without this, the enrichment Apply path silently writes to the edge
-    /// but the user has no visible confirmation it happened.
-    @ViewBuilder
-    private func spousesSection(for subject: Profile, snapshot: FamilyGraphSnapshot) -> some View {
-        let spouseEdges = snapshot.relationships.filter { rel in
-            rel.type == .spouse && (rel.from == subject.id || rel.to == subject.id)
-        }
-        if !spouseEdges.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Spouses")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(spouseEdges, id: \.id) { edge in
-                    let otherID = edge.from == subject.id ? edge.to : edge.from
-                    if let spouse = snapshot.profiles[otherID] {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack {
-                                Text(spouse.displayName)
-                                    .font(.callout)
-                                if let year = spouse.birthDate?.bestYear {
-                                    Text("b. \(year)")
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                            // Marriage metadata, when present. "m." prefix
-                            // mirrors common genealogy abbreviation. Location
-                            // sits on its own line so a long district name
-                            // doesn't crowd the date.
-                            if let date = edge.marriageDate?.original, !date.isEmpty {
-                                Text("m. \(date)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            if let location = edge.marriageLocation, !location.isEmpty {
-                                Text(location)
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    private struct OriginalSnapshot {
+        var firstName: String?
+        var middleName: String?
+        var lastName: String?
+        var marriedSurname: String?
+        var nickName: String?
+        var mothersMaidenName: String?
+        var gender: Gender?
+        var birthDate: GenealogicalDate?
+        var birthLocation: String?
+        var deathDate: GenealogicalDate?
+        var deathLocation: String?
+        var bio: String?
+
+        static let empty = OriginalSnapshot()
     }
 }
