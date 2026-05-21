@@ -188,16 +188,14 @@ actor FreeBMDSource: RecordSource {
             // 1935–2017). Clamping makes the same query return the record.
             let coverageCeiling = Self.coverageUpperBound
             let clampedEnd: Int? = query.yearTo.map { min($0, coverageCeiling) }
-            let fields: [String: String] = [
+            let baseFields: [String: String] = [
                 "type": recordType,
                 "surname": surname,
                 "given": Self.firstGivenName(query.givenName) ?? "",
                 "s_surname": sSurnameValue,
                 "s_given": sGivenValue,
                 "sq": "1",
-                "start": query.yearFrom.map(String.init) ?? "",
                 "eq": "4",
-                "end": clampedEnd.map(String.init) ?? "",
                 "districtid": params?.districtCode ?? "",
                 "Phonetic": phoneticFlag,
                 "db": formTokenDB ?? "",
@@ -206,26 +204,19 @@ actor FreeBMDSource: RecordSource {
                 "find.y": "1",
             ]
 
-            let data = try await postSearchWithRetry(fields: fields)
-
-            guard let html = String(data: data, encoding: .utf8) else {
-                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "Invalid encoding", strictness: query.strictness))
-                return .unavailable(reason: "Invalid encoding")
-            }
-            let results = Self.parseSearchResults(html, recordType: query.recordType, querySurname: surname)
+            let results = try await fetchWindowWithAdaptiveSplit(
+                baseFields: baseFields,
+                yearFrom: query.yearFrom,
+                yearTo: clampedEnd,
+                querySurname: surname,
+                recordType: query.recordType,
+                summary: summary,
+                depth: 0
+            )
             lastSuccessfulSearch = Date()
             lastError = nil
             recordSuccess()
-            if results.isEmpty {
-                let hasSearchData = html.contains("var searchData = new Array")
-                let captchaHit = html.lowercased().contains("captcha") || html.contains("Please prove you are human")
-                let dataMarker = html.range(of: "var searchData = new Array (")
-                    .map { String(html[$0.upperBound...].prefix(200)).replacingOccurrences(of: "\n", with: "\\n") }
-                    ?? "<no searchData>"
-                logger.info("\(summary, privacy: .public) → 0 results [htmlLen=\(html.count) hasSearchData=\(hasSearchData) captcha=\(captchaHit) head=\(dataMarker, privacy: .public)]")
-            } else {
-                logger.info("\(summary, privacy: .public) → \(results.count) results")
-            }
+            logger.info("\(summary, privacy: .public) → \(results.count) results")
             await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count, strictness: query.strictness))
             return .results(results)
 
@@ -267,6 +258,89 @@ actor FreeBMDSource: RecordSource {
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
             return .unavailable(reason: error.localizedDescription)
         }
+    }
+
+    // MARK: - Adaptive year-window splitting
+
+    /// Fetch + parse a single year window. When FreeBMD serves its
+    /// "too many results" interstitial (no `searchData` array, > 80KB
+    /// payload), recursively halve the window and refetch — accumulating
+    /// records from each sub-window. Depth is capped so one logical query
+    /// fans out to at most 8 sub-requests.
+    ///
+    /// Background (separate from the end-year clamp landed alongside):
+    /// the parent-marriage flow drops given-name filters by design (so
+    /// it can match every Cauldwell × Wheeldon in DBY across the
+    /// candidate window), but on common surname pairs this overflows
+    /// FreeBMD's results cap. Pre-clamp, the bug stayed hidden because
+    /// the end-year=2017 wire was already breaking. Post-clamp, the
+    /// overflow surfaces as the 105KB interstitial we logged in pass 9.
+    /// Adaptive split recovers the records without bloating every
+    /// query's request count (the wide path stays one HTTP).
+    private func fetchWindowWithAdaptiveSplit(
+        baseFields: [String: String],
+        yearFrom: Int?,
+        yearTo: Int?,
+        querySurname: String,
+        recordType: RecordType,
+        summary: String,
+        depth: Int
+    ) async throws -> [SourceRecord] {
+        var fields = baseFields
+        fields["start"] = yearFrom.map(String.init) ?? ""
+        fields["end"] = yearTo.map(String.init) ?? ""
+
+        let data = try await postSearchWithRetry(fields: fields)
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw HTTPError.transport(URLError(.cannotParseResponse))
+        }
+
+        let hasSearchData = html.contains("var searchData = new Array")
+        let overflowSize = 80_000
+        let isOverflow = !hasSearchData && html.count > overflowSize
+        let maxDepth = 3
+
+        if isOverflow,
+           depth < maxDepth,
+           let from = yearFrom, let to = yearTo,
+           to - from >= 2 {
+            let mid = from + (to - from) / 2
+            logger.info("\(summary, privacy: .public) overflowed at \(from)–\(to) (htmlLen=\(html.count) depth=\(depth)) — splitting at \(mid)")
+            async let lower = fetchWindowWithAdaptiveSplit(
+                baseFields: baseFields,
+                yearFrom: from, yearTo: mid,
+                querySurname: querySurname, recordType: recordType,
+                summary: summary, depth: depth + 1
+            )
+            async let upper = fetchWindowWithAdaptiveSplit(
+                baseFields: baseFields,
+                yearFrom: mid + 1, yearTo: to,
+                querySurname: querySurname, recordType: recordType,
+                summary: summary, depth: depth + 1
+            )
+            // Dedupe in case a record sits exactly at the split boundary
+            // and FreeBMD's quarter-edges duplicate it across both halves
+            // (defensive — empirically the row IDs are stable so set-by-id
+            // is sufficient).
+            let combined = try await lower + upper
+            var seen: Set<String> = []
+            return combined.filter { record in
+                let id = record.id
+                if seen.contains(id) { return false }
+                seen.insert(id)
+                return true
+            }
+        }
+
+        let results = Self.parseSearchResults(html, recordType: recordType, querySurname: querySurname)
+        if results.isEmpty && depth == 0 {
+            let captchaHit = html.lowercased().contains("captcha") || html.contains("Please prove you are human")
+            let dataMarker = html.range(of: "var searchData = new Array (")
+                .map { String(html[$0.upperBound...].prefix(200)).replacingOccurrences(of: "\n", with: "\\n") }
+                ?? "<no searchData>"
+            logger.info("\(summary, privacy: .public) → 0 results [htmlLen=\(html.count) hasSearchData=\(hasSearchData) captcha=\(captchaHit) head=\(dataMarker, privacy: .public)]")
+        }
+        return results
     }
 
     // MARK: - Circuit breaker
