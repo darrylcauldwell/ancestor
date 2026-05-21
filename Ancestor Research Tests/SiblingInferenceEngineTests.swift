@@ -135,14 +135,21 @@ struct SiblingInferenceEngineTests {
         #expect(siblings.isEmpty, "different MMN = different mother = not a sibling")
     }
 
-    @Test func rejectsDifferentDistrict() {
+    @Test func acceptsDifferentDistrict_sameCounty() {
+        // Post-audit-fix behaviour: cross-district siblings with matching
+        // MMN are real and accepted. Helen Clare Cauldwell (Derby 3A/177S,
+        // MMN=Holmes) is Darryl Cauldwell's (Belper, MMN=Holmes) actual
+        // sister — different district, same county, same parents. The
+        // orchestrator's deficit-query already restricts the candidate
+        // pool to the subject's home Chapman code, so trusting MMN is
+        // sufficient at the per-record stage.
         let subjectRecord = birthRecord(
             id: "subj", surname: "Cauldwell", givenName: "Darryl",
             mmn: "Holmes", district: "Belper", year: 1976
         )
         let elsewhere = birthRecord(
-            id: "else", surname: "Cauldwell", givenName: "James",
-            mmn: "Holmes", district: "Ashbourne", year: 1978
+            id: "else", surname: "Cauldwell", givenName: "Helen",
+            mmn: "Holmes", district: "Derby", year: 1973
         )
 
         let siblings = SiblingInferenceEngine.inferSiblings(
@@ -151,7 +158,7 @@ struct SiblingInferenceEngineTests {
             knownFatherID: "f", knownMotherID: "m",
             snapshot: emptySnapshot()
         )
-        #expect(siblings.isEmpty, "different district = different family or moved; not a confident sibling match")
+        #expect(siblings.count == 1, "cross-district sibling with matching MMN should now be accepted")
     }
 
     @Test func rejectsBeyondMaxAgeGap() {

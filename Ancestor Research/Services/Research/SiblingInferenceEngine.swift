@@ -136,10 +136,16 @@ nonisolated enum SiblingInferenceEngine {
                 .uppercased()
             guard recordMMN == mmn.uppercased() else { continue }
 
-            let recordDistrict = (birth.district ?? "")
-                .trimmingCharacters(in: .whitespaces)
-                .uppercased()
-            guard !recordDistrict.isEmpty, recordDistrict == subjectDistrict else { continue }
+            // District match is NOT required record-by-record. The orchestrator's
+            // deficit-query already fans out across all districts in the subject's
+            // home Chapman code (see `deficitQuerySiblingExists`), so a record
+            // returning from the search is implicitly within the same county.
+            // Demanding exact district match here would re-impose the audit gap
+            // we just fixed (Darryl b. Belper / sister Helen registered Derby —
+            // same county, different district; previously rejected). The MMN
+            // match below carries the genealogy weight; cross-district siblings
+            // with matching MMN are real and should be accepted.
+            _ = subjectDistrict   // retained for future district-weighting if added
 
             guard let recordYear = birth.birthYear else { continue }
             guard abs(recordYear - subjectYear) <= maxSiblingAgeGap else { continue }

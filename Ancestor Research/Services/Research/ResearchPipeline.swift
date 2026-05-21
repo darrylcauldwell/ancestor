@@ -506,15 +506,47 @@ final class ResearchPipeline {
                     allCandidates.append(contentsOf: candidates)
                 }
                 let newCandidates = allCandidates.filter { !priorIDs.contains($0.id) }
-                logger.info("Sibling deficit-query level 1: \(queries.count) districts → \(allCandidates.count) candidates, \(newCandidates.count) new")
-                state.scoredRecords.append(contentsOf: newCandidates)
+                // MMN+surname filter: of the raw district-fan-out results
+                // (which include every BMD-registered surname-match in the
+                // year window — for Holmes that's ~2929 records across
+                // DBY), keep only those whose mother's maiden name matches
+                // the subject's. This is the same logic `inferSiblings`
+                // already runs at grading time, lifted up to the leads-
+                // persistence boundary so we don't bloat the user's view
+                // with non-sibling namesakes.
+                //
+                // Compression-safe: FreeBMD parser fills `birth.common.surname`
+                // from the query surname when the field is blank (FreeBMD
+                // omits the surname column on adjacent rows that repeat).
+                // MMN can be genuinely empty for pre-Sep-1911 births — for
+                // those the filter does nothing useful, but our test tree's
+                // top-gen subjects all post-date 1912 so MMN is available.
+                let mmnMatching: [ScoredRecord] = {
+                    guard case .siblingExists(_, let hypothesisMMN, _) = draft.kind else {
+                        return newCandidates
+                    }
+                    let mmnUpper = hypothesisMMN.uppercased().trimmingCharacters(in: .whitespaces)
+                    guard !mmnUpper.isEmpty else { return newCandidates }
+                    let subjectSurname = (state.subject.surname ?? "")
+                        .uppercased().trimmingCharacters(in: .whitespaces)
+                    return newCandidates.filter { scored in
+                        guard case .birth(let birth) = scored.record else { return false }
+                        let recordMMN = (birth.mothersMaidenName ?? "")
+                            .uppercased().trimmingCharacters(in: .whitespaces)
+                        let recordSurname = (birth.common.surname ?? "")
+                            .uppercased().trimmingCharacters(in: .whitespaces)
+                        return recordMMN == mmnUpper && recordSurname == subjectSurname
+                    }
+                }()
+                logger.info("Sibling deficit-query level 1: \(queries.count) districts → \(allCandidates.count) candidates, \(newCandidates.count) new, \(mmnMatching.count) MMN-matching")
+                state.scoredRecords.append(contentsOf: mmnMatching)
                 // Same exclusion trick as marriage enrichment: keep the
                 // records as evidence (and on disk via the lead store)
                 // but hide them from clustering. They answer the
                 // sibling-exists question, not "is there another life of
                 // the subject" — surfacing them as standalone clusters
                 // would confuse the cluster review.
-                state.enrichmentRecordIDs.formUnion(newCandidates.map(\.id))
+                state.enrichmentRecordIDs.formUnion(mmnMatching.map(\.id))
             }
             let result = HypothesisEngine.grade(
                 draft, state: state, snapshot: snapshot
