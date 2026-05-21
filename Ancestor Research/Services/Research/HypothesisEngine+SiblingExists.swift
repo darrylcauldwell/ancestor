@@ -228,10 +228,26 @@ nonisolated extension HypothesisEngine {
         else { return nil }
 
         guard let subjectProfileID = state.subject.profileID else { return nil }
+        // Audit gap (pass 13): for top-generation profiles whose parents
+        // aren't on the tree (Ernest, Kathleen, Reginald, Lilian in the
+        // 7-profile test tree — anyone added as a "root" of a small
+        // pedigree), this previously bailed with "preconditions not met"
+        // and silently disabled sibling discovery. But the SEARCH itself
+        // doesn't actually need parent profiles — it needs the subject's
+        // own birth record MMN to drive a `surname + MMN + year-window`
+        // query, which is what BMD birth indexes provide directly. The
+        // parent IDs are only used downstream for:
+        //   - dedup against children-already-on-tree in `inferSiblings`
+        //     (irrelevant when there ARE no children on tree)
+        //   - generating ProposedRelative entries in
+        //     `projectSiblingExistsToProposals` (which has its own guard
+        //     that returns [] for top-gen, so no broken proposals)
+        // Empty parent IDs let the search fire; everything downstream
+        // either ignores them safely or degrades to "surface as leads,
+        // don't propose relationships". Right behaviour for top-gen.
         let parents = snapshot.parentsOf(subjectProfileID)
-        guard let father = parents.first(where: { $0.gender == .male }),
-              let mother = parents.first(where: { $0.gender == .female })
-        else { return nil }
+        let father = parents.first(where: { $0.gender == .male })
+        let mother = parents.first(where: { $0.gender == .female })
 
         guard case .birth(let birth) = subjectBirth.record,
               let districtName = birth.district, !districtName.isEmpty,
@@ -251,8 +267,8 @@ nonisolated extension HypothesisEngine {
             districtName: districtName,
             mmn: mmnRaw,
             yearWindow: yearFrom...yearTo,
-            fatherID: father.id,
-            motherID: mother.id
+            fatherID: father?.id ?? "",
+            motherID: mother?.id ?? ""
         )
     }
 }

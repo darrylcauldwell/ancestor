@@ -121,7 +121,14 @@ struct T12SiblingPhase1Tests {
         }
     }
 
-    @Test func generate_returnsEmptyWhenParentsNotLinked() {
+    @Test func generate_emitsHypothesisEvenWhenParentsNotLinked() {
+        // Post-audit-fix behaviour: top-generation profiles (no parent
+        // profiles on the tree) still get a sibling-search hypothesis
+        // because the search itself only needs the subject's own birth
+        // record (which carries surname + MMN — sufficient to drive a
+        // BMD birth-index query). The proposal-creation step downstream
+        // still guards on parent profiles, so no broken ProposedRelative
+        // entries get persisted; siblings surface as raw scored records.
         let subjectID = "subj-profile"
         let subjectRecord = birthRecord(
             id: "subj-birth", surname: "Cauldwell", givenName: "Darryl",
@@ -133,7 +140,7 @@ struct T12SiblingPhase1Tests {
         let snapshot = FamilyGraphSnapshot(profiles: [:], relationships: [])
 
         let drafts = HypothesisEngine.generateSiblingExists(state: state, snapshot: snapshot)
-        #expect(drafts.isEmpty)
+        #expect(drafts.count == 1, "top-gen profile now gets a sibling-search hypothesis (was blocked by parent-profile precondition)")
     }
 
     @Test func generate_stableIdAcrossRuns() {
