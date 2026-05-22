@@ -1,0 +1,171 @@
+# Certified-corpus subject for §5.8 eval harness
+# Difficulty axis: multi-cluster contradictions (G5-shaped)
+# Status: Verified 2026-05-22 via sources/freebmd.py
+
+# Verified ground truth:
+#   Cluster A: ONE real person (Mabel Cauldwell b.Mar 1897 Belper,
+#              m. Herbert Brewell Jun 1920, d. as Mabel Brewell Dec 1928
+#              Belper). The twin records her under FOUR duplicate IDs.
+#   Cluster B: ONE real person (Mabel Cauldwell b.JUN 1914 Belper,
+#              daughter of Robert @I50110493@). Not in FreeBMD birth
+#              index — recall ceiling.
+
+cluster_a_should_merge:
+  canonical_name: "Mabel Cauldwell → Mabel Brewell (1897-1928)"
+  canonical_id_suggestion: "@I50113400@"   # the only twin entry with marriage + children
+  members:
+    - "@I50113395@"
+    - "@I50113400@"
+    - "@I50113442@"
+    - "@I50137794@"
+  seed_facts:
+    - { field: birthDate, value: "1897", precision: year }
+    - { field: birthLocation, value: "Belper, Derbyshire, England" }
+    - { field: deathDate, value: "8 DEC 1928", precision: day }
+  relationships:
+    parents:
+      - { role: father, id: "@I50137350@", name: "John Cauldwell", death: "MAR 1922" }
+      - { role: mother, id: "@I50113375@", name: "Elizabeth Cauldwell" }
+    spouse:
+      - { id: "@I50101462@", name: "Herbert Brewell", birth: "1898", death: "29 FEB 1960" }
+    children:
+      - { id: "@I50104370@", name: "Herbert Brewell", birth: "28 APR 1920", death: "1987" }
+      - { id: "@I50104373@", name: "Nora Brewell", birth: "JUN 1925" }
+  expected_outcome:
+    merge_verdict: supported
+    rationale: |
+      One civil-registration person, surname changes at marriage:
+      "Cauldwell" → "Brewell". Found via the Brewell married-surname,
+      not the maiden — see wikitree_married_surname_convention (in
+      reverse: FreeBMD death index uses the woman's surname AT death).
+
+cluster_b_must_remain_separate:
+  canonical_name: "Mabel Cauldwell (1914-, Robert's daughter)"
+  members:
+    - "@I50113448@"
+  seed_facts:
+    - { field: birthDate, value: "JUN 1914", precision: month }
+    - { field: birthLocation, value: "Belper, Derbyshire, England" }
+  relationships:
+    parents:
+      - { role: father, id: "@I50110493@", name: "Robert Cauldwell", birth: "SEP 1885", death: "14 JUL 1918" }
+      - { role: mother, id: "@I50101493@", name: "Ellen Ward", birth: "1889" }
+    spouse:
+      - { id: "@I50101696@", name: "William Oswald Taylor", birth: "1897" }
+  expected_outcome:
+    merge_with_cluster_a: contradicted
+    rationale: |
+      Niece named after the deceased aunt. Disjoint parents (Robert
+      vs John), 17-year birth-year gap, different spouse-surname
+      (Taylor vs Brewell). The engine must keep these separate.
+
+difficulty_axes:
+  - multi_cluster_contradiction_g5
+rationale: |
+  Tests over-split detection (cluster A: merge 4→1) and over-merge
+  defense (cluster B: don't collapse into A) in one subject.
+
+expected_evidence:
+  # Cluster A — verified chain
+  - source: freebmd
+    kind: birth_registration
+    cluster: A
+    verdict: verified
+    quarter: "Mar"
+    year: 1897
+    district: "Belper"
+    volume: "7b"
+    page: "615"
+    surname: "Cauldwell"
+    given: "Mabel"
+    notes: |
+      Confirms Q1 1897 birth — twin's "1897" was correct to the year.
+
+  - source: freebmd
+    kind: marriage_registration
+    cluster: A
+    verdict: verified
+    quarter: "Jun"
+    year: 1920
+    district: "Belper"
+    volume: "7b"
+    page: "2259"
+    surname: "Brewell"
+    given: "Herbert"
+    spouse_or_mother: "Cauldwell"
+    notes: |
+      Surname change Cauldwell → Brewell happens HERE. Subsequent
+      death must be searched under "Brewell".
+
+  - source: freebmd
+    kind: death_registration
+    cluster: A
+    verdict: verified
+    quarter: "Dec"
+    year: 1928
+    district: "Belper"
+    volume: "7b"
+    page: "676"
+    surname: "Brewell"
+    given: "Mabel"
+    age_at_death: 29
+    notes: |
+      Age 29 in Dec 1928 vs verified birth Mar 1897 ⇒ informant gave
+      age ~2 years low (actual would be 31). Within normal noise band.
+      Search-term: surname MUST be "Brewell", not "Cauldwell".
+
+  # Cluster B — birth IS indexed, but in Ashbourne RD (not Belper as twin claims)
+  - source: freebmd
+    kind: birth_registration
+    cluster: B
+    verdict: verified
+    quarter: "Jun"
+    year: 1914
+    district: "Ashbourne"
+    volume: "7b"
+    page: "1413"
+    surname: "CAULDWELL"
+    given: "Mabel"
+    spouse_or_mother: "Ward"
+    notes: |
+      Q2 1914 Ashbourne RD — NOT Belper as the WikiTree twin records.
+      Mother's-maiden-name "Ward" confirms parents Robert Cauldwell
+      + Ellen Ward (the WW1 Lijssenthoek casualty's family). The
+      twin's "JUN 1914 Belper" is wrong on registration district —
+      worth flagging as a tree-data correction candidate.
+      Originally recorded as absent_in_index; that was the
+      freebmd.py year-filter bug. Fixed 2026-05-22.
+
+expected_per_kind:
+  identity_disambiguation:
+    cluster_a: supported
+    cluster_b: contradicted
+  parent_link: supported
+  marriage_disambiguation: supported   # cluster A only — Brewell
+
+# §5.8.6 headline number
+# Cluster A: birth + marriage + death + merge = 4
+# Cluster B: birth (now verified post task-1 fix) = +1
+expected_supported_count: 5
+
+gedcom_citations:
+  source_file: "Cauldwell Family Tree.twin-export.ged"
+  extracted_to: "eval/certified/_gedcom_citations.json"
+  count: 0
+  reproduction_target: 0    # nothing to reproduce — see notes
+  notes: |
+    None of the 5 IDs in this cluster have biography citations.
+    Cluster A canonical @I50113400@ bio explicitly states
+    "No independent record located at time of profile creation;
+    further research via census/FreeBMD recommended" — making this
+    a textbook G2 staller as well as a G5 cluster.
+
+    Implication: the harness cannot measure
+    evidence_reproduction_rate for this subject (denominator 0).
+    It CAN measure precision/recall/contradiction against the
+    seed_facts + task-1-verified expected_evidence above.
+
+    Side note: a successful pipeline run on this cluster would
+    GENERATE the bio citations the cluster currently lacks — which
+    is precisely T7's "stalled profile gains ≥1 .supported
+    hypothesis" success shape.

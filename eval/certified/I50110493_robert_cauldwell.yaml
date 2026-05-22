@@ -1,0 +1,166 @@
+# Certified-corpus subject for §5.8 eval harness
+# Difficulty axis: foreign-record edge case (.all mode)
+# Status: Verified 2026-05-22 via sources/cwgc.py and sources/freebmd.py
+
+profile_id: "@I50110493@"
+canonical_name: "Robert Cauldwell"
+difficulty_axes:
+  - foreign_record_all_mode
+rationale: |
+  WWI casualty — exercises the .all-mode CWGC path. Positive control
+  for the CWGC-empty-500-quirk handling (memory reference_cwgc_empty_500).
+
+seed_facts:
+  - { field: birthDate, value: "SEP 1885", precision: month }
+  - { field: birthLocation, value: "Turnditch, Derbyshire, England" }
+  - { field: deathDate, value: "14 JUL 1918", precision: day }
+  - { field: deathLocation, value: "Lijssenthoek Military Cemetery, Belgium" }
+
+relationships:
+  parents:
+    - { role: father, id: "@I50137350@", name: "John Cauldwell", birth: "1861", death: "MAR 1922" }
+    - { role: mother, id: "@I50113375@", name: "Elizabeth Cauldwell", birth: "1841" }
+  spouse:
+    - id: "@I50101493@"
+      wikitree_name: "Ellen Ward"
+      birth: "1889"
+      cwgc_uses_married_name: "Ellen Cauldwell"
+      provenance_note: |
+        CWGC records widow as "Ellen Cauldwell, of Well Banks, Kirk
+        Ireton, Derby" — using her married surname. Same convention
+        flagged in wikitree_married_surname_convention but applied
+        here by CWGC rather than WikiTree. Engine must recognise
+        "Ellen Cauldwell" in the CWGC record as the same person as
+        the twin's "Ellen Ward".
+  children:
+    - { id: "@I50113435@", name: "Annie E Cauldwell", birth: "1909" }
+    - { id: "@I50113437@", name: "Roberta Cauldwell", birth: "1910" }
+    - { id: "@I50113444@", name: "Gladys Cauldwell", birth: "1916" }
+    - { id: "@I50113448@", name: "Mabel Cauldwell", birth: "JUN 1914" }   # see Mabel G5 cluster file
+    - { id: "@I50142752@", name: "John Henry Cauldwell", birth: "29 OCT 1911", death: "OCT 1985" }
+
+expected_evidence:
+  - source: cwgc
+    kind: war_grave
+    verdict: verified
+    casualty:
+      rank: "Corporal"
+      service_number: "41876"
+      age_at_death: 31
+      regiment: "West Yorkshire Regiment (Prince of Wales's Own)"
+      unit: "1st Bn."
+      date_of_death: "14 July 1918"
+      cemetery: "Lijssenthoek Military Cemetery"
+      plot: "XXVIII. G. 3A."
+      parents: "Son of John and Elizabeth Cauldwell, of Turnditch, Derby"
+      widow: "Husband of Ellen Cauldwell, of Well Banks, Kirk Ireton, Derby"
+    notes: |
+      Full CWGC casualty record — parents and widow confirm twin
+      relationships. This is the headline foreign-record citation.
+
+  - source: freebmd
+    kind: birth_registration
+    verdict: verified
+    quarter: "Sep"
+    year: 1885
+    district: "Belper"
+    volume: "7b"
+    page: "571"
+    surname: "CAULDWELL"
+    given: "Robert"
+    notes: |
+      Q3 1885 Belper RD — Turnditch is within Belper RD, consistent
+      with twin's "Turnditch" birth-location.
+
+  - source: freebmd
+    kind: marriage_registration
+    verdict: verified
+    quarter: "Jun"
+    year: 1909
+    district: "Belper"
+    volume: "7b"
+    page: "1359"
+    surname: "Cauldwell"
+    given: "Robert"
+    spouse_or_mother: ""    # pre-1912 FreeBMD does not record spouse
+    notes: |
+      Q2 1909 Belper RD. Spouse-surname not in FreeBMD index pre-1912;
+      identity confirmed by absence of any other 1909 "Cauldwell,
+      Robert" marriage in the relevant district. First child Annie E.
+      b.1909 follows immediately.
+
+  - source: freebmd
+    kind: death_registration
+    verdict: out_of_coverage
+    notes: |
+      Died in Belgium during active service; civil death-registration
+      is via Army Form B.213, not the GRO civil register. CWGC is the
+      authoritative source. Searching FreeBMD for a 1918 Robert
+      Cauldwell death would be a category error.
+
+  - source: probate
+    kind: soldiers_effects
+    verdict: verified
+    date_of_death: "14 Jul 1918"
+    service_number: "41876"
+    surname: "CAULDWELL"
+    given: "ROBERT"
+    notes: |
+      Soldiers' Effects ledger entry surfaced. Service number 41876
+      matches the CWGC casualty record above — cross-source identity
+      confirmed.  The Probate plugin parses the ledger as
+      "unknown type granted at [regt 41876]" — the regt-tag in
+      square brackets is the matchable identifier.
+
+  - source: freecen
+    kind: census
+    verdict: verified
+    year: 1891
+    county: "DBY"
+    name: "Robert CAULDWELL"
+    birth_year_per_census: 1885
+    place: "Turnditch"
+    district: "Duffield"
+    notes: |
+      1891 census ~age 5 in Turnditch ✓ matches twin SEP 1885
+      Turnditch birth-location.
+
+  - source: freecen
+    kind: census
+    verdict: out_of_coverage
+    searched_years: [1901, 1911]
+    notes: |
+      FreeCen DBY coverage for 1901/1911 is sparse — both searches
+      returned 0 results. Engine should treat as out_of_coverage
+      not absent_in_index. The post-1911 Robert appears on his
+      widow's 1911 FamilySearch ARK 1G2B-35Q (Mrs Robert
+      Cauldwell, Kirk Ireton) which is a separate data path.
+
+expected_per_kind:
+  birth_disambiguation: supported
+  marriage_disambiguation: supported
+  death_disambiguation: supported   # via CWGC, not FreeBMD
+  spouse_disambiguation: supported  # despite CWGC using "Ellen Cauldwell"
+  parent_link: supported
+  military_service: supported
+
+mode_required: ".all"
+
+# §5.8.6 headline number
+expected_supported_count: 6
+
+gedcom_citations:
+  source_file: "Cauldwell Family Tree.twin-export.ged"
+  extracted_to: "eval/certified/_gedcom_citations.json"
+  count: 4
+  reproduction_target: 4
+  summary:
+    - "FreeBMD birth Sep 1885 Belper (no vol/page in bio note — task 1 found vol7b p571)"
+    - "FreeBMD marriage Jun 1909 Belper vol7b p1359"
+    - "FamilySearch 1911 census ARK 1G2B-35Q (Mrs Robert Cauldwell, Kirk Ireton)"
+    - "CWGC Lijssenthoek Military Cemetery XXVIII.G.3A (14 Jul 1918)"
+  notes: |
+    Bio-note birth citation omits the vol/page; the harness should
+    treat partial-citation matches as supported when district +
+    quarter + year + surname align. Task-1 verification supplied
+    the missing vol7b p571.

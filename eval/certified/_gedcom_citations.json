@@ -1,0 +1,127 @@
+{
+  "@I50113363@": {
+    "citations": [
+      {
+        "source": "freebmd",
+        "kind": "birth_registration",
+        "quarter": "Dec",
+        "year": 1887,
+        "district": "Belper",
+        "volume": "7b",
+        "page": "559",
+        "raw": "FreeBMD birth Dec 1887 Belper vol7b p559"
+      },
+      {
+        "source": "freebmd",
+        "kind": "death_registration",
+        "quarter": "Mar",
+        "year": 1959,
+        "district": "Ashbourne",
+        "volume": "3a",
+        "page": "14",
+        "raw": "FreeBMD death Mar 1959 Ashbourne vol3a p14"
+      },
+      {
+        "source": "gro",
+        "kind": "marriage_registration",
+        "year": 1915,
+        "district": "Ashbourne",
+        "volume": "7b",
+        "page": "977",
+        "raw": "ed '''Mary Ward''' of Kirk Ireton in March 1915 (Ashbourne, GRO vol7b p977). Th"
+      },
+      {
+        "source": "familysearch",
+        "kind": "census",
+        "year": 1901,
+        "ark": "p_10268848273",
+        "description": "Ernest Cauldwell, son, b.1888 Turnditch",
+        "raw": "FamilySearch 1901 census: Ernest Cauldwell, son, b.1888 Turnditch (ARK p_10268848273)"
+      },
+      {
+        "source": "familysearch",
+        "kind": "census",
+        "year": 1911,
+        "ark": "1G2B-WFR",
+        "description": "Ernest Cauldwell, waggoner, Hulland Ward Intakes",
+        "raw": "FamilySearch 1911 census: Ernest Cauldwell, waggoner, Hulland Ward Intakes (ARK 1G2B-WFR)"
+      }
+    ],
+    "meta_signals": [
+      {
+        "kind": "source_needed",
+        "raw": "<ref>\nA source for this information is needed"
+      },
+      {
+        "kind": "hedge",
+        "raw": "approximately 10"
+      }
+    ]
+  },
+  "@I50113395@": {
+    "citations": [],
+    "meta_signals": []
+  },
+  "@I50100727@": {
+    "citations": [],
+    "meta_signals": []
+  },
+  "@I50110493@": {
+    "citations": [
+      {
+        "source": "freebmd",
+        "kind": "birth_registration",
+        "quarter": "Sep",
+        "year": 1885,
+        "district": "Belper",
+        "volume": null,
+        "page": null,
+        "raw": "FreeBMD birth Sep 1885 Belper"
+      },
+      {
+        "source": "freebmd",
+        "kind": "marriage_registration",
+        "quarter": "Jun",
+        "year": 1909,
+        "district": "Belper",
+        "volume": "7b",
+        "page": "1359",
+        "raw": "FreeBMD marriage Jun 1909 Belper vol7b p1359"
+      },
+      {
+        "source": "familysearch",
+        "kind": "census",
+        "year": 1911,
+        "ark": "1G2B-35Q",
+        "description": "Mrs Robert Cauldwell, Kirk Ireton",
+        "raw": "FamilySearch 1911 census: Mrs Robert Cauldwell, Kirk Ireton (ARK 1G2B-35Q)"
+      },
+      {
+        "source": "cwgc",
+        "kind": "war_grave",
+        "date_of_death": "14 Jul 1918",
+        "cemetery": "Lijssenthoek Military Cemetery",
+        "plot": "XXVIII.G.3A",
+        "raw": "CWGC: Corporal Robert Cauldwell, 1st Bn West Yorkshire Regt, died 14 Jul 1918, Lijssenthoek Military Cemetery XXVIII.G.3A"
+      }
+    ],
+    "meta_signals": []
+  },
+  "@I13644681@": {
+    "citations": [],
+    "meta_signals": []
+  },
+  "@I50137743@": {
+    "citations": [],
+    "meta_signals": [
+      {
+        "kind": "conflation_risk",
+        "raw": "may have been conflated"
+      },
+      {
+        "kind": "hedge",
+        "raw": "may have been"
+      }
+    ]
+  }
+}

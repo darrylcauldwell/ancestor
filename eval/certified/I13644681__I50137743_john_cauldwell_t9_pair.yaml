@@ -1,0 +1,173 @@
+# Certified-corpus subject for §5.8 eval harness
+# Difficulty axis: ambiguous-identity (T9 target)
+# Status: Verified 2026-05-22 via sources/freebmd.py and sources/freecen.py
+
+# Ground truth (now verified): the two profiles are the SAME individual.
+# Twin has a duplicate. Canonical birth year is 1841 (per 1891 census).
+
+subjects:
+  - profile_id: "@I13644681@"
+    canonical_name: "John Cauldwell"
+    seed_facts:
+      - { field: birthDate, value: "1840", precision: year }
+      - { field: birthLocation, value: "Alderwasley, Derbyshire, England" }
+      - { field: deathDate, value: "12 NOV 1904", precision: day }
+      - { field: deathLocation, value: "Matlock Bath, Derbyshire, England" }
+  - profile_id: "@I50137743@"
+    canonical_name: "John Cauldwell"
+    seed_facts:
+      - { field: birthDate, value: "1841", precision: year }
+      - { field: birthLocation, value: "Alderwasley, Derbyshire, England" }
+      - { field: deathDate, value: "DEC 1904", precision: month }
+      - { field: deathLocation, value: "Bakewell, Derbyshire, England" }
+
+shared_relationships:
+  parents:
+    - { role: father, id: "@I50113384@", name: "Nathaniel Caldwell", birth: "5 JUL 1815", death: "19 JAN 1860" }
+    - { role: mother, id: "@I50113387@", name: "Charlotte Caldwell", birth: "13 SEP 1820", death: "17 NOV 1860" }
+
+difficulty_axes:
+  - ambiguous_identity_t9
+rationale: |
+  Tests T9 disambiguation. Verified ground truth: SAME person.
+
+expected_outcome:
+  same_person: true
+  canonical_birth_year: 1840
+  ground_truth_evidence: |
+    Resolved 2026-05-22 by single FreeBMD birth registration:
+    Mar 1840 Belper vol19 p412. This is the authoritative
+    canonical year — registrations beat back-calculated census
+    ages. Supporting:
+      - Single FreeBMD death Dec 1904 Bakewell vol7b p472, age 62
+        (back-calc: 1841/1842 — within Victorian noise band)
+      - Single FreeCen 1891 entry b.1841 Alderwasley → Matlock
+        (back-calc: 1841 — census-age noise vs the 1840 registry)
+    @I13644681@'s "1840" is right; @I50137743@'s "1841" is a
+    census-age artifact.
+
+expected_evidence:
+  - source: freebmd
+    kind: death_registration
+    verdict: verified
+    quarter: "Dec"
+    year: 1904
+    district: "Bakewell"
+    volume: "7b"
+    page: "472"
+    surname: "CAULDWELL"
+    given: "John"
+    age_at_death: 62
+    notes: |
+      Single national entry for "Cauldwell, John" deaths 1903-1905 in
+      the right age cohort. Confirms the twin's two profiles map to
+      one civil-registration death. NB: A Bakewell-district-filtered
+      search returns 0; per sources/freebmd.py docstring line 23,
+      Bakewell RD (ID 420) has essentially no transcription coverage
+      before 1941 in FreeBMD's volunteer index. The all-districts
+      search is therefore the correct retrieval path for any
+      pre-1941 Bakewell-RD record — engine must know this.
+
+  - source: freecen
+    kind: census
+    verdict: verified
+    year: 1891
+    county: "DBY"
+    name: "John CAULDWELL"
+    birth_year_per_census: 1841
+    place: "Alderwasley"
+    district: "Matlock"
+    notes: |
+      Census-derived birth year is 1841 — supports merging on the
+      @I50137743@ side of the twin pair. Note 7 other "John Cauldwell"
+      entries appear in 1891 DBY; engine must pick this one via
+      birthplace (Alderwasley) and parents lineage, not by name alone.
+
+  - source: freebmd
+    kind: birth_registration
+    verdict: verified
+    quarter: "Mar"
+    year: 1840
+    district: "Belper"
+    volume: "19"
+    page: "412"
+    surname: "Cauldwell"
+    given: "John"
+    notes: |
+      Q1 1840 Belper RD. Single match for Cauldwell/Caldwell John
+      births 1840-1842 in Belper RD or nationally. Vol 19 is the
+      pre-1851 numbering scheme (modern post-1851 IDs use 7b).
+      Resolves the 1840/1841 census ambiguity in the twin pair:
+      canonical year is 1840, registered Q1 1840.
+
+  - source: freereg
+    kind: baptism
+    verdict: absent_in_index
+    searched_chapman_codes: ["DBY"]
+    searched_years: 1839-1842
+    searched_spellings: ["Cauldwell", "Caldwell"]
+    notes: |
+      No FreeREG baptism indexed in DBY for either spelling
+      1839-1842. Likely Methodist (the Belper area had strong
+      Wesleyan + Primitive Methodist congregations whose registers
+      sit outside FreeREG) or simply untranscribed. Recall ceiling
+      — engine should not be penalised for missing what FreeREG
+      doesn't index.
+
+expected_per_kind:
+  identity_disambiguation: supported   # the pair MUST converge
+  parent_link: supported
+
+cluster_invariant: |
+  Verified same-person. If the engine returns "inconclusive" (cannot
+  decide), that is acceptable per the over-split preference invariant.
+  If it returns "contradicted" (definitely different people), that is
+  a recall failure given the single FreeBMD death + single FreeCen
+  1891 entry available.
+
+# §5.8.6 headline number
+expected_supported_count: 2   # death + 1891 census (parent_link is via lineage)
+
+gedcom_citations:
+  source_file: "Cauldwell Family Tree.twin-export.ged"
+  extracted_to: "eval/certified/_gedcom_citations.json"
+  count: 0
+  reproduction_target: 0
+  notes: |
+    @I13644681@ has no bio note (truly bare).
+    @I50137743@ has a bio note but no citations — bio is meta-only.
+
+competing_conflation_hypothesis:
+  # Surfaced by the bio-note meta-signal scan (task 2/3, 2026-05-22)
+  raw: |
+    "Note: This profile [@I50137743@] may have been conflated with
+    John Cauldwell (b.~1861, Windley) who married Elizabeth Barker
+    and fathered the Turnditch Cauldwell family. The 1911 census
+    records a 'John Cauldwell b.1861 Alderwasley' at Crich — this
+    may be the person represented by this profile."
+  proposed_match: "@I50137350@"   # John b.1861 Windley d.MAR 1922 (Ernest's father)
+  ground_truth_verdict: contradicted
+  rationale: |
+    The bio author's hypothesis is wrong. @I50137743@'s parents
+    (Nathaniel + Charlotte Caldwell, both d.1860) match @I13644681@'s
+    parents EXACTLY but DIFFER from @I50137350@'s parents. The 1841
+    birth + Dec 1904 death also conflict with a 1861 birth + Mar 1922
+    death. The actual conflation is the T9 pair (@I13644681@ ↔
+    @I50137743@), not the one the bio proposes.
+  harness_test:
+    description: |
+      Sophisticated T9 case — engine must weigh two competing merge
+      hypotheses and pick the one supported by parent lineage +
+      birth-year + death-year evidence. Bio-note authoring uncertainty
+      is itself a corpus signal to acknowledge then override.
+    expected_outcome: |
+      - Merge @I13644681@ + @I50137743@: supported
+      - Merge @I50137743@ + @I50137350@ (bio-proposed):
+        contradicted
+      - Surface the contradiction back to the bio note for cleanup.
+
+corpus_finding: |
+  Twin currently splits one civil-registration person into two
+  profiles. Acceptance work: when the engine confirms merge, the
+  human-in-loop should clean this up in WikiTree — one of the IDs
+  becomes the canonical, the other gets merged-into.

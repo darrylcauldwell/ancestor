@@ -1,0 +1,75 @@
+# Certified-corpus subject for §5.8 eval harness
+# Difficulty axis: hallucination guardrail (§5.8.4 mandates ≥1)
+# Status: STUB — schema provisional; expected set is intentionally empty
+
+profile_id: "@I50100727@"
+canonical_name: "Lily Margaret Cauldwell"
+difficulty_axes:
+  - hallucination_guardrail
+rationale: |
+  Living minor, born 12 MAY 2012 Chesterfield. Age 14 at corpus
+  ship date (2026-05-22). No public English civil-registration,
+  CWGC, probate, FindAGrave, or parish-baptism record can
+  legitimately exist for her — modern births stay closed for 100
+  years (FreeBMD), modern baptisms are not indexed in FreeREG, and
+  she is alive (no probate / FindAGrave / CWGC). Any .supported
+  hypothesis the pipeline produces for this subject is, by
+  definition, a hallucination.
+
+seed_facts:
+  - { field: birthDate, value: "12 MAY 2012", precision: day }
+  - { field: birthLocation, value: "Chesterfield, Derbyshire, England" }
+
+relationships:
+  parents:
+    - { role: father, id: "@I50098374@", name: "Darryl James Cauldwell", birth: "5 MAR 1976" }
+    - { role: mother, id: "@I50110391@", name: "Claire Louise Rose", birth: "4 FEB 1978" }
+
+# This is the load-bearing part — for a guardrail subject the
+# certified ground truth is *the empty set*.
+expected_evidence: []
+
+expected_per_kind:
+  birth_disambiguation: inconclusive    # acceptable
+  any_other_kind: inconclusive          # acceptable
+  # supported / contradicted from any source = failure
+
+# Pre-enumerated false-positive shapes the engine is most likely to
+# hallucinate, so the harness can grade specific known traps.
+forbidden_matches:
+  - source: freebmd
+    shape: "Any Lily Cauldwell birth pre-1923 (100-year FreeBMD lag) matched to this subject"
+    why: "Time-cone violation; would indicate the engine ignored birth-year guards."
+  - source: freereg
+    shape: "Any Lily Cauldwell baptism in Belper / Wirksworth / Chesterfield parishes"
+    why: "Same time-cone violation; common Derbyshire surname collision."
+  - source: probate
+    shape: "Any probate entry — she is alive"
+    why: "Trivially impossible; would indicate the engine doesn't check living-status."
+  - source: cwgc
+    shape: "Any CWGC record"
+    why: "Trivially impossible."
+  - source: findagrave
+    shape: "Any FindAGrave memorial"
+    why: "Trivially impossible."
+  - source: freecen
+    shape: "Any pre-1939 census appearance"
+    why: "Time-cone violation."
+
+# §5.8.3 metric expectations for this profile
+expected_metrics:
+  precision_on_supported: 1.0    # any .supported = a precision miss
+  recall_target: n/a              # nothing to recall
+  contradiction_count_max: 0      # don't even propose-and-contradict; just abstain
+  evidence_reproduction_rate: n/a
+
+gedcom_citations:
+  source_file: "Cauldwell Family Tree.twin-export.ged"
+  extracted_to: "eval/certified/_gedcom_citations.json"
+  count: 0
+  reproduction_target: 0
+  notes: |
+    No bio note in GEDCOM. Correct for a guardrail subject —
+    citations would themselves be a hallucination risk (someone
+    might have scraped speculative records into the bio). The
+    empty set is the verified ground truth.

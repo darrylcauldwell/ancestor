@@ -1,0 +1,175 @@
+# Certified-corpus subject for §5.8 eval harness
+# Difficulty axis: known stallers (G2-shaped)
+# Status: Partially verified 2026-05-22 via sources/freebmd.py and sources/freecen.py
+#         (FreeREG / Wirksworth passes pending)
+
+profile_id: "@I50113363@"
+canonical_name: "Ernest Cauldwell"
+difficulty_axes:
+  - stallers_g2
+rationale: |
+  Canonical Python staller — CLAUDE.md's worked example.
+
+# GEDCOM-confirmed (twin export of WikiTree state) — recall lower bound
+seed_facts:
+  - { field: birthDate, value: "DEC 1887", precision: month }
+  - { field: birthLocation, value: "Belper, Derbyshire, England" }
+  - { field: deathDate, value: "MAR 1959", precision: month }
+  - { field: deathLocation, value: "Ashbourne, Derbyshire, England" }
+
+relationships:
+  parents:
+    - { role: father, id: "@I50137350@", name: "John Cauldwell", birth: "1861", death: "MAR 1922" }
+    - { role: mother, id: "@I50113375@", name: "Elizabeth Cauldwell", birth: "1841" }
+  spouse:
+    - id: "@I50104220@"
+      wikitree_name: "Mary Cauldwell"
+      actual_maiden_name: "Ward"
+      birth: "6 DEC 1889"
+      provenance_note: |
+        WikiTree records wife under married surname "Cauldwell" but
+        FreeBMD evidence (mother's-maiden-name field on children's
+        post-1911 birth registrations) shows actual maiden name was
+        WARD. The Mar 1915 Ashbourne marriage record names her as Ward.
+        Engine must propose WARD-side spouse hypothesis to surface the
+        marriage; relying on the "Mary Cauldwell" surname alone yields
+        zero matches. Worth flagging as a corpus-wide convention.
+  children:
+    - { id: "@I50100821@", name: "Ernest Victor Cauldwell", birth: "18 AUG 1919", death: "6 JAN 2017" }
+    - { id: "@I50100941@", name: "George Eric Vaughn Cauldwell", birth: "19 JUL 1915", death: "JUN 1982" }
+    - { id: "@I50100946@", name: "Kenneth Howard Cauldwell", birth: "13 JUL 1917" }
+
+# Verified citations from running sources/*.py against the live registries
+expected_evidence:
+  - source: freebmd
+    kind: marriage_registration
+    verdict: verified
+    quarter: "Mar"
+    year: 1915
+    district: "Ashbourne"
+    volume: "7b"
+    page: "977"
+    surname: "Cauldwell"
+    given: "Ernest"
+    spouse_or_mother: "Ward"
+    notes: |
+      Spouse surname Ward — see spouse.provenance_note above.
+
+  - source: freebmd
+    kind: death_registration
+    verdict: verified
+    quarter: "Mar"
+    year: 1959
+    district: "Ashbourne"
+    volume: "3a"
+    page: "14"
+    surname: "CAULDWELL"
+    given: "Ernest"
+    age_at_death: 71
+    notes: |
+      Age 71 in Mar 1959 ⇒ birth 1887/1888 ✓ matches WikiTree.
+
+  - source: freebmd
+    kind: birth_registration
+    verdict: verified
+    quarter: "Dec"
+    year: 1887
+    district: "Belper"
+    volume: "7b"
+    page: "559"
+    surname: "Cauldwell"
+    given: "Ernest"
+    notes: |
+      Q4 1887 Belper RD vol7b p559. Originally recorded as
+      absent_in_index — that was the freebmd.py year-filter bug
+      (missing sq/eq form fields) masking the result. Fixed
+      2026-05-22; see feedback_freebmd_year_filter_bug memory.
+
+  - source: freebmd
+    kind: birth_registration
+    cluster: confounder
+    verdict: confounder_present
+    quarter: "Jun"
+    year: 1886
+    district: "Belper"
+    volume: "7b"
+    page: "631"
+    surname: "Cauldwell"
+    given: "Ernest"
+    notes: |
+      T9 disambiguation hazard: a DIFFERENT Ernest Cauldwell was
+      registered Q2 1886 Belper. Our subject is the Q4 1887 entry —
+      confirmed by age 71 at death Mar 1959 (b.1887/1888) and
+      FreeCen 1891 birth-year 1887. Engine must select the 1887
+      entry and treat 1886 as a contradicted candidate.
+
+  - source: freecen
+    kind: census
+    verdict: verified
+    year: 1891
+    county: "DBY"
+    name: "Ernest CAULDWELL"
+    birth_year_per_census: 1887
+    place: "Turnditch"
+    district: "Duffield"
+    notes: |
+      1891 census places him in Turnditch sub-district of Duffield RD,
+      age ~3 — consistent with Dec 1887 birth.
+
+  - source: freecen
+    kind: census
+    verdict: absent_in_index
+    searched_years: [1901, 1911]
+    county: "DBY"
+    notes: |
+      FreeCen coverage for 1901/1911 DBY is sparse — out-of-scope, not
+      a recall failure.
+
+  - source: freereg
+    kind: baptism
+    verdict: absent_in_index
+    searched_chapman_codes: ["DBY"]
+    searched_years: 1887-1889
+    notes: |
+      No FreeREG DBY baptism for Cauldwell/Ernest 1887-1889. Belper
+      area had strong Methodist + Primitive Methodist congregations
+      whose registers are not indexed in FreeREG; possible he was
+      baptised non-Anglican. Treat as out-of-coverage, not a recall
+      failure.
+
+  - source: probate
+    kind: probate_calendar
+    verdict: out_of_coverage
+    notes: |
+      Probate Search Service plugin covers ~1996 onwards plus WWI/WWII
+      soldier wills. Ernest's 1959 grant is pre-1996 — not retrievable
+      via the free probate API. Manual lookup at the Probate Registry
+      would be needed; treat as out-of-scope for the automated harness.
+
+# Per-kind verdict expectations (§5.8.3)
+expected_per_kind:
+  birth_disambiguation: inconclusive   # absent in FreeBMD; the truth is uncertain
+  death_disambiguation: supported      # unambiguous FreeBMD hit
+  marriage_disambiguation: supported   # unambiguous FreeBMD hit (with Ward spouse)
+  spouse_disambiguation: supported     # WARD, not Cauldwell — see provenance_note
+  parent_link: supported
+
+# Headline number for §5.8.6 commit-message deltas
+expected_supported_count: 5
+
+gedcom_citations:
+  source_file: "Cauldwell Family Tree.twin-export.ged"
+  extracted_to: "eval/certified/_gedcom_citations.json"
+  count: 5
+  reproduction_target: 5    # the recall denominator for evidence_reproduction_rate
+  summary:
+    - "FreeBMD birth Dec 1887 Belper vol7b p559"
+    - "FreeBMD death Mar 1959 Ashbourne vol3a p14"
+    - "GRO marriage Mar 1915 Ashbourne vol7b p977 (narrative, wife Mary Ward)"
+    - "FamilySearch 1901 census ARK p_10268848273"
+    - "FamilySearch 1911 census ARK 1G2B-WFR"
+  notes: |
+    All 5 GEDCOM-cited identifiers match the citations independently
+    verified live against the registries in task 1 — bio-note is
+    authoritative for this subject. Evidence_reproduction_rate target
+    = 5/5 if the pipeline rediscovers them.
