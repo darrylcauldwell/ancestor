@@ -221,9 +221,54 @@ def _check_geography(r: dict, person: dict) -> tuple[str, str]:
     Pass: record is in a configured district
     Fail: unknown district (might be right, might not)
     Impossible: confirmed non-local district
+
+    Special case: CWGC war-grave records — the *cemetery* is wherever
+    the casualty died (often abroad), so it can't be checked against
+    the research region. The `additional_info` field carries the next-
+    of-kin line ("Son of X and Y, of Turnditch, Derby") which is the
+    real geographic signal. Accept the record if that line mentions
+    the research county or a configured district.
     """
     district = (r.get("district", "") or "").strip()
     birth_location = (person.get("birth_location", "") or "").lower()
+
+    # --- CWGC war-grave special case ---
+    # The cemetery is wherever the casualty died (often abroad), so
+    # district-matching can't apply. The `additional_info` field is the
+    # next-of-kin line ("Son of X and Y, of Turnditch, Derby") which
+    # carries the real geographic signal. Accept the record if that
+    # line mentions the research county or a configured district.
+    if "casualty_id" in r:
+        info = (r.get("additional_info", "") or "").lower()
+        # Pull region from project_config so this isn't Derbyshire-
+        # specific (CLAUDE.md "No hardcoded regions" invariant).
+        try:
+            from project_config import config as _proj_cfg
+            county = (getattr(_proj_cfg.region, "county", "") or "").lower()
+            districts = list((getattr(_proj_cfg.region, "districts", {}) or {}).keys())
+        except Exception:  # pragma: no cover - config import safety
+            county = ""
+            districts = []
+        # Match the full county name or its first 5 chars (so "Derby"
+        # in CWGC matches "Derbyshire" in config).
+        county_short = county[:5] if len(county) >= 5 else county
+        if county and county in info:
+            return ("pass", f"CWGC next-of-kin mentions {county}")
+        if county_short and county_short in info:
+            return ("pass", f"CWGC next-of-kin mentions {county_short}")
+        for d in districts:
+            if d and d.lower() in info:
+                return ("pass", f"CWGC next-of-kin mentions {d}")
+        if birth_location:
+            # birth_location is e.g. "Turnditch, Derbyshire, England" —
+            # the town name is the bit before the first comma.
+            town = birth_location.split(",")[0].strip().lower()
+            if town and len(town) > 2 and town in info:
+                return ("pass", f"CWGC next-of-kin mentions {town}")
+        if info:
+            return ("fail", "CWGC next-of-kin doesn't mention research area")
+        # No next-of-kin line at all — fall through to default
+        # behaviour (treat as fail, downstream becomes a lead).
 
     if not district:
         # Check FamilySearch-style place fields
@@ -369,7 +414,11 @@ def _flatten_results(data) -> list:
 
 
 def _extract_year_from_record(r: dict) -> int | None:
-    for field in ("year", "birth_year", "census_year", "birth_date", "death_date"):
+    # CWGC records expose the date as `date_of_death` (e.g. "14 July 1918").
+    # FindAGrave can expose `death_year` (int) or `death_date` (string).
+    # FreeBMD uses `year`. FreeCen uses `census_year`/`birth_year`.
+    for field in ("year", "birth_year", "census_year", "birth_date",
+                  "death_date", "date_of_death", "death_year"):
         val = r.get(field)
         if isinstance(val, int):
             return val

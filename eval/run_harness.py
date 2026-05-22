@@ -301,7 +301,12 @@ def _dedupe(items: list, key) -> list:
 # identity_disambiguation) are absent and reported as "unmeasured".
 _KIND_FACT_TYPES: dict[str, set[str]] = {
     "birth_disambiguation": {"birth", "birth_registration"},
-    "death_disambiguation": {"death", "death_registration"},
+    # A CWGC war-grave record is the authoritative death record for
+    # casualties who died abroad (no civil GRO entry exists). Count
+    # `military` fact-types toward death_disambiguation too — see
+    # eval/certified/I50110493_robert_cauldwell.yaml (foreign-record
+    # axis: corpus expects CWGC to satisfy death_disambiguation).
+    "death_disambiguation": {"death", "death_registration", "military", "war_grave", "cwgc"},
     "marriage_disambiguation": {"marriage", "marriage_registration"},
     "military_service": {"military", "war_grave", "cwgc"},
 }
