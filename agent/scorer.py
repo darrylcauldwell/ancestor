@@ -409,5 +409,12 @@ def _summarise_record(r: dict, search_type: str) -> str:
         birth = r.get("birth_date", "")
         place = r.get("birth_place", "") or r.get("residence_place", "")
         coll = r.get("collection", "")[:50]
-        return f"{name}, b.{birth} {place} [{coll}]"
+        # Extract trailing ARK identifier from the full URL form
+        # (https://www.familysearch.org/ark:/61903/1:1:<id>) so the
+        # citation matcher can compare it with the GEDCOM bio's
+        # "(ARK p_10268848273)" form.
+        ark = r.get("ark", "")
+        ark_id = ark.rsplit(":", 1)[-1] if ark else ""
+        ark_str = f" (ARK {ark_id})" if ark_id else ""
+        return f"{name}, b.{birth} {place} [{coll}]{ark_str}"
     return str(r)[:120]

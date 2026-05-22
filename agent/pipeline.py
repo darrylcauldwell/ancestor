@@ -684,13 +684,18 @@ def _plan_searches(state: dict) -> list:
 def _apply_scores(scored: dict, state: dict) -> None:
     """Classify results as facts, leads, or impossible."""
     for source, results in scored.items():
-        search_type = _classify_search_type(source)
+        source_kind = _classify_search_type(source)
 
         for r in results:
             verdict = r["verdict"]
             record_summary = r["record_summary"]
             reasons = r["reasons"]
             failed_gates = r.get("failed_gates", [])
+            # FamilySearch returns mixed record types under one source key —
+            # prefer the per-record `record_type` so census hits land as
+            # `census` rather than `unknown`.
+            per_record_type = (r.get("result") or {}).get("record_type")
+            search_type = per_record_type if per_record_type else source_kind
 
             if verdict == "fact":
                 existing_values = {f["value"] for f in state["confirmed_facts"]}

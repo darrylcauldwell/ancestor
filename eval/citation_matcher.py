@@ -121,6 +121,28 @@ _CENSUS_PIPELINE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# FamilySearch pipeline citation: "familysearch: <name>, b.<date> <place>
+# [<collection>] (ARK <id>)". Collection text drives the kind.
+_FS_PIPELINE_RE = re.compile(
+    r"^familysearch:\s*.*?\[(?P<collection>[^\]]+)\]"
+    r"(?:\s*\(ARK\s+(?P<ark>[A-Za-z0-9_\-]+)\))?",
+    re.IGNORECASE,
+)
+_FS_YEAR_RE = re.compile(r"\b(1[6-9]\d{2}|20\d{2})\b")
+
+
+def _kind_from_collection(collection: str) -> str:
+    c = (collection or "").lower()
+    if "census" in c:
+        return "census"
+    if "birth" in c or "christen" in c or "baptis" in c:
+        return "birth_registration"
+    if "death" in c or "burial" in c:
+        return "death_registration"
+    if "marriage" in c:
+        return "marriage_registration"
+    return "unknown"
+
 # CWGC has no fixed format in pipeline emissions — fall back to keyword sniffing.
 _CWGC_PIPELINE_DATE_RE = re.compile(
     rf"died\s+(?P<day>\d{{1,2}})\s+(?P<month>{_MONTH})\s+(?P<year>\d{{4}})",
@@ -179,6 +201,19 @@ def parse_pipeline_citation(s: str) -> CitedIdentifier | None:
         if m.group("place"):
             ids["place"] = m.group("place").strip()
         return CitedIdentifier.make("freecen", kind, ids, raw=raw)
+
+    # FamilySearch shape — collection-bracket + ARK
+    m = _FS_PIPELINE_RE.match(s.strip())
+    if m:
+        collection = m.group("collection")
+        fs_kind = _kind_from_collection(collection)
+        ids: dict = {}
+        ym = _FS_YEAR_RE.search(collection)
+        if ym:
+            ids["year"] = ym.group(1)
+        if m.group("ark"):
+            ids["ark"] = m.group("ark")
+        return CitedIdentifier.make("familysearch", fs_kind, ids, raw=raw)
 
     # CWGC / military
     if kind == "war_grave":
