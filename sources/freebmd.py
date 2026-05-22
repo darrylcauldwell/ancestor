@@ -158,6 +158,11 @@ def search(record_type, surname, given="", start=None, end=None,
         ("s_given", s_given),
         ("start", str(start) if start else ""),
         ("end", str(end) if end else ""),
+        # sq/eq are the start/end quarter dropdowns on the FreeBMD form.
+        # Without them, the server silently ignores the year range filter
+        # and returns matches across all years.
+        ("sq", "1"),
+        ("eq", "4"),
         ("districtid", str(district)),
         ("db", db),
         ("v", v),

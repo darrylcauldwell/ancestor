@@ -45,6 +45,9 @@ fs_api_capture.json
 .familysearch-cookies.json
 agent-research/
 
+# Eval harness run artifacts (timestamped JSONs from §5.8.6 runner)
+eval/runs/
+
 # Screenshots
 *.png
 
