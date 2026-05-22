@@ -400,9 +400,44 @@ def _per_kind_agreement(expected_kinds: dict, pipeline_result: dict) -> dict:
         out[kind] = {
             "expected": expected,
             "actual": actual,
-            "agree": (actual == expected) if actual is not None else None,
+            "agree": _verdicts_agree(expected, actual) if actual is not None else None,
         }
     return out
+
+
+def _verdicts_agree(expected: str, actual: str) -> bool:
+    """Compare expected vs actual verdict, tolerant of annotated forms.
+
+    The corpus authors needed to express richer outcomes than the simple
+    supported/contradicted/inconclusive trichotomy — verdicts like
+    `supported_with_district_anomaly`, `supported_via_matched_page`,
+    `supported_with_year_correction`. These are semantically `supported`
+    with a why-tag; the pipeline emits the bare verdict, so a strict
+    `==` registers a false ✗.
+
+    Normalise both sides to the base verdict (first underscore-separated
+    token) and compare those. `out_of_scope` and `not_yet_verified` are
+    treated as `inconclusive` because that's the pipeline's behaviour
+    when it has nothing to claim.
+    """
+    return _normalise_verdict(expected) == _normalise_verdict(actual)
+
+
+_VERDICT_BASE_ALIASES = {
+    "out_of_scope": "inconclusive",
+    "not_yet_verified": "inconclusive",
+}
+
+
+def _normalise_verdict(v) -> str:
+    """Pull a verdict down to its base form: 'supported_with_X' → 'supported'."""
+    if not isinstance(v, str):
+        return str(v)
+    # supported_with_*, supported_via_*, contradicted_by_*, etc.
+    for base in ("supported", "contradicted", "inconclusive"):
+        if v == base or v.startswith(f"{base}_"):
+            return base
+    return _VERDICT_BASE_ALIASES.get(v, v)
 
 
 def compute_metrics(subject: dict, pipeline_result: dict, gedcom_cites: list[dict]) -> dict:
