@@ -295,13 +295,91 @@ def _dedupe(items: list, key) -> list:
 
 # --- Metric computation ----------------------------------------------------
 
+# Map expected_per_kind keys to the pipeline fact-type tokens that
+# would land in `supported_hypotheses[].kind` for that kind. Kinds that
+# aren't directly emitted by the pipeline (parent_link,
+# identity_disambiguation) are absent and reported as "unmeasured".
+_KIND_FACT_TYPES: dict[str, set[str]] = {
+    "birth_disambiguation": {"birth", "birth_registration"},
+    "death_disambiguation": {"death", "death_registration"},
+    "marriage_disambiguation": {"marriage", "marriage_registration"},
+    "military_service": {"military", "war_grave", "cwgc"},
+}
+
+
+def _actual_verdict_for_kind(kind: str, pipeline_result: dict) -> str | None:
+    """Derive 'supported' / 'contradicted' / 'inconclusive' for one kind
+    from the envelope, or None if we can't measure it (kind isn't
+    directly emitted by the pipeline).
+
+    Rules:
+      - supported   : ≥1 supported hypothesis of one of the kind's types
+      - contradicted: no supported but ≥1 contradicted hint that matches
+      - inconclusive: neither
+    """
+    if kind == "spouse_disambiguation":
+        # Derived: any supported marriage whose value carries a spouse
+        # surname (post-1912 FreeBMD spouse_or_mother field).
+        for h in pipeline_result.get("supported_hypotheses", []) or []:
+            if h.get("kind") in {"marriage", "marriage_registration"}:
+                v = (h.get("value") or "")
+                # Marriage summary ends with `, <Spouse>` when spouse known
+                if re.search(r"\)\s*,\s*[A-Z][a-zA-Z]+\s*$", v):
+                    return "supported"
+        return "inconclusive"
+
+    fact_types = _KIND_FACT_TYPES.get(kind)
+    if fact_types is None:
+        return None  # unmeasured
+
+    supported = pipeline_result.get("supported_hypotheses", []) or []
+    if any(h.get("kind") in fact_types for h in supported):
+        return "supported"
+    # `contradicted_hypotheses` holds rejected_records — these are
+    # records that failed name/date/geography gates, mostly OTHER
+    # people. A real "contradicted" verdict would require evidence
+    # against the proposed hypothesis (e.g. found person alive after
+    # proposed death date), which the envelope doesn't currently
+    # carry. Until the pipeline emits structured contradictions, the
+    # honest verdict when no supported fact lands is "inconclusive".
+    return "inconclusive"
+
+
+def _per_kind_agreement(expected_kinds: dict, pipeline_result: dict) -> dict:
+    """For each expected_per_kind key, compute actual verdict and
+    whether it agrees with expected. Nested dicts (cluster_a/cluster_b
+    under identity_disambiguation) are flattened with dot-keys.
+
+    Returns a flat dict of `{key: {expected, actual, agree}}`.
+    """
+    flat = {}
+    for k, v in expected_kinds.items():
+        if isinstance(v, dict):
+            for sub_k, sub_v in v.items():
+                flat[f"{k}.{sub_k}"] = sub_v
+        else:
+            flat[k] = v
+
+    out = {}
+    for kind, expected in flat.items():
+        # Strip suffix from compound keys for verdict derivation
+        base_kind = kind.split(".", 1)[0]
+        actual = _actual_verdict_for_kind(base_kind, pipeline_result)
+        out[kind] = {
+            "expected": expected,
+            "actual": actual,
+            "agree": (actual == expected) if actual is not None else None,
+        }
+    return out
+
+
 def compute_metrics(subject: dict, pipeline_result: dict, gedcom_cites: list[dict]) -> dict:
     """Compute precision / recall / contradiction-count / reproduction-rate
     for one subject. All metrics are tolerant of missing fields — skeleton
     output must be a valid metrics envelope even when the pipeline returns
     nothing."""
     expected_kinds: dict = subject.get("expected_per_kind", {}) or {}
-    expected_supported = int(subject.get("expected_supported_count", 0))
+    expected_supported = int(subject.get("expected_supported_count") or 0)
 
     supported = pipeline_result.get("supported_hypotheses", []) or []
     contradicted = pipeline_result.get("contradicted_hypotheses", []) or []
@@ -313,6 +391,8 @@ def compute_metrics(subject: dict, pipeline_result: dict, gedcom_cites: list[dic
     is_guardrail = "hallucination_guardrail" in (subject.get("difficulty_axes") or [])
     guardrail_violation = is_guardrail and len(supported) > 0
 
+    per_kind = _per_kind_agreement(expected_kinds, pipeline_result)
+
     return {
         "expected_supported_count": expected_supported,
         "reported_supported_count": len(supported),
@@ -323,6 +403,7 @@ def compute_metrics(subject: dict, pipeline_result: dict, gedcom_cites: list[dic
         "is_guardrail": is_guardrail,
         "guardrail_violation": guardrail_violation,
         "expected_per_kind": expected_kinds,
+        "per_kind_agreement": per_kind,
         "mocked": pipeline_result.get("mocked", False),
     }
 
@@ -333,14 +414,24 @@ def format_per_subject_row(subject: dict, ids: list[str], metrics: dict) -> str:
     label = subject_label(subject)
     axes = ",".join(subject.get("difficulty_axes") or [])
     id_str = "+".join(ids) if len(ids) > 1 else (ids[0] if ids else "")
-    return (
-        f"  {id_str:50}  {label:42}  [{axes}]\n"
+    lines = [
+        f"  {id_str:50}  {label:42}  [{axes}]",
         f"    expected: {metrics['expected_supported_count']} supported"
         f"  /  {metrics['reproduction_target']} cited"
         f"   |  reported: {metrics['reported_supported_count']} supported"
         f"  /  {metrics['reproduced_count']} reproduced"
-        + ("  [GUARDRAIL VIOLATION]" if metrics["guardrail_violation"] else "")
-    )
+        + ("  [GUARDRAIL VIOLATION]" if metrics["guardrail_violation"] else ""),
+    ]
+    per_kind = metrics.get("per_kind_agreement") or {}
+    for kind, v in per_kind.items():
+        exp = v["expected"]
+        actual = v["actual"] if v["actual"] is not None else "unmeasured"
+        marker = (
+            "  ✓" if v["agree"] is True
+            else ("  ✗" if v["agree"] is False else "  ·")
+        )
+        lines.append(f"    {kind:32}  expected={exp:12}  actual={actual:12}{marker}")
+    return "\n".join(lines)
 
 
 def render_report(subjects_with_metrics: list[tuple[dict, list[str], dict]]) -> str:
@@ -371,6 +462,28 @@ def render_report(subjects_with_metrics: list[tuple[dict, list[str], dict]]) -> 
     if n_mocked:
         lines.append(f"  ⚠ pipeline mocked for {n_mocked}/{len(subjects_with_metrics)} subjects")
     lines.append("")
+
+    # Per-kind aggregate: group across subjects, count agreement
+    per_kind_totals: dict[str, dict[str, int]] = {}
+    for _, _, m in subjects_with_metrics:
+        for kind, v in (m.get("per_kind_agreement") or {}).items():
+            t = per_kind_totals.setdefault(kind, {"agree": 0, "disagree": 0, "unmeasured": 0})
+            if v["agree"] is True:
+                t["agree"] += 1
+            elif v["agree"] is False:
+                t["disagree"] += 1
+            else:
+                t["unmeasured"] += 1
+    if per_kind_totals:
+        lines.append("--- Per-kind verdict agreement (corpus-wide) ---")
+        for kind in sorted(per_kind_totals.keys()):
+            t = per_kind_totals[kind]
+            total = t["agree"] + t["disagree"] + t["unmeasured"]
+            measured = t["agree"] + t["disagree"]
+            rate = f"{t['agree']}/{measured}" if measured else "—"
+            unm = f"  ({t['unmeasured']} unmeasured)" if t["unmeasured"] else ""
+            lines.append(f"  {kind:32}  {rate} agree across {total} subjects{unm}")
+        lines.append("")
 
     # §5.8.6 headline number — net .supported deterministic hypotheses
     lines.append(f"HEADLINE: {rep_sup} .supported  (target ≥ {exp_sup})")
