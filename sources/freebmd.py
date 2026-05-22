@@ -93,6 +93,13 @@ def _parse_html(html):
     records = []
     current_year = None
     current_quarter = None
+    # FreeBMD sparse-encoding: once a data row populates surname/district/
+    # vol, successive data rows leave those columns empty as "same as
+    # previous". Carry-forward is document-global (separator rows update
+    # year/quarter for the next record but don't reset surname).
+    current_surname = ""
+    current_district = ""
+    current_vol = ""
 
     for row in rows:
         parts = row.split(";")
@@ -110,14 +117,20 @@ def _parse_html(html):
         elif (len(parts) >= 8
               and parts[2] not in ("", "Q")
               and not parts[2].startswith("/")):
+            if parts[1]:
+                current_surname = parts[1]
+            if parts[5]:
+                current_district = parts[5]
+            if parts[6]:
+                current_vol = parts[6]
             records.append({
                 "year": current_year,
                 "quarter": current_quarter,
-                "surname": parts[1],
+                "surname": current_surname,
                 "firstname": urllib.parse.unquote(parts[2]),
                 "spouse_or_mother": urllib.parse.unquote(parts[3]).strip(),
-                "district": parts[5],
-                "vol": parts[6],
+                "district": current_district,
+                "vol": current_vol,
                 "page": parts[7],
                 "record_id": parts[8].split(":")[0] if len(parts) > 8 else "",
             })
