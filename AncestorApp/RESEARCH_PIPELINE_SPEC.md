@@ -874,12 +874,24 @@ every confirmed fact is additive.
 
 ## 14. MCP-driven auto-approval of pending facts
 
-**Status: In-flight.** Split into MVP (shipped 2026-05-21, commit
-`960dfeb`) and Phase 2 (planned). §14.A describes what runs today.
-§14.B describes the planned Phase 2 work that the spec previously
-described as part of the same feature — including the reversibility
-contract, the bulk approval tool, transaction-kind integration, and
-the defensive hallucination re-checks. None of §14.B is shipped.
+**Status: In-flight, gated off by default (2026-05-22).** Split into
+MVP (shipped 2026-05-21, commit `960dfeb`) and Phase 2 (planned). On
+review the MVP was judged to puncture the Evidence Firewall before
+the defensive layer (§14.B.1) was built — the MVP gate validates
+rule compliance, not source-value fidelity, so an AI that asserts a
+value its source URL doesn't actually contain would pass every
+criterion. The write path is therefore disabled at runtime
+(`approve_pending_fact` refuses with `auto_approval_gate_disabled`)
+until §14.B.1 ships. Dev override: set `ANCESTOR_MCP_AUTO_APPROVE=1`
+in the MCP server's environment. `inspect_approval_decision`
+(dry-run, read-only) remains enabled and is the right tool for
+exercising gate logic without committing.
+
+§14.A describes what runs today. §14.B describes the planned Phase 2
+work that the spec previously described as part of the same feature
+— including the reversibility contract, the bulk approval tool,
+transaction-kind integration, and the defensive hallucination
+re-checks. None of §14.B is shipped.
 
 §13 establishes the Evidence Firewall: external proposals (MCP,
 MLX-extracted, future integrations) write to `pending_facts` and
@@ -1094,6 +1106,13 @@ row. The richer transaction-row audit (§14.B) is Phase 2.
 4. 39 unit tests over the pure helpers (year regex, value
    comparison, lineage parsing, URL host, auto-approvable field
    set membership).
+5. **Runtime gate (added 2026-05-22):** `approve_pending_fact`
+   checks the `ANCESTOR_MCP_AUTO_APPROVE` env var on every call and
+   refuses with `auto_approval_gate_disabled` unless it is set to
+   `1`/`true`. Default is unset, so the shipped binary's write path
+   is off out of the box. Lifting this gate is contingent on §14.B.1
+   landing; the gate is a single-line change to flip the default
+   when that work is done.
 
 # §14.B MCP auto-approval — Phase 2 (planned)
 

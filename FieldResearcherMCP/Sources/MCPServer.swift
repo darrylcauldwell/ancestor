@@ -415,7 +415,7 @@ actor MCPHandler {
                 // says unambiguous; ambiguous facts still go to human review.
                 tool(
                     name: "approve_pending_fact",
-                    description: "Approve a pending fact via the deterministic gate. Commits to the profile + field_sources only if the fact passes every criterion (trust tier, convergence with existing sources, no would-be dispute, field is in the auto-approvable set). Refuses with a reason code otherwise; the fact stays pending for human review.",
+                    description: "Approve a pending fact via the deterministic gate. Commits to the profile + field_sources only if the fact passes every criterion (trust tier, convergence with existing sources, no would-be dispute, field is in the auto-approvable set). Refuses with a reason code otherwise; the fact stays pending for human review. NOTE: disabled by default pending §14.B.1 defensive hallucination re-check — set ANCESTOR_MCP_AUTO_APPROVE=1 in the server's environment to enable. Use inspect_approval_decision to test gate logic without the env override.",
                     properties: [
                         "pending_fact_id": ["type": "string", "description": "The pending_facts row ID to evaluate and commit."],
                     ],
@@ -1707,9 +1707,34 @@ actor MCPHandler {
         "findagrave.com", "www.findagrave.com",
     ]
 
+    /// Runtime gate for the auto-approval write path. Default off.
+    /// The MVP gate (trust tier + convergence + dispute + field-set)
+    /// catches rule violations but not fabrications — an AI that
+    /// asserts a value its source URL doesn't actually contain would
+    /// pass every criterion. §14.B.1 (defensive hallucination
+    /// re-check) closes that hole by re-fetching the URL at gate
+    /// time. Until §14.B.1 ships, auto-approval is off by default.
+    /// Set `ANCESTOR_MCP_AUTO_APPROVE=1` to enable for dev work.
+    static func isAutoApprovalEnabled() -> Bool {
+        let v = ProcessInfo.processInfo.environment["ANCESTOR_MCP_AUTO_APPROVE"]
+        return v == "1" || v?.lowercased() == "true"
+    }
+
     func approvePendingFact(_ args: [String: Any]) throws -> [String: Any] {
         guard let pendingFactID = args["pending_fact_id"] as? String else {
             throw MCPError.invalidParams("approve_pending_fact requires pending_fact_id")
+        }
+
+        guard Self.isAutoApprovalEnabled() else {
+            let payload: [String: Any] = [
+                "status": "refused",
+                "reason": "auto_approval_gate_disabled",
+                "detail": "Auto-approval is disabled by default pending §14.B.1 (defensive hallucination re-check). The MVP gate validates rule compliance, not source-value fidelity, so an AI hallucination would currently pass. Set ANCESTOR_MCP_AUTO_APPROVE=1 in the environment to override for dev work.",
+                "pending_fact_id": pendingFactID,
+                "still_pending": true,
+            ]
+            let json = (try? String(data: JSONSerialization.data(withJSONObject: payload, options: .prettyPrinted), encoding: .utf8)) ?? "{}"
+            return ["content": [["type": "text", "text": json]]]
         }
 
         let decision = try evaluateApproval(pendingFactID: pendingFactID)
