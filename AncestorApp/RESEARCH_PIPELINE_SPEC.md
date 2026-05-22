@@ -75,24 +75,29 @@ for porting, never a runtime dependency.
 │    4. extract household members from census                          │
 │    5. detect discrepancies vs existing tree                          │
 │    6. refine subject from learned dates                              │
-│    7. ParentInferenceEngine.infer  ──► [ProposedRelative]            │
-│    8. (first time only) MarriageEnrichmentEngine.match               │
-│    9. (between iterations) ResearchInterpreter.suggestNextSearch     │
-│    10. stopping checks                                               │
+│    7. (between iterations) ResearchInterpreter.suggestNextSearch     │
+│    8. stopping checks                                                │
 │                                                                       │
 │  post-loop (once):                                                   │
-│    11. ClusteringEngine.cluster        ──► [LifeCluster]             │
-│    12. findSiblings (identity-gated)   ──► [SiblingProposal]         │
+│    9.  ClusteringEngine.cluster                ──► [LifeCluster]     │
+│    10. runParentHypothesisFlow                                       │
+│        • generate(.parentInferred) + grade                           │
+│        • generate(.parentMarriage)  + grade                          │
+│        • reconcileParentMarriages                                    │
+│    11. runSiblingHypothesisFlow (identity + parents gated)           │
+│        • generate(.siblingExists)   + grade                          │
+│    12. T7 second pass (when ≥1 inconclusive hypothesis has a         │
+│        non-empty deficitQuery): dispatch, re-grade, re-reconcile     │
 │    13. assemble ResearchResult                                       │
 └────────────────────────┬─────────────────────────────────────────────┘
-                         │ ResearchResult (clusters, proposals, discrepancies)
+                         │ ResearchResult (clusters, hypotheses, discrepancies)
                          ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │  ClusterReviewView — user reviews + decides                          │
 │    • Cluster Apply / Discard / Save-as-lead                          │
 │    • Per-record Apply / Discard overrides                            │
-│    • Proposed Relatives accept/apply                                 │
-│    • Proposed Siblings accept/reject                                 │
+│    • Hypothesis accept/apply (parent + sibling, projected from       │
+│      result.hypotheses via the per-kind projection helpers)          │
 │    • Compare candidates (MLX prose, optional)                        │
 └────────────────────────┬─────────────────────────────────────────────┘
                          │ writes via ProjectDatabase (overwrite-safe)
@@ -644,15 +649,21 @@ from the existing tree value, the pipeline raises a
 ### 10.1 The severity table
 
 `DiscrepancySeverityTable.severity(sourceTier:absDelta:convergence:)`
-→ `(severity, reasoning)`.
+→ `(severity, reasoning)`. The boundaries below mirror what the code
+returns today; if they drift, the code is authoritative — see the
+pointer policy in §4.3.
 
 Base severity by trust tier and delta (years):
 
-| Tier | Δ = 0 | Δ = 1–2 | Δ = 3–5 | Δ > 5 |
-|---|---|---|---|---|
-| **Primary** (CWGC, official) | `.none` | `.refinement` | `.correction` | `.correction` |
-| **Transcription** (FreeBMD, FreeCen, FreeREG) | `.none` | `.none` | `.refinement` | `.conflict` |
-| **Community** (FamilySearch, Find a Grave) | `.note` | `.note` | `.conflict` | `.conflict` |
+| Tier | Δ = 0 | Δ = 1 | Δ = 2 | Δ = 3 | Δ ≥ 4 |
+|---|---|---|---|---|---|
+| **Primary** (CWGC, official) | `.none` | `.refinement` | `.refinement` | `.correction` | `.correction` |
+| **Transcription** (FreeBMD, FreeCen, FreeREG) | `.none` | `.none` | `.refinement` | `.refinement` | `.conflict` |
+| **Community** (FamilySearch, Find a Grave) | `.note` | `.note` | `.note` | `.conflict` | `.conflict` |
+
+The Δ=2 boundary on the transcription tier is where the code's
+behaviour split from earlier drafts of this spec — the table above
+is canonical now.
 
 ### 10.2 Convergence can upgrade, never downgrade
 
@@ -1175,6 +1186,11 @@ behalf, and why?" without spelunking SQL.
   with sensible defaults.
 - A user-toggleable preference for *whether* auto-approval is
   enabled at all (off by default until trust is earned in real use).
+  **Gate: this preference depends on §14.B.3 transaction kinds being
+  in place** so that "auto-approved" facts are reversible through the
+  same audit surface as any other write. Until §14.B.3 lands,
+  auto-approval is restricted to the harness/MCP surface (developer
+  use); the user-facing toggle is not exposed.
 
 ### 14.B.7 Explicitly out of scope (both MVP and Phase 2)
 
@@ -1215,15 +1231,22 @@ What ends up on disk per project (`*.sqlite`):
 | `research_hypotheses` (v26) | Pipeline-generated hypotheses (T11/T12) | Hypothesis engine — see Part II §4 |
 | `focus_sets` / `open_questions` / `workbench_notes` (v7) | Workbench surfaces | Workbench UI |
 
-What **doesn't** persist between runs:
+The transient/persistent split (post-T11/T12):
 
-- `ResearchResult.clusters` — recomputed each run from
+- `ResearchResult.clusters` — **transient**, recomputed each run from
   `evidence_records`
-- `ResearchResult.proposedRelatives` — recomputed; rejection state
-  persists, accept creates real relationship rows
-- `ResearchResult.proposedSiblings` — same
-- `ResearchResult.householdMembers` — recomputed
-- `ResearchState` itself — in-memory only
+- `ResearchResult.householdMembers` — **transient**, recomputed
+- `ResearchResult.hypotheses` — **persistent** via `research_hypotheses`
+  (v26). T11/T12-emitted hypotheses survive between runs; the
+  hypothesis engine reads existing rows on entry and writes verdicts
+  back. This is the one ephemeral-looking `ResearchResult` field that
+  is actually backed by disk.
+- `ResearchState` itself — in-memory only; nothing here persists
+- Proposed-relative and proposed-sibling collections from the
+  pre-T11/T12 design are gone — those code paths have been replaced
+  by the hypothesis engine. Rejection state persists per stable record
+  ID (`record_rejections`); accept paths create real `relationships`
+  rows.
 
 The deterministic re-runnability is the key invariant: same project +
 same code = same output. Random IDs (`UUID()`) appear only for
@@ -1266,15 +1289,20 @@ Important inventory for Part II to push against:
 7. **Evaluation harness.** No way today to measure "did this change
    improve coverage?" against a held-out corpus. Every improvement is
    "ship and hope."
-8. **Persisted research hypotheses driving second passes.** Each
-   `findSiblings` (T17, shipped), each
-   `GeographicHypothesisGenerator` call, each
-   `SubjectIdentityResolver` resolution is recomputed from scratch.
-   The v26 `research_hypotheses` table exists (migration) but is not
-   yet driving the pipeline. (T11/T12 target.)
-9. **Hypothesis-guided second pass.** No mechanism re-runs the
-   pipeline with focused queries derived from the *result* of the
-   first pass. (T7 target.)
+8. **Persisted research hypotheses driving second passes.**
+   ~~Each `findSiblings`, each `GeographicHypothesisGenerator` call,
+   each `SubjectIdentityResolver` resolution is recomputed from
+   scratch.~~ **[✓ closed by T11/T12, 2026-05.]** The v26
+   `research_hypotheses` table is now the source of truth; T11
+   wired persistence, T12-sibling and T12-parent dispatch reads
+   prior verdicts before re-emitting work.
+9. **Hypothesis-guided second pass.**
+   ~~No mechanism re-runs the pipeline with focused queries derived
+   from the *result* of the first pass.~~ **[✓ closed by T7,
+   2026-05.]** The sibling-deficit query path (commit `de4cb61` +
+   later MMN-filter and full-county fan-out work in `3902d59`,
+   `8879fba`) re-runs the pipeline with focused queries derived from
+   the first-pass result.
 10. **MLX as planner / disambiguator.** The model only suggests
     record types between iterations and writes prose for the user. It
     doesn't propose hypotheses, doesn't grade, doesn't propose
@@ -1363,6 +1391,12 @@ expect. Three modes with different expectations:
 | **Verify** | Confirm what's already in the tree | High precision, low recall | All known facts corroborated or contradicted | "3 facts confirmed, 1 discrepancy found" |
 | **Extend** | Find missing facts (death date, marriage) | Medium | Missing fields filled or exhausted | "Found death date, found marriage record" |
 | **Discover** | Find this person from scratch (ghost node) | Low precision, high recall | Candidate clusters identified | "Found 3 candidate matches, review needed" |
+| **All** | Run verify → extend → discover in sequence on the same subject | Medium overall | Each phase's stop condition fires in turn | Combined output across all three phases |
+
+`.all` is a shipped composite mode in `ResearchMode` that the whole-tree
+runner uses to walk a subject through all three sub-modes back-to-back.
+It is not a distinct strategy; it inherits each phase's behaviour and
+output.
 
 **A verify run that finds nothing is a success** — "we couldn't
 disprove your data." **A discover run that finds nothing is a
@@ -1405,6 +1439,12 @@ each is named and justified:
 | FreeBMD death age ±1 year | Age at death recorded by informant (usually family). More reliable than census age. |
 | Find a Grave dates ±2 years | Volunteer-transcribed from headstones which may be weathered. Sometimes from obituaries with errors. |
 | CWGC dates ±0 | Official military records. If CWGC says 14 July 1918, it's 14 July 1918. |
+
+> **Caveat (§10.3 reality):** the table above describes the *intended*
+> per-source tolerance policy. As shipped, the severity engine
+> applies a uniform date-tolerance constant rather than per-source
+> values — see §10.3. Per-source tolerances are aspirational design,
+> not enforced behaviour.
 
 ### 18.6 Review friction levels
 
@@ -1751,6 +1791,20 @@ enum HypothesisVerdict: String, Sendable {
     case inconclusive    // not enough evidence to decide
 }
 
+// Asymmetric verdict-space across kinds. `HypothesisVerdict` is a
+// closed three-case enum at the type level, but in practice not every
+// kind produces every verdict. `.parentInferred` never produces
+// `.contradicted` — its grader treats "no birth record found
+// carrying the MMN" as `.inconclusive`, not `.contradicted`, because
+// only explicit no-parents context (foundling, ward, etc., which is
+// outside V2 scope) would falsify the claim. The same asymmetry
+// applies to `.parentMarriage` (absence of a marriage record is
+// `.inconclusive`, not `.contradicted` — the marriage may sit in a
+// year-window the search missed). Downstream UI must not assume
+// "absence of `.supported`" implies "presence of `.contradicted`";
+// `.inconclusive` is the dominant absent-evidence verdict for these
+// kinds.
+
 struct VerdictTransition: Sendable {
     let verdict: HypothesisVerdict
     let isModelAssisted: Bool
@@ -1907,9 +1961,17 @@ deletes the legacy field.
 
 #### T12-sibling — fold `.siblingExists` into the framework
 
+> **As-shipped note (per Decision 7.10):** there is no central
+> `HypothesisEngine.runAll`. Dispatch is per-kind from the pipeline —
+> the post-loop phase calls `HypothesisEngine.generate(.siblingExists, …)`
+> and `.grade(…)` directly through the per-kind switches. The phase
+> table below preserves the original sequencing for git archaeology;
+> Phase 1's "runAll entry point" reduced to per-kind dispatch by the
+> time the work landed.
+
 | Phase | What changes |
 |---|---|
-| 1 | `Services/Research/HypothesisEngine.swift` with `runAll` entry point + central `generate` / `grade` / `deficitQuery` switches. `.siblingExists` case added with generator + grader + deficit-query clauses. `result.hypotheses` field populated. `result.proposedSiblings` still populated by the legacy `findSiblings()` path. Both fields verified identical via tests. |
+| 1 | `Services/Research/HypothesisEngine.swift` with central `generate` / `grade` / `deficitQuery` switches. `.siblingExists` case added with generator + grader + deficit-query clauses. Pipeline calls the engine per-kind. `result.hypotheses` field populated. `result.proposedSiblings` still populated by the legacy `findSiblings()` path. Both fields verified identical via tests. |
 | 2 | Flip source of truth: `proposedSiblings` becomes `result.hypotheses.filter { kind matches .siblingExists, isDeterministicallySupported }.map(toLegacyShape)`. Legacy `findSiblings()` deleted. Output verified identical to Phase 1 by tests. |
 | 3 | UI swaps to read `result.hypotheses` directly. `proposedSiblings` field still exists but unused. View diff trivial. |
 | 4 | Delete `proposedSiblings` field. Pure deletion. |
@@ -1931,11 +1993,11 @@ next strictness tier (loose, if the first ran at strict).
 **Gate (resolved 2026-05-19, see §5.2.1):** the marriage-enrichment
 coupling question is closed — `.parentInferred` and `.parentMarriage`
 are two cross-referencing kinds with a deterministic reconciliation
-step in `HypothesisEngine.runAll`.
+step the pipeline invokes after both kinds have been graded.
 
 | Phase | What changes |
 |---|---|
-| 1 | Both `.parentInferred(gender, surname)` and `.parentMarriage(motherSurname, fatherSurname, window)` kinds added together with their generate / grade / deficit-query clauses (separate extension files per Decision 5). `HypothesisEngine.reconcileParentMarriages` lands in the central engine and is called at the end of `runAll`. `result.hypotheses` carries both new kinds with the marriage evidence already cross-referenced onto the parent hypotheses. `result.proposedRelatives` still populated by the legacy `ParentInferenceEngine.infer` + `enrichParentsWithMarriage` paths. Both surfaces verified projection-equal via tests. |
+| 1 | Both `.parentInferred(gender, surname)` and `.parentMarriage(motherSurname, fatherSurname, window)` kinds added together with their generate / grade / deficit-query clauses (separate extension files per Decision 5). `HypothesisEngine.reconcileParentMarriages` lands as an engine entry point that the pipeline calls after the per-kind dispatch of `.parentInferred` and `.parentMarriage` (per Decision 7.10 — no central `runAll`). `result.hypotheses` carries both new kinds with the marriage evidence already cross-referenced onto the parent hypotheses. `result.proposedRelatives` still populated by the legacy `ParentInferenceEngine.infer` + `enrichParentsWithMarriage` paths. Both surfaces verified projection-equal via tests. |
 | 2 | Flip source of truth: `proposedRelatives` becomes a derived projection from `result.hypotheses` (supported `.parentInferred`s, with marriage evidence already folded in by reconciliation). Legacy inference paths deleted. Output verified identical to Phase 1. |
 | 3 | UI swaps to read `result.hypotheses` directly. The "Already linked" detection, "Apply" action, and marriage-enrichment cross-validation cards re-target the new source — see §5.2.1 for how each affordance maps onto the two kinds. Bigger view diff than T12-sibling Phase 3. |
 | 4 | Delete `proposedRelatives` field. Pure deletion. |
@@ -1978,7 +2040,8 @@ reconciles them post-grading)?
 **Decision:** **two cross-referencing kinds.** `.parentInferred`
 claims "this surname belongs to a parent." `.parentMarriage` claims
 "a BMD marriage joins these two surnames in the plausible window."
-The engine reconciles the two during `runAll`: a supported
+The pipeline reconciles the two after dispatching each kind through
+the engine (per Decision 7.10 — no central `runAll`): a supported
 `.parentMarriage` writes a cross-reference back onto the matching
 mother + father `.parentInferred` hypotheses (their
 `supportingEvidence` gains the marriage record ID, their `reasoning`
@@ -2034,8 +2097,9 @@ reconciliation is deterministic and idempotent.
 - `HypothesisEngine.grade(_:state:snapshot:)` for `.parentMarriage`
   runs `MarriageEnrichmentEngine.match` against state's marriage
   records.
-- **Reconciliation step:** after `runAll` grades every kind, a new
-  function `HypothesisEngine.reconcileParentMarriages` walks
+- **Reconciliation step:** after the pipeline has dispatched both
+  `.parentInferred` and `.parentMarriage` through `generate` + `grade`,
+  it calls `HypothesisEngine.reconcileParentMarriages`, which walks
   `.supported` `.parentMarriage` hypotheses and, for each, finds the
   two `.parentInferred` hypotheses they cross-reference. It appends
   the marriage record ID(s) to each parent's `supportingEvidence` and
@@ -2106,15 +2170,24 @@ hypothesis.
 
 ### 5.4 T8 — MLX next-search suggestion for weak verdicts
 
+**Status: Paper-only. Not built.**
+
+> **Blocker — `deficitQuery` contract.** T8's trigger depends on
+> distinguishing "kind has no ladder" from "kind's ladder exhausted."
+> Today's shipped `[RecordQuery]` contract returns `[]` for both
+> cases. Before T8 starts, the contract narrows to a three-state
+> result (`.query` / `.exhausted` / `.noLadder`) — see Decision 7.5
+> open issue.
+
 **What lands:**
 - An MLX prompt + a
   `ResearchInterpreter.suggestForWeakHypothesis(hypothesis:state:availableSources:)`
   entry point.
 - Wired into T7's second pass: when T7 finds an inconclusive
   hypothesis that is **exhausted** at its kind's deficit-query ladder
-  (`deficitQuery(..., atLevel: attempts + 1, ...) == nil`), T8 is
-  the fallback. It asks the model "given this hypothesis and what we
-  know, what would you search?"
+  (post-contract-narrow: `deficitQuery(..., atLevel: attempts + 1, ...)
+  == .exhausted`), T8 is the fallback. It asks the model "given this
+  hypothesis and what we know, what would you search?"
 - Output is restricted to `(sourceID, recordType, queryHints)` —
   structured, not free-form. The deterministic dispatcher still
   builds and runs the query.
@@ -2148,6 +2221,8 @@ pass.
 
 ### 5.5 T9 — MLX free-text disambiguation pass
 
+**Status: Paper-only. Not built.**
+
 **What lands:**
 - `ResearchInterpreter.disambiguateIdentity(candidates:state:)` entry
   point.
@@ -2175,18 +2250,20 @@ breaking ties, not making findings.
 The confidence threshold is load-bearing — set too high and T9 is a
 no-op; set too low and the model overrules the rules in disguise.
 
-> The shipped threshold is the lowest value `θ` such that
-> user-agreement rate on the eval-harness disambiguation corpus (per
-> §5.8) at threshold `θ` is **≥ 75%**. Below 75%, the threshold is
-> raised until either the rate clears or no remaining tie-breaks
+> When T9 ships, the threshold will be the lowest value `θ` such
+> that user-agreement rate on the eval-harness disambiguation corpus
+> (per §5.8) at threshold `θ` is **≥ 75%**. Below 75%, the threshold
+> is raised until either the rate clears or no remaining tie-breaks
 > pass.
 
-The specific numeric value of `θ` is TBD until the harness has
+The specific numeric value of `θ` will be TBD until the harness has
 corpus data. The setting rule is fixed now. T9 can ship with the
 threshold pinned at "always reject" (no model output ever acted on)
 until the harness produces enough data to set `θ` defensibly.
 
 ### 5.6 T23 — Guided Sample Tree tour (out of band)
+
+**Status: Paper-only. Not built.**
 
 **Out of architectural scope, in scope for completeness.** A
 first-launch tour that walks the user through the Sample Tree's
@@ -2204,6 +2281,9 @@ No pipeline impact.
 touching anything in §5.1–5.5.
 
 ### 5.7 T31 — Empirical retuning of the expansiveness ladder
+
+**Status: Paper-only. Not built.** Depends on §5.8 (harness), §5.10
+(button collapse), and a stable hypothesis-kind set (T11/T12 — done).
 
 **Reshaped from the original framing.** The original T31 retuned
 per-mode iteration counts and fact caps for the four research modes.
@@ -2247,6 +2327,14 @@ Status callouts elsewhere:
 - T8/T9 are not yet built and so don't yet need validation.
 - T31 doesn't ship without the harness — it's *defined as* the
   application of the harness.
+
+**Recommended ship order:** the 3-profile structural-plumbing tier of
+the harness (§5.8.1 row 1) should ship as the next pipeline task. It
+is small enough to land in one session, gives T7's uplift target its
+first defensible number, and is a build prerequisite for the
+10–12-profile T7 validation tier and the 20–30-profile T8/T9/T31
+tiers. Everything else in §5.4–§5.7 and §5.9–§5.11 can sequence after
+the minimal harness exists.
 
 #### 5.8.1 Tiered corpus targets
 
@@ -2318,6 +2406,8 @@ at 20–30 profiles), and **before** T31.
 
 ### 5.9 Pipeline incrementality refactor (new task)
 
+**Status: Paper-only. Not built.**
+
 **Why**: today `ResearchPipeline.research(subject:config:)` is a
 monolithic call — kicks off, runs to completion, returns one result.
 "Research as a discrete event" doesn't match the actual user mental
@@ -2347,6 +2437,8 @@ level-by-level invocation of the new entry points, across the
 certified corpus.
 
 ### 5.10 Research button collapse + auto-escalation UX (new task)
+
+**Status: Paper-only. Not built.** Depends on §5.9.
 
 **Why**: today the user picks one of four research modes (`.verify`,
 `.extend`, `.discover`, `.all`) before they have any results —
@@ -2380,6 +2472,8 @@ the search will surface.
 - The progress indicator must support **pause** and **resume**.
 
 ### 5.11 Hypothesis investigation as user action (new task)
+
+**Status: Paper-only. Not built.** Depends on §5.9 + §5.10.
 
 **Why**: today's lead list grows large and overwhelming. Most leads
 sit unsifted because the volume exceeds practical triage.
@@ -2423,6 +2517,137 @@ of the §5.10 / §5.11 reframe. Each deserves its own design pass.
 - **5.12.5 Confidence badge dimensionality** — primary indicator
   (verdict + model-assisted state) with the source-strength axes as
   a secondary, on-hover detail.
+
+### 5.13 Worked example — post-loop trace for Kathleen Wheeldon
+
+A concrete walk-through of the post-loop hypothesis phase
+(§5.2 / §3) for one subject. Narrow scope: iteration loop and
+pre-research state are taken as given. Subject details correspond to
+the real-world discovery test that surfaced the verify-bias gap
+documented in §16; the trace shows what each per-kind dispatch
+produces and where the gap actually lives.
+
+**Subject:** Kathleen Wheeldon, est. birth window 1922–1924, Bakewell
+RD (Derbyshire). Tree state entering post-loop: subject profile
+exists, no parent relationships linked, no sibling relationships
+linked. Mode: `.discover`.
+
+**State entering the post-loop phase:**
+
+- `evidence_records` populated by the iteration loop. Key hits:
+  - FreeBMD birth: *Kathleen Wheeldon, mother's maiden name Keyworth,
+    Bakewell 1923 Q3, GRO ref 7b/…* — clustered as the subject's
+    birth.
+  - FreeCen 1939 register: *Wheeldon household, Bakewell area, head
+    George, wife Florence, daughter Kathleen + others* — clustered
+    with the FreeBMD birth.
+- `result.hypotheses` empty.
+
+**Per-kind dispatch (pipeline calls `HypothesisEngine` per kind, per
+Decision 7.10 — no central `runAll`):**
+
+1. **`.subjectIdentity`** — `SubjectIdentityResolver.resolve(subject:,
+   state:)` runs against the cluster set.
+   - One cluster matches the birth-year window and district.
+   - Verdict: **`.supported`**. `isModelAssisted = false`.
+   - Identity key: `subjectIdentity:<profileID>`.
+
+2. **`.parentInferred(gender:, surname:)`** — generator walks birth
+   records carrying MMN. The FreeBMD birth above contributes both a
+   father-surname claim (subject's own surname `Wheeldon`) and a
+   mother-surname claim (the MMN `Keyworth`).
+   - Two hypotheses emitted:
+     - `.parentInferred(gender: .male, surname: "Wheeldon")`
+     - `.parentInferred(gender: .female, surname: "Keyworth")`
+   - Grader: each is `.supported` — the birth record carries the
+     MMN. Both have the birth record's ID in `supportingEvidence`.
+   - Neither produces `.contradicted` even though no marriage has
+     been found yet — see §4.1 asymmetric verdict-space note.
+
+3. **`.parentMarriage(motherSurname:, fatherSurname:, windowYears:)`**
+   — generator walks supported `.parentInferred` pairs (same subject,
+   opposite genders). Finds (Wheeldon-male, Keyworth-female). Window:
+   `subjectBirthYear − 30 … subjectBirthYear + 1` = `1893 … 1924`.
+   - One hypothesis emitted:
+     `.parentMarriage(motherSurname: "Keyworth", fatherSurname: "Wheeldon", windowYears: 1893…1924)`.
+   - Grader runs `MarriageEnrichmentEngine.match` against state's
+     marriage evidence (and dispatches a focused BMD marriage query
+     if needed via the kind's level-1 `deficitQuery`).
+   - One marriage hit returns: *George Wheeldon × Florence M
+     Keyworth, Oct–Dec 1921, Bakewell, GRO ref 7b/1906*.
+   - Verdict: **`.supported`**. The marriage record ID joins
+     `supportingEvidence`.
+
+4. **Reconciliation step** — pipeline calls
+   `HypothesisEngine.reconcileParentMarriages` after both
+   `.parentInferred` and `.parentMarriage` have been graded.
+   - Walks supported `.parentMarriage` hypotheses; for each, finds
+     the two `.parentInferred` hypotheses it cross-references
+     (same subject, surnames matching mother/father claim).
+   - Appends the marriage record ID onto each parent's
+     `supportingEvidence`.
+   - Appends one sentence per cross-reference to `reasoning`:
+     - On the Wheeldon-male hypothesis: *"given name 'George' from
+       .parentMarriage:Keyworth×Wheeldon:1893…1924"*.
+     - On the Keyworth-female hypothesis: *"given name 'Florence'
+       from .parentMarriage:Keyworth×Wheeldon:1893…1924"*.
+   - `isModelAssisted` stays `false` (pure join, no dispatch, no
+     model). `isDeterministicallySupported == true` on all three.
+
+5. **`.siblingExists(district:, mmn:, yearWindow:)`** — generator
+   gate: *`SubjectIdentityResolver` returned `.resolved` AND both
+   parents linked*.
+   - First conjunct: ✅ (step 1).
+   - Second conjunct: ❌. The mother and father exist only as
+     `.supported` hypotheses; no `relationships` rows have been
+     written. **Generator skips.** Zero `.siblingExists` hypotheses
+     emitted.
+   - This is where the verify-bias gap surfaces — the three brothers
+     known to exist will not be searched on this run.
+
+**Final state after post-loop:**
+
+| Hypothesis | Verdict | Det.-supported | Notes |
+|---|---|---|---|
+| `subjectIdentity:<pid>` | `.supported` | yes | one cluster, no ambiguity |
+| `parentInferred:male:Wheeldon` | `.supported` | yes | birth-record MMN + marriage cross-ref ("George") |
+| `parentInferred:female:Keyworth` | `.supported` | yes | birth-record MMN + marriage cross-ref ("Florence") |
+| `parentMarriage:Keyworth×Wheeldon:1893…1924` | `.supported` | yes | BMD marriage Bakewell 1921 Q4 |
+| `siblingExists:*` | — | — | not emitted; gate failed (parents not yet linked) |
+
+**What changes on the next run, after the user accepts the parent
+proposals:**
+
+- `relationships` gains a mother and father edge for Kathleen. Real
+  profile rows exist for George Wheeldon and Florence Keyworth.
+- Re-run enters the post-loop phase with the gate's second conjunct
+  satisfied.
+- `.siblingExists` generator emits one hypothesis per
+  `(district, mmn, yearWindow)`: here, one hypothesis for `(Bakewell,
+  Keyworth, 1922…1936)` (or however the year window is set by the
+  expansiveness ladder).
+- Grader dispatches the focused BMD birth query and grades against
+  the inference rule. The three brothers ought to land as
+  `.supported`.
+
+**What this trace illustrates:**
+
+1. The post-loop phase is *per-kind dispatch*, not a single big
+   call. Each kind's `generate` / `grade` runs in its own pass.
+2. Reconciliation is the only cross-kind step, and it is a pure
+   deterministic join — no dispatch, no model.
+3. The `.parentInferred` ↔ `.parentMarriage` cross-reference
+   (Decision §5.2.1) is where given-name evidence reaches the parent
+   hypotheses; without it, the parent hypotheses would carry only
+   surnames.
+4. The sibling discovery gap is **structural, not algorithmic**:
+   `.siblingExists` requires parents-linked, which requires user
+   acceptance, which requires the run-then-review-then-rerun loop.
+   Closing this gap would mean either (a) lifting the gate to
+   `.supported` parent hypotheses (less safe — accepts unverified
+   parents into the sibling search), or (b) chaining a second
+   internal post-loop pass after auto-promote of high-confidence
+   parents (covered by §14 MCP auto-approval where shipped).
 
 ---
 
@@ -2568,8 +2793,28 @@ rather than `RecordQuery?` — semantically equivalent (`[]` ⇔ `nil`)
 but slightly different shape. `.parentInferred` returns `[]` at
 every level by design (the main pipeline's widening ladder is the
 right escalation path), which technically conflates "no ladder"
-with "exhausted". Worth either narrowing the contract or formally
-adopting `[]` as the exhaustion signal.
+with "exhausted".
+
+**Open issue — to resolve before T8 starts.** T8 (§5.4) treats
+exhaustion as the trigger for MLX fallback. With the current `[]`
+contract conflating "no ladder" and "exhausted", T8 cannot
+distinguish "kind has no ladder, escalate via the pipeline's
+widening" from "kind has a ladder and we've walked off the end —
+escalate via MLX." Before T8 ships, the contract should narrow to a
+three-state return:
+
+```swift
+enum DeficitQueryResult {
+    case query(RecordQuery)   // a focused query at this level
+    case exhausted            // ladder ceiling reached — T8 fires
+    case noLadder             // no per-kind ladder — pipeline widens
+}
+```
+
+`.parentInferred` returns `.noLadder` at every level; `.siblingExists`
+and `.parentMarriage` return `.query(...)` at levels 1–N, then
+`.exhausted`. T8 fires only on `.exhausted`. See also §5.4 — this
+note is mirrored in the T8 task as a blocker.
 
 ### 7.6 — Eval harness scope and rollout
 
@@ -2584,9 +2829,20 @@ prerequisite for T7 itself).
 
 ### 7.7 — Local MLX vs Claude API for T8 / T9
 
-**Resolution**: **local MLX for T8 and T9** as initial path.
-Escape-valve to API in a future task if the eval harness shows MLX is
-leaving findings on the table.
+**Resolution**: **local MLX for T8 and T9 as the initial path,
+because the App Store posture is the binding constraint, not model
+quality.** T18/T20 (May 2026) stripped outbound AI calls specifically
+to clean the privacy disclosure surface ahead of submission;
+re-introducing them is a posture decision, not a technical one — new
+privacy disclosure, possibly a new review cycle, the "what does your
+app send where?" answer changes.
+
+API escalation is expected, not a contingency. The eval harness
+(§5.8) is what produces the evidence to defend that escalation —
+when MLX leaves findings on the table at measurable rates against the
+20–30-profile certified corpus, the App Store work to re-enable
+outbound calls is justified. The local-MLX-first sequencing buys time
+to build that evidence; it does not prejudge the eventual answer.
 
 **Validation: unvalidated (component not built).** T8 and T9 are
 both paper-only; the decision is not yet load-bearing.
@@ -2677,6 +2933,26 @@ T8, T9, T31, the harness, and the design passes. The estimate is
 unchanged from the original 24–32 total; the difference is that
 ~12 sessions of foundation are now behind us.
 
+### 8.1 Recommended pragmatic sequencing
+
+The dependency graph above is correctness-oriented. The pragmatic
+ordering — what to build next, given what's shipped — is different:
+
+1. **Minimal harness (§5.8.1 row 1 — 3-profile structural-plumbing
+   tier).** Smallest unit of harness that gives T7 a defensible
+   number and unblocks all later validation work. Ship next.
+2. **§5.9 Pipeline incrementality refactor.** Pure refactor;
+   byte-identical output behind a more flexible API. Build
+   prerequisite for §5.10 and §5.11.
+3. **§5.10 (Research button collapse) and §5.11 (Hypothesis
+   investigation) in parallel.** Both depend on §5.9 only.
+4. **T8 / T9 / T31 as parallel tracks once the harness has reached
+   the 20–30-profile certified corpus.** None of these three depends
+   on the others; each gates on harness data. T8 also gates on the
+   `deficitQuery` contract narrow (Part B(c) / Decision 7.5).
+5. **T23 + §5.12 design passes — any time.** UX surfaces with no
+   pipeline dependencies; ship when the team has UX bandwidth.
+
 ---
 
 ## 9. What this V2 does NOT do
@@ -2684,13 +2960,16 @@ unchanged from the original 24–32 total; the difference is that
 Holdovers, explicitly out of scope:
 
 - **G1 (cross-profile dedup).** Important, but not in the current
-  task list. Future task.
+  task list. Future task. **Dependency note:** Decision 7.9
+  (cluster-aware scoring) must come before G1 if either is taken up
+  — cross-profile dedup needs cluster-aware match strength to know
+  when two clusters across profiles describe the same person.
 - **G7 (subtle merge detection).** Same.
 - **MLX as primary grader.** No. Graders stay rule-based. MLX only
   enters when rules return inconclusive/ambiguous.
 - **Per-source autotuning.** Today's per-source strictness configs
   (T37, T38) are static and stay static.
-- **Cluster-aware scoring.** §7.9 flagged.
+- **Cluster-aware scoring.** §7.9 flagged. Prerequisite for G1.
 - **Workbench.Hypothesis ↔ ResearchHypothesis automatic crossover.**
   A `.supported` ResearchHypothesis can be promoted to a
   Workbench.Hypothesis by user action only.
