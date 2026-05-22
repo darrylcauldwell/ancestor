@@ -805,16 +805,21 @@ def _emit_parent_link_verdict(state: dict, corpus: dict | None) -> None:
     member's surname matches a corpus parent.
 
     Conservative rule:
-      - supported   : ≥1 corpus parent's surname appears in any household
-                      member's name (case-insensitive surname-token
-                      match). Parent IDs are looked up in the corpus
-                      via wt_id directly, and (since the corpus dict is
-                      wt_id-keyed but parent_ids are numeric WikiTree
-                      Ids) via a numeric-Id index over the corpus dict.
-                      Falls back to the subject's own corpus-surname when
-                      no parent record can be resolved.
-      - inconclusive: no corpus_match, no household members, or no
-                      surname overlap.
+      - supported   : a parent record can be resolved (via corpus wt_id
+                      lookup OR LocalTwin numeric-Id lookup) AND that
+                      parent's surname appears in any household member's
+                      name token (case-insensitive).
+      - inconclusive: no corpus_match, no household members, no resolvable
+                      parent record, or no surname overlap.
+
+    Note: an earlier revision had a tier-3 fallback that used the
+    subject's own corpus-surname when no parent record could be resolved
+    ("subject's surname typically equals the father's"). That heuristic
+    misfires when `household_members` is populated from census-search
+    results — which can contain dozens of same-surname people from
+    *different* households (Sarah Byard's 1891 search returned 30 Byards
+    across 5+ households). Without per-household scoping, a shared
+    surname is not parent-link evidence; tier-3 was removed.
     """
     corpus_match = state.get("corpus_match")
     if not corpus_match:
@@ -865,15 +870,7 @@ def _emit_parent_link_verdict(state: dict, corpus: dict | None) -> None:
         except Exception:
             pass
 
-    # 3. Fallback: use the subject's own corpus surname. The subject's
-    #    surname typically equals the father's surname; a household
-    #    member sharing that surname is evidence of a parent link.
-    if not parent_surnames:
-        cname = (corpus_match.get("corpus_name") or "").upper().split()
-        if cname:
-            parent_surnames.add(cname[-1])
-
-    if parent_surnames & member_name_tokens:
+    if parent_surnames and (parent_surnames & member_name_tokens):
         state["parent_link_verdict"] = "supported"
         return
 
