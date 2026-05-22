@@ -230,6 +230,8 @@ def _state_to_envelope(state: dict) -> dict:
         "contradicted_hypotheses": contradicted,
         "inconclusive_hypotheses": inconclusive,
         "discovered_citations": citations,
+        "parent_link_verdict": state.get("parent_link_verdict"),
+        "identity_verdict": state.get("identity_verdict"),
         "mocked": False,
     }
 
@@ -258,12 +260,31 @@ def _python_pipeline_call(subject: dict) -> dict:
         "discovered_citations": [],
         "mocked": False,
     }
+    parent_link_verdicts: list[str | None] = []
+    identity_verdicts: list[str | None] = []
     for person in persons:
         state = research_person(person)
         envelope = _state_to_envelope(state)
         for key in ("supported_hypotheses", "contradicted_hypotheses",
                     "inconclusive_hypotheses", "discovered_citations"):
             aggregated[key].extend(envelope[key])
+        parent_link_verdicts.append(envelope.get("parent_link_verdict"))
+        identity_verdicts.append(envelope.get("identity_verdict"))
+
+    # Strongest verdict across members: supported > contradicted > inconclusive.
+    # None values are ignored unless every member is None (then result is None).
+    def _strongest(verdicts: list[str | None]) -> str | None:
+        non_none = [v for v in verdicts if v is not None]
+        if not non_none:
+            return None
+        if "supported" in non_none:
+            return "supported"
+        if "contradicted" in non_none:
+            return "contradicted"
+        return "inconclusive"
+
+    aggregated["parent_link_verdict"] = _strongest(parent_link_verdicts)
+    aggregated["identity_verdict"] = _strongest(identity_verdicts)
 
     # Pair/cluster subjects research the same person twice (one run per
     # member). The pipeline finds the same source records each time, so
@@ -296,9 +317,9 @@ def _dedupe(items: list, key) -> list:
 # --- Metric computation ----------------------------------------------------
 
 # Map expected_per_kind keys to the pipeline fact-type tokens that
-# would land in `supported_hypotheses[].kind` for that kind. Kinds that
-# aren't directly emitted by the pipeline (parent_link,
-# identity_disambiguation) are absent and reported as "unmeasured".
+# would land in `supported_hypotheses[].kind` for that kind. parent_link
+# and identity_disambiguation use explicit per-state verdicts emitted by
+# the pipeline (see `_actual_verdict_for_kind`).
 _KIND_FACT_TYPES: dict[str, set[str]] = {
     "birth_disambiguation": {"birth", "birth_registration"},
     # A CWGC war-grave record is the authoritative death record for
@@ -332,6 +353,12 @@ def _actual_verdict_for_kind(kind: str, pipeline_result: dict) -> str | None:
                 if re.search(r"\)\s*,\s*[A-Z][a-zA-Z]+\s*$", v):
                     return "supported"
         return "inconclusive"
+
+    # Pipeline-emitted explicit verdicts (added for §5.8 per-kind metric).
+    if kind == "parent_link":
+        return pipeline_result.get("parent_link_verdict")
+    if kind == "identity_disambiguation":
+        return pipeline_result.get("identity_verdict")
 
     fact_types = _KIND_FACT_TYPES.get(kind)
     if fact_types is None:

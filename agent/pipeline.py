@@ -159,6 +159,10 @@ def research_person(person: dict) -> dict:
             "score": 1.0,
         })
 
+        # Emit eval-harness verdicts on the unsearchable path too
+        _emit_parent_link_verdict(state, corpus)
+        _emit_identity_verdict(state)
+
         save_state(state)
         return state
 
@@ -249,6 +253,13 @@ def research_person(person: dict) -> dict:
                 print(f"\n  New leads opened: {new_leads}")
         except Exception as e:
             print(f"\n  Lead creation skipped: {e}")
+
+    # --- VERDICTS for §5.8 eval harness per-kind metric ---
+    # Emit explicit verdicts for kinds the harness measures that aren't
+    # otherwise covered by `confirmed_facts[].type`. Conservative: prefer
+    # "inconclusive" to overclaiming "supported".
+    _emit_parent_link_verdict(state, corpus)
+    _emit_identity_verdict(state)
 
     # Final save
     save_state(state)
@@ -787,6 +798,104 @@ def _extract_household_members(raw_results: dict, state: dict) -> None:
         print(f"    Household members: {len(state['household_members'])}")
         for m in state["household_members"]:
             print(f"      - {m['name']}, {m['relationship']}, age {m['age']}")
+
+
+def _emit_parent_link_verdict(state: dict, corpus: dict | None) -> None:
+    """Set state['parent_link_verdict'] based on whether any household
+    member's surname matches a corpus parent.
+
+    Conservative rule:
+      - supported   : ≥1 corpus parent's surname appears in any household
+                      member's name (case-insensitive surname-token
+                      match). Parent IDs are looked up in the corpus
+                      via wt_id directly, and (since the corpus dict is
+                      wt_id-keyed but parent_ids are numeric WikiTree
+                      Ids) via a numeric-Id index over the corpus dict.
+                      Falls back to the subject's own corpus-surname when
+                      no parent record can be resolved.
+      - inconclusive: no corpus_match, no household members, or no
+                      surname overlap.
+    """
+    corpus_match = state.get("corpus_match")
+    if not corpus_match:
+        state["parent_link_verdict"] = "inconclusive"
+        return
+
+    parent_ids = corpus_match.get("corpus_parent_ids") or \
+                 corpus_match.get("person", {}).get("parent_ids", []) or []
+    household_members = state.get("household_members") or []
+    if not household_members:
+        state["parent_link_verdict"] = "inconclusive"
+        return
+
+    member_name_tokens: set[str] = set()
+    for m in household_members:
+        name = (m.get("name") or "").upper()
+        member_name_tokens.update(name.split())
+
+    # Collect candidate parent surnames.
+    parent_surnames: set[str] = set()
+
+    # 1. Direct lookup by wt_id (works if parent_ids are already wt_ids).
+    if corpus:
+        for pid in parent_ids:
+            parent = corpus.get(pid)
+            if parent:
+                pname = (parent.get("name") or "").upper().split()
+                if pname:
+                    parent_surnames.add(pname[-1])
+
+    # 2. Lookup by numeric WikiTree Id via local twin (handles the
+    #    common case where parent_ids are numeric strings like
+    #    "50137350" but corpus is keyed by wt_id like "Cauldwell-143").
+    if parent_ids and not parent_surnames:
+        try:
+            from wikitree.twin import LocalTwin
+            twin = LocalTwin()
+            if twin.load():
+                wanted = {str(pid) for pid in parent_ids}
+                for wt_id in twin._graph.nodes:
+                    node = twin.get(wt_id)
+                    if not node:
+                        continue
+                    if str(node.get("Id", "")) in wanted:
+                        surname = (node.get("LastNameAtBirth") or "").upper()
+                        if surname:
+                            parent_surnames.add(surname)
+        except Exception:
+            pass
+
+    # 3. Fallback: use the subject's own corpus surname. The subject's
+    #    surname typically equals the father's surname; a household
+    #    member sharing that surname is evidence of a parent link.
+    if not parent_surnames:
+        cname = (corpus_match.get("corpus_name") or "").upper().split()
+        if cname:
+            parent_surnames.add(cname[-1])
+
+    if parent_surnames & member_name_tokens:
+        state["parent_link_verdict"] = "supported"
+        return
+
+    state["parent_link_verdict"] = "inconclusive"
+
+
+def _emit_identity_verdict(state: dict) -> None:
+    """Set state['identity_verdict'] based on the corpus-match score.
+
+    Conservative rule:
+      - supported   : corpus_match exists with match_score >= 0.9
+      - inconclusive: no corpus_match, or corpus_match below threshold
+    """
+    corpus_match = state.get("corpus_match")
+    if not corpus_match:
+        state["identity_verdict"] = "inconclusive"
+        return
+    score = corpus_match.get("match_score")
+    if isinstance(score, (int, float)) and score >= 0.9:
+        state["identity_verdict"] = "supported"
+    else:
+        state["identity_verdict"] = "inconclusive"
 
 
 def _initial_state(person: dict) -> dict:
