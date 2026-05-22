@@ -64,6 +64,19 @@ GRO_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Month name in GRO lookback context — accepts full or 3-letter abbrev.
+# Normalised to 3-letter Title case via _MONTH_ABBREV so the quarter field
+# is comparable with the Title-cased FreeBMD pattern output.
+_GRO_MONTH_RE = (
+    r"\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b"
+)
+_MONTH_ABBREV = {
+    "jan": "Jan", "feb": "Feb", "mar": "Mar", "apr": "Apr",
+    "may": "May", "jun": "Jun", "jul": "Jul", "aug": "Aug",
+    "sep": "Sep", "oct": "Oct", "nov": "Nov", "dec": "Dec",
+}
+
 # "FamilySearch 1901 census: ... (ARK p_10268848273)"
 # "FamilySearch 1911 census: ... (ARK 1G2B-WFR)"
 FAMILYSEARCH_CENSUS_RE = re.compile(
@@ -200,10 +213,12 @@ def extract_citations(bio: str) -> list[dict]:
         elif re.search(r"\bdied\b|\bdeath\b", ctx, re.IGNORECASE):
             kind = "death_registration"
         year_m = re.search(r"\b(1[6-9]\d{2}|20\d{2})\b", ctx[-100:])
+        quarter_m = re.search(_GRO_MONTH_RE, ctx[-100:], re.IGNORECASE)
         district_m = re.search(r"\(([A-Z][a-z ]+)\s*,?\s*GRO", bio[m.start() - 40:m.start() + 40])
         citations.append({
             "source": "gro",
             "kind": kind or "unknown",
+            "quarter": _MONTH_ABBREV[quarter_m.group(1)[:3].lower()] if quarter_m else None,
             "year": int(year_m.group(1)) if year_m else None,
             "district": district_m.group(1).strip() if district_m else None,
             "volume": m.group("vol"),

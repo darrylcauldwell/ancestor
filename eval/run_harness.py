@@ -1,28 +1,37 @@
 """
-§5.8.6 eval harness runner — skeleton.
+§5.8.6 eval harness runner.
 
 Loads the certified corpus YAMLs and the GEDCOM-citation sidecar JSON,
 invokes the research pipeline against each subject, and emits per-kind
 precision/recall + a single headline number suitable for commit-message
 deltas.
 
-The pipeline invocation is currently MOCKED — see `_mock_pipeline_call`
-below. Real integration is a separate task (Swift CLI scheme or
-FieldResearcherMCP-driven run). The mock returns an empty result so the
-skeleton runs end-to-end and validates the data plumbing.
+Backends:
+  --backend python  (default) — in-process call to `agent.pipeline.research_person`
+  --backend mock              — empty envelope (skeleton plumbing)
 
 Run from repo root:
     python eval/run_harness.py
-    python eval/run_harness.py --corpus eval/certified --out eval/runs/
+    python eval/run_harness.py --only @I50113363@           # single subject
+    python eval/run_harness.py --backend mock               # no live HTTP
 """
 
 import argparse
 import datetime as dt
 import json
+import os
+import re
 import sys
 from pathlib import Path
 
 import yaml
+
+# Make `agent.*` and sibling eval modules importable when invoked as
+# `python eval/run_harness.py`
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from citation_matcher import count_reproduced  # noqa: E402
 
 
 # --- Data loading ----------------------------------------------------------
@@ -72,16 +81,11 @@ def subject_label(subject: dict) -> str:
     return "?"
 
 
-# --- Pipeline (mocked) -----------------------------------------------------
+# --- Pipeline backends -----------------------------------------------------
 
 def _mock_pipeline_call(subject: dict) -> dict:
-    """Stand-in for `ResearchPipeline.research(subject:config:)`.
-
-    Returns an empty result envelope. Real implementation will shell
-    out to `swift run eval` or drive the FieldResearcherMCP server.
-    The harness scaffold here is what proves the metric-aggregation
-    pipeline before that real integration lands.
-    """
+    """Empty envelope — used to validate the harness's metric plumbing
+    without making any live HTTP calls."""
     return {
         "supported_hypotheses": [],
         "contradicted_hypotheses": [],
@@ -89,6 +93,178 @@ def _mock_pipeline_call(subject: dict) -> dict:
         "discovered_citations": [],
         "mocked": True,
     }
+
+
+_MONTHS = {
+    "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+    "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
+}
+
+
+def _parse_year_from_gedcom_date(value) -> int | None:
+    """Pull a 4-digit year out of a GEDCOM-style date like "DEC 1887",
+    "12 NOV 1904", "1841", or a yaml int."""
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value if 1500 < value < 2100 else None
+    m = re.search(r"\b(1[5-9]\d{2}|20\d{2})\b", str(value))
+    return int(m.group(1)) if m else None
+
+
+def _gender_from_relationships(subject: dict) -> str | None:
+    """No explicit gender field on most subjects — leave None and let
+    the pipeline treat it as unknown (it gates military-service search
+    on M only)."""
+    return None
+
+
+def _seed_year(seed_facts: list, field: str) -> int | None:
+    for sf in seed_facts or []:
+        if sf.get("field") == field:
+            return _parse_year_from_gedcom_date(sf.get("value"))
+    return None
+
+
+def _seed_location(seed_facts: list, field: str) -> str | None:
+    for sf in seed_facts or []:
+        if sf.get("field") == field:
+            return sf.get("value")
+    return None
+
+
+def _subject_to_persons(subject: dict) -> list[dict]:
+    """Extract one or more `research_person`-shaped person dicts from a
+    corpus YAML. Handles single / pair / cluster variants."""
+    persons: list[dict] = []
+
+    def build(name: str, seed_facts: list, location: str | None = None) -> dict:
+        birth_year = _seed_year(seed_facts, "birthDate")
+        death_year = _seed_year(seed_facts, "deathDate")
+        birth_location = location or _seed_location(seed_facts, "birthLocation") or "England"
+        return {
+            "name": name,
+            "birth_year": birth_year,
+            "death_year": death_year,
+            "gender": _gender_from_relationships(subject),
+            "birth_location": birth_location,
+            "provided_family": [],
+        }
+
+    # Single subject
+    if "profile_id" in subject:
+        persons.append(build(
+            subject.get("canonical_name", "?"),
+            subject.get("seed_facts") or [],
+        ))
+        return persons
+
+    # Pair: subjects: [...]
+    if "subjects" in subject:
+        for s in subject["subjects"]:
+            persons.append(build(
+                s.get("canonical_name", "?"),
+                s.get("seed_facts") or [],
+            ))
+        return persons
+
+    # Cluster: one merged canonical + (optionally) a separate cluster_b
+    if "cluster_a_should_merge" in subject:
+        a = subject["cluster_a_should_merge"]
+        persons.append(build(
+            a.get("canonical_name", "?").split(" → ")[0],  # use pre-marriage form
+            a.get("seed_facts") or [],
+        ))
+        b = subject.get("cluster_b_must_remain_separate") or {}
+        if b.get("canonical_name") and b.get("seed_facts"):
+            persons.append(build(
+                b.get("canonical_name", "?"),
+                b.get("seed_facts") or [],
+            ))
+        return persons
+
+    return persons
+
+
+def _state_to_envelope(state: dict) -> dict:
+    """Map a `research_person` state dict to the harness envelope.
+
+    - confirmed_facts → supported_hypotheses, but exclude the
+      "user-provided" stub fact emitted by the unsearchable-person
+      short-circuit (would otherwise hand a free supported hit to the
+      hallucination-guardrail subject).
+    - rejected_records → contradicted_hypotheses
+    - lead_candidates → inconclusive_hypotheses
+    - confirmed_facts.sources → discovered_citations (flattened)
+    """
+    supported = []
+    citations = []
+    for fact in state.get("confirmed_facts") or []:
+        sources = fact.get("sources") or []
+        if sources == ["user-provided"]:
+            continue
+        supported.append({
+            "kind": fact.get("type", "unknown"),
+            "value": fact.get("value"),
+            "sources": sources,
+            "confidence": fact.get("confidence"),
+        })
+        citations.extend(sources)
+
+    contradicted = [
+        {"value": r.get("record"), "reason": r.get("reason")}
+        for r in state.get("rejected_records") or []
+    ]
+    inconclusive = [
+        {
+            "kind": lc.get("search_type"),
+            "summary": lc.get("record_summary"),
+            "source": lc.get("source"),
+            "reasons": lc.get("reasons"),
+        }
+        for lc in state.get("lead_candidates") or []
+    ]
+
+    return {
+        "supported_hypotheses": supported,
+        "contradicted_hypotheses": contradicted,
+        "inconclusive_hypotheses": inconclusive,
+        "discovered_citations": citations,
+        "mocked": False,
+    }
+
+
+def _python_pipeline_call(subject: dict) -> dict:
+    """In-process call to `agent.pipeline.research_person`, once per
+    person extracted from the subject (single / pair / cluster), with
+    results aggregated into one envelope."""
+    from agent.pipeline import research_person
+
+    persons = _subject_to_persons(subject)
+    if not persons:
+        return {
+            "supported_hypotheses": [],
+            "contradicted_hypotheses": [],
+            "inconclusive_hypotheses": [],
+            "discovered_citations": [],
+            "mocked": False,
+            "_note": "no persons extracted from subject",
+        }
+
+    aggregated = {
+        "supported_hypotheses": [],
+        "contradicted_hypotheses": [],
+        "inconclusive_hypotheses": [],
+        "discovered_citations": [],
+        "mocked": False,
+    }
+    for person in persons:
+        state = research_person(person)
+        envelope = _state_to_envelope(state)
+        for key in ("supported_hypotheses", "contradicted_hypotheses",
+                    "inconclusive_hypotheses", "discovered_citations"):
+            aggregated[key].extend(envelope[key])
+    return aggregated
 
 
 # --- Metric computation ----------------------------------------------------
@@ -106,10 +282,7 @@ def compute_metrics(subject: dict, pipeline_result: dict, gedcom_cites: list[dic
     discovered = pipeline_result.get("discovered_citations", []) or []
 
     reproduction_target = len(gedcom_cites)
-    reproduced = 0
-    # Real implementation will call into CitationMatcher to decide
-    # whether each `discovered` matches an entry in gedcom_cites.
-    # Skeleton: count is 0 because mock produces no citations.
+    reproduced = count_reproduced(gedcom_cites, discovered)
 
     is_guardrail = "hallucination_guardrail" in (subject.get("difficulty_axes") or [])
     guardrail_violation = is_guardrail and len(supported) > 0
@@ -201,10 +374,14 @@ def write_run_artifact(out_dir: Path, subjects_with_metrics: list[tuple[dict, li
 # --- Entry point -----------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="§5.8.6 eval harness runner (skeleton).")
+    parser = argparse.ArgumentParser(description="§5.8.6 eval harness runner.")
     parser.add_argument("--corpus", default="eval/certified", help="Certified corpus directory")
     parser.add_argument("--citations", default="eval/certified/_gedcom_citations.json", help="GEDCOM citations sidecar")
     parser.add_argument("--out", default="eval/runs", help="Run-artifact output directory")
+    parser.add_argument("--backend", choices=["python", "mock"], default="python",
+                        help="Pipeline backend (default: python — in-process agent.pipeline.research_person)")
+    parser.add_argument("--only", default=None,
+                        help="Run only the subject whose primary id matches this string (e.g. @I50113363@)")
     args = parser.parse_args()
 
     corpus_dir = Path(args.corpus)
@@ -221,9 +398,17 @@ def main():
     print(f"Loaded {n_cites} GEDCOM-cited identifiers from {args.citations}")
     print()
 
+    backend_call = _python_pipeline_call if args.backend == "python" else _mock_pipeline_call
+    print(f"Backend: {args.backend}")
+    if args.only:
+        print(f"Filter: only subjects whose ids include {args.only}")
+    print()
+
     results: list[tuple[dict, list[str], dict]] = []
     for subject in subjects:
         ids = extract_subject_ids(subject)
+        if args.only and args.only not in ids:
+            continue
         # Citation lookup — union all of the subject's IDs.
         subject_cites: list[dict] = []
         for sid in ids:
@@ -233,9 +418,13 @@ def main():
             else:
                 subject_cites.extend(entry)
 
-        pipeline_result = _mock_pipeline_call(subject)
+        pipeline_result = backend_call(subject)
         metrics = compute_metrics(subject, pipeline_result, subject_cites)
         results.append((subject, ids, metrics))
+
+    if not results:
+        print("No subjects matched.", file=sys.stderr)
+        sys.exit(1)
 
     report = render_report(results)
     print(report)
