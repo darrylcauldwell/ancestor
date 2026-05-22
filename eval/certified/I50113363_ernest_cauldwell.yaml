@@ -148,7 +148,7 @@ expected_evidence:
 
 # Per-kind verdict expectations (§5.8.3)
 expected_per_kind:
-  birth_disambiguation: inconclusive   # absent in FreeBMD; the truth is uncertain
+  birth_disambiguation: supported      # Dec 1887 Belper vol7b p559 — surfaced by FreeBMD sparse-encoding fix (e7a005e)
   death_disambiguation: supported      # unambiguous FreeBMD hit
   marriage_disambiguation: supported   # unambiguous FreeBMD hit (with Ward spouse)
   spouse_disambiguation: supported     # WARD, not Cauldwell — see provenance_note
