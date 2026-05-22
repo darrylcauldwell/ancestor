@@ -1543,7 +1543,8 @@ false-positive sentences making it to rendering.
   commit-side friction for facts the rules judge unambiguous. Bio
   synthesis output never goes through auto-approval (bios are
   narrative, not facts, per §9).
-- `PROFILE_VIEW_UNIFY_SPEC.md` — the unified card is where bios
-  render (Part X) and where bio editing happens.
+- The unified profile inspector card (delivered in commit db8b30f;
+  the spec that drove it has been retired into git history) is where
+  bios render (Part X) and where bio editing happens.
 - `project_reasoning_model_default.md` (memory) — deferred Qwen 2.5
   swap; this spec's MLX components benefit from that decision.

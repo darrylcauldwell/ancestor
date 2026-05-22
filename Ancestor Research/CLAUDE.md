@@ -85,6 +85,7 @@ Views/Research/        — ResearchView, ClusterReviewView, PendingFactsReviewVi
 
 ## Specs
 
-- `AncestorApp/RESEARCH_PIPELINE_SPEC.md` — governing architectural spec (fully implemented)
-- `AncestorApp/AI_INTERFACE_SPEC.md` — DEPRECATED. Described the in-app Claude API Field Researcher, which was removed in May 2026 ahead of App Store submission.
-- `AncestorApp/IMPLEMENTATION_PLAN.md` — 12-phase build plan (all complete)
+- `AncestorApp/RESEARCH_PIPELINE_SPEC.md` — governing architectural spec. Part I = as-built; Part II = V2 hypothesis-framework pivot (not yet implemented).
+- `AncestorApp/PROSE_CORPUS_SPEC.md` — unified prose-corpus + bio-synthesis spec (queued).
+- `AncestorApp/AUTO_APPROVAL_VIA_MCP_SPEC.md` — MCP-driven auto-approval (MVP shipped).
+- `AncestorApp/FAMILYSEARCH_SOURCE_SPEC.md` — FamilySearch source-plugin coverage.
