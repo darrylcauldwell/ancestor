@@ -112,6 +112,8 @@ override the scorer.
 
 ## 3. Decision rights — what decides what
 
+**Status: Built.**
+
 ### 3.1 Always deterministic
 
 | Question | Component | File |
@@ -151,6 +153,11 @@ field or a Relationship.
 
 ## 4. The RecordScorer — four gates and a verdict
 
+**Status: Built with drift.** Gate machinery and roll-up match the
+code; specific numeric constants in §4.3 have drifted from their
+spec values as the source data revealed itself (census tolerance,
+BMD birth-year tolerance). See §4.3 for the canonical pointer policy.
+
 `RecordScorer.classify(record:subject:searchType:)` is the **only**
 way a `SourceRecord` becomes a `ScoredRecord`. Each call runs four
 gates and rolls them up into a verdict.
@@ -185,17 +192,32 @@ present in household") drops it to `.lead`. Records become
 `.impossible` when name fails outright, or when date is mathematically
 incompatible (cannot have died in 1920 if married in 1925).
 
-### 4.3 Key thresholds (RecordScorer.swift)
+### 4.3 Key thresholds — pointer policy
 
-| Constant | Value | Notes |
+**Policy:** the code owns the numbers, the spec owns the shape. Each
+threshold below is a tunable design *decision*, but its *current
+value* is whatever the cited code symbol returns. When the empirical
+calibration drifts (as census age and BMD birth-year tolerances both
+have — see in-code comments for the rationale), the code is updated;
+the spec stays correct because it points at the code.
+
+| Threshold (purpose) | Code symbol | Why it matters |
 |---|---|---|
-| Surname/given-name similarity floor | 0.7 | Both must clear independently |
-| Census age tolerance | ±2 years | Birth year inferred from census age |
-| BMD birth year tolerance | ±2 years | Registration quarter ≠ birth date |
-| Marriage min age | 16 | Younger = impossible |
-| Marriage max age | 70 | Older = impossible |
-| Lifespan max | 110 years | Age at death cap |
-| Foreign-country token list | `[canada, australia, usa, …]` | Hard-fails geography in non-`.all` modes |
+| Surname / given-name similarity floor | `RecordScorer` — both gates must clear independently | Below this, treat as different person, not transcription error |
+| Census age tolerance | `ScoringRules.tolerance(for: .census)` | Self-reported, often rounded; 1841 deliberately rounded adults to nearest 5 |
+| BMD birth-year tolerance | `ScoringRules.tolerance(for: .birth)` | Registration quarter ≠ actual birth date; Q4 birth + Q1 registration the next year |
+| Marriage min age | `ScoringRules` constants | Younger = impossible (hard rule) |
+| Marriage max age | `ScoringRules` constants | Older = impossible (hard rule) |
+| Lifespan max | `ScoringRules.deathSanityCheck` | Age at death cap |
+| Foreign-country token list | `RecordScorer.foreignCountryTokens` | Hard-fails geography gate in non-`.all` modes; UK-domestic genealogy only |
+
+Three values are intentionally pinned in the spec (not the code)
+because they are *contract-level decisions* rather than tunable
+calibration: the §8 convergence ladder thresholds (≥3 lineages →
+`.confirmed`, 2 lineages + trust ≥4 → `.probable`), the §9
+identity-resolver minimum weight (0.25), and the §14.3.2
+auto-approval minimum independent lineages (≥2). Changing any of
+those is a doctrine change, not a tuning pass.
 
 ### 4.4 Recent corrections worth keeping in mind
 
@@ -212,6 +234,11 @@ incompatible (cannot have died in 1920 if married in 1925).
 ---
 
 ## 5. The pipeline lifecycle
+
+**Status: Built with drift.** The in-loop / post-loop split has
+shifted from the original design: parent inference and marriage
+enrichment moved to the post-loop phase via V2 §5.2 T12-parent
+Phase 2. The step list below reflects what actually runs.
 
 `ResearchPipeline.research(subject:config:)` is one async call that
 returns a `ResearchResult`. Internally it runs **N iterations**
@@ -243,21 +270,11 @@ For each iteration 1…`maxIterations`:
    subject: a confirmed birth year tightens `birthYearFrom` /
    `birthYearTo`, a confirmed death year does the same. Census age +
    census year imply a birth year when none is known.
-7. **Parent inference.** `ParentInferenceEngine.infer` runs against
-   *facts + leads* (not just facts — see §6.4). Output:
-   `[ProposedRelative]`, deduplicated by stable ID across iterations.
-   Evidence records accumulate per proposal.
-8. **Marriage enrichment.** First iteration where proposals exist:
-   `MarriageEnrichmentEngine.match` joins groom-side and bride-side
-   BMD queries by reference tuple to fill in parent given names.
-   Gated on either both parents linked OR subject identity resolved
-   (search-storm guard, §11.2). Once attempted, never re-run within
-   a pipeline call.
-9. **Reasoning suggestion.** Between iterations only:
+7. **Reasoning suggestion.** Between iterations only:
    `ResearchInterpreter.suggestNextSearch` may propose adding a
    record type to `state.activeRecordTypes`. The deterministic
    dispatch still decides what runs next.
-10. **Stopping checks** (any one breaks):
+8. **Stopping checks** (any one breaks):
     - confirmedFacts ≥ `config.maxFacts`
     - mode `.verify` AND at least one confirmed fact (verify stops
       as soon as anything corroborates)
@@ -265,6 +282,10 @@ For each iteration 1…`maxIterations`:
     - **stable-point**: iteration >1 AND no new records since last
       iteration (catches the "narrowing search returns the same set
       forever" loop)
+
+Parent inference and marriage enrichment used to run inside the
+iteration loop (former steps 7–8); both moved to the post-loop phase
+under V2 §5.2 T12-parent Phase 2. See §5.2 below.
 
 ### 5.2 The post-loop phase (one-shot)
 
@@ -274,17 +295,29 @@ After the iteration loop exits:
    `ClusteringEngine.cluster(records:sourceInfoMap:homeChapmanCode:)`
    runs the 5-step algorithm (§7). Marriage-enrichment records are
    filtered out of the cluster input — they describe the parents'
-   marriage, not a candidate life of the subject, and surface under
-   `ProposedRelative.evidence` instead.
-2. **Sibling discovery** (T17). `findSiblings(state:)` gates on
-   subject identity resolved + both parents linked. If both gates
-   clear, it dispatches **one focused FreeBMD query** (surname-only,
-   single district, ±20-year window) and runs
-   `SiblingInferenceEngine.inferSiblings`. Returns `[]` otherwise.
-3. **Result assembly.** A `ResearchResult` carries: `confirmedFacts`,
+   marriage, not a candidate life of the subject, and surface as
+   hypothesis evidence instead.
+2. **Parent inference** (`runParentHypothesisFlow`). Generates
+   `.parentInferred` hypotheses from birth records carrying MMN
+   (`HypothesisEngine+ParentInferred`) and `.parentMarriage`
+   hypotheses for the (mother, father) surname pairs
+   (`HypothesisEngine+ParentMarriage`). The marriage-enrichment
+   dispatch (groom-side + bride-side BMD queries) lives in the
+   `.parentMarriage` grader. Reconciliation cross-references marriage
+   evidence onto the parent hypotheses
+   (`HypothesisEngine.reconcileParentMarriages`).
+3. **Sibling discovery** (T17). `runSiblingHypothesisFlow` gates on
+   subject identity resolved + both parents linked, generates a
+   `.siblingExists` hypothesis, dispatches a focused FreeBMD query,
+   grades. See §6.3 for the cross-district exception.
+4. **T7 second pass.** If any hypothesis is `.inconclusive` and has a
+   non-empty deficit query, the second pass dispatches the next
+   ladder level, re-grades, re-reconciles (V2 §5.3).
+5. **Result assembly.** A `ResearchResult` carries: `confirmedFacts`,
    `leads`, `allScoredRecords`, `clusters`, `discrepancies`,
-   `householdMembers`, `searchHistory`, `proposedRelatives`,
-   `proposedSiblings`.
+   `householdMembers`, `searchHistory`, and `hypotheses` (the
+   hypothesis framework superseded the legacy `proposedRelatives` and
+   `proposedSiblings` fields; both have been deleted).
 
 ### 5.3 What state survives across iterations
 
@@ -307,18 +340,35 @@ After the iteration loop exits:
 
 ## 6. Inference engines
 
+**Status: Built with drift.** Three engines exist as advertised, but
+two architectural notes:
+
+- The standalone `ParentInferenceEngine` type is now a test-only thin
+  wrapper. Canonical parent-inference logic lives in
+  `HypothesisEngine+ParentInferred.swift` (T12-parent Phase 2).
+- Sibling discovery no longer requires same-district per record; see
+  §6.3 for the cross-district exception (Helen Clare Cauldwell case).
+
 The pipeline produces three kinds of inferred output beyond the raw
 scored records: **parents**, **enriched parent given names**, and
 **siblings**. Each runs as a pure function over the current
 `ResearchState`.
 
-### 6.1 ParentInferenceEngine
+### 6.1 Parent inference
 
-**Input:** `state.confirmedFacts + state.leads` (not just facts — the
-`mothersMaidenName` field is a direct index transcription, so its
-reliability doesn't depend on geography/family-context gates).
-**Output:** `[ProposedRelative]` — one mother proposal per distinct
-MMN, one father proposal sharing the subject's surname.
+**Canonical location:** `HypothesisEngine+ParentInferred.swift`. The
+legacy standalone `ParentInferenceEngine` type still exists but is a
+thin wrapper retained for tests only — the pipeline calls the
+hypothesis-framework path.
+
+**Input:** `state.scoredRecords` filtered for non-`.impossible`
+verdicts (i.e. both `.fact` and `.lead`). The `mothersMaidenName`
+field is a direct index transcription, so its reliability doesn't
+depend on geography/family-context gates passing.
+
+**Output:** `[ResearchHypothesis]` of `.parentInferred(gender,
+surname)` kind — one mother (surname = MMN) and one father (surname =
+subject's surname) per distinct MMN.
 
 Algorithm (per record):
 
@@ -327,15 +377,15 @@ Algorithm (per record):
    (community-only sources are too unreliable).
 3. Compute parent birth window: `[subjectBirth − 45, subjectBirth − 18]`
    (parents 18–45 at child's birth).
-4. Mother proposal: surname = MMN, gender = female, stable ID =
+4. Mother hypothesis: surname = MMN, gender = female, stable ID =
    `stableID(.parentOf(subjectID), .female, MMN)`.
-5. Father proposal: surname = subject's surname, gender = male,
+5. Father hypothesis: surname = subject's surname, gender = male,
    stable ID likewise.
-6. If a proposal with that stable ID already exists, append the new
-   record to its `evidence`; do not create a duplicate.
+6. If a hypothesis with that stable ID already exists, append the new
+   record to its `supportingEvidence`; do not create a duplicate.
 
 The stable ID is the key invariant: re-running research must produce
-the same proposal IDs so rejection state persists.
+the same hypothesis IDs so rejection state persists.
 
 ### 6.2 MarriageEnrichmentEngine
 
@@ -362,20 +412,31 @@ leakage where `s_surname=Wheeldon` returned unrelated marriages.
 ### 6.3 SiblingInferenceEngine (T17)
 
 **Input:** the subject's resolved birth record + a pool of candidate
-birth records (one focused FreeBMD query) + both parent profile IDs +
-the snapshot.
+birth records (focused FreeBMD queries — see exception below) + both
+parent profile IDs + the snapshot.
 **Output:** `[SiblingProposal]` — birth records matching the subject
 on:
 
 - Same surname
 - Same mother's maiden name
-- Same registration district
 - `|year − subject.birthYear| ≤ 20` (typical fertility span)
 - Not the subject themselves
 - Not already a known child of either parent in the snapshot
 
-The engine is strict by design. A confidence-of-result mechanism
-doesn't exist; the contract is "if all keys agree, this is a sibling."
+**Cross-district exception (audit pass 13).** Same-district was an
+early requirement but was relaxed: real siblings are routinely
+registered in adjacent districts when the family moves, when
+boundaries change, or when a parish straddles two RDs. The deficit
+query fans out across all districts in the subject's home Chapman
+code (not just the subject's birth district); the engine then accepts
+candidates from any district as long as the MMN matches. The Helen
+Clare Cauldwell case (sister registered Derby, subject Belper, same
+county) drove this change. MMN match carries the genealogical
+weight; district was over-restrictive in practice.
+
+The engine is otherwise strict by design. A confidence-of-result
+mechanism doesn't exist; the contract is "if MMN + surname + window
+all agree, this is a sibling."
 
 ### 6.4 Why parent inference accepts leads but sibling inference doesn't
 
@@ -390,6 +451,8 @@ filter by).
 ---
 
 ## 7. ClusteringEngine — the 5-step algorithm
+
+**Status: Built.**
 
 Records become candidate lives via a five-step algorithm. Design
 principle (`ClusteringEngine.swift:7`): **when in doubt, split**.
@@ -448,6 +511,8 @@ rather than the algorithm guessing wrong.
 
 ## 8. ConvergenceEngine and source independence
 
+**Status: Built.**
+
 `ConvergenceEngine.score(records:sourceInfoMap:)` answers a single
 question: how many **independent lineages** of evidence does the
 cluster contain, and at what trust level?
@@ -495,6 +560,8 @@ get promoted to `.confirmed` no matter how many lineages.
 ---
 
 ## 9. Identity resolution
+
+**Status: Built.**
 
 Two collaborating pieces: a generator that proposes likely districts,
 and a resolver that decides whether the subject's identity is pinned.
@@ -564,6 +631,12 @@ rather than guesses wrong.
 
 ## 10. Discrepancy detection
 
+**Status: Built with drift.** The severity matrix and convergence
+upgrade rule match the code, with one undocumented row drift at the
+transcription tier's Δ=2 boundary (code returns `.refinement`; this
+spec previously claimed `.none`). The §10.3 per-source tolerances
+are aspirational — see the note at the bottom of this section.
+
 When a `.fact` record's key field (birth year, death year) differs
 from the existing tree value, the pipeline raises a
 `ResearchDiscrepancy`. Severity comes from a deterministic table.
@@ -607,9 +680,20 @@ Source characteristics drive the deltas:
 | Find a Grave | ±2 | Volunteer-transcribed from weathered headstones |
 | CWGC | ±0 | Official military record |
 
+> **Aspirational, not enforced.** The table above documents the
+> intent. In the code today, the severity table uses *tier*
+> (primary / transcription / community), not individual source
+> identifier, so a FreeBMD birth record and a FreeCen census record
+> share the same tier-based delta thresholds. Per-source tolerance
+> enforcement would require either widening the severity table's key
+> or pre-narrowing the delta at each source plugin. Tracked as a
+> future task; not blocking.
+
 ---
 
 ## 11. SearchDispatcher
+
+**Status: Built.**
 
 `SearchDispatcher.dispatch(subject:recordTypes:scope:mode:)` is the
 gateway to every source. Sources are dumb pipes; the dispatcher
@@ -679,6 +763,11 @@ identity resolved.
 
 ## 12. The cluster verdict and auto-promote
 
+**Status: Built.** The `AUTOMATION_AUTO_ACCEPT` flag is debug-only;
+release builds have no user-facing auto-promote from clusters. The
+orthogonal pending-fact auto-approval at §14 is the only auto-
+commit path in release.
+
 ### 12.1 LifeCluster.hypothesisVerdict
 
 ```
@@ -733,6 +822,8 @@ skip, regardless of the gate predicate.
 
 ## 13. Evidence Firewall and the Apply contract
 
+**Status: Built.**
+
 ### 13.1 The firewall
 
 Anything outside the Swift process (MCP tools, MLX-extracted facts,
@@ -772,12 +863,21 @@ every confirmed fact is additive.
 
 ## 14. MCP-driven auto-approval of pending facts
 
+**Status: In-flight.** Split into MVP (shipped 2026-05-21, commit
+`960dfeb`) and Phase 2 (planned). §14.A describes what runs today.
+§14.B describes the planned Phase 2 work that the spec previously
+described as part of the same feature — including the reversibility
+contract, the bulk approval tool, transaction-kind integration, and
+the defensive hallucination re-checks. None of §14.B is shipped.
+
 §13 establishes the Evidence Firewall: external proposals (MCP,
 MLX-extracted, future integrations) write to `pending_facts` and
 `leads` only, and promotion to a profile field requires human
 review. This section narrows that human-review requirement for the
 subset of pending facts where the deterministic rules' verdict is
 **unambiguous**.
+
+# §14.A MCP auto-approval — MVP (shipped)
 
 ### 14.1 Why this exists
 
@@ -899,13 +999,10 @@ explicit design decision per field, not a quiet default.
 **14.3.5 Hallucination checks have passed.** The Evidence Firewall's
 existing checks (URL verification, source-tier plausibility,
 hallucination rules) must already have passed before the pending
-fact reaches the auto-approval gate. The MCP tool re-runs those
-checks defensively — failure of any is treated identically to gate
-failure (no auto-approval; human review path unchanged).
+fact reaches the auto-approval gate. (Defensive re-run of those
+checks at the MCP gate is Phase 2 work — see §14.B.)
 
-### 14.4 MCP tool surface
-
-Three tools, in order of priority:
+### 14.4 MCP tool surface (MVP — two shipped tools)
 
 **`approve_pending_fact(pending_fact_id) → result`.** Single-fact
 primitive. Loads the pending fact, runs the gate evaluator, and
@@ -952,13 +1049,10 @@ Returns the verdict the rules would render. Used by Claude Code to
 preview before committing, and as the basis for "what is queued for
 auto-approval right now" diagnostics.
 
-**`auto_approve_qualifying(profile_id?, dry_run?) → batch_result`.**
-Bulk operation. Iterates pending facts scoped to a profile (or all if
-omitted), runs the gate on each, returns the list of committed +
-refused + reason. When `dry_run: true`, returns what *would* commit
-without writing.
+(A third tool, `auto_approve_qualifying`, is planned for Phase 2;
+see §14.B.)
 
-### 14.5 DB schema additions (v28)
+### 14.5 DB schema additions (v28, shipped)
 
 Migration v28 adds three nullable columns to `pending_facts`:
 
@@ -972,38 +1066,95 @@ ALTER TABLE pending_facts ADD COLUMN approved_at DATETIME;       -- distinct fro
   `'user'` or `'rules'` on acceptance. `'rules'` implies committed
   via this section's MCP tool.
 - `approval_rule_ids` records *which* gate criteria the rules
-  evaluated to true at commit time — supports retrospective audit
-  and the reversibility guarantee.
+  evaluated to true at commit time — supports retrospective audit.
 - `approved_at` is distinct from `reviewed_at` because the latter
   exists today and is documented as "user review timestamp".
 
-`field_sources` also gains a marker. Rather than introducing a new
-`SourceOrigin` enum case (which would ripple through every site that
-switches on origin), auto-approvals create a minimal `transactions`
-row of kind `autoApproveFact` and the `field_sources` row references
-it via `created_by_transaction_id`. Distinguishing "user-accepted
-pending fact" from "rule-accepted pending fact" then becomes a join
-on `transactions.kind` — clean, audit-friendly, no schema bloat.
+Today's audit trail therefore lives entirely on the `pending_facts`
+row. The richer transaction-row audit (§14.B) is Phase 2.
 
-The existing path that accepts a pending fact via the UI (which
-today creates **no** transaction row) should be updated to also
-create a transaction, of kind `userAcceptPendingFact`, for symmetry
-— that way all acceptances live in `transactions` with a kind
-discriminator. This is a small adjacent improvement worth bundling.
+### 14.6 What ships in MVP
 
-### 14.6 Audit, visibility, reversibility
+1. Migration v28 (the three pending_facts columns above).
+2. MCP evaluator in the FieldResearcherMCP package implementing the
+   gate (trust tier check, convergence count, dispute detection,
+   field-set check).
+3. MCP tools `approve_pending_fact` and `inspect_approval_decision`.
+4. 39 unit tests over the pure helpers (year regex, value
+   comparison, lineage parsing, URL host, auto-approvable field
+   set membership).
 
-The user must be able to answer "what did the rules commit on my
+# §14.B MCP auto-approval — Phase 2 (planned)
+
+**Status: Paper-only.** Everything in this Part B is design, not
+shipped code. The MVP's audit lives on `pending_facts` columns;
+reversibility is currently *not* wired through the transactions
+table even though earlier drafts of this spec implied it was.
+
+### 14.B.1 Defensive hallucination re-run
+
+The MCP tool should re-run the Evidence Firewall's checks (URL
+verification, source-tier plausibility, hallucination rules) at the
+gate, not assume they passed earlier in the pipeline. Failure of any
+treated identically to gate failure (no auto-approval; human review
+path unchanged).
+
+### 14.B.2 `auto_approve_qualifying` bulk tool
+
+```text
+auto_approve_qualifying(profile_id?, dry_run?) → batch_result
+```
+
+Bulk operation. Iterates pending facts scoped to a profile (or all
+if omitted), runs the gate on each, returns the list of committed +
+refused + reason. When `dry_run: true`, returns what *would* commit
+without writing. Useful for clearing a backlog in one harness
+invocation. Until this ships, users call `approve_pending_fact` per
+row.
+
+### 14.B.3 Transaction kinds and commit-path integration
+
+Add two new cases to `TransactionKind` (in `Models/Transaction.swift`):
+`autoApproveFact` and `userAcceptPendingFact`. Rewire the commit
+paths so:
+
+- The MCP auto-approval commit creates a `transactions` row of kind
+  `autoApproveFact`, plus a `field_changes` row representing the
+  profile-column write, plus a `field_sources` row whose
+  `created_by_transaction_id` points at it.
+- The existing UI-driven pending-fact accept path (currently
+  transaction-less) creates a symmetric `userAcceptPendingFact`
+  transaction.
+
+This makes "what auto-committed vs. what the user committed" a join
+on `transactions.kind` rather than a column on `pending_facts`. More
+importantly, it routes both paths through the existing transactional
+undo machinery.
+
+### 14.B.4 Reversibility (formal contract — currently not honoured)
+
+Once §14.B.3 lands, an auto-approved fact is reversible exactly as a
+user-accepted fact would be:
+
+1. The acceptance is recorded as a `transactions` row of kind
+   `autoApproveFact` linked to the resulting `field_sources` row(s)
+   and `field_changes` row(s).
+2. Undo replays the transaction backward (per the existing
+   `undo_strategy` field): the field-source row is removed, the
+   profile column reverts to its prior value, and the original
+   `pending_facts` row returns to `review_status = 'pending'` for
+   the user's attention.
+
+**Current state (MVP, not Phase 2):** there is no transaction row,
+so reversibility through the existing undo machinery does not exist
+for rule-committed facts. The `pending_facts.approval_method`
+column records the decision but doesn't let undo replay backwards.
+This is the most important Phase 2 gap to close.
+
+### 14.B.5 App-side audit surfaces
+
+The user should be able to answer "what did the rules commit on my
 behalf, and why?" without spelunking SQL.
-
-**MCP-side surfaces (MVP):**
-
-- `inspect_approval_decision` doubles as audit — Claude Code can
-  query "what would have happened" for any pending fact.
-- A read endpoint `list_recent_auto_approvals(since?)` lets the
-  harness summarise activity for the user.
-
-**App-side surfaces (Phase 2, deferred from MVP):**
 
 - **Pending facts review screen** gains a secondary tab or filter
   "Auto-approved" listing facts the rules committed since the user
@@ -1011,54 +1162,21 @@ behalf, and why?" without spelunking SQL.
 - **Inspector card source badges** gain a subtle "rules" decoration
   on field-source rows whose creating transaction is of kind
   `autoApproveFact`.
-- **Undo affordance** — each auto-approved fact can be reverted with
-  a single action. Reversal is a normal undo through the existing
-  transactions / field_changes machinery — no new undo path is
-  needed because auto-approval routes through the same transaction
-  system that already supports undo for everything else.
+- **Undo affordance** — each auto-approved fact reverts with one
+  action via the §14.B.3/.B.4 machinery.
+- A read endpoint `list_recent_auto_approvals(since?)` lets the
+  harness summarise activity for the user.
 
-**Reversibility (formal contract).** An auto-approved fact is
-reversed exactly as a user-accepted fact would be:
+### 14.B.6 Other Phase 2 work
 
-1. The acceptance is recorded as a `transactions` row of kind
-   `autoApproveFact` linked to the resulting `field_sources` row(s)
-   and any `field_changes` rows representing the profile-column
-   write.
-2. Undo replays the transaction backward (per the existing
-   `undo_strategy` field): the field-source row is removed, the
-   profile column reverts to its prior value, and the original
-   `pending_facts` row returns to `review_status = 'pending'` for
-   the user's attention.
-
-### 14.7 Status and phasing
-
-**MVP (shipped commit `960dfeb`, 2026-05-21):**
-
-1. Migration v28 (the three pending_facts columns) and the new
-   `autoApproveFact` / `userAcceptPendingFact` transaction kinds.
-2. MCP evaluator in the FieldResearcherMCP package implementing the
-   gate (trust tier check, convergence count, dispute detection,
-   field-set check).
-3. MCP tools `approve_pending_fact`, `inspect_approval_decision`,
-   `auto_approve_qualifying`.
-4. 39 unit tests over the pure helpers (year regex, value
-   comparison, lineage parsing, URL host, auto-approvable field set
-   membership).
-
-**Phase 2 (deferred):**
-
-- App-side surfaces: auto-approved tab in pending review, "rules"
-  marker on source badges, one-click undo affordance.
-- Harness scripts / Claude Code commands that drive the MCP tools
-  with sensible defaults.
 - DB integration tests for the evaluator + commit path (MVP tests
   cover pure helpers only).
-- Symmetric `userAcceptPendingFact` transaction creation for the
-  existing UI-driven acceptance path.
+- Harness scripts / Claude Code commands that drive the MCP tools
+  with sensible defaults.
 - A user-toggleable preference for *whether* auto-approval is
   enabled at all (off by default until trust is earned in real use).
 
-### 14.8 Explicitly out of scope
+### 14.B.7 Explicitly out of scope (both MVP and Phase 2)
 
 - Auto-approving relationships, life events, or attachments — these
   carry more structural weight than scalar field values.
@@ -1075,6 +1193,8 @@ reversed exactly as a user-accepted fact would be:
 ---
 
 ## 15. Persistence model
+
+**Status: Built.**
 
 What ends up on disk per project (`*.sqlite`):
 
@@ -1113,6 +1233,9 @@ output.
 ---
 
 ## 16. What the pipeline does NOT do today (the negative space)
+
+**Status: Inventory (current). Tracks the design gaps Part II
+proposes to close.**
 
 Important inventory for Part II to push against:
 
@@ -1163,6 +1286,8 @@ This is the surface against which Part II proposes.
 
 ## 17. Source plugins — what's wired today
 
+**Status: Built.**
+
 | Source | Module | Trust tier | Scope axis | Strictness response |
 |---|---|---|---|---|
 | FreeBMD | `Services/Sources/FreeBMD/` | Transcription | District-coded (national catalogue) | Phonetic flip; variant fan-out |
@@ -1178,9 +1303,19 @@ Each source returns `[SourceRecord]`. The scorer normalises across
 them via the `SourceRecord` enum's per-case fields. No source mutates
 pipeline state directly.
 
+**Adjacent subsystem:** none of the eight sources captures image
+payloads (headstones, certificates, microfilm waypoints) that arrive
+in their HTTP responses. See `SOURCE_MEDIA_SPEC.md` for the
+source-surfaced media subsystem (paper-only, not yet started).
+
 ---
 
 ## 18. Product-level design requirements
+
+**Status: Built.** All subsections describe shipped mechanics. The
+prior `useLLM` claim per `ResearchConfig` mode (in the 2026-04-25
+draft) was removed during the 2026-05-22 unification; the actual
+struct carries only `maxIterations`, `maxFacts`, `mode`, `scope`.
 
 Folded in from the 2026-04-25 design draft. These are the
 user-facing problems the pipeline solves and the principles that
@@ -1335,431 +1470,55 @@ first, make it excellent, then add batch modes.
 
 ---
 
-## 19. Source-surfaced images
+## 19. Cross-source enrichment — patterns
 
-**Status:** Proposed. No code yet — none of the seven shipping
-source plugins captures any image data, even when the upstream
-response carries it.
+**Status: Built (one shipped pattern).**
 
-**Catalyst:** The 2026-05 fix to `FindAGraveSource.swift` that mines
-years from inscription/bio free text exposed a larger gap. The
-memorial-detail HTML carries `<img id="memPhoto">` and a
-photo-gallery section that `parseMemorialDetail` (lines ~248–331)
-never touches. Headstone photos with carved dates are some of the
-strongest direct evidence a free source produces — and we throw them
-away on every fetch.
+When a source response references a record that another source can
+parse more richly, the pipeline runs a deterministic follow-up fetch
+between dispatch and score. The first such pattern shipped 2026-05-20.
 
-User framing, verbatim: *"Some sources return images relating to
-members of tree, I don't think we capture these presently but we
-should and store them linked to profile."*
+### 19.1 FS → FAG bridge
 
-Treat this section as the seed for a dedicated
-`AncestorApp/SOURCE_IMAGES_SPEC.md` if it grows past the first cut
-described in §19.6 — much of the data-model and UI surface deserves
-its own document. For now it lives here because the question is
-fundamentally about the research pipeline: *what does a source
-return, where does it land, and how does it count as evidence?*
+- **Trigger:** `FamilySearch`-sourced burial record with a non-nil
+  `memorialID` (extracted from `rawFields["field.ExtRecordId.*"]`)
+  and a nil `deathYear`.
+- **Action:** call `FindAGraveSource.fetchDetail(recordID: "findagrave_\(memorialID)")`.
+- **Combine:** append the FAG detail record alongside the original FS
+  persona. Do not replace — replacing would silently downgrade the
+  FS persona's trust tier (FS is `.transcription`, FAG is
+  `.community`).
+- **Where:** `enrichFagBridge` in `ResearchPipeline.swift`, called
+  between dispatch and score. Deduplicates against prior iterations
+  via `existingIDs`.
 
-### 19.1 Source-by-source inventory
+The bridge belongs in the pipeline, not the source, because the
+source plugins should stay independent and because the dedup needs
+pipeline state.
 
-| Source | Image-bearing payload | What the parser does today | Cite |
-|---|---|---|---|
-| **Find a Grave** | Headstone photo (`<img id="memPhoto">`), photo gallery (portrait, additional cemetery shots, military emblems), volunteer-uploaded | Drops them entirely — `parseMemorialDetail` extracts inscription/bio/cemetery/plot but never queries any `<img>` tag or photo-gallery div. `BurialRecord` (RecordTypes.swift:78) has no image field. | `FindAGraveSource.swift:248-331` |
-| **CWGC** | Cemetery photographs and (for many casualties) a headstone or memorial-panel photo on the casualty-details page; downloadable certificate PDF | Drops them — `parseCSV` (the only ingest path) consumes the CSV export which is text-only. The detail-page HTML at `cwgc.org/find-records/.../casualty-details/{id}/` carries the imagery and is never fetched. | `CWGCSource.swift:142-213` (parseCSV is text-only); detail HTML is never touched |
-| **FamilySearch** | Image waypoints (digitised microfilm scans) referenced from `sourceDescriptions[].links[]`, plus a `RectangleRegion` source-reference qualifier (FAMILYSEARCH_SOURCE_SPEC §5.5) marking *which row on the page* this persona occupies. Also Memories (user-uploaded portraits, certificates, family photos attached to FamilySearch tree persons). | Current parser decodes a narrow subset of GEDCOMx. `GxRoot` decodes `persons`, `relationships`, `sourceDescriptions` but **not** `links`. There is no Memories endpoint integration. | `FamilySearchSource.swift:746-754, 825-830` — `links: [...]` field absent on decoded structs |
-| **Wirksworth** | Pedigree pages occasionally embed scanned images of original pedigree-book pages (HTML `<img>` tags); some pages include parish-register photos | Drops them — the parser is text-only | `WirksworthSource.swift:108+, 145+` |
-| **FreeBMD** | None directly (index only). But the index entries carry GRO reference fields (volume / page) that *point to* a registry image obtainable separately. | Parser captures volume/page in `rawFields` but does not synthesise a GRO image link. | `FreeBMDSource.swift` — no image fields in `BirthRecord`/`DeathRecord`/`MarriageRecord` |
-| **FreeCen** | None directly (transcription only). But each entry carries piece/folio/page from the underlying TNA census, which is the address of a TNA digitised page image. | Parser captures piece/folio/page/schedule/house_number/address in `rawFields` but does not link to the TNA image. | `FreeCenSource.swift:351` |
-| **FreeREG** | None — transcription only. Some parish-register transcriptions reference originals at FamilySearch (cross-source link). | No image handling. | `FreeREGSource.swift` |
-| **Probate** | Modern grants page sometimes links to a will-document PDF (post-1996 digital grants); older calendar entries have no image. The Nuxeo JSON response may carry a document URL. | Parser does not extract any URL beyond the grant text. | `ProbateSource.swift` |
+After bridging, both records share `memorialID`. Convergence treats
+them as independent attestations (one confirms the *existence* of
+the memorial via FS, the other confirms the *content* via FAG).
+`refineSubject` folds the FAG-mined death year into the subject for
+the next iteration, tightening downstream queries.
 
-**Direct-evidence sources where we drop images today:** Find a Grave,
-CWGC, FamilySearch, Wirksworth.
+### 19.2 The general pattern
 
-**Index sources where we have a reference but no synthesised image
-URL:** FreeBMD (GRO volume/page), FreeCen (TNA piece/folio/page).
+Future bridges follow the same shape:
 
-**Transcription-only, no image:** FreeREG.
+1. Deterministic trigger (collection-title match + missing key field).
+2. Single follow-up fetch via the second source's existing detail API.
+3. Append-not-replace into the pipeline's record set.
+4. Convergence engine handles the rest.
 
-**Modern-records source, image rare:** Probate.
-
-### 19.2 What's already in the data model
-
-The repo already has an `attachments` table (migration
-`v10_attachments_goals`, `ProjectDatabase.swift:486-512`) and an
-`Attachment` model (`Models/Attachment.swift`). It was originally
-scoped to **user-uploaded** media per DESIGN.md §5.15 — photos and
-documents the user drags onto a profile, life event, or field source.
-
-The `AttachmentTarget` union already supports targeting a profile, a
-life event, or a specific `(entityID, field)` field-source row.
-That's a near-fit for source-surfaced images — a headstone photo
-from Find a Grave logically attaches to the burial life event *and*
-corroborates the death-date field source.
-
-**What's missing for source-surfaced media:**
-
-1. **Provenance fields.** No `sourceID`, no `sourceRecordID`, no
-   `originalURL`. We can't tell a user-uploaded photo from one we
-   downloaded from cwgc.org. This is load-bearing for §19.5 (trust +
-   evidence weight).
-2. **Subtype.** The current `AttachmentType` enum has only `photo /
-   document / transcription`. For source-surfaced media we need to
-   distinguish headstone / portrait / certificate / document scan /
-   cemetery / pedigree.
-3. **URL-only vs blob-cached.** No `fetchStatus` to indicate "URL
-   recorded, file not downloaded yet" vs "downloaded and on disk at
-   `relativePath`."
-4. **Source-record link.** No FK to `source_records.id` — we can't
-   trace a photo back to the search hit that surfaced it.
-
-### 19.3 Open question: extend `attachments` vs new `source_media` table
-
-Two viable shapes. Pick one before implementation; both have real
-costs.
-
-**Option A — extend `attachments` with provenance columns.** Add
-`source_id`, `source_record_id`, `original_url`, `fetch_status`, and
-refine `media_type` to the six-category subtype list. Keep one
-table, one query path, one inspector UI section. The cost is mixing
-user-curated media (which the user "owns") with discovered media
-(which we surfaced and the user may not even know about yet). A user
-clicking "delete photo" on something they uploaded behaves
-differently from clicking it on something the pipeline pulled in.
-
-**Option B — new `source_media` table** parallel to `attachments`.
-Discovered images live there until the user "accepts" them, at which
-point they're either promoted into `attachments` (and the
-source-media row marked accepted) or remain in source-media as
-evidence-only. The cost is duplication: two queries to render a
-profile's image strip, two delete paths, two export rules.
-
-Recommendation, not decision: **Option B** mirrors the existing
-Evidence Firewall pattern (§13) — `pending_facts` for proposed facts
-is separate from the `field_sources` table for accepted ones.
-Source-surfaced media is to user-curated media as `pending_facts` is
-to `field_sources`. The user "accepting" a Find a Grave headstone
-photo via TreeDiffView is the analogue of accepting a date — it
-crosses the firewall.
-
-What is **not** deferrable is recording provenance the moment a
-parser sees an image URL.
-
-### 19.4 Proposed data-model additions (Option B sketch)
-
-```swift
-/// An image (or PDF) surfaced by a source plugin during research,
-/// attached to the profile the surfacing search was about. Lives
-/// behind the Evidence Firewall: pipeline writes, user accepts in
-/// TreeDiffView.
-struct SourceMediaCandidate: Codable, Identifiable, Sendable {
-    let id: UUID
-    let profileID: String
-    let sourceID: String                  // "findagrave", "cwgc", "familysearch", ...
-    let sourceRecordID: String            // FK into source_records.id
-    let mediaKind: SourceMediaKind
-    let originalURL: String               // canonical, never null at insert
-    let caption: String?                  // alt text or scraped figure caption
-    let mimeTypeHint: String?             // "image/jpeg", "application/pdf"
-    let fetchStatus: FetchStatus          // urlOnly / cached / failed(reason)
-    let cachedRelativePath: String?       // populated when fetchStatus == .cached
-    let cachedAt: Date?
-    let cachedByteSize: Int64?
-    let discoveredAt: Date
-    let createdByTransactionID: String    // undo-tracked like every other firewall write
-    var acceptedAt: Date?                 // user accepted into permanent attachments
-    var promotedAttachmentID: UUID?       // FK into attachments.id when accepted
-}
-
-enum SourceMediaKind: String, Codable {
-    case headstone, portrait, certificate, documentScan, cemetery, pedigree, other
-}
-
-enum FetchStatus: Codable {
-    case urlOnly                          // we know the URL, file not on disk
-    case cached                           // file is on disk at cachedRelativePath
-    case failed(reason: String)           // tried to fetch, host returned error
-}
-```
-
-Migration shape:
-
-```sql
-CREATE TABLE source_media (
-    id TEXT PRIMARY KEY,
-    profile_id TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    source_record_id TEXT NOT NULL,
-    media_kind TEXT NOT NULL,
-    original_url TEXT NOT NULL,
-    caption TEXT,
-    mime_type_hint TEXT,
-    fetch_status TEXT NOT NULL DEFAULT 'urlOnly',
-    cached_relative_path TEXT,
-    cached_at DATETIME,
-    cached_byte_size INTEGER,
-    discovered_at DATETIME NOT NULL,
-    created_by_transaction_id TEXT NOT NULL,
-    accepted_at DATETIME,
-    promoted_attachment_id TEXT,
-    FOREIGN KEY (source_record_id) REFERENCES source_records(id),
-    FOREIGN KEY (promoted_attachment_id) REFERENCES attachments(id)
-);
-CREATE INDEX idx_source_media_profile ON source_media (profile_id);
-CREATE INDEX idx_source_media_record ON source_media (source_record_id);
-```
-
-`RecordCommon.rawFields` is the wrong home (string-only, no schema,
-lost on re-parse). The parsers should populate a new optional
-`discoveredMedia: [SourceMediaURL]` on `RecordCommon` (or per-typed
-record where it makes sense) and the persistence layer is responsible
-for writing rows into `source_media` keyed off `source_records.id`.
-Keeping `discoveredMedia` on the typed record (not just `rawFields`)
-means tests can assert on it and the scorer can read it.
-
-### 19.5 Open question: do images count toward the 4-gate scorer / evidence directness?
-
-Today's `EvidenceDirectness` ladder is `.primary /
-.independentTranscription / .derivative / .communityEdited`. A Find
-a Grave memorial is `.derivative` because the volunteer transcribed
-dates from a headstone they did not necessarily photograph. **But a
-Find a Grave memorial with a headstone photo carrying the carved
-dates collapses that gap** — the user (or, post-MLX, the local
-model) can read the dates off the stone themselves.
-
-Three positions, all defensible:
-
-1. **Images don't affect scoring.** They're decoration / verification
-   aid.
-2. **Images upgrade directness, deterministically.** A Find a Grave
-   record with an attached headstone photo of the actual gravestone
-   gets re-tiered from `.derivative` to `.primary` for the death-date
-   field specifically.
-3. **Images are an MLX-task.** The local model OCRs/reads the
-   headstone photo, emits its own structured facts, those go through
-   `pending_facts` as an independent source.
-
-Recommendation, not decision: **(3) is the only one that respects the
-deterministic sandwich** (§3.3). Position (2) would let the
-*presence* of an image dictate scoring, which makes the scorer
-dependent on a network fetch having succeeded — non-deterministic.
-Position (3) treats the image as fresh data, lets the convergence
-engine decide, and keeps the scorer pure.
-
-For the first cut, **adopt (1)**: capture and display, no scoring
-impact. Revisit when the local-vision story exists.
-
-### 19.6 First-cut scope (one focused session)
-
-**Goal:** Source-surfaced images flow into a persistent table, are
-visible on the profile inspector, and survive across sessions. No
-download-by-default; no scoring impact; no GEDCOM export.
-
-**In scope:**
-
-- Migration `v_source_media` adding the table from §19.4.
-- `SourceMediaCandidate` model + read/write in a new
-  `ProjectDatabase+SourceMedia.swift`.
-- `RecordCommon` (or per-record-type) gains optional
-  `discoveredMedia: [SourceMediaURL]`.
-- **Find a Grave first** (highest-yield, lowest-risk).
-  `parseMemorialDetail` extracts the hero photo and gallery (capped at
-  20 per memorial).
-- **CWGC second.** Extend the source to fetch the casualty-details
-  HTML page and extract the headstone/memorial photograph plus the
-  certificate PDF URL.
-- **FamilySearch third.** Decode `links[]` on `GxSourceDescription`
-  and capture the image-waypoint URL + the `RectangleRegion`
-  qualifier alongside it.
-- URL-only persistence by default. **No automatic download.** A
-  "Download" affordance on each media row in the inspector triggers
-  a fetch with the same rate-limit + auth contract as the parent
-  source.
-- Inspector UI: a collapsed-by-default "Source-discovered images (N)"
-  disclosure under the existing Sources section on the profile detail
-  view.
-
-**Out of scope for first cut:**
-
-- Wirksworth pedigree-page image extraction.
-- FreeBMD GRO image-link synthesis.
-- FreeCen TNA image-link synthesis.
-- Probate will-PDF.
-- Memories endpoint integration on FamilySearch.
-- Image-driven evidence promotion (position 2 or 3).
-- GEDCOM `OBJE` export.
-- Vision-model OCR of headstones.
-- Copyright/redistribution surfacing in shared exports.
-- Background eviction of cached blobs to manage disk.
-
-### 19.7 Storage strategy: URL-only vs blob-cached
-
-Both are needed, and the tradeoffs argue for "URL recorded on
-discovery, blob cached on demand" — the `fetchStatus` field in §19.4
-encodes the lifecycle.
-
-**Proposed policy:**
-
-- On parse, always write a `source_media` row with `fetchStatus =
-  .urlOnly` and the URL.
-- **Auto-cache** when *any* of: the source is Find a Grave (volunteer
-  deletion risk); the source requires auth and we have a valid
-  session right now (FamilySearch — fetch while we can); the image is
-  small (`<200KB` heuristic, from `Content-Length` HEAD).
-- **Manual cache** ("Download" button) for everything else.
-- **Settings toggle**: "Cache all source-discovered images
-  automatically" (default off) for power users who want the offline
-  archive.
-
-This is the same pattern as the existing `page_cache` (migration v5)
-— speculative caching of source HTML for re-parse. Source media is
-the binary analogue.
-
-### 19.8 Trust + provenance
-
-Every `source_media` row carries `sourceID` and `sourceRecordID`. The
-trust tier of the media is inherited from the source — there is no
-LLM-driven "this looks like a real headstone" judgement (cf. §3.1
-invariant: source trust is URL-derived). A Find a Grave photo is
-`.community`-tier evidence by virtue of being from Find a Grave,
-regardless of how authoritative the image *looks*.
-
-When the user accepts a `source_media` row into permanent
-`attachments` (via the §19.3 Option B promote path), the new
-`Attachment` row carries `sourceID` and `originalURL` columns so the
-provenance chain is preserved indefinitely.
+If a second bridge ships, the rationale and design considerations
+move to a dedicated `CROSS_SOURCE_BRIDGES.md`. One pattern doesn't
+justify a framework.
 
 ---
 
-## 20. Cross-source enrichment — FamilySearch → Find a Grave bridge
 
-**Status:** First cut shipped 2026-05-20. Section records the
-pattern for future cross-source bridges.
-
-### 20.1 The problem this solves
-
-FamilySearch's `/service/search/hr/v2/personas` endpoint acts as an
-aggregator across many underlying databases — civil registration,
-censuses, parish registers, and importantly **Find a Grave
-memorials**. When a query surfaces a FAG-hosted memorial, the
-GEDCOMx response carries:
-
-- The deceased's name and the burial place
-- An `ExtRecordId` field containing the FAG memorial number
-- A `sourceDescriptions[0].titles[0].value` of "Find a Grave Index"
-  (or similar)
-- **No `Birth`, `Death`, or `Burial` fact with a date.** FS's index
-  of FAG carries the structured persona but not the inscribed dates.
-
-That last point is load-bearing. A FAG memorial whose inscription
-says "1919 — 2017" is one of the strongest free-source pieces of
-death-date evidence available — but the FS aggregator does not
-surface those dates. Without intervention the record stalls as a
-lead, the 4-gate scorer can't promote it (no year axis to match
-against), and the next-iteration `refineSubject` never gets a death
-year to propagate to the other 7 sources.
-
-Concrete case: Ernest Victor Cauldwell's research run found his FAG
-memorial via FS, with name + Wirksworth + nothing else. Probate for
-the same person carrying "ERNEST VICTOR CAULDWELL, ADMINISTRATION
-2017-02-14" was already in evidence — scored `impossible` because
-the subject had no death year to converge against. Two pieces of
-evidence one fact-confirmation apart, and the pipeline couldn't
-close the loop.
-
-### 20.2 The bridge
-
-In the parser (`FamilySearchSource.swift`):
-
-- For any persona whose collection title matches `Find a Grave`,
-  extract the FAG memorial id from
-  `rawFields["field.ExtRecordId.original"]` (or `.interpreted`, or
-  unmarked variant). Strip non-digit prefixes defensively.
-- Populate the resulting `BurialRecord.memorialID` so the pipeline
-  can route on it.
-
-In the pipeline (`ResearchPipeline.swift`):
-
-- Between dispatch and score, run `enrichFagBridge(records:existingIDs:)`.
-  For every `FamilySearch`-sourced burial record where `memorialID` is
-  set but `deathYear` is nil and the FAG-detail id is not already in
-  evidence, call `FindAGraveSource.fetchDetail(recordID: "findagrave_\(memorialID)")`.
-- **Append the FAG-detail record alongside the original FS persona**,
-  do not replace. Both score independently; the scorer's convergence
-  engine reunites them in clustering. Replacing would silently
-  downgrade the FS persona's trust tier (FS is `.transcription`, FAG
-  is `.community`), which is a scorer call the bridge has no business
-  making.
-
-The FAG detail parser already mines the inscription / bio for year
-ranges (`FindAGraveSource.extractYearsFromMemorialText`). So once the
-bridge places the record in FAG's pipeline, the year extraction is
-automatic.
-
-### 20.3 Why the bridge belongs in the pipeline, not in the source
-
-Two reasons:
-
-1. **The source should stay independent.** `FamilySearchSource`
-   calling `FindAGraveSource` couples two source plugins that are
-   otherwise free to evolve independently. The pipeline is the right
-   level for cross-source orchestration — it already orchestrates
-   dispatch, scoring, clustering, hypothesis generation.
-2. **The bridge needs the pipeline's state.** Skipping memorials
-   already seen in a prior iteration (the `existingIDs` argument)
-   requires knowing what records the pipeline has accumulated so
-   far. A source plugin doesn't see that.
-
-### 20.4 First-cut scope and what's deferred
-
-**In scope:**
-
-- FS-to-FAG bridge described above.
-- One follow-up fetch per FS burial persona per run. Rate-limited
-  via the existing FAG 500ms-per-request gate.
-- Deduplication across iterations of the main pipeline loop.
-
-**Out of scope for first cut:**
-
-- **Generalised bridge framework.** This is one hand-rolled case. If
-  we add a second (e.g. FreeBMD → GRO image-link synthesis, or CWGC
-  → detail-page image fetch), generalise then — premature now.
-- **Bridge from non-FS sources to FAG.** FAG hits can also come
-  directly from `FindAGraveSource.search`; those already go through
-  `fetchDetail` via the search→detail pattern. Only the FS aggregator
-  needed bridging.
-- **MLX-driven decision to bridge.** The bridge is deterministic —
-  collection-title match + missing year. No model judgement involved.
-
-### 20.5 Convergence behaviour after bridging
-
-When the bridge fires, the pipeline accumulates:
-
-- **Record A**: FS burial persona, sourceID=familysearch,
-  memorialID=N, deathYear=nil. Tier `.transcription`.
-- **Record B**: FAG burial detail, sourceID=findagrave, memorialID=N,
-  deathYear=Y (from inscription mining). Tier `.community`.
-
-Both records share the same memorial ID. The scorer's convergence
-engine treats two records pointing to the same memorial as
-independent attestations — A confirms the *existence* of the memorial
-via FS, B confirms the *content* of the memorial via FAG. They
-converge on:
-
-- Name (both have it)
-- Place (both have it — FS as `place.original` on the burial fact,
-  FAG as `burialLocation`)
-- Death year (only B has it; A's scoring against the now-refined
-  subject improves)
-
-The subject-refinement step (`refineSubject`) then folds the death
-year into the subject for the *next* iteration. Downstream sources
-get a tighter query: FreeBMD death index narrows to year=Y, Probate
-likewise, FreeREG parish-burial likewise.
-
----
-
-## 21. Glossary (the load-bearing names)
+## 20. Glossary (the load-bearing names)
 
 - **Verdict** — `RecordVerdict.fact | .lead | .impossible`. The
   scorer's per-record judgement.
@@ -1971,14 +1730,20 @@ extension ResearchHypothesis {
 /// deficit-query switch (Decision 5). Exhaustive switching catches "forgot
 /// to handle the new kind" at compile time.
 enum HypothesisKind: Sendable {
-    case subjectIdentity(birthYearWindow: Range<Int>, districtHint: String?)
-    case parentMarriage(motherSurname: String, fatherSurname: String, windowYears: Range<Int>)
-    case siblingExists(district: String, mmn: String, yearWindow: Range<Int>)
+    case subjectIdentity(birthYearWindow: ClosedRange<Int>, districtHint: String?)
+    case parentInferred(gender: Gender, surname: String)                                  // T12-parent Phase 1
+    case parentMarriage(motherSurname: String, fatherSurname: String, windowYears: ClosedRange<Int>)
+    case siblingExists(district: String, mmn: String, yearWindow: ClosedRange<Int>)
     case clusterIsSubject(clusterID: UUID)       // T7's working hypothesis
-    case burialAtParish(parish: String, yearWindow: Range<Int>)
+    case burialAtParish(parish: String, yearWindow: ClosedRange<Int>)
     case secondMarriage(afterYear: Int)
     // ... extensible by adding cases here + the three central switches
 }
+
+// Note: the shipped type uses `ClosedRange<Int>` (inclusive on both
+// ends), not the open-ended `Range<Int>` an earlier draft of this
+// spec showed. `.parentInferred` was added during T12-parent Phase 1
+// and is not present in the older draft.
 
 enum HypothesisVerdict: String, Sendable {
     case supported       // evidence points to claim
@@ -2005,21 +1770,15 @@ only crossing.
 
 ### 4.2 `HypothesisEngine` (T12)
 
-```swift
-@MainActor
-enum HypothesisEngine {
-    /// Run every registered generator against the current state.
-    /// Each generator returns 0..N candidate hypotheses; the engine
-    /// dedups by stable ID against persisted hypotheses, tests each
-    /// fresh / refreshed hypothesis against available evidence, grades
-    /// it, and returns the full set.
-    static func runAll(
-        state: ResearchState,
-        snapshot: FamilyGraphSnapshot,
-        persisted: [ResearchHypothesis]
-    ) -> [ResearchHypothesis]
-}
-```
+Earlier drafts of this spec described a `runAll(state:snapshot:persisted:)`
+orchestrator that iterates over every kind, dedups, tests, grades.
+**The shipped code doesn't use that shape and per Decision 10
+(§7.10) it won't.** Instead, `ResearchPipeline` calls into the
+per-kind machinery at well-defined integration points
+(`runParentHypothesisFlow`, `runSiblingHypothesisFlow`, plus the T7
+second-pass dispatcher). The central engine file hosts only the
+three exhaustive switches plus the cross-kind reconciliation
+(`reconcileParentMarriages`); no top-level orchestrator entry point.
 
 Each `HypothesisKind` participates via **three thin central switches**
 in `HypothesisEngine.swift`, each of which dispatches to per-kind
@@ -2099,10 +1858,12 @@ CREATE INDEX idx_research_hypotheses_subject ON research_hypotheses(subject_prof
 CREATE INDEX idx_research_hypotheses_verdict ON research_hypotheses(verdict);
 ```
 
-**Upsert semantics**: when `HypothesisEngine.runAll` produces a
-hypothesis whose stable ID already exists in the table, the row is
-updated (verdict, evidence, reasoning, history append, lastTestedAt)
-— not replaced. The `created_at` and `history` carry forward.
+**Upsert semantics**: when the hypothesis engine produces a
+hypothesis (via the per-kind `generate*` switch — see §4.2 and
+Decision 7.10) whose stable ID already exists in the table, the
+row is updated (verdict, evidence, reasoning, history append,
+lastTestedAt) — not replaced. The `created_at` and `history` carry
+forward.
 
 **User-rejection persists**. A hypothesis the user has explicitly
 dismissed (e.g. "this sibling isn't mine") flips `user_rejected = 1`
@@ -2286,6 +2047,15 @@ reconciliation is deterministic and idempotent.
 
 ### 5.3 T7 — Hypothesis-guided second pass
 
+**Status: Shipped (with documented partial gate).** The second-pass
+loop, deficit-query dispatch, re-grade, and reconciliation are all
+live. The two-condition stall gate (§7.4) is implemented with
+condition (b) only because condition (a) requires dispatcher
+instrumentation that doesn't exist yet; this is documented in the
+code. The "≥30% of stalled profiles gain ≥1 new `.supported`
+hypothesis" uplift target is unmeasured pending the eval harness
+(§5.8 reframe).
+
 **What lands:**
 - A second-pass entry point in `ResearchPipeline` that runs after
   the first pass completes: `researchSecondPass(firstResult:state:)`.
@@ -2295,8 +2065,9 @@ reconciliation is deterministic and idempotent.
   Decision 5 — `nil` at any level means the kind's ladder ceiling is
   reached).
 - For each, dispatch the returned query, append new evidence to
-  `state`, increment the hypothesis's `attempts`, re-run
-  `HypothesisEngine.runAll`, recompute clusters.
+  `state`, increment the hypothesis's `attempts`, re-run each
+  hypothesis's per-kind grader (`HypothesisEngine.grade(_:state:snapshot:)`),
+  re-run `reconcileParentMarriages`, recompute clusters.
 
 **Stall-detection contract (Decision 4)** — two-condition gate:
 
@@ -2450,10 +2221,32 @@ expansiveness ladder. T31 now retunes:
 Research button collapse (§5.10), and at least T11/T12 having
 stabilised so the hypothesis kinds aren't moving.
 
-### 5.8 Eval harness (prerequisite for T7 / T8 / T9 / T31)
+### 5.8 Eval harness (validation infrastructure)
 
-Not a numbered task, but load-bearing infrastructure that ships
-before T7 / T8 / T9 / T31 can have defensible deltas.
+**Status: Paper-only.** Not built.
+
+**Reframe (2026-05-22):** earlier drafts called this a *build*
+prerequisite for T7 / T8 / T9 / T31. That was wrong — T7 shipped
+without the harness, against unit tests, and works. The harness is
+a *validation* prerequisite. Two ideas the earlier framing
+conflated:
+
+- **Build prerequisites**: code that must exist before you can
+  *write* dependent code. The hypothesis engine + persistence (T11)
+  is a real build prerequisite for T12. The harness is **not** a
+  build prerequisite for T7.
+- **Validation prerequisites**: infrastructure required to *claim*
+  a target is met. T7's "≥30% of stalled profiles gain ≥1 new
+  `.supported` hypothesis" target is unmeasured today — the harness
+  is what would let us defend that number. Same applies to T8
+  uplift, T9 user-agreement rate, T31 ladder retuning.
+
+Status callouts elsewhere:
+
+- **T7 shipped 2026-05-XX; uplift target unvalidated pending §5.8.**
+- T8/T9 are not yet built and so don't yet need validation.
+- T31 doesn't ship without the harness — it's *defined as* the
+  application of the harness.
 
 #### 5.8.1 Tiered corpus targets
 
@@ -2639,44 +2432,36 @@ of the §5.10 / §5.11 reframe. Each deserves its own design pass.
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  ResearchPipeline.research(subject:, config:)                           │
 │                                                                          │
-│  PASS 1 (deterministic iterative core, ~unchanged from today):          │
+│  PASS 1 (deterministic iterative core):                                 │
 │    1. dispatch  →  score  →  dedup                                      │
 │    2. extract household / detect discrepancies / refine subject         │
-│    3. ParentInferenceEngine.infer                                       │
-│    4. (first iteration with proposals) MarriageEnrichmentEngine.match   │
-│    5. (between iterations) ResearchInterpreter.suggestNextSearch        │
-│    6. stopping checks                                                   │
+│    3. (between iterations) ResearchInterpreter.suggestNextSearch        │
+│    4. stopping checks                                                   │
 │                                                                          │
-│  POST-PASS-1 (unchanged):                                               │
-│    7. ClusteringEngine.cluster                                          │
-│                                                                          │
-│  NEW: HypothesisEngine.runAll(state, snapshot, persisted)               │
-│    • Generators per kind (SubjectIdentity, ParentMarriage,              │
-│      SiblingExists, ClusterIsSubject, ...)                              │
-│    • Graders per kind (deterministic)                                   │
-│    • Persistent upsert keyed on stable hypothesis ID                    │
-│    • Return [ResearchHypothesis]                                        │
+│  POST-PASS-1 (one-shot):                                                │
+│    5. ClusteringEngine.cluster                                          │
+│    6. runParentHypothesisFlow                                           │
+│       • HypothesisEngine.generate(.parentInferred), .grade              │
+│       • HypothesisEngine.generate(.parentMarriage), .grade              │
+│       • HypothesisEngine.reconcileParentMarriages                       │
+│    7. runSiblingHypothesisFlow                                          │
+│       • HypothesisEngine.generate(.siblingExists), .grade               │
+│       (gated on identity resolved + both parents linked)                │
 │                                                                          │
 │  PASS 2 (T7: hypothesis-guided second pass, fires when                  │
-│           strictness exhausted AND ≥1 inconclusive deficit hypothesis): │
+│           ≥1 inconclusive hypothesis has a non-empty deficitQuery):     │
 │    8. For each inconclusive hypothesis with a deficit query:            │
-│       a. dispatch deficit query                                         │
-│       b. (T8 fallback if no deficit query) MLX next-search              │
+│       a. dispatch deficit query (per-kind levels)                       │
+│       b. (T8 — paper-only: MLX fallback when ladder exhausted)          │
 │    9. score / dedup / append to state                                   │
-│   10. HypothesisEngine.runAll again — re-test, re-grade                 │
+│   10. re-grade each hypothesis; append VerdictTransition on change      │
+│   11. HypothesisEngine.reconcileParentMarriages                         │
 │                                                                          │
-│  PASS 3 (T9: MLX tie-break for residual ambiguity)                      │
-│   11. For each ambiguous .subjectIdentity hypothesis the rules          │
-│       couldn't settle:                                                  │
-│       a. MLX disambiguate (structured output, threshold-gated)          │
-│       b. annotate the hypothesis as model-assisted                      │
+│  PASS 3 (T9 — paper-only: MLX tie-break for residual ambiguity)         │
 │                                                                          │
 │  RESULT ASSEMBLY:                                                       │
 │   12. clusters (recomputed if Pass 2 added evidence)                    │
-│   13. hypotheses (all kinds, persisted)                                 │
-│   14. legacy fields — during T12 transition only, derived as            │
-│       projections of `hypotheses`. Deleted by final phase of each       │
-│       T12 sub-project (proposedSiblings, then proposedRelatives).       │
+│   13. hypotheses (all kinds, persisted; legacy fields deleted)          │
 └─────────────────────────────────────────────────────────────────────────┘
 
 Persistence: research_hypotheses (v26) — upserted across runs, with
@@ -2713,9 +2498,11 @@ they're not separate code paths.
 
 ## 7. Decisions made
 
-Eight substantive design choices resolved during the 2026-05-19 spec
-walk-through, plus one carry-over from the original spec draft. Each
-is now load-bearing for the corresponding task.
+Substantive design choices resolved during the 2026-05-19 spec
+walk-through, plus the post-V2 implementation-driven decision (7.10)
+recorded after the framework had landed for three kinds. Each
+carries a **Validation** annotation that's a living status, updated
+as the implementation tests the decision.
 
 ### 7.1 — `HypothesisKind` shape and per-kind code organisation
 
@@ -2727,6 +2514,11 @@ switch dispatches to per-kind static methods defined in a
 given kind (`generate*`, `grade*`, `deficitQuery*`) live adjacent in
 one file.
 
+**Validation: validated.** Has held across three kinds
+(`.siblingExists`, `.parentInferred`, `.parentMarriage`) without
+strain. Compile-time exhaustiveness has caught at least one
+forgotten-kind bug during development.
+
 ### 7.2 — Migration of `proposedSiblings` (T12-sibling)
 
 **Resolution**: **hard migration executed as four bisectable phases**
@@ -2734,10 +2526,18 @@ one file.
 swap UI to read `result.hypotheses` directly, Phase 4 delete
 `proposedSiblings` field.
 
+**Validation: validated.** All four phases landed; the legacy field
+is deleted; sibling discovery routes through the framework
+exclusively.
+
 ### 7.3 — Fold `proposedRelatives` into the framework too (T12-parent)
 
 **Resolution**: **yes, with the same four-phase pattern as
 T12-sibling, sequenced after it.**
+
+**Validation: validated.** All four phases landed; `proposedRelatives`
+deleted; parent inference routes through `.parentInferred` +
+`.parentMarriage` with reconciliation.
 
 ### 7.4 — Stall-detection contract for T7
 
@@ -2745,6 +2545,12 @@ T12-sibling, sequenced after it.**
 dispatcher has walked the full strictness ladder for every applicable
 source AND (b) ≥1 `.inconclusive` hypothesis has a non-nil
 `deficitQuery`.
+
+**Validation: partially validated.** T7 shipped with the looser
+gate (condition b only) because condition (a) — dispatcher
+strictness-ladder instrumentation — doesn't exist yet. The
+two-condition gate remains the target; the interim ships with
+condition (b) only and the code documents the deferral.
 
 ### 7.5 — Deficit query declaration style and ladder shape
 
@@ -2754,17 +2560,36 @@ organisation). Signature: `deficitQuery(for hypothesis:atLevel:state:) -> Record
 Each kind defines its own expansiveness ladder; `nil` at any level =
 the kind's ceiling reached = hypothesis exhausted.
 
+**Validation: partially validated.** Per-kind ladders work for
+`.siblingExists` and `.parentMarriage` (level 1, level 2,
+exhausted). The signature in the shipped code uses
+`[RecordQuery]` (returning `[]` for exhaustion / no-ladder)
+rather than `RecordQuery?` — semantically equivalent (`[]` ⇔ `nil`)
+but slightly different shape. `.parentInferred` returns `[]` at
+every level by design (the main pipeline's widening ladder is the
+right escalation path), which technically conflates "no ladder"
+with "exhausted". Worth either narrowing the contract or formally
+adopting `[]` as the exhaustion signal.
+
 ### 7.6 — Eval harness scope and rollout
 
 **Resolution**: commit to a 3-profile starter corpus that grows over
 time, with three refinements: per-hypothesis-kind reporting,
 snapshot-based evaluation, single headline number.
 
+**Validation: unvalidated (component not built).** No eval harness
+exists; no corpus; T7's uplift target is unmeasured. See §5.8 for
+the reframe of harness as validation infrastructure (not a build
+prerequisite for T7 itself).
+
 ### 7.7 — Local MLX vs Claude API for T8 / T9
 
 **Resolution**: **local MLX for T8 and T9** as initial path.
 Escape-valve to API in a future task if the eval harness shows MLX is
 leaving findings on the table.
+
+**Validation: unvalidated (component not built).** T8 and T9 are
+both paper-only; the decision is not yet load-bearing.
 
 ### 7.8 — MLX nondeterminism representation
 
@@ -2773,42 +2598,84 @@ leaving findings on the table.
 similar deterministic-only gates use the
 `isDeterministicallySupported` helper.
 
+**Validation: validated.** Field is present on the shipped
+`ResearchHypothesis` type; `isDeterministicallySupported` helper
+exists and is referenced wherever the gate matters. Default value is
+`false` because T8/T9 haven't shipped yet — but the plumbing is in
+place to flip it when they do.
+
 ### 7.9 — Cluster-aware scoring (out of V2 scope)
 
 **Resolution**: deferred. Important (gates the G1 cross-profile
 dedup task) but neither in the current task list nor a prerequisite
 for any V2 task.
 
+**Validation: deferred (intentionally).**
+
+### 7.10 — Per-kind dispatch from the pipeline; no centralised `runAll`
+
+**Resolution**: pipeline calls per-kind hypothesis-engine paths
+directly (`runParentHypothesisFlow`, `runSiblingHypothesisFlow`, T7
+second-pass dispatcher) rather than going through a single
+`HypothesisEngine.runAll(state:snapshot:persisted:)` orchestrator.
+The central engine file hosts only the three exhaustive switches
+plus cross-kind reconciliation (`reconcileParentMarriages`).
+
+**Why decided after T12 landed.** The original §4.2 proposed a
+top-level `runAll` orchestrator. After three kinds shipped through
+per-kind paths, the orchestrator had not paid rent: integration
+points wanted different ordering (parent → marriage →
+reconciliation; sibling separate; T7 second-pass selectively),
+which meant `runAll` would have been a thin wrapper around the
+per-kind calls. The abstraction was load-bearing as a
+*compile-time exhaustiveness* construct (the central switches),
+not as a *runtime orchestrator*.
+
+**Validation: validated by absence.** Three kinds shipped; the
+pipeline integration is clear; no missing-functionality regressed
+from the orchestrator's absence.
+
 ---
 
 ## 8. Build order
 
-Strict dependencies (post-decisions):
+Build dependencies (post-decisions). Shipped tasks marked **[✓
+shipped]**; corpus-size annotations are validation needs, not build
+prerequisites — see §5.8 reframe.
 
 ```
-T11 (type + v26 migration + persistence helpers)
- └─→ T12-sibling Phase 1–4 (.siblingExists folds in)
-      └─→ T12-parent design-pass (marriage-enrichment coupling)
-           └─→ T12-parent Phase 1–4 (.parentInferred + .parentMarriage fold in)
-                ├─→ Eval harness runner + 3-profile starter corpus (§5.8)
-                │    ├─→ §5.9 Pipeline incrementality refactor
-                │    │    ├─→ T7 (second pass; deficit queries via level-dispatch)
-                │    │    │    [requires corpus at 10–12 profiles]
-                │    │    ├─→ §5.10 Research button collapse + auto-escalation UX
-                │    │    └─→ §5.11 Hypothesis investigation as user action
-                │    │         └─→ T8 (MLX next-search for exhausted-ladder)
-                │    │              [requires corpus at 20–30 profiles]
-                │    │              └─→ T9 (MLX disambiguation for residual ambiguity)
-                │    │                   [requires corpus at 20–30 profiles]
-                │    └─→ T31 (ladder retuning, one-shot experiment)
-                │         [requires corpus at 20–30 profiles + §5.10 landed]
-                ├─→ T23 (Sample Tree tour, any time post-T12)
-                └─→ §5.12 Design passes (each its own deliverable, parallel)
+T11 [✓ shipped] (type + v26 migration + persistence helpers)
+ └─→ T12-sibling Phase 1–4 [✓ shipped] (.siblingExists folds in)
+      └─→ T12-parent design-pass [✓ shipped] (marriage-enrichment coupling, §5.2.1)
+           └─→ T12-parent Phase 1–4 [✓ shipped] (.parentInferred + .parentMarriage fold in)
+                ├─→ T7 [✓ shipped, looser gate] (second pass; deficit queries via level-dispatch)
+                │       [uplift target unvalidated — needs §5.8 corpus 10–12]
+                ├─→ Eval harness runner + 3-profile starter corpus (§5.8) [NOT BUILT]
+                │    └─→ corpus grows to 10–12 → validates T7 uplift target
+                │         └─→ corpus grows to 20–30 → validates T8 / T9 / T31
+                ├─→ §5.9 Pipeline incrementality refactor [NOT BUILT]
+                │    ├─→ §5.10 Research button collapse + auto-escalation UX [NOT BUILT]
+                │    └─→ §5.11 Hypothesis investigation as user action [NOT BUILT]
+                │         └─→ T8 (MLX next-search for exhausted-ladder) [NOT BUILT]
+                │              └─→ T9 (MLX disambiguation for residual ambiguity) [NOT BUILT]
+                ├─→ T31 (ladder retuning) [NOT BUILT — defined as the harness applied]
+                ├─→ T23 (Sample Tree tour) [NOT BUILT, paper-only UX]
+                └─→ §5.12 Design passes [NOT BUILT, paper-only UX]
 ```
 
-Estimated total: **24–32 sessions**. The engine foundation (T11
-through T7) is ~12–16 sessions; the UX reframe (§5.10–§5.11) plus
-extended MLX work and corpus growth adds ~12–16 sessions.
+**What's shipped (engine foundation):** T11, T12-sibling, T12-parent
+(including the §5.2.1 design pass and the reconciliation step), and
+T7 with the looser one-condition gate. Approximately the first
+12 sessions of the original estimate.
+
+**What's not built:** eval harness, §5.9 incrementality refactor,
+§5.10 Mode→StopPolicy collapse, §5.11 investigation UI, T8/T9 MLX
+work, T23 tour, T31 ladder retuning, §5.12 design passes.
+
+Estimated remaining: **~12–16 sessions** to land §5.9, §5.10, §5.11,
+T8, T9, T31, the harness, and the design passes. The estimate is
+unchanged from the original 24–32 total; the difference is that
+~12 sessions of foundation are now behind us.
 
 ---
 
