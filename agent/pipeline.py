@@ -9,6 +9,8 @@ Repeat until R1 says "done" or MAX_ITERATIONS reached.
 The loop is: Search → Score → Strategise → Execute Strategy → Score → Strategise → ...
 """
 
+import re
+
 from agent.discover import execute_searches
 from agent.scorer import score_all_results, summarise_scored_results
 from agent.analyser import GenealogyAnalyser
@@ -164,6 +166,13 @@ def research_person(person: dict) -> dict:
     print(f"\n[ITERATION 1: INITIAL SEARCH]")
     search_plan = _plan_searches(state)
     _execute_and_score(search_plan, state)
+
+    # --- POST-MARRIAGE EXPANSION: women's deaths/probate ---
+    # When a marriage record names a spouse surname (FreeBMD post-1912),
+    # the subject may have died under that surname. Without this, we
+    # systematically miss women's post-marriage deaths — Mabel Cauldwell
+    # (m. Brewell 1920, d. Brewell 1928) is the canonical case.
+    _expand_post_marriage_searches(state)
 
     # --- STRATEGY LOOP: R1 suggests, Python executes, repeat ---
     for iteration in range(2, MAX_ITERATIONS + 2):
@@ -575,6 +584,60 @@ def _is_unsearchable(person: dict) -> bool:
     # and won't be in any released census
     # Living people definitely can't be searched
     return birth_year > 1930
+
+
+_MARRIAGE_SPOUSE_SURNAME_RE = re.compile(
+    r"\)\s*,\s*([A-Z][A-Za-z'\-]+)\s*$"
+)
+
+
+def _expand_post_marriage_searches(state: dict) -> None:
+    """After iteration 1, if any confirmed marriage names a spouse surname,
+    re-run death and probate searches under that surname.
+
+    Subject's surname is not necessarily her maiden name — for women whose
+    marriages we surface, deaths/probate may only be findable under the
+    married surname. This step has no effect on subjects whose marriages
+    weren't found, didn't name a spouse, or whose searches already
+    covered the spouse surname (e.g. men).
+    """
+    name = (state["person"].get("name") or "").strip()
+    parts = name.split()
+    if len(parts) < 2:
+        return
+    original_surname = parts[-1].upper()
+    given_part = " ".join(parts[:-1])
+
+    spouse_surnames: set[str] = set()
+    for fact in state.get("confirmed_facts", []):
+        if fact.get("type") != "marriage":
+            continue
+        m = _MARRIAGE_SPOUSE_SURNAME_RE.search(fact.get("value") or "")
+        if not m:
+            continue
+        s = m.group(1).strip()
+        if not s or s.upper() == original_surname:
+            continue
+        spouse_surnames.add(s)
+
+    if not spouse_surnames:
+        return
+
+    print(f"\n[POST-MARRIAGE] Spouse surnames discovered: {sorted(spouse_surnames)}")
+    # Swap surname in place so discover.py and the scorer both see the
+    # married name, then restore after each pass.
+    extra_plan = ["death_registration", "probate", "burial_memorial"]
+    for surname in sorted(spouse_surnames):
+        state["person"]["name"] = f"{given_part} {surname}"
+        # discover.execute_searches dedupes on search_type only; clear the
+        # entries we're about to re-run so the surname-variant pass isn't
+        # blocked by iteration 1's maiden-name pass.
+        state["searched"] = [
+            s for s in state.get("searched", []) if s.get("source") not in extra_plan
+        ]
+        print(f"  Re-running death/probate/memorial under '{surname}'")
+        _execute_and_score(extra_plan, state)
+    state["person"]["name"] = name
 
 
 def _plan_searches(state: dict) -> list:

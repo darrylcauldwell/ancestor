@@ -264,7 +264,33 @@ def _python_pipeline_call(subject: dict) -> dict:
         for key in ("supported_hypotheses", "contradicted_hypotheses",
                     "inconclusive_hypotheses", "discovered_citations"):
             aggregated[key].extend(envelope[key])
+
+    # Pair/cluster subjects research the same person twice (one run per
+    # member). The pipeline finds the same source records each time, so
+    # the aggregate would double-count without this dedupe. Key shape
+    # matches what _state_to_envelope emits per category.
+    if len(persons) > 1:
+        aggregated["supported_hypotheses"] = _dedupe(
+            aggregated["supported_hypotheses"], key=lambda h: (h.get("kind"), h.get("value")))
+        aggregated["contradicted_hypotheses"] = _dedupe(
+            aggregated["contradicted_hypotheses"], key=lambda h: h.get("value"))
+        aggregated["inconclusive_hypotheses"] = _dedupe(
+            aggregated["inconclusive_hypotheses"], key=lambda h: (h.get("kind"), h.get("summary")))
+        aggregated["discovered_citations"] = _dedupe(
+            aggregated["discovered_citations"], key=lambda s: s)
     return aggregated
+
+
+def _dedupe(items: list, key) -> list:
+    seen = set()
+    out = []
+    for item in items:
+        k = key(item)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(item)
+    return out
 
 
 # --- Metric computation ----------------------------------------------------
