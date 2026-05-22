@@ -78,6 +78,13 @@ region:
     Worksop:
       - Worksop
 
+  # Historic spelling variants returned by indexed sources (most often
+  # FreeBMD) that should be normalised to the canonical district name
+  # used elsewhere in this config. Lets the geography gate accept
+  # records whose district was indexed under an older spelling.
+  district_aliases:
+    Ashborne: Ashbourne   # FreeBMD historic indexing
+
   # Districts known to be OUTSIDE your county
   # Used to reject unlikely matches
   non_local_districts:

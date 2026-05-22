@@ -160,22 +160,31 @@ DISTRICT_PARISHES = _cfg.region.district_parishes
 # Districts known to be outside the research area
 NON_LOCAL_DISTRICTS = _cfg.region.non_local_districts
 
+# Historic spelling variants — map indexed-source names to canonical ones
+# (e.g. FreeBMD "Ashborne" → config's "Ashbourne"). Loaded from
+# config.yaml `region.district_aliases`. Centralised here so every
+# district check sees the canonical name.
+DISTRICT_ALIASES = _cfg.region.district_aliases
+
+
+def _canonical_district(district: str) -> str:
+    clean = district.strip().replace(" district", "")
+    return DISTRICT_ALIASES.get(clean, clean)
+
 
 def is_derbyshire_district(district: str) -> bool:
     """Check if a district is in Derbyshire."""
-    clean = district.strip().replace(" district", "")
-    return clean in DISTRICT_PARISHES
+    return _canonical_district(district) in DISTRICT_PARISHES
 
 
 def is_non_local(district: str) -> str | None:
     """Returns the location name if district is outside the research area, else None."""
-    clean = district.strip().replace(" district", "")
-    return NON_LOCAL_DISTRICTS.get(clean)
+    return NON_LOCAL_DISTRICTS.get(_canonical_district(district))
 
 
 def parishes_in_district(district: str) -> list[str]:
     """Return parishes covered by a registration district."""
-    return DISTRICT_PARISHES.get(district, [])
+    return DISTRICT_PARISHES.get(_canonical_district(district), [])
 
 
 def district_for_parish(parish: str) -> str | None:

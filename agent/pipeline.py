@@ -611,6 +611,19 @@ def _expand_post_marriage_searches(state: dict) -> None:
     married surname. This step has no effect on subjects whose marriages
     weren't found, didn't name a spouse, or whose searches already
     covered the spouse surname (e.g. men).
+
+    Two sources of spouse surnames, in priority order:
+
+      1. Regex extraction from a confirmed marriage fact's value string —
+         works for post-Sep-1912 FreeBMD marriages where the
+         spouse_or_mother field is populated.
+
+      2. LocalTwin lookup by the subject's wt_id — fills the gap for
+         pre-1912 marriages where FreeBMD doesn't index the spouse
+         surname. Catherine Hannah Bown (m. 1892, d. as WARD) and
+         Lydia Kenworthy (m. 1882, d. as TWYFORD) both hit this path —
+         their twin records carry the spouse but FreeBMD's marriage
+         row doesn't.
     """
     name = (state["person"].get("name") or "").strip()
     parts = name.split()
@@ -630,6 +643,23 @@ def _expand_post_marriage_searches(state: dict) -> None:
         if not s or s.upper() == original_surname:
             continue
         spouse_surnames.add(s)
+
+    # Fall back to LocalTwin when the regex found nothing — typically
+    # the pre-1912 case described above.
+    if not spouse_surnames:
+        corpus_match = state.get("corpus_match") or {}
+        wt_id = corpus_match.get("corpus_id")
+        if wt_id:
+            try:
+                from wikitree.twin import LocalTwin
+                twin = LocalTwin()
+                if twin.load():
+                    for spouse in twin.spouses_of(wt_id):
+                        ln = (spouse.get("LastNameAtBirth") or "").strip()
+                        if ln and ln.upper() != original_surname:
+                            spouse_surnames.add(ln)
+            except Exception:
+                pass
 
     if not spouse_surnames:
         return

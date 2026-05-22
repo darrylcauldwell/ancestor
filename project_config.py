@@ -46,6 +46,7 @@ class _Region:
         self.default_location = data.get("default_location", "")
         self.districts = data.get("districts", {})
         self.district_parishes = data.get("district_parishes", {})
+        self.district_aliases = data.get("district_aliases", {})
         self.non_local_districts = data.get("non_local_districts", {})
         self.source_gaps = data.get("source_gaps", {})
 
