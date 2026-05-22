@@ -112,9 +112,8 @@ These are easy to break and the tests will not always catch them:
 
 ## Specs (read these before non-trivial Swift work)
 
-- `AncestorApp/RESEARCH_PIPELINE_SPEC.md` — governing architectural spec. Part I describes the as-built engine; Part II is the accepted V2 hypothesis-framework pivot (T7/T8/T9/T11/T12/T23/T31).
+- `AncestorApp/RESEARCH_PIPELINE_SPEC.md` — governing architectural spec. Part I describes the as-built engine (incl. §14 MCP-driven auto-approval); Part II is the accepted V2 hypothesis-framework pivot (T7/T8/T9/T11/T12/T23/T31).
 - `AncestorApp/PROSE_CORPUS_SPEC.md` — unified prose-corpus + bio-synthesis spec (queued; not started).
-- `AncestorApp/AUTO_APPROVAL_VIA_MCP_SPEC.md` — MCP-driven auto-approval of pending facts (MVP shipped).
 - `AncestorApp/FAMILYSEARCH_SOURCE_SPEC.md` — FamilySearch source-plugin coverage.
 - `DESIGN.md` (root, 2536 lines) — end-state product design.
 - `GUIDE.md` — Python agent's user guide and session model.

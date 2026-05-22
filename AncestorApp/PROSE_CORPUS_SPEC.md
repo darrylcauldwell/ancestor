@@ -1539,10 +1539,10 @@ false-positive sentences making it to rendering.
 - `RESEARCH_PIPELINE_SPEC.md` — established the deterministic-
   sandwich pattern this spec extends to prose-extracted facts and
   to bio synthesis output.
-- `AUTO_APPROVAL_VIA_MCP_SPEC.md` — orthogonal; auto-approval covers
-  commit-side friction for facts the rules judge unambiguous. Bio
-  synthesis output never goes through auto-approval (bios are
-  narrative, not facts, per §9).
+- `RESEARCH_PIPELINE_SPEC.md` §14 (MCP-driven auto-approval) —
+  orthogonal; auto-approval covers commit-side friction for facts
+  the rules judge unambiguous. Bio synthesis output never goes
+  through auto-approval (bios are narrative, not facts, per §9).
 - The unified profile inspector card (delivered in commit db8b30f;
   the spec that drove it has been retired into git history) is where
   bios render (Part X) and where bio editing happens.
