@@ -1,0 +1,113 @@
+# Certified-corpus subject for section 5.8 eval harness
+# Difficulty axis: geographic_outlier (Glossop NW Derbyshire, far from
+# canonical Belper/Wirksworth/Ashbourne tree-core) + year_discrepancy
+# (twin BirthDate vs bio prose vs FreeBMD index disagree)
+# Status: Verified 2026-05-22 via sources/freebmd.py -- single Glossop
+#         RD candidate identified, year ambiguity acknowledged.
+
+profile_id: "@I50104443@"
+canonical_name: "George Bowden"
+difficulty_axes:
+  - geographic_outlier
+  - year_discrepancy_twin_vs_index
+rationale: |
+  Tests the no-hardcoded-regions invariant (memory feedback_no_hardcoded
+  _regions). Glossop is in the High Peak of NW Derbyshire, in the
+  Manchester orbit -- geographically and culturally distinct from the
+  Belper/Wirksworth/Ashbourne corridor that dominates the rest of the
+  certified corpus. The Glossop registration district uses the same
+  DBY county code but its parish/township network shares nothing with
+  the canonical tree-core. Engine must NOT down-weight a Glossop-RD
+  hit on the basis that other tree-subjects are 50mi south.
+
+  Year discrepancy: twin BirthDate field says 1902-08-27, bio prose
+  says "George (born 1901)", and the single FreeBMD candidate is
+  Sep 1901 Glossop. Engine must reconcile the three. Bio + FreeBMD
+  align on 1901; the twin BirthDate appears to be a downstream error.
+
+  Twin has only a 65-byte bio ("George (born 1901)") and no recorded
+  parents -- pure sparse-evidence on top of the geographic-outlier
+  axis.
+
+seed_facts:
+  - { field: birthDate, value: "1902-08-27", precision: day, datatype_warning: "contradicted by bio prose (1901) and FreeBMD Sep 1901 Glossop registration -- twin BirthDate suspect" }
+  - { field: birthLocation, value: "Glossop, Derbyshire, England" }
+
+relationships:
+  # No parents in twin.
+  spouse:
+    - { id: "@I50101161@" }
+
+expected_evidence:
+  - source: freebmd
+    kind: birth_registration
+    verdict: verified_with_year_correction
+    quarter: "Sep"
+    year: 1901
+    district: "Glossop"
+    volume: "7b"
+    page: "903"
+    surname: "Bowden"
+    given: "George"
+    notes: |
+      Q3 1901 Glossop RD vol7b p903. Single Glossop entry in the
+      Bowden George births 1901-1903 national scan. Other Glossop RD
+      candidates do not exist for those years. Bio prose confirms 1901
+      (twin BirthDate says 1902 which is excluded by the absence of any
+      Glossop Bowden George registration in 1902). Engine SHOULD
+      surface this as a tree-data correction: the BirthDate field
+      should be updated to align with bio prose and registration year.
+
+  - source: freebmd
+    kind: confounders_outside_glossop
+    verdict: confounders_present
+    why_excluded: "All other Bowden George births 1901-1903 are outside Glossop RD; geographic mismatch with twin BirthLocation"
+    examples:
+      - { quarter: "Mar", year: 1901, district: "Islington", vol: "1b", page: "218", given: "George Frederick A" }
+      - { quarter: "Mar", year: 1902, district: "Stockport", vol: "8a", page: "102", given: "George" }
+      - { quarter: "Dec", year: 1901, district: "Newport, M.", vol: "11a", page: "191", given: "George Albert" }
+    notes: |
+      The same first-name candidate exists in Stockport (Mar 1902) --
+      only 15mi NW of Glossop, just across the Cheshire border.
+      Engine must NOT match this candidate on "close-to-Glossop"
+      reasoning -- the right answer is in-RD (Glossop) not adjacent
+      (Stockport). Tests precision against geographic-proximity bias.
+
+  - source: freecen
+    kind: census
+    verdict: absent_in_index
+    searched_years: [1911]
+    searched_county: "DBY"
+    notes: |
+      No George Bowden b.~1901 Glossop in DBY 1911 FreeCen. Glossop
+      RD is in Hayfield district per FreeCen which uses a different
+      district nomenclature -- engine search might miss on district
+      string mismatch. Recall ceiling -- DBY High Peak 1911 FreeCen
+      coverage is sparse.
+
+expected_per_kind:
+  birth_disambiguation: supported_with_year_correction
+  death_disambiguation: out_of_scope  # twin has no DeathDate
+  marriage_disambiguation: not_yet_verified  # spouse @I50101161@ exists but not searched
+  parent_link: out_of_scope  # twin has no parents
+  geographic_outlier_handling: supported
+
+# section 5.8.6 headline number
+expected_supported_count: 1
+
+forbidden_matches:
+  - source: freebmd
+    shape: "The Mar 1902 Stockport Bowden George matched on close-to-Glossop reasoning"
+    why: "Tests precision against geographic-proximity bias; correct answer is in-RD."
+  - source: any
+    shape: "Any match outside DBY justified by twin BirthLocation"
+    why: "Engine must follow the registration, not the twin location string."
+
+gedcom_citations:
+  source_file: "Cauldwell Family Tree.twin-export.ged"
+  extracted_to: "eval/certified/_gedcom_citations.json"
+  count: 0
+  reproduction_target: 0
+  notes: |
+    Bio is 65 bytes ("George (born 1901).") -- no citations to extract.
+    The corpus headline finding is the year-discrepancy correction.

@@ -1,0 +1,132 @@
+# Certified-corpus subject for section 5.8 eval harness
+# Difficulty axis: sparse_evidence + long_life + birth_district_anomaly
+# Status: Verified 2026-05-22 via sources/freebmd.py (post-1969 GRO
+#         indexes include exact DOB which clinches identity).
+
+profile_id: "@I32675347@"
+canonical_name: "Charles Herbert Hodgkinson"
+difficulty_axes:
+  - sparse_evidence
+  - long_life_post1969_grodob
+rationale: |
+  91-year lifespan straddling all the major source-coverage shifts:
+  pre-1911 census FreeCen sparsity, the FreeBMD 100-year birth lag
+  (was lifted before 1989; 1888 births fully indexed), the post-1969
+  GRO-DOB-in-death-index format change (his Jun 1979 Ashbourne death
+  records exact DOB 14MY1888 alongside surname). The twin has no
+  bio prose at all (length 0). Tests recall on a male DBY profile
+  with effectively only birth date + birth location as inputs, and
+  tests the engine ability to use the GRO post-1969 DOB field to
+  disambiguate same-name candidates.
+
+  Birth-district anomaly: twin says Shottle (Belper RD pre-1936) but
+  the only Charles Herbert Hodgkinson birth indexed Mar 1888 nationally
+  is registered in SHEFFIELD vol9c p465, not Belper. Either the family
+  moved Sheffield -> Shottle by census-time, or the twin birthLocation
+  is wrong. Engine must flag the cross-district contradiction.
+
+seed_facts:
+  - { field: birthDate, value: "1888-05-14", precision: day }
+  - { field: birthLocation, value: "Shottle, Derbyshire, England" }
+  - { field: deathDate, value: "1979-05-17", precision: day }
+  - { field: deathLocation, value: "Ashbourne, Derbyshire, England" }
+
+relationships:
+  parents:
+    - { role: father, id: "@I32675267@" }
+    # No mother recorded in the twin.
+
+expected_evidence:
+  - source: freebmd
+    kind: death_registration
+    verdict: verified
+    quarter: "Jun"
+    year: 1979
+    district: "ASHBOURNE"
+    volume: "6"
+    page: "15"
+    surname: "HODGKINSON"
+    given: "CHARLES HERBERT"
+    gro_dob: "14MY1888"
+    notes: |
+      Q2 1979 Ashbourne RD vol 6 p15. The GRO post-1969 format encodes
+      DOB as the spouse_or_mother field: 14MY1888 = 14 May 1888. Exact
+      DOB matches the twin 1888-05-14 to the day. This is the clinch:
+      no other Charles Herbert Hodgkinson died in 1978-1980 nationally
+      with a matching DOB.
+
+  - source: freebmd
+    kind: birth_registration
+    verdict: verified_with_anomaly
+    quarter: "Mar"
+    year: 1888
+    district: "Sheffield"
+    volume: "9c"
+    page: "465"
+    surname: "HODGKINSON"
+    given: "Charles Herbert"
+    notes: |
+      Q1 1888 SHEFFIELD vol9c p465 -- the only Charles Herbert Hodgkinson
+      birth indexed 1887-1890. Sheffield RD is in Yorkshire (West Riding),
+      not Derbyshire. Twin claims Shottle, Derbyshire as birthLocation.
+      Two possibilities: (a) family was actually in Sheffield at birth
+      and moved to Shottle later (consistent with the death in Ashbourne
+      RD where Shottle had become part by 1936); (b) the twin
+      birthLocation is wrong, sourced from a later residence.
+      Engine should flag this as a tree-data correction candidate.
+
+  - source: freebmd
+    kind: birth_registration
+    cluster: belper_search
+    verdict: absent_in_index
+    searched_district: "Belper"
+    searched_years: [1887, 1890]
+    notes: |
+      Zero Hodgkinson Charles births registered in Belper RD 1887-1890.
+      Confirms the only candidate is the Sheffield registration above.
+      Useful test of district-filter behaviour: filtering to Belper
+      returns empty even though the canonical answer exists nationally.
+
+  - source: freebmd
+    kind: marriage_registration
+    verdict: not_yet_verified
+    notes: |
+      Twin records no spouse, but Charles lived to 91 in Ashbourne RD --
+      likely had a marriage. Not searched in this corpus task; engine
+      MAY surface a Charles Herbert Hodgkinson marriage in DBY/YKS
+      1910-1925 as a hypothesis, which would be a useful finding but
+      cannot be graded as supported/contradicted without a known truth.
+      Score as inconclusive whatever the engine reports.
+
+  - source: freecen
+    kind: census
+    verdict: absent_in_index
+    searched_years: [1891, 1901, 1911]
+    searched_county: "DBY"
+    notes: |
+      No Charles Hodgkinson b.1888 Shottle in DBY FreeCen 1891-1911.
+      If the Sheffield birth-registration is correct, he would appear
+      in YKS 1891 census as a child. FreeCen YKS not searched in this
+      task. Recall ceiling.
+
+expected_per_kind:
+  birth_disambiguation: supported_with_district_anomaly
+  death_disambiguation: supported
+  marriage_disambiguation: inconclusive
+  parent_link: inconclusive
+
+# section 5.8.6 headline number
+expected_supported_count: 2
+
+gedcom_citations:
+  source_file: "Cauldwell Family Tree.twin-export.ged"
+  extracted_to: "eval/certified/_gedcom_citations.json"
+  count: 0
+  reproduction_target: 0
+  notes: |
+    No bio note in the twin (bio length 0). Sparse-evidence axis in
+    pure form. evidence_reproduction_rate not measurable. The corpus
+    finding here is the cross-district birth/death anomaly -- a
+    successful pipeline run on this subject SHOULD generate a
+    flagged-for-cleanup hypothesis ("birthLocation may be incorrect;
+    Sheffield Mar 1888 vol9c p465 indexed against this DOB").

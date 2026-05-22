@@ -29,7 +29,7 @@ from pathlib import Path
 GEDCOM_PATH = Path("Cauldwell Family Tree.twin-export.ged")
 OUTPUT_PATH = Path("eval/certified/_gedcom_citations.json")
 
-# The 6 corpus subject IDs (5 picks; pick 2 is a pair).
+# The 13 corpus subject IDs (11 yaml files; John pair has 2 IDs). T7 defensible-delta tier (5.8.1).
 CORPUS_IDS = [
     "@I50113363@",  # Ernest
     "@I50113395@",  # Mabel cluster A canonical
@@ -37,6 +37,13 @@ CORPUS_IDS = [
     "@I50110493@",  # Robert
     "@I13644681@",  # John pair member 1
     "@I50137743@",  # John pair member 2
+    "@I12119734@",  # Sarah Jane Byard (sparse_evidence)
+    "@I32675347@",  # Charles Herbert Hodgkinson (sparse + long_life)
+    "@I50100950@",  # Catherine Hannah Bown (name_change_at_marriage)
+    "@I50189843@",  # Elizabeth Cauldwell -> Beighton (cross_county_migration)
+    "@I50179960@",  # Stephen Sherwin (pre_civil_registration)
+    "@I50104443@",  # George Bowden (geographic_outlier)
+    "@I50166073@",  # Lydia Kenworthy -> Twyford (sparse + brief_life)
 ]
 
 

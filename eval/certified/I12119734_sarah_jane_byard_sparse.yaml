@@ -1,0 +1,142 @@
+# Certified-corpus subject for section 5.8 eval harness
+# Difficulty axis: sparse_evidence -- single-lineage female, empty bio,
+# few relationships in the twin
+# Status: Partially verified 2026-05-22 via sources/freebmd.py and
+#         sources/freecen.py -- birth confirmed, death/marriage NOT
+#         locatable in any free index (which is itself the test).
+
+profile_id: "@I12119734@"
+canonical_name: "Sarah Jane Byard"
+difficulty_axes:
+  - sparse_evidence
+rationale: |
+  Female DBY subject with effectively zero context -- no bio prose at
+  all in the twin, only birth date / location and a recorded death
+  year. The twin has just two relationships (parents). No marriage
+  registration, no census appearance under birth surname after age 5,
+  no death registration that age-fits the twin claim. Engine must
+  surface ONE supported hypothesis (the birth registration), report
+  the others as absent_in_index, and AVOID inventing a confounder
+  match from the Nottingham / Lichfield / St Saviour Sarah Byards
+  who do not align on age + birthplace.
+
+  Tests recall-floor on a thin profile and precision-on-supported
+  against tempting confounders.
+
+seed_facts:
+  - { field: birthDate, value: "1866-11-27", precision: day }
+  - { field: birthLocation, value: "Wirksworth, Derbyshire, England" }
+  - { field: deathDate, value: "1904", precision: year }
+
+relationships:
+  parents:
+    - { role: father, id: "@I19612488@" }
+    - { role: mother, id: "@I19612524@" }
+  # No spouse, no children listed in the twin.
+
+expected_evidence:
+  - source: freebmd
+    kind: birth_registration
+    verdict: verified
+    quarter: "Mar"
+    year: 1866
+    district: "Belper"
+    volume: "7b"
+    page: "470"
+    surname: "BYARD"
+    given: "Sarah J"
+    notes: |
+      Q1 1866 Belper RD vol7b p470. Wirksworth is in Belper RD pre-1936.
+      Single national match for Byard/Sarah-J births 1865-1868;
+      registration date Mar 1866 vs twin 27 Nov 1866 likely reflects
+      parish-baptism-vs-civil-registration date confusion in the twin,
+      OR the twin 1866-11-27 is a baptism date misrecorded as birth.
+
+  - source: freebmd
+    kind: marriage_registration
+    verdict: absent_in_index
+    searched_years: [1882, 1904]
+    searched_surnames: ["Byard"]
+    notes: |
+      Three candidate Sarah Byard marriages exist nationally
+      (Jun 1883 St Saviour London vol1d p174 Sarah Jane;
+      Dec 1892 Chesterfield vol7b p1357 Sarah Eliza;
+      Dec 1894 Edmonton vol3a p468 Sarah Emma). None can be
+      confirmed as this subject on first/middle name + district
+      alignment -- Belper/Wirksworth RD has no Sarah Byard marriage
+      1880-1900 matching the canonical first-middle pair. Either no
+      civil marriage occurred, or the subject moved to London by ~1883.
+
+  - source: freebmd
+    kind: death_registration
+    verdict: confounders_present
+    searched_years: [1900, 1908]
+    candidate_matches:
+      - quarter: "Mar"
+        year: 1904
+        district: "Nottingham"
+        vol: "7b"
+        page: "273"
+        surname: "BYARD"
+        given: "Sarah Ann"
+        age: 50
+        why_excluded: "Age 50 -> b.1854; twin claims 1866. Wrong by 12 years."
+      - quarter: "Mar"
+        year: 1901
+        district: "Ashby Z."
+        vol: "7a"
+        page: "61"
+        surname: "Byard"
+        given: "Sarah"
+        age: 72
+        why_excluded: "Age 72 -> b.1829. Way off."
+    notes: |
+      No FreeBMD Sarah Byard death 1900-1908 age-fits a 1866 birth
+      (would be age 37-42). Twin claims 1904 with no precision.
+      Either the death year is incorrect in the twin, the subject died
+      under her married name (see absent_in_index marriage above), or
+      she died outside England and Wales civil-registration coverage.
+      Engine must NOT match the Sarah Ann Nottingham 1904 entry --
+      that is the obvious confounder trap.
+
+  - source: freecen
+    kind: census
+    verdict: absent_in_index
+    searched_years: [1871, 1881, 1891]
+    searched_county: "DBY"
+    notes: |
+      FreeCen DBY 1871/1881: zero Sarah Byards. 1891 DBY has five
+      Sarah Byards, none with birth-year 1866 + birthplace Wirksworth.
+      Recall ceiling -- DBY pre-1901 FreeCen coverage is incomplete
+      (Wirksworth/Belper area in particular). Engine should treat
+      as out_of_coverage not as evidence she was not in the county.
+
+expected_per_kind:
+  birth_disambiguation: supported
+  marriage_disambiguation: inconclusive
+  death_disambiguation: inconclusive
+  parent_link: inconclusive
+
+# section 5.8.6 headline number
+expected_supported_count: 1
+
+forbidden_matches:
+  - source: freebmd
+    shape: "Any Sarah Ann/Eliza/Emma Byard 1900-1908 death matched to this subject"
+    why: "Confounder traps; age never fits the 1866 birth."
+  - source: freebmd
+    shape: "The Jun 1883 St Saviour Sarah Jane Byard marriage matched without London-residence corroboration"
+    why: "Same-name elsewhere; no evidence the Wirksworth subject migrated."
+
+gedcom_citations:
+  source_file: "Cauldwell Family Tree.twin-export.ged"
+  extracted_to: "eval/certified/_gedcom_citations.json"
+  count: 0
+  reproduction_target: 0
+  notes: |
+    No bio note in the twin -- bio length = 0 bytes. This is the
+    sparse-evidence axis in its purest form: the engine has nothing
+    to reproduce, only seed_facts to work from. evidence_reproduction_rate
+    is not measurable for this subject (denominator 0); the headline
+    metric is whether the engine surfaces the birth and abstains on
+    everything else.

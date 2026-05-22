@@ -1,0 +1,143 @@
+# Certified-corpus subject for section 5.8 eval harness
+# Difficulty axis: sparse_evidence + name_change_at_marriage +
+#                  cross_county_origin (twin says Stanton DBY but the
+#                  only FreeBMD candidate is registered in Huddersfield
+#                  Yorkshire) + brief_life (43 years)
+# Status: Verified 2026-05-22 via sources/freebmd.py -- all three
+#         civil-registration events confirmed with strong identity
+#         signal from matched-page marriage and age-at-death.
+
+profile_id: "@I50166073@"
+canonical_name: "Lydia Kenworthy"
+current_surname: "Twyford"
+difficulty_axes:
+  - sparse_evidence
+  - name_change_at_marriage
+  - cross_county_origin_discrepancy
+  - brief_life
+rationale: |
+  Female DBY subject, born 1862 (per twin Stanton Derbyshire, per
+  FreeBMD Huddersfield Yorkshire), married Twyford at 20, died at 43
+  in Bakewell. Twin bio is essentially empty (150 bytes, plus
+  "A source for this information is needed" -- META_SOURCE_NEEDED_RE
+  staller marker). Engine must (a) discover the marriage despite the
+  twin recording no spouse search-name, (b) discover the death under
+  the married surname Twyford not the maiden Kenworthy, (c) handle
+  the cross-county anomaly where the FreeBMD birth is registered
+  Huddersfield, not Stanton, Derbyshire.
+
+  Stacks: sparse + name-change + geographic-discrepancy +
+  staller-marker, all on one subject. Useful end-to-end pipeline
+  exerciser.
+
+seed_facts:
+  - { field: birthDate, value: "1862", precision: year }
+  - { field: birthLocation, value: "Stanton, Derbyshire, England", datatype_warning: "FreeBMD birth registration is Huddersfield Yorkshire -- possible twin error or move-during-infancy" }
+  - { field: deathDate, value: "1904-12", precision: month }
+  - { field: deathLocation, value: "Bakewell, Derbyshire, England" }
+
+relationships:
+  # Twin records zero parents and one spouse.
+  spouse:
+    - { id: "@I50166072@", inferred_surname: "Twyford" }
+
+expected_evidence:
+  - source: freebmd
+    kind: birth_registration
+    verdict: verified_with_geographic_discrepancy
+    quarter: "Jun"
+    year: 1861
+    district: "Huddersfield"
+    volume: "9a"
+    page: "277"
+    surname: "KENWORTHY"
+    given: "Lydia"
+    notes: |
+      Q2 1861 Huddersfield RD vol9a p277. Single national Kenworthy/
+      Lydia birth 1861-1864. Huddersfield is in West Riding Yorkshire,
+      not Stanton Derbyshire. Two possibilities: (a) the twin
+      BirthLocation "Stanton, Derbyshire" is wrong (taken from later
+      residence); (b) the family was in Huddersfield at birth and
+      moved to Stanton by 1881. Either way, the engine must accept a
+      cross-county birth registration when it is the only candidate
+      with matching given+surname+year.
+
+  - source: freebmd
+    kind: marriage_registration
+    verdict: verified
+    quarter: "Sep"
+    year: 1882
+    district: "Huddersfield"
+    volume: "9a"
+    page: "419"
+    surname: "KENWORTHY"
+    given: "Lydia"
+    notes: |
+      Q3 1882 Huddersfield RD vol9a p419. Single Kenworthy/Lydia
+      marriage 1880-1895 (other 1894 Chorlton hit is "Lydia Sabra"
+      different given name). The Huddersfield RD repeats the birth
+      RD -- consistent with the family being Yorkshire-based at this
+      stage. Spouse identity via matched-page rule (not retrieved
+      in this task; engine should derive Twyford surname from death).
+
+  - source: freebmd
+    kind: death_registration
+    verdict: verified
+    quarter: "Dec"
+    year: 1904
+    district: "Bakewell"
+    volume: "7b"
+    page: "467"
+    surname: "Twyford"
+    given: "Lydia"
+    age_at_death: 43
+    notes: |
+      Q4 1904 Bakewell RD (DBY) vol7b p467, age 43. Age 43 in Dec
+      1904 back-calculates to b.1861 -- matches the Huddersfield
+      birth registration exactly. This is the strongest identity
+      signal: maiden+given+year+age all align across the three
+      events. Engine MUST search under TWYFORD not KENWORTHY for
+      the death (the canonical wikitree_married_surname_convention
+      reversal). Bakewell RD is the DBY home for this subject by
+      death -- a Huddersfield -> Bakewell migration is implied,
+      consistent with the twin Stanton Derbyshire claim (Stanton-by-
+      Bakewell is in Bakewell RD).
+
+  - source: freecen
+    kind: census
+    verdict: not_searched
+    notes: |
+      YKS 1871 census might catch Lydia age 10 in Huddersfield;
+      DBY 1891/1901 might catch the Twyford family in Stanton/Bakewell.
+      Not searched in this corpus task; engine MAY surface DBY 1891
+      Lydia Twyford as a useful corroboration.
+
+expected_per_kind:
+  birth_disambiguation: supported_with_geographic_discrepancy
+  marriage_disambiguation: supported
+  death_disambiguation: supported
+  surname_pivot: supported  # Kenworthy -> Twyford derived from death
+  cross_county_handling: supported
+  parent_link: out_of_scope  # twin has no parents
+
+# section 5.8.6 headline number
+expected_supported_count: 3
+
+corpus_finding: |
+  Stanton/Bakewell vs Huddersfield discrepancy is the actionable
+  finding. Either the WikiTree BirthLocation needs amending to
+  "Huddersfield Yorkshire" or a residence-history entry needs adding
+  to explain the move. Twin spouse @I50166072@ surname "Twyford"
+  is implied but not labelled -- engine should propose surname.
+
+gedcom_citations:
+  source_file: "Cauldwell Family Tree.twin-export.ged"
+  extracted_to: "eval/certified/_gedcom_citations.json"
+  count: 0
+  reproduction_target: 0
+  notes: |
+    Bio is 150 bytes ("Lydia was born in 1862. She passed away in
+    1904. <ref>A source for this information is needed.</ref>") --
+    contains the META_SOURCE_NEEDED_RE staller marker but no
+    structured citations. evidence_reproduction_rate not measurable.
+    The 3 verified citations above are pure pipeline-discovery targets.

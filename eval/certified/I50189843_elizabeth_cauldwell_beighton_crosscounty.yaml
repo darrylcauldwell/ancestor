@@ -1,0 +1,146 @@
+# Certified-corpus subject for section 5.8 eval harness
+# Difficulty axis: cross_county_migration + name_change_at_marriage
+# Status: Verified 2026-05-22 via sources/freebmd.py -- all three
+#         civil-registration events confirmed; spouse pivot via
+#         matched-page-number trick.
+
+profile_id: "@I50189843@"
+canonical_name: "Elizabeth Cauldwell"
+current_surname: "Beighton"
+difficulty_axes:
+  - cross_county_migration
+  - name_change_at_marriage
+rationale: |
+  Daughter of Nathaniel + Charlotte Caldwell (the same parents as the
+  T9-pair John Cauldwell @I13644681@/@I50137743@) -- so sibling of
+  another certified subject. Born Alderwasley Derbyshire 1844,
+  married Frederick Beighton in Belper Dec 1866, then migrated to
+  South Wales -- died Risca, Monmouthshire (Newport M. RD) Apr 1906.
+  The migration crosses the canonical DBY tree-domain entirely.
+
+  Bio is empty (0 bytes). Twin has only birth, death, and parent
+  links -- the marriage and migration are unrecorded. Engine must
+  reconstruct the entire mid-life history from civil registration
+  alone, including discovering the spouse identity via the matched-
+  page trick (FreeBMD pre-1912 marriage indexes record both partners
+  on the same vol/page).
+
+  Tests: cross-county-migration handling (Wales is outside the
+  canonical DBY config.yaml scope), maiden-married surname pivot,
+  and spouse-identity-via-matched-page-number inference.
+
+seed_facts:
+  - { field: birthDate, value: "1844", precision: year }
+  - { field: birthLocation, value: "Alderwasley, Derbyshire, England" }
+  - { field: deathDate, value: "1906-04-25", precision: day }
+  - { field: deathLocation, value: "Risca, Monmouthshire, Wales" }
+
+relationships:
+  parents:
+    - { role: father, id: "@I50113384@", name: "Nathaniel Caldwell", note: "shared with T9-pair John Cauldwell certified subject" }
+    - { role: mother, id: "@I50113387@", name: "Charlotte Caldwell" }
+  spouse:
+    - inferred_id: null
+      wikitree_recorded: false
+      inferred_surname: "Beighton"
+      inferred_given: "Frederick"
+      provenance_note: |
+        Twin records Elizabeth current surname as Beighton but lists
+        zero spouse records. Frederick Beighton inferred via the
+        FreeBMD matched-page trick: Dec 1866 Belper vol7b p858 has
+        TWO entries (Cauldwell Elizabeth + Beighton Frederick), the
+        canonical pre-1912 marriage-pair pattern.
+
+expected_evidence:
+  - source: freebmd
+    kind: birth_registration
+    verdict: verified
+    quarter: "Mar"
+    year: 1844
+    district: "Belper"
+    volume: "19"
+    page: "465"
+    surname: "CAULDWELL"
+    given: "Elizabeth"
+    notes: |
+      Q1 1844 Belper RD vol19 p465. Single national match for
+      Cauldwell Elizabeth births 1843-1846. Vol 19 is the pre-1851
+      numbering scheme (post-1851 Belper uses 7b). Alderwasley sits
+      within Belper RD pre-1936. Age in Jun 1906 death (63) back-
+      calculates to 1842/1843 -- mild informant-age noise.
+
+  - source: freebmd
+    kind: marriage_registration
+    verdict: verified_via_matched_page
+    quarter: "Dec"
+    year: 1866
+    district: "Belper"
+    volume: "7b"
+    page: "858"
+    surname: "CAULDWELL"
+    given: "Elizabeth"
+    spouse_on_same_page:
+      surname: "Beighton"
+      given: "Frederick"
+    notes: |
+      Q4 1866 Belper RD vol7b p858. Same vol/page as a Frederick
+      Beighton marriage entry -- the canonical pre-1912 FreeBMD
+      matched-page pattern. This confirms the husband identity
+      WITHOUT the FreeBMD spouse field (which is empty pre-1912).
+      Engine must implement the matched-page inference rule.
+
+  - source: freebmd
+    kind: death_registration
+    verdict: verified
+    quarter: "Jun"
+    year: 1906
+    district: "Newport, M."
+    volume: "11a"
+    page: "128"
+    surname: "Beighton"
+    given: "Elizabeth"
+    age_at_death: 63
+    notes: |
+      Q2 1906 Newport M. RD vol11a p128. Newport M. = Newport,
+      Monmouthshire (now Gwent, Wales) -- covers Risca per twin
+      DeathLocation. Vol11a is the Welsh/Monmouthshire volume series,
+      not the DBY vol7b. This is the cross-county finding.
+      Search MUST be under BEIGHTON not CAULDWELL.
+
+  - source: freecen
+    kind: census
+    verdict: not_searched
+    notes: |
+      DBY 1851 census might catch Elizabeth as age 7 in Alderwasley.
+      MON/Wales 1871/1881/1891/1901 censuses would catch the Beighton
+      family at Risca. Not searched in this corpus task; engine MAY
+      surface these as out-of-DBY-scope discoveries. Wales census is
+      NOT in the canonical DBY-scoped config.yaml.
+
+expected_per_kind:
+  birth_disambiguation: supported
+  marriage_disambiguation: supported_via_matched_page
+  death_disambiguation: supported
+  spouse_disambiguation: supported_via_matched_page
+  cross_county_handling: supported
+  parent_link: supported  # sibling of T9 pair confirms lineage
+
+# section 5.8.6 headline number
+expected_supported_count: 4
+
+corpus_finding: |
+  Twin has zero recorded spouse for this subject despite LastNameCurrent
+  = Beighton -- inference rule must produce Frederick Beighton as a
+  proposed spouse hypothesis. Acceptance: human-in-loop should add
+  Frederick Beighton @I-new spouse link and Risca/Newport-M. residence
+  to the WikiTree profile.
+
+gedcom_citations:
+  source_file: "Cauldwell Family Tree.twin-export.ged"
+  extracted_to: "eval/certified/_gedcom_citations.json"
+  count: 0
+  reproduction_target: 0
+  notes: |
+    Bio length 0 -- nothing to reproduce. The 4 verified citations
+    above are pure pipeline-discovery targets, all sourced from the
+    DBY+Wales FreeBMD live verification 2026-05-22.

@@ -124,5 +124,38 @@
         "raw": "may have been"
       }
     ]
+  },
+  "@I12119734@": {
+    "citations": [],
+    "meta_signals": []
+  },
+  "@I32675347@": {
+    "citations": [],
+    "meta_signals": []
+  },
+  "@I50100950@": {
+    "citations": [],
+    "meta_signals": []
+  },
+  "@I50189843@": {
+    "citations": [],
+    "meta_signals": []
+  },
+  "@I50179960@": {
+    "citations": [],
+    "meta_signals": []
+  },
+  "@I50104443@": {
+    "citations": [],
+    "meta_signals": []
+  },
+  "@I50166073@": {
+    "citations": [],
+    "meta_signals": [
+      {
+        "kind": "source_needed",
+        "raw": "<ref>\nA source for this information is needed"
+      }
+    ]
   }
 }

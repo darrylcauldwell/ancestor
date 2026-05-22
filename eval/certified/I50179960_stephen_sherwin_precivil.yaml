@@ -1,0 +1,139 @@
+# Certified-corpus subject for section 5.8 eval harness
+# Difficulty axis: pre_civil_registration (born 1774, before civil
+# registration started 1 Jul 1837) -- evidence chain is parish-only
+# until the post-1837 burial.
+# Status: Verified 2026-05-22 via sources/freereg_search.py -- baptism
+#         year inferred from twin, marriage 1797 and burial 1858
+#         confirmed in FreeREG.
+
+profile_id: "@I50179960@"
+canonical_name: "Stephen Sherwin"
+difficulty_axes:
+  - pre_civil_registration
+  - parish_only_evidence
+rationale: |
+  Born 1774 Winster Derbyshire, lived 84 years, died/buried 22 May
+  1858 Brassington. Civil registration started 1 Jul 1837 -- so birth
+  and marriage (1797) are pre-civil; only the 1858 burial overlaps
+  with civil-registration era but parish burial registers remain the
+  canonical source even post-1837 for rural Derbyshire.
+
+  Tests FreeREG-as-primary-source path: the engine must shift its
+  default search strategy from FreeBMD to FreeREG when subject is
+  pre-1837. The 1841 and 1851 censuses are in-scope but FreeCen DBY
+  pre-1861 coverage is essentially nil -- another out-of-coverage
+  signal the engine must learn to distinguish from a recall failure.
+
+  Twin has a 415-byte bio with parish citations (no civil refs).
+  Useful test of the citation_matcher.py against parish prose --
+  it currently looks for FreeBMD/GRO/CWGC/FamilySearch shapes;
+  FreeREG prose is a coverage gap worth flagging.
+
+seed_facts:
+  - { field: birthDate, value: "1774", precision: year }
+  - { field: birthLocation, value: "Winster, Derbyshire, England" }
+  - { field: deathDate, value: "1858-05-22", precision: day }
+  - { field: deathLocation, value: "Brassington, Derbyshire, England" }
+
+relationships:
+  parents:
+    - { role: father, id: "@I50179967@", name: "William Sherwin" }
+    - { role: mother, id: "@I50179968@", name: "Mary Thompson" }
+  spouse:
+    - { id: "@I50179962@", name: "Mary Mitchell", marriage_year: 1797 }
+
+expected_evidence:
+  - source: freereg
+    kind: marriage
+    verdict: verified
+    event_date: "17 Apr 1797"
+    parish: "Old Brampton"
+    church: "St Peter and St Paul"
+    county_chapman: "DBY"
+    persons: "Mary MITCHEL + Stephen SHERWIN"
+    record_url: "https://www.freereg.org.uk/search_records/68301f058655746c6544e0dd/mary-mitchel-stephen-sherwin-marriage-derbyshire-old-brampton-1797-04-17"
+    notes: |
+      Single FreeREG DBY result for Stephen Sherwin marriages 1796-1798.
+      Old Brampton is N of Chesterfield, ~20mi from Winster (Stephen)
+      and ~5mi from Chesterfield where bride Mary Mitchell was christened
+      Feb 1774. Marriage at a midway parish is consistent with bride-side
+      tradition. NB the surname spelling MITCHEL (one L) in the FreeREG
+      transcription vs twin Mitchell (two L) is a normal parish-clerk
+      variant; engine should not treat as identity hazard.
+
+  - source: freereg
+    kind: burial
+    verdict: verified
+    event_date: "22 May 1858"
+    parish: "Brassington"
+    church: "St James"
+    county_chapman: "DBY"
+    person: "Stephen SHERWIN"
+    record_url: "https://www.freereg.org.uk/search_records/61bd0bc3f493fd36fda28a7c/stephen-sherwin-burial-derbyshire-brassington-1858-05-22"
+    notes: |
+      Single FreeREG DBY result for Stephen Sherwin burials 1857-1859.
+      Exact date matches twin DeathDate to the day. Brassington is in
+      Ashbourne RD post-1837 -- but the death is registered as a
+      parish burial, not surfaced in FreeBMD (see below).
+
+  - source: freereg
+    kind: baptism
+    verdict: absent_in_index
+    searched_chapman_codes: ["DBY"]
+    searched_years: 1773-1776
+    notes: |
+      Twin says christened 1774 Winster (bio prose says "christened in
+      1774 at Winster"). FreeREG DBY baptism search returns zero hits
+      for Stephen Sherwin 1773-1776. Either: (a) Winster baptism
+      register not transcribed to FreeREG; (b) the twin baptism claim
+      is from Bishop Transcripts or another non-FreeREG source.
+      Treat as out_of_coverage not as recall failure.
+
+  - source: freebmd
+    kind: death_registration
+    verdict: absent_in_index
+    searched_years: [1857, 1860]
+    notes: |
+      No Stephen Sherwin death indexed in FreeBMD 1855-1860 in DBY RD.
+      The Newcastle Lyme (Staffordshire) 1857 entry is a different
+      person. Pre-1880 Ashbourne RD civil-death indexing was thin;
+      parish-burial-only is normal for rural DBY in this era.
+      Engine must NOT treat as a recall failure -- the canonical
+      source for an 1858 Brassington death is the parish register.
+
+  - source: freecen
+    kind: census
+    verdict: absent_in_index
+    searched_years: [1841, 1851]
+    searched_county: "DBY"
+    notes: |
+      No Stephen Sherwin in FreeCen DBY 1841 or 1851. He would have
+      been 67 and 77 respectively, plausibly alive. DBY pre-1861
+      FreeCen coverage is essentially nil -- recall ceiling.
+
+expected_per_kind:
+  baptism_disambiguation: inconclusive  # FreeREG out_of_coverage
+  marriage_disambiguation: supported    # FreeREG parish marriage
+  burial_disambiguation: supported      # FreeREG parish burial
+  spouse_disambiguation: supported      # Mary Mitchel(l) named in marriage
+  parent_link: inconclusive             # FreeREG marriage doesn fathers
+
+mode_required: ".freereg_primary"  # signal that pre-1837 subjects should
+                                    # route to FreeREG before FreeBMD
+
+# section 5.8.6 headline number
+expected_supported_count: 3
+
+gedcom_citations:
+  source_file: "Cauldwell Family Tree.twin-export.ged"
+  extracted_to: "eval/certified/_gedcom_citations.json"
+  count: 0
+  reproduction_target: 3
+  notes: |
+    Bio has prose citations (3): FreeREG marriage 1797 Old Brampton,
+    FreeREG burial 1858 Brassington, and parish baptism at Winster.
+    But all are written as prose "(FreeREG parish register)" without
+    URL or vol/page. The current extract_gedcom_citations.py only
+    recognises FreeBMD/GRO/CWGC/FamilySearch shapes, so it will return
+    0 citations for this subject. reproduction_target: 3 flags the
+    FreeREG-prose-parser coverage gap as an actionable corpus finding.

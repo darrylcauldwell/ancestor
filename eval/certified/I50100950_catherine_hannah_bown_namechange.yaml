@@ -1,0 +1,115 @@
+# Certified-corpus subject for section 5.8 eval harness
+# Difficulty axis: name_change_at_marriage + sparse_civil_record
+# Status: Verified 2026-05-22 via sources/freebmd.py -- marriage and
+#         death confirmed; birth registration absent (parish baptism
+#         is in the bio note but not surfaced by FreeBMD coverage).
+
+profile_id: "@I50100950@"
+canonical_name: "Catherine Hannah Bown"
+difficulty_axes:
+  - name_change_at_marriage
+  - sparse_civil_record
+rationale: |
+  Female DBY subject who married at age ~25 and died ~15 years later
+  under her married surname. The civil-registration trail requires
+  TWO surname searches: Bown for the marriage, Ward for the death.
+  This is the wikitree_married_surname_convention applied to a less-
+  cited subject than Mary Ward (Ernest Cauldwell wife). Engine must
+  derive the maiden-to-married surname switch from the marriage event
+  and follow it forward to the death.
+
+  Subtle complication: the GRO death index records age 42 at Jun 1907,
+  back-calculating to birth ~1864/1865. Twin says 1867-05-12 birth.
+  The bio note says "christened 12 May 1867" -- so the twin BirthDate
+  field is actually a baptism date, masquerading as a birth. Engine
+  should flag the baptism-as-birth datatype contamination.
+
+seed_facts:
+  - { field: birthDate, value: "1867-05-12", precision: day, datatype_warning: "likely baptism date, not birth" }
+  - { field: birthLocation, value: "Kirk Ireton, Derbyshire, England" }
+  - { field: deathDate, value: "1907-04-10", precision: day }
+  - { field: deathLocation, value: "Kirk Ireton, Derbyshire, England" }
+
+relationships:
+  parents:
+    - { role: father, id: "@I50170652@", name: "Philip Bown" }
+    - { role: mother, id: "@I50170653@", name: "Louisa Bown" }
+  spouse:
+    - id: "@I50100948@"
+      wikitree_name: "Ward"
+      marriage_year: 1892
+
+expected_evidence:
+  - source: freebmd
+    kind: marriage_registration
+    verdict: verified
+    quarter: "Mar"
+    year: 1892
+    district: "Ashbourne"
+    volume: "7b"
+    page: "801"
+    surname: "BOWN"
+    given: "Catherine Hannah"
+    notes: |
+      Q1 1892 Ashbourne RD vol7b p801. Single national match for
+      Bown/Catherine-Hannah marriages 1885-1895. Kirk Ireton is in
+      Ashbourne RD, consistent with twin BirthLocation. This is the
+      surname-pivot record: engine must use the matched-page partner
+      to derive the husband surname (Ward).
+
+  - source: freebmd
+    kind: death_registration
+    verdict: verified
+    quarter: "Jun"
+    year: 1907
+    district: "Ashborne"
+    volume: "7b"
+    page: "407"
+    surname: "WARD"
+    given: "Catherine Hannah"
+    age_at_death: 42
+    notes: |
+      Q2 1907 Ashbourne RD vol7b p407, age 42. Search MUST be under
+      WARD not BOWN -- maiden-name search returns zero. Age 42 in Jun
+      1907 back-calculates to birth 1864-1865, two-three years earlier
+      than twin claim of 1867. Common 19th-century informant-age noise.
+      The unusual middle name Hannah is the disambiguator.
+
+  - source: freebmd
+    kind: birth_registration
+    verdict: absent_in_index
+    searched_years: [1865, 1869]
+    searched_surnames: ["Bown"]
+    notes: |
+      No Bown/Catherine birth registration in Ashbourne RD 1865-1869.
+      Only one candidate (Bown Catherine Ann Dec 1865 Ashborne vol7b p467)
+      has different given names. Possible explanations:
+        - Born before 1 Jul 1837 -- ruled out by twin baptism 1867
+        - Not civil-registered (still 5-15 percent gap in 1860s rural DBY)
+        - Registered under variant given-name (e.g. Hannah Catherine?)
+      Bio note says christened 12 May 1867 at Kirk Ireton -- a parish
+      record FreeREG might surface, not searched in this corpus task.
+      Treat as out_of_coverage not as recall failure.
+
+expected_per_kind:
+  birth_disambiguation: inconclusive
+  marriage_disambiguation: supported
+  death_disambiguation: supported
+  surname_pivot: supported
+  parent_link: inconclusive
+
+# section 5.8.6 headline number
+expected_supported_count: 2
+
+gedcom_citations:
+  source_file: "Cauldwell Family Tree.twin-export.ged"
+  extracted_to: "eval/certified/_gedcom_citations.json"
+  count: 0
+  reproduction_target: 1
+  notes: |
+    Bio note is 3636 bytes -- rich for this corpus. Contains an
+    Ancestry baptism citation (christening 12 May 1867 Kirk Ireton)
+    but uses Ancestry Sharing URL not a FreeBMD/GRO/CWGC shape -- so
+    extract_gedcom_citations.py will surface 0 citations against the
+    current 4-pattern parser. Listed as reproduction_target: 1 to flag
+    the Ancestry-citation gap; parser enhancement would lift this.
