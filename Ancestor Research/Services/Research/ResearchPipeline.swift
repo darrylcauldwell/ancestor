@@ -233,7 +233,11 @@ final class ResearchPipeline {
         let hitRate = total > 0 ? Double(cacheStats.hits) / Double(total) : 0
         logger.info("QueryCache for \(subject.displayName): \(cacheStats.hits) hits / \(cacheStats.misses) misses (\(Int(hitRate * 100))%), \(cacheStats.entries) entries")
 
-        return ResearchResult(
+        // SWIFT_MCP_EVAL_BACKEND_SPEC #Change3 — emit the three per-run
+        // verdicts after clustering / hypothesis flows have settled, so
+        // they see the final clusters and confirmedFacts. Verdicts
+        // depend only on the result + snapshot + subject identity.
+        let preliminaryResult = ResearchResult(
             confirmedFacts: state.confirmedFacts,
             leads: state.leads,
             allScoredRecords: state.scoredRecords,
@@ -242,6 +246,31 @@ final class ResearchPipeline {
             householdMembers: state.householdMembers,
             searchHistory: state.searchHistory,
             hypotheses: allHypotheses
+        )
+        let parentLink = VerdictEmitter.parentLinkVerdict(
+            result: preliminaryResult,
+            snapshot: snapshot,
+            subjectProfileID: subject.profileID
+        )
+        let identity = VerdictEmitter.identityVerdict(result: preliminaryResult)
+        let spouse = VerdictEmitter.spouseVerdict(
+            result: preliminaryResult,
+            snapshot: snapshot,
+            subjectProfileID: subject.profileID
+        )
+
+        return ResearchResult(
+            confirmedFacts: state.confirmedFacts,
+            leads: state.leads,
+            allScoredRecords: state.scoredRecords,
+            clusters: finalClusters,
+            discrepancies: state.discrepancies,
+            householdMembers: state.householdMembers,
+            searchHistory: state.searchHistory,
+            hypotheses: allHypotheses,
+            parentLinkVerdict: parentLink,
+            identityVerdict: identity,
+            spouseVerdict: spouse
         )
     }
 

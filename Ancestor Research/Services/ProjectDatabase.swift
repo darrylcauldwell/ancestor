@@ -849,6 +849,17 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // V29 — per-run structured result envelope for the eval-harness
+        // backend (SWIFT_MCP_EVAL_BACKEND_SPEC #Change1). The Swift app
+        // doesn't read this column; the upcoming `get_research_result`
+        // MCP tool (#Change4) will. Empty string is a valid "no
+        // envelope persisted yet" sentinel.
+        migrator.registerMigration("v29_research_run_result_json") { db in
+            try db.alter(table: "research_runs") { t in
+                t.add(column: "result_json", .text).notNull().defaults(to: "")
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1950,21 +1961,25 @@ nonisolated extension ProjectDatabase {
 
 nonisolated extension ProjectDatabase {
 
-    /// Save a research run record.
+    /// Save a research run record. `resultJSON` carries the per-run
+    /// envelope consumed by the SWIFT_MCP_EVAL_BACKEND `get_research_result`
+    /// tool (#Change4); the in-app paths leave it empty.
     func saveResearchRun(
         id: UUID, profileID: String, mode: ResearchMode,
         startedAt: Date, completedAt: Date,
-        factCount: Int, leadCount: Int, clusterCount: Int, gpsScore: Int?
+        factCount: Int, leadCount: Int, clusterCount: Int, gpsScore: Int?,
+        resultJSON: String = ""
     ) throws {
         try dbQueue.write { db in
             try db.execute(sql: """
                 INSERT OR REPLACE INTO research_runs
-                (id, profile_id, mode, started_at, completed_at, fact_count, lead_count, cluster_count, gps_score)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, profile_id, mode, started_at, completed_at, fact_count, lead_count, cluster_count, gps_score, result_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
                     id.uuidString, profileID, mode.rawValue,
                     startedAt, completedAt,
-                    factCount, leadCount, clusterCount, gpsScore
+                    factCount, leadCount, clusterCount, gpsScore,
+                    resultJSON
                 ])
         }
     }
@@ -2334,7 +2349,31 @@ nonisolated extension ProjectDatabase {
 
 nonisolated extension ProjectDatabase {
 
+    /// Insert a new lead. If a lead with the same `id` already exists the
+    /// existing row is preserved — including any user-set status, resolution,
+    /// and timestamps. Re-running research therefore can't reset an
+    /// `investigating` or `dismissed` lead back to `.new`. Use `upsertLead`
+    /// for deliberate status transitions.
     func saveLead(_ lead: Lead) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO leads
+                (id, profile_id, name, surname, given_name, birth_year, death_year,
+                 relationship, source, status, evidence, created_at, investigated_at, resolved_at, resolution)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    lead.id, lead.profileID, lead.name, lead.surname, lead.givenName,
+                    lead.birthYear, lead.deathYear, lead.relationship,
+                    lead.source.rawValue, lead.status.rawValue, lead.evidence,
+                    lead.createdAt, lead.investigatedAt, lead.resolvedAt, lead.resolution?.rawValue
+                ])
+        }
+    }
+
+    /// Force-write a lead, overwriting any existing row at the same `id`.
+    /// Used by status transitions (`updateStatus`, `promote`) where the
+    /// caller has authority to mutate the persisted state.
+    func upsertLead(_ lead: Lead) throws {
         try dbQueue.write { db in
             try db.execute(sql: """
                 INSERT OR REPLACE INTO leads

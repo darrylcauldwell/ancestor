@@ -394,6 +394,7 @@ final class RunRequestWatcher {
                 searchedSourceCount: searchedSources.count,
                 totalSourceCount: registry.allSources().count
             )
+            let resultJSON = Self.buildResultEnvelope(result: result)
             try? db.saveResearchRun(
                 id: runID,
                 profileID: profileID,
@@ -403,7 +404,8 @@ final class RunRequestWatcher {
                 factCount: result.confirmedFacts.count,
                 leadCount: result.leads.count,
                 clusterCount: result.clusters.count,
-                gpsScore: gps.score
+                gpsScore: gps.score,
+                resultJSON: resultJSON
             )
             savedRunID = runID
         }
@@ -421,6 +423,27 @@ final class RunRequestWatcher {
             try? db.saveLead(updated)
         }
         return savedRunID?.uuidString
+    }
+
+    /// Serialize the §3 eval envelope into a JSON string for the
+    /// `research_runs.result_json` column (SWIFT_MCP_EVAL_BACKEND_SPEC
+    /// #Change3). V1 emits the three per-run verdicts only; the
+    /// hypothesis / citation arrays land in a later change once the
+    /// envelope consumer (`get_research_result`, #Change4) is wired.
+    /// Missing verdicts serialize as JSON null, matching the spec.
+    private static func buildResultEnvelope(result: ResearchResult) -> String {
+        let payload: [String: Any] = [
+            "parent_link_verdict": result.parentLinkVerdict as Any,
+            "identity_verdict":    result.identityVerdict as Any,
+            "spouse_verdict":      result.spouseVerdict as Any
+        ]
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: payload, options: [.sortedKeys]
+        ),
+        let s = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return s
     }
 
     // MARK: - Status writeback

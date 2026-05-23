@@ -107,6 +107,16 @@ nonisolated struct ResearchResult: Sendable {
     /// `ResearchPipeline.projectSiblingExistsToProposals` /
     /// `projectParentInferredToProposal` on demand for accept/reject.
     let hypotheses: [ResearchHypothesis]
+    /// Per-run verdicts emitted by `VerdictEmitter` after the
+    /// post-loop phase (SWIFT_MCP_EVAL_BACKEND_SPEC #Change2). Each is
+    /// one of `"supported" | "contradicted" | "inconclusive"`, or
+    /// `nil` for results that were never emitted (intermediate
+    /// per-iteration `currentResults` snapshots, the static `.empty`).
+    /// Persisted into `research_runs.result_json` (#Change3) and
+    /// surfaced over MCP (#Change4).
+    let parentLinkVerdict: String?
+    let identityVerdict: String?
+    let spouseVerdict: String?
 
     init(
         confirmedFacts: [ScoredRecord],
@@ -116,7 +126,10 @@ nonisolated struct ResearchResult: Sendable {
         discrepancies: [ResearchDiscrepancy],
         householdMembers: [HouseholdMember],
         searchHistory: [SearchAttempt],
-        hypotheses: [ResearchHypothesis] = []
+        hypotheses: [ResearchHypothesis] = [],
+        parentLinkVerdict: String? = nil,
+        identityVerdict: String? = nil,
+        spouseVerdict: String? = nil
     ) {
         self.confirmedFacts = confirmedFacts
         self.leads = leads
@@ -126,6 +139,9 @@ nonisolated struct ResearchResult: Sendable {
         self.householdMembers = householdMembers
         self.searchHistory = searchHistory
         self.hypotheses = hypotheses
+        self.parentLinkVerdict = parentLinkVerdict
+        self.identityVerdict = identityVerdict
+        self.spouseVerdict = spouseVerdict
     }
 
     static let empty = ResearchResult(
