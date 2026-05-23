@@ -427,15 +427,72 @@ final class RunRequestWatcher {
 
     /// Serialize the §3 eval envelope into a JSON string for the
     /// `research_runs.result_json` column (SWIFT_MCP_EVAL_BACKEND_SPEC
-    /// #Change3). V1 emits the three per-run verdicts only; the
-    /// hypothesis / citation arrays land in a later change once the
-    /// envelope consumer (`get_research_result`, #Change4) is wired.
-    /// Missing verdicts serialize as JSON null, matching the spec.
+    /// #Change3). Carries the three per-run verdicts plus the
+    /// hypothesis / citation arrays the harness derives per-kind
+    /// metrics from. Shape mirrors Python's `_state_to_envelope` in
+    /// `eval/run_harness.py:197` so the §5.8 harness consumes either
+    /// backend without branching.
     private static func buildResultEnvelope(result: ResearchResult) -> String {
+        var supported: [[String: Any]] = []
+        var citations: [String] = []
+        for scored in result.confirmedFacts {
+            let citation = CitationRenderer.cite(scored.record)
+            let sourceStrings: [String] = {
+                if let url = citation.url, !url.isEmpty {
+                    return ["\(citation.sourceID): \(scored.summary) [\(url)]"]
+                }
+                return ["\(citation.sourceID): \(scored.summary)"]
+            }()
+            supported.append([
+                "kind": scored.record.recordType.rawValue,
+                "value": scored.summary,
+                "sources": sourceStrings,
+                "confidence": "confirmed",
+            ])
+            citations.append(contentsOf: sourceStrings)
+        }
+
+        // Contradicted = records the scorer ruled out via hard fails
+        // (impossible verdict). Python's "rejected_records" carries a
+        // record-summary + reason; Swift's gate machinery records
+        // per-gate outcomes, so collapse the failed gates into one
+        // reason string.
+        let contradicted: [[String: Any]] = result.allScoredRecords
+            .filter { $0.verdict == .impossible }
+            .map { scored in
+                let failed = scored.gates
+                    .filter { $0.outcome == .fail || $0.outcome == .impossible }
+                    .map { "\($0.gate.rawValue): \($0.reason)" }
+                    .joined(separator: "; ")
+                return [
+                    "value": scored.summary,
+                    "reason": failed.isEmpty ? "gate failure" : failed,
+                ]
+            }
+
+        // Inconclusive = leads (records that scored as candidates but
+        // didn't clear every gate). Python carries the gate reasons as
+        // a list; mirror that.
+        let inconclusive: [[String: Any]] = result.leads.map { scored in
+            let reasons = scored.gates
+                .filter { $0.outcome != .pass && $0.outcome != .skip }
+                .map { $0.reason }
+            return [
+                "kind": scored.record.recordType.rawValue,
+                "summary": scored.summary,
+                "source": scored.record.recordType.rawValue,
+                "reasons": reasons,
+            ]
+        }
+
         let payload: [String: Any] = [
-            "parent_link_verdict": result.parentLinkVerdict as Any,
-            "identity_verdict":    result.identityVerdict as Any,
-            "spouse_verdict":      result.spouseVerdict as Any
+            "supported_hypotheses":    supported,
+            "contradicted_hypotheses": contradicted,
+            "inconclusive_hypotheses": inconclusive,
+            "discovered_citations":    citations,
+            "parent_link_verdict":     result.parentLinkVerdict as Any,
+            "identity_verdict":        result.identityVerdict as Any,
+            "spouse_verdict":          result.spouseVerdict as Any,
         ]
         guard let data = try? JSONSerialization.data(
             withJSONObject: payload, options: [.sortedKeys]
