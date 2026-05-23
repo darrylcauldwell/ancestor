@@ -22,6 +22,7 @@ region:
     Derby: "710"
     Basford: "676"
     Worksop: "765"
+    Glossop: "81"
 
   # Which parishes each registration district covers
   # Used for geographic plausibility scoring
@@ -77,6 +78,11 @@ region:
       - Langley Mill
     Worksop:
       - Worksop
+    Glossop:
+      - Glossop
+      - Hadfield
+      - Whitfield
+      - Marple Bridge
 
   # Historic spelling variants returned by indexed sources (most often
   # FreeBMD) that should be normalised to the canonical district name

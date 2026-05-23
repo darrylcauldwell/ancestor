@@ -632,6 +632,32 @@ def _expand_post_marriage_searches(state: dict) -> None:
     original_surname = parts[-1].upper()
     given_part = " ".join(parts[:-1])
 
+    # Only women take the spouse's surname in this era — running this
+    # expansion for a male subject produces false positives (George
+    # Bowden's "death" coming back as George W KEYWORTH, surname picked
+    # from his wife's family). Gate on gender; look it up in LocalTwin
+    # if the subject's gender wasn't passed in. Two letter forms in the
+    # wild: caller's `person.gender` is single-char "F"/"M", LocalTwin's
+    # node.Gender is full word "Female"/"Male" — normalise both to
+    # initial-letter before comparing.
+    raw_gender = (state["person"].get("gender") or "")
+    if not raw_gender:
+        corpus_match = state.get("corpus_match") or {}
+        wt_id = corpus_match.get("corpus_id")
+        if wt_id:
+            try:
+                from wikitree.twin import LocalTwin
+                twin = LocalTwin()
+                if twin.load():
+                    node = twin.get(wt_id)
+                    if node:
+                        raw_gender = node.get("Gender") or ""
+            except Exception:
+                pass
+    gender_letter = raw_gender[:1].upper() if raw_gender else ""
+    if gender_letter and gender_letter != "F":
+        return
+
     spouse_surnames: set[str] = set()
     for fact in state.get("confirmed_facts", []):
         if fact.get("type") != "marriage":
