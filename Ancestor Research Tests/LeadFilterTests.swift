@@ -118,8 +118,22 @@ struct LeadFilterTests {
         #expect(filter.preciseBirthYear == nil)
     }
 
-    @Test func derivingIsAliveWhenNoDeathDate() {
+    @Test func derivingIsAliveOnlyWhenLivingPrivateFlagSet() {
+        // Default privacy (.normal) — absence of a death date is NOT
+        // sufficient evidence the person is alive. Older relatives often
+        // have no death date entered yet, and research is supposed to
+        // discover that. Filter 1 must not pre-empt discovery.
         let profile = makeProfile(birthDate: "1948")
+        let filter = LeadFilter.deriving(from: profile)
+        #expect(filter.isAlive == false)
+    }
+
+    @Test func derivingIsAliveTrueWhenPrivacyIsLivingPrivate() {
+        // Explicit `livingPrivate` is the only path to isAlive=true.
+        var profile = makeProfile(birthDate: "1948")
+        profile.attributes = PersonAttributes(
+            nameStatus: .known, lifeStatus: .normal, privacy: .livingPrivate
+        )
         let filter = LeadFilter.deriving(from: profile)
         #expect(filter.isAlive == true)
     }
