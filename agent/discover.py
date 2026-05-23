@@ -126,6 +126,24 @@ def _dispatch_search(search_type: str, surname: str, given: str,
     return []
 
 
+def _freebmd_national_fallback(record_type, surname, start, end):
+    """Cross-county escalation tier (KINSHIP / Lydia path): when the
+    home-county pass yields nothing, run one all-districts query
+    (`district=""` → FreeBMD's `districtid=""` → no district filter).
+
+    Bounded cost (one extra search per kind when needed). The scorer's
+    geography gate still soft-fails out-of-region hits — escalation
+    raises *recall*, not noise. Industrial migration, Border-county
+    spillover, and registry-of-birth ≠ residence cases (Lydia
+    Kenworthy: twin says Stanton DBY, FreeBMD says Huddersfield YKS)
+    all live in this tier.
+    """
+    from sources import freebmd
+    print(f"      [SCOPE-ESCALATE] {record_type} {surname} {start}-{end}: home county empty, retrying national")
+    r = freebmd.search(record_type, surname, start=start, end=end, district="")
+    return r if isinstance(r, list) else []
+
+
 def _search_freebmd_births(surname, given, birth_year):
     """Search FreeBMD births across configured districts.
 
@@ -136,13 +154,16 @@ def _search_freebmd_births(surname, given, birth_year):
     from sources import freebmd
     if not birth_year or birth_year < CIVIL_REGISTRATION_START:
         return []
+    start, end = birth_year - 2, birth_year + 2
     results = []
     for district_id in _cfg.region.districts.values():
         r = freebmd.search("Births", surname,
-                            start=birth_year - 2, end=birth_year + 2,
+                            start=start, end=end,
                             district=district_id)
         if isinstance(r, list):
             results.extend(r)
+    if not results:
+        results = _freebmd_national_fallback("Births", surname, start, end)
     return results
 
 
@@ -162,6 +183,8 @@ def _search_freebmd_deaths(surname, given, death_year, birth_year):
                             start=start, end=end, district=district_id)
         if isinstance(r, list):
             results.extend(r)
+    if not results:
+        results = _freebmd_national_fallback("Deaths", surname, start, end)
     return results
 
 
@@ -178,6 +201,8 @@ def _search_freebmd_marriages(surname, given, birth_year, death_year):
                             start=start, end=end, district=district_id)
         if isinstance(r, list):
             results.extend(r)
+    if not results:
+        results = _freebmd_national_fallback("Marriages", surname, start, end)
     return results
 
 
