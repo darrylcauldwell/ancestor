@@ -564,9 +564,11 @@ extension FamilySearchSource {
         rawFields["primary"] = personaIndex == 0 ? "true" : "false"
         if let principal = persona.principal, principal { rawFields["principal"] = "true" }
 
-        // Stable per-persona record ID; falls back to a deterministic hash
-        // if persona.id is missing (defensive — spec assumes it's present).
-        let recordID = persona.id ?? "fs-\(collectionARK.hashValue)-\(personaIndex)"
+        // Stable per-persona record ID; falls back to the ARK + index when
+        // persona.id is missing (defensive — spec assumes it's present).
+        // Avoids Swift's process-randomised `hashValue`, which would produce
+        // a different id on every launch and break cross-run dedup.
+        let recordID = persona.id ?? "fs-\(collectionARK)-\(personaIndex)"
         let detailURL = persona.id.map { "\(arkBase)\($0)" }
         let common = RecordCommon(
             id: recordID,
