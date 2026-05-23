@@ -232,6 +232,7 @@ def _state_to_envelope(state: dict) -> dict:
         "discovered_citations": citations,
         "parent_link_verdict": state.get("parent_link_verdict"),
         "identity_verdict": state.get("identity_verdict"),
+        "spouse_verdict": state.get("spouse_verdict"),
         "mocked": False,
     }
 
@@ -262,6 +263,7 @@ def _python_pipeline_call(subject: dict) -> dict:
     }
     parent_link_verdicts: list[str | None] = []
     identity_verdicts: list[str | None] = []
+    spouse_verdicts: list[str | None] = []
     for person in persons:
         state = research_person(person)
         envelope = _state_to_envelope(state)
@@ -270,6 +272,7 @@ def _python_pipeline_call(subject: dict) -> dict:
             aggregated[key].extend(envelope[key])
         parent_link_verdicts.append(envelope.get("parent_link_verdict"))
         identity_verdicts.append(envelope.get("identity_verdict"))
+        spouse_verdicts.append(envelope.get("spouse_verdict"))
 
     # Strongest verdict across members: supported > contradicted > inconclusive.
     # None values are ignored unless every member is None (then result is None).
@@ -285,6 +288,7 @@ def _python_pipeline_call(subject: dict) -> dict:
 
     aggregated["parent_link_verdict"] = _strongest(parent_link_verdicts)
     aggregated["identity_verdict"] = _strongest(identity_verdicts)
+    aggregated["spouse_verdict"] = _strongest(spouse_verdicts)
 
     # Pair/cluster subjects research the same person twice (one run per
     # member). The pipeline finds the same source records each time, so
@@ -344,15 +348,13 @@ def _actual_verdict_for_kind(kind: str, pipeline_result: dict, full_kind: str | 
       - inconclusive: neither
     """
     if kind == "spouse_disambiguation":
-        # Derived: any supported marriage whose value carries a spouse
-        # surname (post-1912 FreeBMD spouse_or_mother field).
-        for h in pipeline_result.get("supported_hypotheses", []) or []:
-            if h.get("kind") in {"marriage", "marriage_registration"}:
-                v = (h.get("value") or "")
-                # Marriage summary ends with `, <Spouse>` when spouse known
-                if re.search(r"\)\s*,\s*[A-Z][a-zA-Z]+\s*$", v):
-                    return "supported"
-        return "inconclusive"
+        # Pipeline emits an explicit spouse_verdict from three signals
+        # (post-1912 FreeBMD spouse name, household co-residence, twin
+        # spouse edges) — see agent/pipeline.py:_emit_spouse_verdict.
+        # That's strictly more capable than the old harness-side regex
+        # which only handled signal 1 and missed Robert (pre-1912
+        # marriage, spouse only visible via CWGC next-of-kin + twin).
+        return pipeline_result.get("spouse_verdict")
 
     # Pipeline-emitted explicit verdicts (added for §5.8 per-kind metric).
     if kind == "parent_link":

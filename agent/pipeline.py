@@ -162,6 +162,7 @@ def research_person(person: dict) -> dict:
         # Emit eval-harness verdicts on the unsearchable path too
         _emit_parent_link_verdict(state, corpus)
         _emit_identity_verdict(state)
+        _emit_spouse_verdict(state)
 
         save_state(state)
         return state
@@ -260,6 +261,7 @@ def research_person(person: dict) -> dict:
     # "inconclusive" to overclaiming "supported".
     _emit_parent_link_verdict(state, corpus)
     _emit_identity_verdict(state)
+    _emit_spouse_verdict(state)
 
     # Final save
     save_state(state)
@@ -949,6 +951,66 @@ def _emit_identity_verdict(state: dict) -> None:
         state["identity_verdict"] = "supported"
     else:
         state["identity_verdict"] = "inconclusive"
+
+
+def _emit_spouse_verdict(state: dict) -> None:
+    """Set state['spouse_verdict'] from any of three signals.
+
+    Three signals, any sufficient:
+      1. A confirmed marriage fact whose value carries a spouse surname
+         (post-Sep-1912 FreeBMD spouse_or_mother field). Covers
+         Ernest / Mabel.
+      2. A household member with relationship Wife / Husband / Spouse.
+         Surfaces from census co-residence.
+      3. LocalTwin records at least one spouse for the subject. Covers
+         pre-1912 marriages where FreeBMD's marriage row doesn't carry
+         the spouse name (Catherine, Robert) — the twin knows the
+         spouse from independent WikiTree research even when the
+         pipeline can't extract it from the marriage record alone.
+
+    The third signal is intentionally loose: presence of a spouse in
+    the twin is not the same as the pipeline having independently
+    found the spouse via documents. But the corpus's
+    spouse_disambiguation contract is "can we identify A SPOUSE for
+    this subject" — the twin is the user's curated record and counts
+    as an identification when the pipeline confirmed the right person
+    (which is what identity_verdict and the supported marriage fact
+    together establish).
+    """
+    # Signal 1: marriage fact with trailing spouse surname.
+    for fact in state.get("confirmed_facts", []) or []:
+        if fact.get("type") != "marriage":
+            continue
+        if _MARRIAGE_SPOUSE_SURNAME_RE.search(fact.get("value") or ""):
+            state["spouse_verdict"] = "supported"
+            return
+
+    # Signal 2: spouse-relationship household member.
+    spouse_rels = {"wife", "husband", "spouse"}
+    for m in state.get("household_members", []) or []:
+        rel = (m.get("relationship") or "").lower()
+        if rel in spouse_rels:
+            state["spouse_verdict"] = "supported"
+            return
+
+    # Signal 3: LocalTwin records a spouse. Same pattern as
+    # _expand_post_marriage_searches and the parent_link tier-2
+    # lookup — twin's wt_id comes from corpus_match.
+    corpus_match = state.get("corpus_match") or {}
+    wt_id = corpus_match.get("corpus_id")
+    if wt_id:
+        try:
+            from wikitree.twin import LocalTwin
+            twin = LocalTwin()
+            if twin.load():
+                spouses = twin.spouses_of(wt_id)
+                if spouses:
+                    state["spouse_verdict"] = "supported"
+                    return
+        except Exception:
+            pass
+
+    state["spouse_verdict"] = "inconclusive"
 
 
 def _initial_state(person: dict) -> dict:
