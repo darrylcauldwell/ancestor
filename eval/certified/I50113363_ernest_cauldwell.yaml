@@ -157,6 +157,37 @@ expected_per_kind:
 # Headline number for §5.8.6 commit-message deltas
 expected_supported_count: 5
 
+# KINSHIP_SPEC §6.1 — kinship-discovery measurement target.
+# Ernest's siblings are pre-1911 so FreeBMD-MMN can't find them
+# directly (the mother's-maiden-name field is only indexed from
+# Sep 1911). The children block below is the FreeBMD-MMN test case
+# for find_siblings / find_children — all three are post-1911 births
+# under mother's-maiden-name = Ward, so each one's `find_siblings`
+# should surface the other two.
+expected_relatives:
+  parents:
+    - id: "@I50137350@"
+      name: "John Cauldwell"
+      verified_by: "twin record only; pipeline can't independently confirm pre-1911 parent links"
+  spouses:
+    - id: "@I50104220@"
+      name: "Mary Ward"
+      maiden_surname: "Ward"
+      verified_by: "FreeBMD marriage Mar 1915 Ashbourne vol7b p977"
+  children:
+    - id: "@I50100941@"
+      name: "George Eric Vaughn Cauldwell"
+      birth: "19 JUL 1915"
+      verified_by: "FreeBMD birth Sep 1915 Basford vol7b p370 (indexed as 'Vaughan E G H'), mother's-maiden-name Ward"
+    - id: "@I50100946@"
+      name: "Kenneth Howard Cauldwell"
+      birth: "13 JUL 1917"
+      verified_by: "FreeBMD birth Sep 1917 Basford vol7b p334, mother's-maiden-name Ward"
+    - id: "@I50100821@"
+      name: "Ernest Victor Cauldwell"
+      birth: "18 AUG 1919"
+      verified_by: "FreeBMD birth Sep 1919 Basford vol7b p355, mother's-maiden-name Ward"
+
 gedcom_citations:
   source_file: "Cauldwell Family Tree.twin-export.ged"
   extracted_to: "eval/certified/_gedcom_citations.json"
