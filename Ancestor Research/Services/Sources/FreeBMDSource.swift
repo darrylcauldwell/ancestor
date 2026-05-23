@@ -637,18 +637,22 @@ actor FreeBMDSource: RecordSource {
     /// Parse the searchData JavaScript array from a FreeBMD results page.
     /// Ported faithfully from Python's _parse_html().
     ///
-    /// `querySurname` is the surname we asked for. FreeBMD's response
-    /// compresses by blanking the surname column when a row's surname
-    /// equals the search query — for our Cauldwell search every row in
-    /// `searchData` IS a Cauldwell record, but rows render as
-    /// `40;;David N;Wheeldon;;Ashbourne;3a;12;...` with `parts[1]` empty.
-    /// Reading that literally gives the record `surname = ""`, which
-    /// fails the name gate and silently drops every record. Filling
-    /// `parts[1]` from the query when it's blank is safe because the
-    /// query constrains the result set to that surname (only loose-mode
-    /// phonetic / variant searches can return foreign surnames, and
-    /// those bypass this code path — they're handled by the dispatcher's
-    /// variant fan-out before parsing).
+    /// FreeBMD sparse-encoding: within a results page, the first row of
+    /// a same-(surname, district, vol) group has all three columns
+    /// populated; subsequent rows leave them blank as "same as
+    /// previous". Carry-forward is document-global — separator rows
+    /// update year/quarter for the next record but do NOT reset
+    /// surname/district/vol. Without carrying these forward, every
+    /// record after the first in a group lands with empty strings in
+    /// the geography column and gets silently dropped by the scorer's
+    /// geography gate (the bug that masked Mabel Cauldwell's Mar 1897
+    /// Belper vol7b p615 birth — see Python commit e7a005e).
+    ///
+    /// `querySurname` is the surname we asked for, kept as a
+    /// belt-and-braces fallback for the surname column specifically.
+    /// The carry-forward implemented here is the more general fix; the
+    /// `querySurname` fallback only fires when carry-forward couldn't
+    /// (no previous populated row in the page).
     nonisolated static func parseSearchResults(_ html: String, recordType: RecordType, querySurname: String = "") -> [SourceRecord] {
         // Extract JavaScript array: var searchData = new Array ("row1","row2",...);
         let arrayPattern = #"var searchData = new Array \((.*?)\);"#
@@ -668,13 +672,19 @@ actor FreeBMDSource: RecordSource {
         var records: [SourceRecord] = []
         var currentYear: Int?
         var currentQuarter: String?
+        // Sparse-encoding carry-forward: see function docstring.
+        var currentSurname = ""
+        var currentDistrict = ""
+        var currentVol = ""
 
         for rowMatch in rowMatches {
             guard let rowRange = Range(rowMatch.range(at: 1), in: arrayContent) else { continue }
             let row = String(arrayContent[rowRange])
             let parts = row.components(separatedBy: ";")
 
-            // Separator rows: parts[1] in ("0","1","2"), parts[2] is quarter (1-4), parts[3] is year
+            // Separator rows: parts[1] in ("0","1","2"), parts[2] is quarter (1-4), parts[3] is year.
+            // Separator rows update year/quarter but do NOT reset
+            // surname/district/vol — those are document-global.
             if parts.count >= 4,
                ["0", "1", "2"].contains(parts[1]),
                ["1", "2", "3", "4"].contains(parts[2]) {
@@ -689,17 +699,21 @@ actor FreeBMDSource: RecordSource {
                parts[2] != "Q",
                !parts[2].hasPrefix("/") {
 
-                // Blank surname → FreeBMD compression: row's surname equals
-                // the search query. Fill from `querySurname` so the name
-                // gate sees the correct value. Without this every
-                // post-1900-ish record drops silently because FreeBMD
-                // started eliding the duplicate surname column.
-                let rawSurname = parts[1]
-                let surname = rawSurname.isEmpty ? querySurname : rawSurname
+                // Carry-forward: only update the tracked value when this
+                // row populates the column. Blank columns inherit the
+                // last populated value.
+                if !parts[1].isEmpty { currentSurname = parts[1] }
+                if !parts[5].isEmpty { currentDistrict = parts[5] }
+                if !parts[6].isEmpty { currentVol = parts[6] }
+
+                // Surname-specific belt-and-braces: if carry-forward had
+                // nothing to carry (first row of page already blank),
+                // fall back to the query surname.
+                let surname = currentSurname.isEmpty ? querySurname : currentSurname
                 let firstname = parts[2].removingPercentEncoding ?? parts[2]
                 let spouseOrMother = (parts[3].removingPercentEncoding ?? parts[3]).trimmingCharacters(in: .whitespaces)
-                let district = parts[5]
-                let vol = parts[6]
+                let district = currentDistrict
+                let vol = currentVol
                 let page = parts[7]
                 let recordID = parts.count > 8 ? parts[8].components(separatedBy: ":").first ?? "" : ""
 
