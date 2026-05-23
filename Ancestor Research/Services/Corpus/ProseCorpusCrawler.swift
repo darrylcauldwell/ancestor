@@ -28,10 +28,12 @@ import os
 ///   no header access. Fallback is a URL-extension allow/deny heuristic
 ///   that catches the common binary types (PDF/JPG/ZIP/…) and lets the
 ///   converter handle anything else.
-/// - Full Public Suffix List. The same-host check strips a leading
-///   `www.` and compares hostnames case-insensitively — good enough for
-///   the volunteer genealogy sites that are the v1 target, brittle for
-///   sites that span subdomains. Marked TODO.
+/// - Full Public Suffix List. The same-host check normalises `www.`,
+///   compares hostnames case-insensitively, AND accepts subdomain
+///   parent/child relationships (`staff.example.com` ↔ `example.com`).
+///   Sibling subdomains (`a.example.com` ↔ `b.example.com`) need true
+///   PSL knowledge to disambiguate from `a.example.co.uk` ↔
+///   `b.example.co.uk` and remain TODO.
 actor ProseCorpusCrawler {
 
     // MARK: - Public configuration
@@ -431,18 +433,39 @@ actor ProseCorpusCrawler {
 
     // MARK: - Same-host check
 
-    /// Compare two URLs for "registrable host equality". v1: strip `www.`
-    /// from both hostnames and lowercase compare. Full Public Suffix
-    /// List support is a follow-up; the genealogy volunteer sites we
-    /// target rarely span subdomains beyond `www.example.com` ↔
-    /// `example.com`.
+    /// Compare two URLs for "registrable host equality" — should the
+    /// crawler treat them as the same site for the purpose of link
+    /// following and seed verification.
+    ///
+    /// Three accepted relationships:
+    ///   1. Identical hosts (after lowercasing and `www.` strip).
+    ///   2. `www.` ↔ bare equivalence — already covered by normalisation.
+    ///   3. Parent/child subdomain relationship — `staff.example.com`
+    ///      and `example.com` are the same site for crawl purposes.
+    ///      Implemented by suffix check with a leading `.` to avoid
+    ///      `attacker-example.com` matching `example.com` (the leading
+    ///      `.` requires a real subdomain boundary).
+    ///
+    /// Not yet handled — sibling subdomains (`staff.example.com` ↔
+    /// `news.example.com`). Distinguishing these from siblings under a
+    /// public suffix (`a.example.co.uk` ↔ `b.example.co.uk`, which
+    /// would also be siblings of the registrable domain) needs PSL
+    /// knowledge. The conservative choice is to reject sibling
+    /// subdomains; the parent/child case is the one the target
+    /// genealogy sites actually need.
     ///
     /// Static so the site verifier (P3 add-corpus flow) can call it
     /// without instantiating a crawler. Same-host logic lives in one
     /// place — moving it would scatter the registrable-host contract.
     nonisolated static func sameRegistrableHost(_ a: URL, _ b: URL) -> Bool {
         guard let ha = normaliseHost(a), let hb = normaliseHost(b) else { return false }
-        return ha == hb
+        if ha == hb { return true }
+        // Parent/child subdomain. The leading `.` in the suffix check
+        // is load-bearing — without it `attacker-example.com` would
+        // match `example.com`.
+        if ha.hasSuffix("." + hb) { return true }
+        if hb.hasSuffix("." + ha) { return true }
+        return false
     }
 
     nonisolated static func normaliseHost(_ url: URL) -> String? {
