@@ -683,9 +683,29 @@ def _expand_post_marriage_searches(state: dict) -> None:
                 twin = LocalTwin()
                 if twin.load():
                     for spouse in twin.spouses_of(wt_id):
-                        ln = (spouse.get("LastNameAtBirth") or "").strip()
-                        if ln and ln.upper() != original_surname:
-                            spouse_surnames.add(ln)
+                        # Walk LastNameAtBirth → LastNameCurrent →
+                        # LastNameOther → the wt_id prefix. Privacy
+                        # gating and sparse profiles often leave the
+                        # name fields blank on the spouse node, but
+                        # WikiTree IDs are literally "Surname-N" so the
+                        # surname can always be recovered from the key
+                        # when the data fields are stripped. Lydia
+                        # Kenworthy's husband @I50166072@ (twin wt_id
+                        # "Twyford-…") is the canonical case — without
+                        # this fallback the pipeline never picks up
+                        # TWYFORD to re-search her death under.
+                        candidates: list[str] = [
+                            (spouse.get("LastNameAtBirth") or "").strip(),
+                            (spouse.get("LastNameCurrent") or "").strip(),
+                            (spouse.get("LastNameOther") or "").strip(),
+                        ]
+                        spouse_wt = spouse.get("wt_id") or ""
+                        if "-" in spouse_wt:
+                            candidates.append(spouse_wt.rsplit("-", 1)[0])
+                        for ln in candidates:
+                            if ln and ln.upper() != original_surname:
+                                spouse_surnames.add(ln)
+                                break
             except Exception:
                 pass
 
