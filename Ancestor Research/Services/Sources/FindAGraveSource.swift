@@ -308,6 +308,12 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
                 deathYear: ScoringRules.extractYear(from: deathDate ?? ""),
                 birthDate: birthDate,
                 birthYear: ScoringRules.extractYear(from: birthDate ?? ""),
+                // Birth/death towns are only in the detail page's
+                // schema.org itemprop blocks, not the search-results
+                // payload. Leave nil here; the detail-page parse path
+                // populates them.
+                birthPlace: nil,
+                deathPlace: nil,
                 burialLocation: locationParts.joined(separator: ", "),
                 cemetery: rec["cemeteryName"] as? String,
                 memorialID: memorialID,
@@ -362,8 +368,12 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         // Extract fields via itemprop regex
         let birthDate = extractItemprop("birthDate", from: html)
         let deathDate = extractItemprop("deathDate", from: html)?.replacingOccurrences(of: #"\s*\(aged.*\)"#, with: "", options: .regularExpression)
-        let birthPlace = extractItempropBlock("birthPlace", from: html) // TODO: add to BurialRecord
-        let deathPlace = extractItempropBlock("deathPlace", from: html) // TODO: add to BurialRecord
+        // Birth/death towns from schema.org itemprop blocks. Plumbed
+        // through to BurialRecord so the scorer's geography gate can
+        // see where the person actually was born/died (often different
+        // from where they're buried).
+        let birthPlace = extractItempropBlock("birthPlace", from: html)
+        let deathPlace = extractItempropBlock("deathPlace", from: html)
 
         // Cemetery
         let cemetery = extractItempropSpan("name", from: html)
@@ -418,6 +428,8 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
             deathYear: finalDeathYear,
             birthDate: birthDate,
             birthYear: finalBirthYear,
+            birthPlace: birthPlace,
+            deathPlace: deathPlace,
             burialLocation: locParts.joined(separator: ", "),
             cemetery: cemetery,
             memorialID: memorialID,

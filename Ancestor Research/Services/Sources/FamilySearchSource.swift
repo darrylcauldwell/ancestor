@@ -635,6 +635,9 @@ extension FamilySearchSource {
                 common: common,
                 deathDate: nil, deathYear: nil,
                 birthDate: nil, birthYear: nil,
+                // FamilySearch's burial-collection records don't carry
+                // birth/death-town separate from the cemetery location.
+                birthPlace: nil, deathPlace: nil,
                 burialLocation: place, cemetery: nil,
                 memorialID: memorialID, inscription: nil, bio: nil,
                 isVeteran: false

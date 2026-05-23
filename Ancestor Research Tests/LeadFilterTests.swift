@@ -77,6 +77,7 @@ struct LeadFilterTests {
             common: common,
             deathDate: nil, deathYear: deathYear,
             birthDate: nil, birthYear: nil,
+            birthPlace: nil, deathPlace: nil,
             burialLocation: nil, cemetery: nil,
             memorialID: nil, inscription: nil, bio: nil, isVeteran: false
         )
@@ -385,7 +386,7 @@ struct LeadFilterTests {
     @Test func isDeathShapedFlagsAllDeathTypes() {
         let common = RecordCommon(id: "x", sourceID: "x", name: nil, surname: nil, givenName: nil, detailURL: nil, rawFields: [:])
         let death = DeathRecord(common: common, deathYear: 1999, deathDate: nil, deathPlace: nil, age: nil, quarter: nil, district: nil, volume: nil, page: nil, spouseSurname: nil)
-        let burial = BurialRecord(common: common, deathDate: nil, deathYear: 1999, birthDate: nil, birthYear: nil, burialLocation: nil, cemetery: nil, memorialID: nil, inscription: nil, bio: nil, isVeteran: false)
+        let burial = BurialRecord(common: common, deathDate: nil, deathYear: 1999, birthDate: nil, birthYear: nil, birthPlace: nil, deathPlace: nil, burialLocation: nil, cemetery: nil, memorialID: nil, inscription: nil, bio: nil, isVeteran: false)
         let probate = ProbateRecord(common: common, deathDate: nil, deathYear: 1999, probateDate: nil, birthDate: nil, ageAtDeath: nil, address: nil, grantType: nil, registry: nil, probateNumber: nil, regimentNumber: nil)
         let military = MilitaryRecord(common: common, rank: nil, regiment: nil, unit: nil, serviceNumber: nil, dateOfDeath: nil, deathYear: 1999, age: nil, cemetery: nil, graveRef: nil, additionalInfo: nil)
         #expect(LeadFilter.isDeathShaped(.death(death)))

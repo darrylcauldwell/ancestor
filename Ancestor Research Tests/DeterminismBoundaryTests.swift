@@ -130,6 +130,7 @@ struct DeterminismBoundaryTests {
                 common: RecordCommon(id: "1", sourceID: "findagrave", name: nil,
                     surname: "LAND", givenName: "THOMAS", detailURL: nil, rawFields: [:]),
                 deathDate: nil, deathYear: 1890, birthDate: nil, birthYear: 1834,
+                birthPlace: nil, deathPlace: nil,
                 burialLocation: "Belper", cemetery: "Test Cemetery",
                 memorialID: 1, inscription: nil, bio: nil, isVeteran: false
             )),
@@ -137,6 +138,7 @@ struct DeterminismBoundaryTests {
                 common: RecordCommon(id: "2", sourceID: "findagrave", name: nil,
                     surname: "LAND", givenName: "THOMAS", detailURL: nil, rawFields: [:]),
                 deathDate: nil, deathYear: 1890, birthDate: nil, birthYear: 1834,
+                birthPlace: nil, deathPlace: nil,
                 burialLocation: "Belper", cemetery: "Another Cemetery",
                 memorialID: 2, inscription: nil, bio: nil, isVeteran: false
             )),

@@ -81,6 +81,16 @@ nonisolated struct BurialRecord: Codable, Sendable {
     let deathYear: Int?
     let birthDate: String?
     let birthYear: Int?
+    /// Birth town/place from the memorial's schema.org `birthPlace`
+    /// itemprop (FindAGrave detail page). Distinct from
+    /// `burialLocation`, which is where the cemetery is — a person can
+    /// be born in Belper and buried in London. Optional because not
+    /// every memorial carries this metadata.
+    let birthPlace: String?
+    /// Death town/place from the memorial's schema.org `deathPlace`
+    /// itemprop. Same shape as birthPlace and same reason for being
+    /// distinct from burialLocation.
+    let deathPlace: String?
     let burialLocation: String?
     let cemetery: String?
     let memorialID: Int?

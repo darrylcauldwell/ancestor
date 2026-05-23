@@ -332,6 +332,8 @@ struct RecordScorerProbateTests {
             deathYear: deathYear,
             birthDate: nil,
             birthYear: nil,
+            birthPlace: nil,
+            deathPlace: nil,
             burialLocation: location,
             cemetery: nil,
             memorialID: nil,
