@@ -7,13 +7,19 @@ precision/recall + a single headline number suitable for commit-message
 deltas.
 
 Backends:
-  --backend python  (default) — in-process call to `agent.pipeline.research_person`
-  --backend mock              — empty envelope (skeleton plumbing)
+  --backend python    (default) — in-process call to `agent.pipeline.research_person`
+  --backend mock                — empty envelope (skeleton plumbing)
+  --backend swift-mcp           — out-of-process call to the Swift app via
+                                  FieldResearcherMCP. Requires a pre-built
+                                  binary and a pre-provisioned test DB; see
+                                  SWIFT_MCP_EVAL_BACKEND_SPEC §5.
 
 Run from repo root:
     python eval/run_harness.py
     python eval/run_harness.py --only @I50113363@           # single subject
     python eval/run_harness.py --backend mock               # no live HTTP
+    python eval/run_harness.py --backend swift-mcp \
+        --db-path ~/Library/Application\\ Support/AncestorResearchEval/test-corpus.sqlite
 """
 
 import argparse
@@ -21,7 +27,9 @@ import datetime as dt
 import json
 import os
 import re
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 import yaml
@@ -316,6 +324,255 @@ def _dedupe(items: list, key) -> list:
         seen.add(k)
         out.append(item)
     return out
+
+
+# --- Swift MCP backend -----------------------------------------------------
+#
+# Spawns FieldResearcherMCP as a subprocess and speaks line-delimited
+# JSON-RPC over its stdin / stdout. One process per harness run, reused
+# across all subjects (spec §5.2). See SWIFT_MCP_EVAL_BACKEND_SPEC for
+# the contract.
+
+_SWIFT_MCP_DEFAULT_DB = (
+    "~/Library/Application Support/AncestorResearchEval/test-corpus.sqlite"
+)
+# Debug-first so a recently-rebuilt debug binary takes precedence over
+# a stale release artifact. Release is the eventual shipping target
+# (spec §5.2's example) but is only the right choice once someone has
+# actually run `swift build -c release` recently. Override either with
+# --mcp-binary.
+_SWIFT_MCP_BINARY_CANDIDATES = (
+    "FieldResearcherMCP/.build/debug/FieldResearcherMCP",
+    "FieldResearcherMCP/.build/release/FieldResearcherMCP",
+)
+
+
+class _SwiftMCPClient:
+    """Minimal JSON-RPC stdio client for FieldResearcherMCP."""
+
+    def __init__(self, binary_path: str, db_path: str,
+                 poll_interval_s: float = 3.0,
+                 per_subject_timeout_s: float = 300.0):
+        self.binary_path = binary_path
+        self.db_path = db_path
+        self.poll_interval_s = poll_interval_s
+        self.per_subject_timeout_s = per_subject_timeout_s
+        self.proc: subprocess.Popen | None = None
+        self._next_id = 1
+
+    def start(self) -> None:
+        self.proc = subprocess.Popen(
+            [self.binary_path, self.db_path],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        # MCP handshake — initialize then notify/initialized. The server
+        # is forgiving but the contract expects both.
+        self._call("initialize", {"protocolVersion": "2024-11-05",
+                                   "clientInfo": {"name": "eval-harness",
+                                                  "version": "1.0"},
+                                   "capabilities": {}})
+        self._notify("notifications/initialized", {})
+
+    def stop(self) -> None:
+        if self.proc is None:
+            return
+        try:
+            if self.proc.stdin and not self.proc.stdin.closed:
+                self.proc.stdin.close()
+            self.proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+        self.proc = None
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop()
+
+    # --- JSON-RPC plumbing ---
+
+    def _send(self, payload: dict) -> None:
+        assert self.proc and self.proc.stdin
+        self.proc.stdin.write(json.dumps(payload) + "\n")
+        self.proc.stdin.flush()
+
+    def _read_line(self) -> dict:
+        assert self.proc and self.proc.stdout
+        line = self.proc.stdout.readline()
+        if not line:
+            raise RuntimeError("MCP server closed stdout unexpectedly")
+        return json.loads(line)
+
+    def _notify(self, method: str, params: dict) -> None:
+        # Notifications have no id and expect no response.
+        self._send({"jsonrpc": "2.0", "method": method, "params": params})
+
+    def _call(self, method: str, params: dict) -> dict:
+        rid = self._next_id
+        self._next_id += 1
+        self._send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
+        # MCP is request/response in lockstep; the next line is our reply.
+        while True:
+            resp = self._read_line()
+            if resp.get("id") != rid:
+                # Defensive — the server should reply in order, but if a
+                # stray notification appears, skip it.
+                continue
+            if "error" in resp:
+                raise RuntimeError(f"MCP error on {method}: {resp['error']}")
+            return resp.get("result", {})
+
+    # --- High-level operations ---
+
+    def _tool_call(self, name: str, args: dict) -> dict:
+        """Invoke a tool; parse the text-content envelope back to a dict."""
+        result = self._call("tools/call", {"name": name, "arguments": args})
+        content = result.get("content") or []
+        if not content or "text" not in content[0]:
+            raise RuntimeError(f"{name}: no text content in response: {result}")
+        text = content[0]["text"]
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # Tools that return human prose rather than JSON shouldn't be
+            # called here. Surface the raw text in the error so the
+            # mismatch is obvious in harness output.
+            raise RuntimeError(f"{name}: response was not JSON: {text[:200]}")
+
+    def research_profile(self, profile_id: str,
+                          mode: str = "extend",
+                          scope: str = "county") -> dict:
+        """Kick off research for one profile and return its envelope.
+
+        Three-step protocol (SWIFT_MCP_EVAL_BACKEND_SPEC §3):
+            1. kick_off_research → request_id
+            2. poll get_run_status → status == completed, run_id
+            3. get_research_result(run_id) → envelope
+        """
+        queued = self._tool_call("kick_off_research", {
+            "profile_id": profile_id, "mode": mode, "scope": scope,
+        })
+        request_id = queued.get("request_id")
+        if not request_id:
+            raise RuntimeError(f"kick_off_research returned no request_id: {queued}")
+
+        deadline = time.monotonic() + self.per_subject_timeout_s
+        run_id: str | None = None
+        while time.monotonic() < deadline:
+            status = self._tool_call("get_run_status", {"request_id": request_id})
+            state = status.get("status")
+            if state == "completed":
+                run_id = status.get("run_id")
+                break
+            if state == "failed":
+                raise RuntimeError(f"research run failed: {status.get('error', '?')}")
+            time.sleep(self.poll_interval_s)
+        if run_id is None:
+            raise TimeoutError(
+                f"research for {profile_id} did not complete within "
+                f"{self.per_subject_timeout_s}s"
+            )
+
+        envelope = self._tool_call("get_research_result", {"run_id": run_id})
+        if "error" in envelope:
+            raise RuntimeError(f"get_research_result: {envelope['error']}")
+        return envelope
+
+
+def _resolve_swift_mcp_binary() -> str:
+    """Pick the first FieldResearcherMCP binary that exists, preferring
+    release over debug. Raises a helpful error if neither is built."""
+    repo_root = Path(__file__).resolve().parents[1]
+    for rel in _SWIFT_MCP_BINARY_CANDIDATES:
+        candidate = repo_root / rel
+        if candidate.exists():
+            return str(candidate)
+    raise FileNotFoundError(
+        "FieldResearcherMCP binary not found. Build with: "
+        "`cd FieldResearcherMCP && swift build [-c release]`"
+    )
+
+
+def _resolve_swift_mcp_db_path(cli_path: str | None) -> str:
+    """Pick the test DB path. Precedence: --db-path, $ANCESTOR_EVAL_DB,
+    documented default (spec §5.1)."""
+    raw = cli_path or os.environ.get("ANCESTOR_EVAL_DB") or _SWIFT_MCP_DEFAULT_DB
+    path = os.path.expanduser(raw)
+    if not Path(path).exists():
+        raise FileNotFoundError(
+            f"Swift-MCP test database not found at {path}. "
+            "Provision it manually (spec §5.1): launch Ancestor Research, "
+            "import Cauldwell Family Tree.twin-export.ged into a project "
+            "named `eval-corpus`, copy the resulting .sqlite to the path "
+            "above, or pass --db-path / set ANCESTOR_EVAL_DB."
+        )
+    return path
+
+
+def _swift_mcp_pipeline_call(subject: dict, client: _SwiftMCPClient) -> dict:
+    """Drive FieldResearcherMCP for one corpus subject, aggregating
+    across pair/cluster members. Output shape matches
+    `_python_pipeline_call` so the metric layer is backend-agnostic."""
+    profile_ids = extract_subject_ids(subject)
+    if not profile_ids:
+        return {
+            "supported_hypotheses": [],
+            "contradicted_hypotheses": [],
+            "inconclusive_hypotheses": [],
+            "discovered_citations": [],
+            "mocked": False,
+            "_note": "no profile_ids extracted from subject",
+        }
+
+    aggregated = {
+        "supported_hypotheses": [],
+        "contradicted_hypotheses": [],
+        "inconclusive_hypotheses": [],
+        "discovered_citations": [],
+        "mocked": False,
+    }
+    parent_link_verdicts: list[str | None] = []
+    identity_verdicts: list[str | None] = []
+    spouse_verdicts: list[str | None] = []
+    for pid in profile_ids:
+        envelope = client.research_profile(pid)
+        for key in ("supported_hypotheses", "contradicted_hypotheses",
+                    "inconclusive_hypotheses", "discovered_citations"):
+            aggregated[key].extend(envelope.get(key) or [])
+        parent_link_verdicts.append(envelope.get("parent_link_verdict"))
+        identity_verdicts.append(envelope.get("identity_verdict"))
+        spouse_verdicts.append(envelope.get("spouse_verdict"))
+
+    def _strongest(verdicts: list[str | None]) -> str | None:
+        non_none = [v for v in verdicts if v is not None]
+        if not non_none:
+            return None
+        if "supported" in non_none:
+            return "supported"
+        if "contradicted" in non_none:
+            return "contradicted"
+        return "inconclusive"
+
+    aggregated["parent_link_verdict"] = _strongest(parent_link_verdicts)
+    aggregated["identity_verdict"] = _strongest(identity_verdicts)
+    aggregated["spouse_verdict"] = _strongest(spouse_verdicts)
+
+    if len(profile_ids) > 1:
+        aggregated["supported_hypotheses"] = _dedupe(
+            aggregated["supported_hypotheses"], key=lambda h: (h.get("kind"), h.get("value")))
+        aggregated["contradicted_hypotheses"] = _dedupe(
+            aggregated["contradicted_hypotheses"], key=lambda h: h.get("value"))
+        aggregated["inconclusive_hypotheses"] = _dedupe(
+            aggregated["inconclusive_hypotheses"], key=lambda h: (h.get("kind"), h.get("summary")))
+        aggregated["discovered_citations"] = _dedupe(
+            aggregated["discovered_citations"], key=lambda s: s)
+    return aggregated
 
 
 # --- Metric computation ----------------------------------------------------
@@ -614,10 +871,14 @@ def main():
     parser.add_argument("--corpus", default="eval/certified", help="Certified corpus directory")
     parser.add_argument("--citations", default="eval/certified/_gedcom_citations.json", help="GEDCOM citations sidecar")
     parser.add_argument("--out", default="eval/runs", help="Run-artifact output directory")
-    parser.add_argument("--backend", choices=["python", "mock"], default="python",
+    parser.add_argument("--backend", choices=["python", "mock", "swift-mcp"], default="python",
                         help="Pipeline backend (default: python — in-process agent.pipeline.research_person)")
     parser.add_argument("--only", default=None,
                         help="Run only the subject whose primary id matches this string (e.g. @I50113363@)")
+    parser.add_argument("--db-path", default=None,
+                        help="Swift-MCP backend only: project SQLite. Falls back to $ANCESTOR_EVAL_DB then the documented default.")
+    parser.add_argument("--mcp-binary", default=None,
+                        help="Swift-MCP backend only: override FieldResearcherMCP binary path. Defaults to release then debug under FieldResearcherMCP/.build/.")
     args = parser.parse_args()
 
     corpus_dir = Path(args.corpus)
@@ -634,29 +895,53 @@ def main():
     print(f"Loaded {n_cites} GEDCOM-cited identifiers from {args.citations}")
     print()
 
-    backend_call = _python_pipeline_call if args.backend == "python" else _mock_pipeline_call
     print(f"Backend: {args.backend}")
     if args.only:
         print(f"Filter: only subjects whose ids include {args.only}")
     print()
 
-    results: list[tuple[dict, list[str], dict]] = []
-    for subject in subjects:
-        ids = extract_subject_ids(subject)
-        if args.only and args.only not in ids:
-            continue
-        # Citation lookup — union all of the subject's IDs.
-        subject_cites: list[dict] = []
-        for sid in ids:
-            entry = citations.get(sid, [])
-            if isinstance(entry, dict):
-                subject_cites.extend(entry.get("citations", []))
-            else:
-                subject_cites.extend(entry)
+    # Swift-MCP backend needs a long-lived subprocess. Wrap the
+    # per-subject loop in a context manager so the server is started
+    # once, reused across subjects, and torn down on the way out (incl.
+    # on errors). Python / mock paths skip the lifecycle entirely.
+    swift_client: _SwiftMCPClient | None = None
+    if args.backend == "swift-mcp":
+        binary = args.mcp_binary or _resolve_swift_mcp_binary()
+        db = _resolve_swift_mcp_db_path(args.db_path)
+        print(f"Swift-MCP binary: {binary}")
+        print(f"Swift-MCP database: {db}")
+        swift_client = _SwiftMCPClient(binary, db)
+        swift_client.start()
 
-        pipeline_result = backend_call(subject)
-        metrics = compute_metrics(subject, pipeline_result, subject_cites)
-        results.append((subject, ids, metrics))
+    def backend_call(subject: dict) -> dict:
+        if args.backend == "python":
+            return _python_pipeline_call(subject)
+        if args.backend == "swift-mcp":
+            assert swift_client is not None
+            return _swift_mcp_pipeline_call(subject, swift_client)
+        return _mock_pipeline_call(subject)
+
+    try:
+        results: list[tuple[dict, list[str], dict]] = []
+        for subject in subjects:
+            ids = extract_subject_ids(subject)
+            if args.only and args.only not in ids:
+                continue
+            # Citation lookup — union all of the subject's IDs.
+            subject_cites: list[dict] = []
+            for sid in ids:
+                entry = citations.get(sid, [])
+                if isinstance(entry, dict):
+                    subject_cites.extend(entry.get("citations", []))
+                else:
+                    subject_cites.extend(entry)
+
+            pipeline_result = backend_call(subject)
+            metrics = compute_metrics(subject, pipeline_result, subject_cites)
+            results.append((subject, ids, metrics))
+    finally:
+        if swift_client is not None:
+            swift_client.stop()
 
     if not results:
         print("No subjects matched.", file=sys.stderr)
