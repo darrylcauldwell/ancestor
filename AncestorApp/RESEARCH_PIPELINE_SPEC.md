@@ -1948,6 +1948,8 @@ and is filtered out of UI display on subsequent runs.
 
 ### 5.1 T11 — Hypothesis type + persistence
 
+**Status: Shipped 2026-05-19, commit `fe1c2b5`.**
+
 **What lands:**
 - `Models/Research/ResearchHypothesis.swift` with the type + kind
   enum + verdict enum + transition record.
@@ -1971,6 +1973,11 @@ on round-trip persistence + the table queryable from the MCP server
 (so external tooling can read hypothesis state).
 
 ### 5.2 T12 — HypothesisEngine: generate, test, grade
+
+**Status: Shipped 2026-05-19, commit `cb8b05b`.** Sibling, parent-
+inferred, and parent-marriage generators are all live; per the
+"As-shipped note" below, dispatch is per-kind from the pipeline
+rather than via a central `runAll`.
 
 T12 splits into two sequenced sub-projects (Decision 3). Each
 sub-project is itself executed as a 4-phase migration (Decision 2).
@@ -2322,7 +2329,54 @@ stabilised so the hypothesis kinds aren't moving.
 
 ### 5.8 Eval harness (validation infrastructure)
 
-**Status: Paper-only.** Not built.
+**Status: Partial (2026-05-23).** Python-side scaffold shipped this
+session; Swift-side measurement backend pending.
+
+**What's shipped (this session, commits `516da79` → `99da91a`):**
+
+- §5.8.5 GEDCOM citation matcher. Python `eval/citation_matcher.py`
+  and Swift `Ancestor Research/Services/Research/CitationMatcher.swift`
+  in sync per the Swift docstring's "keep in sync" instruction.
+  Handles FreeBMD/GRO families with quarter+year+district primary
+  keys and vol+page secondary, FamilySearch ARK matching, CWGC plot
+  or date-of-death.
+- §5.8.6 Runner. `eval/run_harness.py` invokes
+  `agent.pipeline.research_person` per subject and emits the
+  per-subject envelope used by the metrics. Flags: `--backend
+  python|mock`, `--only @<profile-id>@`, `--corpus`, `--out`.
+- §5.8.2 Certified subset. 12 corpus subjects under
+  `eval/certified/*.yaml`, hitting every difficulty axis named in
+  §5.8.4 plus several new ones (`sparse_evidence`, `cross_county`,
+  `pre_civil_registration`, `geographic_outlier`,
+  `name_change_at_marriage`). Reached the §5.8.1 T7 defensible-delta
+  tier (10–12 profiles).
+- §5.8.3 Per-kind verdict-agreement metric. The harness derives a
+  `supported` / `inconclusive` verdict per kind from the envelope,
+  compares against the corpus YAML's `expected_per_kind`, and
+  reports per-subject + corpus-wide agreement counts.
+  Verdict-comparison tolerates annotated forms
+  (`supported_with_district_anomaly` etc. — see commit `de8e8f8`).
+
+**What's not yet shipped:**
+
+- Swift-driven backend (`--backend swift-mcp`). Currently the harness
+  measures the *Python reference* implementation per CLAUDE.md, not
+  the Swift product. Driving the Swift app via the existing
+  `FieldResearcherMCP` server is the next major investment — call
+  it §5.8.8.
+- Precision/recall in the strict §5.8.3 sense. The current
+  per-kind metric is "agreement" (did pipeline and corpus reach the
+  same verdict). Precision/recall on top of the existing per-kind
+  data is small follow-up.
+- §5.8.7 build-order pre-conditions for T8/T9/T31. Those tasks
+  remain paper-only — see §§5.4–5.6.
+
+The §5.8.1 corpus-tier table below remains accurate. The §5.8.4
+difficulty-axis list remains accurate but has been extended in
+practice (subjects under `name_change_at_marriage`,
+`cross_county_migration`, `geographic_outlier`,
+`pre_civil_registration`, `sparse_evidence` axes all exist now).
+Update §5.8.4 when a future revision pins the canonical axis list.
 
 **Reframe (2026-05-22):** earlier drafts called this a *build*
 prerequisite for T7 / T8 / T9 / T31. That was wrong — T7 shipped
