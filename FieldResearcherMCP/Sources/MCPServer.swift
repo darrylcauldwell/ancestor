@@ -410,6 +410,14 @@ actor MCPHandler {
                     ],
                     required: ["request_id"]
                 ),
+                tool(
+                    name: "get_research_result",
+                    description: "Return the §3 eval-harness envelope for a completed research run (SWIFT_MCP_EVAL_BACKEND_SPEC #Change4). Reads research_runs.result_json — verdicts plus future hypothesis / citation fields. Errors when the run id is unknown or the run completed before envelope persistence shipped (empty result_json).",
+                    properties: [
+                        "run_id": ["type": "string", "description": "The run_id returned by get_run_status once status == completed"],
+                    ],
+                    required: ["run_id"]
+                ),
                 // Auto-approval — see AncestorApp/AUTO_APPROVAL_VIA_MCP_SPEC.md.
                 // Rules' authority extends to commit when the gate evaluator
                 // says unambiguous; ambiguous facts still go to human review.
@@ -474,6 +482,8 @@ actor MCPHandler {
             return try kickOffResearch(arguments)
         case "get_run_status":
             return try getRunStatus(arguments)
+        case "get_research_result":
+            return try getResearchResult(arguments)
         case "approve_pending_fact":
             return try approvePendingFact(arguments)
         case "inspect_approval_decision":
@@ -1186,6 +1196,42 @@ actor MCPHandler {
                 payload["completed_at"] = ISO8601DateFormatter().string(from: d)
             }
             return Self.jsonString(payload)
+        }
+        return ["content": [["type": "text", "text": text]]]
+    }
+
+    /// Return the per-run §3 envelope for a completed research run.
+    /// Reads `research_runs.result_json` (populated by
+    /// `RunRequestWatcher.persistResult` from v29 onward) and surfaces
+    /// it verbatim to the caller. The harness consumes it as the
+    /// `swift-mcp` backend's response shape; the column is plain text
+    /// to keep storage simple, so the tool just round-trips it.
+    func getResearchResult(_ args: [String: Any]) throws -> [String: Any] {
+        guard let runID = args["run_id"] as? String else {
+            throw MCPError.invalidParams("get_research_result requires run_id")
+        }
+        let text: String = try db.read { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT result_json FROM research_runs WHERE id = ?
+                """, arguments: [runID]) else {
+                return Self.jsonString([
+                    "error": "run_not_found",
+                    "run_id": runID,
+                ])
+            }
+            let resultJSON: String = row["result_json"] ?? ""
+            if resultJSON.isEmpty {
+                // Older runs (pre-#Change3) and freshly-queued runs
+                // both land here. Surface both as "envelope not
+                // available" — the caller should poll get_run_status
+                // first to confirm completion.
+                return Self.jsonString([
+                    "error": "envelope_not_available",
+                    "run_id": runID,
+                    "reason": "result_json empty — run pre-dates #Change3 or hasn't completed",
+                ])
+            }
+            return resultJSON
         }
         return ["content": [["type": "text", "text": text]]]
     }
