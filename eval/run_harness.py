@@ -430,20 +430,27 @@ class _SwiftMCPClient:
 
     # --- High-level operations ---
 
-    def _tool_call(self, name: str, args: dict) -> dict:
-        """Invoke a tool; parse the text-content envelope back to a dict."""
+    def _tool_call_text(self, name: str, args: dict) -> str:
+        """Invoke a tool and return the raw text content (no JSON parse)."""
         result = self._call("tools/call", {"name": name, "arguments": args})
         content = result.get("content") or []
         if not content or "text" not in content[0]:
             raise RuntimeError(f"{name}: no text content in response: {result}")
-        text = content[0]["text"]
+        return content[0]["text"]
+
+    def _tool_call(self, name: str, args: dict) -> dict:
+        """Invoke a tool that returns JSON-as-text; parse back to a dict."""
+        text = self._tool_call_text(name, args)
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            # Tools that return human prose rather than JSON shouldn't be
-            # called here. Surface the raw text in the error so the
-            # mismatch is obvious in harness output.
             raise RuntimeError(f"{name}: response was not JSON: {text[:200]}")
+
+    # kick_off_research is the only tool we use that returns human
+    # prose rather than JSON — that shape is intentional (Claude Code
+    # users invoke it interactively). Extract the request_id with a
+    # narrow regex against the documented sentence.
+    _KICK_OFF_REQUEST_ID_RE = re.compile(r"request_id:\s*(req_[0-9A-Fa-f-]+)")
 
     def research_profile(self, profile_id: str,
                           mode: str = "extend",
@@ -455,12 +462,13 @@ class _SwiftMCPClient:
             2. poll get_run_status → status == completed, run_id
             3. get_research_result(run_id) → envelope
         """
-        queued = self._tool_call("kick_off_research", {
+        queued_text = self._tool_call_text("kick_off_research", {
             "profile_id": profile_id, "mode": mode, "scope": scope,
         })
-        request_id = queued.get("request_id")
-        if not request_id:
-            raise RuntimeError(f"kick_off_research returned no request_id: {queued}")
+        m = self._KICK_OFF_REQUEST_ID_RE.search(queued_text)
+        if not m:
+            raise RuntimeError(f"kick_off_research returned no request_id: {queued_text[:200]}")
+        request_id = m.group(1)
 
         deadline = time.monotonic() + self.per_subject_timeout_s
         run_id: str | None = None
