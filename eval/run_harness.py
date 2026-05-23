@@ -333,7 +333,7 @@ _KIND_FACT_TYPES: dict[str, set[str]] = {
 }
 
 
-def _actual_verdict_for_kind(kind: str, pipeline_result: dict) -> str | None:
+def _actual_verdict_for_kind(kind: str, pipeline_result: dict, full_kind: str | None = None) -> str | None:
     """Derive 'supported' / 'contradicted' / 'inconclusive' for one kind
     from the envelope, or None if we can't measure it (kind isn't
     directly emitted by the pipeline).
@@ -358,6 +358,21 @@ def _actual_verdict_for_kind(kind: str, pipeline_result: dict) -> str | None:
     if kind == "parent_link":
         return pipeline_result.get("parent_link_verdict")
     if kind == "identity_disambiguation":
+        # Single-subject identity (e.g. John pair "are these the same
+        # person?") collapses to the aggregated identity_verdict — that
+        # works.
+        #
+        # Per-cluster identity (e.g. Mabel's `identity_disambiguation.
+        # cluster_b: contradicted` — "did the pipeline correctly NOT
+        # merge cluster_b's people with cluster_a's?") is a different
+        # question. The pipeline doesn't yet emit a merge-decision
+        # signal between two profile IDs, so cluster-level verdicts are
+        # unmeasurable from the current envelope. Returning None marks
+        # them as unmeasured rather than spuriously claiming the
+        # aggregated single-subject value. The kinship-verification
+        # harness mode (task 12) is the right home for this.
+        if full_kind and full_kind.startswith("identity_disambiguation.cluster_"):
+            return None
         return pipeline_result.get("identity_verdict")
 
     fact_types = _KIND_FACT_TYPES.get(kind)
@@ -394,9 +409,13 @@ def _per_kind_agreement(expected_kinds: dict, pipeline_result: dict) -> dict:
 
     out = {}
     for kind, expected in flat.items():
-        # Strip suffix from compound keys for verdict derivation
+        # Strip suffix from compound keys for verdict derivation. The
+        # full kind (with suffix) is passed too so per-cluster cases
+        # like `identity_disambiguation.cluster_b` can opt out of the
+        # single-subject verdict — they require a merge-decision signal
+        # the pipeline doesn't currently emit.
         base_kind = kind.split(".", 1)[0]
-        actual = _actual_verdict_for_kind(base_kind, pipeline_result)
+        actual = _actual_verdict_for_kind(base_kind, pipeline_result, full_kind=kind)
         out[kind] = {
             "expected": expected,
             "actual": actual,
