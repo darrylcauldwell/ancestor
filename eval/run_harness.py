@@ -325,7 +325,11 @@ def _dedupe(items: list, key) -> list:
 # and identity_disambiguation use explicit per-state verdicts emitted by
 # the pipeline (see `_actual_verdict_for_kind`).
 _KIND_FACT_TYPES: dict[str, set[str]] = {
-    "birth_disambiguation": {"birth", "birth_registration"},
+    # Pre-1837 baptisms substitute for a civil birth registration in
+    # FreeREG parish data; count them toward birth_disambiguation so
+    # pre-civil-registration subjects (e.g. Stephen Sherwin b.1774)
+    # aren't penalised for the registration era.
+    "birth_disambiguation": {"birth", "birth_registration", "baptism"},
     # A CWGC war-grave record is the authoritative death record for
     # casualties who died abroad (no civil GRO entry exists). Count
     # `military` fact-types toward death_disambiguation too — see
@@ -333,6 +337,11 @@ _KIND_FACT_TYPES: dict[str, set[str]] = {
     # axis: corpus expects CWGC to satisfy death_disambiguation).
     "death_disambiguation": {"death", "death_registration", "military", "war_grave", "cwgc"},
     "marriage_disambiguation": {"marriage", "marriage_registration"},
+    # FreeREG parish burial is the canonical death record for rural
+    # subjects whose passing wasn't civilly registered (Stephen
+    # Sherwin's 1858 Brassington burial is the headline case).
+    "burial_disambiguation": {"burial"},
+    "baptism_disambiguation": {"baptism"},
     "military_service": {"military", "war_grave", "cwgc"},
 }
 

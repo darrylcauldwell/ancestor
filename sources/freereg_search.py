@@ -260,6 +260,18 @@ def parse_results(html, url):
             else:
                 row_data = {f"col{j}": v for j, v in enumerate(cell_texts)}
 
+            # Normalise the FreeREG "Record Type" column into a flat
+            # `record_type` key (lowercase) so the pipeline's scorer
+            # ‑‑ which falls back to `_classify_search_type("parish
+            # _registers") == "unknown"` when this is absent ‑‑ can
+            # classify the row as baptism / marriage / burial. Without
+            # this, FreeREG marriages were filed under "unknown" and
+            # never counted toward marriage_disambiguation in the §5.8
+            # harness (Stephen Sherwin pre-civil baseline gap).
+            rt_raw = row_data.get("Record Type", "")
+            if rt_raw:
+                row_data["record_type"] = rt_raw.strip().lower()
+
             if any(v for v in row_data.values()):
                 row_data["_url"] = record_url
                 results.append(row_data)
