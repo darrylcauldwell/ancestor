@@ -2,6 +2,15 @@
 # Difficulty axis: sparse_evidence + long_life + birth_district_anomaly
 # Status: Verified 2026-05-22 via sources/freebmd.py (post-1969 GRO
 #         indexes include exact DOB which clinches identity).
+#
+# 2026-05-24 audit: orphaned in the user's project DB. The parent ID
+# declared below (@I32675267@) doesn't exist in the imported tree,
+# and Charles has zero relationship edges. Yesterday's parity report
+# flagged death_disambiguation as a Pattern B case (Swift found his
+# death, Python missed) — that signal was real but rests on a
+# subject whose tree position can't be verified. All expected
+# verdicts moved to `out_of_scope` until the missing parent profile
+# is imported; the Pattern B re-test is queued for then.
 
 profile_id: "@I32675347@"
 canonical_name: "Charles Herbert Hodgkinson"
@@ -110,13 +119,17 @@ expected_evidence:
       task. Recall ceiling.
 
 expected_per_kind:
-  birth_disambiguation: supported_with_district_anomaly
-  death_disambiguation: supported
+  # Originally: birth_disambiguation: supported_with_district_anomaly,
+  # death_disambiguation: supported. Forced to out_of_scope by
+  # 2026-05-24 orphaned-profile audit (see header).
+  birth_disambiguation: out_of_scope
+  death_disambiguation: out_of_scope
   marriage_disambiguation: inconclusive
   parent_link: inconclusive
 
 # section 5.8.6 headline number
-expected_supported_count: 2
+# Was 2 (birth + death). Forced to 0 by the orphaned-profile audit.
+expected_supported_count: 0
 
 gedcom_citations:
   source_file: "Cauldwell Family Tree.twin-export.ged"

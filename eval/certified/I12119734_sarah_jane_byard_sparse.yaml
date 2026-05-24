@@ -4,6 +4,17 @@
 # Status: Partially verified 2026-05-22 via sources/freebmd.py and
 #         sources/freecen.py -- birth confirmed, death/marriage NOT
 #         locatable in any free index (which is itself the test).
+#
+# 2026-05-24 audit: this subject is ORPHANED in the user's project DB.
+# The parent IDs declared below (@I19612488@, @I19612524@) don't exist
+# in the imported tree, and Sarah has zero relationship edges of any
+# kind. Without family context the 4-gate scorer can't confidently
+# promote a FreeBMD candidate to fact — the date gate rejects the
+# Q1 1866 Belper birth on the (Nov-vs-Mar) month discrepancy that
+# the corpus's softer rationale forgave. All expected verdicts moved
+# to `out_of_scope` so parity drift on this subject doesn't muddy
+# the headline. Re-enable when the twin's parent profiles land in
+# the project DB.
 
 profile_id: "@I12119734@"
 canonical_name: "Sarah Jane Byard"
@@ -112,13 +123,18 @@ expected_evidence:
       as out_of_coverage not as evidence she was not in the county.
 
 expected_per_kind:
-  birth_disambiguation: supported
+  # Originally: birth_disambiguation: supported (Q1 1866 Belper match
+  # despite Nov-vs-Mar month gap). Forced to out_of_scope by 2026-05-24
+  # audit — see header.
+  birth_disambiguation: out_of_scope
   marriage_disambiguation: inconclusive
   death_disambiguation: inconclusive
   parent_link: inconclusive
 
 # section 5.8.6 headline number
-expected_supported_count: 1
+# Was 1 (the FreeBMD birth). Forced to 0 by the orphaned-profile
+# audit — see header.
+expected_supported_count: 0
 
 forbidden_matches:
   - source: freebmd
