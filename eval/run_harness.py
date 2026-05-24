@@ -585,6 +585,10 @@ def _swift_mcp_pipeline_call(subject: dict, client: _SwiftMCPClient) -> dict:
         parent_link_verdicts.append(envelope.get("parent_link_verdict"))
         identity_verdicts.append(envelope.get("identity_verdict"))
         spouse_verdicts.append(envelope.get("spouse_verdict"))
+        # Diagnostic fields — pass through, accumulate across person-runs.
+        for key in ("_throttled", "_dispatch_log"):
+            existing = aggregated.setdefault(key, [])
+            existing.extend(envelope.get(key) or [])
     if failures:
         aggregated["_partial_failure"] = failures
 
@@ -807,6 +811,13 @@ def compute_metrics(subject: dict, pipeline_result: dict, gedcom_cites: list[dic
         # _swift_mcp_pipeline_call (per-person timeouts that didn't
         # abort the whole subject).
         "partial_failure": pipeline_result.get("_partial_failure") or [],
+        # Per-source-query dispatch log (swift-mcp backend only).
+        # Each entry is {source, kind, summary, results?, error?}.
+        # Lets a parity-disagreement investigation tell "search never
+        # fired" from "search fired and returned nothing" from
+        # "search fired and records failed gates" — diagnostic
+        # required for the Ernest-marriage-Ashbourne investigation.
+        "dispatch_log": pipeline_result.get("_dispatch_log") or [],
     }
 
 

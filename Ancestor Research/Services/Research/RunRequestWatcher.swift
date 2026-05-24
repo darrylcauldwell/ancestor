@@ -169,7 +169,25 @@ final class RunRequestWatcher {
             sourceInfoMap: sourceInfoMap
         )
 
+        // Diagnostic dispatch log — subscribe to the activity bus
+        // before the pipeline starts, collect every per-source query
+        // event, and surface them into the eval envelope's
+        // `_dispatch_log` so a parity-disagreement investigation can
+        // tell whether a search ever fired vs. fired and returned
+        // nothing vs. fired and returned records that failed gates.
+        // Bounded by `dispatchLogCap` to keep result_json size sane.
+        let collector = DispatchLogCollector(cap: 500)
+        let busStream = await ResearchActivityBus.shared.subscribe()
+        let collectorTask = Task {
+            for await event in busStream {
+                await collector.record(event)
+            }
+        }
+
         let result = await pipeline.research(subject: subject, config: config)
+        collectorTask.cancel()
+        let dispatchLog = await collector.entries
+
         // Build a lead filter from the subject profile (when present)
         // so the persistence step can reject obviously-wrong
         // namesakes — alive-but-probate-record, far-off birth year,
@@ -185,6 +203,7 @@ final class RunRequestWatcher {
             profileID: profileIDForPersistence,
             leadToFinalise: leadForFinalise,
             leadFilter: leadFilter,
+            dispatchLog: dispatchLog,
             db: db
         )
 
@@ -347,6 +366,7 @@ final class RunRequestWatcher {
         profileID: String?,
         leadToFinalise: Lead?,
         leadFilter: LeadFilter?,
+        dispatchLog: [DispatchLogCollector.Entry] = [],
         db: ProjectDatabase
     ) async -> String? {
         var savedRunID: UUID? = nil
@@ -406,7 +426,9 @@ final class RunRequestWatcher {
                 }
             }
             let resultJSON = Self.buildResultEnvelope(
-                result: result, throttledSources: throttledSources
+                result: result,
+                throttledSources: throttledSources,
+                dispatchLog: dispatchLog
             )
             // Only claim `savedRunID = runID` when saveResearchRun
             // actually succeeded. Previously the `try?` swallowed
@@ -482,7 +504,8 @@ final class RunRequestWatcher {
 
     private static func buildResultEnvelope(
         result: ResearchResult,
-        throttledSources: [String] = []
+        throttledSources: [String] = [],
+        dispatchLog: [DispatchLogCollector.Entry] = []
     ) -> String {
         var supported: [[String: Any]] = []
         var citations: [String] = []
@@ -536,6 +559,17 @@ final class RunRequestWatcher {
             ]
         }
 
+        let dispatchLogPayload: [[String: Any]] = dispatchLog.map { entry in
+            var row: [String: Any] = [
+                "source":  entry.sourceID,
+                "summary": entry.summary,
+                "kind":    entry.kind.rawValue,
+            ]
+            if let n = entry.resultCount { row["results"] = n }
+            if let r = entry.errorReason { row["error"] = r }
+            return row
+        }
+
         let payload: [String: Any] = [
             "supported_hypotheses":    supported,
             "contradicted_hypotheses": contradicted,
@@ -545,6 +579,7 @@ final class RunRequestWatcher {
             "identity_verdict":        result.identityVerdict as Any,
             "spouse_verdict":          result.spouseVerdict as Any,
             "_throttled":              throttledSources,
+            "_dispatch_log":           dispatchLogPayload,
         ]
         guard let data = try? JSONSerialization.data(
             withJSONObject: payload, options: [.sortedKeys]

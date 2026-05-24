@@ -135,6 +135,35 @@ def compare(py_path: Path, sw_path: Path) -> None:
             print(f"| {label} | {kind} | {cell(exp)} | {cell(py)} | {cell(sw)} |")
         print()
 
+        # Drill-down: which dispatch-log entries (from the swift run)
+        # touched each disagreement's subject? Helps localise "did the
+        # search fire at all" vs "fired but returned 0" vs "fired and
+        # results failed gates." Only emitted when the swift envelope
+        # carried a dispatch_log (post-2026-05-24 builds).
+        print("### Dispatch-log drill-down (swift backend)")
+        print()
+        for sid, label, kind, exp, py, sw, _ in disagreements:
+            sub = sw_subjects.get(sid) or {}
+            dlog = ((sub.get("metrics") or {}).get("dispatch_log") or [])
+            if not dlog:
+                continue
+            # Filter entries whose summary mentions the kind or its
+            # base verdict so the section stays readable.
+            base_kind = (kind or "").split("_")[0]
+            relevant = [
+                d for d in dlog
+                if base_kind and base_kind in (d.get("summary") or "").lower()
+            ] or dlog[:8]  # fallback: first 8 entries
+            print(f"**{label} / {kind}** ({len(dlog)} total dispatch entries)")
+            for d in relevant[:12]:
+                line = f"  - `{d.get('source')}` {d.get('summary', '')[:90]}"
+                if d.get("results") is not None:
+                    line += f" → {d['results']} result(s)"
+                if d.get("error"):
+                    line += f" → error: {d['error'][:60]}"
+                print(line)
+            print()
+
     # One-side-only measurements — likely envelope-coverage gap
     one_only = [r for r in rows if r[6] == "one_unmeasured"]
     if one_only:
