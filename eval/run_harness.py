@@ -543,7 +543,13 @@ def _resolve_swift_mcp_db_path(cli_path: str | None) -> str:
 def _swift_mcp_pipeline_call(subject: dict, client: _SwiftMCPClient) -> dict:
     """Drive FieldResearcherMCP for one corpus subject, aggregating
     across pair/cluster members. Output shape matches
-    `_python_pipeline_call` so the metric layer is backend-agnostic."""
+    `_python_pipeline_call` so the metric layer is backend-agnostic.
+
+    Per-person failures (timeout, MCP error) are logged but don't
+    abort the whole run — the subject ends up with whatever envelopes
+    succeeded plus a `_partial_failure` note. Lets a single misbehaving
+    cluster member not lose the other 11 subjects of work.
+    """
     profile_ids = extract_subject_ids(subject)
     if not profile_ids:
         return {
@@ -565,14 +571,22 @@ def _swift_mcp_pipeline_call(subject: dict, client: _SwiftMCPClient) -> dict:
     parent_link_verdicts: list[str | None] = []
     identity_verdicts: list[str | None] = []
     spouse_verdicts: list[str | None] = []
+    failures: list[str] = []
     for pid in profile_ids:
-        envelope = client.research_profile(pid)
+        try:
+            envelope = client.research_profile(pid)
+        except (TimeoutError, RuntimeError) as e:
+            print(f"  ! {pid}: {type(e).__name__}: {e}", file=sys.stderr)
+            failures.append(f"{pid}: {type(e).__name__}: {e}")
+            continue
         for key in ("supported_hypotheses", "contradicted_hypotheses",
                     "inconclusive_hypotheses", "discovered_citations"):
             aggregated[key].extend(envelope.get(key) or [])
         parent_link_verdicts.append(envelope.get("parent_link_verdict"))
         identity_verdicts.append(envelope.get("identity_verdict"))
         spouse_verdicts.append(envelope.get("spouse_verdict"))
+    if failures:
+        aggregated["_partial_failure"] = failures
 
     def _strongest(verdicts: list[str | None]) -> str | None:
         non_none = [v for v in verdicts if v is not None]
