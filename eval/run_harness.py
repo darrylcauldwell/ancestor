@@ -352,7 +352,7 @@ class _SwiftMCPClient:
 
     def __init__(self, binary_path: str, db_path: str,
                  poll_interval_s: float = 3.0,
-                 per_subject_timeout_s: float = 300.0):
+                 per_subject_timeout_s: float = 600.0):
         self.binary_path = binary_path
         self.db_path = db_path
         self.poll_interval_s = poll_interval_s
