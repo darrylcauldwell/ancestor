@@ -166,36 +166,60 @@ nonisolated extension ResearchSubject {
 
     /// Surnames to probe for `recordType`, deduplicated, in priority order.
     ///
-    /// Most record types only need the canonical `surname` (the tree's
-    /// stored name — maiden for women per genealogy convention). Death-
-    /// shape record types — death, burial, probate, military — also
-    /// probe `marriedSurname` when set, because UK indexes file
-    /// deceased married women under married surname:
-    ///   - Probate Calendar (e.g. KATHLEEN DOROTHY CAULDWELL, not Wheeldon)
-    ///   - FreeBMD GRO Deaths post-1969 (under registered surname)
-    ///   - Find A Grave memorials erected by family
-    ///   - Census post-marriage (.census also probes married)
+    /// Always probes the canonical `surname`. Two optional widenings
+    /// follow, both gated on the import state and the record type's
+    /// indexing convention:
     ///
-    /// Both maiden and married are probed (not just married) because
-    /// divorce / reversion can put a record under maiden surname even
-    /// for a previously-married woman. Cost is one extra query per
-    /// district per death-shape record type when `marriedSurname` is
-    /// distinct from `surname` — acceptable.
+    /// 1. **Maiden-axis** — for female subjects whose recorded
+    ///    `surname` is in fact the married name (inverted import,
+    ///    where the maiden surname is recoverable as
+    ///    `familyContext.fatherSurname`). Added for record types
+    ///    indexed under the maiden surname: birth / baptism /
+    ///    christening (pre-marriage by definition), marriage (bride
+    ///    side), parish (FreeREG free-text axis), and census (early
+    ///    years pre-marriage).
+    ///
+    /// 2. **Married-axis** — for female subjects whose recorded
+    ///    `surname` is the maiden name and an explicit
+    ///    `marriedSurname` is set. Added for record types where UK
+    ///    indexes file deceased married women under their married
+    ///    surname: death / burial / probate / military, and census
+    ///    (post-marriage years).
+    ///
+    /// Both axes can fire simultaneously on `.census`, which spans
+    /// pre- and post-marriage years.
     ///
     /// Returns `[]` if `surname` is nil.
     func surnamesToProbe(for recordType: RecordType) -> [String] {
         guard let surname else { return [] }
         var out: [String] = [surname]
 
-        // Marriage searches: probe maiden surname for female subjects
-        // whose subject.surname is in fact their married name (the
-        // wikitree convention is `lastName = maiden`, but some imports
-        // arrive inverted — Catherine Hannah Ward's profile carries
-        // `lastName = "Ward"` while her maiden name is "Bown" via her
-        // father Philip Bown). Derive the maiden side from the
-        // father's surname on the family-context block; only add if
-        // it differs from the recorded surname.
-        if recordType == .marriage,
+        // Maiden-surname probe for female subjects whose `surname` is in
+        // fact their married name (the wikitree convention is
+        // `lastName = maiden`, but some imports arrive inverted —
+        // Elizabeth Cauldwell appears as `lastName = "Beighton"` and
+        // Catherine Hannah Bown appears as `lastName = "Ward"`).
+        // Derive the maiden side from the father's surname on the
+        // family-context block; only add if it differs from the
+        // recorded surname.
+        //
+        // Applies to record types where the woman was indexed under
+        // her maiden name:
+        // * `.marriage` — bride side at FreeBMD/FreeREG.
+        // * `.birth`, `.baptism`, `.christening` — by definition
+        //   pre-marriage, always under maiden.
+        // * `.parish` — pre-1837 BMDs in FreeREG; a maiden probe is
+        //   safe even for post-marriage events because the source
+        //   accepts surname as a free-text axis.
+        // * `.census` — covers the woman's whole life, so both
+        //   surnames are valid probe keys (early censuses under
+        //   maiden, later under married). The post-marriage axis
+        //   below already adds the married surname for `.census`.
+        let probesMaidenAxis: Bool = switch recordType {
+        case .birth, .baptism, .christening, .marriage, .parish, .census: true
+        default: false
+        }
+        if probesMaidenAxis,
            gender == .female,
            let fatherSurname = familyContext?.fatherSurname,
            !fatherSurname.isEmpty,
