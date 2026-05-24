@@ -543,6 +543,50 @@ nonisolated struct RecordScorer {
         }
 
         if ScoringRules.isLocalDistrict(districtClean, forHomeChapman: subject.homeChapmanCode) {
+            // Within-county locality check (parity cluster #4, George Bowden —
+            // corpus `geographic_outlier`). Subject's home county is DBY but
+            // his birth is Glossop (NW Derbyshire); the engine previously
+            // promoted every Derbyshire-RD death/marriage record to `.fact`
+            // because they all matched `isLocalDistrict("DBY")`. That over-
+            // claims for any subject whose birth area sits in a geographically
+            // distinct cluster of districts from the record.
+            //
+            // Rule: when the subject's birth parish resolves to a specific
+            // home-county district AND the record's district is a DIFFERENT
+            // home-county district whose parishes don't include the subject's
+            // birth town, soft-fail instead of pass. The record may still be
+            // valid (people moved between districts within a county over a
+            // lifetime), so this is a downgrade-to-lead, not a hard-fail.
+            //
+            // Conservative — fires only when:
+            //   1. We have a parish-level birth anchor (`birthLocality` non-nil)
+            //   2. That anchor resolves to a home-county district
+            //   3. The record's district differs from the subject's
+            //   4. The record's district has a known parish list AND that list
+            //      does not include the subject's birth parish (so successor
+            //      districts that overlap — Glossop↔High Peak, Belper↔Amber
+            //      Valley — still pass via parish containment).
+            // If any condition fails, fall through to the prior `pass` so
+            // legacy behaviour is preserved for subjects without a granular
+            // birth location.
+            if let subjectParish = subject.birthLocality,
+               let subjectDistrict = subject.homeCountyBirthDistrict {
+                let recordDistrictKey = districtClean.lowercased()
+                let subjectDistrictKey = subjectDistrict.lowercased()
+                let sameDistrict = recordDistrictKey == subjectDistrictKey
+                let recordCoversSubjectParish = ScoringRules.districtCoversParish(
+                    districtClean,
+                    parish: subjectParish,
+                    forHomeChapman: subject.homeChapmanCode
+                )
+                if !sameDistrict && !recordCoversSubjectParish {
+                    return GateResult(
+                        gate: .geography,
+                        outcome: .softFail,
+                        reason: "\(districtClean) is in research area but doesn't cover subject's birth parish \(subjectParish) (birth-district \(subjectDistrict))"
+                    )
+                }
+            }
             return GateResult(gate: .geography, outcome: .pass, reason: "\(districtClean) is in research area")
         }
 

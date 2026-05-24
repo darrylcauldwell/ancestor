@@ -464,6 +464,27 @@ nonisolated struct ScoringRules {
             .district(forParish: parish, inChapman: code)?.name
     }
 
+    /// True when the record's home-county district overlaps the subject's
+    /// birth parish — i.e. the record's parishes include the subject's
+    /// birth town. Used by the geography gate's within-county locality
+    /// check to recognise that a record in a successor / overlapping
+    /// district (Glossop ↔ High Peak, Belper ↔ Amber Valley) still maps
+    /// to the subject's birth area.
+    ///
+    /// Returns `false` when the record's district has no known parish
+    /// list (caller should fall back to existing behaviour rather than
+    /// soft-fail on unknown data).
+    static func districtCoversParish(
+        _ district: String,
+        parish: String,
+        forHomeChapman code: String
+    ) -> Bool {
+        let parishes = parishesInDistrict(district, forHomeChapman: code)
+        guard !parishes.isEmpty else { return false }
+        let needle = parish.lowercased()
+        return parishes.contains { $0.lowercased() == needle }
+    }
+
     // MARK: - Reference Data
 
     static let englishCounties: Set<String> = [
