@@ -145,11 +145,20 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
                 return .unavailable(reason: "Invalid encoding")
             }
             let results = Self.parseSearchResults(html, censusYear: year)
+            // Enrich the first N hits with household composition. Mirrors
+            // Python's `_search_census_year` (agent/discover.py:195),
+            // capped at 5 to keep the FreeCen rate-limit budget sane.
+            // Household data is what feeds `VerdictEmitter.parentLink
+            // Verdict` and the UI's proposed-relatives surface — without
+            // this enrichment, census results land with `household: nil`
+            // and the parent_link verdict stays inconclusive even when
+            // the subject was clearly co-resident with parents.
+            let enriched = await enrichWithHousehold(results, cap: 5)
             lastSuccessfulSearch = Date()
             lastError = nil
-            logger.info("Search returned \(results.count) results for \(surname)")
-            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count, strictness: query.strictness))
-            return .results(results)
+            logger.info("Search returned \(enriched.count) results for \(surname)")
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: enriched.count, strictness: query.strictness))
+            return .results(enriched)
 
         } catch {
             lastError = error.localizedDescription
@@ -169,6 +178,37 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
         }()
         let yearLabel = censusYear.map { " \($0) census" } ?? " census"
         return "FreeCen \(chapmanCode)\(yearLabel): \(searchTerms)"
+    }
+
+    /// Replace the first `cap` census records with their household-
+    /// enriched form (via fetchDetail). Records past the cap or
+    /// without a usable detail URL pass through untouched. Detail
+    /// failures fall back to the un-enriched record.
+    private func enrichWithHousehold(_ records: [SourceRecord], cap: Int) async -> [SourceRecord] {
+        var out: [SourceRecord] = []
+        out.reserveCapacity(records.count)
+        var enrichedCount = 0
+        for record in records {
+            guard enrichedCount < cap,
+                  case .census(let census) = record,
+                  let url = census.common.detailURL,
+                  !url.isEmpty,
+                  census.household == nil else {
+                out.append(record)
+                continue
+            }
+            enrichedCount += 1
+            let result = await fetchDetail(recordID: url)
+            if case .results(let detailRecords) = result,
+               let detail = detailRecords.first {
+                out.append(detail)
+            } else {
+                // Couldn't enrich (rate limit, parser miss, etc.).
+                // Keep the original search-result row.
+                out.append(record)
+            }
+        }
+        return out
     }
 
     // MARK: - Detail Fetching (household)
