@@ -22,18 +22,44 @@ nonisolated enum VerdictEmitter {
     /// tokenisation to Python: uppercase, split on whitespace,
     /// case-insensitive set intersection.
     ///
-    /// Token source widening (parity fix, 2026-05-24): Python's
-    /// `_extract_household_members` runs on **raw** search results,
-    /// before the scorer. Swift's pipeline-level extraction filters
-    /// to `.fact` only — so census records demoted to leads (e.g.
-    /// Ernest's 1891 Belper census, demoted for unknown district
+    /// Token source widening (parity fix, 2026-05-24, commit 297a6f3):
+    /// Python's `_extract_household_members` runs on **raw** search
+    /// results, before the scorer. Swift's pipeline-level extraction
+    /// filters to `.fact` only — so census records demoted to leads
+    /// (e.g. Ernest's 1891 Belper census, demoted for unknown district
     /// "Duffield") never contribute their household tokens.
-    /// Verdict-only widening: walk every `.census` record in
+    /// Verdict-only widening: walk `.census` records in
     /// `allScoredRecords` (facts AND leads) for token collection.
     /// State.householdMembers (which feeds the UI's proposed-relatives
     /// surface) keeps the stricter `.fact`-only filter — adding lead
     /// households there would surface weaker evidence as relative
     /// proposals.
+    ///
+    /// Sparsity guard (parity fix, 2026-05-25, parity-report cluster #3):
+    /// The 297a6f3 widening was too broad for sparse-evidence subjects
+    /// (Catherine Hannah Bown, Stephen Sherwin — corpus axis
+    /// `sparse_civil_record` / `parish_only_evidence`). Tier-2 was
+    /// scooping in FamilySearch `.census` records, of which there are
+    /// often 80–100+ noisy keyword matches per sparse subject (because
+    /// the FS query is tagged with `father=<surname>`); even at
+    /// `.lead`-grade those records contribute parent-surname tokens
+    /// from incidental partial matches, falsely tripping the verdict
+    /// to `supported`.
+    ///
+    /// Python's `_extract_household_members` only inspects source keys
+    /// containing "census" — and in Python's source dict that's
+    /// FreeCen alone (FamilySearch is keyed `familysearch`). The
+    /// faithful Swift port therefore restricts tier-2 to records whose
+    /// `sourceID == "freecen"`. FamilySearch census records reach
+    /// tier-1 only if they survive scoring to `.fact` grade (which
+    /// implicitly bounds them by the same name/geography/family-context
+    /// gates the Python pipeline applies before extraction).
+    ///
+    /// Verified preserves: Robert + Ernest stay `supported` (both have
+    /// one FreeCen 1891 record at `.lead` grade — the very case 297a6f3
+    /// was designed to recover). Verified flips: Catherine + Stephen
+    /// fall back to `inconclusive` (both have 0 FreeCen results and
+    /// no `.fact`-grade FS census records on the subject).
     ///
     /// Python tier-3 ("subject's own surname as fallback") was
     /// removed there for the same reason it'd misfire here — the
@@ -49,15 +75,22 @@ nonisolated enum VerdictEmitter {
 
         var memberTokens = Set<String>()
         // Tier 1: members the pipeline curated into result.householdMembers
-        // (from .fact-grade census records).
+        // (from .fact-grade census records — any source).
         for m in result.householdMembers {
             memberTokens.formUnion(
                 m.name.uppercased().split(separator: " ").map(String.init)
             )
         }
-        // Tier 2: members carried on every other census record's
-        // household payload (leads too) — verdict-only signal.
+        // Tier 2: members carried on FreeCen `.census` records' household
+        // payload (facts AND leads) — verdict-only signal, scoped to the
+        // structured-census source to mirror Python's
+        // `_extract_household_members` which only iterates source keys
+        // containing "census" (FreeCen). FamilySearch census records are
+        // excluded from tier-2 because keyword-noise matches (often 80+
+        // per sparse subject) would otherwise contribute tokens that
+        // falsely promote parent_link for subjects with no real evidence.
         for scored in result.allScoredRecords {
+            guard scored.record.sourceID == "freecen" else { continue }
             if case .census(let census) = scored.record,
                let household = census.household {
                 for member in household {
