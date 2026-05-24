@@ -155,57 +155,6 @@ nonisolated extension ResearchSubject {
         [givenName, surname].compactMap { $0 }.joined(separator: " ")
     }
 
-    /// First-token locality extracted from `region` — the parish / town
-    /// component of a free-text birth location string. Used by the
-    /// geography gate's within-county locality check (parity cluster #4,
-    /// George Bowden — corpus geographic_outlier).
-    ///
-    /// `region` is populated from `Profile.birthLocation` as
-    /// `.county("Glossop, Derbyshire, England")` (the whole string lives
-    /// in the `.county` slot because the existing slot is reused for
-    /// free-text locations). We pull the first comma-separated token,
-    /// which by convention is the most-specific locality (parish or
-    /// town). Empty / no-region subjects return nil and the gate
-    /// falls back to its prior county-level logic.
-    var birthLocality: String? {
-        guard case .county(let raw) = region else {
-            if case .parish(let p, county: _) = region { return p }
-            return nil
-        }
-        let first = raw.split(separator: ",").first.map {
-            $0.trimmingCharacters(in: .whitespaces)
-        } ?? ""
-        guard !first.isEmpty else { return nil }
-        // Reject the case where the first token IS a county name —
-        // a profile with `birthLocation = "Derbyshire, England"` should
-        // not be treated as having a parish-level anchor (this is the
-        // county itself, not a town inside it). Mirrors
-        // `ScoringRules.englishCounties` so the rule isn't hardcoded
-        // to Derbyshire.
-        if ScoringRules.englishCounties.contains(first.lowercased()) {
-            return nil
-        }
-        return first
-    }
-
-    /// Home-county district that covers `birthLocality`, when both are
-    /// known. Used by the scorer's within-county locality check to
-    /// recognise when a record's district sits in a different cluster
-    /// of the same county from the subject's birth area (Glossop birth
-    /// vs Basford-district records, parity cluster #4).
-    ///
-    /// Returns nil when:
-    /// * `birthLocality` is nil (no parish-level anchor available)
-    /// * `birthLocality` doesn't resolve to a district in the home
-    ///   county via `RegionConfig` / `FreeBMDDistrictCatalogue`
-    ///
-    /// Either nil case → the gate falls through to its existing
-    /// county-level behaviour rather than over-constraining.
-    var homeCountyBirthDistrict: String? {
-        guard let parish = birthLocality else { return nil }
-        return ScoringRules.districtForParish(parish, forHomeChapman: homeChapmanCode)
-    }
-
     /// Year range for a given record type.
     func yearRange(for recordType: RecordType) -> (from: Int?, to: Int?) {
         switch recordType {
