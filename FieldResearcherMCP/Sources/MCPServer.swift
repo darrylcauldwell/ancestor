@@ -437,6 +437,14 @@ actor MCPHandler {
                     ],
                     required: ["pending_fact_id"]
                 ),
+                tool(
+                    name: "promote_lead",
+                    description: "Promote a lead to a real profile + relationship edge. Creates a new profiles row from the lead's name/birth/death/relationship fields and a relationships row connecting it to the lead's source profile. Restricted to father/mother/spouse (unambiguous gender + edge direction); child/sibling refuse with reason. Disabled by default pending §14.B.1 — set ANCESTOR_MCP_AUTO_APPROVE=1 to enable. Marks the lead as resolved on success.",
+                    properties: [
+                        "lead_id": ["type": "string", "description": "The leads row id to promote."],
+                    ],
+                    required: ["lead_id"]
+                ),
             ]
         ]
     }
@@ -488,6 +496,8 @@ actor MCPHandler {
             return try approvePendingFact(arguments)
         case "inspect_approval_decision":
             return try inspectApprovalDecision(arguments)
+        case "promote_lead":
+            return try promoteLead(arguments)
         case _ where name == "get_run_status" || name.hasPrefix("ancestor://run_status/"):
             return try getRunStatus(arguments)
         default:
@@ -981,6 +991,179 @@ actor MCPHandler {
                 ]
             ]
         ]
+    }
+
+    /// Promote a lead to a real profile + relationship edge.
+    ///
+    /// Gated by the same `ANCESTOR_MCP_AUTO_APPROVE` env var as
+    /// `approve_pending_fact` — the lead came from `submit_lead` (an
+    /// external write) and promoting it would synthesise an entire
+    /// new profile row from name + dates the submitter chose. The
+    /// auto-gate disclaimer about defensive hallucination re-check
+    /// applies symmetrically.
+    ///
+    /// Restricted to relationships with unambiguous gender + edge
+    /// direction: `father`, `mother`, `spouse`. `child` and `sibling`
+    /// refuse with a reason — child's gender is undetermined from
+    /// the relationship label alone, and sibling-of edges aren't
+    /// representable in the relationships schema (would need an
+    /// implied shared parent).
+    func promoteLead(_ args: [String: Any]) throws -> [String: Any] {
+        guard let leadID = args["lead_id"] as? String else {
+            throw MCPError.invalidParams("promote_lead requires lead_id")
+        }
+
+        guard Self.isAutoApprovalEnabled() else {
+            return refusePromote(
+                leadID: leadID,
+                reason: "auto_approval_gate_disabled",
+                detail: "Auto-approval is disabled by default. Set ANCESTOR_MCP_AUTO_APPROVE=1 in the server's environment to enable."
+            )
+        }
+
+        return try db.write { db in
+            guard let row = try Row.fetchOne(db, sql: "SELECT * FROM leads WHERE id = ?", arguments: [leadID]) else {
+                return refusePromote(leadID: leadID, reason: "lead_not_found", detail: "No lead row with that id.")
+            }
+
+            let status: String = row["status"] ?? ""
+            guard status == "new" else {
+                return refusePromote(
+                    leadID: leadID,
+                    reason: "lead_not_open",
+                    detail: "Lead status is '\(status)'; only 'new' leads can be promoted."
+                )
+            }
+
+            let sourceProfileID: String = row["profile_id"] ?? ""
+            let leadRelationship: String = (row["relationship"] ?? "").lowercased()
+            guard ["father", "mother", "spouse"].contains(leadRelationship) else {
+                return refusePromote(
+                    leadID: leadID,
+                    reason: "relationship_not_promotable",
+                    detail: "promote_lead supports father, mother, spouse. Got '\(leadRelationship)'."
+                )
+            }
+
+            let givenName: String? = row["given_name"]
+            let surname: String? = row["surname"]
+            let birthYear: Int? = row["birth_year"]
+            let deathYear: Int? = row["death_year"]
+            let evidence: String = row["evidence"] ?? ""
+
+            // Derive gender from relationship label (+ source profile for spouse).
+            let gender: String
+            switch leadRelationship {
+            case "father": gender = "male"
+            case "mother": gender = "female"
+            case "spouse":
+                // Inverse of the source profile's gender, when known.
+                let sourceGender: String? = try Row.fetchOne(
+                    db, sql: "SELECT gender FROM profiles WHERE id = ?", arguments: [sourceProfileID]
+                )?["gender"]
+                switch (sourceGender ?? "").lowercased() {
+                case "male": gender = "female"
+                case "female": gender = "male"
+                default: gender = "unknown"
+                }
+            default: gender = "unknown"
+            }
+
+            // Pre-existing-promotion guard: if this lead was already
+            // resolved earlier, don't double-write. Belt-and-braces on
+            // top of the `status == 'new'` check above.
+            if let existingResolution: String = row["resolution"], !existingResolution.isEmpty {
+                return refusePromote(
+                    leadID: leadID,
+                    reason: "lead_already_resolved",
+                    detail: "Lead resolution = '\(existingResolution)'."
+                )
+            }
+
+            let newProfileID = "@FR_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))@"
+            let now = Date()
+
+            // INSERT new profile.
+            try db.execute(sql: """
+                INSERT INTO profiles
+                (id, external_ids, first_name, last_name, gender,
+                 birth_date_original, birth_date_earliest, birth_date_latest, birth_date_qualifier,
+                 death_date_original, death_date_earliest, death_date_latest, death_date_qualifier,
+                 bio, attributes, is_deleted, mothers_maiden_name, married_surname)
+                VALUES (?, '{}', ?, ?, ?,
+                        ?, ?, ?, ?,
+                        ?, ?, ?, ?,
+                        ?, '{}', 0, NULL, NULL)
+                """, arguments: [
+                    newProfileID, givenName, surname, gender,
+                    birthYear.map { String($0) }, birthYear, birthYear, birthYear == nil ? nil : "estimate",
+                    deathYear.map { String($0) }, deathYear, deathYear, deathYear == nil ? nil : "estimate",
+                    "Promoted from lead \(leadID). Evidence: \(String(evidence.prefix(400)))",
+                ])
+
+            // INSERT relationship edge.
+            let relID = UUID().uuidString.uppercased()
+            let relType: String
+            let role: String?
+            let fromID: String
+            let toID: String
+            switch leadRelationship {
+            case "father":
+                relType = "parent"; role = "father"
+                fromID = newProfileID; toID = sourceProfileID
+            case "mother":
+                relType = "parent"; role = "mother"
+                fromID = newProfileID; toID = sourceProfileID
+            case "spouse":
+                relType = "spouse"; role = nil
+                // Convention from existing data: husband first when known.
+                if gender == "male" {
+                    fromID = newProfileID; toID = sourceProfileID
+                } else {
+                    fromID = sourceProfileID; toID = newProfileID
+                }
+            default:
+                // Unreachable — guarded above.
+                return refusePromote(leadID: leadID, reason: "unreachable", detail: "")
+            }
+
+            try db.execute(sql: """
+                INSERT INTO relationships
+                (id, from_id, to_id, type, role, subtype)
+                VALUES (?, ?, ?, ?, ?, 'unknown')
+                """, arguments: [relID, fromID, toID, relType, role])
+
+            // Mark the lead as resolved.
+            try db.execute(sql: """
+                UPDATE leads
+                SET status = 'resolved', resolved_at = ?, resolution = ?
+                WHERE id = ?
+                """, arguments: [now, "promoted_to_\(newProfileID)", leadID])
+
+            let payload: [String: Any] = [
+                "status": "promoted",
+                "lead_id": leadID,
+                "new_profile_id": newProfileID,
+                "new_relationship_id": relID,
+                "rel_type": relType,
+                "role": role ?? NSNull(),
+                "source_profile_id": sourceProfileID,
+                "gender": gender,
+            ]
+            let json = (try? String(data: JSONSerialization.data(withJSONObject: payload, options: .prettyPrinted), encoding: .utf8)) ?? "{}"
+            return ["content": [["type": "text", "text": json]]]
+        }
+    }
+
+    private func refusePromote(leadID: String, reason: String, detail: String) -> [String: Any] {
+        let payload: [String: Any] = [
+            "status": "refused",
+            "lead_id": leadID,
+            "reason": reason,
+            "detail": detail,
+        ]
+        let json = (try? String(data: JSONSerialization.data(withJSONObject: payload, options: .prettyPrinted), encoding: .utf8)) ?? "{}"
+        return ["content": [["type": "text", "text": json]]]
     }
 
     /// Mark a lead as dismissed. Pure state transition — no facts written.
