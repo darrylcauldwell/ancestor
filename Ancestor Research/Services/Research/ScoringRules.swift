@@ -95,9 +95,33 @@ nonisolated struct ScoringRules {
 
     // MARK: - Tolerances
 
+    /// Legacy single-constant tolerances. Retained for the `yearsMatch`
+    /// default parameter and the (one) call site that hasn't migrated to
+    /// `tolerance(for:)`. New code should prefer the per-type function so
+    /// the tolerance reflects the inherent fuzziness of each record kind:
+    /// civil registrations are tight (±1 for the Q4-birth/Q1-registration
+    /// boundary slip), census is loose (±5 because age misreporting in
+    /// 19th-century enumeration is endemic), baptism is loose (children
+    /// baptised years after birth, adult baptism), pedigree is exact.
     static let censusAgeTolerance = 2
     static let birthYearTolerance = 2
     static let deathAgeTolerance = 1
+
+    /// Tolerance (in years) for the scorer's date gate when comparing a
+    /// record's year against the subject's known year window. Tiered by
+    /// record type — not by subject precision, because subject precision
+    /// is already encoded in `birthYearFrom`/`birthYearTo` (a "ABT 1880"
+    /// subject already has from=1875, to=1885).
+    static func tolerance(for recordType: RecordType) -> Int {
+        switch recordType {
+        case .birth, .death, .military: return 1
+        case .probate, .burial: return 2
+        case .baptism, .christening, .census: return 5
+        case .parish: return 3
+        case .marriage: return 1
+        case .pedigree: return 0
+        }
+    }
 
     static func yearsMatch(_ yearA: Int, _ yearB: Int, tolerance: Int = birthYearTolerance) -> Bool {
         abs(yearA - yearB) <= tolerance

@@ -462,6 +462,24 @@ final class RunRequestWatcher {
     /// metrics from. Shape mirrors Python's `_state_to_envelope` in
     /// `eval/run_harness.py:197` so the §5.8 harness consumes either
     /// backend without branching.
+    /// Envelope "kind" tag for a SourceRecord — finer-grained than
+    /// `recordType`. `SourceRecord.recordType` collapses `.military`
+    /// → `.death` for scoring purposes (the scorer's date and family
+    /// gates treat military casualty records as death records). But
+    /// the harness's per-kind metric distinguishes
+    /// `military_service` (CWGC / war-grave evidence) from
+    /// `death_disambiguation` (civil-registration death), and the
+    /// Python pipeline emits `kind: "military"` for CWGC matches.
+    /// Mirror that here so a CWGC-confirmed casualty satisfies both
+    /// kinds — `_KIND_FACT_TYPES["military_service"]` is
+    /// `{military, war_grave, cwgc}` and
+    /// `_KIND_FACT_TYPES["death_disambiguation"]` already accepts
+    /// `military` too.
+    private static func envelopeKind(for record: SourceRecord) -> String {
+        if case .military = record { return "military" }
+        return record.recordType.rawValue
+    }
+
     private static func buildResultEnvelope(
         result: ResearchResult,
         throttledSources: [String] = []
@@ -477,7 +495,7 @@ final class RunRequestWatcher {
                 return ["\(citation.sourceID): \(scored.summary)"]
             }()
             supported.append([
-                "kind": scored.record.recordType.rawValue,
+                "kind": envelopeKind(for: scored.record),
                 "value": scored.summary,
                 "sources": sourceStrings,
                 "confidence": "confirmed",
@@ -511,9 +529,9 @@ final class RunRequestWatcher {
                 .filter { $0.outcome != .pass && $0.outcome != .skip }
                 .map { $0.reason }
             return [
-                "kind": scored.record.recordType.rawValue,
+                "kind": envelopeKind(for: scored.record),
                 "summary": scored.summary,
-                "source": scored.record.recordType.rawValue,
+                "source": envelopeKind(for: scored.record),
                 "reasons": reasons,
             ]
         }

@@ -114,6 +114,26 @@ nonisolated struct RecordScorer {
         let personSurname = (subject.surname ?? "").uppercased().trimmingCharacters(in: .whitespaces)
         let personGivenRaw = (subject.givenName ?? "").uppercased().trimmingCharacters(in: .whitespaces)
         let personMiddleField = (subject.middleName ?? "").uppercased().trimmingCharacters(in: .whitespaces)
+        // For death-shape and post-marriage census records, the subject's
+        // married surname is an equally-acceptable match — UK indexes
+        // file deceased married women under married surname (probate,
+        // FreeBMD post-1969 deaths, FAG memorials erected by family).
+        // Dispatcher's `surnamesToProbe` puts both surnames on the wire;
+        // this gate needs to accept either back. Without this, a record
+        // returned under `marriedSurname` fails surname-match against
+        // `subject.surname` (maiden) and gets scored impossible.
+        let acceptableSurnames: [String] = {
+            var set: [String] = []
+            if !personSurname.isEmpty { set.append(personSurname) }
+            let married = (subject.marriedSurname ?? "").uppercased().trimmingCharacters(in: .whitespaces)
+            guard !married.isEmpty, married != personSurname else { return set }
+            let acceptsMarried: Bool = switch record.recordType {
+            case .death, .burial, .probate, .military, .census: true
+            default: false
+            }
+            if acceptsMarried { set.append(married) }
+            return set
+        }()
 
         // Derive effective given + middle for matching. GEDCOM import puts
         // the full given string (e.g. "Ernest Victor") into firstName and
@@ -156,14 +176,20 @@ nonisolated struct RecordScorer {
             }
         }
 
-        if recordSurname.isEmpty || personSurname.isEmpty {
+        if recordSurname.isEmpty || acceptableSurnames.isEmpty {
             return GateResult(gate: .name, outcome: .fail, reason: "cannot compare — missing surname")
         }
 
-        let surnameScore = ScoringRules.nameSimilarity(recordSurname, personSurname)
-        if surnameScore < 0.7 {
-            return GateResult(gate: .name, outcome: .fail, reason: "surname mismatch: \(recordSurname) vs \(personSurname)")
+        // Best score across acceptable surnames (maiden + optionally married
+        // for death-shape record types). Pass if any clears the 0.7 threshold.
+        let bestSurnameScore = acceptableSurnames
+            .map { ScoringRules.nameSimilarity(recordSurname, $0) }
+            .max() ?? 0
+        if bestSurnameScore < 0.7 {
+            let candidates = acceptableSurnames.joined(separator: "/")
+            return GateResult(gate: .name, outcome: .fail, reason: "surname mismatch: \(recordSurname) vs \(candidates)")
         }
+        let surnameScore = bestSurnameScore
 
         var givenScore = 0.5
         if !recordGiven.isEmpty && !personGiven.isEmpty {
@@ -289,7 +315,10 @@ nonisolated struct RecordScorer {
             // ageAtDeath plausibility below.
             if let known = subject.deathYearFrom {
                 let knownHigh = subject.deathYearTo ?? known
-                let deathTol = 2   // year tolerance — matches birth tolerance scale
+                // Per-type tolerance: .death is tight (±1), .probate/.burial
+                // wider (±2) because grant/burial dates can lag death by
+                // months and slip across the year boundary.
+                let deathTol = ScoringRules.tolerance(for: searchType)
                 let lower = known - deathTol
                 let upper = knownHigh + deathTol
                 if recordYear < lower || recordYear > upper {
@@ -351,7 +380,11 @@ nonisolated struct RecordScorer {
 
         case .census:
             if case .census(let cr) = record, let censusBirth = cr.birthYear {
-                let tol = ScoringRules.censusAgeTolerance
+                // Census age misreporting is endemic in 19th-c. enumeration
+                // (round numbers, mis-remembered ages, intentional fudges).
+                // ±5 is the honest band — previous ±2 was rejecting genuine
+                // census matches whose enumerated age was off by 3–4 years.
+                let tol = ScoringRules.tolerance(for: .census)
                 let inWindow = censusBirth >= birthLow - tol && censusBirth <= birthHigh + tol
                 if inWindow {
                     return GateResult(gate: .date, outcome: .pass, reason: "census birth year \(censusBirth) inside window \(windowLabel) ±\(tol)")
@@ -367,7 +400,13 @@ nonisolated struct RecordScorer {
             // here as `.fact`; the cluster's hypothesis verdict then
             // re-grades wide-window facts to "weakly supported" so they
             // don't auto-promote on a single record.
-            let tol = ScoringRules.birthYearTolerance
+            //
+            // Per-type tolerance: .birth is tight (±1 — covers the Q4-
+            // birth/Q1-following-year-registration boundary slip); baptism
+            // and christening are loose (±5 — children can be baptised
+            // years after birth, adult baptism happens). Subject's date
+            // precision is already encoded in the from/to window above.
+            let tol = ScoringRules.tolerance(for: searchType)
             let inWindow = recordYear >= birthLow - tol && recordYear <= birthHigh + tol
             if inWindow {
                 return GateResult(gate: .date, outcome: .pass, reason: "year \(recordYear) inside window \(windowLabel) ±\(tol)")
@@ -383,6 +422,21 @@ nonisolated struct RecordScorer {
     // MARK: - Gate 3: Geography
 
     private static func checkGeography(record: SourceRecord, subject: ResearchSubject) -> GateResult {
+        // CWGC casualty records carry cemetery + country of death, not
+        // UK residence — they exist *because* civil GRO has no record
+        // for casualties who died abroad. The geography gate has no
+        // useful UK signal to match against; demanding one would
+        // soft-fail every CWGC record as "no location data" and lose
+        // the military_service signal. Pass by class — the date and
+        // name gates still police identity. Same carve-out the verdict
+        // logic applies for CWGC fact-promotion (commit 83706f6).
+        if case .military = record {
+            return GateResult(
+                gate: .geography, outcome: .pass,
+                reason: "CWGC casualty — UK residence not on record by class invariant"
+            )
+        }
+
         // Extract district from record
         var district = ""
         switch record {
