@@ -116,9 +116,15 @@ def seed_from_db(db_path: Path) -> list[str]:
         ).fetchall()]
 
 
-def pending_facts_for(db_path: Path, profile_id: str, since: str) -> list[dict]:
-    """All pending_facts on this profile created since the run started.
-    Returns id + source_url so we can decide approval host-wise."""
+def pending_facts_for(db_path: Path, profile_id: str) -> list[dict]:
+    """All open pending_facts on this profile.
+
+    Status filter alone is sufficient — facts transition out of
+    `readyForReview` on approve/reject/skip. The earlier created_at
+    filter against the run's started_at compared Python ISO format
+    against SQLite's space-separated Date format and silently
+    returned empty.
+    """
     with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as con:
         con.row_factory = sqlite3.Row
         rows = con.execute("""
@@ -126,12 +132,14 @@ def pending_facts_for(db_path: Path, profile_id: str, since: str) -> list[dict]:
             FROM pending_facts
             WHERE profile_id = ?
               AND review_status = 'readyForReview'
-              AND created_at >= ?
-        """, (profile_id, since)).fetchall()
+        """, (profile_id,)).fetchall()
         return [dict(r) for r in rows]
 
 
-def leads_for(db_path: Path, profile_id: str, since: str) -> list[dict]:
+def leads_for(db_path: Path, profile_id: str) -> list[dict]:
+    """All open leads on this profile. Same status-only rationale
+    as pending_facts_for — leads transition out of 'new' on
+    promote/dismiss."""
     with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as con:
         con.row_factory = sqlite3.Row
         rows = con.execute("""
@@ -139,8 +147,7 @@ def leads_for(db_path: Path, profile_id: str, since: str) -> list[dict]:
             FROM leads
             WHERE profile_id = ?
               AND status = 'new'
-              AND created_at >= ?
-        """, (profile_id, since)).fetchall()
+        """, (profile_id,)).fetchall()
         return [dict(r) for r in rows]
 
 
@@ -191,7 +198,7 @@ def process_profile(profile_id: str, depth: int, args, mcp, db_path: Path,
     # Auto-approve pending_facts from trust-tier hosts.
     approved = 0
     refused = 0
-    for pf in pending_facts_for(db_path, profile_id, since=state["started_at"]):
+    for pf in pending_facts_for(db_path, profile_id):
         if host_of(pf.get("source_url", "")) not in APPROVE_HOSTS:
             continue
         try:
@@ -217,7 +224,7 @@ def process_profile(profile_id: str, depth: int, args, mcp, db_path: Path,
         logger.event("promote_budget_exhausted", profile_id=profile_id,
                      already_promoted=promoted_this_round)
 
-    for lead in leads_for(db_path, profile_id, since=state["started_at"]):
+    for lead in leads_for(db_path, profile_id):
         if remaining_budget <= 0:
             break
         if not is_promotable(lead):
@@ -243,6 +250,68 @@ def process_profile(profile_id: str, depth: int, args, mcp, db_path: Path,
             logger.event("promote_error", profile_id=profile_id, lead_id=lead["id"], error=str(e))
 
     logger.event("profile_done", profile_id=profile_id, depth=depth, secs=secs,
+                 approved=approved, refused=refused, promoted=len(new_profile_ids))
+    return new_profile_ids
+
+
+def catch_up_existing(profile_id: str, depth: int, args, mcp, db_path: Path,
+                       logger: JsonlLogger, state: dict) -> list[str]:
+    """Approve + promote already-existing open leads / pending_facts on a
+    profile that was researched in a prior run but had the broken date
+    filter on its leads/pending_facts queries. No new research kicked
+    off — just the approve + promote step.
+
+    Returns newly-created profile IDs to enqueue, same shape as
+    process_profile."""
+    logger.event("catch_up_start", profile_id=profile_id, depth=depth)
+
+    approved = 0
+    refused = 0
+    for pf in pending_facts_for(db_path, profile_id):
+        if host_of(pf.get("source_url", "")) not in APPROVE_HOSTS:
+            continue
+        try:
+            result = mcp._tool_call("approve_pending_fact", {"pending_fact_id": pf["id"]})
+            if result.get("status") == "approved":
+                approved += 1
+                logger.event("fact_approved", profile_id=profile_id,
+                             pending_fact_id=pf["id"], field=pf.get("fact_kind"))
+            else:
+                refused += 1
+                logger.event("fact_refused", profile_id=profile_id,
+                             pending_fact_id=pf["id"], reason=result.get("reason"))
+        except Exception as e:
+            logger.event("fact_approve_error", profile_id=profile_id,
+                         pending_fact_id=pf["id"], error=str(e))
+
+    new_profile_ids: list[str] = []
+    promo_budget = args.max_promotions_per_profile
+    promoted_this_round = state["promotions_per_profile"].setdefault(profile_id, 0)
+    remaining_budget = max(promo_budget - promoted_this_round, 0)
+
+    for lead in leads_for(db_path, profile_id):
+        if remaining_budget <= 0:
+            break
+        if not is_promotable(lead):
+            continue
+        try:
+            result = mcp._tool_call("promote_lead", {"lead_id": lead["id"]})
+            if result.get("status") == "promoted":
+                new_id = result.get("new_profile_id", "")
+                new_profile_ids.append(new_id)
+                state["promotions_per_profile"][profile_id] = promoted_this_round + 1
+                promoted_this_round += 1
+                remaining_budget -= 1
+                logger.event("lead_promoted", profile_id=profile_id, lead_id=lead["id"],
+                             new_profile_id=new_id, relationship=lead.get("relationship"),
+                             name=lead.get("name"))
+            else:
+                logger.event("lead_refused", profile_id=profile_id, lead_id=lead["id"],
+                             reason=result.get("reason"))
+        except Exception as e:
+            logger.event("promote_error", profile_id=profile_id, lead_id=lead["id"], error=str(e))
+
+    logger.event("catch_up_done", profile_id=profile_id, depth=depth,
                  approved=approved, refused=refused, promoted=len(new_profile_ids))
     return new_profile_ids
 
@@ -299,10 +368,28 @@ def main() -> None:
     queue = deque(tuple(item) for item in state["queue"])
     seen = set(state["seen"])
 
+    # On resume: catch up already-seen profiles whose lead-promotion
+    # was silently skipped by the v0 driver's broken created_at filter.
+    # Idempotent — promote_lead's gate refuses already-resolved leads.
+    needs_catch_up = bool(seen) and not state.get("caught_up_v1", False)
+
     try:
         with _SwiftMCPClient(binary, str(db_path),
                               poll_interval_s=5.0,
                               per_subject_timeout_s=1800.0) as mcp:
+            if needs_catch_up:
+                logger.event("catch_up_pass_start", seen_count=len(seen))
+                for pid in sorted(seen):
+                    new_ids = catch_up_existing(pid, 0, args, mcp, db_path, logger, state)
+                    for new_id in new_ids:
+                        if new_id and new_id not in seen:
+                            queue.append((new_id, 1))
+                state["caught_up_v1"] = True
+                state["queue"] = [list(t) for t in queue]
+                state["seen"] = sorted(seen)
+                save_state(state_path, state)
+                logger.event("catch_up_pass_done", new_in_queue=len(queue))
+
             while queue:
                 if time.monotonic() > deadline:
                     logger.event("max_wall_hit", elapsed_hours=args.max_wall_hours)
