@@ -99,6 +99,10 @@ fs_*
 # App page cache (fetched web pages)
 page-cache/
 
+# Local MCP server config — paths are user-specific (FieldResearcherMCP
+# binary + a specific project SQLite). Not appropriate for shared repo.
+.mcp.json
+
 # Built app bundles
 *.app/
 
