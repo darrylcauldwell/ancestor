@@ -431,12 +431,29 @@ class _SwiftMCPClient:
     # --- High-level operations ---
 
     def _tool_call_text(self, name: str, args: dict) -> str:
-        """Invoke a tool and return the raw text content (no JSON parse)."""
-        result = self._call("tools/call", {"name": name, "arguments": args})
-        content = result.get("content") or []
-        if not content or "text" not in content[0]:
-            raise RuntimeError(f"{name}: no text content in response: {result}")
-        return content[0]["text"]
+        """Invoke a tool and return the raw text content (no JSON parse).
+
+        Retries on transient SQLite contention. The running Ancestor
+        Research app and the MCP server both open the same DB via
+        GRDB's DatabaseQueue (DELETE journal mode, not WAL), so the
+        watcher's write windows briefly block MCP reads. Backed-off
+        retry rides those out without surfacing as a harness failure.
+        """
+        last_error: Exception | None = None
+        for attempt in range(8):
+            try:
+                result = self._call("tools/call", {"name": name, "arguments": args})
+                content = result.get("content") or []
+                if not content or "text" not in content[0]:
+                    raise RuntimeError(f"{name}: no text content in response: {result}")
+                return content[0]["text"]
+            except RuntimeError as e:
+                msg = str(e)
+                if "database is locked" not in msg and "SQLite error 5" not in msg:
+                    raise
+                last_error = e
+                time.sleep(0.5 * (attempt + 1))  # 0.5s, 1s, 1.5s, ... up to 4s
+        raise last_error or RuntimeError(f"{name}: exhausted retries")
 
     def _tool_call(self, name: str, args: dict) -> dict:
         """Invoke a tool that returns JSON-as-text; parse back to a dict."""
