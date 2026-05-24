@@ -37,7 +37,11 @@ nonisolated struct ProjectStore {
         var metaFailures = 0
         for url in sqliteFiles {
             do {
-                let db = try ProjectDatabase(path: url.path)
+                // List-only path: no WAL switch — metadata read on
+                // ~2000 files would otherwise run a write transaction
+                // per file, slowing the picker and risking BUSY
+                // cascades.
+                let db = try ProjectDatabase(path: url.path, enableWAL: false)
                 do {
                     if let project = try db.loadProjectMeta() {
                         if includingArchived || !project.isArchived {

@@ -6,7 +6,7 @@ import GRDB
 nonisolated final class ProjectDatabase: Sendable {
     let dbQueue: DatabaseQueue
 
-    init(path: String) throws {
+    init(path: String, enableWAL: Bool = true) throws {
         var config = Configuration()
         config.foreignKeysEnabled = true
         dbQueue = try DatabaseQueue(path: path, configuration: config)
@@ -14,12 +14,24 @@ nonisolated final class ProjectDatabase: Sendable {
         // FieldResearcherMCP server during eval-harness runs) can
         // read while the watcher writes, instead of blocking each
         // other on SQLite's default file-level lock. WAL is a
-        // persistent file-level mode — once set, the file stays in
-        // WAL until explicitly flipped. The pragma is a no-op if
-        // already in WAL, so safe to run unconditionally on every
-        // open.
-        try dbQueue.write { db in
-            try db.execute(sql: "PRAGMA journal_mode = WAL")
+        // persistent file-level mode — once set the file stays in
+        // WAL until explicitly flipped, so callers that only need
+        // a momentary metadata read (e.g. ProjectStore.listProjects
+        // scanning 2000+ files) pass enableWAL: false to skip the
+        // write transaction. Switching journal mode while another
+        // connection holds the file would fail with SQLITE_BUSY;
+        // catch that and continue — DELETE-mode still works, the
+        // harness-driven concurrent-read scenario just degrades.
+        if enableWAL {
+            do {
+                try dbQueue.write { db in
+                    try db.execute(sql: "PRAGMA journal_mode = WAL")
+                }
+            } catch {
+                // Soft-fail: leave the file in its current journal
+                // mode. Logged at warning level by callers that care
+                // about parity.
+            }
         }
         try migrate()
     }
