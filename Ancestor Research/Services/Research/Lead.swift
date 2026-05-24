@@ -96,8 +96,15 @@ actor LeadStore {
 
     /// Create a lead from a household member discovery.
     func createFromHouseholdMember(_ member: HouseholdMember, profileID: String, censusYear: Int) throws -> Lead {
+        // Deterministic id — Swift's `hashValue` is process-randomised, so
+        // the same name+year would produce different ids each app launch
+        // and break cross-run dedup. Normalise to uppercase + underscores.
+        let key = member.name
+            .uppercased()
+            .trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: " ", with: "_")
         let lead = Lead(
-            id: "lead_hh_\(member.name.hashValue)_\(censusYear)",
+            id: "lead_hh_\(key)_\(censusYear)",
             profileID: profileID,
             name: member.name,
             surname: member.name.split(separator: " ").last.map(String.init),
@@ -149,7 +156,7 @@ actor LeadStore {
             resolution: lead.resolution
         )
         leads[leadID] = lead
-        try db.saveLead(lead)
+        try db.upsertLead(lead)
     }
 
     /// Promote a lead — mark as promoted and dismiss competitors.
@@ -178,7 +185,7 @@ actor LeadStore {
                 resolution: .duplicate
             )
             leads[dismissed.id] = dismissed
-            try db.saveLead(dismissed)
+            try db.upsertLead(dismissed)
         }
     }
 

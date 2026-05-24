@@ -86,12 +86,22 @@ nonisolated struct LeadFilter: Sendable {
             return earliest
         }()
         let isAlive: Bool = {
-            // Treat "no death date at all" or "no parseable death
-            // year" as alive. A `deathDate` struct exists when the
-            // raw text was set (could be "unknown"), so we look at
-            // whether ANY death year landed.
-            guard let death = profile.deathDate else { return true }
-            return death.earliest == nil && death.latest == nil
+            // "Confirmed alive" requires the user to have explicitly
+            // marked the profile as living-private (the export-suppress
+            // flag). Just having no death date is NOT enough — research
+            // is supposed to DISCOVER death dates, so older relatives
+            // whose death we don't know about yet should still surface
+            // death-shape candidates as leads for review.
+            //
+            // The original Jennifer-Holmes 260-leads incident this
+            // filter was added to mitigate is now largely handled by:
+            //   - marriedSurname fan-out (search axis is `Jennifer
+            //     Cauldwell`, not just `Jennifer Holmes` — far narrower)
+            //   - precise-birth-year and precise-death-year window
+            //     filters (filters 2 + 3 below)
+            // …leaving Filter 1 as the safety net for genuinely-living
+            // profiles the user has explicitly flagged.
+            profile.resolvedAttributes.privacy == .livingPrivate
         }()
         return LeadFilter(
             preciseBirthYear: preciseBirth,
