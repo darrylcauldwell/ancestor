@@ -14,6 +14,104 @@ new design.
 change number it implements (e.g. `feat: kinship #Change4 — …`). No
 GitHub issues opened for in-flight epic work — the spec is the plan.
 
+## 2026-05-25 update — clean parity re-run, drift reshuffled
+
+Yesterday's 26 commits validated end-to-end against a fresh
+swift-mcp + python full-corpus pass. Headline unchanged
+(31/46 = 67% agreement, 15 disagreements) but the **composition
+moved significantly**:
+
+- Reports: `eval/PARITY_REPORT_2026-05-25.md` (vs `…2026-05-24.md`)
+- Swift run: `eval/runs/2026-05-24T19-43-36.json` (18:02 wall)
+- Python run: `eval/runs/2026-05-24T19-56-44.json` (10:35 wall)
+
+**Closed cells (8)** — drift cells that disagreed yesterday and
+now agree:
+
+| Subject | Kind | Closure source |
+|---|---|---|
+| Robert Cauldwell  | death_disambiguation     | 2423f35 (Ashbourne alias / married-surname) |
+| Robert Cauldwell  | marriage_disambiguation  | 2423f35 |
+| Robert Cauldwell  | military_service         | 2423f35 (CWGC carve-out + per-type tolerance) |
+| Robert Cauldwell  | parent_link              | 297a6f3 (household-token widening) |
+| Ernest Cauldwell  | parent_link              | 297a6f3 |
+| Catherine H. Bown | death_disambiguation     | 73e05d1 (Ashbourne alias) |
+| Lydia Kenworthy   | death_disambiguation     | (cross-county handling — was on the watchlist; closes naturally) |
+| Mabel cluster     | marriage_disambiguation  | e003628 (maiden-surname probe) |
+
+Headline stays at 15 because **8 new disagreements appeared**:
+
+- **3 cells where Swift is now better than Python** (Python
+  regression candidates, not Swift drift): John pair parent_link,
+  Mabel parent_link, Elizabeth parent_link.
+- **2 over-claims from yesterday's parent_link widening**
+  (commit `297a6f3` was too aggressive for sparse subjects):
+  Catherine parent_link, Stephen parent_link — both `supported`
+  where corpus expects `inconclusive`.
+- **3 new visible cells** that were both-inconclusive yesterday
+  but now have Python finding records Swift misses: Elizabeth
+  marriage (`supported_via_matched_page`), and the Sarah/Charles
+  `out_of_scope` markers from commit `518f8ed` reading as
+  disagreements when Swift confirms.
+
+### Remaining drift, grouped by root cause
+
+Dispatch-log evidence (now surfaced in the parity report) localises
+the 15 remaining disagreements into 4 actionable clusters:
+
+1. **Female-subject pre-marriage search uses married surname**
+   (Elizabeth Cauldwell, 4 cells: birth, death, marriage, parent_link).
+   Every Swift query is `Elizabeth Beighton` (her twin married
+   surname) — including the birth probe `1842–1846` for a child
+   born as Cauldwell. Yesterday's `e003628` fixed maiden-surname
+   probing for `marriage_disambiguation`; the same logic needs
+   to extend to all **pre-marriage record types** (birth, early
+   census, baptism) when subject is female. Python uses maiden,
+   so this closes 4 cells in one extension. See memory
+   `wikitree_married_surname_convention.md`.
+
+2. **Wife's maiden surname for male marriage searches**
+   (Ernest Cauldwell, 1 cell: marriage). FreeBMD marriage probes
+   all fire as `Cauldwell × Cauldwell` (wife indexed under
+   married name in twin). The real record is `Cauldwell × Ward`
+   at Ashbourne Q1 1915 vol 7b p977. Ashbourne IS in the
+   district list — the search dispatches correctly, just with
+   the wrong bride surname. Symmetric to `e003628` but on the
+   groom side: needs derive-wife-maiden-from-children's-BMD.
+
+3. **Parent-link widening over-eager on sparse subjects**
+   (Catherine, Stephen, 2 cells). `297a6f3` widened household
+   tokens + FreeCen enrichment to recover Robert/Ernest. It now
+   over-claims for subjects whose corpus expects `inconclusive`.
+   Needs a sparsity guard — possibly minimum-evidence threshold
+   before emitting `supported` on parent_link.
+
+4. **Geography gate too lenient on out-of-scope records**
+   (George Bowden, 3 cells: birth, death, marriage). George's
+   corpus marks him as a `geographic_outlier` born outside
+   Derbyshire. Swift confirms Glossop/Basford/Ilkeston death
+   and Bakewell marriage hits anyway. Gate should soft-fail when
+   record locality is geographically disjoint from the home-county
+   scope for an outlier subject.
+
+Plus 3 cells where Swift is right and Python is wrong (cluster #5,
+deprioritised — investigate only if a Python regression is later
+suspected to hide a shared bug): John pair / Mabel / Elizabeth
+parent_link.
+
+### Today's session — read-only validation, no commits
+
+This session only ran the validation pass + this ROADMAP update.
+No code changes. The four clusters above are queued for an
+attended coding session — each is M-sized at most, all four are
+plausible single-session work.
+
+**Network footprint stayed inside the safe envelope:** Lily warmup
+(15s) → sample-3 (3:55) → full corpus swift-mcp (18:02) → full
+corpus python (10:35). No circuit-breaker trips, no orphan MCP
+processes left. FreeBMD probe pre-flight returned 200/0.38s; same
+holds at session end.
+
 ## 2026-05-24 update — parity drift work in progress
 
 Epic 1 closed (commits `849f35e`, `6072646`, `e4ed36c`,
