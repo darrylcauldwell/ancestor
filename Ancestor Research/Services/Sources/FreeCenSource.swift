@@ -145,15 +145,17 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
                 return .unavailable(reason: "Invalid encoding")
             }
             let results = Self.parseSearchResults(html, censusYear: year)
-            // Enrich the first N hits with household composition. Mirrors
-            // Python's `_search_census_year` (agent/discover.py:195),
-            // capped at 5 to keep the FreeCen rate-limit budget sane.
-            // Household data is what feeds `VerdictEmitter.parentLink
-            // Verdict` and the UI's proposed-relatives surface — without
-            // this enrichment, census results land with `household: nil`
-            // and the parent_link verdict stays inconclusive even when
-            // the subject was clearly co-resident with parents.
-            let enriched = await enrichWithHousehold(results, cap: 5)
+            // Enrich the top hit with household composition so the
+            // verdict-emitter has parent-surname tokens to intersect.
+            // Python's pattern caps at 5 (agent/discover.py:195), but
+            // FreeCen's rate-limited detail fetches blow up wall time
+            // on common surnames at that cap — a single 12-subject
+            // harness run took ~3h. The verdict-emitter only needs
+            // *one* household with parent surnames; the top hit is
+            // ranked by name+year match and almost always the right
+            // person. Higher cap stays available for future per-
+            // subject deepening.
+            let enriched = await enrichWithHousehold(results, cap: 1)
             lastSuccessfulSearch = Date()
             lastError = nil
             logger.info("Search returned \(enriched.count) results for \(surname)")
