@@ -125,6 +125,51 @@ exact evidence and lets the user accept/reject in batches.
 
 ---
 
+## 2.5 Tonight's empirical finding — the actual blocker
+
+The PoC overnight run (2026-05-24, log
+`eval/runs/overnight-2026-05-24T22-08-54Z.jsonl`) demonstrated that
+the architectural plumbing works end-to-end — `kick_off_research` →
+`approve_pending_fact` → `promote_lead` chain executes against a
+fresh project — but tree expansion did **not** happen. Root cause
+isolated:
+
+`LeadStore.createFromScoredRecord` (in
+`Ancestor Research/Services/Research/Lead.swift:77`) always sets
+`relationship: nil`. This is the path every scored-record-derived
+lead takes during research, called from `RunRequestWatcher` and
+`ResearchViewModel`. Of the 90 leads emitted during tonight's run
+across 7 researched seeds, every single one had
+`relationship = nil`. The `promote_lead` gate refuses
+empty-relationship leads (no way to derive gender or edge
+direction safely), so the driver's promotion loop ran 0 times.
+
+The fix is small but contested between two approaches:
+
+**Approach A — Pass relationship through existing callers.**
+Add an optional `relationship: String?` parameter to
+`createFromScoredRecord`. Update the two real callers
+(`ResearchViewModel.swift:307`, `RunRequestWatcher.swift:395`) to
+pass it when they know — e.g. a marriage-record dispatcher knows
+bride vs groom; a parent-inference path knows father/mother.
+Generic "scored record I couldn't merge" leads stay nil-relationship
+(no false certainty).
+
+**Approach B — Separate emitter for inference-aware leads.**
+Leave `createFromScoredRecord` alone (it's correctly "generic
+candidate person, no kin context"). Add a parallel
+`createFromParentInferredHypothesis` that's only called from
+`HypothesisEngine+ParentInferred` when a `.parentInferred(gender,
+surname)` hypothesis grades `.supported` and has an associated
+best-evidence record. Emits a lead with `relationship` =
+`gender == .male ? "father" : "mother"`. Tree expansion comes from
+THIS path; the existing scored-record leads remain the "manual
+review" pile.
+
+Approach B is cleaner — it doesn't muddy the generic emitter and
+it makes the autonomous-promotion path explicit. Recommendation:
+land approach B as the very first concrete step of #Change3 below.
+
 ## 3. Required precursors
 
 Three pieces of work must land before Discovery Onboarding can ship

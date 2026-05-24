@@ -74,6 +74,26 @@ actor LeadStore {
     }
 
     /// Create a lead from a scored record.
+    ///
+    /// FIXME (autonomous-discovery, 2026-05-25): `relationship` is
+    /// left nil here — empirically blocks `promote_lead` autonomous
+    /// promotion (the MCP gate refuses leads without an unambiguous
+    /// father/mother/spouse label). Of the 90 leads produced during
+    /// tonight's discovery bring-up, all carried `relationship = nil`
+    /// because most reach this path via `RunRequestWatcher` /
+    /// `ResearchViewModel` callers that have no kin context for the
+    /// scored record. Two options to unblock tree expansion:
+    ///
+    /// 1. Add an optional `relationship` parameter and have the
+    ///    callers pass it when they know (e.g. the dispatcher that
+    ///    scored a marriage record has bride/groom context; a parent
+    ///    inference pipeline emitting via this path has gender).
+    /// 2. Carve a separate inference-aware lead emitter for
+    ///    `.parentInferred(supported)` hypotheses that DOES know the
+    ///    relationship + gender, leaving this generic emitter alone
+    ///    for the "could be anyone" scored-record case.
+    ///
+    /// See AncestorApp/DISCOVERY_ONBOARDING_SPEC.md §3 / §4 #Change3.
     func createFromScoredRecord(_ scored: ScoredRecord, profileID: String) throws -> Lead {
         let lead = Lead(
             id: "lead_\(scored.id)",
