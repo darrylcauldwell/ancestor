@@ -14,6 +14,38 @@ new design.
 change number it implements (e.g. `feat: kinship #Change4 — …`). No
 GitHub issues opened for in-flight epic work — the spec is the plan.
 
+## 2026-05-25 evening — all four clusters fixed (pending validation)
+
+The morning's parity report localised the 15 disagreements into
+four actionable clusters. All four shipped before EOD; full-corpus
+re-validation deferred to 2026-05-26 (one full-corpus pass per
+session — see memory `feedback_volunteer_sources_rate_limits.md`).
+
+| Cluster | Subjects | Commits | Status |
+|---|---|---|---|
+| #1 — female pre-marriage maiden axis | Elizabeth (4 cells), Catherine birth | `0b75b5f` dispatcher + `514ad20` scorer | shipped; Elizabeth-only smoke confirms birth+marriage close (2 of 4 cells) |
+| #2 — wife maiden for male marriage | Ernest marriage (1 cell) | `6bc5c5e` (cherry-picked from worktree) | shipped; predicted close on Ernest's Ashbourne Q1 1915 |
+| #3 — parent-link sparsity guard | Catherine + Stephen parent_link (2 cells) | `b68a29b` | shipped; tier-2 token gathering narrowed to FreeCen only (Python parity) |
+| #4 — geography outlier within-county | George Bowden (3 cells) | `ea6d07d` | shipped; new birthLocality + districtCoversParish; CWGC carve-out preserved |
+
+**Combined predicted impact (next parity run):**
+- Closures: Elizabeth × 2 (birth, marriage), Ernest marriage, Catherine parent_link, Stephen parent_link, George × 3 (birth/death/marriage at minimum stay below `supported`). ≈ 8 cells.
+- Risks to monitor: Robert parent_link must remain supported (cluster #3 test pins this); Robert CWGC military must stay supported (cluster #4 test pins this); no regression on Mabel parent_link / John pair.
+
+**Carry-over for future sessions (out of scope this round):**
+- Elizabeth death — cross-county to Wales (Risca, Monmouthshire); needs cross-county / cross-country geo handling.
+- Elizabeth spouse — `supported_via_matched_page` requires FreeBMD matched-page feature (Epic 3, not shipped).
+- George birth — `supported_with_year_correction` verdict-shape edge case; Swift currently `inconclusive`.
+
+**Workflow note:** clusters #2/#3/#4 were tackled in parallel via three worktree-isolated subagents. #3 + #4 landed on main directly (their worktree base diverged); #2's worktree commit was cherry-picked. Full test suite (1359/1360 passing, 1 skipped) post-merge confirms the four fixes coexist cleanly. Validation still requires a single live full-corpus harness run.
+
+**Anchor commits today (evening):**
+- `0b75b5f` — surnamesToProbe pre-marriage maiden axis (dispatcher)
+- `514ad20` — checkName maiden axis acceptance (scorer)
+- `b68a29b` — VerdictEmitter tier-2 scoped to FreeCen
+- `ea6d07d` — geography gate within-county locality check
+- `6bc5c5e` — wife maiden surname plumbing through FamilyContext.spouseFatherSurname
+
 ## 2026-05-25 update — clean parity re-run, drift reshuffled
 
 Yesterday's 26 commits validated end-to-end against a fresh
