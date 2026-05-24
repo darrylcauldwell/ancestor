@@ -404,6 +404,18 @@ final class RunRequestWatcher {
                         member, profileID: profileID, censusYear: censusYear
                     )
                 }
+                // Discovery-Onboarding wire-up (DISCOVERY_ONBOARDING_SPEC §2.5
+                // Approach B): emit a relationship-tagged lead for every
+                // `.parentInferred(gender, surname)` hypothesis that grades
+                // `.supported`. Unlike the generic scored-record path above
+                // (which has no kin context and leaves `relationship: nil`),
+                // this emitter carries enough context for `promote_lead`'s
+                // gate to accept it — unblocks autonomous tree expansion.
+                for hypothesis in result.hypotheses {
+                    guard case .parentInferred = hypothesis.kind else { continue }
+                    guard hypothesis.verdict == .supported else { continue }
+                    _ = try? await leadStore.createFromParentInferredHypothesis(hypothesis)
+                }
             }
 
             let runID = UUID()
