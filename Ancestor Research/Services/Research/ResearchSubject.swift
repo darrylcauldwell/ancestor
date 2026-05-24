@@ -185,18 +185,39 @@ nonisolated extension ResearchSubject {
     /// Returns `[]` if `surname` is nil.
     func surnamesToProbe(for recordType: RecordType) -> [String] {
         guard let surname else { return [] }
+        var out: [String] = [surname]
+
+        // Marriage searches: probe maiden surname for female subjects
+        // whose subject.surname is in fact their married name (the
+        // wikitree convention is `lastName = maiden`, but some imports
+        // arrive inverted — Catherine Hannah Ward's profile carries
+        // `lastName = "Ward"` while her maiden name is "Bown" via her
+        // father Philip Bown). Derive the maiden side from the
+        // father's surname on the family-context block; only add if
+        // it differs from the recorded surname.
+        if recordType == .marriage,
+           gender == .female,
+           let fatherSurname = familyContext?.fatherSurname,
+           !fatherSurname.isEmpty,
+           fatherSurname.caseInsensitiveCompare(surname) != .orderedSame {
+            out.append(fatherSurname)
+        }
+
+        // Death-shape probes (existing logic) — add married surname
+        // when the subject's recorded surname is the maiden form and
+        // the woman was filed under her married surname at death.
         let probesMarriedAxis: Bool = switch recordType {
         case .death, .burial, .probate, .military, .census: true
         default: false
         }
-        guard probesMarriedAxis,
-              let married = marriedSurname,
-              !married.isEmpty,
-              married.caseInsensitiveCompare(surname) != .orderedSame
-        else {
-            return [surname]
+        if probesMarriedAxis,
+           let married = marriedSurname,
+           !married.isEmpty,
+           married.caseInsensitiveCompare(surname) != .orderedSame {
+            out.append(married)
         }
-        return [surname, married]
+
+        return out
     }
 
     /// Refine the subject from confirmed facts (learned date propagation).
