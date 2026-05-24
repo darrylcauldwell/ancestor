@@ -114,24 +114,48 @@ nonisolated struct RecordScorer {
         let personSurname = (subject.surname ?? "").uppercased().trimmingCharacters(in: .whitespaces)
         let personGivenRaw = (subject.givenName ?? "").uppercased().trimmingCharacters(in: .whitespaces)
         let personMiddleField = (subject.middleName ?? "").uppercased().trimmingCharacters(in: .whitespaces)
-        // For death-shape and post-marriage census records, the subject's
-        // married surname is an equally-acceptable match — UK indexes
-        // file deceased married women under married surname (probate,
-        // FreeBMD post-1969 deaths, FAG memorials erected by family).
-        // Dispatcher's `surnamesToProbe` puts both surnames on the wire;
-        // this gate needs to accept either back. Without this, a record
-        // returned under `marriedSurname` fails surname-match against
-        // `subject.surname` (maiden) and gets scored impossible.
+        // Mirrors the dispatcher's `surnamesToProbe` widenings — every
+        // surname put on the wire must be accepted back, otherwise a
+        // legitimate record returned under the alternate form fails the
+        // name gate and lands `.impossible`. Two widening paths:
+        //
+        // * **Married axis** — for death-shape + census record types,
+        //   the subject's `marriedSurname` is equally acceptable. UK
+        //   indexes file deceased married women under married surname
+        //   (probate, FreeBMD post-1969 deaths, FAG memorials).
+        //
+        // * **Maiden axis** — for pre-marriage record types (birth,
+        //   baptism, christening, marriage, parish, census), an
+        //   inverted-imported female (surname = married, maiden
+        //   recoverable as `familyContext.fatherSurname`) has the
+        //   maiden surname on the wire too. Without acceptance here,
+        //   FreeBMD's "Elizabeth CALDWELL Mar 1845" gets rejected as
+        //   name-mismatch against subject.surname "Beighton".
         let acceptableSurnames: [String] = {
             var set: [String] = []
             if !personSurname.isEmpty { set.append(personSurname) }
+
             let married = (subject.marriedSurname ?? "").uppercased().trimmingCharacters(in: .whitespaces)
-            guard !married.isEmpty, married != personSurname else { return set }
-            let acceptsMarried: Bool = switch record.recordType {
-            case .death, .burial, .probate, .military, .census: true
-            default: false
+            if !married.isEmpty, married != personSurname {
+                let acceptsMarried: Bool = switch record.recordType {
+                case .death, .burial, .probate, .military, .census: true
+                default: false
+                }
+                if acceptsMarried { set.append(married) }
             }
-            if acceptsMarried { set.append(married) }
+
+            if subject.gender == .female,
+               let fatherRaw = subject.familyContext?.fatherSurname {
+                let father = fatherRaw.uppercased().trimmingCharacters(in: .whitespaces)
+                if !father.isEmpty, father != personSurname {
+                    let acceptsMaiden: Bool = switch record.recordType {
+                    case .birth, .baptism, .christening, .marriage, .parish, .census: true
+                    default: false
+                    }
+                    if acceptsMaiden { set.append(father) }
+                }
+            }
+
             return set
         }()
 
