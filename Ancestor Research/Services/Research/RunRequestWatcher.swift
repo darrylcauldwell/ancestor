@@ -395,19 +395,36 @@ final class RunRequestWatcher {
                 totalSourceCount: registry.allSources().count
             )
             let resultJSON = Self.buildResultEnvelope(result: result)
-            try? db.saveResearchRun(
-                id: runID,
-                profileID: profileID,
-                mode: mode,
-                startedAt: Date(),
-                completedAt: Date(),
-                factCount: result.confirmedFacts.count,
-                leadCount: result.leads.count,
-                clusterCount: result.clusters.count,
-                gpsScore: gps.score,
-                resultJSON: resultJSON
-            )
-            savedRunID = runID
+            // Only claim `savedRunID = runID` when saveResearchRun
+            // actually succeeded. Previously the `try?` swallowed
+            // SQLite lock errors silently; the caller (markCompleted)
+            // would then write that run_id into research_run_requests
+            // even though no matching research_runs row existed. The
+            // MCP get_research_result tool then 404'd on a run_id it
+            // couldn't find — the harness saw `run_not_found` and
+            // exploded. Surface the error and leave savedRunID nil
+            // when the write failed so downstream stays consistent.
+            do {
+                try db.saveResearchRun(
+                    id: runID,
+                    profileID: profileID,
+                    mode: mode,
+                    startedAt: Date(),
+                    completedAt: Date(),
+                    factCount: result.confirmedFacts.count,
+                    leadCount: result.leads.count,
+                    clusterCount: result.clusters.count,
+                    gpsScore: gps.score,
+                    resultJSON: resultJSON
+                )
+                savedRunID = runID
+            } catch {
+                logger.error("saveResearchRun failed for profile \(profileID): \(error.localizedDescription)")
+                // savedRunID stays nil — markCompleted will write a
+                // completed status without a run_id, which the harness
+                // treats as a pipeline failure rather than a phantom
+                // success.
+            }
         }
         if let lead = leadToFinalise {
             let updated = Lead(

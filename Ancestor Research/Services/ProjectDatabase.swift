@@ -10,6 +10,17 @@ nonisolated final class ProjectDatabase: Sendable {
         var config = Configuration()
         config.foreignKeysEnabled = true
         dbQueue = try DatabaseQueue(path: path, configuration: config)
+        // Enable WAL mode so multiple processes (the app + the
+        // FieldResearcherMCP server during eval-harness runs) can
+        // read while the watcher writes, instead of blocking each
+        // other on SQLite's default file-level lock. WAL is a
+        // persistent file-level mode — once set, the file stays in
+        // WAL until explicitly flipped. The pragma is a no-op if
+        // already in WAL, so safe to run unconditionally on every
+        // open.
+        try dbQueue.write { db in
+            try db.execute(sql: "PRAGMA journal_mode = WAL")
+        }
         try migrate()
     }
 
