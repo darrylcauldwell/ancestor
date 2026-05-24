@@ -155,10 +155,16 @@ def is_promotable(lead: dict) -> bool:
     rel = (lead.get("relationship") or "").lower()
     if rel not in PROMOTABLE_RELATIONSHIPS:
         return False
-    # Surname must exist and not be empty; given_name too.
+    # Surname must exist and not be empty.
     if not (lead.get("surname") or "").strip():
         return False
-    if not (lead.get("given_name") or "").strip():
+    # Given name normally required, BUT parent-inferred leads
+    # (id prefix `lead_parentInferred_`) carry no given name by
+    # design — the BMD index doesn't expose a parent's given
+    # name. These leads create placeholder ancestor profiles
+    # which the engine then researches to fill in the rest.
+    is_parent_inferred = (lead.get("id") or "").startswith("lead_parentInferred_")
+    if not is_parent_inferred and not (lead.get("given_name") or "").strip():
         return False
     # Evidence must be non-trivial.
     if len((lead.get("evidence") or "").strip()) < 20:
