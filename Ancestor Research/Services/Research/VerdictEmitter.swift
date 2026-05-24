@@ -22,9 +22,22 @@ nonisolated enum VerdictEmitter {
     /// tokenisation to Python: uppercase, split on whitespace,
     /// case-insensitive set intersection.
     ///
+    /// Token source widening (parity fix, 2026-05-24): Python's
+    /// `_extract_household_members` runs on **raw** search results,
+    /// before the scorer. Swift's pipeline-level extraction filters
+    /// to `.fact` only — so census records demoted to leads (e.g.
+    /// Ernest's 1891 Belper census, demoted for unknown district
+    /// "Duffield") never contribute their household tokens.
+    /// Verdict-only widening: walk every `.census` record in
+    /// `allScoredRecords` (facts AND leads) for token collection.
+    /// State.householdMembers (which feeds the UI's proposed-relatives
+    /// surface) keeps the stricter `.fact`-only filter — adding lead
+    /// households there would surface weaker evidence as relative
+    /// proposals.
+    ///
     /// Python tier-3 ("subject's own surname as fallback") was
-    /// removed there for the same reason it'd misfire here — `result
-    /// .householdMembers` aggregates across census searches and is
+    /// removed there for the same reason it'd misfire here — the
+    /// member-token set aggregates across census searches and is
     /// not per-household scoped, so a shared surname is not by itself
     /// parent-link evidence.
     static func parentLinkVerdict(
@@ -33,14 +46,28 @@ nonisolated enum VerdictEmitter {
         subjectProfileID: String?
     ) -> String {
         guard let pid = subjectProfileID else { return inconclusive }
-        let members = result.householdMembers
-        if members.isEmpty { return inconclusive }
 
         var memberTokens = Set<String>()
-        for m in members {
-            let upper = m.name.uppercased()
-            memberTokens.formUnion(upper.split(separator: " ").map(String.init))
+        // Tier 1: members the pipeline curated into result.householdMembers
+        // (from .fact-grade census records).
+        for m in result.householdMembers {
+            memberTokens.formUnion(
+                m.name.uppercased().split(separator: " ").map(String.init)
+            )
         }
+        // Tier 2: members carried on every other census record's
+        // household payload (leads too) — verdict-only signal.
+        for scored in result.allScoredRecords {
+            if case .census(let census) = scored.record,
+               let household = census.household {
+                for member in household {
+                    memberTokens.formUnion(
+                        member.name.uppercased().split(separator: " ").map(String.init)
+                    )
+                }
+            }
+        }
+        if memberTokens.isEmpty { return inconclusive }
 
         let parents = snapshot.parentsOf(pid)
         if parents.isEmpty { return inconclusive }
