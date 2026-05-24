@@ -274,7 +274,36 @@ struct SearchDispatcher {
             // era. Gate on yearFrom >= 1912 so we only attach MMN when
             // the entire year window is in the MMN era (1911 itself is
             // ambiguous — Q1–Q2 lacks MMN, Q3–Q4 has it). Spec §23.
-            let spouseSurnameForBMD: String? = (recordType == .marriage) ? subject.familyContext?.spouseSurname : nil
+            // For `.marriage`, fan out across the wife's recorded surname
+            // AND her maiden surname when the import inverted the wikitree
+            // convention. `spouseFatherSurname` holds the maiden form (the
+            // wife's father's `lastName` on the tree). Symmetric to the
+            // female-side `surnamesToProbe` widening, but operating across
+            // the profile boundary because the maiden axis lives on the
+            // SPOUSE'S parent, not the subject's. Models the Ernest
+            // Cauldwell case: wife Sarah Cauldwell is recorded under her
+            // married surname (`lastName = "Cauldwell"`), but her real
+            // maiden surname "Ward" is recoverable via her father Joseph
+            // Ward. Without this widening every FreeBMD marriage probe
+            // fires as `Cauldwell × Cauldwell` and misses the canonical
+            // `Cauldwell × Ward` index entry.
+            //
+            // Nil for non-marriage queries (FreeBMD's s_surname overload
+            // means we never want a spouse surname on births/deaths).
+            // Returns `[nil]` when no spouse is on the context — the
+            // existing single-pass behaviour for unmarried subjects.
+            let spouseSurnamesForBMD: [String?] = {
+                guard recordType == .marriage else { return [nil] }
+                let recorded = subject.familyContext?.spouseSurname
+                let maiden = subject.familyContext?.spouseFatherSurname
+                var out: [String?] = [recorded]
+                if let maiden,
+                   !maiden.isEmpty,
+                   maiden.caseInsensitiveCompare(recorded ?? "") != .orderedSame {
+                    out.append(maiden)
+                }
+                return out
+            }()
             let spouseGivenForBMD: String? = (recordType == .marriage) ? subject.familyContext?.spouseGivenName : nil
             let motherSurnameForBMD: String? = {
                 guard recordType == .birth else { return nil }
@@ -287,23 +316,25 @@ struct SearchDispatcher {
             // `ResearchSubject.surnamesToProbe`.
             let surnamesToTry = subject.surnamesToProbe(for: recordType)
             return surnamesToTry.flatMap { surnameToTry in
-                districtCodes.map { code in
-                    RecordQuery(
-                        surname: surnameToTry,
-                        givenName: subject.givenName,
-                        recordType: recordType,
-                        yearFrom: yearRange.from,
-                        yearTo: yearRange.to,
-                        gender: subject.gender,
-                        region: subject.region,
-                        sourceParams: .freeBMD(FreeBMDParams(
-                            districtCode: code,
-                            wildcardSurname: false,
-                            motherSurname: motherSurnameForBMD,
-                            spouseSurname: spouseSurnameForBMD
-                        )),
-                        spouseGivenName: spouseGivenForBMD
-                    )
+                spouseSurnamesForBMD.flatMap { spouseSurnameForBMD in
+                    districtCodes.map { code in
+                        RecordQuery(
+                            surname: surnameToTry,
+                            givenName: subject.givenName,
+                            recordType: recordType,
+                            yearFrom: yearRange.from,
+                            yearTo: yearRange.to,
+                            gender: subject.gender,
+                            region: subject.region,
+                            sourceParams: .freeBMD(FreeBMDParams(
+                                districtCode: code,
+                                wildcardSurname: false,
+                                motherSurname: motherSurnameForBMD,
+                                spouseSurname: spouseSurnameForBMD
+                            )),
+                            spouseGivenName: spouseGivenForBMD
+                        )
+                    }
                 }
             }
 

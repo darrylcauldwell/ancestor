@@ -128,6 +128,19 @@ nonisolated struct FamilyContext: Sendable {
     let spouseName: String?
     let spouseSurname: String?
     let spouseGivenName: String?
+    /// Wife's maiden surname when recoverable from the spouse's own father
+    /// on the tree. The wikitree convention has `Profile.lastName = maiden`
+    /// for women, but some imports (the Cauldwell.twin-export) carry wives
+    /// under their married surname instead — e.g. Sarah Cauldwell's
+    /// `lastName = "Cauldwell"` while her actual maiden is "Ward" via her
+    /// father Joseph Ward. For a male subject, FreeBMD marriage probes
+    /// need this maiden surname (bride side at the marriage index) — the
+    /// recorded `spouseSurname` is just the wife's married name and yields
+    /// `Cauldwell × Cauldwell` searches that miss the real record. Nil
+    /// when the spouse has no linked father on the tree or when the
+    /// spouse's `lastName` already matches the father's surname (well-
+    /// imported wife under her maiden name).
+    let spouseFatherSurname: String?
     let childNames: [String]
     let fatherName: String?
     let fatherSurname: String?
@@ -323,10 +336,25 @@ nonisolated extension ResearchSubject {
 
         let father = parents.first(where: { $0.gender == .male })
         let mother = parents.first(where: { $0.gender == .female })
+
+        // Derive the spouse's maiden surname from the spouse's own father
+        // on the tree. For male subjects whose wife is recorded under her
+        // married surname (inverted import), this is the only way to
+        // recover the maiden form FreeBMD's marriage index actually uses
+        // on the bride side. Mirrors the female-side maiden recovery in
+        // `surnamesToProbe`, but operates across the profile boundary —
+        // spouse → spouse's parents → father's lastName.
+        let spouseFatherSurname: String? = {
+            guard let spouseID = spouses.first?.id else { return nil }
+            let spouseParents = snapshot.parentsOf(spouseID)
+            return spouseParents.first(where: { $0.gender == .male })?.lastName
+        }()
+
         let context = FamilyContext(
             spouseName: spouses.first?.displayName,
             spouseSurname: spouses.first?.lastName,
             spouseGivenName: spouses.first?.firstName,
+            spouseFatherSurname: spouseFatherSurname,
             childNames: children.map(\.displayName),
             fatherName: father?.displayName,
             fatherSurname: father?.lastName,

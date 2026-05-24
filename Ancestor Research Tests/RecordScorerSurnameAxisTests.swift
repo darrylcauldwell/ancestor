@@ -188,6 +188,7 @@ struct RecordScorerSurnameAxisTests {
             spouseName: nil,
             spouseSurname: nil,
             spouseGivenName: nil,
+            spouseFatherSurname: nil,
             childNames: [],
             fatherName: nil,
             fatherSurname: surname,

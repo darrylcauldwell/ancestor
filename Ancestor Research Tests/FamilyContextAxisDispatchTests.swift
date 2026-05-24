@@ -89,6 +89,154 @@ struct FamilyContextAxisDispatchTests {
         #expect(spouseSurnames.allSatisfy { $0 == "Wheeldon" })
     }
 
+    // MARK: - FreeBMD spouse-maiden fan-out (groom-side inverted wife)
+
+    @Test func freeBMDMarriageFansOutBrideSurnameWhenWifeImportedInverted() {
+        // Models Ernest Cauldwell: wife Sarah is recorded under her
+        // married surname ("Cauldwell"), but her real maiden surname
+        // is "Ward" via her father Joseph Ward on the tree. The
+        // dispatcher must fan out FreeBMD probes across BOTH spouse
+        // surnames so the canonical `Cauldwell × Ward` Ashbourne
+        // Q1 1915 entry shows up alongside any `Cauldwell × Cauldwell`
+        // probes the old code would have run.
+        let dispatcher = makeDispatcher()
+        let subject = subjectWithInvertedWife(
+            spouseSurname: "Cauldwell",
+            spouseFatherSurname: "Ward",
+            birthYearFrom: 1887,
+            birthYearTo: 1887
+        )
+        let queries = freeBMDQueries(dispatcher: dispatcher, subject: subject, recordType: .marriage)
+        let spouseSurnames = Set(queries.compactMap { q -> String? in
+            if case .freeBMD(let p) = q.sourceParams { return p.spouseSurname }
+            return nil
+        })
+        #expect(spouseSurnames.contains("Cauldwell"),
+                "Original spouseSurname must still be probed; got \(spouseSurnames)")
+        #expect(spouseSurnames.contains("Ward"),
+                "Wife's maiden via spouseFatherSurname must also be probed; got \(spouseSurnames)")
+
+        // The fan-out should double the marriage-query count (one query
+        // per district per spouse surname), not replace the original.
+        let districts = Set(queries.compactMap { q -> String? in
+            if case .freeBMD(let p) = q.sourceParams { return p.districtCode }
+            return nil
+        })
+        #expect(queries.count == districts.count * 2,
+                "Expected one query per district per spouse surname; got \(queries.count) queries across \(districts.count) districts")
+    }
+
+    @Test func freeBMDMarriageDoesNotDuplicateWhenWifeImportedWell() {
+        // Well-imported wife: lastName already matches her father's
+        // surname (she's recorded under her maiden name per wikitree
+        // convention). spouseFatherSurname equals spouseSurname, so
+        // the equality check suppresses the duplicate probe and we
+        // emit one query per district, not two.
+        let dispatcher = makeDispatcher()
+        let subject = subjectWithInvertedWife(
+            spouseSurname: "Wheeldon",
+            spouseFatherSurname: "Wheeldon",
+            birthYearFrom: 1919,
+            birthYearTo: 1919
+        )
+        let queries = freeBMDQueries(dispatcher: dispatcher, subject: subject, recordType: .marriage)
+        let spouseSurnames = queries.compactMap { q -> String? in
+            if case .freeBMD(let p) = q.sourceParams { return p.spouseSurname }
+            return nil
+        }
+        #expect(spouseSurnames.allSatisfy { $0 == "Wheeldon" },
+                "All probes should use the single shared surname; got \(Set(spouseSurnames))")
+
+        let districts = Set(queries.compactMap { q -> String? in
+            if case .freeBMD(let p) = q.sourceParams { return p.districtCode }
+            return nil
+        })
+        #expect(queries.count == districts.count,
+                "No fan-out when surnames match — one query per district only")
+    }
+
+    @Test func freeBMDMarriageGracefulWhenSpouseFatherSurnameMissing() {
+        // Wife has no linked father on the tree (no spouseFatherSurname).
+        // Dispatcher must continue with single-axis behaviour — the
+        // recorded spouseSurname only — and never emit a probe with a
+        // nil surname when one was already populated.
+        let dispatcher = makeDispatcher()
+        let subject = subjectWithInvertedWife(
+            spouseSurname: "Cauldwell",
+            spouseFatherSurname: nil,
+            birthYearFrom: 1887,
+            birthYearTo: 1887
+        )
+        let queries = freeBMDQueries(dispatcher: dispatcher, subject: subject, recordType: .marriage)
+        let spouseSurnames = queries.compactMap { q -> String? in
+            if case .freeBMD(let p) = q.sourceParams { return p.spouseSurname }
+            return nil
+        }
+        #expect(spouseSurnames.allSatisfy { $0 == "Cauldwell" })
+
+        let districts = Set(queries.compactMap { q -> String? in
+            if case .freeBMD(let p) = q.sourceParams { return p.districtCode }
+            return nil
+        })
+        #expect(queries.count == districts.count,
+                "Single-axis when spouseFatherSurname missing")
+    }
+
+    @Test func freeBMDMarriageGracefulWhenNoSpouseAtAll() {
+        // No spouse on context (e.g. an unmarried subject or a
+        // researched-from-user-input subject with no family graph).
+        // Marriage probes still emit — they just carry nil spouse
+        // surname, matching pre-fix behaviour.
+        let dispatcher = makeDispatcher()
+        var subject = subjectWithFullContext(birthYearFrom: 1919, birthYearTo: 1919)
+        subject.familyContext = nil
+        let queries = freeBMDQueries(dispatcher: dispatcher, subject: subject, recordType: .marriage)
+        let spouseSurnames = queries.compactMap { q -> String? in
+            if case .freeBMD(let p) = q.sourceParams { return p.spouseSurname }
+            return nil
+        }
+        #expect(spouseSurnames.isEmpty,
+                "Nil familyContext → no spouse surname on any probe; got \(spouseSurnames)")
+        #expect(!queries.isEmpty, "Marriage probes must still fire without family context")
+    }
+
+    @Test func freeBMDFanOutCaseInsensitive() {
+        // spouseSurname "Cauldwell" vs spouseFatherSurname "CAULDWELL"
+        // (different case) — still treated as equal, no duplicate probe.
+        let dispatcher = makeDispatcher()
+        let subject = subjectWithInvertedWife(
+            spouseSurname: "Cauldwell",
+            spouseFatherSurname: "CAULDWELL",
+            birthYearFrom: 1887,
+            birthYearTo: 1887
+        )
+        let queries = freeBMDQueries(dispatcher: dispatcher, subject: subject, recordType: .marriage)
+        let districts = Set(queries.compactMap { q -> String? in
+            if case .freeBMD(let p) = q.sourceParams { return p.districtCode }
+            return nil
+        })
+        #expect(queries.count == districts.count, "Case-insensitive equality must suppress duplicate")
+    }
+
+    @Test func freeBMDBirthIgnoresSpouseFatherSurname() {
+        // Birth queries must never carry a spouse surname (the
+        // s_surname overload uses MMN for births, not spouse). The
+        // spouseFatherSurname fan-out is scoped to .marriage only.
+        let dispatcher = makeDispatcher()
+        let subject = subjectWithInvertedWife(
+            spouseSurname: "Cauldwell",
+            spouseFatherSurname: "Ward",
+            birthYearFrom: 1887,
+            birthYearTo: 1887
+        )
+        let queries = freeBMDQueries(dispatcher: dispatcher, subject: subject, recordType: .birth)
+        for q in queries {
+            guard case .freeBMD(let p) = q.sourceParams else { continue }
+            #expect(p.spouseSurname == nil,
+                    "Birth must not carry spouse surname; got \(p.spouseSurname ?? "nil")")
+        }
+    }
+
     // MARK: - FreeBMD source-side s_surname overload (wire test)
 
     @Test func freeBMDSourceBirthSendsMotherSurnameInSSurnameField() async {
@@ -410,6 +558,7 @@ struct FamilyContextAxisDispatchTests {
                 spouseName: nil,
                 spouseSurname: nil,
                 spouseGivenName: nil,
+                spouseFatherSurname: nil,
                 childNames: [],
                 fatherName: nil,
                 fatherSurname: nil,
@@ -441,6 +590,7 @@ struct FamilyContextAxisDispatchTests {
                 spouseName: "Mary Wheeldon",
                 spouseSurname: "Wheeldon",
                 spouseGivenName: "Mary",
+                spouseFatherSurname: nil,
                 childNames: [],
                 fatherName: nil,
                 fatherSurname: "Smith",
@@ -448,6 +598,45 @@ struct FamilyContextAxisDispatchTests {
                 motherName: nil,
                 motherSurname: "Ward",
                 motherGivenName: "Eliza"
+            ),
+            homeChapmanCode: "DBY"
+        )
+    }
+
+    /// Models Ernest Cauldwell's wife import shape: she's recorded
+    /// under her married surname (spouseSurname) but her maiden surname
+    /// is recoverable via her own father on the tree (spouseFatherSurname).
+    /// Pass nil for `spouseFatherSurname` to model "no spouse father
+    /// known" (wife is a leaf node on the tree with no parents).
+    private func subjectWithInvertedWife(
+        spouseSurname: String?,
+        spouseFatherSurname: String?,
+        birthYearFrom: Int,
+        birthYearTo: Int
+    ) -> ResearchSubject {
+        ResearchSubject(
+            profileID: nil,
+            surname: "Cauldwell",
+            givenName: "Ernest",
+            birthYearFrom: birthYearFrom,
+            birthYearTo: birthYearTo,
+            deathYearFrom: nil,
+            deathYearTo: nil,
+            gender: .male,
+            region: nil,
+            mode: .extend,
+            familyContext: FamilyContext(
+                spouseName: spouseSurname.map { "Sarah \($0)" },
+                spouseSurname: spouseSurname,
+                spouseGivenName: "Sarah",
+                spouseFatherSurname: spouseFatherSurname,
+                childNames: [],
+                fatherName: nil,
+                fatherSurname: "Cauldwell",
+                fatherGivenName: "John",
+                motherName: nil,
+                motherSurname: nil,
+                motherGivenName: nil
             ),
             homeChapmanCode: "DBY"
         )
