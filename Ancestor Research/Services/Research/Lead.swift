@@ -114,6 +114,62 @@ actor LeadStore {
         return lead
     }
 
+    /// Create a lead from a `.parentInferred(gender, surname)` hypothesis
+    /// that's been graded `.supported`. Unlike `createFromScoredRecord`
+    /// — which has no kin context for the matched record — this emitter
+    /// fires only when the hypothesis itself carries the relationship
+    /// (gender → father/mother) and the surname (MMN for mother;
+    /// subject's surname for father). The resulting lead is shaped to
+    /// pass `promote_lead`'s gate: relationship is set, surname is set.
+    /// Given name + birth year stay nil — the BMD index doesn't carry
+    /// either for parents, so this is genuinely all the engine can
+    /// know at this point.
+    ///
+    /// Deterministic id from the hypothesis's identity key so re-grading
+    /// the same hypothesis across runs doesn't duplicate the lead.
+    ///
+    /// NOT YET wired from `HypothesisEngine+ParentInferred.gradeParent
+    /// Inferred` — that's the follow-up step (see
+    /// DISCOVERY_ONBOARDING_SPEC §2.5 Approach B). Method exists so the
+    /// tomorrow-morning wire-up is one call-site edit.
+    func createFromParentInferredHypothesis(
+        _ hypothesis: ResearchHypothesis
+    ) throws -> Lead? {
+        guard case .parentInferred(let gender, let surname) = hypothesis.kind else {
+            return nil
+        }
+        guard hypothesis.verdict == .supported else { return nil }
+        let trimmed = surname.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        guard let subjectProfileID = hypothesis.subjectProfileID else {
+            return nil
+        }
+        let relationship: String
+        switch gender {
+        case .male: relationship = "father"
+        case .female: relationship = "mother"
+        case .other, .unknown: return nil
+        }
+        let lead = Lead(
+            id: "lead_parentInferred_\(hypothesis.id)",
+            profileID: subjectProfileID,
+            name: "[\(relationship)] /\(trimmed)/",
+            surname: trimmed,
+            givenName: nil,
+            birthYear: nil,
+            deathYear: nil,
+            relationship: relationship,
+            source: .discovery,
+            status: .new,
+            evidence: hypothesis.reasoning,
+            createdAt: Date()
+        )
+        guard leads[lead.id] == nil else { return leads[lead.id] }
+        leads[lead.id] = lead
+        try db.saveLead(lead)
+        return lead
+    }
+
     /// Create a lead from a household member discovery.
     func createFromHouseholdMember(_ member: HouseholdMember, profileID: String, censusYear: Int) throws -> Lead {
         // Deterministic id — Swift's `hashValue` is process-randomised, so
