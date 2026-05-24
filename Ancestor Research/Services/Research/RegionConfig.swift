@@ -91,16 +91,35 @@ nonisolated struct RegionConfig: Codable, Sendable {
 
     // MARK: - Lookup helpers (used by ScoringRules)
 
+    /// FreeBMD transcription variants that map to canonical UK
+    /// registration-district names. Volunteer transcribers occasionally
+    /// drop a letter or follow a different spelling convention; the
+    /// scorer's geography gate would otherwise soft-fail an otherwise
+    /// good record as "unknown district". Keys are lowercased variants;
+    /// values are the lowercased canonical form (used directly in
+    /// dictionary lookups below). Add entries as drift surfaces them.
+    ///
+    /// 2026-05-24: "ashborne" → "ashbourne" from Catherine Hannah
+    /// Bown's death record (Jun 1907 Ashborne) failing the geography
+    /// gate.
+    private static let districtAliases: [String: String] = [
+        "ashborne": "ashbourne",
+    ]
+
     /// Strip whitespace and a trailing " district" / " DISTRICT" suffix,
-    /// then lowercase for the case-insensitive lookups below. Sources
-    /// return district names in varying case (FreeBMD uppercases; our
-    /// stored keys are title case), and a case-sensitive dict lookup
-    /// silently returns nil — which manifested as "unknown district:
-    /// BELPER" soft-fails on records that should pass the geography gate.
+    /// lowercase, then apply known transcription-variant aliases.
+    /// Sources return district names in varying case (FreeBMD
+    /// uppercases; our stored keys are title case), and a case-
+    /// sensitive dict lookup silently returns nil — which manifested
+    /// as "unknown district: BELPER" soft-fails on records that should
+    /// pass the geography gate. The alias step closes a second class
+    /// of misses: transcription variants like "Ashborne" for the
+    /// canonical "Ashbourne".
     private static func canonicalDistrictKey(_ raw: String) -> String {
-        raw.trimmingCharacters(in: .whitespaces)
+        let base = raw.trimmingCharacters(in: .whitespaces)
             .replacingOccurrences(of: " district", with: "", options: .caseInsensitive)
             .lowercased()
+        return districtAliases[base] ?? base
     }
 
     func isLocalDistrict(_ district: String) -> Bool {
