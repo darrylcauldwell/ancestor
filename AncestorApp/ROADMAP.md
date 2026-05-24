@@ -34,14 +34,29 @@ end-to-end until tomorrow's clean run.
 `python eval/run_harness.py --backend swift-mcp --db-path …`. The
 warmup probe (Lily) will abort early if the watcher is wedged.
 
-**Once parity re-runs cleanly,** continue closing the remaining 19
-disagreements per `eval/PARITY_REPORT_2026-05-24.md`:
-- Pattern A (Swift misses Python facts on Catherine/Robert/
-  Ernest/Elizabeth/Lydia) — most remaining drift.
-- Pattern B (Python regression on Charles Hodgkinson's death) —
-  single subject, S-sized.
-- Pattern C (Swift over-claims George Bowden) — geography gate
-  too lenient, S-sized.
+**Once parity re-runs cleanly,** the parity gap should be much
+smaller than yesterday's 15 disagreements. Today's commits close
+(expected):
+- Robert parent_link + military_service + death (CWGC carve-out
+  + per-type tolerance + married-surname acceptance, commit 2423f35)
+- Ernest parent_link (verdict-emitter widening, commit 297a6f3)
+- Catherine death (Ashbourne alias, commit 73e05d1)
+- Catherine + Mabel marriage (maiden-surname probe, commit e003628)
+- Sarah + Charles cells removed entirely (corpus out_of_scope,
+  commit 518f8ed)
+
+**Remaining drift to investigate** if parity still shows it:
+- **Ernest marriage** — directly confirmed Ernest × Sarah Ward
+  marriage exists at FreeBMD Q1 1915 Ashbourne vol 7b p977.
+  Ashbourne IS in DBY's district list so Swift's home-county
+  dispatcher SHOULD include it. But Ernest's evidence_records
+  show ZERO FreeBMD marriage records — the search either didn't
+  run or returned 0 inexplicably. Need Swift runtime logging /
+  ActivityBus trace to localise.
+- **Lydia death** (cross-county handling).
+- **Elizabeth birth + death** (Pattern A, unknown cause).
+- **George Bowden** (Pattern C — Swift over-claims out-of-scope
+  records; geography gate too lenient).
 
 ## Dependency graph
 
