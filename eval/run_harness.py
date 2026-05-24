@@ -798,6 +798,15 @@ def compute_metrics(subject: dict, pipeline_result: dict, gedcom_cites: list[dic
         "expected_per_kind": expected_kinds,
         "per_kind_agreement": per_kind,
         "mocked": pipeline_result.get("mocked", False),
+        # Surface the swift-mcp envelope's `_throttled` source list
+        # (populated by RunRequestWatcher when any source's circuit
+        # breaker is open at completion time). Lets parity reports
+        # tell "this run was throttled, not drift-divergent" apart.
+        "throttled_sources": pipeline_result.get("_throttled") or [],
+        # Pass through partial-failure notes from
+        # _swift_mcp_pipeline_call (per-person timeouts that didn't
+        # abort the whole subject).
+        "partial_failure": pipeline_result.get("_partial_failure") or [],
     }
 
 
@@ -914,10 +923,14 @@ def main():
                         help="Pipeline backend (default: python — in-process agent.pipeline.research_person)")
     parser.add_argument("--only", default=None,
                         help="Run only the subject whose primary id matches this string (e.g. @I50113363@)")
+    parser.add_argument("--sample", type=int, default=None,
+                        help="Run only the first N corpus subjects (after sort). Useful for fast iteration on a fix without burning the volunteer-source rate budget on a full 12-subject sweep.")
     parser.add_argument("--db-path", default=None,
                         help="Swift-MCP backend only: project SQLite. Falls back to $ANCESTOR_EVAL_DB then the documented default.")
     parser.add_argument("--mcp-binary", default=None,
                         help="Swift-MCP backend only: override FieldResearcherMCP binary path. Defaults to release then debug under FieldResearcherMCP/.build/.")
+    parser.add_argument("--no-warmup", action="store_true",
+                        help="Swift-MCP backend only: skip the Lily warmup probe. The probe runs the hallucination-guardrail subject (~13s baseline) before the full corpus to confirm the watcher is responsive; skip if you've already verified.")
     args = parser.parse_args()
 
     corpus_dir = Path(args.corpus)
@@ -937,6 +950,8 @@ def main():
     print(f"Backend: {args.backend}")
     if args.only:
         print(f"Filter: only subjects whose ids include {args.only}")
+    if args.sample:
+        print(f"Sample: only first {args.sample} subjects")
     print()
 
     # Swift-MCP backend needs a long-lived subprocess. Wrap the
@@ -951,6 +966,30 @@ def main():
         print(f"Swift-MCP database: {db}")
         swift_client = _SwiftMCPClient(binary, db)
         swift_client.start()
+        # Warmup probe — kick off Lily Margaret Cauldwell (the
+        # hallucination-guardrail subject, ~13s baseline because
+        # she's presumed-living and short-circuits all network
+        # searches) before committing to the full corpus run.
+        # If the watcher isn't responsive within 60s, abort early —
+        # better than burning ~20 min discovering a stuck pipeline
+        # mid-run.
+        if not args.no_warmup and not args.only:
+            print("Warmup probe: Lily Margaret Cauldwell (@I50100727@)…")
+            warmup_start = time.monotonic()
+            try:
+                old_timeout = swift_client.per_subject_timeout_s
+                swift_client.per_subject_timeout_s = 60.0
+                _ = swift_client.research_profile("@I50100727@")
+                elapsed = time.monotonic() - warmup_start
+                print(f"  Warmup ok ({elapsed:.0f}s). Proceeding to full corpus.")
+            except (TimeoutError, RuntimeError) as e:
+                print(f"  Warmup failed: {type(e).__name__}: {e}", file=sys.stderr)
+                print("  → watcher is unresponsive. Aborting before full-corpus run.",
+                      file=sys.stderr)
+                swift_client.stop()
+                sys.exit(2)
+            finally:
+                swift_client.per_subject_timeout_s = old_timeout
 
     def backend_call(subject: dict) -> dict:
         if args.backend == "python":
@@ -962,7 +1001,12 @@ def main():
 
     try:
         results: list[tuple[dict, list[str], dict]] = []
-        for subject in subjects:
+        # Sample cap (--sample N): take only the first N subjects of
+        # the corpus (after the corpus's natural sort order) so a
+        # smoke iteration on a fix doesn't burn the full network
+        # budget. Applied AFTER --only so the two compose naturally.
+        subject_iter = subjects if args.sample is None else subjects[: args.sample]
+        for subject in subject_iter:
             ids = extract_subject_ids(subject)
             if args.only and args.only not in ids:
                 continue

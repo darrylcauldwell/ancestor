@@ -178,7 +178,7 @@ final class RunRequestWatcher {
         let leadFilter: LeadFilter? = profileIDForPersistence
             .flatMap { appState.snapshot.profiles[$0] }
             .map(LeadFilter.deriving(from:))
-        let runID = persistResult(
+        let runID = await persistResult(
             result: result,
             mode: mode,
             sourceInfoMap: sourceInfoMap,
@@ -348,7 +348,7 @@ final class RunRequestWatcher {
         leadToFinalise: Lead?,
         leadFilter: LeadFilter?,
         db: ProjectDatabase
-    ) -> String? {
+    ) async -> String? {
         var savedRunID: UUID? = nil
         if let profileID {
             for scored in result.allScoredRecords {
@@ -394,7 +394,20 @@ final class RunRequestWatcher {
                 searchedSourceCount: searchedSources.count,
                 totalSourceCount: registry.allSources().count
             )
-            let resultJSON = Self.buildResultEnvelope(result: result)
+            // Capture per-source throttle state at completion time so
+            // the eval envelope can mark throttled-source runs distinct
+            // from drift-source runs. A FreeBMD circuit-breaker trip
+            // produces a "completed but empty" result that looks
+            // identical to "we genuinely found nothing" without this.
+            var throttledSources: [String] = []
+            for src in registry.allSources() {
+                if await src.isThrottled() {
+                    throttledSources.append(src.sourceID)
+                }
+            }
+            let resultJSON = Self.buildResultEnvelope(
+                result: result, throttledSources: throttledSources
+            )
             // Only claim `savedRunID = runID` when saveResearchRun
             // actually succeeded. Previously the `try?` swallowed
             // SQLite lock errors silently; the caller (markCompleted)
@@ -449,7 +462,10 @@ final class RunRequestWatcher {
     /// metrics from. Shape mirrors Python's `_state_to_envelope` in
     /// `eval/run_harness.py:197` so the §5.8 harness consumes either
     /// backend without branching.
-    private static func buildResultEnvelope(result: ResearchResult) -> String {
+    private static func buildResultEnvelope(
+        result: ResearchResult,
+        throttledSources: [String] = []
+    ) -> String {
         var supported: [[String: Any]] = []
         var citations: [String] = []
         for scored in result.confirmedFacts {
@@ -510,6 +526,7 @@ final class RunRequestWatcher {
             "parent_link_verdict":     result.parentLinkVerdict as Any,
             "identity_verdict":        result.identityVerdict as Any,
             "spouse_verdict":          result.spouseVerdict as Any,
+            "_throttled":              throttledSources,
         ]
         guard let data = try? JSONSerialization.data(
             withJSONObject: payload, options: [.sortedKeys]

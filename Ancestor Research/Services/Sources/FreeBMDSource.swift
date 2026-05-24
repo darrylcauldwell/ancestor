@@ -412,6 +412,14 @@ actor FreeBMDSource: RecordSource {
         return false
     }
 
+    /// RecordSource conformance — surfaced into the eval envelope's
+    /// `_throttled` field so parity comparisons can tell "this run
+    /// was strangled by FreeBMD's circuit breaker" apart from "this
+    /// run found nothing because there's nothing there."
+    func isThrottled() async -> Bool {
+        isCircuitBlocked
+    }
+
     /// Up-to-3-attempt wrapper for the search POST. Retries transient HTTP
     /// failures (timeouts, dropped connections, 5xx, 429) with increasing
     /// backoff so a single district-query flake during marriage enrichment

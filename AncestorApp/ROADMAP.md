@@ -14,6 +14,35 @@ new design.
 change number it implements (e.g. `feat: kinship #Change4 — …`). No
 GitHub issues opened for in-flight epic work — the spec is the plan.
 
+## 2026-05-24 update — parity drift work in progress
+
+Epic 1 closed (commits `849f35e`, `6072646`, `e4ed36c`,
+`19290c2`). 31/46 cells agree (67%). Today's drift-closure session
+closed 2 more cells (Robert + Ernest parent_link, commit `297a6f3`)
+via household-token widening + FreeCen detail enrichment.
+
+Full-corpus re-validation deferred to 2026-05-25 — FreeBMD's
+circuit breaker tripped after a cap=5 enrichment run (~3h, burned
+the day's rate budget). See `feedback_volunteer_sources_rate_limits.md`
++ `reference_freebmd_circuit_breaker.md` in memory. Today's
+infrastructure fixes (WAL, watcher tightening, harness retry,
+warmup probe, throttle surfacing) all land but stay unvalidated
+end-to-end until tomorrow's clean run.
+
+**Tomorrow's first action:** confirm FreeBMD is responsive
+(single-subject `--only "@I50100727@"` smoke), then
+`python eval/run_harness.py --backend swift-mcp --db-path …`. The
+warmup probe (Lily) will abort early if the watcher is wedged.
+
+**Once parity re-runs cleanly,** continue closing the remaining 19
+disagreements per `eval/PARITY_REPORT_2026-05-24.md`:
+- Pattern A (Swift misses Python facts on Catherine/Robert/
+  Ernest/Elizabeth/Lydia) — most remaining drift.
+- Pattern B (Python regression on Charles Hodgkinson's death) —
+  single subject, S-sized.
+- Pattern C (Swift over-claims George Bowden) — geography gate
+  too lenient, S-sized.
+
 ## Dependency graph
 
 ```

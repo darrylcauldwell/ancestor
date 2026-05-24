@@ -103,6 +103,27 @@ def compare(py_path: Path, sw_path: Path) -> None:
     print(f"- neither measured (unmeasurable kinds): {both_unmeasured}")
     print()
 
+    # Throttle signal — surface any subjects where the swift envelope
+    # carries a non-empty `_throttled` array. Disagreements on
+    # throttled runs aren't drift; they're missing data. The harness
+    # writes envelopes through eval/runs/*.json by mirroring each
+    # subject's swift-side `_throttled` field into metrics.
+    throttled_subjects: list[tuple[str, list[str]]] = []
+    for sid, sub in sw_subjects.items():
+        m = sub.get("metrics") or {}
+        thr = m.get("throttled_sources") or []
+        if thr:
+            label = sub.get("label", "?")
+            throttled_subjects.append((label, thr))
+    if throttled_subjects:
+        print("## ⚠ Throttled sources during swift run")
+        print()
+        print("Disagreements on these subjects are likely missing-data, not drift:")
+        print()
+        for label, thr in throttled_subjects:
+            print(f"- {label}: {', '.join(thr)}")
+        print()
+
     # Disagreements first — the actionable rows
     disagreements = [r for r in rows if r[6] == "disagree"]
     if disagreements:

@@ -48,6 +48,14 @@ extension RecordSource {
     /// canonical name is an acronym (CWGC, FreeBMD, FreeCen, FreeREG)
     /// override to spell it out for the Settings list.
     nonisolated var descriptiveName: String { displayName }
+
+    /// Whether the source is currently refusing requests due to its
+    /// own rate-limit / circuit-breaker state. Default: false.
+    /// FreeBMDSource (and any future source with a breaker) overrides.
+    /// Surfaced into the eval envelope so harness parity comparisons
+    /// can distinguish "inconclusive because source was throttled"
+    /// from "inconclusive because there's no record."
+    func isThrottled() async -> Bool { false }
 }
 
 /// Sources that can fetch full detail for a specific record.
