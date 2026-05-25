@@ -14,6 +14,48 @@ new design.
 change number it implements (e.g. `feat: kinship #Change4 — …`). No
 GitHub issues opened for in-flight epic work — the spec is the plan.
 
+## 2026-05-25 evening — engine foundation Phase A+B shipped
+
+Foundation work split into "quality" (A+B) and "acceleration" (C+D).
+**Quality shipped this session; acceleration deferred** until a
+concrete pressure surfaces (a real sustained Discovery wave that
+needs to outrun the FreeBMD daily ceiling, or App Store submission
+timing).
+
+### Phase A — placeholder rehabilitation (engine correctness)
+
+| Change | Commit | What it does |
+|---|---|---|
+| #Change3 — Profile dedup at promote-time | `f350223` | `promote_lead` matches lead against existing tree by surname + given_name + ±2-year window (strict) or surname + year overlap (asymmetric, the Jennifer Holmes case) — INSERT only when no single match. Relationship-edge dedup too. |
+| #Change1 — Thin-subject verdict cap | `28468eb` | New `InformationDensity.from(subject:)` returns `.thin` when given_name is absent or birth-window > 25 years. RecordScorer caps `.fact` at `.lead` for thin subjects — refuses to assert truth without anchoring. |
+| #Change2 — Round-1 write-back from consensus | `0f279bb` | `PlaceholderWriteback` propose / apply: when ≥5 records carrying a given_name agree ≥70% on one name with runner-up ≤20%, write given_name + tightened birth-year back to the placeholder via `editProfile` (full audit trail under new `SourceOrigin.engineEnrichment`). |
+
+### Phase B — engine self-knowledge
+
+| Change | Commit | What it does |
+|---|---|---|
+| #Change4 — Scorer attrition logging | `564995a` | `ScorerAttrition.from([ScoredRecord])` aggregates per-gate pass counts + verdict distribution. `ResearchResult.attrition` populated on final result; `.scorerAttrition` event published on `ResearchActivityBus` for live feed visibility. |
+
+### Spec amendments along the way
+
+- `74fb0e3` — #Change3 amended to add asymmetric soft match (the empirical Jennifer Holmes case lay outside the original strict rule).
+- `5a4084b` — #Change1 reframed from "raise gate thresholds proportional to density" (which doesn't help when gates skip comparisons) to "cap verdict at .lead for thin subjects" — the surgical move addresses the false-fact failure mode directly.
+
+### Phase C + D — deferred
+
+C (#Change5 daily-budget awareness, #Change6 checkpoint hardening, #Change7 "stop digging here") and D (#Change8 §14.B.1 hallucination re-check) are not active. The spec entries remain valid plans; pick them up when:
+
+- A real sustained Discovery wave needs to run longer than 30 min without burning the FreeBMD daily budget → Phase C
+- App Store submission is the next milestone, requiring auto-approval to fire safely for non-developers → Phase D
+
+### Live empirical validation also deferred
+
+Validating Phase A on a real Cauldwell.twin-export or Cauldwell Discovery project would require app restart + MCP rebinding + budget burn. The cleaner moment is after Phase D when the whole engine is supposed to be trustworthy end-to-end. Unit-test coverage stands at ~50 new tests across the four changes; full Ancestor Research Tests suite passes.
+
+### Session metric
+
+7 commits in one session (3 docs + 4 feat). ~700 lines added. Engine foundation quality complete; acceleration parked.
+
 ## 2026-05-25 late — sustained enrichment run (operating model)
 
 A multi-day operating mode emerging from the cross-day Discovery
