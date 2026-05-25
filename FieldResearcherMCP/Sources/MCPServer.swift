@@ -1047,9 +1047,54 @@ actor MCPHandler {
 
             let givenName: String? = row["given_name"]
             let surname: String? = row["surname"]
-            let birthYear: Int? = row["birth_year"]
+            var birthYear: Int? = row["birth_year"]
             let deathYear: Int? = row["death_year"]
             let evidence: String = row["evidence"] ?? ""
+
+            // Derive estimated birth-year range for parent/spouse leads
+            // that lack one (the common case for `.parentInferred`
+            // emitters — the BMD index doesn't carry parents' birth
+            // years). Without this the promoted profile has no date
+            // window for the engine's downstream research dispatcher,
+            // and source plugins produce broad unfocused queries that
+            // either time out or return thousands of false candidates.
+            //
+            // Rule:
+            //   * father/mother: parent typically born child's year − 35
+            //     ± 15. Encoded as a (-50, -20) range.
+            //   * spouse: same age cohort as the source profile, ±15.
+            //
+            // Only fires when the lead itself carries no birth_year. If
+            // the lead emitter (or human-submitted lead) already set a
+            // year, that's trusted as-is.
+            var birthYearEarliest: Int? = birthYear
+            var birthYearLatest: Int? = birthYear
+            var birthYearQualifier: String? = birthYear == nil ? nil : "estimate"
+            if birthYear == nil {
+                let sourceBirthYear: Int? = try Row.fetchOne(
+                    db,
+                    sql: "SELECT birth_date_earliest FROM profiles WHERE id = ?",
+                    arguments: [sourceProfileID]
+                )?["birth_date_earliest"]
+                if let cby = sourceBirthYear {
+                    switch leadRelationship {
+                    case "father", "mother":
+                        birthYearEarliest = cby - 50
+                        birthYearLatest = cby - 20
+                        birthYearQualifier = "estimate"
+                    case "spouse":
+                        birthYearEarliest = cby - 15
+                        birthYearLatest = cby + 15
+                        birthYearQualifier = "estimate"
+                    default:
+                        break
+                    }
+                    // Mid-range as the canonical birth_year value.
+                    if let e = birthYearEarliest, let l = birthYearLatest {
+                        birthYear = (e + l) / 2
+                    }
+                }
+            }
 
             // Derive gender from relationship label (+ source profile for spouse).
             let gender: String
@@ -1096,7 +1141,7 @@ actor MCPHandler {
                         ?, '{}', 0, NULL, NULL)
                 """, arguments: [
                     newProfileID, givenName, surname, gender,
-                    birthYear.map { String($0) }, birthYear, birthYear, birthYear == nil ? nil : "estimate",
+                    birthYear.map { String($0) }, birthYearEarliest, birthYearLatest, birthYearQualifier,
                     deathYear.map { String($0) }, deathYear, deathYear, deathYear == nil ? nil : "estimate",
                     "Promoted from lead \(leadID). Evidence: \(String(evidence.prefix(400)))",
                 ])
