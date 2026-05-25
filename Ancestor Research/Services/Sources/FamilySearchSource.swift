@@ -669,11 +669,29 @@ extension FamilySearchSource {
                     sex: other.gender?.type.flatMap { $0.split(separator: "/").last.map(String.init) }
                 )
             }
+            // Pull the persona's own birth fact (separate from the
+            // census fact). Mirrors Python `sources/familysearch.py:
+            // 333-335` — when the FamilySearch persona on a census
+            // record carries a Birth/BirthRegistration/Christening/
+            // Baptism fact alongside the Census fact, capture its
+            // place and year onto the typed CensusRecord. Without
+            // this, the geography gate has no birthPlace to read on
+            // a FamilySearch census record and can't fail foreign-
+            // residence subjects.
+            let birthFact = (persona.facts ?? []).first { fact in
+                let typeName = fact.type?.split(separator: "/").last.map(String.init) ?? ""
+                return ["Birth", "BirthRegistration", "Christening", "Baptism"].contains(typeName)
+            }
+            let censusBirthPlace = birthFact?.place?.original
+            let censusBirthYear = birthFact?.date?.formal.flatMap(Self.yearFromFormal)
+                ?? birthFact?.date?.original.flatMap(Self.yearFromOriginal)
             return .census(CensusRecord(
                 common: common,
                 censusYear: year ?? 0,
                 age: extractAge(rawFields: rawFields),
-                birthYear: nil, birthPlace: nil, birthCounty: nil,
+                birthYear: censusBirthYear,
+                birthPlace: censusBirthPlace,
+                birthCounty: nil,
                 relationship: householdRole,
                 occupation: rawFields["fact.Occupation.date"] ?? rawFields["fact.Occupation.place"],
                 address: nil, parish: nil, district: nil,

@@ -485,9 +485,21 @@ nonisolated struct RecordScorer {
         }
 
         if district.isEmpty {
-            // Check FamilySearch-style place fields
+            // Check FamilySearch-style place fields. Mirrors Python
+            // `_check_geography` in `agent/scorer.py:273-281`, which reads
+            // `birth_place / residence_place / census_county / birth_county`
+            // as a fallback chain when district is absent. Without the
+            // BMD-side fallbacks below, a FamilySearch BirthRecord with
+            // `birthPlace: "South Carolina"` (no UK district) slipped
+            // through as "no location data" → softFail → lead instead of
+            // being failed as foreign. Death/Marriage need the same
+            // treatment for symmetry; FamilySearch doesn't populate UK
+            // districts on out-of-area BMD records either.
             var county = ""
             switch record {
+            case .birth(let r): county = r.birthPlace ?? ""
+            case .death(let r): county = r.deathPlace ?? ""
+            case .marriage(let r): county = r.marriagePlace ?? ""
             case .census(let r): county = r.birthCounty ?? r.birthPlace ?? ""
             case .burial(let r): county = r.burialLocation ?? ""
             case .probate(let r): county = r.address ?? ""
