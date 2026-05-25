@@ -74,6 +74,7 @@ nonisolated enum AuditRules {
         UnsourcedBioRule(),
         MissingDeathLocationRule(),
         AncestorExtensionRule(),
+        UnlinkedSpouseForFemaleSubjectRule(),
     ]
 }
 
@@ -762,5 +763,49 @@ nonisolated struct AncestorExtensionRule: AuditRuleDefinition {
             severity: .info, category: .gap, ruleID: id,
             message: "\(profile.displayName) (b.\(birthYear)) — no parents, search \(sourceHint) to extend tree"
         )]
+    }
+}
+
+// MARK: - Engine-research gap rules
+
+/// Fires when a female profile carries a known married surname but
+/// no spouse is linked in the tree. Without the linked spouse, the
+/// pipeline's construction-time married-surname derivation
+/// (`ResearchSubject.fromProfile`) cannot pivot death/burial/probate
+/// searches under the married surname — so the research engine
+/// systematically misses her records filed under that name.
+///
+/// Mirrors the LocalTwin spouse-lookup chain in Python's
+/// `_expand_post_marriage_searches` — Swift can't read the Python
+/// twin file at runtime, so we surface the gap to the user with
+/// guidance on linking the spouse instead.
+nonisolated struct UnlinkedSpouseForFemaleSubjectRule: AuditRuleDefinition {
+    let id = "unlinkedSpouseForFemaleSubject"
+    let category: AuditCategory = .gap
+    let displayName = "Married Surname Without Linked Spouse"
+    let description = "Female profile has a married surname recorded but no spouse profile linked. Death-shape research can't pivot to the married surname."
+    let fireCondition = "gender == .female, marriedSurname is non-empty, no spouse relationship exists"
+    let warningCondition: String? = nil
+    let workedExample = "Catherine Hannah Bown (m. 1892, d. as WARD): spouse not linked in tree, engine can't search death index under WARD"
+    let defaultSeverity = Severity.warning
+
+    func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        guard profile.gender == .female else { return [] }
+        let married = (profile.marriedSurname ?? "").trimmingCharacters(in: .whitespaces)
+        guard !married.isEmpty else { return [] }
+        // Already covered by the construction-time derivation when
+        // ANY spouse is linked — only fire when the user has the
+        // surname but didn't link a spouse profile.
+        guard snapshot.spousesOf(profile.id).isEmpty else { return [] }
+        return [AuditResult(
+            id: UUID(), profileID: profile.id, profileName: profile.displayName,
+            severity: .warning, category: .gap, ruleID: id,
+            message: "\(profile.displayName) — married surname '\(married)' recorded but spouse not linked"
+        )]
+    }
+
+    func guidanceMessage(profile: Profile) -> String? {
+        let married = (profile.marriedSurname ?? "?").trimmingCharacters(in: .whitespaces)
+        return "Link \(profile.displayName)'s spouse so research can find her death/probate records under '\(married)'. Use Add Spouse from the profile, or import the spouse from WikiTree."
     }
 }
