@@ -139,22 +139,38 @@ research duplication.
 
 **Rule:** Before INSERT, `promote_lead` searches the tree for a
 matching profile. Match criteria:
-- **Strict match:** exact `surname` + `givenName` (case-insensitive)
-  AND `birthYear` within ±2 of existing → return existing
-  `profileID`, no INSERT.
-- **Soft match:** surname-only lead with no `givenName` → match if
-  existing profile is also surname-only with overlapping birth-year
-  window. Returns existing.
+- **Strict match:** lead and candidate profile both carry
+  `givenName` → exact `surname` + `givenName` (case-insensitive)
+  AND `birthYear` within ±2 of candidate → dedup. If exactly one
+  strict match exists → return its `profileID`, no INSERT. If
+  multiple strict matches exist → INSERT new (split-don't-merge).
+- **Asymmetric soft match:** either the lead or the candidate
+  profile lacks `givenName` (the empirical Jennifer Holmes case —
+  surname-only lead vs. rich tree profile) → match on `surname` +
+  birth-year overlap (within ±2). Dedup **only if exactly one**
+  candidate matches; multiple matches → INSERT new
+  (split-don't-merge per CLAUDE.md).
 - **No match:** INSERT as today.
 
 The decision (matched-existing vs new-insert) is logged in the audit
-trail.
+trail. When matched, the relationship edge (parent/spouse) is also
+not duplicated — if `(from_id, to_id, type, role)` already exists,
+no edge INSERT; otherwise insert the missing edge (the asserted
+relationship from the lead may genuinely be new evidence).
 
 **Acceptance:**
-- Test: `promote_lead` for Jennifer Holmes (name + birth-year present
-  in tree) returns existing `@I50100815@`, no INSERT.
-- Test: `promote_lead` for a name+date not present INSERTs as today.
-- Test: soft-match path for surname-only lead.
+- Test: `promote_lead` for surname-only lead matching one existing
+  rich profile (Jennifer Holmes case — lead lacks `givenName`,
+  `@I50100815@` has `firstName="Jennifer"`, year matches) →
+  returns existing `@I50100815@`, no profile INSERT.
+- Test: surname-only lead matching two existing profiles (e.g.,
+  two `Holmes` with overlapping years) → INSERT new (split).
+- Test: strict match — lead with `givenName="Jennifer"` matching
+  existing Jennifer Holmes → returns existing, no INSERT.
+- Test: `promote_lead` for a name+date not present → INSERTs as
+  today.
+- Test: matched profile, edge already present → no edge INSERT.
+- Test: matched profile, edge not present → edge INSERT.
 - Audit log shows the dedup decision per call.
 
 **Files:**
