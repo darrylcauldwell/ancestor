@@ -64,6 +64,13 @@ final class AppState {
     /// and behaves identically regardless of where research was triggered from.
     var researchConfigProfile: Profile?
 
+    /// Optional pre-selected focus when the sheet is opened from a per-gap
+    /// "Research parents / siblings / …" button. Cleared together with
+    /// `researchConfigProfile` when the sheet dismisses. Nil for the
+    /// generic whole-profile Research entry point. See
+    /// RESEARCH_PIPELINE_SPEC §11.4.
+    var researchConfigFocus: ResearchFocus?
+
     var isLoading = false
     var loadingMessage: String?
     var errorMessage: String?

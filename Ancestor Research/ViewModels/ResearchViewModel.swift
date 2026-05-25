@@ -123,11 +123,14 @@ final class ResearchViewModel {
         )
     }
 
-    /// Start research for a profile.
+    /// Start research for a profile. `focus` (when set) narrows the
+    /// dispatched record types to the focus's set — see
+    /// RESEARCH_PIPELINE_SPEC §11.4.
     func startResearch(
         profile: Profile,
         snapshot: FamilyGraphSnapshot,
-        registry: SourceRegistry
+        registry: SourceRegistry,
+        focus: ResearchFocus? = nil
     ) async {
         selectedProfile = profile
         selectedLead = nil
@@ -135,7 +138,11 @@ final class ResearchViewModel {
             .flatMap { try? $0.loadProjectMeta() }?
             .resolvedHomeChapmanCode ?? "DBY"
         let subject = ResearchSubject.fromProfile(
-            profile, snapshot: snapshot, mode: selectedMode, homeChapmanCode: homeChapmanCode
+            profile,
+            snapshot: snapshot,
+            mode: selectedMode,
+            focus: focus,
+            homeChapmanCode: homeChapmanCode
         )
         await runPipeline(
             subject: subject,

@@ -753,7 +753,54 @@ FreeBMD is district-coded; FreeCen and FreeREG are Chapman-coded;
 CWGC is military-only with eligible war years; FindAGrave / Probate /
 Wirksworth take a single query without scope branching.
 
-### 11.4 Marriage enrichment's secondary dispatch
+### 11.4 ResearchFocus axis — record-type narrowing
+
+A third axis orthogonal to mode (depth) and scope (geography):
+**focus** selects which record types the pipeline dispatches.
+Optional — when nil, the pipeline runs with the full
+`activeRecordTypes` set (today: `birth`, `death`, `marriage`,
+`census`, `burial`, `probate`, `parish`, `pedigree`). When set,
+`ResearchState.init(subject:)` narrows `activeRecordTypes` to
+`subject.focus.recordTypes` instead.
+
+Why this exists: the profile view's "Missing facts" section
+(`SharedProfileLayout.missingFactsSection`) wires each gap to a
+"Research" button. Today every button fires the same full pipeline.
+The user's mental model is "research the thing that's missing,"
+not "run the full pipeline and hope it picks up the thing that's
+missing." Focus closes that gap.
+
+| Focus | Record types | Typical gap that triggers it |
+|---|---|---|
+| `.parents` | birth, census, baptism | "No parents" |
+| `.siblings` | birth | (UI surfaces from profile, not from gap) |
+| `.marriages` | marriage | "No marriages" / female maiden plumbing |
+| `.death` | death, burial, probate, military | "Missing deathDate" / "Missing deathLocation" |
+| `.birth` | birth, baptism | "Missing birthDate" / "Missing birthLocation" |
+| `.children` | marriage, census | (UI surfaces from profile) |
+| `.occupation` | census, probate | (UI surfaces from profile) |
+
+`.parents` and `.children` are *macros* — they include multiple
+record types because the genealogical task isn't single-source.
+The dispatcher itself sees a `Set<RecordType>` either way; the
+macro lives in `ResearchFocus.recordTypes`.
+
+**Default mode override when focus is set.** The smart-default
+mode picker in `ResearchConfigSheet` adapts to subject shape
+(ghost → Discover, near-complete → Verify). A focused run breaks
+that heuristic: "Research siblings" on a near-complete profile
+still wants Discover (you don't have the siblings to verify
+against). When focus is non-nil, default mode is `.discover`;
+the user can still override via the sheet's mode picker.
+
+**Out of scope.** Focus does not change the strictness ladder or
+the scope axis — those stay orthogonal. Focus also does not yet
+narrow post-processing (cluster review, lead generation, MMN
+sibling discovery still fire if their inputs are present); a
+later refinement can add focus-aware gating of secondary dispatch
+paths (§11.5, §11.6) when empirical runs show they over-fire.
+
+### 11.5 Marriage enrichment's secondary dispatch
 
 Marriage enrichment runs its own focused queries — not via the
 strictness ladder, but a single direct call per district (groom-side
@@ -763,7 +810,7 @@ triggering one query per candidate MMN: it only runs pairs whose
 surnames match either the linked parents OR the resolved-subject's
 birth record.
 
-### 11.5 Sibling discovery's tertiary dispatch
+### 11.6 Sibling discovery's tertiary dispatch
 
 `findSiblings` issues one query: surname-only, the subject's
 resolved birth district, year window `subject.birthYear ± 20`. No

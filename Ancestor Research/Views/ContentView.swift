@@ -145,12 +145,9 @@ struct MainView: View {
             isPresented: $showingExporter,
             document: gedcomDocument,
             contentType: gedcomExportFormat.contentType,
-            defaultFilename: "\(appState.currentProject?.name ?? "export").\(gedcomExportFormat.fileExtension)"
-        ) { result in
-            if case .failure(let error) = result {
-                appState.errorMessage = "Export failed: \(error.localizedDescription)"
-            }
-        }
+            defaultFilename: defaultGedcomFilename,
+            onCompletion: handleExportResult
+        )
         .onChange(of: appState.researchProfileID) { _, newID in
             // Now treated as "open the research config sheet for this profile"
             // — every research trigger flows through the mode/scope picker so
@@ -163,10 +160,18 @@ struct MainView: View {
         }
         .sheet(item: Binding(
             get: { appState.researchConfigProfile },
-            set: { appState.researchConfigProfile = $0 }
+            set: {
+                appState.researchConfigProfile = $0
+                if $0 == nil { appState.researchConfigFocus = nil }
+            }
         )) { profile in
-            ResearchConfigSheet(profile: profile, snapshot: appState.snapshot) { request in
+            ResearchConfigSheet(
+                profile: profile,
+                snapshot: appState.snapshot,
+                focus: appState.researchConfigFocus
+            ) { request in
                 appState.researchConfigProfile = nil
+                appState.researchConfigFocus = nil
                 appState.researchRequest = request
             }
         }
@@ -191,7 +196,8 @@ struct MainView: View {
                 await researchVM.startResearch(
                     profile: profile,
                     snapshot: appState.snapshot,
-                    registry: registry
+                    registry: registry,
+                    focus: request.focus
                 )
             }
             researchVM.currentResearchTask = task
@@ -356,6 +362,21 @@ struct MainView: View {
     ) -> some View {
         Button(action: action) { EmptyView() }
             .keyboardShortcut(key, modifiers: modifiers)
+    }
+
+    /// Pre-computed to keep the file-exporter call out of SwiftUI's
+    /// type-check budget (the in-line interpolation pushed body over
+    /// the ceiling once focus plumbing landed).
+    private var defaultGedcomFilename: String {
+        let base = appState.currentProject?.name ?? "export"
+        return "\(base).\(gedcomExportFormat.fileExtension)"
+    }
+
+    /// Pulled out of the body for the same type-check-budget reason.
+    private func handleExportResult(_ result: Result<URL, Error>) {
+        if case .failure(let error) = result {
+            appState.errorMessage = "Export failed: \(error.localizedDescription)"
+        }
     }
 
     /// Shared "research this lead" handler — invoked from Task rows in

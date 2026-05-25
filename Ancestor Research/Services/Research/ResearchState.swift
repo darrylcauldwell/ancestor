@@ -24,7 +24,14 @@ struct ResearchState: Sendable {
 
     init(subject: ResearchSubject) {
         self.subject = subject
-        self.activeRecordTypes = [.birth, .death, .marriage, .census, .burial, .probate, .parish, .pedigree]
+        // When the caller set a focus, narrow to that focus's record
+        // types instead of the full default set. See
+        // RESEARCH_PIPELINE_SPEC §11.4.
+        if let focus = subject.focus {
+            self.activeRecordTypes = focus.recordTypes
+        } else {
+            self.activeRecordTypes = [.birth, .death, .marriage, .census, .burial, .probate, .parish, .pedigree]
+        }
     }
 }
 

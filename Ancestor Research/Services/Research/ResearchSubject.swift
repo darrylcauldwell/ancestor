@@ -19,10 +19,24 @@ nonisolated enum ResearchMode: String, Sendable {
 /// "Research" sheet to fire a research run with mode/scope picked at the moment
 /// of triggering, rather than relying on whatever's currently set on the
 /// Research view's controls.
+///
+/// `focus` is optional. When set, the dispatcher narrows
+/// `activeRecordTypes` to `focus.recordTypes` — used by the per-gap
+/// "Research parents / Research siblings / …" buttons on the profile
+/// view. When nil, the pipeline runs with the full record-type set
+/// (legacy whole-profile behaviour).
 nonisolated struct ResearchRequest: Sendable {
     let profileID: String
     let mode: ResearchMode
     let scope: ResearchScope
+    let focus: ResearchFocus?
+
+    init(profileID: String, mode: ResearchMode, scope: ResearchScope, focus: ResearchFocus? = nil) {
+        self.profileID = profileID
+        self.mode = mode
+        self.scope = scope
+        self.focus = focus
+    }
 }
 
 /// How widely to fan out scope-aware sources (FreeBMD, FreeCen, FreeREG).
@@ -103,6 +117,10 @@ nonisolated struct ResearchSubject: Sendable {
     /// "Change 2"); structured `deathLocationCode` follows when that lands.
     var deathLocation: String?
     var mode: ResearchMode
+    /// Optional record-type narrowing — when set, `ResearchState.init`
+    /// uses `focus.recordTypes` instead of the full default record-type
+    /// set. See RESEARCH_PIPELINE_SPEC §11.4.
+    var focus: ResearchFocus? = nil
     var familyContext: FamilyContext?
     /// Chapman code of the subject's home county — drives per-subject scoring
     /// and dispatch lookups. Defaults to "DBY" (Derbyshire) for legacy data
@@ -276,6 +294,7 @@ nonisolated extension ResearchSubject {
         _ profile: Profile,
         snapshot: FamilyGraphSnapshot,
         mode: ResearchMode = .extend,
+        focus: ResearchFocus? = nil,
         homeChapmanCode: String = "DBY"
     ) -> ResearchSubject {
         // Build family context from the tree
@@ -349,6 +368,7 @@ nonisolated extension ResearchSubject {
             region: profile.birthLocation.map { .county($0) },
             deathLocation: profile.deathLocation,
             mode: mode,
+            focus: focus,
             familyContext: context,
             homeChapmanCode: homeChapmanCode
         )

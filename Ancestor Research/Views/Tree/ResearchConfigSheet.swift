@@ -7,6 +7,11 @@ import SwiftUI
 struct ResearchConfigSheet: View {
     let profile: Profile
     let snapshot: FamilyGraphSnapshot
+    /// Optional pre-selected focus from the caller — set when the user
+    /// triggered the sheet from a per-gap "Research parents / siblings /
+    /// …" button. The mode default flips to `.discover` when focus is
+    /// non-nil. See RESEARCH_PIPELINE_SPEC §11.4.
+    let focus: ResearchFocus?
     let onRun: (ResearchRequest) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -16,12 +21,19 @@ struct ResearchConfigSheet: View {
     init(
         profile: Profile,
         snapshot: FamilyGraphSnapshot,
+        focus: ResearchFocus? = nil,
         onRun: @escaping (ResearchRequest) -> Void
     ) {
         self.profile = profile
         self.snapshot = snapshot
+        self.focus = focus
         self.onRun = onRun
-        let initialMode = Self.defaultMode(for: profile, snapshot: snapshot)
+        // Focus-driven runs default to Discover — you're looking for
+        // something not in the tree, so the smart-default shape-based
+        // mode picker would land in the wrong place.
+        let initialMode: ResearchMode = focus == nil
+            ? Self.defaultMode(for: profile, snapshot: snapshot)
+            : .discover
         self._mode = State(initialValue: initialMode)
         self._scope = State(initialValue: Self.defaultScope(for: initialMode))
     }
@@ -29,12 +41,17 @@ struct ResearchConfigSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Research")
+                Text(focus?.actionLabel ?? "Research")
                     .font(.title2)
                     .fontWeight(.semibold)
                 Text(profile.displayName)
                     .font(.headline)
                     .foregroundStyle(.secondary)
+                if let focus {
+                    Text("Focused on \(focus.rawValue) — only \(focus.recordTypes.map(\.rawValue).sorted().joined(separator: ", ")) records will be searched.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -97,7 +114,12 @@ struct ResearchConfigSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button {
-                    onRun(ResearchRequest(profileID: profile.id, mode: mode, scope: scope))
+                    onRun(ResearchRequest(
+                        profileID: profile.id,
+                        mode: mode,
+                        scope: scope,
+                        focus: focus
+                    ))
                 } label: {
                     Label("Run research", systemImage: "play.fill")
                 }

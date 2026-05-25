@@ -211,15 +211,14 @@ struct SharedProfileLayout: View {
         }
     }
 
-    /// Per-gap research entry points (Task #39). Lists each missing fact /
-    /// relationship from the completeness check and offers a Research button
-    /// per item. Each button opens the standard `ResearchConfigSheet` for the
-    /// profile — the sheet's smart-default mode picker already adapts to the
-    /// subject's shape, so a per-gap button on a ghost profile lands on
-    /// Discover and on a near-complete profile lands on Verify. Targeted-focus
-    /// hinting (e.g. "fill death record specifically") is deliberately not
-    /// passed through yet; the pipeline doesn't act on it and the current
-    /// signposting value comes from the entry point, not the dispatch.
+    /// Per-gap research entry points (Task #39 + RESEARCH_PIPELINE_SPEC
+    /// §11.4). Each missing fact maps to a `ResearchFocus` via
+    /// `CompletenessCheck.researchFocus`; gaps with a focus get a
+    /// scoped action label ("Research parents", "Research death") and
+    /// fire a focus-narrowed pipeline run via the standard config sheet.
+    /// Gaps with no engine-researchable answer (firstName, gender,
+    /// bio) get a disabled placeholder so the row still appears in the
+    /// list but the user isn't promised an action that wouldn't help.
     @ViewBuilder
     private var missingFactsSection: some View {
         let comp = snapshot.completeness(for: profile.id)
@@ -237,11 +236,22 @@ struct SharedProfileLayout: View {
                         Text(gap.label)
                             .font(.callout)
                         Spacer()
-                        Button("Research") {
-                            appState.researchConfigProfile = profile
+                        if let focus = gap.researchFocus {
+                            let recordTypeList = focus.recordTypes
+                                .map(\.rawValue).sorted()
+                                .joined(separator: ", ")
+                            Button(focus.actionLabel) {
+                                appState.researchConfigFocus = focus
+                                appState.researchConfigProfile = profile
+                            }
+                            .buttonStyle(.glass)
+                            .controlSize(.small)
+                            .help("Narrows the dispatch to \(recordTypeList)")
+                        } else {
+                            Text("Manual")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
                         }
-                        .buttonStyle(.glass)
-                        .controlSize(.small)
                     }
                 }
             }
