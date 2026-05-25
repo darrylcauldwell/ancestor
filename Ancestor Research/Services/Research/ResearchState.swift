@@ -118,6 +118,11 @@ nonisolated struct ResearchResult: Sendable {
     let identityVerdict: String?
     let spouseVerdict: String?
 
+    /// Per-gate attrition summary across `allScoredRecords` for this
+    /// run. Populated on the final result; nil on intermediate
+    /// per-iteration snapshots (ENGINE_FOUNDATION_SPEC #Change4).
+    let attrition: ScorerAttrition?
+
     init(
         confirmedFacts: [ScoredRecord],
         leads: [ScoredRecord],
@@ -129,7 +134,8 @@ nonisolated struct ResearchResult: Sendable {
         hypotheses: [ResearchHypothesis] = [],
         parentLinkVerdict: String? = nil,
         identityVerdict: String? = nil,
-        spouseVerdict: String? = nil
+        spouseVerdict: String? = nil,
+        attrition: ScorerAttrition? = nil
     ) {
         self.confirmedFacts = confirmedFacts
         self.leads = leads
@@ -142,6 +148,7 @@ nonisolated struct ResearchResult: Sendable {
         self.parentLinkVerdict = parentLinkVerdict
         self.identityVerdict = identityVerdict
         self.spouseVerdict = spouseVerdict
+        self.attrition = attrition
     }
 
     static let empty = ResearchResult(

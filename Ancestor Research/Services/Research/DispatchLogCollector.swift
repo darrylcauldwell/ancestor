@@ -75,6 +75,8 @@ actor DispatchLogCollector {
             ))
         case .pipelineStage:
             break  // not source-scoped, not useful for dispatch analysis
+        case .scorerAttrition:
+            break  // aggregate stat, separate concern from dispatch log
         }
     }
 

@@ -259,6 +259,14 @@ final class ResearchPipeline {
             subjectProfileID: subject.profileID
         )
 
+        // ENGINE_FOUNDATION_SPEC #Change4: attrition summary across
+        // this run's scored records + bus publish so the activity
+        // feed shows "the brake is engaged" (rich subject, high
+        // attrition) vs "everything passed" (thin subject, the
+        // verdict-cap from #Change1 doing the work).
+        let attrition = ScorerAttrition.from(state.scoredRecords)
+        await ResearchActivityBus.shared.publish(.scorerAttrition(attrition))
+
         return ResearchResult(
             confirmedFacts: state.confirmedFacts,
             leads: state.leads,
@@ -270,7 +278,8 @@ final class ResearchPipeline {
             hypotheses: allHypotheses,
             parentLinkVerdict: parentLink,
             identityVerdict: identity,
-            spouseVerdict: spouse
+            spouseVerdict: spouse,
+            attrition: attrition
         )
     }
 

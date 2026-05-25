@@ -422,6 +422,9 @@ final class ResearchViewModel {
         case .pipelineStage:
             // Pipeline stages don't bind to a single source; only the feed shows them.
             break
+        case .scorerAttrition:
+            // Aggregate stat across all sources; feed-only, no per-source state change.
+            break
         }
     }
 

@@ -11,6 +11,11 @@ nonisolated enum ResearchActivityEvent: Sendable {
     case sourceQueryCompleted(sourceID: String, summary: String, resultCount: Int, strictness: SearchStrictness = .strict)
     case sourceError(sourceID: String, summary: String, reason: String, strictness: SearchStrictness = .strict)
     case pipelineStage(message: String)
+    /// Per-run scorer attrition summary (ENGINE_FOUNDATION_SPEC
+    /// #Change4). Published once per research run after the scorer
+    /// settles. Lets the UI / eval harness see whether the brake is
+    /// engaged at the periphery.
+    case scorerAttrition(ScorerAttrition)
 
     /// Strictness tier this event was issued at. `.strict` for pipeline-stage
     /// events. Activity feed labels broadened tiers ("Cauldwell — phonetic")
@@ -21,6 +26,7 @@ nonisolated enum ResearchActivityEvent: Sendable {
         case .sourceQueryCompleted(_, _, _, let s): return s
         case .sourceError(_, _, _, let s):         return s
         case .pipelineStage:                       return .strict
+        case .scorerAttrition:                     return .strict
         }
     }
 
@@ -42,6 +48,8 @@ nonisolated enum ResearchActivityEvent: Sendable {
             return "\(summary)\(tierSuffix) — error: \(reason)"
         case .pipelineStage(let msg):
             return msg
+        case .scorerAttrition(let a):
+            return "Scorer: \(a.humanSummary)"
         }
     }
 }
