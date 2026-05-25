@@ -591,10 +591,7 @@ struct ClusterReviewView: View {
                                         .font(AppTypography.badge)
                                         .foregroundStyle(.tertiary)
                                         .frame(width: 130, alignment: .leading)
-                                    Text(row.value)
-                                        .font(AppTypography.badge)
-                                        .foregroundStyle(.primary)
-                                        .textSelection(.enabled)
+                                    rawFieldValue(row.value)
                                 }
                             }
                         }
@@ -753,6 +750,39 @@ struct ClusterReviewView: View {
             add("Location", r.location)
         }
         return rows
+    }
+
+    /// Render a raw-field value. URL-shaped values become clickable
+    /// `Link` controls so the user can jump straight to the source
+    /// (FamilySearch ARK URLs, GRO refs, etc.); everything else stays
+    /// as selectable text matching the surrounding style.
+    @ViewBuilder
+    private func rawFieldValue(_ value: String) -> some View {
+        if let url = httpURL(from: value) {
+            Link(destination: url) {
+                Text(value)
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.blue)
+                    .underline()
+                    .textSelection(.enabled)
+                    .multilineTextAlignment(.leading)
+            }
+        } else {
+            Text(value)
+                .font(AppTypography.badge)
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+        }
+    }
+
+    /// Loose URL detector — only http/https with a host component
+    /// counts. Avoids accidentally hyperlinking values like "ftp://x"
+    /// or bare paths that happen to contain "://".
+    private func httpURL(from value: String) -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") else { return nil }
+        guard let url = URL(string: trimmed), url.host?.isEmpty == false else { return nil }
+        return url
     }
 
     /// Pull every key/value from the source's rawFields dict, skipping ones whose value
