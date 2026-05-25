@@ -952,19 +952,82 @@ final class ResearchViewModel {
         return proposals.filter { !rejected.contains($0.id) }
     }
 
-    /// Accept a proposed relative: create a ghost Profile + parent-of Relationship in one atomic transaction.
-    /// Refreshes the AppState snapshot so the new relative shows up in the tree.
+    /// Accept a proposed relative: create a ghost Profile + parent-of
+    /// Relationship in one atomic transaction. When the proposal matches
+    /// an existing profile (per `ProposalDedup`), link the existing
+    /// profile to the subject instead of creating a duplicate ghost —
+    /// re-running research and re-accepting the same proposal is now
+    /// a no-op rather than a duplicate-creator.
     func acceptProposedRelative(_ proposal: ProposedRelative, into appState: AppState) {
         guard let db = appState.currentDatabase else {
             errorMessage = "No project open"
             return
         }
+        guard case .parentOf(let subjectID) = proposal.relationship else {
+            errorMessage = "Unsupported proposal relationship"
+            return
+        }
         do {
-            _ = try db.acceptProposedRelative(proposal)
+            let candidates = Array(appState.snapshot.profiles.values)
+            switch ProposalDedup.decide(
+                query: ProposalDedup.Query(parentProposal: proposal),
+                candidates: candidates
+            ) {
+            case .matched(let existingID):
+                try ensureParentEdge(
+                    fromExistingProfile: existingID,
+                    toSubject: subjectID,
+                    role: parentRole(for: proposal.gender),
+                    in: appState.snapshot,
+                    db: db
+                )
+            case .noMatch, .multipleMatches:
+                // multipleMatches still creates new — CLAUDE.md "When
+                // in doubt, split". Audit's duplicateDetection rule
+                // surfaces the trio for the user to merge manually.
+                _ = try db.acceptProposedRelative(proposal)
+            }
             appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
             proposedRelativeDecisions[proposal.id] = .accepted
         } catch {
             errorMessage = "Failed to create relative: \(error.localizedDescription)"
+        }
+    }
+
+    /// Add a parent → subject edge using the existing profile, only
+    /// when no equivalent edge already exists. Idempotent — repeated
+    /// calls do nothing after the first.
+    private func ensureParentEdge(
+        fromExistingProfile parentID: String,
+        toSubject subjectID: String,
+        role: ParentRole,
+        in snapshot: FamilyGraphSnapshot,
+        db: ProjectDatabase
+    ) throws {
+        // Snapshot-level pre-check avoids the DB round-trip when we
+        // already know the edge is there.
+        let existingParents = Set(snapshot.parentsOf(subjectID).map(\.id))
+        guard !existingParents.contains(parentID) else { return }
+
+        let edge = Relationship(
+            id: UUID(),
+            from: parentID,
+            to: subjectID,
+            type: .parent,
+            role: role,
+            subtype: .biological,
+            marriageDate: nil,
+            marriageLocation: nil,
+            divorceDate: nil
+        )
+        _ = try db.addRelationshipIfAbsent(edge)
+    }
+
+    private func parentRole(for gender: Gender?) -> ParentRole {
+        switch gender {
+        case .male:   .father
+        case .female: .mother
+        default:      .unspecified
         }
     }
 
@@ -1080,20 +1143,66 @@ final class ResearchViewModel {
         return proposals.filter { !rejected.contains($0.id) }
     }
 
-    /// Accept a sibling proposal: create a ghost Profile and wire it to BOTH
-    /// parent profiles in one atomic transaction. Refreshes the AppState
-    /// snapshot so the new sibling shows up in the tree.
+    /// Accept a sibling proposal: create a ghost Profile and wire it to
+    /// BOTH parent profiles in one atomic transaction. When the proposal
+    /// matches an existing profile (per `ProposalDedup`), link the
+    /// existing profile to the proposal's parents instead of creating
+    /// a duplicate ghost — re-running sibling discovery and re-accepting
+    /// the same candidate is now a no-op rather than a duplicate-creator.
+    /// The George Brooks × 2 / Hilda Brooks × 2 bug pattern.
     func acceptSibling(_ proposal: SiblingProposal, into appState: AppState) {
         guard let db = appState.currentDatabase else {
             errorMessage = "No project open"
             return
         }
         do {
-            _ = try db.acceptSiblingProposal(proposal)
+            let candidates = Array(appState.snapshot.profiles.values)
+            switch ProposalDedup.decide(
+                query: ProposalDedup.Query(siblingProposal: proposal),
+                candidates: candidates
+            ) {
+            case .matched(let existingID):
+                try ensureBothParentEdges(
+                    onExistingProfile: existingID,
+                    fatherID: proposal.fatherID,
+                    motherID: proposal.motherID,
+                    in: appState.snapshot,
+                    db: db
+                )
+            case .noMatch, .multipleMatches:
+                _ = try db.acceptSiblingProposal(proposal)
+            }
             appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
             siblingDecisions[proposal.id] = .accepted
         } catch {
             errorMessage = "Failed to create sibling: \(error.localizedDescription)"
+        }
+    }
+
+    /// Add father and mother edges onto an existing profile, only
+    /// inserting edges that aren't already there. Idempotent.
+    private func ensureBothParentEdges(
+        onExistingProfile childID: String,
+        fatherID: String,
+        motherID: String,
+        in snapshot: FamilyGraphSnapshot,
+        db: ProjectDatabase
+    ) throws {
+        let existingParents = Set(snapshot.parentsOf(childID).map(\.id))
+        for (parentID, role) in [(fatherID, ParentRole.father), (motherID, .mother)] {
+            guard !existingParents.contains(parentID) else { continue }
+            let edge = Relationship(
+                id: UUID(),
+                from: parentID,
+                to: childID,
+                type: .parent,
+                role: role,
+                subtype: .biological,
+                marriageDate: nil,
+                marriageLocation: nil,
+                divorceDate: nil
+            )
+            _ = try db.addRelationshipIfAbsent(edge)
         }
     }
 

@@ -1519,6 +1519,54 @@ nonisolated extension ProjectDatabase {
         return transaction
     }
 
+    /// Idempotent variant of `addRelationship` — inserts only when
+    /// no existing row has the same `(from, to, type, role)` tuple
+    /// pointing in the same direction. Returns the existing row's
+    /// id (or the freshly-inserted one), and a flag so the caller
+    /// can decide whether to record a user-facing transaction.
+    ///
+    /// Used by both proposal-accept paths (sibling and parent) to
+    /// prevent the same parent→child edge being inserted twice when
+    /// a re-run surfaces an already-applied proposal. See
+    /// `ProposalDedup` for the profile-level dedup that pairs with
+    /// this for the same use case.
+    @discardableResult
+    func addRelationshipIfAbsent(_ rel: Relationship) throws -> (id: UUID, inserted: Bool) {
+        // role is optional; null in DB when unspecified. Match both
+        // shapes — same parent edge with unspecified role on one row
+        // and `.father` on another shouldn't count as distinct.
+        let roleValue: String? = rel.role?.rawValue
+        let existingID: UUID? = try dbQueue.read { db in
+            let row: Row?
+            if let roleValue {
+                row = try Row.fetchOne(db, sql: """
+                    SELECT id FROM relationships
+                    WHERE from_profile_id = ?
+                      AND to_profile_id = ?
+                      AND type = ?
+                      AND (role = ? OR role IS NULL)
+                    LIMIT 1
+                    """, arguments: [rel.from, rel.to, rel.type.rawValue, roleValue])
+            } else {
+                row = try Row.fetchOne(db, sql: """
+                    SELECT id FROM relationships
+                    WHERE from_profile_id = ?
+                      AND to_profile_id = ?
+                      AND type = ?
+                    LIMIT 1
+                    """, arguments: [rel.from, rel.to, rel.type.rawValue])
+            }
+            guard let row else { return nil }
+            let raw = row["id"] as String
+            return UUID(uuidString: raw)
+        }
+        if let existingID {
+            return (existingID, false)
+        }
+        try addRelationship(rel)
+        return (rel.id, true)
+    }
+
     /// Remove a relationship. Records the old values for undo replay.
     @discardableResult
     func removeRelationship(id: UUID) throws -> Transaction {
