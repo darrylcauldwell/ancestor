@@ -1915,9 +1915,9 @@ Genealogy data has serious sentimental and research value. A user who loses a tr
 
 ## 7.13 Unified Tasks View
 
-Three views currently surface "things to do" — Audit (data consistency errors), Gaps (missing fields), and Open Questions (user-curated research agenda). All three produce lists of items the user could work on. Having three separate sidebar entries for this is one too many — the user navigates three lists to see their full working agenda.
+Multiple surfaces currently show "things to do" — Audit (data consistency errors), Gaps (missing fields), Open Questions (user-curated research agenda), and Leads (engine-discovered person-shaped candidates). All produce lists of items the user could work on, and the same thread of work crosses them — *"Ernest has no parents"* (gap) becomes *"engine proposes Henry Cauldwell"* (lead) without the user changing their intent. Splitting these into separate sidebar entries forces them to navigate multiple lists for one workflow.
 
-**Resolution: a single Tasks view in the sidebar** that unifies all three, with filtering by source.
+**Resolution: a single Tasks view in the sidebar** that unifies all of them, with filtering by source.
 
 ### 7.13.1 Tasks View Structure
 
@@ -1929,12 +1929,15 @@ The Tasks view presents a single prioritised list of actionable items. Each item
 | Gap | "Gap" | "Missing birth date: William Land" |
 | Question | "Question" | "Who were William Land's parents?" |
 | Tentative | "Tentative" | "Birth year 1834 — needs more evidence" (from FactConfidence) |
+| Lead | "Lead" | "Henry Cauldwell · father · b. ~1860 — engine candidate, awaiting research or decision" |
 
-**Filters:** All / Audit only / Gaps only / Questions only / Tentative facts. Default: All.
+**Filters:** All / Audit / Gaps / Questions / Tentative / Leads. Default: All.
 
-**Sort:** by priority (user-set for questions, severity for audit, completeness for gaps), by profile, or by date added.
+**Sort:** by priority (user-set for questions, severity for audit, completeness for gaps, lifecycle stage for leads), by profile, or by date added. Leads in the `.investigated` state (engine done, user decision required) sort above ordinary gaps; `.new` leads (engine done, research available) sort just below them; `.investigating` leads (in flight) sink to the bottom.
 
 **Grouping:** by profile (shows all tasks for one person together) or flat list.
+
+**Inline actions per lead row:** Research (kicks the pipeline against the lead's identity) and Dismiss (marks as `.dismissed`). Mirrors the actions in the standalone Leads view.
 
 ### 7.13.2 Relationship to Audit Engine and Gaps
 
@@ -1946,7 +1949,8 @@ The audit engine and gap detection still run as before — they're computation, 
 
 - **AuditView** (sidebar item) → removed. Audit results appear in Tasks with "Audit" badge.
 - **GapsView** (sidebar item) → removed. Gap items appear in Tasks with "Gap" badge.
-- Audit and Gaps as *concepts* remain. The engine is unchanged. Only the user-facing surface is consolidated.
+- **LeadListView** (Leads sidebar item) → mirrored, not removed. Active leads (`.new`, `.investigating`, `.investigated`) appear in Tasks with a "Lead" badge alongside the existing sidebar entry; the sidebar entry stays as a focused view during the transition. A later slice may retire the sidebar entry once the in-Tasks surfacing is proven.
+- Audit, Gaps, and Leads as *concepts* remain. The engine is unchanged. Only the user-facing surface is consolidated.
 
 ---
 

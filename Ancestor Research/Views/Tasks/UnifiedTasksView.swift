@@ -2,13 +2,16 @@ import SwiftUI
 
 // MARK: - Unified Task Model
 //
-// Per DESIGN.md §7.7.10: a single sortable, filterable list that aggregates
-// everything the user might want to act on next. Four input streams:
+// Per DESIGN.md §7.13: a single sortable, filterable list that aggregates
+// everything the user might want to act on next. Five input streams:
 //   1. Audit issues (errors / warnings / info)
 //   2. Gap items (profiles with missing fields)
 //   3. Open questions (workbench questions)
 //   4. Tentative facts — FieldSource with confidence == .tentative, plus
 //      LifeEvent with confidence == .tentative
+//   5. Active leads (status new / investigating / investigated) —
+//      engine-discovered person-shaped gaps awaiting research or a
+//      promote/dismiss decision.
 //
 // The data layer is pure/nonisolated so the aggregator is trivially testable
 // without touching the view or the database.
@@ -22,6 +25,7 @@ nonisolated enum UnifiedTask: Identifiable {
     case openQuestion(OpenQuestion)
     case tentativeField(profileID: String, profileName: String, field: ProfileField, value: String, source: FieldSource)
     case tentativeLifeEvent(LifeEvent, profileName: String)
+    case lead(Lead)
 
     var id: String {
         switch self {
@@ -36,6 +40,8 @@ nonisolated enum UnifiedTask: Identifiable {
             return "tentative-field:\(pid):\(field.rawValue):\(source.addedAt.timeIntervalSince1970)"
         case .tentativeLifeEvent(let e, _):
             return "tentative-event:\(e.id.uuidString)"
+        case .lead(let lead):
+            return "lead:\(lead.id)"
         }
     }
 
@@ -45,6 +51,7 @@ nonisolated enum UnifiedTask: Identifiable {
         case .gap: return .gap
         case .openQuestion: return .question
         case .tentativeField, .tentativeLifeEvent: return .tentative
+        case .lead: return .lead
         }
     }
 
@@ -55,6 +62,7 @@ nonisolated enum UnifiedTask: Identifiable {
         case .openQuestion(let q): return q.profileIDs.isEmpty ? "—" : "Question"
         case .tentativeField(_, let name, _, _, _): return name
         case .tentativeLifeEvent(_, let name): return name
+        case .lead(let lead): return lead.name
         }
     }
 
@@ -85,6 +93,12 @@ nonisolated enum UnifiedTask: Identifiable {
         case .tentativeLifeEvent(let e, _):
             let parts = [e.type.displayName, e.description, e.location].compactMap { $0 }.filter { !$0.isEmpty }
             return parts.joined(separator: " — ")
+        case .lead(let lead):
+            var bits: [String] = []
+            if let rel = lead.relationship { bits.append(rel) }
+            if let year = lead.birthYear { bits.append("b. ~\(year)") }
+            bits.append(lead.evidence)
+            return bits.joined(separator: " · ")
         }
     }
 
@@ -101,27 +115,36 @@ nonisolated enum UnifiedTask: Identifiable {
         case .gap: return "rectangle.portrait.and.arrow.right"
         case .openQuestion: return "questionmark.bubble"
         case .tentativeField, .tentativeLifeEvent: return "wand.and.stars"
+        case .lead(let lead):
+            switch lead.status {
+            case .new: return "sparkle"
+            case .investigating: return "arrow.triangle.2.circlepath"
+            case .investigated: return "checkmark.circle"
+            case .promoted: return "person.badge.plus"
+            case .dismissed: return "xmark.circle"
+            }
         }
     }
 
     /// Sort key — lower comes first. Tier ordering:
     ///   0 audit error • 1 audit warning • 2 high-priority question •
-    ///   3 gap with no name/birth • 4 other gap • 5 medium question •
-    ///   6 tentative field • 7 tentative life event • 8 low question •
-    ///   9 audit info
+    ///   3 gap with no name/birth • 4 investigated lead (decision needed) •
+    ///   5 other gap • 6 new lead (research available) •
+    ///   7 medium question • 8 tentative field • 9 tentative life event •
+    ///   10 low question • 11 audit info • 12 investigating lead (in flight)
     var sortKey: Int {
         switch self {
         case .auditIssue(let r):
             switch r.severity {
             case .error: return 0
             case .warning: return 1
-            case .info: return 9
+            case .info: return 11
             }
         case .openQuestion(let q):
             switch q.priority {
             case .high: return 2
-            case .medium: return 5
-            case .low: return 8
+            case .medium: return 7
+            case .low: return 10
             }
         case .gap(_, _, let comp):
             // Gap with no name or no birth is high-signal — surface above
@@ -132,15 +155,28 @@ nonisolated enum UnifiedTask: Identifiable {
                 default: return false
                 }
             }
-            return critical ? 3 : 4
-        case .tentativeField: return 6
-        case .tentativeLifeEvent: return 7
+            return critical ? 3 : 5
+        case .lead(let lead):
+            switch lead.status {
+            // Engine has finished researching this lead and is waiting on
+            // the user's promote/dismiss call — highest-actionable lead state.
+            case .investigated: return 4
+            // Engine found a candidate; user can kick off research.
+            case .new: return 6
+            // Already in flight — visible but inert; sink to the bottom.
+            case .investigating: return 12
+            // .promoted / .dismissed never reach the aggregator; ranked
+            // last defensively so a programming error doesn't crash sort.
+            case .promoted, .dismissed: return Int.max
+            }
+        case .tentativeField: return 8
+        case .tentativeLifeEvent: return 9
         }
     }
 }
 
 nonisolated enum TaskCategory: String, CaseIterable, Identifiable {
-    case audit, gap, question, tentative
+    case audit, gap, question, tentative, lead
 
     var id: String { rawValue }
 
@@ -150,6 +186,22 @@ nonisolated enum TaskCategory: String, CaseIterable, Identifiable {
         case .gap: return "Gaps"
         case .question: return "Questions"
         case .tentative: return "Tentative"
+        case .lead: return "Leads"
+        }
+    }
+}
+
+extension TaskCategory {
+    /// Tint colour used by the filter chips — matches the row icon
+    /// colour each category uses in `TaskRow.iconColor` so the chip
+    /// and the row read as the same family.
+    @MainActor var chipColor: Color {
+        switch self {
+        case .audit: return .red          // Severity colour (errors dominate visually)
+        case .gap: return .orange
+        case .question: return .accentColor
+        case .tentative: return .purple
+        case .lead: return .blue          // Matches `.new` lead icon — most common lead state
         }
     }
 }
@@ -164,7 +216,8 @@ nonisolated enum UnifiedTaskAggregator {
         snapshot: FamilyGraphSnapshot,
         auditSummary: AuditSummary?,
         questions: [OpenQuestion],
-        lifeEvents: [LifeEvent]
+        lifeEvents: [LifeEvent],
+        leads: [Lead] = []
     ) -> [UnifiedTask] {
         var tasks: [UnifiedTask] = []
 
@@ -216,6 +269,17 @@ nonisolated enum UnifiedTaskAggregator {
         for event in lifeEvents where event.confidence == .tentative {
             let name = snapshot.profiles[event.profileID]?.displayName ?? event.profileID
             tasks.append(.tentativeLifeEvent(event, profileName: name))
+        }
+
+        // 5. Active leads — engine-discovered candidates awaiting research
+        // or a promote/dismiss decision. Promoted / dismissed leads are
+        // terminal and not surfaced; mirroring LeadListView's actionable
+        // filter (`.new` and `.investigated` get buttons; `.investigating`
+        // shows in-flight state without action).
+        for lead in leads where lead.status == .new
+            || lead.status == .investigating
+            || lead.status == .investigated {
+            tasks.append(.lead(lead))
         }
 
         // Sort by tier then by profile name for stable ordering.
@@ -285,11 +349,17 @@ struct UnifiedTasksView: View {
     @State private var category: TaskCategory?
     @State private var searchText = ""
     @State private var lifeEvents: [LifeEvent] = []
+    @State private var leads: [Lead] = []
     @AppStorage("disabledAuditRuleIDs") private var disabledRuleIDsData: Data = Data()
     /// M16.10 — when on, the list collapses by profile name with a section
     /// header per person (sections sorted by max severity in the section).
     /// Persisted via AppStorage so the choice survives app launches.
     @AppStorage("tasksGroupByProfile") private var groupByProfile: Bool = false
+
+    /// Callback fired when the user clicks Research on a lead row. Owned
+    /// by ContentView so the same closure used by LeadListView drives the
+    /// research sheet here too — no parallel pipeline plumbing.
+    let onResearchLead: (Lead) -> Void
 
     /// The summary used for aggregation — VM result if the user has run the
     /// audit, else the auto-audit cached on AppState.
@@ -302,7 +372,8 @@ struct UnifiedTasksView: View {
             snapshot: appState.snapshot,
             auditSummary: effectiveSummary,
             questions: appState.questions,
-            lifeEvents: lifeEvents
+            lifeEvents: lifeEvents,
+            leads: leads
         )
     }
 
@@ -338,17 +409,31 @@ struct UnifiedTasksView: View {
                 auditVM.summary = auto
             }
             reloadLifeEvents()
+            reloadLeads()
         }
     }
 
     // MARK: - Top toolbar
 
+    /// Two-row toolbar. Row 1: actions (Re-run, group toggle, search).
+    /// Row 2: coloured filter chips. Splitting the rows lets the chips
+    /// breathe (six fit naturally) without competing with the search
+    /// field for horizontal space.
     private var toolbar: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            actionRow
+            chipRow
+        }
+        .padding()
+    }
+
+    private var actionRow: some View {
         HStack {
             Button {
                 let disabled = (try? JSONDecoder().decode(Set<String>.self, from: disabledRuleIDsData)) ?? []
                 auditVM.runAudit(snapshot: appState.snapshot, disabledRuleIDs: disabled)
                 reloadLifeEvents()
+                reloadLeads()
             } label: {
                 Label("Re-run Audit", systemImage: "arrow.clockwise")
             }
@@ -356,27 +441,6 @@ struct UnifiedTasksView: View {
             .disabled(appState.snapshot.profiles.isEmpty)
 
             Spacer()
-
-            if let summary = effectiveSummary {
-                HStack(spacing: 12) {
-                    severityBadge(.error, count: summary.errors.count)
-                    severityBadge(.warning, count: summary.warnings.count)
-                    severityBadge(.info, count: summary.info.count)
-                }
-            }
-
-            Picker("Category", selection: $category) {
-                Text("All").tag(nil as TaskCategory?)
-                ForEach(TaskCategory.allCases) { c in
-                    HStack(spacing: 4) {
-                        Text(c.displayName)
-                        Text("(\(count(in: c)))").foregroundStyle(.secondary)
-                    }
-                    .tag(c as TaskCategory?)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 360)
 
             // M16.10 — toggle between flat list and grouped-by-profile.
             Button {
@@ -397,9 +461,36 @@ struct UnifiedTasksView: View {
 
             TextField("Search...", text: $searchText)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 150)
+                .frame(width: 180)
         }
-        .padding()
+    }
+
+    /// Chip-style filter row. "All" lives at the left; each category
+    /// chip carries its own colour and a count badge. Tapping a chip
+    /// selects it as the sole filter; tapping "All" (or the selected
+    /// chip again) clears the filter. Wraps naturally to a second line
+    /// at narrow window widths via `FlowLayout`.
+    private var chipRow: some View {
+        FlowLayout(spacing: 6, lineSpacing: 6) {
+            FilterChip(
+                label: "All",
+                count: allTasks.count,
+                tint: .accentColor,
+                isSelected: category == nil
+            ) {
+                category = nil
+            }
+            ForEach(TaskCategory.allCases) { c in
+                FilterChip(
+                    label: c.displayName,
+                    count: count(in: c),
+                    tint: c.chipColor,
+                    isSelected: category == c
+                ) {
+                    category = (category == c) ? nil : c
+                }
+            }
+        }
     }
 
     // MARK: - List
@@ -423,7 +514,7 @@ struct UnifiedTasksView: View {
                     ForEach(UnifiedTaskGrouping.groupedByProfile(filteredTasks), id: \.profileName) { group in
                         Section {
                             ForEach(group.tasks) { task in
-                                TaskRow(task: task)
+                                TaskRow(task: task, onResearchLead: onResearchLead, onLeadChanged: reloadLeads)
                             }
                         } header: {
                             HStack {
@@ -447,26 +538,12 @@ struct UnifiedTasksView: View {
             ScrollView {
                 LazyVStack(spacing: 10) {
                     ForEach(filteredTasks) { task in
-                        TaskRow(task: task)
+                        TaskRow(task: task, onResearchLead: onResearchLead, onLeadChanged: reloadLeads)
                     }
                 }
                 .padding()
             }
         }
-    }
-
-    private func severityBadge(_ severity: Severity, count: Int) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: severity.iconName)
-                .foregroundStyle(severity.color)
-                .accessibilityHidden(true)
-            Text("\(count)").font(.caption).fontWeight(.semibold)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .glassEffect(.regular, in: .capsule)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(count) \(severity.rawValue) issues")
     }
 
     private func reloadLifeEvents() {
@@ -475,6 +552,14 @@ struct UnifiedTasksView: View {
             return
         }
         lifeEvents = (try? db.loadAllLifeEvents()) ?? []
+    }
+
+    private func reloadLeads() {
+        guard let db = appState.currentDatabase else {
+            leads = []
+            return
+        }
+        leads = (try? db.loadLeads()) ?? []
     }
 }
 
@@ -486,6 +571,10 @@ struct UnifiedTasksView: View {
 /// tentative facts (no-op for now).
 private struct TaskRow: View {
     let task: UnifiedTask
+    let onResearchLead: (Lead) -> Void
+    /// Called after a lead is dismissed inline so the parent reloads the
+    /// list and the row disappears.
+    let onLeadChanged: () -> Void
     @Environment(AppState.self) private var appState
 
     /// M19 — pair of profiles for the comparison sheet, set when the user
@@ -531,6 +620,14 @@ private struct TaskRow: View {
         case .gap: return .orange
         case .openQuestion: return .accentColor
         case .tentativeField, .tentativeLifeEvent: return .purple
+        case .lead(let lead):
+            switch lead.status {
+            case .new: return .blue
+            case .investigating: return .secondary
+            case .investigated: return .orange
+            case .promoted: return .green
+            case .dismissed: return .secondary
+            }
         }
     }
 
@@ -620,7 +717,59 @@ private struct TaskRow: View {
             // Resolve is a no-op placeholder for v1. The user upgrades the
             // confidence via the profile editor (M12 Q-track).
             EmptyView()
+
+        case .lead(let lead):
+            // Mirrors LeadListView's actionable states — `.new` and
+            // `.investigated` get Research + Dismiss; `.investigating`
+            // shows a spinner and no buttons.
+            switch lead.status {
+            case .new, .investigated:
+                HStack(spacing: 6) {
+                    Button {
+                        onResearchLead(lead)
+                    } label: {
+                        Label("Research", systemImage: "magnifyingglass")
+                    }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.mini)
+                    .help("Run the research pipeline against this lead")
+
+                    Button {
+                        dismissLead(lead)
+                    } label: {
+                        Label("Dismiss", systemImage: "xmark")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.mini)
+                    .help("Dismiss this lead — not relevant")
+                }
+            case .investigating:
+                ProgressView()
+                    .controlSize(.small)
+            case .promoted, .dismissed:
+                // Never reach the aggregator, but render nothing if they do.
+                EmptyView()
+            }
         }
+    }
+
+    /// Mirrors LeadListView.dismissLead — constructs a dismissed copy of
+    /// the lead and persists it. Pushed through the same database helper
+    /// so the Leads sidebar entry shows the same state.
+    private func dismissLead(_ lead: Lead) {
+        guard let db = appState.currentDatabase else { return }
+        let dismissed = Lead(
+            id: lead.id, profileID: lead.profileID,
+            name: lead.name, surname: lead.surname, givenName: lead.givenName,
+            birthYear: lead.birthYear, deathYear: lead.deathYear,
+            relationship: lead.relationship, source: lead.source,
+            status: .dismissed, evidence: lead.evidence,
+            createdAt: lead.createdAt,
+            investigatedAt: lead.investigatedAt,
+            resolvedAt: Date(), resolution: .dismissed
+        )
+        try? db.saveLead(dismissed)
+        onLeadChanged()
     }
 
     private var profileForGap: Profile? {
@@ -704,5 +853,115 @@ private struct TaskRow: View {
             promotedFrom: origin
         )
         appState.successMessage = "Added to workbench questions."
+    }
+}
+
+// MARK: - Filter chip
+
+/// Coloured chip used for the Tasks category filter row. Selected state
+/// flips the capsule fill to the tint colour; unselected state shows a
+/// subtle outline so the chips still read as a row of toggles.
+private struct FilterChip: View {
+    let label: String
+    let count: Int
+    let tint: Color
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(label)
+                    .font(AppTypography.controlLabel.weight(.semibold))
+                Text("\(count)")
+                    .font(AppTypography.badge)
+                    .monospacedDigit()
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.85) : tint.opacity(0.85))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(isSelected ? tint : Color.clear)
+            )
+            .overlay(
+                Capsule()
+                    .strokeBorder(isSelected ? Color.clear : tint.opacity(0.55), lineWidth: 1)
+            )
+            .foregroundStyle(isSelected ? Color.white : tint)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(label), \(count) items")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+// MARK: - FlowLayout
+
+/// File-scoped to avoid clashing with sibling `FlowLayout` types in
+/// `FocusComposerView.swift` and `LinkAwareNoteText.swift` — each view
+/// keeps its own minimal copy rather than introducing a shared layout
+/// module before the abstraction has earned it.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+    var lineSpacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        let rows = arrange(subviews: subviews, maxWidth: maxWidth)
+        let totalHeight = rows.reduce(CGFloat.zero) { acc, row in
+            acc + row.height
+        } + CGFloat(max(0, rows.count - 1)) * lineSpacing
+        let widest = rows.map(\.width).max() ?? 0
+        return CGSize(width: min(widest, maxWidth), height: totalHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = arrange(subviews: subviews, maxWidth: bounds.width)
+        var y = bounds.minY
+        for row in rows {
+            var x = bounds.minX
+            for item in row.items {
+                item.view.place(
+                    at: CGPoint(x: x, y: y),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(item.size)
+                )
+                x += item.size.width + spacing
+            }
+            y += row.height + lineSpacing
+        }
+    }
+
+    private struct PlacedItem {
+        let view: LayoutSubview
+        let size: CGSize
+    }
+
+    private struct Row {
+        var items: [PlacedItem] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func arrange(subviews: Subviews, maxWidth: CGFloat) -> [Row] {
+        var rows: [Row] = [Row()]
+        for sub in subviews {
+            let size = sub.sizeThatFits(.unspecified)
+            let needsBreak = !rows[rows.count - 1].items.isEmpty
+                && rows[rows.count - 1].width + spacing + size.width > maxWidth
+            if needsBreak {
+                rows.append(Row())
+            }
+            let idx = rows.count - 1
+            if !rows[idx].items.isEmpty {
+                rows[idx].width += spacing
+            }
+            rows[idx].items.append(PlacedItem(view: sub, size: size))
+            rows[idx].width += size.width
+            rows[idx].height = max(rows[idx].height, size.height)
+        }
+        return rows
     }
 }
