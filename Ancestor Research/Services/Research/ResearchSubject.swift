@@ -302,8 +302,32 @@ nonisolated extension ResearchSubject {
         let children = snapshot.childrenOf(profile.id)
         let parents = snapshot.parentsOf(profile.id)
 
-        let father = parents.first(where: { $0.gender == .male })
-        let mother = parents.first(where: { $0.gender == .female })
+        // Filter implausible biological parents out of pipeline context
+        // before building FamilyContext. Mirrors the parent-age-gap
+        // guard in `agent/pipeline.py:96-109` — a parent linked with
+        // birth year < 14 years before the subject is almost certainly
+        // a mis-typed sibling (FamilySearch and GEDCOM imports both
+        // produce this shape when role tags drift). Without this
+        // filter their name leaks into FamilyContext.fatherName /
+        // .motherName and contaminates name-gate scoring + the
+        // parent-link verdict. The audit's ParentAgeGapRule still
+        // surfaces it to the user; this stops it polluting research.
+        // Adoptive parents (subtype != .biological) are exempt — a
+        // guardian can be any age relative to the child.
+        let plausibleParents = parents.filter { parent in
+            guard let subjectYear = profile.birthDate?.earliest,
+                  let parentYear = parent.birthDate?.earliest else {
+                return true
+            }
+            let isBiological = snapshot.relationships.contains {
+                $0.type == .parent && $0.from == parent.id && $0.to == profile.id
+                    && $0.subtype == .biological
+            }
+            guard isBiological else { return true }
+            return subjectYear - parentYear >= 14
+        }
+        let father = plausibleParents.first(where: { $0.gender == .male })
+        let mother = plausibleParents.first(where: { $0.gender == .female })
 
         // Derive the spouse's maiden surname from the spouse's own father
         // on the tree. For male subjects whose wife is recorded under her
