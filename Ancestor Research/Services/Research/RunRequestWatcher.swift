@@ -425,6 +425,29 @@ final class RunRequestWatcher {
                     guard hypothesis.verdict == .supported else { continue }
                     _ = try? await leadStore.createFromParentInferredHypothesis(hypothesis)
                 }
+
+                // Thin-placeholder write-back (ENGINE_FOUNDATION_SPEC
+                // #Change2). If the subject was thin and the scored
+                // records converge on a single given name + tight year
+                // window, enrich the placeholder so the next research
+                // hop uses rich-profile gates. `apply` is idempotent
+                // (re-checks density before writing) so this is safe
+                // to run unconditionally.
+                let extracted: [(givenName: String?, birthYear: Int?)] = result.allScoredRecords
+                    .filter { $0.verdict != .impossible }
+                    .map { scored in
+                        (
+                            givenName: scored.record.common.givenName,
+                            birthYear: PlaceholderWriteback.extractBirthYear(from: scored.record)
+                        )
+                    }
+                if let proposal = PlaceholderWriteback.propose(from: extracted) {
+                    _ = try? PlaceholderWriteback.apply(
+                        proposal: proposal,
+                        profileID: profileID,
+                        db: db
+                    )
+                }
             }
 
             let runID = UUID()

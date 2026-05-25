@@ -888,6 +888,21 @@ nonisolated final class ProjectDatabase: Sendable {
 
     // MARK: - Snapshot Building
 
+    /// Load a single profile by id. Returns nil when no row exists or
+    /// the row is soft-deleted. Used by callers that need one profile
+    /// without the full snapshot cost — currently the placeholder
+    /// write-back path (ENGINE_FOUNDATION_SPEC #Change2).
+    func loadProfile(id: String) throws -> Profile? {
+        try dbQueue.read { db in
+            guard let row = try Row.fetchOne(
+                db,
+                sql: "SELECT * FROM profiles WHERE id = ? AND is_deleted = 0",
+                arguments: [id]
+            ) else { return nil }
+            return try Self.profileFromRow(row, db: db)
+        }
+    }
+
     /// Build a FamilyGraphSnapshot from the database.
     /// Eagerly joins profiles + field_sources + field_disputes.
     func buildSnapshot() throws -> FamilyGraphSnapshot {

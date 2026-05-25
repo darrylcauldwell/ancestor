@@ -15,6 +15,12 @@ nonisolated struct SourceOrigin: Codable, Hashable, Sendable {
     static let manualDocument = SourceOrigin(identifier: "manual.document")
     static let manualRecord = SourceOrigin(identifier: "manual.record")
     static let manualEstimate = SourceOrigin(identifier: "manual.estimate")
+    /// Internal engine-derived enrichment — used by the thin-placeholder
+    /// write-back path (ENGINE_FOUNDATION_SPEC #Change2). Honest about
+    /// provenance: the value was not asserted by any external source
+    /// directly; the engine inferred it from consensus across multiple
+    /// scored records.
+    static let engineEnrichment = SourceOrigin(identifier: "engine.enrichment")
 
     /// Whether this is any kind of manual source.
     var isManual: Bool {
