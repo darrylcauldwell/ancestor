@@ -136,6 +136,22 @@ struct TreeGraphView: View {
                             let anchorID = treeVM.hoveredNodeID ?? treeVM.selectedProfileID
                             if let anchorID,
                                appState.snapshot.profiles[anchorID] != nil {
+                                // Focus Here — same action as the popover's
+                                // Focus Here button and the Full Detail
+                                // sheet's "Focus Here" button. Reaching it
+                                // via two-finger / right-click is the
+                                // natural macOS muscle memory for
+                                // "navigate to this thing".
+                                Button("Focus Here") {
+                                    treeVM.recenter(
+                                        on: anchorID,
+                                        snapshot: appState.snapshot,
+                                        canvasSize: treeVM.lastCanvasSize,
+                                        reduceMotion: reduceMotion
+                                    )
+                                }
+                                .disabled(anchorID == treeVM.rootProfileID)
+                                Divider()
                                 Button("Compare with…") {
                                     compareLeftID = anchorID
                                     compareRightID = nil

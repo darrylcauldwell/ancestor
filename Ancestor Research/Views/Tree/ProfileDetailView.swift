@@ -206,7 +206,11 @@ struct ProfileDetailView: View {
                 .controlSize(.small)
 
                 if let setRoot = onSetRoot {
-                    Button("Show as Root") {
+                    // Same action as the popover's Focus Here and the
+                    // canvas right-click → Focus Here. Vocabulary
+                    // harmonised so the user finds it in any surface
+                    // they reach for.
+                    Button("Focus Here") {
                         setRoot()
                     }
                     .buttonStyle(.glassProminent)
