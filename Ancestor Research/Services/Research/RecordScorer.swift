@@ -89,17 +89,30 @@ nonisolated struct RecordScorer {
         // All gates pass but has softFails (geography unknown-district /
         // family-context noise) → lead.
         let hasSoftFails = gates.contains { $0.outcome == .softFail }
-        let verdict: RecordVerdict
+        let baseVerdict: RecordVerdict
         if failed.isEmpty && !hasSoftFails {
-            verdict = .fact
+            baseVerdict = .fact
         } else if failed.isEmpty && hasSoftFails {
-            verdict = .lead
+            baseVerdict = .lead
         } else if failed.contains(.name) {
-            verdict = .impossible
+            baseVerdict = .impossible
         } else if failed.contains(.geography) {
-            verdict = subject.mode == .all ? .lead : .impossible
+            baseVerdict = subject.mode == .all ? .lead : .impossible
         } else {
+            baseVerdict = .lead
+        }
+
+        // Thin-subject verdict cap (ENGINE_FOUNDATION_SPEC #Change1).
+        // When the subject has no given name (or a 25+-year birth-year
+        // window), the gates can't meaningfully discriminate — a passing
+        // record is one of many surname-sharers. Refuse to assert .fact;
+        // demote to .lead so convergence (or placeholder write-back per
+        // #Change2) decides. Hard fails (.impossible) flow through.
+        let verdict: RecordVerdict
+        if baseVerdict == .fact && InformationDensity.from(subject: subject) == .thin {
             verdict = .lead
+        } else {
+            verdict = baseVerdict
         }
 
         return ScoredRecord(
