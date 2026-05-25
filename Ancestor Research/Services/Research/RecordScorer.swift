@@ -474,25 +474,41 @@ nonisolated struct RecordScorer {
             )
         }
 
-        // Foreign-collection short-circuit. The FamilySearch collection
-        // title is the strongest scope signal we have — it identifies
-        // which country's government produced the records ("United
-        // States, Census, 1920"; "United States, Social Security
-        // Numerical Identification Files (NUMIDENT)"). When the
-        // collection is unambiguously non-UK, fail regardless of what
-        // any persona-level place field says, because:
-        //   • US-collection records often carry US sub-locations on the
-        //     persona (e.g. "South Carolina" on the birth fact) that
-        //     aren't in the foreignCountryTokens whitelist on their
-        //     own, so the per-record fallback below silently softFails
-        //     to a lead instead of failing outright.
-        //   • For the typical use case (researching a UK-rooted person)
-        //     a US census/NUMIDENT entry is almost always the wrong
-        //     individual. The rare emigrant case is sacrificed to keep
-        //     Triage clean.
-        if let collectionTitle = record.rawFields["collection.title"],
-           Self.isObviouslyForeign(collectionTitle) {
-            return GateResult(gate: .geography, outcome: .fail, reason: "non-UK collection: \(String(collectionTitle.prefix(60)))")
+        // Foreign-metadata short-circuit. Scan the two strongest scope
+        // signals on a FamilySearch record:
+        //   1. `collection.title` — identifies which country's
+        //      government produced the records ("United States,
+        //      Census, 1920"; "United States, Social Security
+        //      Numerical Identification Files (NUMIDENT)").
+        //   2. Any `fact.*.place` raw field — the FamilySearch
+        //      GEDCOMx fact-level places ("New York City, New York,
+        //      United States" on a fact.Immigration.place) carry an
+        //      explicit country marker even when the collection
+        //      title only names a state ("New York Passenger and
+        //      Crew Lists" — no "United States" verbatim).
+        //
+        // When either signal matches a foreignCountryTokens marker,
+        // fail regardless of persona-level place fields. The rare
+        // legitimate-emigrant case is sacrificed to keep Triage clean
+        // for the typical UK-rooted research run.
+        // Sort with collection.title first — it's the strongest scope
+        // signal (whole-collection origin) and yields the most useful
+        // failure reason. Place-fields second, alphabetised for
+        // deterministic ordering across Dictionary iteration runs.
+        let foreignMetadataKeys = record.rawFields.keys
+            .filter { $0 == "collection.title" || $0.hasSuffix(".place") }
+            .sorted { lhs, rhs in
+                if lhs == "collection.title" { return true }
+                if rhs == "collection.title" { return false }
+                return lhs < rhs
+            }
+        for key in foreignMetadataKeys {
+            guard let value = record.rawFields[key],
+                  Self.isObviouslyForeign(value) else { continue }
+            return GateResult(
+                gate: .geography, outcome: .fail,
+                reason: "non-UK \(key): \(String(value.prefix(50)))"
+            )
         }
 
         // Extract district from record

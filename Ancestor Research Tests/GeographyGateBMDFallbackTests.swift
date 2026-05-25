@@ -190,6 +190,45 @@ struct GeographyGateBMDFallbackTests {
                 "Reason should call out collection-level rejection, got \(String(describing: geo?.reason))")
     }
 
+    @Test func birthRecordFromUSImmigrationManifestFailsViaFactPlace() {
+        // Anchored to the Reginald Holmes 1916 bug. The collection
+        // title carries only state names ("New York, New York
+        // Passenger and Crew Lists") — no "United States" verbatim,
+        // so the collection-only check misses it. The persona's
+        // Place is "British" (nationality, not a location), and the
+        // birthPlace persona fallback yields "British" which isn't
+        // in the foreign-tokens whitelist. The "United States" marker
+        // is on `fact.Immigration.place`. Scanning .place raw fields
+        // catches this.
+        let common = RecordCommon(
+            id: "fs-immigration-ny",
+            sourceID: "familysearch",
+            name: "Reginald Holmes",
+            surname: "Holmes",
+            givenName: "Reginald",
+            detailURL: nil,
+            rawFields: [
+                "collection.title": "Entry for Reginald Holmes, 'New York, New York Passenger and Crew Lists, 1909, 1925-1958'",
+                "fact.Birth.date.formal": "+1916",
+                "fact.Immigration.date.formal": "+1943",
+                "fact.Immigration.place": "New York City, New York, United States"
+            ]
+        )
+        let record = SourceRecord.birth(BirthRecord(
+            common: common,
+            birthYear: 1916, birthDate: "1916",
+            birthPlace: "British",
+            quarter: nil, district: nil, volume: nil, page: nil,
+            mothersMaidenName: nil
+        ))
+        let result = RecordScorer.classify(record: record, subject: subject(), searchType: .birth)
+        let geo = result.gates.first(where: { $0.gate == .geography })
+        #expect(geo?.outcome == .fail,
+                "Immigration record with US fact.place should fail geography, got \(String(describing: geo?.outcome))")
+        #expect(geo?.reason.contains("non-UK") == true,
+                "Reason should call out non-UK metadata, got \(String(describing: geo?.reason))")
+    }
+
     @Test func birthRecordWithoutPlaceStillSoftFails() {
         // Records that genuinely have no location data should keep the
         // old "no location data" softFail behaviour — the fix is only
