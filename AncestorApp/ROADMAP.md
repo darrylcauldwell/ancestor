@@ -14,6 +14,109 @@ new design.
 change number it implements (e.g. `feat: kinship #Change4 — …`). No
 GitHub issues opened for in-flight epic work — the spec is the plan.
 
+## 2026-05-25 — cross-day session wrap
+
+Two-day arc covering parity re-validation, cluster outcomes, and
+the empirical proof of Discovery Onboarding as a viable product
+shape. Calendar-day-2 picked up after a sleep break during a
+discovery run that completed gen-2 expansion overnight.
+
+### Parity outcome
+
+Full-corpus swift-mcp re-run after reverting clusters #3 + #4
+(commits `40b0d2f` + `edf15ed`): **HEADLINE 38 supported vs target
+31** — best result yet, post-revert. Cluster wins kept and
+empirically validated end-to-end:
+
+- **Cluster #1** — Elizabeth birth + marriage close; Catherine birth
+  no longer drifts. Held.
+- **Cluster #2** — Ernest marriage closes at Ashbourne Q1 1915 as
+  predicted. Held.
+- **Cluster #3** — reverted. Tier-2 narrowing broke John pair +
+  Mabel parent_link in exchange for Catherine + Stephen over-claim
+  fix. Net trade-off was bad. Catherine + Stephen still drift; a
+  cleaner sparsity guard is the redo.
+- **Cluster #4** — reverted. Geography tightening hit cross-county
+  Lydia + Ernest death as side-effects. Outlier handling is a real
+  problem but the within-county-locality rule was too coarse.
+
+### Discovery Onboarding — architecture proven
+
+`AncestorApp/DISCOVERY_ONBOARDING_SPEC.md` (commit `137bca1`) drafted
+overnight, then iteratively validated by building each missing
+piece in code:
+
+| Piece | Commit | Status |
+|---|---|---|
+| `promote_lead` MCP tool (lead → profile + edge) | `aece608` | shipped |
+| `LeadStore.createFromParentInferredHypothesis` emitter | `736de34` | shipped |
+| Watcher wires emitter into pipeline result | `20da37f` | shipped |
+| Driver `is_promotable` accepts nil given_name for parent-inferred | `09f5aec` | shipped |
+| Watcher refreshes snapshot on miss (gen-2+ unblocker) | `07cbba6` | shipped |
+| `promote_lead` estimates parent's birth-year from child's | `14e69a3` | shipped |
+| Python driver, populator, seed extractor | `ca00756` | shipped |
+
+The autonomous chain — `kick_off_research → emit parentInferred lead
+→ promote_lead → enqueue → repeat` — now runs end-to-end without
+human intervention. Validated by growing the Cauldwell Discovery
+project from 15 seed profiles to **87 profiles in one cross-day
+run**: 15 starter-7 + Lily + Claire's tree → 72 auto-promoted
+ancestors via `@FR_…@` profile IDs.
+
+### Empirical findings (the real value)
+
+The 87-profile artefact exposes the next round of problems that
+weren't surfaceable without running it:
+
+1. **Scorer-on-thin-profiles is too permissive.** Final tally:
+   16,299 facts, 10,855 leads, 2,888 impossible across 27,054
+   evidence rows. For a known-good seed (Ernest) the engine
+   produces ~17 focused matches; for a surname-only placeholder
+   (Darryl's mother HOLMES) it produces ~3,000 candidates, most
+   landing `.fact` because the name + date gates pass any
+   `HOLMES` born 1926-56. Tightening the 4-gate scorer when
+   subject lacks given-name + precise birth-year is the next
+   spec'd change.
+
+2. **No dedup-on-promote.** Darryl's mother was already in the
+   tree as Jennifer Holmes (@I50100815@), yet `promote_lead`
+   created a new HOLMES placeholder (@FR_2F7D…@). A search-tree-
+   for-match step before INSERT would prevent duplicates.
+
+3. **Generation-3 needs sharper data.** Round-1 promotion gave
+   placeholders only surname + estimated date window. Round-2
+   research had to do too much disambiguation. Idea: after the
+   first round of research on the FR profile, the engine likely
+   identifies a single best-candidate record — use that record's
+   given-name to update the placeholder before continuing the
+   BFS.
+
+4. **All record types fire.** Aggregate evidence covers birth,
+   death, marriage, census, probate, burial, parish, and military
+   (CWGC) — every category in the spec. Sibling discovery via
+   FreeBMD MMN only fires on subjects with full data; FR
+   placeholders skip it.
+
+### Open work, ordered by leverage
+
+- **Scorer tightening for thin profiles** (informs every Discovery
+  Onboarding run — biggest leverage).
+- **Profile dedup at promote-time** (prevents tree bloat).
+- **Re-attempts of clusters #3 + #4** with the lessons learned —
+  scoped narrower (sparsity guard only for known-sparse subjects;
+  geography outlier only for explicitly-flagged cases).
+- **§14.B.1 defensive hallucination re-check** — gates Discovery
+  Onboarding before non-developer shipping.
+- **Discovery Onboarding wizard UX** (per spec #Change1–#Change9)
+  once the above ship.
+
+### Session metric
+
+15 commits in 24h of clock time, 5.8× tree growth in the
+empirical run, one full Discovery Onboarding spec, two corpus
+clusters survived re-validation, two reverted with clear redo
+plans.
+
 ## 2026-05-25 evening — all four clusters fixed (pending validation)
 
 The morning's parity report localised the 15 disagreements into
