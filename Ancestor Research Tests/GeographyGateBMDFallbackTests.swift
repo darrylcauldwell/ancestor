@@ -145,6 +145,51 @@ struct GeographyGateBMDFallbackTests {
                 "Reason should mention collection-level rejection, got \(String(describing: geo?.reason))")
     }
 
+    @Test func censusRecordFromForeignCollectionFailsEvenWhenPersonaPlaceIsUSStateAlone() {
+        // Anchored to the Kathleen Caldwell West Virginia 1949 census
+        // bug. The persona-level birth place is "West Virginia" — not
+        // in foreignCountryTokens (only "united states"/"usa" are), so
+        // the persona fallback would softFail with "location: West
+        // Virginia" instead of failing. The collection title carries
+        // "United States, Census, 1949" — the hoisted check fires
+        // BEFORE persona fallback so this never reaches the
+        // softFail path.
+        let common = RecordCommon(
+            id: "fs-uscensus-wv",
+            sourceID: "familysearch",
+            name: "Kathleen Caldwell",
+            surname: "Caldwell",
+            givenName: "Kathleen",
+            detailURL: nil,
+            rawFields: [
+                "collection.title": "United States, Census, 1949",
+                "fact.Census.place": "West Virginia, United States"
+            ]
+        )
+        let record = SourceRecord.census(CensusRecord(
+            common: common,
+            censusYear: 1949,
+            age: nil,
+            birthYear: 1916,
+            birthPlace: "West Virginia",
+            birthCounty: nil,
+            relationship: "principal",
+            occupation: nil,
+            address: nil, parish: nil, district: nil,
+            household: nil
+        ))
+        let result = RecordScorer.classify(
+            record: record,
+            subject: subject(),
+            searchType: .census
+        )
+        let geo = result.gates.first(where: { $0.gate == .geography })
+        #expect(geo?.outcome == .fail,
+                "US-collection census should fail geography even with persona-level US-state birth place, got \(String(describing: geo?.outcome))")
+        #expect(geo?.reason.contains("non-UK collection") == true,
+                "Reason should call out collection-level rejection, got \(String(describing: geo?.reason))")
+    }
+
     @Test func birthRecordWithoutPlaceStillSoftFails() {
         // Records that genuinely have no location data should keep the
         // old "no location data" softFail behaviour — the fix is only
