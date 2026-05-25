@@ -59,35 +59,73 @@ Each change below targets one of those failure modes.
 
 ## 2. Changes
 
-### #Change1 — Thin-profile scorer tightening
+### #Change1 — Thin-profile verdict cap
 
-The 4-gate scorer (`Services/Research/RecordScorer.swift`) applies
-the same gate thresholds regardless of subject information density.
-For thin subjects — `givenName == nil` OR `birthYear` window > N
-years — the gates pass too easily, producing the ~3,000-candidate
-HOLMES blowout.
+The 4-gate scorer (`Services/Research/RecordScorer.swift`) currently
+applies its name + date gates against the subject's known fields; when
+those fields are absent (`givenName == nil`, no precise birth-year),
+the gates silently *skip* the comparison and pass. The result for a
+surname-only HOLMES placeholder with a 30-year derived birth-year
+window: every "HOLMES" record in the window passes all gates and lands
+`.fact`. ~3,000 of them. They're then treated as confirmed facts
+downstream.
 
-**Rule:** Define an `InformationDensity` derived from the subject's
-known facts at search time. When density is below a threshold, raise
-the scorer's gate thresholds proportionally — name-gate requires
-tighter Levenshtein on surname, date-gate requires tighter year-band,
-geography-gate requires the locality to match a known parish (not
-just a known county).
+The harm isn't candidate volume (that's the dispatcher's concern); it's
+that the scorer asserts *truth* for records it cannot meaningfully
+discriminate.
+
+**Rule:** Define `InformationDensity` derived from the subject's known
+facts at search time. When density is `.thin`, the scorer **caps the
+verdict at `.lead`** — no record from this scoring pass can land
+`.fact`. Records can still land `.impossible` for hard fails (death
+before birth, married before age 16, foreign-country location, etc.).
+The dispatcher continues to generate candidates as before; the scorer
+refuses to assert *truth* without enough subject-side anchoring to
+make the assertion meaningful.
+
+**Density classification:**
+- **`.thin`** if subject `givenName` is nil/empty — the load-bearing
+  signal. Without it, the name gate cannot discriminate.
+- **`.thin`** if subject has `givenName` but the birth-year window is
+  wider than 25 years (the derived-from-children fallback produces a
+  27-year window — by definition thin).
+- **`.rich`** otherwise — gates run as today.
 
 **Acceptance:**
-- Surname-only HOLMES test subject produces ≤50 candidates total
-  across all sources (not ~3,000).
-- Known-good seed Ernest still produces ~17 focused matches (no
+- Test: surname-only subject (`givenName = nil`, surname = "Holmes",
+  birth window 1926–1956) — every passing record lands `.lead`,
+  never `.fact`. Hard fails still land `.impossible`.
+- Test: rich subject (Ernest Cauldwell — full name + precise birth
+  year) — verdicts unchanged from current behaviour; no record
+  previously emitting `.fact` is downgraded.
+- Test: wide-window subject (given name present, 27-year birth window
+  from oldest-child fallback) — also `.thin` → `.fact` capped at
+  `.lead`.
+- Existing scorer test suite passes unchanged (no rich-subject
   regression).
-- `ThinProfileScorerTests` suite added with both above as fixtures.
-- Density and per-density thresholds are explicit in the spec, not
-  hidden in code constants — they live in `config.yaml`.
+
+**Rationale for verdict-cap over threshold-tightening:** Tightening
+gate thresholds proportionally (the original draft) doesn't actually
+help when the gates are *skipping* comparisons due to absent subject
+data — a tighter Levenshtein floor on surname only kicks in when both
+sides have a surname, and the date gate's tolerance is irrelevant if
+there's no subject birth-year to compare against. Verdict-cap is the
+surgical move that addresses the *false-fact* failure mode directly.
+Candidate-count reduction (≤50 from ~3,000) belongs in dispatcher
+work, not the scorer.
 
 **Files:**
-- `Ancestor Research/Services/Research/RecordScorer.swift`
+- `Ancestor Research/Services/Research/RecordScorer.swift` —
+  density computation + verdict-cap branch.
 - `Ancestor Research/Models/Research/InformationDensity.swift` (new)
+  — `enum InformationDensity { case thin, rich }` + factory.
 - `Ancestor Research Tests/Research/ThinProfileScorerTests.swift`
-  (new)
+  (new) — density classification + verdict-cap behaviour.
+
+**Out of scope for this change (deferred to #Change1b if needed):**
+exposing density classification rules + cap behaviour via
+`config.yaml`. In-code constants for now, with clear naming so the
+move is mechanical when (or if) it becomes load-bearing.
 
 ### #Change2 — Round-1 best-candidate write-back to placeholder
 
