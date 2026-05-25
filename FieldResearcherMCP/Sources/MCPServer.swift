@@ -1125,29 +1125,74 @@ actor MCPHandler {
                 )
             }
 
-            let newProfileID = "@FR_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))@"
+            // Dedup gate (ENGINE_FOUNDATION_SPEC #Change3): before INSERT,
+            // see whether an existing profile already represents this
+            // person. Avoids the Jennifer Holmes case from the cross-day
+            // run, where a surname-only lead promoted a duplicate of a
+            // rich existing profile.
+            let dedupDecision: MCPHandler.DedupDecision
+            if let surname = surname, !surname.isEmpty {
+                let candidateRows = try Row.fetchAll(
+                    db,
+                    sql: """
+                        SELECT id, first_name, last_name,
+                               birth_date_earliest, birth_date_latest
+                        FROM profiles
+                        WHERE LOWER(last_name) = LOWER(?) AND is_deleted = 0
+                        """,
+                    arguments: [surname]
+                )
+                let candidates: [MCPHandler.DedupCandidate] = candidateRows.map { r in
+                    MCPHandler.DedupCandidate(
+                        profileID: r["id"] ?? "",
+                        firstName: r["first_name"],
+                        lastName: r["last_name"],
+                        birthYearEarliest: r["birth_date_earliest"],
+                        birthYearLatest: r["birth_date_latest"]
+                    )
+                }
+                dedupDecision = MCPHandler.decideDedup(
+                    leadGivenName: givenName,
+                    leadBirthYearEarliest: birthYearEarliest,
+                    leadBirthYearLatest: birthYearLatest,
+                    candidates: candidates
+                )
+            } else {
+                dedupDecision = .noMatch
+            }
+
             let now = Date()
+            let targetProfileID: String
+            let wasMatched: Bool
 
-            // INSERT new profile.
-            try db.execute(sql: """
-                INSERT INTO profiles
-                (id, external_ids, first_name, last_name, gender,
-                 birth_date_original, birth_date_earliest, birth_date_latest, birth_date_qualifier,
-                 death_date_original, death_date_earliest, death_date_latest, death_date_qualifier,
-                 bio, attributes, is_deleted, mothers_maiden_name, married_surname)
-                VALUES (?, '{}', ?, ?, ?,
-                        ?, ?, ?, ?,
-                        ?, ?, ?, ?,
-                        ?, '{}', 0, NULL, NULL)
-                """, arguments: [
-                    newProfileID, givenName, surname, gender,
-                    birthYear.map { String($0) }, birthYearEarliest, birthYearLatest, birthYearQualifier,
-                    deathYear.map { String($0) }, deathYear, deathYear, deathYear == nil ? nil : "estimate",
-                    "Promoted from lead \(leadID). Evidence: \(String(evidence.prefix(400)))",
-                ])
+            switch dedupDecision {
+            case .matched(let existingID):
+                targetProfileID = existingID
+                wasMatched = true
+            case .noMatch, .multipleMatches:
+                let newProfileID = "@FR_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))@"
+                try db.execute(sql: """
+                    INSERT INTO profiles
+                    (id, external_ids, first_name, last_name, gender,
+                     birth_date_original, birth_date_earliest, birth_date_latest, birth_date_qualifier,
+                     death_date_original, death_date_earliest, death_date_latest, death_date_qualifier,
+                     bio, attributes, is_deleted, mothers_maiden_name, married_surname)
+                    VALUES (?, '{}', ?, ?, ?,
+                            ?, ?, ?, ?,
+                            ?, ?, ?, ?,
+                            ?, '{}', 0, NULL, NULL)
+                    """, arguments: [
+                        newProfileID, givenName, surname, gender,
+                        birthYear.map { String($0) }, birthYearEarliest, birthYearLatest, birthYearQualifier,
+                        deathYear.map { String($0) }, deathYear, deathYear, deathYear == nil ? nil : "estimate",
+                        "Promoted from lead \(leadID). Evidence: \(String(evidence.prefix(400)))",
+                    ])
+                targetProfileID = newProfileID
+                wasMatched = false
+            }
 
-            // INSERT relationship edge.
-            let relID = UUID().uuidString.uppercased()
+            // Compute relationship endpoints using the target profile id
+            // (matched-existing or newly-inserted).
             let relType: String
             let role: String?
             let fromID: String
@@ -1155,41 +1200,82 @@ actor MCPHandler {
             switch leadRelationship {
             case "father":
                 relType = "parent"; role = "father"
-                fromID = newProfileID; toID = sourceProfileID
+                fromID = targetProfileID; toID = sourceProfileID
             case "mother":
                 relType = "parent"; role = "mother"
-                fromID = newProfileID; toID = sourceProfileID
+                fromID = targetProfileID; toID = sourceProfileID
             case "spouse":
                 relType = "spouse"; role = nil
                 // Convention from existing data: husband first when known.
                 if gender == "male" {
-                    fromID = newProfileID; toID = sourceProfileID
+                    fromID = targetProfileID; toID = sourceProfileID
                 } else {
-                    fromID = sourceProfileID; toID = newProfileID
+                    fromID = sourceProfileID; toID = targetProfileID
                 }
             default:
                 // Unreachable — guarded above.
                 return refusePromote(leadID: leadID, reason: "unreachable", detail: "")
             }
 
-            try db.execute(sql: """
-                INSERT INTO relationships
-                (id, from_id, to_id, type, role, subtype)
-                VALUES (?, ?, ?, ?, ?, 'unknown')
-                """, arguments: [relID, fromID, toID, relType, role])
+            // Relationship-edge dedup: if the asserted edge already exists
+            // (matched-existing case where the tree is fully linked),
+            // don't duplicate it. Otherwise INSERT — a matched profile
+            // may still be missing the asserted relationship if the lead
+            // came from a different research path.
+            let existingRelID: String?
+            if let r = role {
+                existingRelID = try Row.fetchOne(
+                    db,
+                    sql: """
+                        SELECT id FROM relationships
+                        WHERE from_id = ? AND to_id = ? AND type = ? AND role = ?
+                        """,
+                    arguments: [fromID, toID, relType, r]
+                )?["id"]
+            } else {
+                existingRelID = try Row.fetchOne(
+                    db,
+                    sql: """
+                        SELECT id FROM relationships
+                        WHERE from_id = ? AND to_id = ? AND type = ? AND role IS NULL
+                        """,
+                    arguments: [fromID, toID, relType]
+                )?["id"]
+            }
 
-            // Mark the lead as resolved.
+            let relID: String
+            let relInserted: Bool
+            if let er = existingRelID {
+                relID = er
+                relInserted = false
+            } else {
+                relID = UUID().uuidString.uppercased()
+                try db.execute(sql: """
+                    INSERT INTO relationships
+                    (id, from_id, to_id, type, role, subtype)
+                    VALUES (?, ?, ?, ?, ?, 'unknown')
+                    """, arguments: [relID, fromID, toID, relType, role])
+                relInserted = true
+            }
+
+            // Mark the lead as resolved. The resolution string is the
+            // audit-log entry for the dedup decision.
+            let resolutionString = wasMatched
+                ? "matched_existing_\(targetProfileID)"
+                : "promoted_to_\(targetProfileID)"
             try db.execute(sql: """
                 UPDATE leads
                 SET status = 'resolved', resolved_at = ?, resolution = ?
                 WHERE id = ?
-                """, arguments: [now, "promoted_to_\(newProfileID)", leadID])
+                """, arguments: [now, resolutionString, leadID])
 
             let payload: [String: Any] = [
-                "status": "promoted",
+                "status": wasMatched ? "matched_existing" : "promoted",
                 "lead_id": leadID,
-                "new_profile_id": newProfileID,
-                "new_relationship_id": relID,
+                "new_profile_id": targetProfileID,
+                "matched": wasMatched,
+                "new_relationship_id": relInserted ? relID : NSNull(),
+                "existing_relationship_id": relInserted ? NSNull() : relID,
                 "rel_type": relType,
                 "role": role ?? NSNull(),
                 "source_profile_id": sourceProfileID,
@@ -2341,6 +2427,91 @@ actor MCPHandler {
             }
         }
         return false
+    }
+
+    // MARK: - Dedup at promote-time (ENGINE_FOUNDATION_SPEC #Change3)
+
+    /// Same-surname candidate row used by `decideDedup`. Mirrors the
+    /// columns selected from `profiles` so the matching logic can be
+    /// unit-tested without a live SQLite.
+    struct DedupCandidate: Equatable {
+        let profileID: String
+        let firstName: String?
+        let lastName: String?
+        let birthYearEarliest: Int?
+        let birthYearLatest: Int?
+    }
+
+    enum DedupDecision: Equatable {
+        case noMatch
+        case matched(profileID: String)
+        case multipleMatches
+    }
+
+    /// Decide whether a `promote_lead` INSERT should dedup against an
+    /// existing profile, given pre-fetched same-surname candidates.
+    ///
+    /// Per ENGINE_FOUNDATION_SPEC #Change3:
+    /// - Strict path: lead and candidate both have `givenName` → exact
+    ///   (case-insensitive) match + year overlap.
+    /// - Asymmetric path: either side lacks `givenName` → year overlap
+    ///   alone (surname is already enforced by the caller's SQL filter).
+    /// - Exactly one match → dedup. Multiple → INSERT new
+    ///   (split-don't-merge per CLAUDE.md).
+    static func decideDedup(
+        leadGivenName: String?,
+        leadBirthYearEarliest: Int?,
+        leadBirthYearLatest: Int?,
+        candidates: [DedupCandidate]
+    ) -> DedupDecision {
+        let leadGiven = (leadGivenName ?? "")
+            .trimmingCharacters(in: .whitespaces).lowercased()
+        let leadHasGiven = !leadGiven.isEmpty
+
+        let matched: [String] = candidates.compactMap { c in
+            let candGiven = (c.firstName ?? "")
+                .trimmingCharacters(in: .whitespaces).lowercased()
+            let candHasGiven = !candGiven.isEmpty
+
+            guard yearWindowsOverlap(
+                aEarliest: leadBirthYearEarliest, aLatest: leadBirthYearLatest,
+                bEarliest: c.birthYearEarliest, bLatest: c.birthYearLatest
+            ) else { return nil }
+
+            if leadHasGiven && candHasGiven {
+                return leadGiven == candGiven ? c.profileID : nil
+            }
+            // Asymmetric or both-surname-only: surname (by SQL) + year
+            // overlap is the whole match.
+            return c.profileID
+        }
+
+        switch matched.count {
+        case 0: return .noMatch
+        case 1: return .matched(profileID: matched[0])
+        default: return .multipleMatches
+        }
+    }
+
+    /// True when window [aEarliest…aLatest] (with ±2-year fudge) overlaps
+    /// [bEarliest…bLatest]. If either window has no year information at
+    /// all, returns true (the surname match is the only signal — accept
+    /// the candidate set bound by the SQL filter and let the count gate
+    /// in `decideDedup` decide).
+    static func yearWindowsOverlap(
+        aEarliest: Int?, aLatest: Int?,
+        bEarliest: Int?, bLatest: Int?
+    ) -> Bool {
+        let aHasYear = aEarliest != nil || aLatest != nil
+        let bHasYear = bEarliest != nil || bLatest != nil
+        guard aHasYear, bHasYear else { return true }
+
+        let aE = (aEarliest ?? aLatest!) - 2
+        let aL = (aLatest ?? aEarliest!) + 2
+        let bE = bEarliest ?? bLatest!
+        let bL = bLatest ?? bEarliest!
+
+        return aE <= bL && aL >= bE
     }
 }
 
