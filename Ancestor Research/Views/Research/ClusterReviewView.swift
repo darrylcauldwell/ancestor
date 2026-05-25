@@ -458,6 +458,14 @@ struct ClusterReviewView: View {
     private func recordRow(_ scored: ScoredRecord) -> some View {
         let citation = CitationRenderer.cite(scored.record)
         let isExpanded = !collapsedCitations.contains(scored.id)
+        // Cross-run "already applied" check — when the user applied
+        // this record in a previous session, `user_status` on the
+        // evidence_records row is .savedAsLead. The card stays in
+        // the cluster (the engine consistently re-found it; that's
+        // useful confirmation) but dims and the Apply button drops
+        // out so the user isn't asked to apply the same evidence
+        // twice.
+        let alreadyApplied = vm.userStatusForRecord(scored.record.id) == .savedAsLead
 
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -501,7 +509,17 @@ struct ClusterReviewView: View {
                 let recordDecision = vm.recordDecisions[scored.id]
                 let effectiveWillApply = recordDecision == .accepted
                     || (recordDecision != .rejected && ResearchViewModel.wouldApply(scored))
-                if effectiveWillApply {
+                if alreadyApplied {
+                    // Already-applied wins over the will-apply / skipped
+                    // dichotomy — it's the most specific state and the
+                    // user wants to know "you already did this" before
+                    // anything else.
+                    Label("Already applied", systemImage: "checkmark.seal.fill")
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(.green)
+                        .help("This record was applied to the profile in a previous run. Re-finding it confirms the engine is consistent — no new action needed.")
+                        .accessibilityLabel("Already applied in a previous run")
+                } else if effectiveWillApply {
                     Label("Will apply", systemImage: "checkmark.circle.fill")
                         .labelStyle(.iconOnly)
                         .foregroundStyle(.green)
@@ -621,20 +639,34 @@ struct ClusterReviewView: View {
                     // a single lead they've manually verified, or opt-out of
                     // a record the gate predicate would otherwise apply.
                     // Cluster-level Apply respects these overrides.
-                    perRecordActions(scored)
+                    perRecordActions(scored, alreadyApplied: alreadyApplied)
                 }
                 .padding(.leading, 24)
                 .padding(.top, 4)
             }
         }
+        // Dim the whole row when already applied so the user sees the
+        // re-found-but-handled rows fade into the background while
+        // genuinely new candidates pop.
+        .opacity(alreadyApplied ? 0.55 : 1.0)
         .padding(.vertical, 4)
     }
 
     @ViewBuilder
-    private func perRecordActions(_ scored: ScoredRecord) -> some View {
+    private func perRecordActions(_ scored: ScoredRecord, alreadyApplied: Bool) -> some View {
         let decision = vm.recordDecisions[scored.id]
         HStack(spacing: 8) {
-            if decision == .accepted {
+            if alreadyApplied {
+                // Cross-run state badge — supersedes the in-session
+                // decision badge because the persisted state is the
+                // ground truth. The user already acted on this record;
+                // we just confirm and offer Discard as the only escape
+                // hatch (in case they want to mark a re-find as not
+                // worth re-surfacing in future runs).
+                Label("Already applied", systemImage: "checkmark.seal.fill")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.green)
+            } else if decision == .accepted {
                 Label("Applied", systemImage: "checkmark.seal.fill")
                     .font(AppTypography.badge)
                     .foregroundStyle(.green)
@@ -644,7 +676,9 @@ struct ClusterReviewView: View {
                     .foregroundStyle(.red)
             }
             Spacer()
-            if decision != .accepted {
+            // Hide Apply when already applied — there's nothing to do.
+            // Re-applying would just write the same FieldSource twice.
+            if !alreadyApplied && decision != .accepted {
                 Button("Apply this record") {
                     vm.applyRecord(scored, into: appState)
                 }
