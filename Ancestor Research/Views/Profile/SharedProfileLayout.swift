@@ -275,14 +275,27 @@ struct SharedProfileLayout: View {
         let hasGivenName = (profile.firstName ?? "").isEmpty == false
         let hasBirthYear = profile.birthDate?.earliest != nil
         let hasSpouse = snapshot.spousesOf(profile.id).isEmpty == false
+        // Sibling discovery (RESEARCH_PIPELINE_SPEC §11.6) gates on
+        // "both parents linked + identity resolved", but the engine's
+        // MMN derivation in ResearchSubject.fromProfile falls back to
+        // `profile.mothersMaidenName` when a mother isn't linked. So
+        // the surface gate is: a linked parent OR a populated MMN.
+        // Without either, the FreeBMD MMN match has nothing to key on
+        // and the search would return empty.
+        let hasParent = snapshot.parentsOf(profile.id).isEmpty == false
+        let hasMMN = (profile.mothersMaidenName ?? "").isEmpty == false
+        let siblingsActionable = hasParent || hasMMN
+
         if hasGivenName && hasBirthYear {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Explore")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .textCase(.uppercase)
-                exploreRow(label: "Siblings", focus: .siblings,
-                           hint: "MMN-based discovery of brothers and sisters via FreeBMD birth index.")
+                if siblingsActionable {
+                    exploreRow(label: "Siblings", focus: .siblings,
+                               hint: "MMN-based discovery of brothers and sisters via FreeBMD birth index.")
+                }
                 // Children gated on a known spouse — without a marriage
                 // anchor the dispatcher has nothing useful to chase. An
                 // adult-but-unmarried profile would just return empty.
