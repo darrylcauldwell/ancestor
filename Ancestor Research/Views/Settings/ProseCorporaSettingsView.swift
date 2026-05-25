@@ -99,11 +99,13 @@ struct ProseCorporaSettingsView: View {
                         .font(.callout)
                         .fontWeight(.medium)
                     if let url = row.seedURL {
-                        Text(url.absoluteString)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                        HyperlinkedText(
+                            url.absoluteString,
+                            font: .caption,
+                            plainColor: .secondary
+                        )
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                     }
                     statsLine(row)
                 }
@@ -239,9 +241,11 @@ private struct RemoveConfirmationSheet: View {
                 Text(row.displayTitle)
                     .font(.headline)
                 if let url = row.seedURL {
-                    Text(url.absoluteString)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HyperlinkedText(
+                        url.absoluteString,
+                        font: .caption,
+                        plainColor: .secondary
+                    )
                 }
                 if row.hasBeenBuilt {
                     Text("This deletes \(row.pageCount) pages from disk. The on-disk corpus and the registry entry are removed; the source website is untouched.")

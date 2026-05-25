@@ -146,9 +146,7 @@ struct SourceExplorerView: View {
                                     .font(AppTypography.badge)
                                     .foregroundStyle(.tertiary)
                                     .frame(width: 100, alignment: .trailing)
-                                Text(value)
-                                    .font(AppTypography.badge)
-                                    .foregroundStyle(.secondary)
+                                HyperlinkedText(value, font: AppTypography.badge, plainColor: .secondary)
                             }
                         }
                     }

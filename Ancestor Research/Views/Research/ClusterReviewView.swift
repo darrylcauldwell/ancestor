@@ -591,7 +591,7 @@ struct ClusterReviewView: View {
                                         .font(AppTypography.badge)
                                         .foregroundStyle(.tertiary)
                                         .frame(width: 130, alignment: .leading)
-                                    rawFieldValue(row.value)
+                                    HyperlinkedText(row.value, font: AppTypography.badge)
                                 }
                             }
                         }
@@ -750,39 +750,6 @@ struct ClusterReviewView: View {
             add("Location", r.location)
         }
         return rows
-    }
-
-    /// Render a raw-field value. URL-shaped values become clickable
-    /// `Link` controls so the user can jump straight to the source
-    /// (FamilySearch ARK URLs, GRO refs, etc.); everything else stays
-    /// as selectable text matching the surrounding style.
-    @ViewBuilder
-    private func rawFieldValue(_ value: String) -> some View {
-        if let url = httpURL(from: value) {
-            Link(destination: url) {
-                Text(value)
-                    .font(AppTypography.badge)
-                    .foregroundStyle(.blue)
-                    .underline()
-                    .textSelection(.enabled)
-                    .multilineTextAlignment(.leading)
-            }
-        } else {
-            Text(value)
-                .font(AppTypography.badge)
-                .foregroundStyle(.primary)
-                .textSelection(.enabled)
-        }
-    }
-
-    /// Loose URL detector — only http/https with a host component
-    /// counts. Avoids accidentally hyperlinking values like "ftp://x"
-    /// or bare paths that happen to contain "://".
-    private func httpURL(from value: String) -> URL? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") else { return nil }
-        guard let url = URL(string: trimmed), url.host?.isEmpty == false else { return nil }
-        return url
     }
 
     /// Pull every key/value from the source's rawFields dict, skipping ones whose value
@@ -1007,20 +974,19 @@ struct ClusterReviewView: View {
                         .foregroundStyle(.secondary)
                         .padding(.top, 2)
                     VStack(alignment: .leading, spacing: 2) {
+                        // Title is the primary label when present; falls
+                        // back to the URL itself otherwise. The dedicated
+                        // URL line below is always present too — keep this
+                        // line as plain text to avoid a double-underline.
                         Text(candidate.title ?? candidate.sourceURL)
                             .font(AppTypography.cardBody)
                             .lineLimit(1)
-                        if let url = URL(string: candidate.sourceURL) {
-                            Link(candidate.sourceURL, destination: url)
-                                .font(AppTypography.badge)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        } else {
-                            Text(candidate.sourceURL)
-                                .font(AppTypography.badge)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+                        HyperlinkedText(
+                            candidate.sourceURL,
+                            font: AppTypography.badge,
+                            plainColor: .secondary
+                        )
+                        .lineLimit(1)
                         HStack(spacing: 10) {
                             Label("\(candidate.surnameHits)", systemImage: "person.text.rectangle")
                                 .help("Surname mentions")
