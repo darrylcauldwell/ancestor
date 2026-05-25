@@ -354,10 +354,38 @@ nonisolated extension ResearchSubject {
             return (oldestChildYear - 45, oldestChildYear - 18)
         }()
 
+        // Derive marriedSurname for female subjects whose profile field
+        // is empty but the spouse on the tree carries a different
+        // surname. Mirrors the deterministic spouse-surname pivot in
+        // `agent/pipeline.py:_expand_post_marriage_searches` —
+        // women's death + probate records are filed under the married
+        // surname, so without this derivation those searches probe
+        // only the maiden surname and silently miss everything.
+        // Lilian Mary Brooks (died as HOLMES, 1995, Amber Valley) is
+        // the canonical case: WikiTree's LastNameCurrent stays "Brooks"
+        // even after marriage, so `profile.marriedSurname` is nil but
+        // her spouse Reginald Holmes is right there in the snapshot.
+        let derivedMarriedSurname: String? = {
+            if let explicit = profile.marriedSurname, !explicit.isEmpty {
+                return explicit
+            }
+            guard profile.gender == .female else { return nil }
+            let ownSurname = (profile.lastName ?? "").lowercased()
+            for spouse in spouses {
+                let spouseSurname = (spouse.lastName ?? "")
+                    .trimmingCharacters(in: .whitespaces)
+                if !spouseSurname.isEmpty,
+                   spouseSurname.lowercased() != ownSurname {
+                    return spouseSurname
+                }
+            }
+            return nil
+        }()
+
         return ResearchSubject(
             profileID: profile.id,
             surname: profile.lastName,
-            marriedSurname: profile.marriedSurname,
+            marriedSurname: derivedMarriedSurname,
             givenName: profile.firstName,
             middleName: profile.middleName,
             birthYearFrom: birthFrom,
