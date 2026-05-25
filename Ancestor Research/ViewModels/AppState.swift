@@ -71,6 +71,15 @@ final class AppState {
     /// RESEARCH_PIPELINE_SPEC §11.4.
     var researchConfigFocus: ResearchFocus?
 
+    /// Cross-view request: open this profile's Full Detail sheet on the
+    /// Tree tab. Set by surfaces that aren't the tree itself — today
+    /// the Tasks list's row click. `TreeGraphView` observes via
+    /// `.onChange` (and on appear, in case it wasn't visible when the
+    /// request was raised), opens the inspector, and clears the
+    /// request. Sibling pattern to `researchConfigProfile` /
+    /// `researchProfileID` already on this state object.
+    var requestOpenProfileDetail: String?
+
     var isLoading = false
     var loadingMessage: String?
     var errorMessage: String?

@@ -345,6 +345,50 @@ struct UnifiedTaskAggregatorTests {
         }
     }
 
+    @Test func leadTaskTargetProfileIDPointsAtGeneratingProfile() {
+        // Leads are anchored to the profile whose research surfaced the
+        // candidate, not to the lead's own (non-existent) profile. The
+        // Tasks-row click handler uses targetProfileID to navigate, so
+        // a lead row opens the parent's profile detail — where the
+        // user can act on the lead via the Triage handoff.
+        let lead = makeLead(id: "l1", profileID: "ernest", name: "Henry")
+        #expect(UnifiedTask.lead(lead).targetProfileID == "ernest")
+    }
+
+    @Test func gapTaskTargetProfileIDPointsAtOwningProfile() {
+        let p = makeProfile(id: "pa", birthLocation: nil, deathLocation: nil, bio: nil)
+        let comp = ProfileCompleteness(
+            score: 4, maximum: 7,
+            missing: [.field(.birthLocation), .field(.deathLocation), .field(.bio)],
+            potentiallyLiving: false
+        )
+        let task = UnifiedTask.gap(profileID: "pa", profileName: "Jane Doe", completeness: comp)
+        #expect(task.targetProfileID == "pa")
+    }
+
+    @Test func openQuestionWithoutProfilesYieldsNilTarget() {
+        // A free-floating workbench question (no profileIDs) has no
+        // navigation target — the row stays non-clickable rather than
+        // jumping to an arbitrary profile.
+        let q = OpenQuestion(
+            id: UUID(), text: "General question", profileIDs: [],
+            priority: .medium, status: .open,
+            triedSources: nil, promotedFrom: nil,
+            createdAt: Date(), resolvedAt: nil, resolution: nil
+        )
+        #expect(UnifiedTask.openQuestion(q).targetProfileID == nil)
+    }
+
+    @Test func openQuestionAttachedToProfilesTargetsFirstID() {
+        let q = OpenQuestion(
+            id: UUID(), text: "About Ernest", profileIDs: ["ernest", "kathleen"],
+            priority: .high, status: .open,
+            triedSources: nil, promotedFrom: nil,
+            createdAt: Date(), resolvedAt: nil, resolution: nil
+        )
+        #expect(UnifiedTask.openQuestion(q).targetProfileID == "ernest")
+    }
+
     @Test func aggregateRanksInvestigatedLeadsAboveNewLeads() {
         // .investigated needs the user's promote/dismiss decision — more
         // actionable than a .new lead which only needs research kicked off.

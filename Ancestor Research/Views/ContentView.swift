@@ -92,7 +92,10 @@ struct MainView: View {
                     TreeGraphView()
                 }
             case .tasks:
-                UnifiedTasksView(onResearchLead: researchLead)
+                UnifiedTasksView(
+                    onResearchLead: researchLead,
+                    onOpenProfile: openProfileDetail
+                )
             case .sourcing:
                 SourcingIntegrityView()
             case .triage:
@@ -377,6 +380,16 @@ struct MainView: View {
         if case .failure(let error) = result {
             appState.errorMessage = "Export failed: \(error.localizedDescription)"
         }
+    }
+
+    /// Tasks-row click handler — switches to the Tree tab and asks
+    /// `TreeGraphView` to open the Full Detail sheet for the given
+    /// profile via the `requestOpenProfileDetail` signal on AppState.
+    /// Pairs with the double-click destination on the tree itself —
+    /// both lands on the same Profile Detail surface.
+    private func openProfileDetail(_ profileID: String) {
+        selectedTab = .tree
+        appState.requestOpenProfileDetail = profileID
     }
 
     /// Shared "research this lead" handler — invoked from Task rows in

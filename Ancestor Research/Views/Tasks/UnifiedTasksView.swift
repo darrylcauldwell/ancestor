@@ -66,6 +66,24 @@ nonisolated enum UnifiedTask: Identifiable {
         }
     }
 
+    /// Profile ID this task is anchored to, when the row should be
+    /// clickable to open that profile's Full Detail. Nil when the task
+    /// has no single owning profile — `openQuestion` rows that aren't
+    /// attached to anyone fall into this bucket and stay non-navigable.
+    var targetProfileID: String? {
+        switch self {
+        case .auditIssue(let r): return r.profileID
+        case .gap(let pid, _, _): return pid
+        case .openQuestion(let q): return q.profileIDs.first
+        case .tentativeField(let pid, _, _, _, _): return pid
+        case .tentativeLifeEvent(let e, _): return e.profileID
+        // Leads are pinned to the profile that generated them (the
+        // profile whose research surfaced the candidate), not to the
+        // lead's own non-existent profile.
+        case .lead(let lead): return lead.profileID
+        }
+    }
+
     /// One-line summary of the task. View renders this as the secondary line.
     var summary: String {
         switch self {
@@ -361,6 +379,12 @@ struct UnifiedTasksView: View {
     /// research-progress sheet wiring.
     let onResearchLead: (Lead) -> Void
 
+    /// Callback fired when the user clicks the label area of a task row
+    /// (anywhere outside the trailing action buttons). Receives the
+    /// task's `targetProfileID` so the caller can switch to the Tree
+    /// tab and open that profile's Full Detail.
+    let onOpenProfile: (String) -> Void
+
     /// The summary used for aggregation — VM result if the user has run the
     /// audit, else the auto-audit cached on AppState.
     private var effectiveSummary: AuditSummary? {
@@ -514,7 +538,7 @@ struct UnifiedTasksView: View {
                     ForEach(UnifiedTaskGrouping.groupedByProfile(filteredTasks), id: \.profileName) { group in
                         Section {
                             ForEach(group.tasks) { task in
-                                TaskRow(task: task, onResearchLead: onResearchLead, onLeadChanged: reloadLeads)
+                                TaskRow(task: task, onResearchLead: onResearchLead, onLeadChanged: reloadLeads, onOpenProfile: onOpenProfile)
                             }
                         } header: {
                             HStack {
@@ -538,7 +562,7 @@ struct UnifiedTasksView: View {
             ScrollView {
                 LazyVStack(spacing: 10) {
                     ForEach(filteredTasks) { task in
-                        TaskRow(task: task, onResearchLead: onResearchLead, onLeadChanged: reloadLeads)
+                        TaskRow(task: task, onResearchLead: onResearchLead, onLeadChanged: reloadLeads, onOpenProfile: onOpenProfile)
                     }
                 }
                 .padding()
@@ -575,6 +599,7 @@ private struct TaskRow: View {
     /// Called after a lead is dismissed inline so the parent reloads the
     /// list and the row disappears.
     let onLeadChanged: () -> Void
+    let onOpenProfile: (String) -> Void
     @Environment(AppState.self) private var appState
 
     /// M19 — pair of profiles for the comparison sheet, set when the user
@@ -589,16 +614,31 @@ private struct TaskRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: task.systemImage)
-                .foregroundStyle(iconColor)
-                .font(.body)
-                .frame(width: 24)
-                .accessibilityHidden(true)
+            // Label area is a click target — opens the task's owning
+            // profile in the Tree tab's Full Detail sheet. Trailing
+            // action buttons (Promote, Snooze, Research, Dismiss) stay
+            // independent — SwiftUI's nested-button handling routes the
+            // tap to whichever Button is hit directly.
+            Button(action: openProfile) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: task.systemImage)
+                        .foregroundStyle(iconColor)
+                        .font(.body)
+                        .frame(width: 24)
+                        .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(task.profileName).font(AppTypography.cardTitle)
-                Text(displaySummary).font(AppTypography.cardBody).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(task.profileName).font(AppTypography.cardTitle)
+                        Text(displaySummary).font(AppTypography.cardBody).foregroundStyle(.secondary)
+                    }
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .disabled(task.targetProfileID == nil)
+            .help(task.targetProfileID == nil
+                  ? "No profile to open"
+                  : "Open this person's profile")
 
             Spacer()
 
@@ -612,6 +652,11 @@ private struct TaskRow: View {
                 rightProfileID: pair.rightID
             )
         }
+    }
+
+    private func openProfile() {
+        guard let pid = task.targetProfileID else { return }
+        onOpenProfile(pid)
     }
 
     private var iconColor: Color {

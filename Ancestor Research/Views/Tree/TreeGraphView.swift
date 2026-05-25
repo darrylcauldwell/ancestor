@@ -153,9 +153,22 @@ struct TreeGraphView: View {
                 .onAppear {
                     focus = .canvas
                     treeVM.lastCanvasSize = canvasSize
+                    // Honour any cross-view "open this profile's detail"
+                    // request that fired while another tab was visible.
+                    // The Tasks list raises this when the user clicks
+                    // a row's label area; the tab switches to .tree and
+                    // we land here with the request pending.
+                    handlePendingProfileDetailRequest()
                 }
                 .onChange(of: canvasSize) { _, newSize in
                     treeVM.lastCanvasSize = newSize
+                }
+                .onChange(of: appState.requestOpenProfileDetail) { _, _ in
+                    // Also fires when the tab is already .tree and the
+                    // user clicks a Tasks row from a sidebar that's
+                    // still visible (rare on macOS where the sidebar
+                    // and detail render side-by-side, but cheap).
+                    handlePendingProfileDetailRequest()
                 }
 
                 // Floating profile card. Overlays the tree canvas in the
@@ -391,6 +404,20 @@ struct TreeGraphView: View {
     }
 
     // MARK: - Click Handling
+
+    /// Drain a cross-view `requestOpenProfileDetail` signal — sets the
+    /// tree's selection and opens the inspector on the requested
+    /// profile, then clears the request. Used by surfaces outside the
+    /// tree canvas (today: Tasks list row click) that need to land the
+    /// user on the Full Detail sheet.
+    private func handlePendingProfileDetailRequest() {
+        guard let pid = appState.requestOpenProfileDetail,
+              appState.snapshot.profiles[pid] != nil else { return }
+        treeVM.selectedProfileID = pid
+        treeVM.popoverProfileID = nil
+        treeVM.showInspector = true
+        appState.requestOpenProfileDetail = nil
+    }
 
     /// Skip the popover layer and open the full Profile Detail sheet
     /// directly. Fires on a node body or the info icon — anywhere else
