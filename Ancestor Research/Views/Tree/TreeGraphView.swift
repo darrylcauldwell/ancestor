@@ -101,6 +101,15 @@ struct TreeGraphView: View {
                             guard focus == .canvas else { return .ignored }
                             return handleArrowKey(press, canvasSize: canvasSize)
                         }
+                        // Double-click before single-click so SwiftUI's
+                        // gesture disambiguator routes two-tap sequences here
+                        // and leaves count:1 for genuine single clicks.
+                        // Double-click skips the popover entirely and opens
+                        // the full Profile Detail sheet — the popover is for
+                        // peek-style inspection, the sheet is for working in.
+                        .onTapGesture(count: 2) { location in
+                            handleDoubleClick(at: location, canvasSize: canvasSize)
+                        }
                         .onTapGesture(count: 1) { location in
                             handleSingleClick(at: location, canvasSize: canvasSize)
                         }
@@ -382,6 +391,25 @@ struct TreeGraphView: View {
     }
 
     // MARK: - Click Handling
+
+    /// Skip the popover layer and open the full Profile Detail sheet
+    /// directly. Fires on a node body or the info icon — anywhere else
+    /// (empty canvas, arrow/ancestor/descendant indicators) is ignored
+    /// because there's no single profile to open. The popover is
+    /// dismissed if currently visible so the two surfaces don't stack.
+    private func handleDoubleClick(at location: CGPoint, canvasSize: CGSize) {
+        switch treeVM.hitTest(at: location, canvasSize: canvasSize) {
+        case .nodeBody(let id), .infoIcon(let id):
+            treeVM.selectedProfileID = id
+            treeVM.popoverProfileID = nil
+            treeVM.showInspector = true
+            focus = .canvas
+        case .arrowIndicator, .ancestorIndicator, .descendantIndicator, .empty:
+            // Defer to the single-click handler — these targets navigate
+            // rather than open detail.
+            handleSingleClick(at: location, canvasSize: canvasSize)
+        }
+    }
 
     private func handleSingleClick(at location: CGPoint, canvasSize: CGSize) {
         if treeVM.isAnimatingRecenter {
