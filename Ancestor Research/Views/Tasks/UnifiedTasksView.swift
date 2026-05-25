@@ -273,9 +273,9 @@ nonisolated enum UnifiedTaskAggregator {
 
         // 5. Active leads — engine-discovered candidates awaiting research
         // or a promote/dismiss decision. Promoted / dismissed leads are
-        // terminal and not surfaced; mirroring LeadListView's actionable
-        // filter (`.new` and `.investigated` get buttons; `.investigating`
-        // shows in-flight state without action).
+        // terminal and not surfaced; `.new` and `.investigated` get
+        // action buttons; `.investigating` shows in-flight state
+        // without action.
         for lead in leads where lead.status == .new
             || lead.status == .investigating
             || lead.status == .investigated {
@@ -357,8 +357,8 @@ struct UnifiedTasksView: View {
     @AppStorage("tasksGroupByProfile") private var groupByProfile: Bool = false
 
     /// Callback fired when the user clicks Research on a lead row. Owned
-    /// by ContentView so the same closure used by LeadListView drives the
-    /// research sheet here too — no parallel pipeline plumbing.
+    /// by ContentView so the closure stays alongside the rest of the
+    /// research-progress sheet wiring.
     let onResearchLead: (Lead) -> Void
 
     /// The summary used for aggregation — VM result if the user has run the
@@ -719,9 +719,8 @@ private struct TaskRow: View {
             EmptyView()
 
         case .lead(let lead):
-            // Mirrors LeadListView's actionable states — `.new` and
-            // `.investigated` get Research + Dismiss; `.investigating`
-            // shows a spinner and no buttons.
+            // `.new` and `.investigated` get Research + Dismiss;
+            // `.investigating` shows a spinner and no buttons.
             switch lead.status {
             case .new, .investigated:
                 HStack(spacing: 6) {
@@ -753,9 +752,9 @@ private struct TaskRow: View {
         }
     }
 
-    /// Mirrors LeadListView.dismissLead — constructs a dismissed copy of
-    /// the lead and persists it. Pushed through the same database helper
-    /// so the Leads sidebar entry shows the same state.
+    /// Constructs a dismissed copy of the lead and persists it via the
+    /// project database (no `LeadStore` actor hop — direct save matches
+    /// the existing in-app write pattern for this surface).
     private func dismissLead(_ lead: Lead) {
         guard let db = appState.currentDatabase else { return }
         let dismissed = Lead(

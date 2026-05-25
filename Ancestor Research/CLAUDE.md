@@ -64,7 +64,7 @@ Services/Research/     — pipeline, scorer, clustering, convergence, firewall
 Services/Sources/      — 7 source plugins (FreeBMD, FreeCen, CWGC, FindAGrave, Probate, Wirksworth, FreeREG)
 Models/Research/       — foundation types (Region, SourceTrustTier, ConvergenceLevel, etc.)
 ViewModels/            — AppState, ResearchViewModel, WholeTreeResearchViewModel
-Views/Research/        — ResearchView, ClusterReviewView, PendingFactsReviewView, LeadListView
+Views/Research/        — ResearchView, ClusterReviewView, PendingFactsReviewView
 ```
 
 ## Key Design Decisions

@@ -1949,7 +1949,7 @@ The audit engine and gap detection still run as before — they're computation, 
 
 - **AuditView** (sidebar item) → removed. Audit results appear in Tasks with "Audit" badge.
 - **GapsView** (sidebar item) → removed. Gap items appear in Tasks with "Gap" badge.
-- **LeadListView** (Leads sidebar item) → mirrored, not removed. Active leads (`.new`, `.investigating`, `.investigated`) appear in Tasks with a "Lead" badge alongside the existing sidebar entry; the sidebar entry stays as a focused view during the transition. A later slice may retire the sidebar entry once the in-Tasks surfacing is proven.
+- **LeadListView** (Leads sidebar item) → removed. Active leads (`.new`, `.investigating`, `.investigated`) appear in Tasks with a "Lead" badge and inline Research / Dismiss actions; promoted / dismissed leads are terminal and surface nowhere.
 - Audit, Gaps, and Leads as *concepts* remain. The engine is unchanged. Only the user-facing surface is consolidated.
 
 ---

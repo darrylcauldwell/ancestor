@@ -99,8 +99,6 @@ struct MainView: View {
                 ResearchView(researchVM: researchVM)
             case .workbench:
                 WorkbenchView()
-            case .leads:
-                LeadListView(onResearchLead: researchLead)
             case .settings:
                 SettingsPlaceholderView()
             }
@@ -360,10 +358,9 @@ struct MainView: View {
             .keyboardShortcut(key, modifiers: modifiers)
     }
 
-    /// Shared "research this lead" handler — drives both `LeadListView`
-    /// (Leads sidebar) and `UnifiedTasksView` (Tasks sidebar). Flips the
-    /// progress sheet on, attaches the current database, and kicks off
-    /// the pipeline.
+    /// Shared "research this lead" handler — invoked from Task rows in
+    /// `UnifiedTasksView`. Flips the progress sheet on, attaches the
+    /// current database, and kicks off the pipeline.
     private func researchLead(_ lead: Lead) {
         Task { @MainActor in
             showResearchProgress = true
@@ -387,7 +384,6 @@ nonisolated enum SidebarTab: String, CaseIterable {
     /// act on, not where runs are kicked off.
     case triage = "Triage"
     case workbench = "Workbench"
-    case leads = "Leads"
     case settings = "Settings"
 }
 
