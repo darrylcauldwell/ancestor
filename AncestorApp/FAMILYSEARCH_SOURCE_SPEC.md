@@ -1,5 +1,11 @@
 # FamilySearch Source — Coverage Specification
 
+> **Deferred (2026-05-25):** Auth flow (WKWebView + Keychain + Settings)
+> is shipped. The content surface specified below is deferred until
+> `ENGINE_FOUNDATION_SPEC.md` ships. Reason: adding another source
+> into a scorer that over-claims for thin profiles just produces more
+> records to mis-classify. Foundation first.
+
 Status: drafting · Author: derived from API/website-backend research, 2026-05-19
 
 This document specifies what the in-app FamilySearch source plugin will expose,

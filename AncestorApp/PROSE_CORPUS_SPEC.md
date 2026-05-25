@@ -1,5 +1,12 @@
 # Prose Corpus and Bio Synthesis — Specification
 
+> **Phase B deferred (2026-05-25):** Phase A (corpus subsystem,
+> indexer, retrieval source) is shipped. Phase B (bio synthesis,
+> stages A–D) is deferred until `ENGINE_FOUNDATION_SPEC.md` ships.
+> Reason: bio synthesis on top of a scorer that over-claims for thin
+> profiles would produce confident, citation-traceable prose about
+> facts the engine isn't actually sure about. Foundation first.
+
 **Status:** Draft
 **Scope:** Two adjacent subsystems, specified together because they
 share storage, retrieval, and Evidence-Firewall mechanics:

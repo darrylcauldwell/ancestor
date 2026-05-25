@@ -1,5 +1,11 @@
 # Source-Surfaced Media — Specification
 
+> **Deferred (2026-05-25):** This spec is paper-only and stays that
+> way until `ENGINE_FOUNDATION_SPEC.md` ships. Reason: image capture
+> is an output-surface concern; the engine that decides *which*
+> records get media attached needs to be trustworthy first.
+> Foundation first.
+
 **Status:** Paper-only. No code yet — none of the eight shipping
 source plugins captures any image data, even when the upstream
 response carries it.

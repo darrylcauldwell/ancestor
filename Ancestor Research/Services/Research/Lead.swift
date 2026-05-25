@@ -92,8 +92,6 @@ actor LeadStore {
     ///    `.parentInferred(supported)` hypotheses that DOES know the
     ///    relationship + gender, leaving this generic emitter alone
     ///    for the "could be anyone" scored-record case.
-    ///
-    /// See AncestorApp/DISCOVERY_ONBOARDING_SPEC.md §3 / §4 #Change3.
     func createFromScoredRecord(_ scored: ScoredRecord, profileID: String) throws -> Lead {
         let lead = Lead(
             id: "lead_\(scored.id)",
@@ -127,11 +125,6 @@ actor LeadStore {
     ///
     /// Deterministic id from the hypothesis's identity key so re-grading
     /// the same hypothesis across runs doesn't duplicate the lead.
-    ///
-    /// NOT YET wired from `HypothesisEngine+ParentInferred.gradeParent
-    /// Inferred` — that's the follow-up step (see
-    /// DISCOVERY_ONBOARDING_SPEC §2.5 Approach B). Method exists so the
-    /// tomorrow-morning wire-up is one call-site edit.
     func createFromParentInferredHypothesis(
         _ hypothesis: ResearchHypothesis
     ) throws -> Lead? {

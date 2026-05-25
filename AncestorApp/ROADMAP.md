@@ -14,6 +14,80 @@ new design.
 change number it implements (e.g. `feat: kinship #Change4 — …`). No
 GitHub issues opened for in-flight epic work — the spec is the plan.
 
+## 2026-05-25 late — sustained enrichment run (operating model)
+
+A multi-day operating mode emerging from the cross-day Discovery
+artefact below: rather than Discover-only or Enrich-only sessions,
+alternate **Discover wave → deep enrich on the promoted ring →
+Discover next ring**, extending across days as a single sustained
+pass rather than being bounded by the session clock.
+
+### Why
+
+Each Discovery hop compounds uncertainty from the parent profile.
+Clusters #3 + #4 reverted (below) because Discovery ran off thin
+profiles whose scorer signal was inadequate. The 4-gate scorer is
+evidence-hungry; each extra source on a profile makes the next hop
+safer.
+
+The recursive shape is real: every enriched profile exposes more
+enrichable profiles (children in census → spouses' parents in
+marriage records → their siblings in baptism clusters). Nothing in
+the engine caps expansion; the caps are operational and epistemic,
+not architectural.
+
+### Enrichment bar (per profile)
+
+Minimum-anchor target before a profile can sponsor the next Discovery
+hop:
+
+- **Full BMD triangle** with GRO refs where civil reg covers lifespan
+- **Every census in lifespan** that should exist (1841 → 1921 for
+  English subjects); gaps are themselves evidence
+- **Parish register** baptism / marriage / burial via FreeREG where
+  civil reg is pre-1837 or sparse
+- **Probate** if adult death post-1858
+- **CWGC** if military-age death in war years
+- **FindAGrave / burial** for location anchor
+- **Children identified** from census + BMD — also what feeds the
+  next Discovery wave
+
+### What actually stops recursion (not wall-clock)
+
+1. **Daily source budgets** — FreeBMD's daily quota is the ceiling;
+   FreeCen / FamilySearch / CWGC each carry their own. Memory:
+   `reference_freebmd_circuit_breaker.md`,
+   `feedback_volunteer_sources_rate_limits.md`.
+2. **Source coverage cliffs** — pre-1837 falls out of civil reg into
+   patchy parish registers; convergence rates fall hard at that edge.
+3. **Scorer attrition** — peripheral profiles have less corroboration;
+   the 4-gate scorer naturally rejects more leads at the periphery,
+   so expansion should taper itself.
+4. **Personally diminishing returns** — 4th-cousin-twice-removed
+   enrichment may clear gates but not inform anything worth knowing.
+
+### Work needed to enable this mode
+
+| # | Item | Size | Notes |
+|---|---|---|---|
+| 1 | Daily-budget awareness — engine pauses gracefully at quota and surfaces "resumes tomorrow" state, instead of circuit-breaking | M | Without this, a sustained run hits the breaker and ladders to 900s waits |
+| 2 | Checkpoint/resume hardening for multi-day runs — snapshot already partial; verify it survives an overnight pause + process restart | S–M | Memory: `feedback_save_incrementally.md` |
+| 3 | Scorer-attrition logging at the periphery — surface *where* expansion is tapering and why, so the brake is visible | S | Builds trust in confidence-based natural stopping |
+| 4 | "Stop digging here" heuristic — bound expansion by collateral-line depth or distance-from-probands, so budget isn't burned on 5th cousins while core tree has gaps | M | Otherwise an unbounded run breadth-first explores territory the user doesn't care about |
+
+### Backlog impact
+
+All eight foundation items (scorer tightening, dedup, write-back,
+attrition logging, daily-budget awareness, checkpoint hardening,
+stop-digging heuristic, §14.B.1 re-check) moved to
+`AncestorApp/ENGINE_FOUNDATION_SPEC.md` as #Change1–#Change8.
+Commits reference those change numbers. The four output-surface /
+coverage-extension specs (`PROSE_CORPUS` Phase B,
+`FAMILYSEARCH_SOURCE` content surface, `SOURCE_MEDIA`, `KINSHIP`
+#Change3–5) plus `RESEARCH_PIPELINE_SPEC` Part II are deferred
+until the foundation ships. See each spec's header for the deferral
+note.
+
 ## 2026-05-25 — cross-day session wrap
 
 Two-day arc covering parity re-validation, cluster outcomes, and
@@ -42,9 +116,8 @@ empirically validated end-to-end:
 
 ### Discovery Onboarding — architecture proven
 
-`AncestorApp/DISCOVERY_ONBOARDING_SPEC.md` (commit `137bca1`) drafted
-overnight, then iteratively validated by building each missing
-piece in code:
+The Discovery Onboarding architecture was sketched and iteratively
+validated by building each missing piece in code:
 
 | Piece | Commit | Status |
 |---|---|---|
@@ -99,23 +172,24 @@ weren't surfaceable without running it:
 
 ### Open work, ordered by leverage
 
-- **Scorer tightening for thin profiles** (informs every Discovery
-  Onboarding run — biggest leverage).
-- **Profile dedup at promote-time** (prevents tree bloat).
+Foundation work — scorer tightening, dedup, write-back, attrition
+logging, daily-budget awareness, checkpoint hardening, stop-digging
+heuristic, §14.B.1 re-check — now lives in
+`AncestorApp/ENGINE_FOUNDATION_SPEC.md` as #Change1–#Change8.
+
+Remaining items not in that spec:
+
 - **Re-attempts of clusters #3 + #4** with the lessons learned —
   scoped narrower (sparsity guard only for known-sparse subjects;
-  geography outlier only for explicitly-flagged cases).
-- **§14.B.1 defensive hallucination re-check** — gates Discovery
-  Onboarding before non-developer shipping.
-- **Discovery Onboarding wizard UX** (per spec #Change1–#Change9)
-  once the above ship.
+  geography outlier only for explicitly-flagged cases). Parity work,
+  parallel to foundation.
+- **Discovery Onboarding wizard UX** once the foundation ships.
 
 ### Session metric
 
 15 commits in 24h of clock time, 5.8× tree growth in the
-empirical run, one full Discovery Onboarding spec, two corpus
-clusters survived re-validation, two reverted with clear redo
-plans.
+empirical run, two corpus clusters survived re-validation, two
+reverted with clear redo plans.
 
 ## 2026-05-25 evening — all four clusters fixed (pending validation)
 

@@ -1614,6 +1614,16 @@ justify a framework.
 
 # Part II — Proposed future state (V2)
 
+> **Deferred (2026-05-25):** Part II (T7/T8/T9/T11/T12/T23/T31 — the
+> V2 hypothesis-framework pivot) is deferred until
+> `ENGINE_FOUNDATION_SPEC.md` ships. Reason: the V2 pivot is a
+> multi-session architectural change, and layering it on top of the
+> current scorer's thin-profile failures would entrench the wobble.
+> Foundation first. T7 stall-gate is the only Part II item small
+> enough that it could fold into the foundation work if convenient.
+> Part I (the as-built engine, sections 1–14 above) is the active
+> reference.
+
 This Part is the next architectural turn for the research pipeline.
 It folds in the portfolio thinking from
 `archive/LLM_RESEARCH_OPTIONS.md` (the gap inventory and tier-per-gap

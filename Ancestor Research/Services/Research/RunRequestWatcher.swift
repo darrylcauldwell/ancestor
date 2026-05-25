@@ -414,8 +414,7 @@ final class RunRequestWatcher {
                         member, profileID: profileID, censusYear: censusYear
                     )
                 }
-                // Discovery-Onboarding wire-up (DISCOVERY_ONBOARDING_SPEC §2.5
-                // Approach B): emit a relationship-tagged lead for every
+                // Emit a relationship-tagged lead for every
                 // `.parentInferred(gender, surname)` hypothesis that grades
                 // `.supported`. Unlike the generic scored-record path above
                 // (which has no kin context and leaves `relationship: nil`),

@@ -1,5 +1,13 @@
 # Kinship Spec — fan-out tree-building and relationship verification
 
+> **#Change3–5 deferred (2026-05-25):** Primitives `find_siblings`
+> + `find_children` (#Change1–2) are shipped. The fan-out walker
+> (`discover_kin`), `find_spouses`, and `verify_relationship`
+> (#Change3–5) are deferred until `ENGINE_FOUNDATION_SPEC.md` ships.
+> Reason: fan-out walking on a scorer that over-claims for thin
+> profiles propagates noise laterally as well as ancestrally.
+> Foundation first.
+
 **Status:** Draft (2026-05-23). Not implemented.
 
 ## 1. Why this spec exists
