@@ -337,6 +337,56 @@ nonisolated struct TreeLayout {
             }
         }
 
+        // Render the focal subject's siblings at generation 0 alongside
+        // them. The user's mental model is "focus on a person, see the
+        // family group" — pedigree mode previously showed only the
+        // ancestor chain going up, hiding siblings even when they
+        // existed as full profiles in the tree. We place siblings to
+        // the right of the subject's row (after any spouse) sorted by
+        // birth year so the family group reads in birth order. Each
+        // sibling gets parent-edges to the subject's real parents so
+        // the lineage is visually obvious.
+        let rootY = realNodes.first(where: { $0.id == rootID })?.y ?? 0
+        // Determine where the rightmost existing generation-0 node sits
+        // so siblings start beyond it.
+        var rightEdge = (realNodes.filter { $0.generation == 0 }.map(\.x).max() ?? 0)
+        let siblings = snapshot.siblingsOf(rootID).filter { !visited.contains($0.id) }
+        let sortedSiblings = siblings.sorted { lhs, rhs in
+            let a = lhs.birthDate?.earliest ?? Int.max
+            let b = rhs.birthDate?.earliest ?? Int.max
+            if a != b { return a < b }
+            return lhs.displayName < rhs.displayName
+        }
+        // Cache real-parent positions for edge wiring (one parent may
+        // be a ghost — those don't generate edges, which is intentional:
+        // a placeholder parent shouldn't be shown anchoring siblings).
+        let rootParents = snapshot.parentsOf(rootID)
+        let parentPositions: [(id: String, x: Double, y: Double)] = rootParents.compactMap { p in
+            guard let n = realNodes.first(where: { $0.id == p.id }) else { return nil }
+            return (p.id, n.x, n.y)
+        }
+        for sibling in sortedSiblings {
+            visited.insert(sibling.id)
+            let completeness = snapshot.completeness(for: sibling.id)
+            let siblingX = rightEdge + nodeWidth + horizontalSpacing
+            realNodes.append(LayoutNode(
+                id: sibling.id,
+                kind: .profile(sibling, completeness),
+                x: siblingX, y: rootY, generation: 0,
+                hasMoreAncestors: false, hasMoreDescendants: false
+            ))
+            for parent in parentPositions {
+                edges.append(LayoutEdge(
+                    id: "\(parent.id)->\(sibling.id)",
+                    fromID: parent.id, toID: sibling.id,
+                    fromX: parent.x, fromY: parent.y,
+                    toX: siblingX, toY: rootY,
+                    type: .parent
+                ))
+            }
+            rightEdge = siblingX
+        }
+
         // Calculate bounds from all nodes (real + ghost)
         let allNodes = realNodes + ghostNodes
         let allX = allNodes.map(\.x)
