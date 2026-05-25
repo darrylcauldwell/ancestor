@@ -106,14 +106,17 @@ struct SharedProfileLayout: View {
 
             Divider()
 
-            // Per-gap research entry points (Task #39). When a profile is
-            // missing facts the user can act on each one in-place rather
-            // than running a whole-profile sweep. Each row sets the same
-            // researchConfigProfile that the whole-profile Research button
-            // does — `ResearchConfigSheet` then picks an appropriate
-            // default mode for the subject. We don't yet pass a focus
-            // hint through to the sheet; that's a future refinement.
+            // Per-gap research entry points (Task #39 +
+            // RESEARCH_PIPELINE_SPEC §11.4). The buttons fire focused
+            // pipeline runs scoped to the deficit's record types.
             missingFactsSection
+
+            // Discovery-shaped research opportunities — siblings,
+            // children, occupation. These aren't gap-driven (the
+            // profile may look complete and still have undiscovered
+            // siblings or census occupation entries) so they live in
+            // their own section.
+            exploreSection
 
             // Editable name fields + gender Picker, only when the consumer
             // opted into edit mode. Inserted above the date rows so users
@@ -256,6 +259,60 @@ struct SharedProfileLayout: View {
                 }
             }
             Divider()
+        }
+    }
+
+    /// Discovery-shaped focus buttons (RESEARCH_PIPELINE_SPEC §11.4).
+    /// These three focuses don't correspond to a missing-fact deficit
+    /// — even a fully-populated profile may have siblings the engine
+    /// hasn't surfaced yet, children not yet linked, or census-derived
+    /// occupations that aren't in the tree. The section appears once
+    /// the profile has enough basic data for any focus to plausibly
+    /// return results (given name + birth year); without those the
+    /// engine has nothing to gate searches on.
+    @ViewBuilder
+    private var exploreSection: some View {
+        let hasGivenName = (profile.firstName ?? "").isEmpty == false
+        let hasBirthYear = profile.birthDate?.earliest != nil
+        let hasSpouse = snapshot.spousesOf(profile.id).isEmpty == false
+        if hasGivenName && hasBirthYear {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Explore")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                exploreRow(label: "Siblings", focus: .siblings,
+                           hint: "MMN-based discovery of brothers and sisters via FreeBMD birth index.")
+                // Children gated on a known spouse — without a marriage
+                // anchor the dispatcher has nothing useful to chase. An
+                // adult-but-unmarried profile would just return empty.
+                if hasSpouse {
+                    exploreRow(label: "Children", focus: .children,
+                               hint: "Marriage records + census household to find unlinked children.")
+                }
+                exploreRow(label: "Occupation history", focus: .occupation,
+                           hint: "Census and probate records across the subject's lifetime.")
+            }
+            Divider()
+        }
+    }
+
+    @ViewBuilder
+    private func exploreRow(label: String, focus: ResearchFocus, hint: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkle")
+                .foregroundStyle(.tertiary)
+                .font(.callout)
+            Text(label)
+                .font(.callout)
+            Spacer()
+            Button(focus.actionLabel) {
+                appState.researchConfigFocus = focus
+                appState.researchConfigProfile = profile
+            }
+            .buttonStyle(.glass)
+            .controlSize(.small)
+            .help(hint)
         }
     }
 
