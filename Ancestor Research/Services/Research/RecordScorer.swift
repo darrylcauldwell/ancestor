@@ -522,6 +522,22 @@ nonisolated struct RecordScorer {
             if !county.isEmpty {
                 return GateResult(gate: .geography, outcome: .softFail, reason: "location: \(String(county.prefix(50)))")
             }
+            // Last-resort foreign check: when the persona itself has no
+            // place data, the FamilySearch collection title is the only
+            // signal that a record is non-UK. Collections like "United
+            // States, Social Security Numerical Identification Files
+            // (NUMIDENT)" tag records where the persona is a parent
+            // reference inside a US-shaped collection — the persona
+            // carries surname + given but no birth/place facts, so
+            // the persona-side fallbacks above all yield empty. Catch
+            // these by class via the collection metadata. Wider scope
+            // than `.county` (e.g. `.national`) is still UK-only by
+            // current design, so this stays correct for any DBY-home
+            // subject regardless of scope.
+            if let collectionTitle = record.rawFields["collection.title"],
+               Self.isObviouslyForeign(collectionTitle) {
+                return GateResult(gate: .geography, outcome: .fail, reason: "non-UK collection: \(String(collectionTitle.prefix(60)))")
+            }
             // No location data on the record. For UK Probate Calendar
             // specifically — every record is by class invariant in England
             // & Wales (ProbateSource.coverageRegions). But blanket-passing

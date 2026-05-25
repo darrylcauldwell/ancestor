@@ -110,6 +110,41 @@ struct GeographyGateBMDFallbackTests {
 
     // MARK: - Regression: no-location case still soft-fails
 
+    @Test func birthRecordFromForeignCollectionFailsByCollectionTitle() {
+        // The persona itself has no birth date, no birth place — only
+        // the FamilySearch collection.title identifies it as US (NUMIDENT
+        // is the Social Security Numerical Identification Files). The
+        // persona-side fallback chain yields empty; without the
+        // collection-level check the gate would softFail as "no
+        // location data" and the record would land in Triage as a
+        // weak lead.
+        let common = RecordCommon(
+            id: "fs-numident-x",
+            sourceID: "familysearch",
+            name: "Ernest Caldwell",
+            surname: "Caldwell",
+            givenName: "Ernest",
+            detailURL: nil,
+            rawFields: [
+                "collection.title": "United States, Social Security Numerical Identification Files (NUMIDENT), 1936-2007",
+                "household.role": "parent"
+            ]
+        )
+        let record = SourceRecord.birth(BirthRecord(
+            common: common,
+            birthYear: nil, birthDate: nil,
+            birthPlace: nil,
+            quarter: nil, district: nil, volume: nil, page: nil,
+            mothersMaidenName: nil
+        ))
+        let result = RecordScorer.classify(record: record, subject: subject(), searchType: .birth)
+        let geo = result.gates.first(where: { $0.gate == .geography })
+        #expect(geo?.outcome == .fail,
+                "NUMIDENT collection title should fail geography even when persona has no place data")
+        #expect(geo?.reason.contains("non-UK collection") == true,
+                "Reason should mention collection-level rejection, got \(String(describing: geo?.reason))")
+    }
+
     @Test func birthRecordWithoutPlaceStillSoftFails() {
         // Records that genuinely have no location data should keep the
         // old "no location data" softFail behaviour — the fix is only
