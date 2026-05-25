@@ -158,6 +158,57 @@ final class ResearchPipeline {
             }
         }
 
+        // Post-iteration spouse-surname expansion. Mirrors Python's
+        // agent/pipeline.py:_expand_post_marriage_searches. The
+        // construction-time derivation in `ResearchSubject.fromProfile`
+        // catches the linked-spouse case; this catches everything
+        // else — a confirmed marriage record naming a spouse surname
+        // we haven't searched yet (un-linked subject, or married
+        // multiple times). For each new surname, re-dispatch the
+        // death-shape record types so the pipeline finds the
+        // subject's records filed under that married name.
+        if state.subject.gender == .female {
+            let knownSurnames: Set<String> = Set(
+                [state.subject.surname, state.subject.marriedSurname]
+                    .compactMap { $0?.trimmingCharacters(in: .whitespaces).lowercased() }
+                    .filter { !$0.isEmpty }
+            )
+            let discoveredSurnames = Self.extractSpouseSurnames(from: state.confirmedFacts)
+            let pivotSurnames = discoveredSurnames.filter {
+                !knownSurnames.contains($0.lowercased())
+            }
+
+            if !pivotSurnames.isEmpty {
+                logger.info("Post-marriage pivot: re-searching death-shape records for spouse surnames \(pivotSurnames.sorted())")
+            }
+
+            for newSurname in pivotSurnames.sorted() {
+                if Task.isCancelled { break }
+                var pivotSubject = state.subject
+                pivotSubject.marriedSurname = newSurname
+                let pivotRecords = await dispatcher.dispatch(
+                    subject: pivotSubject,
+                    recordTypes: [.death, .burial, .probate, .military],
+                    scope: config.scope,
+                    mode: state.subject.mode,
+                    cache: queryCache
+                )
+                let priorIDs = Set(state.scoredRecords.map(\.record.id))
+                let scored = pivotRecords.map { rec in
+                    RecordScorer.classify(record: rec, subject: pivotSubject, searchType: rec.recordType)
+                }
+                let new = scored.filter { !priorIDs.contains($0.record.id) }
+                state.scoredRecords.append(contentsOf: new)
+                state.searchHistory.append(SearchAttempt(
+                    sourceID: "post-marriage-pivot",
+                    recordType: .death,
+                    searchKey: "post-marriage:\(newSurname)",
+                    resultCount: pivotRecords.count,
+                    timestamp: Date()
+                ))
+            }
+        }
+
         logger.info("Pipeline complete: \(state.confirmedFacts.count) facts, \(state.leads.count) leads, \(state.rejectedRecords.count) rejected")
 
         // DETERMINISTIC: cluster records into candidate lives.
@@ -484,6 +535,33 @@ final class ResearchPipeline {
     /// Pull the parent's given name from cross-referenced marriage
     /// records, if reconciliation attached any. Match by surname-side:
     /// mother → bride-side entry; father → groom-side entry.
+    /// Pull spouse surnames out of confirmed marriage records.
+    /// FreeBMD post-Sep-1912 marriage rows carry the spouse's full
+    /// name in `spouseName` ("JANE SMITH" or "Jane Smith"); the
+    /// surname is the last whitespace-separated token. Used by the
+    /// post-marriage death-shape pivot to find a woman's records
+    /// filed under her married surname when the linked-spouse
+    /// derivation in `ResearchSubject.fromProfile` didn't apply
+    /// (un-linked spouse, multiple marriages, mid-run discovery).
+    nonisolated static func extractSpouseSurnames(from facts: [ScoredRecord]) -> Set<String> {
+        var surnames: Set<String> = []
+        for scored in facts {
+            guard case .marriage(let m) = scored.record else { continue }
+            guard let name = m.spouseName?.trimmingCharacters(in: .whitespaces),
+                  !name.isEmpty else { continue }
+            let parts = name.split(separator: " ", omittingEmptySubsequences: true)
+            guard let surnameRaw = parts.last.map(String.init),
+                  surnameRaw.count >= 2 else { continue }
+            // Strip trailing punctuation but preserve hyphens / apostrophes
+            // that legitimately appear in surnames (O'Brien, Smyth-Jones).
+            let surname = surnameRaw.trimmingCharacters(in: .punctuationCharacters)
+            if !surname.isEmpty {
+                surnames.insert(surname)
+            }
+        }
+        return surnames
+    }
+
     private static func extractParentGivenName(
         gender: Gender,
         surname: String,
