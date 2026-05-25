@@ -1257,30 +1257,24 @@ struct ClusterReviewView: View {
                 Spacer()
 
                 if alreadyLinked {
-                    // Parent matching this proposal already exists in the tree
-                    // (typically wizard-created or accepted earlier). Don't
-                    // offer Accept — would duplicate. Offer "Apply" when the
-                    // proposal carries enrichment data (given name or a
-                    // marriage record) that the linked parent / spouse edge
-                    // may not yet have. "Apply" is a no-op if everything is
-                    // already populated — applyProposedRelative returns 0.
-                    HStack(spacing: 8) {
-                        Label("Already linked", systemImage: "link.circle.fill")
-                            .font(AppTypography.cardBody)
-                            .foregroundStyle(.blue)
-                        if decision == .accepted {
-                            Label("Applied", systemImage: "checkmark.seal.fill")
-                                .font(AppTypography.cardBody)
-                                .foregroundStyle(.green)
-                        } else if proposal.proposedGivenName != nil || proposal.evidence.count > 1 {
-                            Button("Apply") {
-                                vm.applyProposedRelative(proposal, into: appState)
-                            }
-                            .buttonStyle(.glassProminent)
-                            .controlSize(.small)
-                            .help("Fill the linked parent's first name and the parent-pair marriage date / location from this proposal's evidence. Existing values are never overwritten.")
-                        }
-                    }
+                    // Parent matching this proposal already exists in the
+                    // tree (typically wizard-created or accepted earlier).
+                    // Treat as terminal — same UX as cluster-review's
+                    // "Already applied" pattern: badge + dimmed row,
+                    // no Apply button. The previous implementation
+                    // offered Apply for enrichment (given name /
+                    // marriage record onto a linked parent) but that
+                    // duplicated the affordance with no clear signal
+                    // about whether anything would change.
+                    //
+                    // Rare edge case: linked parent missing the given
+                    // name that this proposal carries. If/when that
+                    // surfaces, add a precise "would-apply" check
+                    // (count of fields the proposal would write) and
+                    // re-introduce the button gated on count > 0.
+                    Label("Already applied", systemImage: "checkmark.seal.fill")
+                        .font(AppTypography.cardBody)
+                        .foregroundStyle(.green)
                 } else if decision == .accepted {
                     Label("Added", systemImage: "checkmark.circle.fill")
                         .font(AppTypography.cardBody)
@@ -1320,7 +1314,11 @@ struct ClusterReviewView: View {
             }
         }
         .padding(.vertical, 4)
-        .opacity(decision == .rejected ? 0.5 : 1.0)
+        // Dim already-linked or rejected proposals to the same 55%
+        // opacity used for already-applied cluster records — common
+        // visual language for terminal-state rows that should fade
+        // into the background.
+        .opacity(alreadyLinked || decision == .rejected ? 0.55 : 1.0)
     }
 
     /// Expanded reasoning panel: what record drove this proposal, exactly how
