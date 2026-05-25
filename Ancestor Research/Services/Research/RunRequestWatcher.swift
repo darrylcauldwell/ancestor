@@ -126,6 +126,16 @@ final class RunRequestWatcher {
         var leadForFinalise: Lead? = nil
 
         if let profileID = request.profileID, !profileID.isEmpty {
+            // Refresh snapshot on miss — profiles created by promote_lead
+            // (or any other DB write since the last refresh) won't be in
+            // `appState.snapshot` until something rebuilds it. The
+            // discovery driver kicks off research on freshly-promoted
+            // `@FR_…@` profiles repeatedly; without this, every one of
+            // them would mark-failed with "not found in snapshot" and
+            // block tree expansion past the first generation.
+            if appState.snapshot.profiles[profileID] == nil {
+                appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+            }
             if let profile = appState.snapshot.profiles[profileID] {
                 subject = ResearchSubject.fromProfile(
                     profile,
