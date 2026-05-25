@@ -783,7 +783,8 @@ private struct TaskRow: View {
                     } label: {
                         Label("Dismiss", systemImage: "xmark")
                     }
-                    .buttonStyle(.glass)
+                    .buttonStyle(.glassProminent)
+                    .tint(.red)
                     .controlSize(.mini)
                     .help("Dismiss this lead — not relevant")
                 }

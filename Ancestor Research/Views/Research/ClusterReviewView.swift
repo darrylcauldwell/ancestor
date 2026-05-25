@@ -420,11 +420,15 @@ struct ClusterReviewView: View {
                             : "Apply \(applyCount) of \(total)"
                         Button(buttonLabel) { vm.applyCluster(cluster, into: appState) }
                             .buttonStyle(.glassProminent)
+                            .tint(.green)
                             .controlSize(.small)
                             .help(canApplyKnownMarriage
                                 ? "Fill the marriage date / location on the existing spouse relationship (only where currently blank). The other \(total - applyCount) records in this cluster stay as evidence history."
                                 : "Write \(applyCount) qualifying record\(applyCount == 1 ? "" : "s") to the profile (filling only nil fields) and attach as citation sources. Records that haven't fully cleared the scoring gates are skipped.")
                     } else {
+                        // Save-as-lead is a deferral, not a commit, so it
+                        // stays blue rather than green — green is reserved
+                        // for actions that write to the profile.
                         Button("Save as lead") { vm.acceptCluster(cluster) }
                             .buttonStyle(.glassProminent)
                             .controlSize(.small)
@@ -432,7 +436,8 @@ struct ClusterReviewView: View {
                 }
                 if decision != .rejected {
                     Button("Discard") { vm.rejectCluster(cluster) }
-                        .buttonStyle(.glass)
+                        .buttonStyle(.glassProminent)
+                        .tint(.red)
                         .controlSize(.small)
                 }
                 if decision != nil {
@@ -682,7 +687,8 @@ struct ClusterReviewView: View {
                 Button("Apply this record") {
                     vm.applyRecord(scored, into: appState)
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.glassProminent)
+                .tint(.green)
                 .controlSize(.mini)
                 .help("Write just this record's data to the profile and mark it saved-as-lead, overriding the cluster's gate check.")
             }
@@ -690,7 +696,8 @@ struct ClusterReviewView: View {
                 Button("Discard this record") {
                     vm.discardRecord(scored)
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.glassProminent)
+                .tint(.red)
                 .controlSize(.mini)
                 .help("Hide this record from future runs. Won't write anything to the profile; cluster Apply will skip it.")
             }
