@@ -209,6 +209,66 @@ final class ResearchPipeline {
             }
         }
 
+        // Post-iteration: mother-in-law maiden-name pivot. When a
+        // census household carries a mother-in-law under her own
+        // surname, that surname IS the wife's maiden name — a
+        // signal that's separate from the linked-spouse-father
+        // derivation. Useful when the wife's father isn't a tree
+        // profile. Mirrors `agent/analyser.py:_check_maiden_names`.
+        // Only fires when the discovered surname is genuinely new
+        // (differs from any spouseFatherSurname already set on
+        // FamilyContext).
+        if let headSurname = state.subject.surname {
+            let derivedMaiden = Self.maidenNameFromMotherInLaw(
+                household: state.householdMembers,
+                headSurname: headSurname
+            )
+            let existing = (state.subject.familyContext?.spouseFatherSurname ?? "")
+                .trimmingCharacters(in: .whitespaces).uppercased()
+            if let maiden = derivedMaiden, maiden.uppercased() != existing {
+                logger.info("Mother-in-law maiden pivot: re-probing marriage records with spouseFatherSurname=\(maiden)")
+                var pivotSubject = state.subject
+                if var ctx = pivotSubject.familyContext {
+                    ctx = FamilyContext(
+                        spouseName: ctx.spouseName,
+                        spouseSurname: ctx.spouseSurname,
+                        spouseGivenName: ctx.spouseGivenName,
+                        spouseFatherSurname: maiden,
+                        childNames: ctx.childNames,
+                        fatherName: ctx.fatherName,
+                        fatherSurname: ctx.fatherSurname,
+                        fatherGivenName: ctx.fatherGivenName,
+                        motherName: ctx.motherName,
+                        motherSurname: ctx.motherSurname,
+                        motherGivenName: ctx.motherGivenName
+                    )
+                    pivotSubject.familyContext = ctx
+                }
+                if !Task.isCancelled {
+                    let pivotRecords = await dispatcher.dispatch(
+                        subject: pivotSubject,
+                        recordTypes: [.marriage],
+                        scope: config.scope,
+                        mode: state.subject.mode,
+                        cache: queryCache
+                    )
+                    let priorIDs = Set(state.scoredRecords.map(\.record.id))
+                    let scored = pivotRecords.map { rec in
+                        RecordScorer.classify(record: rec, subject: pivotSubject, searchType: rec.recordType)
+                    }
+                    let new = scored.filter { !priorIDs.contains($0.record.id) }
+                    state.scoredRecords.append(contentsOf: new)
+                    state.searchHistory.append(SearchAttempt(
+                        sourceID: "mother-in-law-pivot",
+                        recordType: .marriage,
+                        searchKey: "mother-in-law:\(maiden)",
+                        resultCount: pivotRecords.count,
+                        timestamp: Date()
+                    ))
+                }
+            }
+        }
+
         // Post-iteration: child-gap inference. When the subject is a
         // parent with multiple linked children showing year gaps > 3,
         // probe FreeBMD for deaths under the family surname in the
@@ -606,6 +666,40 @@ final class ResearchPipeline {
         var counts: [T: Int] = [:]
         for v in values { counts[v, default: 0] += 1 }
         return counts.max(by: { $0.value < $1.value })?.key
+    }
+
+    /// Derive the wife's maiden surname from a mother-in-law present
+    /// in a census household. The pattern: census enumerators
+    /// recorded a mother-in-law under her own surname, which (by
+    /// convention) is the wife's maiden surname. Mirrors
+    /// `agent/rules.py:maiden_name_from_mother_in_law`.
+    ///
+    /// Returns the mother-in-law's surname when:
+    ///   - A household member has relationship containing both
+    ///     "mother" and "law" (case-insensitive)
+    ///   - Her surname differs from the head's surname (otherwise
+    ///     it's not a new signal)
+    ///
+    /// Returns nil otherwise — the dispatcher's existing
+    /// linked-father derivation is the primary path; this is the
+    /// fallback when the wife's father isn't a tree profile.
+    nonisolated static func maidenNameFromMotherInLaw(
+        household: [HouseholdMember],
+        headSurname: String
+    ) -> String? {
+        let headSurnameUpper = headSurname
+            .trimmingCharacters(in: .whitespaces).uppercased()
+        for member in household {
+            let rel = member.relationship.lowercased()
+            guard rel.contains("mother"), rel.contains("law") else { continue }
+            let parts = member.name.split(separator: " ", omittingEmptySubsequences: true)
+            guard let surname = parts.last.map(String.init) else { continue }
+            let upper = surname.uppercased()
+            if !upper.isEmpty, upper != headSurnameUpper {
+                return surname
+            }
+        }
+        return nil
     }
 
     /// Find gaps between consecutive children's birth years that
