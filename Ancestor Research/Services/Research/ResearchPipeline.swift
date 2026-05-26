@@ -209,6 +209,69 @@ final class ResearchPipeline {
             }
         }
 
+        // Post-iteration: child-gap inference. When the subject is a
+        // parent with multiple linked children showing year gaps > 3,
+        // probe FreeBMD for deaths under the family surname in the
+        // gap years — the classic Victorian-era "missing child died
+        // young" pattern. Mirrors
+        // `agent/analyser.py:_check_child_gaps`. Family surname is
+        // taken from the children themselves (covers female subjects
+        // whose own surname is maiden — children carry father's
+        // surname). Civil-reg gate: pre-1837 deaths aren't in FreeBMD,
+        // skip those gaps.
+        if let subjectProfileID = state.subject.profileID {
+            let children = snapshot.childrenOf(subjectProfileID)
+            let childYears = children.compactMap { $0.birthDate?.earliest }
+            let gaps = Self.childBirthYearGaps(childYears, threshold: 3)
+            // Pick the most-common surname among children (handles
+            // step-siblings with different surnames defensively).
+            let childSurnames = children.compactMap { $0.lastName?.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            let familySurname = Self.mostCommon(childSurnames)
+            if let familySurname, !gaps.isEmpty {
+                logger.info("Child-gap inference: probing deaths for \(familySurname) in \(gaps.count) gap window(s)")
+            }
+            for (gapStart, gapEnd) in gaps {
+                let yearFrom = gapStart + 1
+                let yearTo = gapEnd - 1
+                // Civil registration starts 1837 — pre-1837 deaths
+                // aren't in FreeBMD. Gaps spanning the cutoff get
+                // the in-coverage portion only.
+                guard yearTo >= 1837, let familySurname else { continue }
+                let effectiveFrom = max(yearFrom, 1837)
+                if Task.isCancelled { break }
+
+                var gapSubject = state.subject
+                gapSubject.surname = familySurname
+                gapSubject.givenName = nil  // Cast wide — any infant in the family
+                gapSubject.birthYearFrom = nil
+                gapSubject.birthYearTo = nil
+                gapSubject.deathYearFrom = effectiveFrom
+                gapSubject.deathYearTo = yearTo
+
+                let gapRecords = await dispatcher.dispatch(
+                    subject: gapSubject,
+                    recordTypes: [.death],
+                    scope: config.scope,
+                    mode: state.subject.mode,
+                    cache: queryCache
+                )
+                let priorIDs = Set(state.scoredRecords.map(\.record.id))
+                let scored = gapRecords.map { rec in
+                    RecordScorer.classify(record: rec, subject: gapSubject, searchType: rec.recordType)
+                }
+                let new = scored.filter { !priorIDs.contains($0.record.id) }
+                state.scoredRecords.append(contentsOf: new)
+                state.searchHistory.append(SearchAttempt(
+                    sourceID: "child-gap-pivot",
+                    recordType: .death,
+                    searchKey: "child-gap:\(familySurname):\(effectiveFrom)-\(yearTo)",
+                    resultCount: gapRecords.count,
+                    timestamp: Date()
+                ))
+            }
+        }
+
         logger.info("Pipeline complete: \(state.confirmedFacts.count) facts, \(state.leads.count) leads, \(state.rejectedRecords.count) rejected")
 
         // DETERMINISTIC: cluster records into candidate lives.
@@ -535,6 +598,34 @@ final class ResearchPipeline {
     /// Pull the parent's given name from cross-referenced marriage
     /// records, if reconciliation attached any. Match by surname-side:
     /// mother → bride-side entry; father → groom-side entry.
+    /// Return the most frequent element in the array, or nil if the
+    /// array is empty. Ties broken by first-encountered ordering
+    /// (Dictionary iteration isn't sorted, but for the child-surname
+    /// use case ties don't matter — any common surname is fine).
+    nonisolated static func mostCommon<T: Hashable>(_ values: [T]) -> T? {
+        var counts: [T: Int] = [:]
+        for v in values { counts[v, default: 0] += 1 }
+        return counts.max(by: { $0.value < $1.value })?.key
+    }
+
+    /// Find gaps between consecutive children's birth years that
+    /// exceed `threshold` years. A gap of more than 3 years between
+    /// known siblings often hides infant deaths recorded under the
+    /// family surname in the intervening years (typical Victorian
+    /// child-mortality pattern). Mirrors
+    /// `agent/rules.py:child_gap_suggests_death`.
+    nonisolated static func childBirthYearGaps(_ years: [Int], threshold: Int = 3) -> [(Int, Int)] {
+        guard years.count >= 2 else { return [] }
+        let sorted = years.sorted()
+        var gaps: [(Int, Int)] = []
+        for i in 0..<(sorted.count - 1) {
+            if sorted[i + 1] - sorted[i] > threshold {
+                gaps.append((sorted[i], sorted[i + 1]))
+            }
+        }
+        return gaps
+    }
+
     /// Pull spouse surnames out of confirmed marriage records.
     /// FreeBMD post-Sep-1912 marriage rows carry the spouse's full
     /// name in `spouseName` ("JANE SMITH" or "Jane Smith"); the
