@@ -130,9 +130,37 @@ private struct NewWindowCommand: View {
 /// windows by design — those are user preferences, not per-window state.
 struct ContentRoot: View {
     @State private var appState = AppState()
+    @AppStorage("reasoningModelChoice") private var reasoningModelChoiceRaw: String = ReasoningModel.default.rawValue
 
     var body: some View {
         ContentView()
             .environment(appState)
+            .task { await autoLoadReasoningModelIfOnDisk() }
+    }
+
+    /// Auto-loads the user's selected reasoning model on app launch if the
+    /// safetensors files are already on disk. Avoids the per-relaunch
+    /// click-Load-Model dance for users who've completed the download.
+    /// Idempotent: subsequent windows or repeat calls return early because
+    /// `LocalInferenceService.loadModel` short-circuits when already loaded.
+    ///
+    /// Skipped under XCTest. The test target launches a full app instance,
+    /// so this `.task` would otherwise fire concurrently with the user's
+    /// running app — both processes racing to memory-map the same 14B
+    /// safetensors triggers an MLX `_mlx_error` that calls
+    /// `Swift.assertionFailure` and terminates the test host. Detected via
+    /// `XCTestConfigurationFilePath`, the env var Xcode sets for any
+    /// xctest run.
+    private func autoLoadReasoningModelIfOnDisk() async {
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            return
+        }
+        let model = ReasoningModel(rawValue: reasoningModelChoiceRaw) ?? .default
+        // 1 GB threshold filters out partial/empty model directories — only
+        // proceed when the model is plausibly complete on disk.
+        guard LocalInferenceService.shared.onDiskBytes(for: model) > 1_000_000_000 else {
+            return
+        }
+        try? await LocalInferenceService.shared.loadModel(configuration: model.configuration)
     }
 }

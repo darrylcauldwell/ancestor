@@ -38,6 +38,62 @@ nonisolated struct BirthYearConsensus: Sendable {
     let supportingEvidence: [SupportingEvidence]
 }
 
+extension BirthYearConsensus {
+    /// Build a `PendingFact` carrying this consensus so the user
+    /// reviews it on the same path as MCP-submitted evidence and
+    /// prose-extractor output. Per `SUBJECT_SELF_NARROWING_SPEC.md`
+    /// §3.3 (Evidence Firewall routing) and §3.4 (inline evidence).
+    ///
+    /// `verificationStatus` is `.verified` at write time because this
+    /// proposal isn't a URL-backed external claim — it's an aggregation
+    /// of records the pipeline has already scored. The firewall's URL
+    /// verification would either no-op against the synthetic source
+    /// URL or fail it spuriously; pre-marking verified keeps the
+    /// review surface clean while leaving the user as the actual
+    /// gate.
+    ///
+    /// The `reasoning` field carries the formatted supporting-evidence
+    /// block that slice B3 renders verbatim in the review UI. Stored
+    /// as text (not a separate column) to avoid a schema migration —
+    /// `SUBJECT_SELF_NARROWING_SPEC.md` §7.2 calls the migration
+    /// optional.
+    func toPendingFact(
+        profileID: String,
+        submittedAt: Date = Date()
+    ) -> PendingFact {
+        let sourceURL = "ancestor-research://subject-self-narrowing/\(profileID)"
+        let id = EvidenceFirewall.idempotencyKey(
+            profileID: profileID,
+            field: "birthYear",
+            value: String(proposedBirthYear),
+            sourceURL: sourceURL
+        )
+        let evidenceLines = supportingEvidence.map { e -> String in
+            let aligned = e.isLocationAligned ? " (anchor)" : ""
+            let loc = e.location.map { " — \($0)" } ?? ""
+            return "- \(e.typeLabel)\(loc) — \(e.sourceID)\(aligned)"
+        }
+        let header = "\(agreeingRecordCount) records support birth ~\(proposedBirthYear) (\(confidence.rawValue) confidence, \(distinctSourceCount) sources):"
+        let reasoning = ([header] + evidenceLines).joined(separator: "\n")
+        let evidenceText = String(reasoning.prefix(200))
+
+        return PendingFact(
+            id: id,
+            profileID: profileID,
+            field: "birthYear",
+            value: String(proposedBirthYear),
+            sourceURL: sourceURL,
+            sourceTitle: "Subject self-narrowing — birth year consensus",
+            evidenceText: evidenceText,
+            reasoning: reasoning,
+            confidence: confidence.rawValue,
+            agentID: "subject-self-narrowing",
+            submittedAt: submittedAt,
+            verificationStatus: .verified
+        )
+    }
+}
+
 /// One supporting record's contribution to a `BirthYearConsensus`.
 /// Carries enough metadata for the review surface to render a
 /// human-readable bullet ("Birth Q4 1883 Belper 7b/631 (FreeBMD)")

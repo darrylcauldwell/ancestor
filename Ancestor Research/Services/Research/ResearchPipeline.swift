@@ -11,12 +11,75 @@ final class ResearchPipeline {
     let snapshot: FamilyGraphSnapshot
     let sourceInfoMap: [String: SourceInfo]
 
+    /// Q2 Option B fallback (RESEARCH_PIPELINE_SPEC §5.14.1 clause 5).
+    /// Optional lookup that returns a child profile's MMN sourced from
+    /// the child's persisted research records when the child's
+    /// `Profile.mothersMaidenName` field is empty. Pipeline call sites
+    /// that have database access pass a closure wrapping
+    /// `ProjectDatabase.loadEvidenceForProfile(_:)`. Nil means
+    /// "profile-field-only" — slice 1 still functions, just doesn't
+    /// catch the "researched but not accepted" gap.
+    let childEvidenceMMNLookup: ((String) -> String?)?
+
+    /// Firewall-respecting pending-fact writer (§5.14.5). Nil means no
+    /// persistence — `state.subject.givenName` still mutates in memory
+    /// so the iteration loop sees the rich subject for this run, but
+    /// nothing reaches the user's pending-facts queue. Pipeline call
+    /// sites with database access pass a closure wrapping
+    /// `ProjectDatabase.savePendingFact(_:)`.
+    let pendingFactWriter: ((PendingFact) -> Void)?
+
     private let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "Pipeline")
 
-    init(dispatcher: SearchDispatcher, snapshot: FamilyGraphSnapshot, sourceInfoMap: [String: SourceInfo]) {
+    init(
+        dispatcher: SearchDispatcher,
+        snapshot: FamilyGraphSnapshot,
+        sourceInfoMap: [String: SourceInfo],
+        childEvidenceMMNLookup: ((String) -> String?)? = nil,
+        pendingFactWriter: ((PendingFact) -> Void)? = nil
+    ) {
         self.dispatcher = dispatcher
         self.snapshot = snapshot
         self.sourceInfoMap = sourceInfoMap
+        self.childEvidenceMMNLookup = childEvidenceMMNLookup
+        self.pendingFactWriter = pendingFactWriter
+    }
+
+    /// Build a `childEvidenceMMNLookup` closure backed by
+    /// `ProjectDatabase.loadEvidenceForProfile(_:)`. Returns nil when
+    /// the database is nil so call sites don't have to handle the
+    /// optional themselves. The closure itself is defensive — load
+    /// failures fall through to `nil`, never throw.
+    static func makeChildEvidenceMMNLookup(database: ProjectDatabase?) -> ((String) -> String?)? {
+        guard let database else { return nil }
+        return { childProfileID in
+            guard let evidence = try? database.loadEvidenceForProfile(childProfileID) else { return nil }
+            for ev in evidence where ev.verdict != .impossible {
+                if case .birth(let birth) = ev.record,
+                   let mmn = birth.mothersMaidenName?
+                        .trimmingCharacters(in: .whitespaces),
+                   !mmn.isEmpty {
+                    return mmn
+                }
+            }
+            return nil
+        }
+    }
+
+    /// Build a `pendingFactWriter` closure backed by
+    /// `ProjectDatabase.savePendingFact(_:)`. The closure is defensive —
+    /// save failures are logged at the call site, never thrown out of
+    /// the pipeline (`runSubjectSpouseMarriageFlow` swallows + logs).
+    static func makePendingFactWriter(database: ProjectDatabase?) -> ((PendingFact) -> Void)? {
+        guard let database else { return nil }
+        let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "Pipeline.PendingFacts")
+        return { fact in
+            do {
+                try database.savePendingFact(fact)
+            } catch {
+                logger.error("Failed to save pending fact \(fact.id): \(error.localizedDescription)")
+            }
+        }
     }
 
     /// Run the research pipeline for a subject.
@@ -28,13 +91,52 @@ final class ResearchPipeline {
         // of re-issuing identical district queries in each iteration.
         let queryCache = QueryCache()
 
+        // Pre-iteration phase (RESEARCH_PIPELINE_SPEC §5.14). For thin
+        // placeholder subjects (surname only, no given name, ≥1 linked
+        // child with usable MMN anchor), probe the marriage index to
+        // recover the given name *before* the iteration loop runs —
+        // refining the subject after the loop would be too late.
+        let preIterationHypotheses = await runSubjectSpouseMarriageFlow(
+            state: &state, scope: config.scope, cache: queryCache
+        )
+
+        // Storm-guard (§5.14.2). When the pre-iteration probe ran and
+        // left the subject thin (no name recovered — match was ambiguous,
+        // no match found, or gender unresolved), running the iteration
+        // loop would fan out surname-only queries across 8 record types
+        // × N districts and hammer FreeBMD for ~zero useful evidence.
+        // Skip the iteration loop AND the post-loop hypothesis flows;
+        // return just the .subjectSpouseMarriage row plus the marriage
+        // records the probe already collected. The Triage banner
+        // surfaces the next step to the user.
+        let subjectStillThin: Bool = {
+            // Storm-guard only fires when pre-iteration actually ran.
+            guard !preIterationHypotheses.isEmpty else { return false }
+            let trimmed = (state.subject.givenName ?? "")
+                .trimmingCharacters(in: .whitespaces)
+            return trimmed.isEmpty
+        }()
+        if subjectStillThin {
+            logger.info("Storm-guard: subject remains thin after pre-iteration probe — skipping iteration loop and post-loop phase for \(subject.displayName)")
+            return ResearchResult(
+                confirmedFacts: state.confirmedFacts,
+                leads: state.leads,
+                allScoredRecords: state.scoredRecords,
+                clusters: [],
+                discrepancies: state.discrepancies,
+                householdMembers: state.householdMembers,
+                searchHistory: state.searchHistory,
+                hypotheses: preIterationHypotheses
+            )
+        }
+
         for iteration in 1...config.maxIterations {
             state.iteration = iteration
 
             // Check cancellation between iterations
             if Task.isCancelled { break }
 
-            logger.info("Pipeline iteration \(iteration)/\(config.maxIterations) for \(subject.displayName)")
+            logger.notice("Pipeline iteration \(iteration)/\(config.maxIterations) for \(subject.displayName)")
 
             // DETERMINISTIC: dispatch and score
             let dispatchedRecords = await dispatcher.dispatch(
@@ -102,6 +204,36 @@ final class ResearchPipeline {
             // DETERMINISTIC: refine subject from confirmed facts (learned date propagation)
             state.subject = refineSubject(state.subject, from: state.confirmedFacts)
 
+            // DETERMINISTIC: birth-year consensus detection (Slice A). Logs
+            // when scored records cluster on a single year for a subject
+            // whose existing window is wide — closes the chicken-and-egg
+            // loop where no single record gets promoted to `.fact` but the
+            // *consensus* across records is itself strong evidence.
+            // Logging-only for now; slice B will surface this as a one-click
+            // profile-update proposal.
+            if let consensus = BirthYearConsensusDetector.detect(
+                in: state.scoredRecords, for: state.subject
+            ) {
+                let labels = consensus.supportingEvidence
+                    .map { "\($0.typeLabel) (\($0.sourceID))" }
+                    .joined(separator: ", ")
+                logger.notice("Birth-year consensus: \(consensus.proposedBirthYear) [\(consensus.confidence.rawValue)] — \(consensus.agreeingRecordCount) records, \(consensus.distinctSourceCount) sources: \(labels)")
+
+                // Slice B2 — surface as a pending fact so the user
+                // reviews it on the same audit path as MCP-submitted
+                // evidence. Only fires once per profile (idempotency
+                // key is field+value+profileID-derived). Skipped when
+                // the subject isn't a profile (lead-only research
+                // runs) or the writer isn't installed (read-only
+                // research mode).
+                if let writer = pendingFactWriter,
+                   let profileID = state.subject.profileID {
+                    let fact = consensus.toPendingFact(profileID: profileID)
+                    writer(fact)
+                    state.consensusProposalCount += 1
+                }
+            }
+
             // Parent inference + marriage enrichment now run post-loop
             // via `runParentHypothesisFlow` (V2 spec §5.2 T12-parent
             // Phase 2). They were here in the iteration loop until the
@@ -111,21 +243,97 @@ final class ResearchPipeline {
             // Only between iterations, never rules on specific records
             if iteration < config.maxIterations {
                 let availableSources = dispatcher.registry.allSources().map(\.sourceID)
+                let currentResults = ResearchResult(
+                    confirmedFacts: state.confirmedFacts, leads: state.leads,
+                    allScoredRecords: state.scoredRecords, clusters: [],
+                    discrepancies: state.discrepancies,
+                    householdMembers: state.householdMembers, searchHistory: state.searchHistory
+                )
+
+                // Level 1 — record-type hint (existing).
                 if let suggestion = await ResearchInterpreter.suggestNextSearch(
                     subject: state.subject,
-                    currentResults: ResearchResult(
-                        confirmedFacts: state.confirmedFacts, leads: state.leads,
-                        allScoredRecords: state.scoredRecords, clusters: [],
-                        discrepancies: state.discrepancies,
-                        householdMembers: state.householdMembers, searchHistory: state.searchHistory
-                    ),
+                    currentResults: currentResults,
                     availableSources: availableSources
                 ) {
                     logger.info("Reasoning model suggests: \(suggestion.sourceID) for \(suggestion.reason)")
-                    // Model can suggest record types to prioritise — deterministic dispatch still decides
                     if let suggestedType = suggestion.recordType {
                         state.activeRecordTypes.insert(suggestedType)
                     }
+                }
+
+                // Slice 13c — Level 2 query strategist. When this
+                // iteration produced few/no facts, ask the model for
+                // ONE targeted next query and dispatch it as a one-off
+                // (separate from the next iteration's fan-out). The
+                // dispatcher.dispatchOne path runs the query directly,
+                // bypassing the strictness ladder and per-source query
+                // builders. Results feed into state.scoredRecords like
+                // any other dispatch, so subsequent iterations see the
+                // new evidence. The strategist's `rationale` is logged
+                // to `searchHistory` for audit.
+                //
+                // Only fire when the iteration was unproductive — a
+                // productive iteration (many new facts, narrowed birth
+                // window) is the deterministic engine already doing
+                // what it should. The MLX cost (a few seconds per
+                // model call) is best spent breaking through ruts.
+                let iterationWasUnproductive = newRecordCount == 0
+                    || state.confirmedFacts.isEmpty
+                if iterationWasUnproductive {
+                    // Publish a `sourceQueryStarted` for the synthetic
+                    // "Level-2 Strategist" card so the user can see when
+                    // the AI is thinking. Paired with a Completed below.
+                    await ResearchActivityBus.shared.publish(
+                        .sourceQueryStarted(
+                            sourceID: "mlx-strategist",
+                            summary: "Level-2 strategist · iter \(iteration)"
+                        )
+                    )
+                    let searched = state.searchHistory.map(\.searchKey)
+                    var strategistResultCount = 0
+                    var strategistSummary = "Level-2 strategist · no suggestion"
+                    if let focused = await ResearchInterpreter.suggestNextFocusedQuery(
+                        subject: state.subject,
+                        results: currentResults,
+                        household: state.householdMembers,
+                        searched: searched,
+                        availableSources: availableSources
+                    ) {
+                        logger.notice("Level-2 focused query: \(focused.sourceID)/\(focused.recordType.rawValue) — \(focused.rationale)")
+                        let extra = await dispatcher.dispatchOne(focused: focused, cache: queryCache)
+                        strategistSummary = "Level-2: \(focused.rationale)"
+                        if !extra.isEmpty {
+                            let extraScored = extra.map { record in
+                                RecordScorer.classify(
+                                    record: record,
+                                    subject: state.subject,
+                                    searchType: record.recordType
+                                )
+                            }
+                            let nowPriorIDs = Set(state.scoredRecords.map(\.record.id))
+                            let newExtras = extraScored.filter { !nowPriorIDs.contains($0.record.id) }
+                            state.scoredRecords.append(contentsOf: newExtras)
+                            state.searchHistory.append(SearchAttempt(
+                                sourceID: focused.sourceID,
+                                recordType: focused.recordType,
+                                searchKey: "focused_\(focused.sourceID)_\(focused.recordType.rawValue)_\(focused.rationale.prefix(40))",
+                                resultCount: newExtras.count,
+                                timestamp: Date()
+                            ))
+                            strategistResultCount = newExtras.count
+                            // Re-run subject refinement so any new facts
+                            // narrow the window for the next iteration.
+                            state.subject = refineSubject(state.subject, from: state.confirmedFacts)
+                        }
+                    }
+                    await ResearchActivityBus.shared.publish(
+                        .sourceQueryCompleted(
+                            sourceID: "mlx-strategist",
+                            summary: strategistSummary,
+                            resultCount: strategistResultCount
+                        )
+                    )
                 }
             }
 
@@ -153,7 +361,7 @@ final class ResearchPipeline {
                 break
             }
             if iteration > 1 && newRecordCount == 0 {
-                logger.info("Stable point: iteration \(iteration) re-fetched \(records.count) records, none new — stopping")
+                logger.notice("Stable point: iteration \(iteration) re-fetched \(records.count) records, none new — stopping")
                 break
             }
         }
@@ -332,7 +540,7 @@ final class ResearchPipeline {
             }
         }
 
-        logger.info("Pipeline complete: \(state.confirmedFacts.count) facts, \(state.leads.count) leads, \(state.rejectedRecords.count) rejected")
+        logger.notice("Pipeline complete: \(state.confirmedFacts.count) facts, \(state.leads.count) leads, \(state.rejectedRecords.count) rejected")
 
         // DETERMINISTIC: cluster records into candidate lives.
         // Marriage-enrichment records describe the parents' marriage, not a
@@ -369,7 +577,7 @@ final class ResearchPipeline {
         let parentHypotheses = await runParentHypothesisFlow(
             state: &state, scope: config.scope, cache: queryCache
         )
-        let firstPassHypotheses = siblingHypotheses + parentHypotheses
+        let firstPassHypotheses = preIterationHypotheses + siblingHypotheses + parentHypotheses
 
         // T7 second pass (V2 spec §5.3). At most once per research()
         // call; only fires when there's at least one inconclusive
@@ -453,8 +661,189 @@ final class ResearchPipeline {
             parentLinkVerdict: parentLink,
             identityVerdict: identity,
             spouseVerdict: spouse,
-            attrition: attrition
+            attrition: attrition,
+            consensusProposalCount: state.consensusProposalCount
         )
+    }
+
+    // MARK: - Subject-Spouse Marriage Flow (V2 spec §5.14 — pre-iteration)
+
+    /// Run the `.subjectSpouseMarriage` strategy *before* the iteration
+    /// loop (RESEARCH_PIPELINE_SPEC §5.14). For thin placeholder
+    /// subjects (no given name) with at least one linked child whose
+    /// MMN can be resolved, the marriage index is the right anchor —
+    /// not the birth index. A `.unique` match recovers the subject's
+    /// given name; slice 1 emits the hypothesis row only (write-back is
+    /// slice 2).
+    ///
+    ///   1. Resolve each linked child's MMN (profile field first; if
+    ///      empty AND `childEvidenceMMNLookup` is configured, fall
+    ///      back to the child's persisted research records — Q2 Option B).
+    ///   2. Generate one `.subjectSpouseMarriage` per distinct uppercased
+    ///      MMN across the children (Q3+Q4 — same-MMN children collapse,
+    ///      different-MMN children seed separate hypotheses including
+    ///      the remarriage / step-children cases).
+    ///   3. For each draft, fan out groom-side + bride-side FreeBMD
+    ///      marriage queries across the scope's districts (mirrors
+    ///      `.parentMarriage` dispatch).
+    ///   4. Grade each draft — `.supported` / `.inconclusive` /
+    ///      `.contradicted` per §5.14.4 outcomes.
+    private func runSubjectSpouseMarriageFlow(
+        state: inout ResearchState,
+        scope: ResearchScope,
+        cache: QueryCache? = nil
+    ) async -> [ResearchHypothesis] {
+        // Early bail: cheap predicate so the common rich-subject case
+        // pays zero cost. Full trigger predicate lives in the generator.
+        guard let subjectID = state.subject.profileID else { return [] }
+        let trimmedGiven = (state.subject.givenName ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        guard trimmedGiven.isEmpty else { return [] }
+        guard let surname = state.subject.surname?.trimmingCharacters(in: .whitespaces),
+              !surname.isEmpty else { return [] }
+        let children = snapshot.childrenOf(subjectID)
+        guard !children.isEmpty else { return [] }
+
+        // Resolve per-child MMN via the Q2 Option B fallback. Only
+        // populate the map for children whose profile MMN is empty —
+        // the generator reads the profile field directly first and
+        // falls back to this map.
+        var childMMNs: [String: String] = [:]
+        if let lookup = childEvidenceMMNLookup {
+            for child in children {
+                let profileMMN = child.mothersMaidenName?
+                    .trimmingCharacters(in: .whitespaces)
+                if profileMMN?.isEmpty == false { continue }
+                if let recovered = lookup(child.id),
+                   !recovered.trimmingCharacters(in: .whitespaces).isEmpty {
+                    childMMNs[child.id] = recovered
+                }
+            }
+        }
+
+        let drafts = HypothesisEngine.generateSubjectSpouseMarriage(
+            state: state, snapshot: snapshot, childMMNs: childMMNs
+        )
+        guard !drafts.isEmpty else { return [] }
+        let subjectDisplay = state.subject.displayName
+        logger.info("SubjectSpouseMarriage: \(drafts.count) draft(s) for \(subjectDisplay)")
+
+        // Dispatch level-1 marriage queries for each draft. Two-sided
+        // fan-out per pair (one query per district per side); records
+        // feed back into state so the grader can read them.
+        for draft in drafts {
+            guard case .subjectSpouseMarriage(let groomSurname, let brideSurname, let window) = draft.kind else { continue }
+            logger.info("SubjectSpouseMarriage dispatch: \(groomSurname) × \(brideSurname), \(window.lowerBound)–\(window.upperBound)")
+            async let groomSide = dispatchMarriageQuery(
+                surname: groomSurname, spouseSurname: brideSurname,
+                yearFrom: window.lowerBound, yearTo: window.upperBound,
+                scope: scope, cache: cache
+            )
+            async let brideSide = dispatchMarriageQuery(
+                surname: brideSurname, spouseSurname: groomSurname,
+                yearFrom: window.lowerBound, yearTo: window.upperBound,
+                scope: scope, cache: cache
+            )
+            let groomScored = await groomSide
+            let brideScored = await brideSide
+            let priorIDs = Set(state.scoredRecords.map(\.id))
+            let newRecords = (groomScored + brideScored).filter { !priorIDs.contains($0.id) }
+            state.scoredRecords.append(contentsOf: newRecords)
+            // Marriage records describe the subject's own marriage,
+            // not a candidate birth/death record — tag as enrichment so
+            // clustering ignores them (same pattern as parentMarriage).
+            state.enrichmentRecordIDs.formUnion(newRecords.map(\.id))
+        }
+
+        let now = Date()
+        let graded = drafts.map { draft in
+            Self.finalizeHypothesis(
+                draft: draft,
+                gradeResult: HypothesisEngine.grade(draft, state: state, snapshot: snapshot),
+                at: now
+            )
+        }
+
+        // Slice 2 write-back (§5.14.5). Cross-hypothesis reconciliation
+        // decides whether to mutate state.subject.givenName and emit a
+        // pending fact. Runs only when at least one row is
+        // `.supported`; the reconciliation handles the Q4 four cases
+        // (zero / one / multi-agree / multi-disagree).
+        reconcileAndApplyWriteback(
+            from: graded, state: &state, subjectID: subjectID
+        )
+
+        return graded
+    }
+
+    /// Apply the §5.14.4 cross-hypothesis reconciliation: pick the
+    /// recovered given name (if any), mutate `state.subject.givenName`
+    /// so the iteration loop sees it, and (if a writer is configured)
+    /// emit one pending fact citing every contributing marriage. Pure
+    /// over inputs except for the two side effects clearly named here.
+    /// Returns whether a write-back fired (so the storm-guard knows
+    /// whether to short-circuit the iteration loop).
+    @discardableResult
+    private func reconcileAndApplyWriteback(
+        from hypotheses: [ResearchHypothesis],
+        state: inout ResearchState,
+        subjectID: String
+    ) -> Bool {
+        // Resolve gender via the §5.14.4 ladder. The ladder is
+        // deterministic over snapshot + childMMNs; at this point the
+        // child profile fields are baked into the snapshot, so passing
+        // `[:]` for childMMNs is the slice-1 default.
+        let resolution = HypothesisEngine.resolveSubjectSpouseGender(
+            state: state, snapshot: snapshot, childMMNs: [:]
+        )
+
+        let decision = HypothesisEngine.reconcileSubjectSpouseWriteback(
+            hypotheses: hypotheses,
+            scoredRecords: state.scoredRecords,
+            resolvedGender: resolution.resolvedGender
+        )
+
+        switch decision {
+        case .noWriteback(let reason):
+            logger.info("SubjectSpouseMarriage: no write-back — \(reason) (\(resolution.reasoningFragment))")
+            return false
+        case .applyName(let name, let groomLabel, let brideLabel, let citedIDs, let primaryURL, let primaryTitle):
+            // Write-back 1: mutate state.subject.givenName so the
+            // iteration loop sees a rich subject.
+            state.subject.givenName = name
+            logger.info("SubjectSpouseMarriage write-back: subject.givenName = '\(name)' (\(resolution.reasoningFragment))")
+
+            // Write-back 2: emit one pending fact citing every
+            // contributing marriage. Idempotency via the firewall's
+            // standard key — re-running with the same (profile, field,
+            // value, URL) is a no-op at the database layer.
+            guard let writer = pendingFactWriter else { return true }
+            let sourceURL = primaryURL ?? ""
+            let sourceTitle = primaryTitle ?? "BMD marriage index"
+            let citedSummary = citedIDs.joined(separator: ",")
+            let evidenceText = "Subject given name '\(name)' recovered from BMD marriage \(groomLabel) × \(brideLabel)."
+            let reasoning = "subjectSpouseMarriage write-back: \(resolution.reasoningFragment); cited marriages [\(citedSummary)]"
+            let factID = EvidenceFirewall.idempotencyKey(
+                profileID: subjectID, field: "firstName",
+                value: name, sourceURL: sourceURL
+            )
+            let fact = PendingFact(
+                id: factID,
+                profileID: subjectID,
+                field: "firstName",
+                value: name,
+                sourceURL: sourceURL,
+                sourceTitle: sourceTitle,
+                evidenceText: String(evidenceText.prefix(200)),
+                reasoning: reasoning,
+                confidence: "high",
+                agentID: "subject-spouse-marriage",
+                submittedAt: Date(),
+                verificationStatus: .pending
+            )
+            writer(fact)
+            return true
+        }
     }
 
     // MARK: - Parent Hypothesis Flow (V2 spec §5.2 — engine is the
@@ -1068,6 +1457,23 @@ final class ResearchPipeline {
             )
             async let brideSide = dispatchMarriageQuery(
                 surname: motherSurname, spouseSurname: fatherSurname,
+                yearFrom: yearFrom, yearTo: yearTo, scope: scope
+            )
+            let g = await groomSide
+            let b = await brideSide
+            return g + b
+        case .subjectSpouseMarriage(let groomSurname, let brideSurname, _):
+            // Same two-sided fan-out shape as .parentMarriage — the
+            // wider window from the deficit query lives in yearFrom/yearTo;
+            // (groomSurname × brideSurname) is the pair (RESEARCH_PIPELINE_SPEC §5.14.9).
+            let yearFrom = query.yearFrom ?? 0
+            let yearTo = query.yearTo ?? 0
+            async let groomSide = dispatchMarriageQuery(
+                surname: groomSurname, spouseSurname: brideSurname,
+                yearFrom: yearFrom, yearTo: yearTo, scope: scope
+            )
+            async let brideSide = dispatchMarriageQuery(
+                surname: brideSurname, spouseSurname: groomSurname,
                 yearFrom: yearFrom, yearTo: yearTo, scope: scope
             )
             let g = await groomSide

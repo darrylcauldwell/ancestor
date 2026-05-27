@@ -16,6 +16,11 @@ struct ResearchState: Sendable {
     var enrichmentRecordIDs: Set<String> = []
     var activeRecordTypes: Set<RecordType>
     var iteration: Int = 0
+    /// Count of consensus proposals (slice B subject-self-narrowing)
+    /// written to `pending_facts` this run. Surfaced in the
+    /// Research-Complete footer so the user notices new narrowing
+    /// proposals waiting in Triage (§6 of the spec).
+    var consensusProposalCount: Int = 0
 
     // Computed partitions — single source of truth is scoredRecords + verdict
     var confirmedFacts: [ScoredRecord] { scoredRecords.filter { $0.verdict == .fact } }
@@ -130,6 +135,12 @@ nonisolated struct ResearchResult: Sendable {
     /// per-iteration snapshots (ENGINE_FOUNDATION_SPEC #Change4).
     let attrition: ScorerAttrition?
 
+    /// Count of subject-self-narrowing proposals (slice B) written
+    /// to `pending_facts` this run. Surfaced by the
+    /// `ResearchProgressSheet` footer so the user notices new
+    /// narrowing proposals waiting in Triage. Per spec §6.
+    let consensusProposalCount: Int
+
     init(
         confirmedFacts: [ScoredRecord],
         leads: [ScoredRecord],
@@ -142,7 +153,8 @@ nonisolated struct ResearchResult: Sendable {
         parentLinkVerdict: String? = nil,
         identityVerdict: String? = nil,
         spouseVerdict: String? = nil,
-        attrition: ScorerAttrition? = nil
+        attrition: ScorerAttrition? = nil,
+        consensusProposalCount: Int = 0
     ) {
         self.confirmedFacts = confirmedFacts
         self.leads = leads
@@ -156,6 +168,7 @@ nonisolated struct ResearchResult: Sendable {
         self.identityVerdict = identityVerdict
         self.spouseVerdict = spouseVerdict
         self.attrition = attrition
+        self.consensusProposalCount = consensusProposalCount
     }
 
     static let empty = ResearchResult(
