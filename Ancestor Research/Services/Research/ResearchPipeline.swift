@@ -576,6 +576,50 @@ final class ResearchPipeline {
 
         logger.notice("Pipeline complete: \(state.confirmedFacts.count) facts, \(state.leads.count) leads, \(state.rejectedRecords.count) rejected")
 
+        // DETERMINISTIC: biographical-fit reasoning (slice C). Cross-
+        // checks candidate birth records against the subject's known
+        // life timeline — children's birth years, age-at-death back-
+        // calculation, infant-death elimination. Where Python's
+        // orchestrator (a human) picked the biographically-consistent
+        // candidate from a set of name-matching births, this does the
+        // same arithmetic deterministically. Run once post-loop, after
+        // all scoring, before clustering — gives the rest of the
+        // pipeline a chance to consume the narrowed subject.
+        let birthCandidates = state.scoredRecords.filter {
+            if case .birth = $0.record { return $0.verdict != .impossible }
+            return false
+        }
+        let deathShapeRecords = state.scoredRecords.filter {
+            switch $0.record {
+            case .death, .burial, .probate, .military:
+                return $0.verdict != .impossible
+            default: return false
+            }
+        }
+        if !birthCandidates.isEmpty {
+            let fitResults = BiographicalFitEvaluator.evaluate(
+                candidates: birthCandidates,
+                subject: state.subject,
+                deathRecords: deathShapeRecords,
+                snapshot: snapshot
+            )
+            for r in fitResults {
+                logger.notice("Biographical fit: \(r.candidate.record.id) birth=\(r.candidateBirthYear) plausibility=\(String(format: "%.2f", r.plausibility)) — \(r.reasoning)")
+            }
+            // If exactly one candidate is highly plausible (≥0.8) and all
+            // others are ruled out, narrow the subject's birth window so
+            // downstream clustering, hypothesis flow, and re-research
+            // runs benefit. Tight gate by design — we don't want a
+            // partial-match candidate silently overwriting the window.
+            let strong = fitResults.filter { $0.plausibility >= 0.8 }
+            let zero = fitResults.filter { $0.plausibility == 0 }
+            if strong.count == 1, zero.count + 1 == fitResults.count {
+                let winner = strong[0]
+                logger.notice("Biographical fit: narrowing subject to birth ~\(winner.candidateBirthYear) (single plausible candidate, \(zero.count) ruled out)")
+                state.subject = state.subject.refined(withBirthYear: winner.candidateBirthYear)
+            }
+        }
+
         // DETERMINISTIC: cluster records into candidate lives.
         // Marriage-enrichment records describe the parents' marriage, not a
         // candidate life of the subject — they're surfaced under each parent
