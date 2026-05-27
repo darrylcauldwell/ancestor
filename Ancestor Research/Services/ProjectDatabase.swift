@@ -2702,4 +2702,118 @@ nonisolated extension ProjectDatabase {
             try db.execute(sql: "DELETE FROM cleanse_unresolvable_flags")
         }
     }
+
+    // MARK: - One-shot reconciliation against persisted field_sources
+
+    /// Result of a reconciliation pass. One entry per (profile, field) the
+    /// pass actually updated. Records both old and new dates so the report
+    /// is human-reviewable and the per-profile editProfile Transaction
+    /// remains undoable from the existing replay path.
+    nonisolated struct DateReconciliationReport: Sendable, Equatable {
+        nonisolated struct Update: Sendable, Equatable {
+            let profileID: String
+            let field: ProfileField
+            let from: String?
+            let to: String
+        }
+        var updates: [Update] = []
+        var profilesScanned: Int = 0
+    }
+
+    /// Reconcile profile `birthDate` / `deathDate` against the persisted
+    /// `field_sources` audit log: where the log contains an unambiguous
+    /// narrower precise candidate (per the same rule as the start-of-run
+    /// seeding from `ResearchSubject.narrowBirthWindowFromSources`) AND
+    /// the apply-time overwrite policy
+    /// (`ResearchViewModel.shouldOverwriteDateField`) would have written
+    /// it, update the canonical column.
+    ///
+    /// Why this is needed: profiles already on disk that were "applied"
+    /// before the apply-path date overwrite fix (`aeda564`) still carry
+    /// wide GEDCOM date ranges even though precise quarters sit in
+    /// `field_sources`. This one-shot pass back-fills them without
+    /// requiring a re-research.
+    ///
+    /// Each updated profile gets its own `editProfile` Transaction (per
+    /// the existing manualEdit / replay-undo machinery), so the user can
+    /// undo per profile if a row looks wrong.
+    ///
+    /// Scope: profile dates only — `marriageDate` lives on the
+    /// `relationships` table without a sources audit log (#17 follow-up
+    /// adds relationship-level provenance before this can be extended
+    /// safely). String fields are also out of scope here; covered by a
+    /// separate pass once string reconciliation policy is decided.
+    ///
+    /// Idempotent: re-running with no new `field_sources` is a no-op
+    /// because `shouldOverwriteDateField` only triggers on a strictly
+    /// narrower candidate.
+    @discardableResult
+    func reconcileProfileDateFields(origin: SourceOrigin = .engineEnrichment) throws -> DateReconciliationReport {
+        let snapshot = try buildSnapshot()
+        var report = DateReconciliationReport(profilesScanned: snapshot.profiles.count)
+
+        for profile in snapshot.profiles.values {
+            for field in [ProfileField.birthDate, ProfileField.deathDate] {
+                let existing = (field == .birthDate) ? profile.birthDate : profile.deathDate
+                let sources = profile.sources[field] ?? []
+                guard let candidate = Self.narrowestUnambiguousDate(
+                    from: sources, currentSpan: Self.yearSpan(of: existing)
+                ) else { continue }
+                guard ResearchViewModel.shouldOverwriteDateField(
+                    existing: existing, candidate: candidate
+                ) else { continue }
+
+                try editProfile(
+                    profileID: profile.id,
+                    changes: [],
+                    dateChanges: [(field, existing, candidate)],
+                    source: origin
+                )
+                report.updates.append(.init(
+                    profileID: profile.id, field: field,
+                    from: existing?.original, to: candidate.original
+                ))
+            }
+        }
+        return report
+    }
+
+    /// Pick the unambiguous narrowest date from a `field_sources` list:
+    /// strictly narrower than `currentSpan`, exactly one distinct
+    /// (earliest, latest) window among the narrowest candidates after
+    /// deduping. Returns nil otherwise.
+    ///
+    /// Mirrors `ResearchSubject.narrowBirthWindowFromSources`' refuse-on-
+    /// ties rule deliberately — silent picking of one tied candidate over
+    /// another is exactly the fragility that motivated the multi-
+    /// hypothesis slice; reconciliation must not introduce it.
+    nonisolated static func narrowestUnambiguousDate(
+        from sources: [FieldSource], currentSpan: Int
+    ) -> GenealogicalDate? {
+        struct Candidate {
+            let date: GenealogicalDate
+            let earliest: Int
+            let latest: Int
+            let span: Int
+        }
+        let candidates: [Candidate] = sources.compactMap { src in
+            let date = GenealogicalDate(parsing: src.raw)
+            guard let e = date.earliest, let l = date.latest else { return nil }
+            return Candidate(date: date, earliest: e, latest: l, span: l - e)
+        }
+        let narrower = candidates.filter { $0.span < currentSpan }
+        guard let minSpan = narrower.map(\.span).min() else { return nil }
+        let tied = narrower.filter { $0.span == minSpan }
+        struct Pair: Hashable { let e: Int; let l: Int }
+        let distinct = Set(tied.map { Pair(e: $0.earliest, l: $0.latest) })
+        guard distinct.count == 1 else { return nil }
+        return tied.first?.date
+    }
+
+    /// Year-span of a `GenealogicalDate`. Either nil bound → treat as
+    /// "infinite" so any finite source wins.
+    nonisolated static func yearSpan(of date: GenealogicalDate?) -> Int {
+        guard let date, let f = date.earliest, let l = date.latest else { return .max }
+        return l - f
+    }
 }
