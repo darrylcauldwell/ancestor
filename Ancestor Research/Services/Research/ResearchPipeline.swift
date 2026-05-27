@@ -604,19 +604,34 @@ final class ResearchPipeline {
                 snapshot: snapshot
             )
             for r in fitResults {
-                logger.notice("Biographical fit: \(r.candidate.record.id) birth=\(r.candidateBirthYear) plausibility=\(String(format: "%.2f", r.plausibility)) — \(r.reasoning)")
+                logger.notice("Biographical fit: \(r.candidate.record.id) birth=\(r.candidateBirthYear) plausibility=\(String(format: "%.2f", r.plausibility)) matches=\(r.corroboratingMatches) — \(r.reasoning)")
             }
-            // If exactly one candidate is highly plausible (≥0.8) and all
-            // others are ruled out, narrow the subject's birth window so
-            // downstream clustering, hypothesis flow, and re-research
-            // runs benefit. Tight gate by design — we don't want a
-            // partial-match candidate silently overwriting the window.
-            let strong = fitResults.filter { $0.plausibility >= 0.8 }
-            let zero = fitResults.filter { $0.plausibility == 0 }
-            if strong.count == 1, zero.count + 1 == fitResults.count {
-                let winner = strong[0]
-                logger.notice("Biographical fit: narrowing subject to birth ~\(winner.candidateBirthYear) (single plausible candidate, \(zero.count) ruled out)")
-                state.subject = state.subject.refined(withBirthYear: winner.candidateBirthYear)
+            // Pick the strongest-evidenced candidate by *corroborating
+            // matches* (rule 2 age-at-death hits), not by "wasn't ruled
+            // out". A candidate with 5 matches beats one with 0 matches
+            // even if both have plausibility 1.00 — the latter just
+            // happens to lack contradicting evidence in this run's
+            // record pool. Real-world data often leaves multiple
+            // candidates un-eliminated; we need positive evidence to
+            // pick between them.
+            //
+            // Narrow only when:
+            //   • the leader has at least `minMatchesToNarrow` (3) hits
+            //   • the leader has at least `narrowMargin` (2) more hits
+            //     than the runner-up (clear winner, not a near-tie)
+            //   • the leader's plausibility is still ≥ 0.4 (anything
+            //     this contradicted is suspect)
+            let minMatchesToNarrow = 3
+            let narrowMargin = 2
+            let ranked = fitResults.sorted { $0.corroboratingMatches > $1.corroboratingMatches }
+            if let leader = ranked.first,
+               leader.corroboratingMatches >= minMatchesToNarrow,
+               leader.plausibility >= 0.4 {
+                let runnerUpMatches = ranked.dropFirst().first?.corroboratingMatches ?? 0
+                if leader.corroboratingMatches - runnerUpMatches >= narrowMargin {
+                    logger.notice("Biographical fit: narrowing subject to birth ~\(leader.candidateBirthYear) (leader has \(leader.corroboratingMatches) corroborating matches, runner-up has \(runnerUpMatches))")
+                    state.subject = state.subject.refined(withBirthYear: leader.candidateBirthYear)
+                }
             }
         }
 

@@ -14,6 +14,14 @@ nonisolated struct BiographicalFitResult: Sendable {
     let candidate: ScoredRecord
     let candidateBirthYear: Int
     let plausibility: Double
+    /// Count of independent corroborating signals — currently rule 2
+    /// age-at-death matches against same-named death records. Used by
+    /// the pipeline's narrowing gate to distinguish "candidate with
+    /// strong positive evidence" from "candidate that simply wasn't
+    /// ruled out". A candidate with 5 matches and plausibility 1.00
+    /// is a different story to one with 0 matches and plausibility
+    /// 1.00 (the latter just happens to lack contradicting evidence).
+    let corroboratingMatches: Int
     /// One short sentence per check that fired (passed or failed),
     /// joined with " · ". Surfaced in the pipeline log so the user
     /// can see why one candidate was ruled out and another wasn't.
@@ -131,6 +139,7 @@ nonisolated enum BiographicalFitEvaluator {
     ) -> BiographicalFitResult {
         var plausibility: Double = 1.0
         var notes: [String] = []
+        var corroboratingMatches: Int = 0
 
         // Rule 1 — infant-death elimination.
         //
@@ -184,6 +193,7 @@ nonisolated enum BiographicalFitEvaluator {
                 if gap > deathRelevanceWindow { continue }
                 if gap <= ageAtDeathTolerance {
                     notes.append("age-at-death match: died \(dy) age \(age) implies birth ~\(implied)")
+                    corroboratingMatches += 1
                 } else {
                     plausibility *= 0.4
                     notes.append("age-at-death mismatch: died \(dy) age \(age) implies birth ~\(implied), candidate is \(candidateBirthYear)")
@@ -213,6 +223,7 @@ nonisolated enum BiographicalFitEvaluator {
             candidate: candidate,
             candidateBirthYear: candidateBirthYear,
             plausibility: plausibility,
+            corroboratingMatches: corroboratingMatches,
             reasoning: notes.joined(separator: " · ")
         )
     }
