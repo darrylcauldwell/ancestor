@@ -310,6 +310,70 @@ nonisolated extension ResearchSubject {
         return s
     }
 
+    /// Pick a narrower birth window from persisted `field_sources` entries
+    /// when there's an **unambiguous** winner — strictly narrower than the
+    /// current window AND uniquely narrowest among the parseable
+    /// candidates.
+    ///
+    /// Returns the current window unchanged when:
+    /// - no source parses to a narrower window;
+    /// - multiple sources tie at the narrowest span (silent disambiguation
+    ///   is unsafe — picking by recency or arbitrary order can seed the
+    ///   wrong year. The multi-hypothesis investigation slice will use
+    ///   `BiographicalFitEvaluator` to choose between tied candidates;
+    ///   until then, refuse and let the engine work from the wider envelope);
+    /// - the `birthDate` field has an unresolved or `.deferred` dispute on
+    ///   file (the user explicitly deferred picking a winner).
+    static func narrowBirthWindowFromSources(
+        current: (Int?, Int?),
+        sources: [FieldSource],
+        dispute: FieldDispute?
+    ) -> (Int?, Int?) {
+        if let dispute, dispute.resolution == nil || dispute.resolution == .deferred {
+            return current
+        }
+        let currentSpan = yearSpan(from: current.0, to: current.1)
+
+        struct Candidate: Equatable {
+            let earliest: Int
+            let latest: Int
+            let span: Int
+        }
+
+        let candidates: [Candidate] = sources.compactMap { src in
+            let date = GenealogicalDate(parsing: src.raw)
+            guard let e = date.earliest, let l = date.latest else { return nil }
+            return Candidate(earliest: e, latest: l, span: l - e)
+        }
+        let strictlyNarrower = candidates.filter { $0.span < currentSpan }
+        guard let minSpan = strictlyNarrower.map(\.span).min() else { return current }
+        // De-duplicate identical (earliest, latest) entries among the
+        // narrowest candidates — the same row written twice across two
+        // FreeBMD scoring passes is not a disagreement. After dedup, only
+        // narrow when exactly one distinct window survives.
+        let narrowestDistinct = Set(strictlyNarrower
+            .filter { $0.span == minSpan }
+            .map { Pair(e: $0.earliest, l: $0.latest) })
+        guard narrowestDistinct.count == 1, let winner = narrowestDistinct.first else {
+            return current
+        }
+        return (winner.e, winner.l)
+    }
+
+    /// Hashable pair used to dedupe identical narrowest-candidate windows
+    /// before deciding whether ties exist.
+    private struct Pair: Hashable {
+        let e: Int
+        let l: Int
+    }
+
+    /// Span between two years, treating either nil as "infinite" so any
+    /// finite source wins.
+    private static func yearSpan(from: Int?, to: Int?) -> Int {
+        guard let f = from, let t = to else { return .max }
+        return t - f
+    }
+
     /// Build from an existing profile.
     static func fromProfile(
         _ profile: Profile,
@@ -390,7 +454,7 @@ nonisolated extension ResearchSubject {
         // blocks identity resolution + auto-promote. The wide window (~27
         // years) is automatically downgraded to a "weakly supported" cluster
         // verdict so we don't auto-promote on thin air.
-        let (birthFrom, birthTo): (Int?, Int?) = {
+        let (birthFromInitial, birthToInitial): (Int?, Int?) = {
             if let date = profile.birthDate, date.earliest != nil || date.latest != nil {
                 return (date.earliest, date.latest)
             }
@@ -398,6 +462,28 @@ nonisolated extension ResearchSubject {
             guard let oldestChildYear = childYears.min() else { return (nil, nil) }
             return (oldestChildYear - 45, oldestChildYear - 18)
         }()
+
+        // Seed birth-year precision from persisted `field_sources` for
+        // `birthDate`. `Profile.birthDate` carries only one value (the
+        // wide range when sources disagree), but `profile.sources[.birthDate]`
+        // is the audit log of every value any source ever asserted. A prior
+        // run may have written a precise quarter (e.g. "Dec 1883") that
+        // never got promoted to `profile.birthDate` because of a conflict
+        // — without this seeding, each new run restarts from the wide
+        // 27-year window regardless of what previous runs uncovered, and
+        // `refineSubject` (which reads only the *in-run* `state.confirmedFacts`)
+        // has nothing to work with on the first iteration.
+        //
+        // Selection rule: narrowest year-span wins; ties broken by most
+        // recent `addedAt`. Refuse to narrow when an unresolved dispute
+        // is on file — the user explicitly deferred the choice and we
+        // shouldn't auto-pick one of the competing values behind their
+        // back.
+        let (birthFrom, birthTo) = Self.narrowBirthWindowFromSources(
+            current: (birthFromInitial, birthToInitial),
+            sources: profile.sources[.birthDate] ?? [],
+            dispute: profile.disputes[.birthDate]
+        )
 
         // Derive marriedSurname for female subjects whose profile field
         // is empty but the spouse on the tree carries a different
