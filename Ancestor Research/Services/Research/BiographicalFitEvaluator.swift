@@ -69,10 +69,20 @@ nonisolated enum BiographicalFitEvaluator {
     /// children.
     private static let infantDeathWindow: Int = 15
 
-    /// Tolerance for age-at-death back-calculation. Census ages drift
-    /// ±1 commonly, BMD death age is usually exact but can be ±2 in
-    /// transcription.
+    /// Tolerance for rule 2's age-at-death back-calculation match.
+    /// Census ages drift ±1 commonly; BMD death-certificate ages are
+    /// usually exact but can be ±2 in transcription. Used to decide
+    /// "match" vs "near-miss" once we've already established the
+    /// death likely concerns this candidate (via the relevance window).
     private static let ageAtDeathTolerance: Int = 2
+
+    /// Tighter tolerance for rule 1's infant-death elimination. A
+    /// 1884 death of an infant (age 2 → implied birth 1882) and a
+    /// 1883 candidate are *different children* — close birth years
+    /// don't equal same person at infant-death precision. Killing a
+    /// candidate is more aggressive than nudging its plausibility, so
+    /// require an exact implied-birth match before eliminating.
+    private static let infantDeathMatchTolerance: Int = 0
 
     /// Window within which a death record is considered to *possibly*
     /// be about the same person as a candidate birth. Wider than the
@@ -143,8 +153,13 @@ nonisolated enum BiographicalFitEvaluator {
                 else { continue }
                 let impliedBirth = deathYear - age
                 // Only count as this-candidate's death if implied
-                // birth lines up.
-                guard abs(impliedBirth - candidateBirthYear) <= ageAtDeathTolerance else { continue }
+                // birth lines up *exactly*. Killing a candidate is
+                // more aggressive than just downgrading confidence,
+                // so use the tighter `infantDeathMatchTolerance`
+                // (typically 0). A 1884 death age 2 (implied birth
+                // 1882) and a 1883 candidate are different children
+                // even though the years are close.
+                guard abs(impliedBirth - candidateBirthYear) <= infantDeathMatchTolerance else { continue }
                 if age <= infantDeathWindow, deathYear + minParentAge < earliestChild {
                     plausibility = 0.0
                     notes.append("ruled out: died \(deathYear) age \(age), too young to father child born \(earliestChild)")
