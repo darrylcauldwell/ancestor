@@ -854,11 +854,21 @@ final class ResearchViewModel {
         case .birth(let r):
             let dateCandidate = Self.bmdDate(year: r.birthYear, quarter: r.quarter, exact: r.birthDate)
             applyDateField(.birthDate, existing: profile.birthDate, candidate: dateCandidate, profileID: profile.id, origin: origin, db: db)
-            applyStringField(.birthLocation, existing: profile.birthLocation, candidate: r.birthPlace ?? r.district, profileID: profile.id, origin: origin, db: db)
+            applyStringField(
+                .birthLocation, existing: profile.birthLocation,
+                existingSources: profile.sources[.birthLocation] ?? [],
+                candidate: r.birthPlace ?? r.district,
+                profileID: profile.id, origin: origin, db: db
+            )
         case .death(let r):
             let dateCandidate = Self.bmdDate(year: r.deathYear, quarter: r.quarter, exact: r.deathDate)
             applyDateField(.deathDate, existing: profile.deathDate, candidate: dateCandidate, profileID: profile.id, origin: origin, db: db)
-            applyStringField(.deathLocation, existing: profile.deathLocation, candidate: r.deathPlace ?? r.district, profileID: profile.id, origin: origin, db: db)
+            applyStringField(
+                .deathLocation, existing: profile.deathLocation,
+                existingSources: profile.sources[.deathLocation] ?? [],
+                candidate: r.deathPlace ?? r.district,
+                profileID: profile.id, origin: origin, db: db
+            )
         case .marriage(let m):
             applyMarriageToSubjectSpouseEdge(m, profileID: profile.id, snapshot: snapshot, db: db)
         case .pedigree, .census, .burial, .military, .probate, .parish:
@@ -952,17 +962,51 @@ final class ResearchViewModel {
     private func applyStringField(
         _ field: ProfileField,
         existing: String?,
+        existingSources: [FieldSource],
         candidate: String?,
         profileID: String,
         origin: SourceOrigin,
         db: ProjectDatabase
     ) {
         guard let trimmed = candidate?.trimmingCharacters(in: .whitespaces), !trimmed.isEmpty else { return }
-        if (existing ?? "").isEmpty {
-            _ = try? db.editProfile(profileID: profileID, changes: [(field, nil, trimmed)], dateChanges: [], source: origin)
+        if Self.shouldOverwriteStringField(existing: existing, existingSources: existingSources, candidateOrigin: origin) {
+            _ = try? db.editProfile(profileID: profileID, changes: [(field, existing, trimmed)], dateChanges: [], source: origin)
         } else {
             _ = try? db.recordAlternativeFact(profileID: profileID, field: field, rawValue: trimmed, source: origin)
         }
+    }
+
+    /// Should an applied string overwrite the profile's existing value, or
+    /// only be logged as an alternative fact?
+    ///
+    /// Strings have no precision axis like dates, so we substitute
+    /// provenance via `SourceOrigin.tier`. A higher-tier candidate
+    /// overrides a lower-tier existing value:
+    ///
+    /// - existing nil/empty → write candidate
+    /// - existing's highest known tier < candidate's tier → overwrite
+    /// - otherwise → keep existing, log candidate as alternative fact
+    ///
+    /// Defensive default when the existing value is set but `field_sources`
+    /// is empty: treat existing as `.userAuthoritative` (don't overwrite).
+    /// In normal use every Profile.* write also writes `field_sources`, so
+    /// this branch only fires if the audit log is corrupt — better to err
+    /// toward preserving the user's data than to silently overwrite.
+    ///
+    /// Same-tier candidates do not overwrite — that's a disambiguation
+    /// problem (multi-hypothesis investigation owns it for cases where two
+    /// research sources disagree). They still land in `field_sources` via
+    /// `recordAlternativeFact`.
+    nonisolated static func shouldOverwriteStringField(
+        existing: String?,
+        existingSources: [FieldSource],
+        candidateOrigin: SourceOrigin
+    ) -> Bool {
+        if (existing ?? "").trimmingCharacters(in: .whitespaces).isEmpty { return true }
+        guard let existingTier = existingSources.map(\.origin.tier).max() else {
+            return false
+        }
+        return candidateOrigin.tier > existingTier
     }
 
     /// Build a `GenealogicalDate` from a BMD record's year + quarter. BMD
