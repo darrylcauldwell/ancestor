@@ -30,12 +30,25 @@ nonisolated struct ResearchRequest: Sendable {
     let mode: ResearchMode
     let scope: ResearchScope
     let focus: ResearchFocus?
+    /// User opt-in for the prose-extraction phase (Discover/All modes only).
+    /// Defaults to off because it's a ~20-min MLX workload that's only
+    /// useful when the subject's location overlaps the registered
+    /// prose corpora — most cross-region subjects get 0 hits and
+    /// pay the full cost. Surfaced as a toggle in `ResearchConfigSheet`.
+    let runProseExtraction: Bool
 
-    init(profileID: String, mode: ResearchMode, scope: ResearchScope, focus: ResearchFocus? = nil) {
+    init(
+        profileID: String,
+        mode: ResearchMode,
+        scope: ResearchScope,
+        focus: ResearchFocus? = nil,
+        runProseExtraction: Bool = false
+    ) {
         self.profileID = profileID
         self.mode = mode
         self.scope = scope
         self.focus = focus
+        self.runProseExtraction = runProseExtraction
     }
 }
 
@@ -107,6 +120,14 @@ nonisolated struct ResearchSubject: Sendable {
     var birthYearTo: Int?
     var deathYearFrom: Int?
     var deathYearTo: Int?
+    /// Original date strings from the profile's GenealogicalDate (e.g.
+    /// "DEC 1883", "10 MAR 1937"). Carried for the Level-2 strategist
+    /// prompt so the MLX model has a precise anchor for age math
+    /// — `birthYearFrom`/`To` widen for search but lose the precise
+    /// month/day. Nil for leads and for subjects whose profile has only
+    /// estimated dates.
+    var birthDateOriginal: String?
+    var deathDateOriginal: String?
     var gender: Gender?
     var region: Region?
     /// Free-text death location from `Profile.deathLocation`. Used by the
@@ -416,6 +437,8 @@ nonisolated extension ResearchSubject {
             birthYearTo: birthTo,
             deathYearFrom: profile.deathDate?.earliest,
             deathYearTo: profile.deathDate?.latest,
+            birthDateOriginal: profile.birthDate?.original,
+            deathDateOriginal: profile.deathDate?.original,
             gender: profile.gender,
             region: profile.birthLocation.map { .county($0) },
             deathLocation: profile.deathLocation,

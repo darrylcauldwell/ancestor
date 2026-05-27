@@ -77,6 +77,8 @@ nonisolated enum HypothesisEngine {
             return generateParentInferred(state: state, snapshot: snapshot)
         case .parentMarriage:
             return generateParentMarriage(state: state, snapshot: snapshot)
+        case .subjectSpouseMarriage:
+            return generateSubjectSpouseMarriage(state: state, snapshot: snapshot)
         case .subjectIdentity, .clusterIsSubject,
              .burialAtParish, .secondMarriage:
             return []   // future kinds
@@ -98,6 +100,8 @@ nonisolated enum HypothesisEngine {
             return gradeParentInferred(hypothesis, state: state, snapshot: snapshot)
         case .parentMarriage:
             return gradeParentMarriage(hypothesis, state: state, snapshot: snapshot)
+        case .subjectSpouseMarriage:
+            return gradeSubjectSpouseMarriage(hypothesis, state: state, snapshot: snapshot)
         case .subjectIdentity, .clusterIsSubject,
              .burialAtParish, .secondMarriage:
             return .inconclusiveStub   // future kinds
@@ -227,6 +231,8 @@ nonisolated enum HypothesisEngine {
             return deficitQueryParentInferred(for: hypothesis, atLevel: level, state: state)
         case .parentMarriage:
             return deficitQueryParentMarriage(for: hypothesis, atLevel: level, state: state)
+        case .subjectSpouseMarriage:
+            return deficitQuerySubjectSpouseMarriage(for: hypothesis, atLevel: level, state: state)
         case .subjectIdentity, .clusterIsSubject,
              .burialAtParish, .secondMarriage:
             return []   // future kinds
@@ -243,6 +249,7 @@ nonisolated enum HypothesisKindDiscriminator: String, CaseIterable, Sendable {
     case parentMarriage
     case parentInferred
     case siblingExists
+    case subjectSpouseMarriage
     case clusterIsSubject
     case burialAtParish
     case secondMarriage

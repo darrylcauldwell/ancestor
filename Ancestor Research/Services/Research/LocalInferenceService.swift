@@ -3,6 +3,69 @@ import os
 import MLXLLM
 import MLXLMCommon
 
+/// User-selectable reasoning model. The Settings picker persists the
+/// raw value via `@AppStorage("reasoningModelChoice")` and passes the
+/// matching `configuration` to `LocalInferenceService.loadModel(...)`.
+///
+/// 7B options are pre-registered in `LLMRegistry` (no inline ID needed).
+/// The 14B variants are constructed inline because the registry does
+/// not pre-register them.
+public nonisolated enum ReasoningModel: String, CaseIterable, Sendable, Identifiable {
+    case deepSeekR1_7B = "deepseek-r1-7b"
+    case qwen25_7B = "qwen-2.5-7b"
+    case qwen25_14B = "qwen-2.5-14b"
+    case deepSeekR1_14B = "deepseek-r1-14b"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .deepSeekR1_7B: "DeepSeek-R1 Distill Qwen 7B (4-bit)"
+        case .qwen25_7B: "Qwen 2.5 7B Instruct (4-bit)"
+        case .qwen25_14B: "Qwen 2.5 14B Instruct (4-bit)"
+        case .deepSeekR1_14B: "DeepSeek-R1 Distill Qwen 14B (4-bit)"
+        }
+    }
+
+    public var subtitle: String {
+        switch self {
+        case .deepSeekR1_7B: "Chain-of-thought reasoning, fastest option"
+        case .qwen25_7B: "General-purpose instruct model, no <think> tags"
+        case .qwen25_14B: "Stronger general reasoning, recommended for Level-2 strategist"
+        case .deepSeekR1_14B: "Best chain-of-thought; slower, highest RAM"
+        }
+    }
+
+    public var memoryEstimateGB: Double {
+        switch self {
+        case .deepSeekR1_7B, .qwen25_7B: 4.5
+        case .qwen25_14B, .deepSeekR1_14B: 8.5
+        }
+    }
+
+    public var configuration: ModelConfiguration {
+        switch self {
+        case .deepSeekR1_7B: LLMRegistry.deepSeekR1_7B_4bit
+        case .qwen25_7B: LLMRegistry.qwen2_5_7b
+        case .qwen25_14B: ModelConfiguration(id: "mlx-community/Qwen2.5-14B-Instruct-4bit")
+        case .deepSeekR1_14B: ModelConfiguration(id: "mlx-community/DeepSeek-R1-Distill-Qwen-14B-4bit")
+        }
+    }
+
+    /// HuggingFace repo ID — equivalent to `configuration.name` but
+    /// reachable from callers that don't import `MLXLMCommon`.
+    public var huggingFaceID: String {
+        switch self {
+        case .deepSeekR1_7B: "mlx-community/DeepSeek-R1-Distill-Qwen-7B-4bit"
+        case .qwen25_7B: "mlx-community/Qwen2.5-7B-Instruct-4bit"
+        case .qwen25_14B: "mlx-community/Qwen2.5-14B-Instruct-4bit"
+        case .deepSeekR1_14B: "mlx-community/DeepSeek-R1-Distill-Qwen-14B-4bit"
+        }
+    }
+
+    public static let `default`: ReasoningModel = .deepSeekR1_7B
+}
+
 /// Local reasoning model service using MLX on Apple Silicon.
 ///
 /// This runs DeepSeek-R1 (a reasoning model, not a generic LLM).
@@ -39,14 +102,130 @@ actor LocalInferenceService {
         loadingTask != nil
     }
 
+    // MARK: - Sandbox model directory + seeding
+
+    /// Errors raised by the seed-from-existing flow.
+    public enum SeedError: LocalizedError {
+        case noSandboxPath
+        case sourceUnreadable(URL)
+        case noModelFilesFound(URL)
+
+        public var errorDescription: String? {
+            switch self {
+            case .noSandboxPath: "Could not resolve the app's model directory."
+            case .sourceUnreadable(let url): "Cannot read \(url.path). Pick the folder again."
+            case .noModelFilesFound(let url): "No .safetensors files in \(url.lastPathComponent). Pick the model's snapshot folder (or its parent that contains snapshots/ and blobs/)."
+            }
+        }
+    }
+
+    /// The on-disk path the MLX downloader writes a given configuration into.
+    /// Mirrors HuggingFaceDownloader's convention: `Application Support/{bundle}/models/{org--repo}/`.
+    nonisolated func sandboxModelDirectory(for model: ReasoningModel) -> URL? {
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first else { return nil }
+        let bundleID = Bundle.main.bundleIdentifier ?? "dev.dreamfold.Ancestor-Research"
+        let folderName = model.huggingFaceID.replacingOccurrences(of: "/", with: "--")
+        return appSupport
+            .appendingPathComponent(bundleID)
+            .appendingPathComponent("models")
+            .appendingPathComponent(folderName)
+    }
+
+    /// Total bytes already on disk for the given model. Used by Settings to
+    /// show truthful download progress that doesn't depend on the framework's
+    /// callback granularity.
+    nonisolated func onDiskBytes(for model: ReasoningModel) -> Int64 {
+        guard let dir = sandboxModelDirectory(for: model) else { return 0 }
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: dir, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]
+        ) else { return 0 }
+        var total: Int64 = 0
+        for case let url as URL in enumerator {
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+            if values?.isRegularFile == true, let size = values?.fileSize {
+                total += Int64(size)
+            }
+        }
+        return total
+    }
+
+    /// Seed the sandbox model directory by copying files from a user-picked
+    /// folder (typically a HuggingFace cache snapshot). Walks `source`
+    /// recursively, dereferencing symlinks; copies anything matching a model
+    /// or tokenizer file extension. Skips files already present at the
+    /// destination with identical size.
+    ///
+    /// Returns the number of files copied.
+    nonisolated func seedFromExternalDirectory(
+        source: URL,
+        for model: ReasoningModel
+    ) throws -> Int {
+        guard let dest = sandboxModelDirectory(for: model) else {
+            throw SeedError.noSandboxPath
+        }
+        let fm = FileManager.default
+        try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+
+        guard let enumerator = fm.enumerator(
+            at: source,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            options: []
+        ) else {
+            throw SeedError.sourceUnreadable(source)
+        }
+
+        let acceptedExtensions: Set<String> = ["safetensors", "json", "txt"]
+        var copied = 0
+        var sawAnyModelFile = false
+
+        for case let url as URL in enumerator {
+            // Resolve symlinks (HF cache stores files as symlinks into blobs/).
+            let resolved = url.resolvingSymlinksInPath()
+            guard let values = try? resolved.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  values.isRegularFile == true,
+                  let size = values.fileSize else { continue }
+
+            let ext = url.pathExtension.lowercased()
+            guard acceptedExtensions.contains(ext) else { continue }
+
+            if ext == "safetensors" { sawAnyModelFile = true }
+
+            let destURL = dest.appendingPathComponent(url.lastPathComponent)
+
+            // Skip if a file of the same size already exists.
+            if let existing = try? destURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+               existing == size {
+                continue
+            }
+            if fm.fileExists(atPath: destURL.path) {
+                try fm.removeItem(at: destURL)
+            }
+            try fm.copyItem(at: resolved, to: destURL)
+            copied += 1
+        }
+
+        if !sawAnyModelFile {
+            throw SeedError.noModelFilesFound(source)
+        }
+        return copied
+    }
+
     // MARK: - Model Lifecycle
 
     /// Load the reasoning model using a pre-registered LLMRegistry configuration.
     /// The 7B model is registered by default; for the 14B model, pass a custom
     /// ModelConfiguration with the desired HuggingFace ID.
+    ///
+    /// `onProgress` (if supplied) is invoked with a 0.0–1.0 fraction during
+    /// download and weight resolution. The callback is `@Sendable` and may
+    /// fire on any thread — UI consumers should hop to MainActor inside it.
     @discardableResult
     func loadModel(
-        configuration: ModelConfiguration = defaultConfiguration
+        configuration: ModelConfiguration = defaultConfiguration,
+        onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> ModelContainer {
         // Already loaded
         if let existing = modelContainer, currentModelID == configuration.name {
@@ -67,7 +246,7 @@ actor LocalInferenceService {
                 using: TransformersTokenizerLoader(),
                 configuration: config
             ) { progress in
-                // Progress updates handled by the framework
+                onProgress?(progress.fractionCompleted)
             }
 
             logger.info("Reasoning model loaded: \(config.name)")

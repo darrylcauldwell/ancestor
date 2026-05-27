@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Settings view with WikiTree connection and project info.
 struct SettingsPlaceholderView: View {
@@ -15,6 +16,8 @@ struct SettingsPlaceholderView: View {
     /// markers, focus rings, and tentative-fact glyphs. Hidden state is useful
     /// for printing or screen-shotting a clean tree.
     @AppStorage("showResearchIndicators") private var showResearchIndicators: Bool = true
+    /// Persists the user's reasoning-model choice. Backed by `ReasoningModel.rawValue`.
+    @AppStorage("reasoningModelChoice") private var reasoningModelChoiceRaw: String = ReasoningModel.default.rawValue
 
     /// Email extracted from project source — single source of truth.
     private var wikiTreeEmail: String {
@@ -365,30 +368,87 @@ struct SettingsPlaceholderView: View {
 
     @State private var modelStatus = "Not loaded"
     @State private var isLoadingModel = false
+    @State private var loadedModelID: String?
+    @State private var loadProgress: Double = 0  // 0.0–1.0 during download/load
+    @State private var onDiskBytes: Int64 = 0    // truth from filesystem
+    @State private var showSeedPicker = false
+    @State private var seedStatus: String?
+    @State private var isSeeding = false
+
+    private var selectedReasoningModel: ReasoningModel {
+        ReasoningModel(rawValue: reasoningModelChoiceRaw) ?? .default
+    }
+
+    /// True when a model is loaded and the user has picked a different one.
+    private var needsReload: Bool {
+        guard let loaded = loadedModelID else { return false }
+        return loaded != selectedReasoningModel.huggingFaceID
+    }
+
+    private var loadButtonLabel: String {
+        if isLoadingModel { return "Loading…" }
+        if needsReload { return "Switch Model" }
+        return "Load Model"
+    }
 
     private var reasoningModelSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("DeepSeek-R1 14B (4-bit)")
-                        .font(AppTypography.cardTitle)
-                    Text("Chain-of-thought reasoning for genealogical analysis")
-                        .font(AppTypography.cardMeta)
-                        .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("Model", selection: $reasoningModelChoiceRaw) {
+                ForEach(ReasoningModel.allCases) { model in
+                    Text(model.displayName).tag(model.rawValue)
                 }
-                Spacer()
+            }
+            .pickerStyle(.menu)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(selectedReasoningModel.subtitle)
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                Text(String(format: "≈ %.1f GB memory · first load downloads from Hugging Face", selectedReasoningModel.memoryEstimateGB))
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.tertiary)
+            }
+
+            if isLoadingModel {
+                VStack(alignment: .leading, spacing: 4) {
+                    ProgressView(value: loadProgress)
+                        .progressViewStyle(.linear)
+                    HStack {
+                        Text("\(Int(loadProgress * 100))% reported")
+                            .monospacedDigit()
+                        Spacer()
+                        Text("\(Self.formatGB(onDiskBytes)) / \(String(format: "%.1f", selectedReasoningModel.memoryEstimateGB)) GB on disk")
+                            .monospacedDigit()
+                    }
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.tertiary)
+                }
+            }
+
+            HStack {
                 Text(modelStatus)
                     .font(AppTypography.badge)
                     .foregroundStyle(modelStatus == "Ready" ? .green : .secondary)
-            }
-
-            HStack(spacing: 12) {
-                Button(isLoadingModel ? "Loading..." : "Load Model") {
+                Spacer()
+                Button(loadButtonLabel) {
                     isLoadingModel = true
-                    modelStatus = "Loading..."
+                    loadProgress = 0
+                    modelStatus = "Loading…"
+                    let chosen = selectedReasoningModel
                     Task {
                         do {
-                            try await LocalInferenceService.shared.loadModel()
+                            if needsReload {
+                                await LocalInferenceService.shared.unload()
+                            }
+                            try await LocalInferenceService.shared.loadModel(
+                                configuration: chosen.configuration,
+                                onProgress: { fraction in
+                                    Task { @MainActor in
+                                        loadProgress = fraction
+                                    }
+                                }
+                            )
+                            loadedModelID = chosen.huggingFaceID
                             modelStatus = "Ready"
                         } catch {
                             modelStatus = "Error: \(error.localizedDescription)"
@@ -403,17 +463,98 @@ struct SettingsPlaceholderView: View {
                 Button("Unload") {
                     Task {
                         await LocalInferenceService.shared.unload()
+                        loadedModelID = nil
                         modelStatus = "Not loaded"
+                        onDiskBytes = LocalInferenceService.shared.onDiskBytes(for: selectedReasoningModel)
                     }
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)
+                .disabled(isLoadingModel || loadedModelID == nil)
             }
 
-            Text("Requires ~7 GB memory. First load downloads the model from Hugging Face.")
-                .font(AppTypography.badge)
-                .foregroundStyle(.tertiary)
+            // Escape hatch: power users who already have the model on disk
+            // (e.g. from Python tooling at `~/.cache/huggingface/hub/…`) can
+            // copy files into the sandbox in one shot instead of paying the
+            // re-download tax. Sandboxed app needs the user to grant access
+            // via folder picker.
+            HStack {
+                Button(isSeeding ? "Seeding…" : "Seed from existing download…") {
+                    showSeedPicker = true
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                .disabled(isLoadingModel || isSeeding)
+                if let seedStatus {
+                    Text(seedStatus)
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.tertiary)
+                }
+            }
         }
+        .task {
+            loadedModelID = await LocalInferenceService.shared.currentModelID
+            if loadedModelID != nil {
+                modelStatus = "Ready"
+            }
+            onDiskBytes = LocalInferenceService.shared.onDiskBytes(for: selectedReasoningModel)
+        }
+        .task(id: isLoadingModel) {
+            guard isLoadingModel else { return }
+            while !Task.isCancelled && isLoadingModel {
+                onDiskBytes = LocalInferenceService.shared.onDiskBytes(for: selectedReasoningModel)
+                try? await Task.sleep(for: .seconds(1))
+            }
+            // Final read once load completes so the "on disk" line settles.
+            onDiskBytes = LocalInferenceService.shared.onDiskBytes(for: selectedReasoningModel)
+        }
+        .onChange(of: reasoningModelChoiceRaw) { _, _ in
+            onDiskBytes = LocalInferenceService.shared.onDiskBytes(for: selectedReasoningModel)
+            seedStatus = nil
+        }
+        .fileImporter(
+            isPresented: $showSeedPicker,
+            allowedContentTypes: [.folder]
+        ) { result in
+            handleSeedPickerResult(result)
+        }
+    }
+
+    private func handleSeedPickerResult(_ result: Result<URL, Error>) {
+        switch result {
+        case .failure(let error):
+            seedStatus = "Picker failed: \(error.localizedDescription)"
+        case .success(let url):
+            isSeeding = true
+            seedStatus = "Copying files…"
+            let chosen = selectedReasoningModel
+            Task.detached(priority: .userInitiated) {
+                let didAccess = url.startAccessingSecurityScopedResource()
+                defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                do {
+                    let copied = try LocalInferenceService.shared.seedFromExternalDirectory(
+                        source: url, for: chosen
+                    )
+                    let bytes = LocalInferenceService.shared.onDiskBytes(for: chosen)
+                    await MainActor.run {
+                        seedStatus = "Copied \(copied) file(s) · \(Self.formatGB(bytes)) GB on disk"
+                        onDiskBytes = bytes
+                        isSeeding = false
+                    }
+                } catch {
+                    await MainActor.run {
+                        seedStatus = "Seed failed: \(error.localizedDescription)"
+                        isSeeding = false
+                    }
+                }
+            }
+        }
+    }
+
+    /// Formats a byte count as "X.X" (in GB, 1 decimal place). Used by both
+    /// the live progress line and the seed status message.
+    private static func formatGB(_ bytes: Int64) -> String {
+        String(format: "%.1f", Double(bytes) / 1_000_000_000.0)
     }
 
 }

@@ -196,6 +196,7 @@ struct MainView: View {
                 researchVM.appDatabase = appState.currentDatabase
                 researchVM.selectedMode = request.mode
                 researchVM.selectedScope = request.scope
+                researchVM.runProseExtraction = request.runProseExtraction
                 await researchVM.startResearch(
                     profile: profile,
                     snapshot: appState.snapshot,
@@ -206,13 +207,20 @@ struct MainView: View {
             researchVM.currentResearchTask = task
         }
         .sheet(isPresented: $showResearchProgress) {
-            ResearchProgressSheet(vm: researchVM) {
-                showResearchProgress = false
-                // Hand the user off to the Triage tab so they can act on
-                // any clusters / leads the run produced (or watch it finish
-                // if they closed early while it was still running).
-                selectedTab = .triage
-            }
+            ResearchProgressSheet(
+                vm: researchVM,
+                onDismiss: {
+                    showResearchProgress = false
+                    // Hand the user off to the Triage tab so they can act on
+                    // any clusters / leads the run produced (or watch it finish
+                    // if they closed early while it was still running).
+                    selectedTab = .triage
+                },
+                onOpenSettings: {
+                    showResearchProgress = false
+                    selectedTab = .settings
+                }
+            )
         }
         .sheet(isPresented: .init(
             get: { appState.pendingDiff != nil },

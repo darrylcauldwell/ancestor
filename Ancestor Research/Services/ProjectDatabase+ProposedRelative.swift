@@ -44,6 +44,105 @@ nonisolated extension ProjectDatabase {
         return ghostID
     }
 
+    /// Slice 11 — spouse edge materialization.
+    ///
+    /// Given a subject whose father AND mother are both linked in the
+    /// tree, and a supported `.parentMarriage` hypothesis matching
+    /// their surname pair, create the `spouse` relationship between
+    /// the two parent profiles with `marriage_date_original` and
+    /// `marriage_location` taken from the cited marriage record(s).
+    ///
+    /// Idempotent: if a spouse relationship between the two parents
+    /// already exists, no-op. Returns the new Relationship's UUID when
+    /// a fresh edge was created, nil otherwise.
+    ///
+    /// Per-spec: the marriage record is one of the cited groom-side /
+    /// bride-side BMD entries from `.parentMarriage.supportingEvidence`.
+    /// "DEC 1911" / "Belper" come straight from the matched record's
+    /// `quarter` + `year` + `district` fields.
+    @discardableResult
+    func ensureSpouseEdgeForParents(
+        ofSubject subjectID: String,
+        hypotheses: [ResearchHypothesis],
+        scoredRecords: [ScoredRecord],
+        snapshot: FamilyGraphSnapshot
+    ) throws -> UUID? {
+        let parents = snapshot.parentsOf(subjectID)
+        guard let father = parents.first(where: { $0.gender == .male }),
+              let mother = parents.first(where: { $0.gender == .female })
+        else { return nil }
+
+        // Find the supported parentMarriage matching this pair.
+        let fatherSurname = (father.lastName ?? "")
+            .trimmingCharacters(in: .whitespaces).uppercased()
+        let motherSurname = (mother.lastName ?? "")
+            .trimmingCharacters(in: .whitespaces).uppercased()
+        guard !fatherSurname.isEmpty, !motherSurname.isEmpty else { return nil }
+
+        let marriage = hypotheses.first { h in
+            guard h.isDeterministicallySupported,
+                  case .parentMarriage(let m, let f, _) = h.kind
+            else { return false }
+            return m.uppercased() == motherSurname
+                && f.uppercased() == fatherSurname
+        }
+        guard let parentMarriage = marriage else { return nil }
+
+        // Already wired?
+        let existingSpouse = snapshot.relationships.first { r in
+            r.type == .spouse &&
+            ((r.from == father.id && r.to == mother.id) ||
+             (r.from == mother.id && r.to == father.id))
+        }
+        if existingSpouse != nil { return nil }
+
+        // Extract marriage date + location from the first cited record
+        // that carries a year and district. The two BMD-side entries
+        // (groom + bride) carry identical (year, quarter, district), so
+        // first-with-data wins.
+        let recordByID = Dictionary(uniqueKeysWithValues: scoredRecords.map { ($0.id, $0) })
+        var marriageYear: Int?
+        var marriageQuarter: String?
+        var marriageDistrict: String?
+        for evidenceID in parentMarriage.supportingEvidence {
+            guard let scored = recordByID[evidenceID],
+                  case .marriage(let m) = scored.record else { continue }
+            if marriageYear == nil { marriageYear = m.marriageYear }
+            if marriageQuarter == nil,
+               let q = m.quarter, !q.isEmpty { marriageQuarter = q }
+            if marriageDistrict == nil,
+               let d = m.district, !d.isEmpty { marriageDistrict = d }
+            if marriageYear != nil && marriageQuarter != nil && marriageDistrict != nil {
+                break
+            }
+        }
+        guard let year = marriageYear else { return nil }
+
+        // "DEC 1911" / "1911" — match the existing date-string
+        // convention used elsewhere in the tree.
+        let dateString: String = {
+            if let quarter = marriageQuarter, !quarter.isEmpty {
+                return "\(quarter.uppercased()) \(year)"
+            }
+            return "\(year)"
+        }()
+        let marriageDate = GenealogicalDate(parsing: dateString)
+
+        // Spouse edge convention in this codebase: relationship.from is
+        // the husband (father), .to is the wife (mother). Mirrors the
+        // existing edges produced by GEDCOM import and WikiTree sync.
+        let edge = Relationship(
+            id: UUID(),
+            from: father.id, to: mother.id,
+            type: .spouse, role: nil, subtype: .biological,
+            marriageDate: marriageDate,
+            marriageLocation: marriageDistrict,
+            divorceDate: nil
+        )
+        _ = try addRelationship(edge)
+        return edge.id
+    }
+
     /// Construct the ghost Profile that backs an accepted proposal. Mirrors
     /// the legacy private helper that previously lived in `ResearchViewModel`.
     static func makeGhostProfile(id: String, from proposal: ProposedRelative) -> Profile {

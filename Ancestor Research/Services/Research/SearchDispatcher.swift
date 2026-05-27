@@ -59,6 +59,33 @@ struct SearchDispatcher {
         }
     }
 
+    /// Slice 13a — dispatch a single `FocusedQuery` to one source.
+    /// Used by the Level-2 query strategist (between-iteration MLX
+    /// suggestion). Bypasses the strictness ladder and the multi-
+    /// source fan-out — the strategist's responsibility is to be
+    /// surgical, so we honour exactly what it asked for.
+    ///
+    /// Falls back gracefully:
+    ///   • Returns `[]` when no source matches `focused.sourceID` in
+    ///     the registry — the strategist may have proposed a source
+    ///     that's not enabled, or its sourceID didn't parse cleanly
+    ///     from the model output.
+    ///   • Returns `[]` when the source can't cover the requested
+    ///     year window (coverageYearRange check, same as `dispatch`).
+    ///
+    /// The dispatched query is logged into `searchHistory` by the
+    /// pipeline so the audit trail includes both the focused query
+    /// and the strategist's `rationale` string.
+    func dispatchOne(focused: FocusedQuery, cache: QueryCache? = nil) async -> [SourceRecord] {
+        guard let source = registry.allSources().first(where: { $0.sourceID == focused.sourceID }) else {
+            return []
+        }
+        let yearRange: (from: Int?, to: Int?) = (focused.yearFrom, focused.yearTo)
+        guard sourceCovers(source, yearRange: yearRange) else { return [] }
+        let query = focused.toRecordQuery()
+        return await QueryCache.wrappedSearch(source: source, query: query, cache: cache)
+    }
+
     /// Walk the strictness ladder for one source. For non-`.all` modes, stop
     /// at the first tier that returns non-empty results. For `.all`, run every
     /// tier and let the outer deduplication collapse overlap.

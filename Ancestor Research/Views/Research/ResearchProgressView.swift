@@ -4,7 +4,14 @@ import SwiftUI
 /// Shows source status cards, iteration progress, and result counts.
 struct ResearchProgressView: View {
     @Bindable var vm: ResearchViewModel
-    @State private var elapsedSeconds: Int = 0
+    @State private var clockTick: Int = 0  // forces 1-Hz re-render of dev clocks
+
+    /// Per-phase latency budgets used by the dev-build dual-clock display.
+    /// Iteration loop is bounded ~5 min; the optional prose-extraction
+    /// phase runs MLX inference over 5+ multi-thousand-token pages and
+    /// realistically takes 20+ minutes on Qwen 2.5 14B.
+    private static let iterationBudgetSeconds: Int = 300
+    private static let proseBudgetSeconds: Int = 1200
 
     var body: some View {
         VStack(spacing: 24) {
@@ -23,13 +30,8 @@ struct ResearchProgressView: View {
                         .foregroundStyle(.secondary)
 
                     #if DEBUG
-                    // 5-minute clock — visible in dev builds per §6.1
-                    let minutes = elapsedSeconds / 60
-                    let seconds = elapsedSeconds % 60
-                    Text(String(format: "%d:%02d / 5:00", minutes, seconds))
-                        .font(AppTypography.cardMeta)
-                        .monospacedDigit()
-                        .foregroundStyle(elapsedSeconds > 300 ? .red : .secondary)
+                    phaseClocks
+                        .id(clockTick)  // re-evaluate on each tick
                     #endif
                 }
             }
@@ -115,22 +117,71 @@ struct ResearchProgressView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
         #if DEBUG
-        // Drive the 5-minute soft-deadline clock. Starts when the view
-        // appears, stops when it goes away (or when research completes —
-        // we leave the final reading visible after isResearching flips).
+        // Drive the dual-phase clocks. Ticks once per second while the
+        // run is active; each tick bumps `clockTick`, which the clocks'
+        // `.id(clockTick)` modifier observes to recompute their elapsed
+        // durations from `vm.iterationPhaseStart` and `vm.prosePhaseStart`.
+        // Single timer feeds both clocks so they stay in lockstep.
         .task(id: vm.isResearching) {
             if vm.isResearching {
-                elapsedSeconds = 0
+                clockTick = 0
                 while !Task.isCancelled && vm.isResearching {
                     try? await Task.sleep(for: .seconds(1))
                     if !Task.isCancelled && vm.isResearching {
-                        elapsedSeconds += 1
+                        clockTick &+= 1
                     }
                 }
             }
         }
         #endif
     }
+
+    #if DEBUG
+    /// Dual-phase soft-deadline clocks visible in dev builds. Iteration
+    /// loop has its own budget (~5 min); prose extraction (Discover/All
+    /// only) has a separate ~20 min budget so the user can tell
+    /// at a glance which phase is over time, rather than seeing one
+    /// combined clock that's red whenever prose extraction runs.
+    @ViewBuilder
+    private var phaseClocks: some View {
+        VStack(spacing: 2) {
+            if let start = vm.iterationPhaseStart {
+                let end = vm.iterationPhaseEnd ?? Date()
+                let elapsed = Int(end.timeIntervalSince(start))
+                clockRow(
+                    label: "Iter",
+                    elapsed: elapsed,
+                    budget: Self.iterationBudgetSeconds
+                )
+            }
+            if let start = vm.prosePhaseStart {
+                let end = vm.prosePhaseEnd ?? Date()
+                let elapsed = Int(end.timeIntervalSince(start))
+                clockRow(
+                    label: "Prose",
+                    elapsed: elapsed,
+                    budget: Self.proseBudgetSeconds
+                )
+            }
+        }
+    }
+
+    private func clockRow(label: String, elapsed: Int, budget: Int) -> some View {
+        let minutes = elapsed / 60
+        let seconds = elapsed % 60
+        let budgetMinutes = budget / 60
+        let budgetSeconds = budget % 60
+        return Text(
+            String(
+                format: "%@ %d:%02d / %d:%02d",
+                label, minutes, seconds, budgetMinutes, budgetSeconds
+            )
+        )
+        .font(AppTypography.cardMeta)
+        .monospacedDigit()
+        .foregroundStyle(elapsed > budget ? .red : .secondary)
+    }
+    #endif
 
     private func sourceStatusCard(_ status: ResearchViewModel.SourceStatus) -> some View {
         HStack(spacing: 8) {

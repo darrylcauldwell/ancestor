@@ -556,7 +556,25 @@ nonisolated struct RecordScorer {
             if county.lowercased().contains("derby") {
                 return GateResult(gate: .geography, outcome: .pass, reason: "Derbyshire")
             }
+            // Slice 8 — parish-level lookup. A census record reporting
+            // birthplace "Windley" or "Mugginton" doesn't contain the
+            // word "Derbyshire" verbatim, but maps via the parishes-
+            // catalogue to Belper district → local. Without this check
+            // such records soft-fail at the geography gate and clutter
+            // Triage with leads that should have promoted to facts. Try
+            // the first place-name token (most specific) and the full
+            // string to handle both "Windley" and "Windley, Derbyshire".
             if !county.isEmpty {
+                let primaryToken = county
+                    .split(separator: ",", maxSplits: 1, omittingEmptySubsequences: true)
+                    .first
+                    .map { String($0).trimmingCharacters(in: .whitespaces) } ?? county
+                if ScoringRules.isLocalParish(primaryToken, forHomeChapman: subject.homeChapmanCode) {
+                    return GateResult(
+                        gate: .geography, outcome: .pass,
+                        reason: "parish \(primaryToken) is in research-area district"
+                    )
+                }
                 return GateResult(gate: .geography, outcome: .softFail, reason: "location: \(String(county.prefix(50)))")
             }
             // No location data on the record. For UK Probate Calendar
@@ -680,17 +698,84 @@ nonisolated struct RecordScorer {
         }
 
         // Marriage record — check spouse name match
-        if case .marriage(let marriage) = record, let spouseName = marriage.spouseName {
-            if let knownSpouse = context.spouseName {
-                if ScoringRules.nameSimilarity(spouseName.uppercased(), knownSpouse.uppercased()) >= 0.7 {
-                    return GateResult(gate: .familyContext, outcome: .pass, reason: "spouse matches: \(spouseName)")
+        if case .marriage(let marriage) = record {
+            if let spouseName = marriage.spouseName {
+                if let knownSpouse = context.spouseName {
+                    if ScoringRules.nameSimilarity(spouseName.uppercased(), knownSpouse.uppercased()) >= 0.7 {
+                        return GateResult(gate: .familyContext, outcome: .pass, reason: "spouse matches: \(spouseName)")
+                    }
+                }
+                if let knownSurname = context.spouseSurname {
+                    let parts = spouseName.uppercased().split(separator: " ")
+                    if let recordSurname = parts.last, ScoringRules.nameSimilarity(String(recordSurname), knownSurname.uppercased()) >= 0.7 {
+                        return GateResult(gate: .familyContext, outcome: .pass, reason: "spouse surname matches: \(recordSurname)")
+                    }
                 }
             }
-            if let knownSurname = context.spouseSurname {
-                let parts = spouseName.uppercased().split(separator: " ")
-                if let recordSurname = parts.last, ScoringRules.nameSimilarity(String(recordSurname), knownSurname.uppercased()) >= 0.7 {
-                    return GateResult(gate: .familyContext, outcome: .pass, reason: "spouse surname matches: \(recordSurname)")
+            // Same-page partner inference: fires when `spouseName` is nil
+            // (pre-Sep-1912 marriages, where FreeBMD's spouse column was
+            // not yet recorded) or didn't match above. The pipeline's
+            // same-page pairing pass populates `partnerSurnameFromSamePage`
+            // from a separately-fetched spouse-side entry at the same
+            // (vol, page) — deterministic identification of the marriage's
+            // other party. Compare against both the recorded spouse surname
+            // and the spouse's maiden form (for inverted-import cases where
+            // the wife's lastName carries her married surname).
+            if let inferred = marriage.partnerSurnameFromSamePage?
+                .trimmingCharacters(in: .whitespaces), !inferred.isEmpty {
+                let inferredUpper = inferred.uppercased()
+                let knownSurnames: [String] = [
+                    context.spouseSurname,
+                    context.spouseFatherSurname
+                ]
+                .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                for known in knownSurnames {
+                    if ScoringRules.nameSimilarity(inferredUpper, known.uppercased()) >= 0.7 {
+                        let ref = [marriage.volume, marriage.page]
+                            .compactMap { $0 }
+                            .joined(separator: "/")
+                        let location = ref.isEmpty ? "" : " at \(ref)"
+                        return GateResult(
+                            gate: .familyContext, outcome: .pass,
+                            reason: "partner surname inferred from same-page entry\(location): \(inferred) matches known \(known)"
+                        )
+                    }
                 }
+            }
+        }
+
+        // Slice 9 — validate-enrichment-parents.
+        // Mirrors Python `validate_enrichment_parents` (`agent/rules.py:525`).
+        // When a record carries the mother's maiden surname AND the subject
+        // has a linked mother on the tree (so `familyContext.motherSurname`
+        // is populated), compare them. A mismatch — record claims MMN=Smith
+        // but linked mother is Land — is the classic wrong-person
+        // enrichment signature. Soft-fail rather than fail; the user can
+        // still review and override if the linked mother turns out to be
+        // wrong, but the record won't silently auto-promote to a fact.
+        if let recordMMN: String = {
+            switch record {
+            case .birth(let r): return r.mothersMaidenName
+            default: return nil
+            }
+        }(),
+           !recordMMN.trimmingCharacters(in: .whitespaces).isEmpty,
+           let knownMotherSurname = context.motherSurname,
+           !knownMotherSurname.trimmingCharacters(in: .whitespaces).isEmpty {
+            let rec = recordMMN.trimmingCharacters(in: .whitespaces).uppercased()
+            let known = knownMotherSurname.trimmingCharacters(in: .whitespaces).uppercased()
+            let similarity = ScoringRules.nameSimilarity(rec, known)
+            if similarity >= 0.7 {
+                return GateResult(
+                    gate: .familyContext, outcome: .pass,
+                    reason: "MMN \(recordMMN) matches linked mother \(knownMotherSurname)"
+                )
+            } else {
+                return GateResult(
+                    gate: .familyContext, outcome: .softFail,
+                    reason: "record MMN \(recordMMN) conflicts with linked mother surname \(knownMotherSurname) — possible wrong-person enrichment"
+                )
             }
         }
 

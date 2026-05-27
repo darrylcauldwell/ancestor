@@ -144,6 +144,28 @@ nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
     /// grader runs SiblingInferenceEngine.
     case siblingExists(district: String, mmn: String, yearWindow: ClosedRange<Int>)
 
+    /// "The thin placeholder subject's marriage exists in this year
+    /// window, with this groom × bride surname pair — pin it to recover
+    /// the subject's given name." See RESEARCH_PIPELINE_SPEC §5.14.
+    ///
+    /// **BMD role labelling (slice 5).** The payload stores the BMD
+    /// index's natural marriage shape: groomSurname = the man's surname
+    /// (matches `child.lastName` under the standard paternal-naming
+    /// convention); brideSurname = the woman's MAIDEN surname (matches
+    /// `child.mothersMaidenName`). The hypothesis IS the marriage; the
+    /// subject's role (groom or bride) is decided by the gender ladder
+    /// at write-back time. This shape correctly handles:
+    ///   • male father subject (groomSurname == subject.surname)
+    ///   • female mother subject stored under MAIDEN (brideSurname == subject.surname)
+    ///   • female mother subject stored under MARRIED — WikiTree convention
+    ///     (groomSurname == subject.surname, but the bride IS the subject
+    ///     because BMD indexes wives under maiden, not married)
+    ///
+    /// Generator emits one hypothesis per distinct (groom, bride) pair
+    /// across linked children (Q3 — same-MMN children collapse; Q4 —
+    /// different-MMN children seed separate hypotheses).
+    case subjectSpouseMarriage(groomSurname: String, brideSurname: String, childYearWindow: ClosedRange<Int>)
+
     /// "This life cluster is the subject." T7's working hypothesis for
     /// lead-only clusters; user-facing via §5.11.
     case clusterIsSubject(clusterID: UUID)
@@ -160,13 +182,14 @@ nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
     /// across builds (used as the `kind_discriminator` column value).
     var discriminator: String {
         switch self {
-        case .subjectIdentity:  return "subjectIdentity"
-        case .parentMarriage:   return "parentMarriage"
-        case .parentInferred:   return "parentInferred"
-        case .siblingExists:    return "siblingExists"
-        case .clusterIsSubject: return "clusterIsSubject"
-        case .burialAtParish:   return "burialAtParish"
-        case .secondMarriage:   return "secondMarriage"
+        case .subjectIdentity:        return "subjectIdentity"
+        case .parentMarriage:         return "parentMarriage"
+        case .parentInferred:         return "parentInferred"
+        case .siblingExists:          return "siblingExists"
+        case .subjectSpouseMarriage:  return "subjectSpouseMarriage"
+        case .clusterIsSubject:       return "clusterIsSubject"
+        case .burialAtParish:         return "burialAtParish"
+        case .secondMarriage:         return "secondMarriage"
         }
     }
 
@@ -185,6 +208,8 @@ nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
             return "parentInferred:\(subject):\(gender.rawValue):\(surname.uppercased())"
         case .siblingExists(let district, let mmn, let window):
             return "siblingExists:\(subject):\(district.uppercased()):\(mmn.uppercased()):\(window.lowerBound)-\(window.upperBound)"
+        case .subjectSpouseMarriage(let groomSurname, let brideSurname, let window):
+            return "subjectSpouseMarriage:\(subject):\(groomSurname.uppercased())x\(brideSurname.uppercased()):\(window.lowerBound)-\(window.upperBound)"
         case .clusterIsSubject(let clusterID):
             return "clusterIsSubject:\(subject):\(clusterID.uuidString)"
         case .burialAtParish(let parish, let window):

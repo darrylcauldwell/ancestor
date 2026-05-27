@@ -53,7 +53,28 @@ nonisolated enum ProposalDedup {
             !c.isDeleted && normalised(c.lastName) == querySurname
         }
 
-        let matched: [String] = surnameMatches.compactMap { c in
+        // Slice 10 — strong-beats-weak match collection.
+        //
+        // **Strong** matches: both query and candidate carry a given
+        // name AND those given names agree. Exact identity signal.
+        //
+        // **Weak** matches: asymmetric (one side has a given name, the
+        // other doesn't) OR both surname-only. Lower-confidence signal —
+        // a surname-only parent placeholder matches every same-surname
+        // sibling query asymmetrically, which historically cascaded into
+        // duplicates (Hilda Brooks × 4 case).
+        //
+        // Strong-beats-weak rule: when ANY strong match exists, the
+        // decision uses ONLY the strong set. The placeholder no longer
+        // inflates the matched count alongside a real same-name ghost,
+        // so the second accept of a named sibling collapses to
+        // `.matched(existing)` instead of cascading via
+        // `.multipleMatches`. The weak set still drives decisions in
+        // the pure surname-only-on-both-sides case (parent inference
+        // dedup against an existing surname-only ghost).
+        var strongMatches: [String] = []
+        var weakMatches: [String] = []
+        for c in surnameMatches {
             let candGiven = normalised(c.firstName)
             let candHasGiven = !candGiven.isEmpty
             let candEarliest = c.birthDate?.earliest
@@ -62,16 +83,22 @@ nonisolated enum ProposalDedup {
             guard yearWindowsOverlap(
                 aEarliest: query.birthYearEarliest, aLatest: query.birthYearLatest,
                 bEarliest: candEarliest, bLatest: candLatest
-            ) else { return nil }
+            ) else { continue }
 
             if queryHasGiven && candHasGiven {
-                // Strict: both have given names → must match exactly.
-                return queryGiven == candGiven ? c.id : nil
+                if queryGiven == candGiven {
+                    strongMatches.append(c.id)
+                }
+                // queryGiven != candGiven → not a match at all (e.g.
+                // Hilda vs Lilian Brooks — same surname, different person).
+            } else {
+                // Asymmetric (one side missing given) or both
+                // surname-only → weak.
+                weakMatches.append(c.id)
             }
-            // Asymmetric or both-surname-only: surname + year overlap
-            // is the whole match signal.
-            return c.id
         }
+
+        let matched: [String] = strongMatches.isEmpty ? weakMatches : strongMatches
 
         switch matched.count {
         case 0: return .noMatch

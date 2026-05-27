@@ -58,6 +58,41 @@ nonisolated struct MarriageRecord: Codable, Sendable {
     let volume: String?
     let page: String?
     let spouseName: String?
+    /// Partner's surname recovered by pairing this record with a same-page
+    /// entry indexed under the spouse's surname. Pre-Sep-1912 FreeBMD
+    /// marriage entries lack the spouse-surname column entirely (`spouseName`
+    /// is nil); the two sides of one marriage are registered on the same
+    /// (volume, page), so a separately-fetched spouse-side query lets us
+    /// recover the partner deterministically. The pipeline's same-page
+    /// pairing pass is the only writer; sources default to nil.
+    let partnerSurnameFromSamePage: String?
+
+    /// Custom init so `partnerSurnameFromSamePage` can default to nil
+    /// without forcing every existing source/test constructor to pass it.
+    /// Same pattern as `RecordQuery.init`.
+    init(
+        common: RecordCommon,
+        marriageYear: Int?,
+        marriageDate: String?,
+        marriagePlace: String?,
+        quarter: String?,
+        district: String?,
+        volume: String?,
+        page: String?,
+        spouseName: String?,
+        partnerSurnameFromSamePage: String? = nil
+    ) {
+        self.common = common
+        self.marriageYear = marriageYear
+        self.marriageDate = marriageDate
+        self.marriagePlace = marriagePlace
+        self.quarter = quarter
+        self.district = district
+        self.volume = volume
+        self.page = page
+        self.spouseName = spouseName
+        self.partnerSurnameFromSamePage = partnerSurnameFromSamePage
+    }
 }
 
 nonisolated struct CensusRecord: Codable, Sendable {

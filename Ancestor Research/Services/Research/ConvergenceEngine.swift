@@ -47,8 +47,36 @@ nonisolated struct ConvergenceEngine {
         default: baseLevel = .singleSource
         }
 
+        // Slice 7: surname-rarity demotion. Common-surname matches need
+        // more corroboration than the baseline because the signal-to-
+        // noise ratio is genuinely lower — many people are called Smith,
+        // so 3 lineages agreeing on "Smith Belper 1885" carry less
+        // identifying weight than 3 lineages agreeing on "Cauldwell
+        // Belper 1885". Demote one level for common surnames.
+        let surnames = records.compactMap { $0.common.surname }
+        let rarity = SurnameRarityRegistry.predominantRarity(among: surnames)
+        let rarityAdjusted = applyRarityDemotion(baseLevel, rarity: rarity)
+
         // Evidence directness cap
-        return adjustForDirectness(base: baseLevel, records: records, sourceInfoMap: sourceInfoMap)
+        return adjustForDirectness(base: rarityAdjusted, records: records, sourceInfoMap: sourceInfoMap)
+    }
+
+    /// Demote one convergence level when the predominant surname is in
+    /// the top-100 common-surname tier. Floor at `.singleSource` —
+    /// rarity never makes a multi-record set look worse than a
+    /// single-source claim.
+    private static func applyRarityDemotion(
+        _ base: ConvergenceLevel,
+        rarity: SurnameRarity
+    ) -> ConvergenceLevel {
+        guard rarity == .common else { return base }
+        switch base {
+        case .confirmed:    return .probable
+        case .probable:     return .possible
+        case .possible:     return .singleSource
+        case .singleSource, .uncorroborated:
+            return base
+        }
     }
 
     /// Produce a `SourcingStrength` summary for a set of source records.

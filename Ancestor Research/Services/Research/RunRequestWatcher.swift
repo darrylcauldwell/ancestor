@@ -176,7 +176,9 @@ final class RunRequestWatcher {
         let pipeline = ResearchPipeline(
             dispatcher: dispatcher,
             snapshot: appState.snapshot,
-            sourceInfoMap: sourceInfoMap
+            sourceInfoMap: sourceInfoMap,
+            childEvidenceMMNLookup: ResearchPipeline.makeChildEvidenceMMNLookup(database: db),
+            pendingFactWriter: ResearchPipeline.makePendingFactWriter(database: db)
         )
 
         // Diagnostic dispatch log — subscribe to the activity bus

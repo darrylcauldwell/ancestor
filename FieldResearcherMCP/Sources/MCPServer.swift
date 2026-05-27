@@ -418,6 +418,17 @@ actor MCPHandler {
                     ],
                     required: ["run_id"]
                 ),
+                tool(
+                    name: "get_scored_records",
+                    description: "Return the per-record verdict and 4-gate breakdown (name / date / geography / family) for records the pipeline scored for a profile. Useful when get_profile's aggregate counts aren't enough — e.g. \"which gate held this marriage back from .fact?\". Joins scored_records with research_records so the salient identifying fields (year, district, vol/page, surname, plus marriage-specific partnerSurnameFromSamePage) come back alongside the gates.",
+                    properties: [
+                        "profile_id": ["type": "string", "description": "Profile ID to look up scored records for"],
+                        "record_type": ["type": "string", "description": "Optional filter: birth | death | marriage | census | burial | military | probate | parish | pedigree"],
+                        "verdict": ["type": "string", "description": "Optional filter: fact | lead | impossible"],
+                        "limit": ["type": "integer", "description": "Max rows (default 50, max 500). Newest scored first."],
+                    ],
+                    required: ["profile_id"]
+                ),
                 // Auto-approval — see AncestorApp/AUTO_APPROVAL_VIA_MCP_SPEC.md.
                 // Rules' authority extends to commit when the gate evaluator
                 // says unambiguous; ambiguous facts still go to human review.
@@ -492,6 +503,8 @@ actor MCPHandler {
             return try getRunStatus(arguments)
         case "get_research_result":
             return try getResearchResult(arguments)
+        case "get_scored_records":
+            return try getScoredRecords(arguments)
         case "approve_pending_fact":
             return try approvePendingFact(arguments)
         case "inspect_approval_decision":
@@ -1550,6 +1563,121 @@ actor MCPHandler {
         return ["content": [["type": "text", "text": text]]]
     }
 
+    /// Per-record verdict + 4-gate breakdown for everything the scorer
+    /// touched on a profile. The aggregate counts on `get_profile` /
+    /// `research_runs` tell you "458 scored → 0 facts" but never which
+    /// gate held a specific record back; this surfaces that.
+    ///
+    /// Joins `scored_records` to `research_records` so the caller gets
+    /// the salient identifying fields back in one round-trip. For
+    /// marriages, the `marriage` block surfaces `partnerSurnameFromSamePage`
+    /// alongside vol/page so same-page-couple debugging is trivial.
+    ///
+    /// `record_type` and `verdict` are optional server-side filters; the
+    /// limit clamps to [1, 500] (default 50). Rows return newest-first.
+    func getScoredRecords(_ args: [String: Any]) throws -> [String: Any] {
+        guard let profileID = args["profile_id"] as? String, !profileID.isEmpty else {
+            throw MCPError.invalidParams("get_scored_records requires profile_id")
+        }
+        let typeFilter = (args["record_type"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let verdictFilter = (args["verdict"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let limit = max(1, min((args["limit"] as? Int) ?? 50, 500))
+
+        let json: String = try db.read { db in
+            var sql = """
+                SELECT sr.id AS scored_id,
+                       sr.verdict AS verdict,
+                       sr.gate_name, sr.gate_date, sr.gate_geography, sr.gate_family,
+                       sr.summary AS summary,
+                       sr.scored_at AS scored_at,
+                       rr.record_type AS record_type,
+                       rr.source_id AS source_id,
+                       rr.raw_json AS raw_json,
+                       rr.citation_short AS citation_short,
+                       rr.citation_url AS citation_url
+                FROM scored_records sr
+                LEFT JOIN research_records rr ON rr.id = sr.source_record_id
+                WHERE sr.profile_id = ?
+                """
+            var arguments: [DatabaseValueConvertible] = [profileID]
+            if let t = typeFilter {
+                sql += " AND rr.record_type = ?"
+                arguments.append(t)
+            }
+            if let v = verdictFilter {
+                sql += " AND sr.verdict = ?"
+                arguments.append(v)
+            }
+            sql += " ORDER BY sr.scored_at DESC LIMIT ?"
+            arguments.append(limit)
+
+            let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(arguments))
+            let out = rows.map { Self.scoredRecordPayload(row: $0) }
+            return Self.jsonString(out)
+        }
+        return ["content": [["type": "text", "text": json]]]
+    }
+
+    /// Build the JSON payload for one scored_records ⋈ research_records row.
+    /// Defensive: research_records row can be missing (legacy data); the
+    /// gate / verdict fields still come through.
+    private static func scoredRecordPayload(row: Row) -> [String: Any] {
+        var payload: [String: Any] = [
+            "scored_record_id": row["scored_id"] as String? ?? "",
+            "verdict": row["verdict"] as String? ?? "",
+            "summary": row["summary"] as String? ?? "",
+            "gates": [
+                "name": row["gate_name"] as String? ?? "skip",
+                "date": row["gate_date"] as String? ?? "skip",
+                "geography": row["gate_geography"] as String? ?? "skip",
+                "family": row["gate_family"] as String? ?? "skip",
+            ],
+        ]
+        if let scoredAt: Date = row["scored_at"] {
+            payload["scored_at"] = ISO8601DateFormatter().string(from: scoredAt)
+        }
+        if let t: String = row["record_type"] { payload["record_type"] = t }
+        if let s: String = row["source_id"] { payload["source_id"] = s }
+        if let c: String = row["citation_short"], !c.isEmpty { payload["citation_short"] = c }
+        if let u: String = row["citation_url"], !u.isEmpty { payload["citation_url"] = u }
+
+        // Parse the raw SourceRecord JSON to surface the salient identifying
+        // fields. The on-disk shape is Swift's default Codable for the
+        // SourceRecord enum: `{ "marriage": { "common": {...}, "marriageYear": 1911, ... } }`.
+        if let rawJSON: String = row["raw_json"],
+           let data = rawJSON.data(using: .utf8),
+           let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            // Common fields (any record type)
+            for (caseKey, body) in parsed {
+                guard let body = body as? [String: Any] else { continue }
+                if let common = body["common"] as? [String: Any] {
+                    var commonOut: [String: Any] = [:]
+                    if let s = common["surname"] as? String, !s.isEmpty { commonOut["surname"] = s }
+                    if let g = common["givenName"] as? String, !g.isEmpty { commonOut["givenName"] = g }
+                    if !commonOut.isEmpty { payload["name"] = commonOut }
+                }
+                // Marriage-specific carve-out — the field that drove this tool's
+                // creation. Keep it as a structured block so callers don't have to
+                // parse it out themselves.
+                if caseKey == "marriage" {
+                    var m: [String: Any] = [:]
+                    if let y = body["marriageYear"] as? Int { m["year"] = y }
+                    if let q = body["quarter"] as? String, !q.isEmpty { m["quarter"] = q }
+                    if let d = body["district"] as? String, !d.isEmpty { m["district"] = d }
+                    if let v = body["volume"] as? String, !v.isEmpty { m["volume"] = v }
+                    if let p = body["page"] as? String, !p.isEmpty { m["page"] = p }
+                    if let s = body["spouseName"] as? String, !s.isEmpty { m["spouseName"] = s }
+                    if let pp = body["partnerSurnameFromSamePage"] as? String, !pp.isEmpty {
+                        m["partnerSurnameFromSamePage"] = pp
+                    }
+                    if !m.isEmpty { payload["marriage"] = m }
+                }
+                break  // SourceRecord has exactly one case-key
+            }
+        }
+        return payload
+    }
+
     // MARK: - Tier 1 Read Queries
 
     /// Every spouse + parent edge attached to the profile, with the other
@@ -2052,6 +2180,30 @@ actor MCPHandler {
         "occupation", "address",
     ]
 
+    /// §14.3.4 carve-out (RESEARCH_PIPELINE_SPEC §5.14.5).
+    /// Pure predicate: returns true iff the pending fact is eligible
+    /// for the SubjectSpouseMarriage-strategy fast path — fact_kind
+    /// "firstName", agent_id "subject-spouse-marriage", and the
+    /// subject's existing `first_name` is empty (recovery, not
+    /// correction). When true, `evaluateApproval` bypasses the
+    /// auto-approvable-field check and the convergence-≥2-lineages
+    /// check; other §14.3 gates still apply.
+    ///
+    /// Extracted as a static for unit testing — the live gate's profile
+    /// lookup happens inline in `evaluateApproval` so the test doesn't
+    /// need a database fixture.
+    static func isSubjectSpouseMarriageCarveOut(
+        factKind: String,
+        agentID: String,
+        existingFirstName: String?
+    ) -> Bool {
+        guard factKind == "firstName" else { return false }
+        guard agentID == "subject-spouse-marriage" else { return false }
+        let trimmed = (existingFirstName ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty
+    }
+
     /// URL hosts treated as primary or secondary trust tier. Conservative
     /// allow-list — anything off this list refuses with
     /// `trust_tier_insufficient`. Extend with care; each addition expands
@@ -2183,6 +2335,7 @@ actor MCPHandler {
             let sourceURL: String? = row["source_url"]
             let sourceTitle: String = row["source_title"] ?? ""
             let reviewStatus: String = row["review_status"] ?? "pending"
+            let agentID: String = row["agent_id"] ?? ""
 
             // Already processed (accepted/rejected) — no-op refuse.
             guard reviewStatus == "pending" else {
@@ -2192,15 +2345,41 @@ actor MCPHandler {
                 )
             }
 
-            // Auto-approvable field set.
-            guard Self.autoApprovableFields.contains(factKind) else {
-                return .refuse(
-                    reason: "field_not_auto_approvable",
-                    detail: "Field '\(factKind)' is excluded from auto-approval. Names, gender, and bio are always human-reviewed."
-                )
+            // §14.3.4 carve-out (RESEARCH_PIPELINE_SPEC §5.14.5): when
+            // the pending fact came from a `.subjectSpouseMarriage`
+            // hypothesis write-back AND the subject's `first_name` is
+            // currently empty (recovery, not correction), the gate
+            // relaxes (a) the auto-approvable field set to include
+            // `firstName`, and (b) convergence requirement (the
+            // groom-side/bride-side BMD index reference-tuple match IS
+            // the within-source convergence check). All other gates
+            // (trust tier ≥ transcription, no-dispute, hallucination)
+            // continue to apply.
+            let existingFirstName: String? = try? Row.fetchOne(
+                db, sql: "SELECT first_name FROM profiles WHERE id = ?",
+                arguments: [profileID]
+            )?["first_name"]
+            let isCarveOut = Self.isSubjectSpouseMarriageCarveOut(
+                factKind: factKind,
+                agentID: agentID,
+                existingFirstName: existingFirstName
+            )
+
+            // Auto-approvable field set — bypassed for the carve-out.
+            if !isCarveOut {
+                guard Self.autoApprovableFields.contains(factKind) else {
+                    return .refuse(
+                        reason: "field_not_auto_approvable",
+                        detail: "Field '\(factKind)' is excluded from auto-approval. Names, gender, and bio are always human-reviewed."
+                    )
+                }
             }
 
-            // Trust tier — URL host must be in the trusted list.
+            // Trust tier — URL host must be in the trusted list. The
+            // trusted-host list already includes FreeBMD (transcription
+            // tier), so the carve-out doesn't need to relax this gate;
+            // it just needs the existing list, which §5.14.5 (iii)
+            // requires.
             guard let url = sourceURL, !url.isEmpty,
                   let host = Self.urlHost(url) else {
                 return .refuse(
@@ -2249,22 +2428,32 @@ actor MCPHandler {
             // pending fact's own lineage (its URL host) counts once;
             // corroborating field_sources with distinct source titles
             // each count once more.
+            //
+            // Carve-out (§5.14.5): the BMD reference-tuple match IS the
+            // structural convergence check. When the pending fact came
+            // from a `.subjectSpouseMarriage` write-back, single-source
+            // convergence is sufficient — the agreement between
+            // groom-side and bride-side BMD index entries already
+            // cross-validated the marriage at hypothesis-grade time.
             var independentLineages = corroboratingLineages
             independentLineages.insert(host)
 
-            guard independentLineages.count >= 2 else {
-                return .refuse(
-                    reason: "convergence_insufficient",
-                    detail: "Need ≥ 2 independent lineages; found \(independentLineages.count) (\(independentLineages.sorted().joined(separator: ", "))). Pending fact must corroborate at least one existing source from a different lineage."
-                )
+            if !isCarveOut {
+                guard independentLineages.count >= 2 else {
+                    return .refuse(
+                        reason: "convergence_insufficient",
+                        detail: "Need ≥ 2 independent lineages; found \(independentLineages.count) (\(independentLineages.sorted().joined(separator: ", "))). Pending fact must corroborate at least one existing source from a different lineage."
+                    )
+                }
             }
 
             return .approve(criteria: [
-                "trustTier": "primary_or_secondary",
+                "trustTier": isCarveOut ? "transcription_via_carveout" : "primary_or_secondary",
                 "sourceHost": host,
                 "sourceTitle": sourceTitle,
                 "independentLineageCount": independentLineages.count,
                 "lineages": independentLineages.sorted(),
+                "carveOut": isCarveOut ? "subject_spouse_marriage" : NSNull(),
                 "wouldCreateDispute": false,
                 "fieldAutoApprovable": true,
                 "field": factKind,

@@ -231,4 +231,94 @@ struct MarriageEnrichmentTests {
             Issue.record("Expected unique fall-back enrichment, got \(outcome)")
         }
     }
+
+    // MARK: - Slice 6 — pre-Sep-1912 marriages have empty spouseSurname
+    //         in the BMD index (sources/freebmd.py:21). The guard must
+    //         treat empty as "no information", not "conflict", or
+    //         every Victorian-era marriage silently misses.
+
+    /// Regression: Lilian Brooks's parents married Dec 1911 Belper. The
+    /// engine had collected both sides of the BMD index — George H Brooks
+    /// (groom) and Ida L Land (bride) at the same vol/page — but the
+    /// pre-fix guard rejected both because spouseSurname was empty (BMD
+    /// didn't carry the column until Sep 1912). The fix: keep records
+    /// with empty spouseSurname; reject only NON-EMPTY conflicts.
+    @Test func pre1912EmptySpouseSurnameDoesNotReject() {
+        let groom = entry(
+            surname: "Brooks", givenName: "George H",
+            spouseSurname: "",                          // pre-Sep-1912 = empty
+            year: 1911, quarter: "Dec",
+            district: "Belper", volume: "7b", page: "1397"
+        )
+        let bride = entry(
+            surname: "Land", givenName: "Ida L",
+            spouseSurname: "",                          // pre-Sep-1912 = empty
+            year: 1911, quarter: "Dec",
+            district: "Belper", volume: "7b", page: "1397"
+        )
+        let outcome = MarriageEnrichmentEngine.match(
+            grooms: [groom], brides: [bride],
+            yearWindow: 1884...1915,
+            expectedGroomSpouseSurname: "Land",
+            expectedBrideSpouseSurname: "Brooks"
+        )
+        if case .unique(let fGiven, let mGiven, _, _) = outcome {
+            #expect(fGiven == "George H")
+            #expect(mGiven == "Ida L")
+        } else {
+            Issue.record("Expected .unique (the Brooks×Land match should survive the guard); got \(outcome)")
+        }
+    }
+
+    /// Counter-test: when spouseSurname IS present and CONFLICTS with
+    /// the expected pair, the guard still rejects (catching the
+    /// FreeBMD `s_surname` leakage the guard was designed for).
+    @Test func nonEmptyConflictingSpouseSurnameStillRejected() {
+        let groom = entry(
+            surname: "Cauldwell", givenName: "John R",
+            spouseSurname: "Ellis",                     // wrong spouse — leaked through
+            year: 1933, quarter: "Sep",
+            district: "Belper", volume: "7c", page: "100"
+        )
+        let outcome = MarriageEnrichmentEngine.match(
+            grooms: [groom], brides: [],
+            expectedGroomSpouseSurname: "Wheeldon",
+            expectedBrideSpouseSurname: "Cauldwell"
+        )
+        if case .none = outcome {
+            // pass — the guard correctly rejected the leaked entry
+        } else {
+            Issue.record("Non-empty conflicting spouseSurname should still be rejected; got \(outcome)")
+        }
+    }
+
+    /// Mixed case: one side carries spouseSurname (post-Sep-1912),
+    /// other side empty (pre-Sep-1912 — shouldn't happen but defensive).
+    /// Empty side keeps; non-empty side checked normally.
+    @Test func mixedSpouseSurnamePresenceTreatedIndividually() {
+        let groom = entry(
+            surname: "Brooks", givenName: "John",
+            spouseSurname: "Land",                       // post-1912 — populated
+            year: 1913, quarter: "Mar",
+            district: "Belper", volume: "7b", page: "500"
+        )
+        let bride = entry(
+            surname: "Land", givenName: "Mary",
+            spouseSurname: "",                            // empty
+            year: 1913, quarter: "Mar",
+            district: "Belper", volume: "7b", page: "500"
+        )
+        let outcome = MarriageEnrichmentEngine.match(
+            grooms: [groom], brides: [bride],
+            yearWindow: 1910...1915,
+            expectedGroomSpouseSurname: "Land",
+            expectedBrideSpouseSurname: "Brooks"
+        )
+        if case .unique(let fGiven, let mGiven, _, _) = outcome {
+            #expect(fGiven == "John")
+            #expect(mGiven == "Mary")
+        } else {
+            Issue.record("Mixed-presence: post-1912 groom-side AND empty bride-side should still match; got \(outcome)")
+        }
+    }
 }

@@ -17,6 +17,11 @@ struct ResearchConfigSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var mode: ResearchMode
     @State private var scope: ResearchScope
+    /// User opt-in for the prose-extraction phase. Defaults to off — it's a
+    /// ~20-minute MLX workload that's only useful for subjects whose
+    /// location overlaps the prose corpora, and the run cost is
+    /// substantial for the noisy upside.
+    @State private var runProseExtraction: Bool = false
 
     init(
         profile: Profile,
@@ -92,6 +97,25 @@ struct ResearchConfigSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            // Prose-extraction opt-in. Only relevant for Discover/All —
+            // other modes never run prose extraction regardless. Hidden
+            // outside those modes to avoid promising something the
+            // pipeline won't honour.
+            if mode == .discover || mode == .all {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(isOn: $runProseExtraction) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Prose extraction (AI)")
+                                .font(.subheadline)
+                            Text("Run Qwen 14B over local-history corpora. ~20 min, useful when the subject's location matches a registered corpus.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .toggleStyle(.switch)
+                }
+            }
+
             // Hint: what's missing on this profile — primes the user on what
             // research can plausibly find.
             let gaps = visibleGaps
@@ -118,7 +142,8 @@ struct ResearchConfigSheet: View {
                         profileID: profile.id,
                         mode: mode,
                         scope: scope,
-                        focus: focus
+                        focus: focus,
+                        runProseExtraction: runProseExtraction
                     ))
                 } label: {
                     Label("Run research", systemImage: "play.fill")

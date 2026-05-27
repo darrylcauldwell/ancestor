@@ -15,10 +15,26 @@ struct ClusterReviewView: View {
             Divider()
 
             if result.clusters.isEmpty && rejectedRecords.isEmpty {
-                noCandidatesView
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        if let banner = subjectSpouseMarriageBannerState {
+                            subjectSpouseMarriageBanner(banner)
+                        }
+                        noCandidatesView
+                    }
+                    .padding()
+                }
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
+                        // SubjectSpouseMarriage status banner (§5.14.6).
+                        // Surfaces when subject was thin entering the run —
+                        // either reports recovered name, no-match, ambiguous
+                        // candidates, conflict, or the "can't fire" copy.
+                        if let banner = subjectSpouseMarriageBannerState {
+                            subjectSpouseMarriageBanner(banner)
+                        }
+
                         // Proposed Relatives (parent inference from confirmed birth records)
                         if !visibleProposedRelatives.isEmpty {
                             proposedRelativesSection
@@ -751,6 +767,12 @@ struct ClusterReviewView: View {
             add("Spouse", r.spouseName)
             add("Volume", r.volume)
             add("Page", r.page)
+            if let inferred = r.partnerSurnameFromSamePage,
+               !inferred.trimmingCharacters(in: .whitespaces).isEmpty {
+                let ref = [r.volume, r.page].compactMap { $0 }.joined(separator: "/")
+                let suffix = ref.isEmpty ? "" : " at \(ref)"
+                add("Partner (inferred)", "\(inferred) — same-page entry\(suffix)")
+            }
         case .census(let r):
             addInt("Census", r.censusYear)
             addInt("Age", r.age)
@@ -1559,6 +1581,205 @@ struct ClusterReviewView: View {
         }
         .padding(.vertical, 4)
         .opacity(decision == .rejected ? 0.5 : 1.0)
+    }
+
+    // MARK: - SubjectSpouseMarriage banner (§5.14.6)
+
+    /// Categorical state of the `.subjectSpouseMarriage` strategy for
+    /// the current run. Drives one of five banner copy strings.
+    private enum SubjectSpouseMarriageBannerState {
+        /// Strategy fired and write-back is observable. The recovered
+        /// name comes from the matched-and-agreeing supported rows;
+        /// label text references the surname pair plus the concrete
+        /// marriage year/quarter/district when the matched record
+        /// carried them.
+        case recovered(name: String, pair: String, year: Int?, quarter: String?, district: String?)
+        /// Strategy fired but multiple supported rows recovered
+        /// different given names — write-back blocked by §5.14.4
+        /// reconciliation. User must choose.
+        case conflict(names: [String], pair: String)
+        /// Strategy fired with no supported rows; at least one is
+        /// `.inconclusive` (ambiguous candidates in the window).
+        case ambiguous(candidateCount: Int, pair: String, window: ClosedRange<Int>)
+        /// Strategy fired with all rows `.contradicted` — searched but
+        /// nothing matched.
+        case noMatch(pair: String, window: ClosedRange<Int>)
+        /// Subject is thin (no given name) but no hypothesis row was
+        /// emitted — strategy couldn't fire (no usable child anchor).
+        case cantFire
+    }
+
+    /// Compute the banner state from `result.hypotheses` + the selected
+    /// profile. Returns nil when the subject is rich (strategy is
+    /// out-of-scope) so the banner doesn't render for normal cases.
+    private var subjectSpouseMarriageBannerState: SubjectSpouseMarriageBannerState? {
+        let trimmedGiven = (vm.selectedProfile?.firstName ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        guard trimmedGiven.isEmpty else { return nil }   // rich subject — no banner
+
+        let rows = result.hypotheses.filter { h in
+            if case .subjectSpouseMarriage = h.kind { return true }
+            return false
+        }
+        guard !rows.isEmpty else { return .cantFire }
+
+        // Partition by verdict and apply §5.14.4 reconciliation across
+        // the supported set.
+        let supportedRows = rows.filter { $0.isDeterministicallySupported }
+        if !supportedRows.isEmpty {
+            // Resolve gender from the snapshot. Falls through to
+            // .ambiguous-shaped messaging if unresolved.
+            let surnameForSubject = vm.selectedProfile?.lastName ?? ""
+            let resolvedGender: Gender? = {
+                // Pipeline-side reconciliation already used this ladder,
+                // so the view can call it the same way for display.
+                // FamilyGraphSnapshot has the children; childMMNs map is
+                // empty here (the persisted Profile.mothersMaidenName
+                // anchors the ladder's rule 2).
+                guard let subjectID = vm.selectedProfile?.id else { return nil }
+                let pseudoState = ResearchState(subject: ResearchSubject(
+                    profileID: subjectID,
+                    surname: surnameForSubject,
+                    givenName: nil,
+                    middleName: nil,
+                    birthYearFrom: nil, birthYearTo: nil,
+                    deathYearFrom: nil, deathYearTo: nil,
+                    gender: vm.selectedProfile?.gender,
+                    region: nil, mode: .extend, familyContext: nil,
+                    homeChapmanCode: "DBY"
+                ))
+                let res = HypothesisEngine.resolveSubjectSpouseGender(
+                    state: pseudoState, snapshot: appState.snapshot, childMMNs: [:]
+                )
+                return res.resolvedGender
+            }()
+
+            // Per-row recovery → picked-name reconciliation, mirroring
+            // ResearchPipeline.reconcileAndApplyWriteback.
+            struct Pick {
+                let name: String
+                let pair: String
+                let year: Int?
+                let quarter: String?
+                let district: String?
+            }
+            var picks: [Pick] = []
+            for h in supportedRows {
+                guard case .subjectSpouseMarriage(let groom, let bride, _) = h.kind,
+                      let recovery = HypothesisEngine.extractSubjectSpouseRecovery(
+                        from: h, scoredRecords: result.allScoredRecords
+                      )
+                else { continue }
+                guard let g = resolvedGender,
+                      let picked = HypothesisEngine.pickSubjectGivenName(
+                        from: recovery, resolvedGender: g
+                      ), !picked.isEmpty
+                else { continue }
+                picks.append(Pick(
+                    name: picked,
+                    pair: "\(groom) × \(bride)",
+                    year: recovery.matchedYear,
+                    quarter: recovery.matchedQuarter,
+                    district: recovery.matchedDistrict
+                ))
+            }
+            if picks.isEmpty {
+                // Supported rows exist but no gender-routed name —
+                // treat as ambiguous-shaped messaging.
+                guard case .subjectSpouseMarriage(let groom, let bride, let window) = supportedRows.first!.kind else {
+                    return .cantFire
+                }
+                return .ambiguous(candidateCount: supportedRows.count, pair: "\(groom) × \(bride)", window: window)
+            }
+            let distinct = Set(picks.map { $0.name.lowercased() })
+            if distinct.count == 1 {
+                let first = picks.first!
+                return .recovered(
+                    name: first.name, pair: first.pair,
+                    year: first.year, quarter: first.quarter, district: first.district
+                )
+            } else {
+                let names = picks.map(\.name)
+                return .conflict(names: names, pair: picks.first!.pair)
+            }
+        }
+
+        // No supported. Prefer .inconclusive (ambiguous) over .contradicted
+        // because ambiguous is actionable (user can disambiguate).
+        let inconclusive = rows.filter { $0.verdict == .inconclusive }
+        if let row = inconclusive.first,
+           case .subjectSpouseMarriage(let groom, let bride, let window) = row.kind {
+            return .ambiguous(
+                candidateCount: row.supportingEvidence.count,
+                pair: "\(groom) × \(bride)",
+                window: window
+            )
+        }
+        let contradicted = rows.filter { $0.verdict == .contradicted }
+        if let row = contradicted.first,
+           case .subjectSpouseMarriage(let groom, let bride, let window) = row.kind {
+            return .noMatch(pair: "\(groom) × \(bride)", window: window)
+        }
+        return .cantFire
+    }
+
+    @ViewBuilder
+    private func subjectSpouseMarriageBanner(_ state: SubjectSpouseMarriageBannerState) -> some View {
+        let (icon, tint, title, body): (String, Color, String, String) = {
+            switch state {
+            case .recovered(let name, let pair, let year, let quarter, let district):
+                // Build a "1882 Q3 Belper" suffix from whichever fields
+                // the matched marriage record carried.
+                var pieces: [String] = []
+                if let year { pieces.append(String(year)) }
+                if let quarter, !quarter.isEmpty { pieces.append("Q\(quarter)") }
+                if let district, !district.isEmpty { pieces.append(district) }
+                let locator = pieces.isEmpty ? "" : ", " + pieces.joined(separator: " ")
+                return ("sparkles",
+                        .green,
+                        "Recovered given name '\(name)'",
+                        "From BMD marriage \(pair)\(locator). The iteration loop used this name; review the new pending fact to persist it on the profile.")
+            case .conflict(let names, let pair):
+                let list = names.joined(separator: ", ")
+                return ("exclamationmark.triangle.fill",
+                        .orange,
+                        "Multiple marriages recovered conflicting names",
+                        "Found supported marriages for \(pair), but they recover different given names (\(list)). Write-back was blocked — open the hypotheses to disambiguate manually.")
+            case .ambiguous(let count, let pair, let window):
+                return ("questionmark.circle.fill",
+                        .yellow,
+                        "\(count) candidate marriage\(count == 1 ? "" : "s") for \(pair)",
+                        "Near \(window.lowerBound)–\(window.upperBound). Given name not auto-set — open the hypothesis to disambiguate.")
+            case .noMatch(let pair, let window):
+                return ("magnifyingglass",
+                        .secondary,
+                        "No BMD marriage found for \(pair)",
+                        "Searched \(window.lowerBound)–\(window.upperBound). Subject remains thin — manual research needed (older parish records, FamilySearch, etc.).")
+            case .cantFire:
+                return ("info.circle.fill",
+                        .blue,
+                        "This profile is too thin to research effectively",
+                        "Add a given name in the profile editor, or link a child whose mother's-maiden-name is known. Without either anchor, the engine has no way to recover identifying detail from a surname alone.")
+            }
+        }()
+
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .foregroundStyle(tint)
+                .font(.title2)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(AppTypography.cardTitle)
+                Text(body)
+                    .font(AppTypography.cardBody)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
     }
 
     // MARK: - Source Frontier

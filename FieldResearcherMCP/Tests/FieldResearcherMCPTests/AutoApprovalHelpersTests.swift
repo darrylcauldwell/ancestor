@@ -213,4 +213,62 @@ struct AutoApprovalHelpersTests {
     @Test func trustedHostsExcludesUnknown() {
         #expect(!MCPHandler.trustedHosts.contains("randomblog.example.com"))
     }
+
+    // MARK: - §14.3.4 carve-out (Q5 — RESEARCH_PIPELINE_SPEC §5.14.5)
+
+    @Test func carveOut_positivePathQualifies() {
+        // All four §14.3.4 carve-out conditions satisfied — predicate
+        // returns true. The live evaluator will then bypass the
+        // autoApprovableFields check and the convergence-≥2 check.
+        #expect(MCPHandler.isSubjectSpouseMarriageCarveOut(
+            factKind: "firstName",
+            agentID: "subject-spouse-marriage",
+            existingFirstName: nil
+        ))
+        #expect(MCPHandler.isSubjectSpouseMarriageCarveOut(
+            factKind: "firstName",
+            agentID: "subject-spouse-marriage",
+            existingFirstName: ""
+        ))
+        #expect(MCPHandler.isSubjectSpouseMarriageCarveOut(
+            factKind: "firstName",
+            agentID: "subject-spouse-marriage",
+            existingFirstName: "  "    // whitespace-only treated as empty
+        ))
+    }
+
+    @Test func carveOut_failsOnWrongFactKind() {
+        #expect(!MCPHandler.isSubjectSpouseMarriageCarveOut(
+            factKind: "lastName",
+            agentID: "subject-spouse-marriage",
+            existingFirstName: nil
+        ), "carve-out is narrow to firstName recoveries; lastName must go through standard gate")
+    }
+
+    @Test func carveOut_failsOnWrongAgent() {
+        // Pre-empts a future agent attempting to leverage the carve-out
+        // by writing firstName facts.
+        #expect(!MCPHandler.isSubjectSpouseMarriageCarveOut(
+            factKind: "firstName",
+            agentID: "field-researcher",
+            existingFirstName: nil
+        ))
+        #expect(!MCPHandler.isSubjectSpouseMarriageCarveOut(
+            factKind: "firstName",
+            agentID: "prose-extractor:findagrave",
+            existingFirstName: nil
+        ))
+    }
+
+    @Test func carveOut_failsWhenProfileFirstNameAlreadySet() {
+        // Recovery vs correction — §14.3.4 (iv). If the profile
+        // already has a firstName, this would be a CORRECTION
+        // (identity-shaping write that needs human review), not a
+        // recovery, so the carve-out doesn't apply.
+        #expect(!MCPHandler.isSubjectSpouseMarriageCarveOut(
+            factKind: "firstName",
+            agentID: "subject-spouse-marriage",
+            existingFirstName: "Robert"
+        ))
+    }
 }

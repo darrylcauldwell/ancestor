@@ -185,7 +185,21 @@ final class ResearchPipeline {
                 existingIDs: priorRecordIDs
             )
 
-            let scored = records.map { record in
+            // Same-page-couple pairing: pre-Sep-1912 FreeBMD marriage entries
+            // don't carry the spouse-surname column, so a subject-side marriage
+            // hit at vol 7b/page 1397 lands with `spouseName=nil`. The other
+            // half of the marriage is registered on the same (vol, page) under
+            // the spouse's surname — fetching that side and pairing on the
+            // reference tuple recovers the partner surname. Runs before scoring
+            // so the family-context gate can read the recovered partner.
+            let pairedRecords = await annotateMarriagesWithSamePagePartner(
+                records,
+                subject: state.subject,
+                scope: config.scope,
+                cache: queryCache
+            )
+
+            let scored = pairedRecords.map { record in
                 RecordScorer.classify(
                     record: record,
                     subject: state.subject,
@@ -1756,6 +1770,102 @@ final class ResearchPipeline {
             out.append(enriched)
         }
         return out
+    }
+
+    // MARK: - Same-page-couple pairing (pre-1912 marriage partner recovery)
+
+    /// Fetch spouse-side marriage records and annotate subject-side
+    /// marriages with `partnerSurnameFromSamePage`. Closes the pre-Sep-1912
+    /// FreeBMD gap where the spouse-surname column is blank but both sides
+    /// of the marriage share a `(vol, page)`.
+    ///
+    /// Gating:
+    ///   * subject has a known spouse surname (via `familyContext.spouseSurname`
+    ///     or `spouseFatherSurname` for inverted imports),
+    ///   * subject has its own surname (needed as the spouse-side query's
+    ///     `s_surname` filter for post-1912 narrowing),
+    ///   * at least one subject-side marriage record exists in this batch
+    ///     to annotate (no point fetching otherwise).
+    ///
+    /// The year window for the spouse-side fetch is taken from the subject-
+    /// side marriages we want to annotate — narrower than `subject.yearRange`
+    /// and cheap to compute. Spouse-side records themselves are used only
+    /// in-memory for pairing; they're not appended to `state.scoredRecords`.
+    private func annotateMarriagesWithSamePagePartner(
+        _ records: [SourceRecord],
+        subject: ResearchSubject,
+        scope: ResearchScope,
+        cache: QueryCache?
+    ) async -> [SourceRecord] {
+        // Known spouse surnames to probe — recorded married name plus the
+        // recoverable maiden form (see `FamilyContext.spouseFatherSurname`).
+        var knownSpouseSurnames: [String] = []
+        if let s = subject.familyContext?.spouseSurname?
+            .trimmingCharacters(in: .whitespaces), !s.isEmpty {
+            knownSpouseSurnames.append(s)
+        }
+        if let m = subject.familyContext?.spouseFatherSurname?
+            .trimmingCharacters(in: .whitespaces), !m.isEmpty,
+           !knownSpouseSurnames.contains(where: {
+               $0.caseInsensitiveCompare(m) == .orderedSame
+           }) {
+            knownSpouseSurnames.append(m)
+        }
+        guard !knownSpouseSurnames.isEmpty else { return records }
+
+        guard let subjectSurname = subject.surname?
+            .trimmingCharacters(in: .whitespaces),
+              !subjectSurname.isEmpty else { return records }
+
+        // Subject-side marriages worth annotating: ours, no partner yet, year known.
+        let subjectMarriages: [MarriageRecord] = records.compactMap { rec -> MarriageRecord? in
+            guard case .marriage(let m) = rec,
+                  m.partnerSurnameFromSamePage == nil,
+                  m.marriageYear != nil,
+                  let s = m.common.surname?.trimmingCharacters(in: .whitespaces),
+                  s.caseInsensitiveCompare(subjectSurname) == .orderedSame
+            else { return nil }
+            return m
+        }
+        guard !subjectMarriages.isEmpty else { return records }
+
+        let years = subjectMarriages.compactMap(\.marriageYear)
+        guard let yearFrom = years.min(), let yearTo = years.max() else { return records }
+
+        // Dispatch spouse-side queries. The `spouseSurname` arg on
+        // `dispatchMarriageQuery` becomes FreeBMD's `s_surname` filter —
+        // narrows post-1912 results server-side; pre-1912 the column is
+        // blank so the server returns the full surname set regardless,
+        // which is what we need for pairing.
+        var spouseSideMarriages: [MarriageRecord] = []
+        for spouseSurname in knownSpouseSurnames {
+            if spouseSurname.caseInsensitiveCompare(subjectSurname) == .orderedSame {
+                continue   // same-surname couples have nothing to pair
+            }
+            let scored = await dispatchMarriageQuery(
+                surname: spouseSurname,
+                spouseSurname: subjectSurname,
+                yearFrom: yearFrom,
+                yearTo: yearTo,
+                scope: scope,
+                cache: cache
+            )
+            for s in scored {
+                if case .marriage(let m) = s.record {
+                    spouseSideMarriages.append(m)
+                }
+            }
+        }
+        guard !spouseSideMarriages.isEmpty else { return records }
+
+        let (annotated, pairCount) = SamePageCouplePairing.annotate(
+            subjectSideRecords: records,
+            spouseSideMarriages: spouseSideMarriages
+        )
+        if pairCount > 0 {
+            logger.info("Same-page pairing: annotated \(pairCount) subject-side marriages from \(spouseSideMarriages.count) spouse-side entries")
+        }
+        return annotated
     }
 
     // MARK: - Discrepancy Detection

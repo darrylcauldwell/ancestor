@@ -97,30 +97,45 @@ nonisolated enum MarriageEnrichmentEngine {
             filteredBrides = brides
         }
 
-        // Spouse-surname guard. Reject entries whose other-party surname
-        // disagrees with the expected pair. Upstream source filters should
-        // already enforce this, but FreeBMD's `s_surname` has been observed
-        // to leak — the matcher must double-check before trusting.
+        // Spouse-surname guard. Reject entries whose other-party
+        // surname *disagrees* with the expected pair. Upstream source
+        // filters should already enforce this, but FreeBMD's
+        // `s_surname` has been observed to leak — the matcher must
+        // double-check before trusting.
+        //
+        // **Empty spouseSurname is NOT a disagreement.** The BMD index
+        // didn't carry the spouse-surname column before September 1912
+        // (see `sources/freebmd.py:21`), so every marriage pre-Q3 1912
+        // has empty `spouseSurname` on both sides. Treating empty as
+        // "conflict" rejected every Victorian-era marriage from this
+        // matcher and made `.parentMarriage` / `.subjectSpouseMarriage`
+        // silently miss the entire pre-1912 corpus. Keep the entry when
+        // the field is absent — the reference-tuple match
+        // (`year, quarter, district, vol, page`) still does the real
+        // identification; this guard is a redundant sanity check, not
+        // a load-bearing requirement.
         if let expected = expectedGroomSpouseSurname?
             .trimmingCharacters(in: .whitespaces).uppercased(), !expected.isEmpty {
             let before = filteredGrooms.count
             filteredGrooms = filteredGrooms.filter {
-                $0.spouseSurname.trimmingCharacters(in: .whitespaces)
-                    .uppercased() == expected
+                let s = $0.spouseSurname
+                    .trimmingCharacters(in: .whitespaces).uppercased()
+                return s.isEmpty || s == expected
             }
             if before != filteredGrooms.count {
-                logger.info("groom-side spouse-surname guard: \(before)→\(filteredGrooms.count) (rejected entries whose spouse ≠ \(expected))")
+                logger.info("groom-side spouse-surname guard: \(before)→\(filteredGrooms.count) (rejected entries whose non-empty spouse ≠ \(expected))")
             }
         }
         if let expected = expectedBrideSpouseSurname?
             .trimmingCharacters(in: .whitespaces).uppercased(), !expected.isEmpty {
             let before = filteredBrides.count
             filteredBrides = filteredBrides.filter {
-                $0.spouseSurname.trimmingCharacters(in: .whitespaces)
-                    .uppercased() == expected
+                let s = $0.spouseSurname
+                    .trimmingCharacters(in: .whitespaces).uppercased()
+                return s.isEmpty || s == expected
             }
             if before != filteredBrides.count {
-                logger.info("bride-side spouse-surname guard: \(before)→\(filteredBrides.count) (rejected entries whose spouse ≠ \(expected))")
+                logger.info("bride-side spouse-surname guard: \(before)→\(filteredBrides.count) (rejected entries whose non-empty spouse ≠ \(expected))")
             }
         }
 

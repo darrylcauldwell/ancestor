@@ -2251,29 +2251,85 @@ first pass — measure fact uplift after T7's second pass. Target:
 ≥30% of stalled profiles gain at least one new `.supported`
 hypothesis.
 
-### 5.4 T8 — MLX next-search suggestion for weak verdicts
+### 5.4 T8 — MLX query strategist (Level 2, shipped slice 13)
 
-**Status: Paper-only. Not built.**
+**Status: Shipped 2026-05-26 (slices 13a/13b/13c).**
 
-> **Blocker — `deficitQuery` contract.** T8's trigger depends on
-> distinguishing "kind has no ladder" from "kind's ladder exhausted."
-> Today's shipped `[RecordQuery]` contract returns `[]` for both
-> cases. Before T8 starts, the contract narrows to a three-state
-> result (`.query` / `.exhausted` / `.noLadder`) — see Decision 7.5
-> open issue.
+Originally scoped as a hypothesis-level fallback for T7-exhausted
+rows; promoted in slice 13 to a between-iteration **Level-2 query
+strategist** because the iteration-loop blind spot (broad fan-out
+that doesn't adapt to what's just been learned) was a higher-leverage
+target than the T7-stuck case.
 
-**What lands:**
-- An MLX prompt + a
-  `ResearchInterpreter.suggestForWeakHypothesis(hypothesis:state:availableSources:)`
-  entry point.
-- Wired into T7's second pass: when T7 finds an inconclusive
-  hypothesis that is **exhausted** at its kind's deficit-query ladder
-  (post-contract-narrow: `deficitQuery(..., atLevel: attempts + 1, ...)
-  == .exhausted`), T8 is the fallback. It asks the model "given this
-  hypothesis and what we know, what would you search?"
-- Output is restricted to `(sourceID, recordType, queryHints)` —
-  structured, not free-form. The deterministic dispatcher still
-  builds and runs the query.
+**What ships:**
+
+- `Models/Research/FocusedQuery.swift` — single-source, single-record-
+  type targeted query with surname + given + year window + district +
+  required `rationale` string. Pure data; converts to `RecordQuery`
+  via `toRecordQuery()`.
+- `SearchDispatcher.dispatchOne(focused:cache:)` — runs one
+  `FocusedQuery` against the named source. Bypasses the strictness
+  ladder and the multi-source fan-out. Returns `[]` gracefully when
+  source ID doesn't match or year coverage misses.
+- `ResearchInterpreter.suggestNextFocusedQuery(...)` — MLX-backed
+  async function. Builds a system+user prompt carrying subject state,
+  confirmed facts, hypothesis snapshot, household, already-searched
+  list, and the BMD/census constants from `agent/rules.py`
+  (`MOTHERS_MAIDEN_NAME_START`, `SPOUSE_SURNAME_START`, etc.). Parses
+  the JSON response into a `FocusedQuery` or returns nil (model
+  unavailable, output unparseable, or explicit `{"give_up": true}`).
+- `ResearchPipeline.research()` wiring — between iterations, when the
+  iteration produced 0 new records OR no confirmed facts, the
+  pipeline calls the strategist. A non-nil suggestion is dispatched
+  via `dispatchOne`, results scored + appended to `state.scoredRecords`,
+  and `searchHistory` records the rationale for audit.
+
+**Determinism contract.** MLX is allowed to choose *what* to ask;
+deterministic code owns *what's true*. Specifically:
+
+| Layer | Owner |
+|---|---|
+| Which query to dispatch next | MLX strategist |
+| Source-side query shaping (district codes, etc.) | `FocusedQuery.toRecordQuery()` |
+| Record scoring (4-gate) | `RecordScorer` deterministic |
+| Verdict (`.fact` / `.lead` / `.impossible`) | `RecordScorer` deterministic |
+| Hypothesis grade (`.supported` / `.contradicted`) | `HypothesisEngine` deterministic |
+| Subject refinement from confirmed facts | `refineSubject` deterministic |
+| §14.3 auto-approval gate | `MCPServer.evaluateApproval` deterministic |
+
+No MLX output reaches verdict-grade evidence. The strategist's
+`rationale` lives in `searchHistory.searchKey` for the audit trail
+but doesn't influence scoring.
+
+**Trigger condition (unproductive iteration).** The strategist fires
+when `newRecordCount == 0 OR state.confirmedFacts.isEmpty`. Productive
+iterations don't need MLX help — the deterministic engine is doing
+its job. This keeps MLX inference cost bounded to the iterations
+where it adds value.
+
+**Fallback behaviour.** When MLX is unavailable (model not loaded,
+ANE busy, output unparseable, or explicit `give_up`), the strategist
+returns nil and the pipeline falls through to the next iteration's
+normal fan-out. No new failure modes; MLX is purely additive.
+
+**isModelAssisted flag.** Records gathered via a focused query are
+not marked `isModelAssisted` — the records themselves came from a
+deterministic source via a deterministic dispatcher. Only the
+*decision to dispatch* was MLX-influenced, which the audit trail
+preserves but the scorer doesn't act on.
+
+**Why not the hypothesis-level fallback first?** The original T8
+scope (post-T7 exhausted-ladder fallback) only fires on a small
+sliver of subjects. The Level-2 between-iteration variant fires on
+the much larger population of "iteration produced nothing useful" —
+matching the bottleneck surfaced by the George H Brooks research
+trace.
+
+**Open follow-up (T8a, deferred).** The original hypothesis-level
+fallback is still valuable when T7's deficit ladder exhausts on
+specific kinds. Reserved for a future slice; the
+`suggestForWeakHypothesis` entry point can be added alongside the
+shipped `suggestNextFocusedQuery` without changing existing wiring.
 
 **Why local MLX, not Claude API (Decision 7)**:
 
@@ -2778,6 +2834,598 @@ proposals:**
    parents into the sibling search), or (b) chaining a second
    internal post-loop pass after auto-promote of high-confidence
    parents (covered by §14 MCP auto-approval where shipped).
+
+### 5.14 `.subjectSpouseMarriage` — pre-iteration hypothesis for thin placeholders (new task)
+
+**Status: Designed; not yet implemented.** Sliced 0–4 below;
+implementation gated on this spec being signed off.
+
+**Why this exists.** The shipped pipeline assumes the subject carries
+enough self-identifying signal (typically a given name + a usable
+birth-year window) for `SearchDispatcher` to discriminate. When the
+subject is a placeholder created during a previous run's
+parent-inference — surname only, no given name, parents-of-known-child
+ghost — the iteration loop has nothing to anchor on. Observed
+2026-05-27 with a `Brooks` placeholder (parent of Tom Brooks): the
+loop produced 605 candidate records and 613 leads, none of them
+actionable, while the parent-inference layer downstream produced a
+confidently nonsensical "Father: Brooks · 560 sources" hypothesis from
+surname-only matches. ENGINE_FOUNDATION §Change1's thin-subject
+verdict cap correctly held the records at `.lead`; the failure was
+upstream, in not having a strategy for thin subjects at all.
+
+**The thesis.** For a thin placeholder subject who has at least one
+linked child carrying a known mother's-maiden-name (MMN), the **marriage
+index is the right anchor — not the birth index**. The subject's own
+birth record is invisible until the given name is known. The subject's
+*marriage* record is reachable via the surname pair (subject's surname
+× child's MMN), and once found it carries the given name. The
+`.parentMarriage` kind already implements exactly this lookup for the
+subject's own parents (§4.1, §6.2); `.subjectSpouseMarriage` is the
+missing peer — same machinery, anchor shifted forward one generation.
+
+#### 5.14.1 Trigger conditions
+
+The pre-iteration phase fires when **all** of:
+
+1. Subject has a recorded surname (otherwise the marriage query has no
+   groom anchor at all).
+2. Subject has no given name (`(subject.givenName ?? "").trimmed.isEmpty`).
+   The wider `InformationDensity.thin` predicate also catches wide
+   birth-year windows, but those aren't this strategy's problem — a
+   subject with a given name but a 30-year window is researched by the
+   normal iteration loop with cluster splitting. This strategy is
+   specifically given-name recovery.
+3. Subject has a `profileID` (no profile = nothing to look up children
+   for, and no row to write back to).
+4. `snapshot.childrenOf(subject.profileID)` is non-empty.
+5. At least one of those children yields a usable MMN anchor for the
+   subject's spouse. The anchor is resolved per child by reading, in
+   order:
+   1. The child's `Profile.mothersMaidenName` field (recorded, synced
+      from WikiTree / GEDCOM / user entry).
+   2. If empty: the child's persisted `scored_records` (from prior
+      research runs on the child), filtered for BMD birth records with
+      a non-empty `mothersMaidenName`. Requires a new
+      `ProjectStore.scoredRecords(forProfileID:)` read path — see
+      §5.14.3 below. Accepts both `.fact` and `.lead` verdicts; the
+      MMN is a direct index transcription whose reliability doesn't
+      depend on geography/family-context gates (mirrors §6.4).
+   3. If still empty: fall back to the child's linked father (resp.
+      mother) in the tree with a recorded surname, where the linked
+      parent is *not* the subject. The linked parent's surname stands
+      in for the spouse anchor; the child's MMN is then taken from
+      that linked parent's `lastName` if subject is male, or treated
+      as unavailable if subject is female (since the linked father's
+      surname doesn't encode the wife's maiden).
+
+When any of (1)–(5) fail, the phase is skipped and the iteration loop
+runs as today; the UI must surface a thin-subject signal in Triage so
+the user understands why no progress was made (see §5.14.6).
+
+#### 5.14.2 Where it sits in the pipeline
+
+`ResearchPipeline.research(subject:config:)` gains one new phase
+**before** the iteration loop, plus a **storm-guard short-circuit**
+that bypasses the iteration loop entirely when the probe leaves the
+subject thin. Full lifecycle:
+
+```
+research(subject:config:):
+    state = ResearchState(subject: …)
+    if triggerConditions hold:
+        runSubjectSpouseMarriageFlow(state: &state, snapshot: …, cache: …)
+          → may mutate state.subject.givenName
+          → may append a .subjectSpouseMarriage hypothesis
+          → may emit a pending_facts row (firewall, §5.14.5)
+    # STORM-GUARD (slice 5): when the probe ran but the subject is
+    # still thin (no name recovered — ambiguous / no-match / gender
+    # unresolved), skip the iteration loop AND the post-loop phase.
+    # Return early with just the hypothesis row + the marriage records
+    # collected during the probe. The Triage banner shows the user the
+    # next step.
+    if preIterationProbeRan && state.subject.givenName.isEmpty:
+        return ResearchResult(hypotheses: preIterationHypotheses, …)
+    for iteration in 1…maxIterations: …   (existing §5.1)
+    post-loop hypothesis phase            (existing §5.2)
+    result assembly
+```
+
+The timing is load-bearing. Subject refinement *after* the iteration
+loop is too late — the loop would have dispatched against the thin
+subject and produced no usable evidence. Refining *before* lets the
+loop see a rich subject and do its normal work. This is the only
+hypothesis kind that runs pre-iteration; all existing kinds remain
+post-loop.
+
+#### 5.14.3 The probe
+
+Modelled directly on `HypothesisEngine+ParentMarriage` (§6.2) — same
+two-sided BMD dispatch, same `MarriageEnrichmentEngine.match` reunion.
+Differences are in the anchor pair, the year window, and the
+recovered-name routing.
+
+- **Surname pair (groom, bride):** **`(child.lastName, child.MMN)`**
+  derived per linked child (slice 5 — see refactor note below). The
+  generator builds the set of distinct uppercased `(groom, bride)`
+  pairs across the children and emits one hypothesis per distinct pair
+  (Q3 + Q4 decisions). Children sharing a pair collapse into the same
+  hypothesis's `supportingEvidence`. Children with a *different* pair
+  (different MMN OR different child surname — step-children) seed a
+  separate hypothesis. The window for each hypothesis uses the
+  earliest birth year among children sharing its pair. The generator
+  also asserts the subject's surname matches one of the pair (case-
+  insensitive) — a defensive guard against re-parented anchors.
+- **Refactor note (slice 5).** The hypothesis kind's payload is
+  `(groomSurname, brideSurname, childYearWindow)` — BMD role labels,
+  not `(subject.surname, spouseSurname)`. This correctly handles all
+  three storage conventions: male father subject, female mother stored
+  under maiden, female mother stored under married (WikiTree
+  convention). The subject's role (groom or bride) is decided at
+  write-back time by the §5.14.4 gender ladder, not encoded in the
+  payload. Before slice 5 the payload was subject-relative, which
+  produced a bogus `(Land, Land)` pair for the user's maiden-stored
+  `Land` mother placeholder.
+- **MMN resolution per child** (Q2 decision — Option B). For each
+  linked child, the MMN is resolved by reading in order:
+  (i) the child's `Profile.mothersMaidenName` field, then (ii) the
+  child's persisted `scored_records` for BMD birth records with a
+  non-empty `mothersMaidenName`. Reading another profile's research
+  records is a new pipeline access path; it requires
+  `ProjectStore.scoredRecords(forProfileID:)` — read-only, no
+  firewall implication, ~30 lines plus a test. The provenance of the
+  MMN (profile field vs. record-derived) is recorded in the
+  hypothesis's `reasoning` so the audit trail is intact.
+- **Year window:** `min(child.birthYear) − 30 … min(child.birthYear) + 1`.
+  Mirrors `.parentMarriage` and uses the *earliest* child's birth year
+  so the marriage must predate every child. The `+1` forgives
+  same-quarter overlap between marriage and first-child birth.
+- **Dispatch shape:** two FreeBMD marriage queries — groom-indexed
+  (`surname=subject.surname, spouseSurname=child.MMN`) and bride-indexed
+  (`surname=child.MMN, spouseSurname=subject.surname`) — across the
+  window, fanning out across `config.scope`'s districts the same way
+  `.parentMarriage`'s level-1 deficit query does.
+- **Reunion:** `MarriageEnrichmentEngine.match(grooms:, brides:,
+  yearWindow:, expectedGroomSpouseSurname:, expectedBrideSpouseSurname:)`
+  — the BMD index writes each marriage twice; the
+  `(year, quarter, district, vol, page)` tuple reunites the two sides.
+
+#### 5.14.4 Outcomes
+
+Per-hypothesis grading (one row per distinct MMN per Q3+Q4):
+
+| `match` returns | Verdict | Hypothesis action | Pending fact |
+|---|---|---|---|
+| `.unique(fGiven, mGiven, fEv, mEv)` | `.supported` | one `.subjectSpouseMarriage` with the two marriage record IDs as `supportingEvidence` | one row per recovered name (write-back decided after cross-hypothesis reconciliation, below) |
+| `.ambiguous(candidates)` | `.inconclusive` | one `.subjectSpouseMarriage` with all candidate marriage IDs in `supportingEvidence` | none |
+| `.none` | `.contradicted` | one `.subjectSpouseMarriage` with `contradictingEvidence: []` and a "searched and found nothing in window" reasoning | none |
+
+**Cross-hypothesis reconciliation for write-back.** When the generator
+emitted hypotheses for multiple distinct MMNs (Q4 case — children
+disagree on MMN), the write-back is decided across the resulting
+`.supported` rows, not per-row:
+
+- **Zero `.supported`** → no write-back.
+- **One `.supported`** → write back the gender-appropriate given name
+  from that match.
+- **Multiple `.supported` agreeing on the subject's recovered given
+  name** (typical remarriage case — same subject, two marriages, same
+  person) → write back the agreed name; emit one pending fact citing
+  both marriages. Both hypotheses become candidates for a downstream
+  `.secondMarriage` (§4.1) — out of scope here but unblocked.
+- **Multiple `.supported` disagreeing on the recovered given name**
+  → do NOT write back. This is a real contradiction (two different
+  people marrying under the same surname pair) — the user must
+  resolve via §5.11 / Triage. The hypotheses themselves stay
+  `.supported`; only the write-back is suppressed. Reasoning on
+  each row records the conflict.
+
+**Gender-appropriate side extraction.** Once gender is resolved (by
+the precedence ladder below), the side mapping is mechanical:
+- `male` → use `fGiven` (groom).
+- `female` → use `mGiven` (bride). Note: under WikiTree's married-
+  surname convention (memory: `wikitree_married_surname_convention.md`),
+  a female subject's `surname` is the husband's surname, so the *groom*
+  in the matched marriage carries `subject.surname` and the *bride* is
+  the subject herself, indexed under her maiden surname (= child's
+  MMN). The pair still reads `(groom=subject.surname, bride=child.MMN)`
+  regardless of subject gender; gender only decides which side's given
+  name is the subject's.
+
+**Gender resolution — precedence ladder (Q1 decision).** Subject
+gender is resolved at the start of the probe via the first rule that
+fires:
+
+1. **Explicit.** `subject.gender ∈ {.male, .female}` → use as given.
+   No inference; the user (or WikiTree sync) has decided.
+2. **Surname pattern** (per-child signal). Deterministic on a single
+   child anchor; if more than one linked child produces a different
+   answer, see §5.14.10 child-derived-signal-disagreement row.
+   - `subject.surname == child.surname` AND `subject.surname != child.MMN`
+     → **male** (paternal surname inheritance — subject is the father).
+   - `subject.surname == child.MMN` AND `subject.surname != child.surname`
+     → **female** (subject stored under maiden surname — non-WikiTree
+     convention, but appears in GEDCOM imports). Note: this branch
+     does NOT fire under the standard WikiTree married-surname
+     convention, where `subject.surname == child.surname` for mothers
+     too.
+   - Both surnames match (`subject.surname == child.surname ==
+     child.MMN`) → ambiguous (same-surname couple); fall through.
+   - Neither matches → fall through.
+3. **Topology** (the Q1 Option A inference). Inspect
+   `snapshot.parentsOf(child)`:
+   - One parent slot held by a profile *other than* the subject, with
+     `gender == .male` → subject is **female** (mother slot inferred).
+   - One parent slot held by a non-subject profile with `gender == .female`
+     → subject is **male**.
+   - Both slots empty or both held by the subject → fall through.
+4. **Refuse to infer.** Emit the hypothesis as `.inconclusive` with
+   both candidate given names in `reasoning`; do not write back to
+   `state.subject.givenName`. User disambiguation via §5.11.
+
+The rule that fired must be recorded in the hypothesis's `reasoning`
+field so Triage can surface it:
+- *"Recovered given name 'John' — gender inferred male from surname
+  pattern (Brooks shared with child Tom; MMN Smith differs)."*
+- *"Recovered given name 'Mary' — gender inferred female from
+  topology (father slot held by linked profile John Brooks)."*
+- *"Recovered marriage Brooks × Smith — subject gender unresolved
+  (both surnames match child's); open the hypothesis to disambiguate."*
+
+Recording the rule keeps the inference auditable and lets a future
+eval-harness pass measure per-rule accuracy.
+
+#### 5.14.5 Write-back contract
+
+Two distinct writes, both required:
+
+1. **In-memory `state.subject.givenName`** — set immediately after
+   `.unique` so the iteration loop sees a rich subject. This is the
+   load-bearing write; without it the strategy is no better than
+   surfacing a hypothesis card.
+2. **Firewall-respecting `pending_facts` row** for persistence. The
+   recovered given name is genealogical evidence and must flow through
+   the Evidence Firewall (§13.1) — not a direct profile write. The
+   pending fact carries:
+   - `field`: `givenName`
+   - `value`: recovered given
+   - `source_url` + `source_tier`: from the matched marriage record(s)
+   - `supporting_record_ids`: the marriage record IDs
+   - `hypothesis_id`: the `.subjectSpouseMarriage` row's stable ID
+
+   **Auto-approval gate — narrow carve-out (Q5 decision — Option B).**
+   §14.3 today blocks these pending facts on two independent gates:
+   §14.3.4 lists `firstName` in the never-auto-approved set, and
+   §14.3.1 requires source tier `.primary` or `.secondary` (FreeBMD is
+   `.transcription`). Slice 4 lands an amendment to §14.3.4 carving
+   out given names recovered through this specific deterministic path.
+   The carve-out qualifies a pending fact for auto-approval iff **all**
+   of:
+   (i) `hypothesis.verdict == .supported` AND `hypothesis.kind ==
+       .subjectSpouseMarriage`,
+   (ii) the underlying `MarriageEnrichmentEngine.match` returned
+        `.unique` (not `.ambiguous`),
+   (iii) the matched marriage's source tier ≥ `.transcription`,
+   (iv) the subject's `firstName` was empty *before* the recovery
+        (recovery, not correction — identity isn't being reshaped, it's
+        being established for the first time).
+   The carve-out is intentionally narrow: it does NOT generalise to
+   other `firstName` writes, only to those carrying a
+   `hypothesis_id` pointing to a `.supported` `.subjectSpouseMarriage`.
+   The §14.3.1 tier requirement is also relaxed to `.transcription`
+   under this carve-out (since the original gate was set for
+   non-BMD-shaped fields).
+
+   **Convergence relaxation under the carve-out.** §14.3.2 normally
+   requires ≥ 2 independent lineages (or one lineage + a corroborating
+   existing field_source). For a thin-placeholder recovery, the
+   profile is empty (no existing field_sources) and the only source
+   is FreeBMD — one lineage. Without relaxation the carve-out can
+   never fire. We therefore treat the BMD reference-tuple match
+   between groom-side and bride-side as **structural convergence
+   within the source**: when `MarriageEnrichmentEngine.match` returns
+   `.unique`, both sides of the BMD index agreed on the same
+   `(year, quarter, district, vol, page)` tuple — a deterministic
+   cross-check that the standard lineage-count model doesn't capture.
+   For Q4 multi-hypothesis remarriage agreement, the same logic
+   applies independently per matched marriage, and the §5.14.4
+   reconciliation enforces given-name agreement across them — so
+   multi-hypothesis confirmation is *stronger* than single-hypothesis,
+   not weaker. The other §14.3 gates (no-dispute, hallucination
+   checks, URL verification) continue to apply unchanged.
+
+   Multi-hypothesis remarriage case (Q4): when two `.supported`
+   `.subjectSpouseMarriage` hypotheses agree on the recovered given
+   name, the §5.14.4 reconciliation emits one pending fact citing both
+   marriages; the carve-out gate evaluates that single fact against
+   the strongest-tier marriage source.
+
+The hypothesis itself persists via the existing `research_hypotheses`
+table (§4.3, no new migration needed).
+
+#### 5.14.6 UX guidance
+
+Triage should make the strategy visible when it fires and clear when
+it can't:
+
+- **Strategy fires + unique match:**
+  *"Recovered given name 'John' from BMD marriage Brooks × Smith,
+  Belper 1882 Q3. Iteration loop will use this."*
+- **Strategy fires + ambiguous:**
+  *"Found N candidate marriages for Brooks × Smith near 1882; given
+  name not auto-set. Open the hypothesis to disambiguate."*
+- **Strategy fires + no match:**
+  *"Searched marriages Brooks × Smith near 1882; none found. Subject
+  remains thin — manual research needed."*
+- **Strategy can't fire (no surname, no child, no MMN anchor):**
+  *"This profile is too thin to research effectively. Add a given
+  name in the profile editor, or link a child whose mother's-maiden-
+  name is known."*
+
+In all four cases the iteration loop still runs; the strategy is
+*additive*, never replacing the existing dispatch path. UX wording
+above is normative for §5.10 (Research-button collapse) — the strings
+appear in the collapsed-research summary.
+
+#### 5.14.7 Proposed `HypothesisKind` shape
+
+Adds one closed-enum case in §4.1:
+
+```swift
+case subjectSpouseMarriage(
+    subjectSurname: String,
+    spouseSurname: String,
+    childYearWindow: ClosedRange<Int>
+)
+```
+
+…and a discriminator + `identityKey` clause in `ResearchHypothesis.swift`:
+
+```swift
+// discriminator
+case .subjectSpouseMarriage: return "subjectSpouseMarriage"
+
+// identityKey
+case .subjectSpouseMarriage(let sub, let spouse, let window):
+    return "subjectSpouseMarriage:\(subjectProfileID ?? "tree"):\(sub.uppercased())x\(spouse.uppercased()):\(window.lowerBound)-\(window.upperBound)"
+```
+
+Plus a new extension file `HypothesisEngine+SubjectSpouseMarriage.swift`
+holding `generateSubjectSpouseMarriage` / `gradeSubjectSpouseMarriage` /
+`deficitQuerySubjectSpouseMarriage`, and clauses in the three central
+switches in `HypothesisEngine.swift`. The `runSubjectSpouseMarriageFlow`
+orchestrator on `ResearchPipeline` is the pre-iteration analogue of
+`runParentHypothesisFlow`. Closed-enum / three-switch invariants (§4.2)
+unchanged.
+
+#### 5.14.8 Decision rights
+
+Fully deterministic. No MLX involvement. `isModelAssisted: false` on
+every emitted hypothesis. The match is index-tuple equality
+(`MarriageEnrichmentEngine.match`), the write-back is name extraction
+from a structured marriage record. The deterministic-wins rule (§3.3)
+applies without exception.
+
+#### 5.14.9 Expansiveness ladder
+
+Initial proposal:
+
+- **Level 1** — original window (`min(child.birthYear) − 30 … + 1`),
+  groom-side + bride-side dispatch as above. The first-pass dispatch
+  sets `attempts: 1`.
+- **Level 2** — widen window by ±10 years on each side (mirrors
+  `.parentMarriage` level 2). Picks up marriages outside the typical
+  parent-age range.
+- **Level ≥ 3** — `nil`; ladder exhausted. T31 (§5.7) revisits the
+  ceiling once the eval harness gives us a unique-match-rate baseline.
+
+#### 5.14.10 Edge cases the spec must cover
+
+| Case | Behaviour |
+|---|---|
+| Subject has surname but `gender == .unknown` AND none of the precedence-ladder rules 2/3 fire | Strategy fires; recovers both given names; emits `.inconclusive` with both in reasoning; **does not write back** to subject |
+| Subject has surname but `gender == .unknown` AND surname-pattern rule (§5.14.4 ladder rule 2) resolves cleanly | Subject gender inferred; write back the gender-appropriate side; reasoning records the rule |
+| Children disagree on MMN (different mothers / transcriber drift / mis-linked child) | Strategy fires; emits one `.subjectSpouseMarriage` per distinct MMN (Q3+Q4 — Option A+B). Both `.unique` → remarriage candidate (user accepts both, downstream `.secondMarriage` work). One `.unique` + one `.none` → the `.none` MMN is likely transcriber drift or mis-linked; user resolves. Both `.none` → neither marriage attested in window; subject remains thin |
+| Children disagree on the surname-pattern gender signal (child A → subject is father, child B → subject is mother) | Strategy does not fire on the surname-pattern rule; falls through to topology (ladder rule 3); if topology also doesn't decide, fall to refuse (ladder rule 4) |
+| Single child but child's own MMN is missing AND child has no linked father | Strategy does not fire — no anchor |
+| Child has linked father whose surname differs from subject.surname (subject is the mother) | Subject is female by tree topology — see §5.14.4 ladder rule 3 |
+| Multiple `.unique` candidates after window expansion (level 2 returns a different unique match than level 1) | Treat as ambiguous overall; the level-2 attempt cannot override a level-1 `.supported` |
+| Subject already has a given name AND a wide birth window (so `InformationDensity == .thin` for the window reason) | Strategy does NOT fire — out of scope; handled by clustering today |
+| Subject has been researched previously and the hypothesis is `.user_rejected` | Strategy does not fire; respect persisted rejection (§4.3) |
+
+#### 5.14.11 Slicing plan
+
+Sized **L** end-to-end. Implementation order, each slice mergeable
+in isolation:
+
+- **Slice 0 — Spec (this section).** No code. Acceptance: user signs
+  off on the design or asks for amendments.
+- **Slice 1 — Detection + probe + match.** Add `HypothesisKind` case;
+  add identityKey clause; add three central-switch clauses; ship
+  `HypothesisEngine+SubjectSpouseMarriage.swift` with generator +
+  grader + deficitQuery. Wire `runSubjectSpouseMarriageFlow` into
+  `ResearchPipeline.research()` *before* the iteration loop. Add
+  `ProjectStore.scoredRecords(forProfileID:)` read path (Q2 decision —
+  reads the child's persisted research records to recover MMN when
+  the profile field is empty). Per-rule gender resolution per
+  §5.14.4 ladder, recorded in `reasoning`. **Does not yet write back**
+  — subject stays thin; the loop still produces nothing on a thin
+  placeholder. This slice is observable purely via the hypothesis
+  row.
+- **Slice 2 — Write-back.** Mutate `state.subject.givenName` on
+  `.unique`; emit the `pending_facts` row through `ProjectStore`
+  (firewall-respecting). After this slice, a thin Brooks placeholder
+  with a Tom-Brooks child and known MMN produces a rich John-Brooks
+  iteration on the next run.
+- **Slice 3 — UX.** Triage surfaces (§5.14.6) wired through the
+  research result and the Research-button collapse summary (§5.10);
+  hypothesis card in cluster review showing the matched marriage.
+- **Slice 4 — Tests + §14.3.4 carve-out.** Unit tests for: trigger
+  predicate (all branches of §5.14.1); generator per-distinct-MMN +
+  same-MMN dedup (Q3+Q4); grader outcomes (`.unique` / `.ambiguous` /
+  `.none`); cross-hypothesis reconciliation (Q4 four cases); gender
+  precedence ladder (Q1 — all four rules); MMN provenance fallback
+  (Q2 — profile field → scored_records); write-back idempotence
+  (re-running doesn't duplicate pending facts); rejection
+  persistence. Lands the §14.3.4 amendment in the same slice (Q5 —
+  Option B): narrow carve-out for `firstName` pending facts carrying a
+  `hypothesis_id` pointing to a `.supported` `.unique`
+  `.subjectSpouseMarriage`, tier ≥ `.transcription`, subject
+  `firstName` empty pre-recovery. Carve-out tests cover: positive
+  case (all four conditions met → auto-approves); each condition
+  failing in isolation (still routes to human review); multi-
+  hypothesis remarriage case (Q4 — two agreeing `.supported` rows →
+  single pending fact gated on strongest tier).
+
+Slice ordering is **not** flexible: slice 1 lands the data shape that
+slices 2–4 build on; slice 2 produces the observable behaviour change
+the user requested; slice 3 surfaces it; slice 4 locks it.
+
+#### 5.14.12 Out of scope
+
+- Bug A (parent-inference grader counting surname-only matches as
+  supporting evidence) is separate, S-sized, and tracked outside this
+  amendment. It should ship alongside slice 2 so the bogus
+  "Father: Brooks · 560 sources" card is fixed even when this
+  strategy can't fire.
+- Bug C (Triage gives no signal at all when subject is thin) is also
+  separate and S-sized; it should ship as part of slice 3 since the
+  wiring overlaps.
+- Re-running this strategy across the *whole tree* (sweeping all
+  thin-placeholder profiles in one batch) is a §5.10 concern, not
+  this section's.
+
+#### 5.14.13 Design decisions
+
+All five resolved 2026-05-27 before slice 1. Each item below records
+the decision and where it was folded into the sub-sections above.
+
+---
+
+**Q1 — Gender inference: DECIDED.**
+
+Resolved 2026-05-27. Folded into §5.14.4 as a four-rule precedence
+ladder: explicit > surname-pattern > topology > refuse. Each rule is
+deterministic and the rule that fired is recorded in the hypothesis's
+`reasoning` field so Triage can surface it and a future eval-harness
+pass can measure per-rule accuracy.
+
+Surname-pattern (rule 2) is the strongest everyday signal — when the
+subject's surname matches the child's surname and differs from the
+child's MMN, the subject is the father; the symmetric case identifies
+the mother. Topology (rule 3) covers cases where surname-pattern is
+ambiguous (same-surname couple) or absent (subject.surname differs
+from both). Refuse (rule 4) is the floor — never write back when
+nothing resolves.
+
+See §5.14.4 for the full ladder and §5.14.10 for the cross-child
+disagreement behaviour.
+
+---
+
+**Q2 — Source of the child's MMN: DECIDED.**
+
+Resolved 2026-05-27. Option B chosen: MMN is resolved per child by
+reading `Profile.mothersMaidenName` first, falling back to the child's
+persisted `scored_records` (BMD birth records with non-empty MMN)
+when the profile field is empty. Catches the "child researched but
+findings still in `pending_facts`" gap that Option A would have lost.
+
+Implementation cost is contained: ~30 lines for
+`ProjectStore.scoredRecords(forProfileID:)`, a read-only access path
+with no firewall implication. The pipeline doesn't write to other
+profiles' state; it only reads. Provenance (profile field vs.
+record-derived) is recorded in the hypothesis's `reasoning`.
+
+Folded into §5.14.1 clause 5 (trigger predicate), §5.14.3 (MMN
+resolution per child), and §5.14.11 slice 1 (read path added).
+
+---
+
+**Q3 — Multiple children with the same MMN: DECIDED.**
+
+Resolved 2026-05-27. Option A chosen: one canonical
+`.subjectSpouseMarriage(Brooks, Smith, window)` per distinct MMN, with
+all children listed in `supportingEvidence`. Dedup-at-generation
+mirrors `HypothesisEngine+ParentMarriage`'s pattern
+(`HypothesisEngine+ParentMarriage.swift:110–115`) and keeps
+`supportingEvidence` semantically meaningful — these N children all
+anchor the same marriage hypothesis.
+
+Slice 1 generator: build the set of distinct uppercased MMNs from
+the linked children's anchors (per §5.14.1 clause 5), emit one
+hypothesis per distinct MMN, attach every child whose MMN matches the
+canonical key to that hypothesis's `supportingEvidence`. The window
+uses the *earliest* child's birth year across all children sharing
+that MMN.
+
+---
+
+**Q4 — Children disagree on MMN: DECIDED.**
+
+Resolved 2026-05-27. Option B chosen: when children carry different
+MMNs, the generator emits one `.subjectSpouseMarriage` per distinct
+MMN (Tom Brooks → Brooks × Smith, Sarah Brooks → Brooks × Jones)
+and lets the BMD evidence sort it out. The four outcome cases:
+
+- **Both `.unique`, same recovered given name** → genuine remarriage.
+  Write back the agreed name; both hypotheses become candidates for a
+  downstream `.secondMarriage` (§4.1).
+- **Both `.unique`, different recovered given names** → real
+  contradiction (two different people). Don't write back; user
+  resolves via §5.11.
+- **One `.unique` + one `.none`** → the `.none` MMN is likely
+  transcriber drift or a mis-linked child. The `.unique` one drives
+  write-back per the single-supported case.
+- **Both `.none`** → neither marriage attested in window; subject
+  stays thin.
+
+This decision falls out of Q3's "one canonical hypothesis per distinct
+MMN" naturally — no extra generator branch needed, no new
+`ResearchDiscrepancy` shape, no skip-on-disagreement gate. The
+trade-off is that we surface evidence to the user instead of
+blocking on a tree-level disagreement; the four-case reconciliation in
+§5.14.4 keeps write-back safe in the disagreement subcases.
+
+Folded into §5.14.3 (generator per-distinct-MMN), §5.14.4
+(cross-hypothesis reconciliation for write-back), and §5.14.10
+(edge-case table updated).
+
+---
+
+**Q5 — Auto-approval of the recovered given name: DECIDED.**
+
+Resolved 2026-05-27. Option B chosen: amend §14.3.4 alongside slice 4
+with a narrow carve-out for given names recovered through a
+`.supported` `.unique` `.subjectSpouseMarriage`. Closes the
+per-placeholder friction loop while keeping the firewall's
+identity-shaping protection on every other `firstName` path intact.
+
+Carve-out conditions (all four required):
+(i) `hypothesis.verdict == .supported` AND
+    `hypothesis.kind == .subjectSpouseMarriage`,
+(ii) the underlying `MarriageEnrichmentEngine.match` returned
+     `.unique`,
+(iii) the matched marriage's source tier ≥ `.transcription`,
+(iv) subject's `firstName` was empty *before* the recovery (recovery,
+     not correction).
+
+All other §14.3 gates (convergence, no-dispute, hallucination checks)
+continue to apply unchanged. The §14.3.1 tier requirement is also
+relaxed to `.transcription` under this carve-out (the original
+`.primary`/`.secondary` requirement targeted non-BMD-shaped fields).
+
+Multi-hypothesis remarriage case (Q4): when two `.supported` rows
+agree on the recovered given name, the §5.14.4 reconciliation emits
+one pending fact citing both marriages; the carve-out evaluates against
+the strongest-tier marriage source.
+
+The carve-out is intentionally narrow: it does NOT generalise to
+other `firstName` writes — only those carrying a `hypothesis_id`
+pointing to a `.supported` `.subjectSpouseMarriage`. Folded into
+§5.14.5 (write-back contract) and §5.14.11 slice 4 (carve-out lands
+with the test slice, gated on the slice 2 behavioural shift being
+observable in eval first).
 
 ---
 

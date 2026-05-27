@@ -304,11 +304,6 @@ nonisolated struct ScoringRules {
         return suggestions
     }
 
-    /// In FreeBMD marriage index, entries on the same page are the same couple.
-    static func samePageIsSameCouple(volA: String, pageA: String, volB: String, pageB: String) -> Bool {
-        volA == volB && pageA == pageB
-    }
-
     // MARK: - Convergence Scoring
 
     /// More independent sources confirming the same fact = higher confidence.
@@ -462,6 +457,53 @@ nonisolated struct ScoringRules {
         }
         return FreeBMDDistrictCatalogue.shared
             .district(forParish: parish, inChapman: code)?.name
+    }
+
+    /// Slice 8 — parish-level geography tolerance.
+    /// True when `parish` resolves to a registration district that's
+    /// local to the home county. Mirrors Python `is_derbyshire_district`
+    /// but at parish granularity: a census record reporting birthplace
+    /// "Windley" doesn't contain the word "Derbyshire" verbatim, so the
+    /// district-level geography gate's substring check misses it — even
+    /// though Windley is in Belper district which is in DBY. This helper
+    /// closes that gap.
+    static func isLocalParish(_ parish: String, forHomeChapman code: String) -> Bool {
+        guard let district = districtForParish(parish, forHomeChapman: code) else {
+            return false
+        }
+        return isLocalDistrict(district, forHomeChapman: code)
+    }
+
+    /// Slice 8 — adjacent-parish tolerance for census birthplace
+    /// variance. Mirrors Python `census_birthplace_reliability`'s
+    /// "Mugginton/Windley are adjacent parishes — not contradictions"
+    /// concern. Two parishes are treated as adjacent when they share
+    /// the same registration district (the cheap, MVP heuristic — a
+    /// hand-curated parish-adjacency JSON would be more precise but
+    /// "same district" captures most of the value because UK registration
+    /// districts were sized around walking distance).
+    ///
+    /// Returns true on case-insensitive name equality (trivially adjacent
+    /// to themselves) and when both names resolve to the same local
+    /// district. Returns false for unknown parishes or cross-district
+    /// pairs (those are real geographic discrepancies and should not
+    /// be quietly tolerated).
+    static func parishesShareLocalDistrict(
+        _ parishA: String,
+        _ parishB: String,
+        forHomeChapman code: String
+    ) -> Bool {
+        let trimmedA = parishA.trimmingCharacters(in: .whitespaces)
+        let trimmedB = parishB.trimmingCharacters(in: .whitespaces)
+        guard !trimmedA.isEmpty, !trimmedB.isEmpty else { return false }
+        if trimmedA.caseInsensitiveCompare(trimmedB) == .orderedSame {
+            return true
+        }
+        guard let districtA = districtForParish(trimmedA, forHomeChapman: code),
+              let districtB = districtForParish(trimmedB, forHomeChapman: code)
+        else { return false }
+        return districtA.caseInsensitiveCompare(districtB) == .orderedSame
+            && isLocalDistrict(districtA, forHomeChapman: code)
     }
 
     // MARK: - Reference Data

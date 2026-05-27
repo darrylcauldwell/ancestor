@@ -195,4 +195,79 @@ struct ProposalDedupTests {
         #expect(q.birthYearEarliest == 1871)
         #expect(q.birthYearLatest == 1898)
     }
+
+    // MARK: - Slice 10 — strong-beats-weak match collection
+
+    /// The Hilda Brooks cascade pattern. Without strong-beats-weak:
+    ///   • Lilian Brooks (b.1914, given=Lilian) — given mismatch → not matched.
+    ///   • Brooks-placeholder (no given, no birth) — asymmetric → matched (WEAK).
+    ///   • Hilda#1 (given=Hilda, b.ABT 1912) — given match → matched (STRONG).
+    ///   • Old behaviour: matched.count == 2 → .multipleMatches → cascade ghost #2.
+    ///   • New behaviour: strong exists → ignore weak → matched.count == 1 →
+    ///     .matched(Hilda#1) → idempotent edge → no duplicate.
+    @Test func hildaCascade_strongBeatsWeakWhenPlaceholderPresent() {
+        let lilian = makeProfile(id: "lilian", surname: "Brooks", given: "Lilian", birthYear: 1914)
+        let brooksPlaceholder = makeProfile(id: "brooks-placeholder", surname: "Brooks", given: nil, birthYear: nil)
+        let hildaGhost = makeProfile(id: "hilda-1", surname: "Brooks", given: "Hilda", birthYear: 1912)
+        let candidates = [lilian, brooksPlaceholder, hildaGhost]
+
+        let result = ProposalDedup.decide(
+            query: query(surname: "Brooks", given: "Hilda", earliest: 1912, latest: 1912),
+            candidates: candidates
+        )
+        #expect(result == .matched(profileID: "hilda-1"),
+                "named sibling proposal must match the existing named ghost, NOT cascade into .multipleMatches because of the surname-only placeholder")
+    }
+
+    /// Variant of the cascade: TWO existing Hilda ghosts (legitimate
+    /// ambiguity — two real Hilda Brookses?). Strong matches both →
+    /// .multipleMatches is correct (genuine "split" case from
+    /// CLAUDE.md's "when in doubt, split" doctrine).
+    @Test func twoStrongMatchesGenuinelySplit() {
+        let hilda1 = makeProfile(id: "hilda-1", surname: "Brooks", given: "Hilda", birthYear: 1912)
+        let hilda2 = makeProfile(id: "hilda-2", surname: "Brooks", given: "Hilda", birthYear: 1913)
+        let result = ProposalDedup.decide(
+            query: query(surname: "Brooks", given: "Hilda", earliest: 1912, latest: 1912),
+            candidates: [hilda1, hilda2]
+        )
+        #expect(result == .multipleMatches,
+                "two real named matches with overlapping year windows is the legitimate ambiguity case — split.")
+    }
+
+    /// Weak-only path is preserved: parent inference often produces
+    /// surname-only proposals (proposedGivenName=nil) which should still
+    /// dedup against an existing surname-only ghost of the same surname.
+    @Test func weakOnlyPathStillMatches_surnameOnlyParentInference() {
+        let brooksGhost = makeProfile(id: "brooks-ghost", surname: "Brooks", given: nil, birthYear: nil)
+        let result = ProposalDedup.decide(
+            query: query(surname: "Brooks", given: nil, earliest: nil, latest: nil),
+            candidates: [brooksGhost]
+        )
+        #expect(result == .matched(profileID: "brooks-ghost"),
+                "surname-only-on-both-sides is the legitimate weak-match case — must still dedup.")
+    }
+
+    /// Edge case: only weak matches AND multiple → still .multipleMatches.
+    /// Two surname-only ghosts with no disambiguating data, surname-only
+    /// query. Genuine ambiguity at the surname-only-on-both-sides level.
+    @Test func multipleWeakOnlyMatchesStillSplit() {
+        let brooksA = makeProfile(id: "brooks-a", surname: "Brooks", given: nil, birthYear: nil)
+        let brooksB = makeProfile(id: "brooks-b", surname: "Brooks", given: nil, birthYear: nil)
+        let result = ProposalDedup.decide(
+            query: query(surname: "Brooks", given: nil, earliest: nil, latest: nil),
+            candidates: [brooksA, brooksB]
+        )
+        #expect(result == .multipleMatches)
+    }
+
+    /// Strong present + weak present, both single → strong wins. No cascade.
+    @Test func singleStrongAndSingleWeakResolvesToStrongOnly() {
+        let placeholder = makeProfile(id: "placeholder", surname: "Brooks", given: nil, birthYear: nil)
+        let named = makeProfile(id: "named", surname: "Brooks", given: "Henry", birthYear: 1880)
+        let result = ProposalDedup.decide(
+            query: query(surname: "Brooks", given: "Henry", earliest: 1880, latest: 1880),
+            candidates: [placeholder, named]
+        )
+        #expect(result == .matched(profileID: "named"))
+    }
 }
