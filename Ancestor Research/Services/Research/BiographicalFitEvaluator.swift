@@ -123,23 +123,33 @@ nonisolated enum BiographicalFitEvaluator {
         var notes: [String] = []
 
         // Rule 1 — infant-death elimination.
+        //
+        // A death is *evidence about this candidate* only when the
+        // death's `age` field plausibly matches the candidate's birth
+        // year (i.e. `deathYear - age` ≈ candidate's birth). Without
+        // that match, the death is about a same-named different
+        // person (commonly observed: 1886 death of George Brooks
+        // aged 50 → implied birth 1836 → unrelated to a 1883
+        // candidate, even though the surname + year-proximity check
+        // alone would falsely match).
+        //
+        // Given a same-person match, eliminate only when the deceased
+        // was a child (age ≤ infantDeathWindow) AND died before the
+        // subject's known first child was born.
         if let earliestChild = context.earliestChildYear {
-            let matchingDeaths = deathRecords.compactMap { scored -> Int? in
-                guard let year = recordDeathYear(scored) else { return nil }
-                // Within infant-window of the candidate's birth?
-                guard year - candidateBirthYear <= infantDeathWindow,
-                      year >= candidateBirthYear
-                else { return nil }
-                // Only count deaths plausibly matching the candidate's
-                // identity. Belt-and-braces: require same surname + same
-                // given name as the candidate.
-                guard sameIdentity(candidate.record, scored.record) else { return nil }
-                return year
-            }
-            if let infantDeathYear = matchingDeaths.first,
-               infantDeathYear + minParentAge < earliestChild {
-                plausibility = 0.0
-                notes.append("ruled out: died \(infantDeathYear), too young to father child born \(earliestChild)")
+            for d in deathRecords where sameIdentity(candidate.record, d.record) {
+                guard let deathYear = recordDeathYear(d),
+                      let age = recordAgeAtDeath(d)
+                else { continue }
+                let impliedBirth = deathYear - age
+                // Only count as this-candidate's death if implied
+                // birth lines up.
+                guard abs(impliedBirth - candidateBirthYear) <= ageAtDeathTolerance else { continue }
+                if age <= infantDeathWindow, deathYear + minParentAge < earliestChild {
+                    plausibility = 0.0
+                    notes.append("ruled out: died \(deathYear) age \(age), too young to father child born \(earliestChild)")
+                    break
+                }
             }
         }
 
