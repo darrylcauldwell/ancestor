@@ -914,11 +914,39 @@ final class ResearchViewModel {
         db: ProjectDatabase
     ) {
         guard let candidate else { return }
-        if existing == nil {
-            _ = try? db.editProfile(profileID: profileID, changes: [], dateChanges: [(field, nil, candidate)], source: origin)
+        if Self.shouldOverwriteDateField(existing: existing, candidate: candidate) {
+            _ = try? db.editProfile(profileID: profileID, changes: [], dateChanges: [(field, existing, candidate)], source: origin)
         } else {
             _ = try? db.recordAlternativeFact(profileID: profileID, field: field, rawValue: candidate.original, source: origin)
         }
+    }
+
+    /// Should an applied date overwrite the profile's existing value, or only
+    /// be logged as an alternative fact?
+    ///
+    /// The "Check Before Overwrite" rule (`feedback_check_before_overwrite.md`)
+    /// is **directional**: never overwrite *precise* data with *imprecise*
+    /// data. The original `existing == nil` guard implemented the rule as
+    /// **absolute** — any set value blocks any incoming value — which means a
+    /// wide GEDCOM range like `BET 1869 AND 1896` blocks a 31-source
+    /// cluster-confirmed `Dec 1883`. Fix: overwrite when the candidate's
+    /// year-span is **strictly narrower** than the existing value's.
+    ///
+    /// Same-span candidates (e.g. two different precise quarters) do not
+    /// overwrite — that's a disambiguation problem (the multi-hypothesis
+    /// pivot owns it). They still land in `field_sources` via the
+    /// `recordAlternativeFact` branch, preserving evidence for later.
+    nonisolated static func shouldOverwriteDateField(
+        existing: GenealogicalDate?,
+        candidate: GenealogicalDate
+    ) -> Bool {
+        guard let existing else { return true }
+        return yearSpan(of: candidate) < yearSpan(of: existing)
+    }
+
+    nonisolated private static func yearSpan(of date: GenealogicalDate) -> Int {
+        guard let earliest = date.earliest, let latest = date.latest else { return .max }
+        return latest - earliest
     }
 
     private func applyStringField(

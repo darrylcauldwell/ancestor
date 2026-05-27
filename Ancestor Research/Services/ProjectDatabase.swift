@@ -1629,17 +1629,44 @@ nonisolated extension ProjectDatabase {
                     transaction.changeCount, transaction.profileCount,
                 ])
 
-            // Read current values to honour the nil-only rule.
+            // Read current values to honour the overwrite policy. The
+            // "Check Before Overwrite" rule (feedback_check_before_overwrite.md)
+            // is directional: precise data must not be replaced with
+            // imprecise data. Earlier code implemented this as an absolute
+            // nil-only rule, which silently blocked precise BMD quarters
+            // from overwriting wide GEDCOM ranges. Now: overwrite when the
+            // candidate's year-span is strictly narrower than the existing
+            // value's. Mirrors ResearchViewModel.shouldOverwriteDateField.
             guard let row = try Row.fetchOne(
                 db,
-                sql: "SELECT marriage_date_original, marriage_location FROM relationships WHERE id = ?",
+                sql: """
+                    SELECT marriage_date_original, marriage_date_earliest,
+                           marriage_date_latest, marriage_location
+                    FROM relationships WHERE id = ?
+                    """,
                 arguments: [relationshipID.uuidString]
             ) else { return }
 
             let existingDate: String? = row["marriage_date_original"]
+            let existingEarliest: Int? = row["marriage_date_earliest"]
+            let existingLatest: Int? = row["marriage_date_latest"]
             let existingLocation: String? = row["marriage_location"]
 
-            if existingDate == nil, let date = candidateDate {
+            let candidateNarrower: Bool = {
+                guard let date = candidateDate else { return false }
+                if existingDate == nil { return true }
+                let candidateSpan: Int = {
+                    guard let e = date.earliest, let l = date.latest else { return .max }
+                    return l - e
+                }()
+                let existingSpan: Int = {
+                    guard let e = existingEarliest, let l = existingLatest else { return .max }
+                    return l - e
+                }()
+                return candidateSpan < existingSpan
+            }()
+
+            if candidateNarrower, let date = candidateDate {
                 try db.execute(sql: """
                     UPDATE relationships SET
                         marriage_date_original = ?,
