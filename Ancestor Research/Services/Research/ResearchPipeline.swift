@@ -29,6 +29,15 @@ final class ResearchPipeline {
     /// `ProjectDatabase.savePendingFact(_:)`.
     let pendingFactWriter: ((PendingFact) -> Void)?
 
+    /// Per-profile record-rejection lookup. The closure returns the set
+    /// of `SourceRecord.id`s the user has discarded for a given
+    /// profileID — drawn from `record_rejections` and from
+    /// `evidence_records.user_status='discarded'`
+    /// (see `ProjectDatabase.loadRejections`). Slice B's consensus
+    /// detector consults this set so a user's "this isn't my person"
+    /// gesture sticks across research runs.
+    let rejectionLookup: ((String) -> Set<String>)?
+
     private let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "Pipeline")
 
     init(
@@ -36,13 +45,15 @@ final class ResearchPipeline {
         snapshot: FamilyGraphSnapshot,
         sourceInfoMap: [String: SourceInfo],
         childEvidenceMMNLookup: ((String) -> String?)? = nil,
-        pendingFactWriter: ((PendingFact) -> Void)? = nil
+        pendingFactWriter: ((PendingFact) -> Void)? = nil,
+        rejectionLookup: ((String) -> Set<String>)? = nil
     ) {
         self.dispatcher = dispatcher
         self.snapshot = snapshot
         self.sourceInfoMap = sourceInfoMap
         self.childEvidenceMMNLookup = childEvidenceMMNLookup
         self.pendingFactWriter = pendingFactWriter
+        self.rejectionLookup = rejectionLookup
     }
 
     /// Build a `childEvidenceMMNLookup` closure backed by
@@ -79,6 +90,17 @@ final class ResearchPipeline {
             } catch {
                 logger.error("Failed to save pending fact \(fact.id): \(error.localizedDescription)")
             }
+        }
+    }
+
+    /// Build a `rejectionLookup` closure backed by
+    /// `ProjectDatabase.loadRejections(profileID:)`. Read-only — load
+    /// failures fall through to an empty set so the pipeline keeps
+    /// running even when rejection state can't be fetched.
+    static func makeRejectionLookup(database: ProjectDatabase?) -> ((String) -> Set<String>)? {
+        guard let database else { return nil }
+        return { profileID in
+            (try? database.loadRejections(profileID: profileID)) ?? []
         }
     }
 
@@ -211,8 +233,20 @@ final class ResearchPipeline {
             // *consensus* across records is itself strong evidence.
             // Logging-only for now; slice B will surface this as a one-click
             // profile-update proposal.
+            // Resolve user-discarded record IDs for this profile so the
+            // detector can honor them per spec §3.6. Empty set when the
+            // subject isn't a profile (lead-only runs) or no lookup is
+            // installed — keeping the previous behaviour for those paths.
+            let rejectedIDs: Set<String> = {
+                guard let profileID = state.subject.profileID,
+                      let lookup = rejectionLookup
+                else { return [] }
+                return lookup(profileID)
+            }()
             if let consensus = BirthYearConsensusDetector.detect(
-                in: state.scoredRecords, for: state.subject
+                in: state.scoredRecords,
+                for: state.subject,
+                rejectedRecordIDs: rejectedIDs
             ) {
                 let labels = consensus.supportingEvidence
                     .map { "\($0.typeLabel) (\($0.sourceID))" }

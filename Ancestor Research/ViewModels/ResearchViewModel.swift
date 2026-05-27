@@ -13,6 +13,12 @@ final class ResearchViewModel {
     var selectedLead: Lead?
     var selectedMode: ResearchMode = .extend
     var selectedScope: ResearchScope = .county
+    /// User opt-in for prose extraction. Defaults to off because the
+    /// phase is a ~20-minute MLX workload that produces zero hits on
+    /// most cross-region subjects (Wirksworth corpus + Belper subject
+    /// = nothing useful). Set by `ContentView` from `ResearchRequest`
+    /// before each `startResearch` call.
+    var runProseExtraction: Bool = false
 
     /// Display name of whatever's being researched — profile, lead, or
     /// neither. Triage surfaces use this rather than reaching into
@@ -50,6 +56,18 @@ final class ResearchViewModel {
     /// kicks off; cleared when the run completes or is cancelled.
     var currentResearchTask: Task<Void, Never>?
     var wasCancelled = false
+
+    /// Phase timestamps for the dev-build dual-clock display in
+    /// `ResearchProgressView`. The iteration loop has its own latency
+    /// budget (~5 min); the optional prose-extraction phase that only
+    /// runs in `.discover`/`.all` is multi-minute MLX work with its
+    /// own budget (~20 min). Showing both separately stops the user
+    /// being misled by a single combined clock that's red because
+    /// prose extraction ran, not because the iteration loop was slow.
+    var iterationPhaseStart: Date?
+    var iterationPhaseEnd: Date?
+    var prosePhaseStart: Date?
+    var prosePhaseEnd: Date?
 
     // Review state
     var clusterDecisions: [String: ClusterDecision] = [:]  // cluster.id → decision
@@ -92,6 +110,27 @@ final class ResearchViewModel {
         case accepted, rejected, deferred
     }
 
+    // MARK: - AI Gate
+
+    /// Surfaced when the user kicks off research but the reasoning model
+    /// isn't loaded. ContentView observes this and presents an alert with
+    /// "Open Settings" / "Run Without AI" / "Cancel". Cleared by the
+    /// matching action handlers.
+    var aiGate: AIGate?
+
+    struct AIGate: Identifiable {
+        let id = UUID()
+        /// True when the safetensors are already in the sandbox model dir
+        /// — loading is the only step. False when a download is also needed.
+        let modelOnDisk: Bool
+        /// Display name of the user's selected reasoning model, for the
+        /// alert message.
+        let modelDisplayName: String
+        /// Replays `startResearch` with `bypassAICheck = true` so the
+        /// pipeline runs without MLX.
+        let proceed: () async -> Void
+    }
+
     // MARK: - Research Flow
 
     /// Start research for a Lead — the unified entry point for "Investigate
@@ -104,8 +143,18 @@ final class ResearchViewModel {
     func startResearch(
         lead: Lead,
         snapshot: FamilyGraphSnapshot,
-        registry: SourceRegistry
+        registry: SourceRegistry,
+        bypassAICheck: Bool = false
     ) async {
+        if !bypassAICheck, await shouldGateOnMissingAI(
+            retry: { [weak self] in
+                await self?.startResearch(
+                    lead: lead, snapshot: snapshot, registry: registry,
+                    bypassAICheck: true
+                )
+            }
+        ) { return }
+
         selectedProfile = nil
         selectedLead = lead
         let homeChapmanCode = appDatabase
@@ -130,8 +179,18 @@ final class ResearchViewModel {
         profile: Profile,
         snapshot: FamilyGraphSnapshot,
         registry: SourceRegistry,
-        focus: ResearchFocus? = nil
+        focus: ResearchFocus? = nil,
+        bypassAICheck: Bool = false
     ) async {
+        if !bypassAICheck, await shouldGateOnMissingAI(
+            retry: { [weak self] in
+                await self?.startResearch(
+                    profile: profile, snapshot: snapshot, registry: registry,
+                    focus: focus, bypassAICheck: true
+                )
+            }
+        ) { return }
+
         selectedProfile = profile
         selectedLead = nil
         let homeChapmanCode = appDatabase
@@ -151,6 +210,27 @@ final class ResearchViewModel {
             persistProfileID: profile.id,
             leadToFinalise: nil
         )
+    }
+
+    /// If the reasoning model isn't loaded, populate `aiGate` so the view
+    /// can present a "Load model first?" alert, and return `true` to tell
+    /// the caller to bail out. Otherwise returns `false`.
+    ///
+    /// The closure passed as `retry` re-invokes `startResearch` with
+    /// `bypassAICheck = true`, which the alert's "Run Without AI" button
+    /// triggers.
+    private func shouldGateOnMissingAI(retry: @escaping () async -> Void) async -> Bool {
+        if await LocalInferenceService.shared.isAvailable { return false }
+        let raw = UserDefaults.standard.string(forKey: "reasoningModelChoice")
+            ?? ReasoningModel.default.rawValue
+        let model = ReasoningModel(rawValue: raw) ?? .default
+        let onDisk = LocalInferenceService.shared.onDiskBytes(for: model) > 1_000_000_000
+        self.aiGate = AIGate(
+            modelOnDisk: onDisk,
+            modelDisplayName: model.displayName,
+            proceed: retry
+        )
+        return true
     }
 
     /// Shared inner pipeline driver. Sets up the live-activity subscription,
@@ -179,6 +259,10 @@ final class ResearchViewModel {
         proseCandidates = []
         errorMessage = nil
         progressMessage = "Preparing research..."
+        iterationPhaseStart = Date()
+        iterationPhaseEnd = nil
+        prosePhaseStart = nil
+        prosePhaseEnd = nil
 
         // Subscribe to live activity events so the UI can show per-source spinners
         // and a recent-activity feed. Cancelled at the end of the run.
@@ -211,6 +295,24 @@ final class ResearchViewModel {
             )
         }
 
+        // Synthetic "sources" for MLX activity. Same status-card UX so
+        // the user can watch Level-2 / prose-extractor progress instead
+        // of guessing at the long quiet phases. Pre-seeded as .pending;
+        // the same `sourceQueryStarted/Completed` events that drive the
+        // real sources update these.
+        sourceStatuses.append(SourceStatus(
+            id: "mlx-strategist",
+            displayName: "Level-2 Strategist (AI)",
+            state: .pending, resultCount: 0, reason: nil
+        ))
+        if (selectedMode == .discover || selectedMode == .all), runProseExtraction {
+            sourceStatuses.append(SourceStatus(
+                id: "mlx-prose",
+                displayName: "Prose Extraction (AI)",
+                state: .pending, resultCount: 0, reason: nil
+            ))
+        }
+
         let config = ResearchConfig.preset(for: selectedMode).with(scope: selectedScope)
         progressMessage = "Searching \(subject.displayName)..."
 
@@ -221,10 +323,14 @@ final class ResearchViewModel {
         let pipeline = ResearchPipeline(
             dispatcher: dispatcher,
             snapshot: snapshot,
-            sourceInfoMap: sourceInfoMap
+            sourceInfoMap: sourceInfoMap,
+            childEvidenceMMNLookup: ResearchPipeline.makeChildEvidenceMMNLookup(database: appDatabase),
+            pendingFactWriter: ResearchPipeline.makePendingFactWriter(database: appDatabase),
+            rejectionLookup: ResearchPipeline.makeRejectionLookup(database: appDatabase)
         )
 
         let result = await pipeline.research(subject: subject, config: config)
+        iterationPhaseEnd = Date()
 
         // Prose-corpus retrieval — fan out the subject across every
         // registered prose corpus and store the top-K candidates for
@@ -246,9 +352,11 @@ final class ResearchViewModel {
         // runs (no profileID) skip this just like they skip
         // structured evidence persistence above.
         if (selectedMode == .discover || selectedMode == .all),
+           runProseExtraction,
            let profileID = persistProfileID,
            let db = appDatabase,
            !proseCandidates.isEmpty {
+            prosePhaseStart = Date()
             await runProseExtraction(
                 candidates: proseCandidates,
                 subject: subject,
@@ -256,6 +364,7 @@ final class ResearchViewModel {
                 registry: registry,
                 db: db
             )
+            prosePhaseEnd = Date()
         }
 
         currentResult = result
@@ -512,6 +621,19 @@ final class ResearchViewModel {
                 logger.warning("Prose extractor skipping missing page \(candidate.id)")
                 continue
             }
+            // Per-page started/completed events for the "Prose Extraction
+            // (AI)" card. Each prose body is a multi-second MLX call;
+            // surfacing each one keeps the spinner card honest rather
+            // than masking 5-10 minutes of MLX behind one stage event.
+            let pageLabel = (candidate.title ?? "").isEmpty
+                ? candidate.id
+                : (candidate.title ?? candidate.id)
+            await ResearchActivityBus.shared.publish(
+                .sourceQueryStarted(
+                    sourceID: "mlx-prose",
+                    summary: "Prose: \(pageLabel)"
+                )
+            )
             let result = await extractor.extract(
                 candidate: candidate,
                 body: page.body,
@@ -526,6 +648,13 @@ final class ResearchViewModel {
                 do { try db.saveNarrativeFinding(narrative); savedNarratives += 1 }
                 catch { logger.warning("Failed to save prose narrative \(narrative.id): \(error.localizedDescription)") }
             }
+            await ResearchActivityBus.shared.publish(
+                .sourceQueryCompleted(
+                    sourceID: "mlx-prose",
+                    summary: "Prose: \(pageLabel)",
+                    resultCount: result.facts.count + result.narratives.count
+                )
+            )
         }
         await ResearchActivityBus.shared.publish(
             .pipelineStage(message: "Prose extraction complete — \(savedFacts) fact\(savedFacts == 1 ? "" : "s"), \(savedNarratives) narrative\(savedNarratives == 1 ? "" : "s") for review.")
@@ -981,6 +1110,20 @@ final class ResearchViewModel {
                     in: appState.snapshot,
                     db: db
                 )
+                // Slice 12 — lossless upgrade. The matched existing ghost
+                // may have been created by an earlier run (e.g. surname-only
+                // before the parent-marriage was findable). Today's proposal
+                // carries a recovered given name from the marriage cross-
+                // reference. Fill the existing ghost's `first_name` rather
+                // than leaving the user with "Land — 1/7" forever. Never
+                // overwrite an existing first_name (that would be an
+                // identity correction, not an enrichment).
+                upgradeGhostFirstNameIfApplicable(
+                    existingID: existingID,
+                    proposal: proposal,
+                    in: appState,
+                    db: db
+                )
             case .noMatch, .multipleMatches:
                 // multipleMatches still creates new — CLAUDE.md "When
                 // in doubt, split". Audit's duplicateDetection rule
@@ -989,6 +1132,23 @@ final class ResearchViewModel {
             }
             appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
             proposedRelativeDecisions[proposal.id] = .accepted
+
+            // Slice 11 — when both parents are now linked AND a supported
+            // .parentMarriage hypothesis exists for the pair, materialise
+            // the spouse edge with marriage date/location from the cited
+            // BMD record. Idempotent: no-op if the spouse edge already
+            // exists. The materialisation only runs after the accept has
+            // refreshed the snapshot, so the just-accepted parent is in
+            // the graph.
+            if let result = currentResult {
+                _ = try? db.ensureSpouseEdgeForParents(
+                    ofSubject: subjectID,
+                    hypotheses: result.hypotheses,
+                    scoredRecords: result.allScoredRecords,
+                    snapshot: appState.snapshot
+                )
+                appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+            }
         } catch {
             errorMessage = "Failed to create relative: \(error.localizedDescription)"
         }
@@ -1029,6 +1189,53 @@ final class ResearchViewModel {
         case .female: .mother
         default:      .unspecified
         }
+    }
+
+    /// Slice 12 — given-name upgrade-on-accept. When the dedup matched
+    /// an existing surname-only ghost AND the proposal carries a
+    /// recovered given name (from the parent-marriage cross-reference),
+    /// fill the ghost's `first_name`. This closes the gap surfaced by
+    /// the user's Land profile staying surname-only after accepting
+    /// "Ida L Land" — the dedup matched the existing surname-only
+    /// ghost from a prior run, so no new profile was created and the
+    /// given name was effectively discarded.
+    private func upgradeGhostFirstNameIfApplicable(
+        existingID: String,
+        proposal: ProposedRelative,
+        in appState: AppState,
+        db: ProjectDatabase
+    ) {
+        guard let existing = appState.snapshot.profiles[existingID],
+              let upgrade = Self.firstNameUpgrade(for: proposal, existing: existing)
+        else { return }
+        let origin = SourceOrigin(identifier: proposal.evidence.first?.record.sourceID ?? "freebmd")
+        _ = try? db.editProfile(
+            profileID: existingID,
+            changes: [(.firstName, nil, upgrade)],
+            dateChanges: [],
+            source: origin
+        )
+    }
+
+    /// Slice 12 pure-function gate. Returns the canonical first-name to
+    /// write iff the existing ghost has no first_name AND the proposal
+    /// carries a non-empty proposedGivenName. Never overwrites an
+    /// existing non-empty first_name (that would be an identity
+    /// correction, not a recovery). Capitalised for consistency with
+    /// the rest of the editProfile pipeline. Extracted as a static for
+    /// unit testing.
+    static func firstNameUpgrade(
+        for proposal: ProposedRelative,
+        existing: Profile
+    ) -> String? {
+        let currentFirstName = (existing.firstName ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        guard currentFirstName.isEmpty else { return nil }
+        guard let proposed = proposal.proposedGivenName?
+                .trimmingCharacters(in: .whitespaces),
+              !proposed.isEmpty
+        else { return nil }
+        return proposed.capitalized
     }
 
     /// Apply enrichment data from an already-linked proposed relative onto

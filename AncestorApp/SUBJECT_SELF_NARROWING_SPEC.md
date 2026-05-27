@@ -127,6 +127,29 @@ unrelated record that snuck in, or a same-source cluster the
 diversity guard somehow missed. Without this preview, the click
 risk profile inverts toward the naive case.
 
+### 3.6 Honor user record rejections
+
+Records the user has explicitly discarded for the subject's profile
+MUST be excluded from the consensus evidence pool. Source of truth is
+`ProjectDatabase.loadRejections(profileID:)`, which unions the legacy
+`record_rejections` table with the modern
+`evidence_records.user_status = 'discarded'` rows.
+
+Rationale: closes the "wrong-person cluster" mode observed against
+George H Brooks. The pipeline re-fetches BMD records from FreeBMD on
+every run, so a known-different-person cluster (e.g. George Brooks
+b 1870 d 1871 in Basford, 38 records) keeps re-anchoring slice B's
+consensus at the wrong year. The user's `discardRecord(_:)` gesture
+in the ClusterReviewView already persists the right signal; this
+guard just makes the detector consult it.
+
+Plumbing: `ResearchPipeline` gains an optional
+`rejectionLookup: ((String) -> Set<String>)?` mirror of
+`pendingFactWriter`, populated by call sites that have a
+`ProjectDatabase`. The detector accepts the resolved set as a
+parameter so the unit tests can exercise the filter without a
+database.
+
 ### 3.5 Confidence tiers
 
 The proposal MUST carry a confidence grade visible in the UI.

@@ -167,6 +167,49 @@ struct BirthYearConsensusDetectorTests {
         #expect(result?.distinctSourceCount == 3)
     }
 
+    // MARK: - MUST §3.6 user rejections
+
+    @Test func userRejectedRecords_areExcludedFromConsensus() {
+        // Four records that would otherwise produce a HIGH-tier consensus,
+        // but the user has discarded two — leaving only the BMD birth and
+        // one census. That's below the §3.0 floor of 3 records, so the
+        // detector returns nil. Same gesture the user makes in the
+        // ClusterReviewView "Discard this record" button; the persistence
+        // path is `record_rejections` / `evidence_records.user_status`.
+        let subject = belperSubject()
+        let scored = [
+            birthRecord(id: "b1", sourceID: "freebmd", year: 1883, place: "Belper"),
+            censusRecord(id: "c1", sourceID: "freecen", censusYear: 1891, age: 8, place: "Belper"),
+            censusRecord(id: "c2", sourceID: "freecen", censusYear: 1901, age: 18, place: "Belper"),
+            burialRecord(id: "br1", sourceID: "findagrave", year: 1883, place: "Belper")
+        ]
+        let rejected: Set<String> = ["c1", "br1"]
+        let result = BirthYearConsensusDetector.detect(
+            in: scored, for: subject, rejectedRecordIDs: rejected
+        )
+        #expect(result == nil)
+    }
+
+    @Test func nonRejectedRecords_stillTriggerConsensus() {
+        // Same fixture but with an irrelevant rejected ID. The detector
+        // must not be paranoid — only the named records are excluded;
+        // the other supporters still count toward the consensus.
+        let subject = belperSubject()
+        let scored = [
+            birthRecord(id: "b1", sourceID: "freebmd", year: 1883, place: "Belper"),
+            censusRecord(id: "c1", sourceID: "freecen", censusYear: 1891, age: 8, place: "Belper"),
+            censusRecord(id: "c2", sourceID: "freecen", censusYear: 1901, age: 18, place: "Belper"),
+            burialRecord(id: "br1", sourceID: "findagrave", year: 1883, place: "Belper")
+        ]
+        let rejected: Set<String> = ["nonexistent-id"]
+        let result = BirthYearConsensusDetector.detect(
+            in: scored, for: subject, rejectedRecordIDs: rejected
+        )
+        #expect(result != nil)
+        #expect(result?.confidence == .high)
+        #expect(result?.agreeingRecordCount == 4)
+    }
+
     // MARK: - Wide-window precondition
 
     @Test func tightWindow_returnsNil() {

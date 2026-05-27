@@ -92,7 +92,14 @@ final class WholeTreeResearchViewModel {
             let config = ResearchConfig.extend
 
             let dispatcher = SearchDispatcher(registry: registry, regionConfig: RegionConfig.derbyshire)
-            let pipeline = ResearchPipeline(dispatcher: dispatcher, snapshot: snapshot, sourceInfoMap: sourceInfoMap)
+            let pipeline = ResearchPipeline(
+                dispatcher: dispatcher,
+                snapshot: snapshot,
+                sourceInfoMap: sourceInfoMap,
+                childEvidenceMMNLookup: ResearchPipeline.makeChildEvidenceMMNLookup(database: database),
+                pendingFactWriter: ResearchPipeline.makePendingFactWriter(database: database),
+                rejectionLookup: ResearchPipeline.makeRejectionLookup(database: database)
+            )
 
             let result = await pipeline.research(subject: subject, config: config)
             currentResult = result

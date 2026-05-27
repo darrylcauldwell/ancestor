@@ -154,17 +154,29 @@ nonisolated enum BirthYearConsensusDetector {
     /// strongly enough to surface as a profile-update proposal. Returns
     /// nil when the subject's window is already tight, when no
     /// year-bearing cluster reaches the floor, or when any MUST guard
-    /// (§3.0 record count, §3.1 source diversity, §3.2 locality) fails.
+    /// (§3.0 record count, §3.1 source diversity, §3.2 locality, §3.6
+    /// user rejections) fails.
+    ///
+    /// `rejectedRecordIDs` is the set of `SourceRecord.id`s the user has
+    /// explicitly discarded for this subject's profile (per spec §3.6 —
+    /// "Honor user record rejections"). Records in this set are
+    /// excluded from the evidence pool even when they would otherwise
+    /// pass the other guards. This stops a discarded "wrong person"
+    /// record cluster from re-anchoring slice B's proposal on every
+    /// research run.
     static func detect(
         in scored: [ScoredRecord],
-        for subject: ResearchSubject
+        for subject: ResearchSubject,
+        rejectedRecordIDs: Set<String> = []
     ) -> BirthYearConsensus? {
         if let from = subject.birthYearFrom, let to = subject.birthYearTo,
            to - from <= wideSpanThreshold {
             return nil
         }
 
-        let evidence = collectEvidence(from: scored, subject: subject)
+        let evidence = collectEvidence(
+            from: scored, subject: subject, rejectedRecordIDs: rejectedRecordIDs
+        )
         guard evidence.count >= minAgreement else { return nil }
 
         guard let (anchorYear, supporters) = strongestCluster(in: evidence) else {
@@ -201,14 +213,17 @@ nonisolated enum BirthYearConsensusDetector {
     // MARK: - Evidence collection
 
     /// Pulls implied birth years out of every typed record shape we
-    /// know how to read. Skips records with verdict `.impossible`.
+    /// know how to read. Skips records with verdict `.impossible` and
+    /// records whose `id` is in `rejectedRecordIDs` (§3.6 guard).
     private static func collectEvidence(
         from scored: [ScoredRecord],
-        subject: ResearchSubject
+        subject: ResearchSubject,
+        rejectedRecordIDs: Set<String>
     ) -> [SupportingEvidence] {
         var out: [SupportingEvidence] = []
         let subjectPlaces = subjectKnownPlaceTokens(subject)
         for s in scored where s.verdict != .impossible {
+            if rejectedRecordIDs.contains(s.record.id) { continue }
             guard let entry = supportingEvidence(
                 for: s.record,
                 subjectPlaceTokens: subjectPlaces
