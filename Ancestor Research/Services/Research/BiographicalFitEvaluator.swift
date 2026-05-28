@@ -126,6 +126,14 @@ nonisolated enum BiographicalFitEvaluator {
         censusRecords: [ScoredRecord] = []
     ) -> [BiographicalFitResult] {
         let context = SubjectContext.build(subject: subject, snapshot: snapshot)
+        // Anchor the same-identity check on the subject's home county so
+        // cross-county namesakes don't get counted as evidence (the bug
+        // that scrambled George Brooks's 1883 vs 1870 disambiguation —
+        // many "George Brooks" records nationwide were corroborating /
+        // penalising the wrong candidate). Permissive when records lack
+        // a derivable chapman code (most don't outside BMD/census, and
+        // we don't want to silently drop those).
+        let subjectChapman = subject.homeChapmanCode
         var results: [BiographicalFitResult] = []
         for c in candidates {
             guard let birthYear = candidateBirthYear(c) else { continue }
@@ -135,7 +143,8 @@ nonisolated enum BiographicalFitEvaluator {
                     candidateBirthYear: birthYear,
                     context: context,
                     deathRecords: deathRecords,
-                    censusRecords: censusRecords
+                    censusRecords: censusRecords,
+                    subjectChapmanCode: subjectChapman
                 )
             )
         }
@@ -149,7 +158,8 @@ nonisolated enum BiographicalFitEvaluator {
         candidateBirthYear: Int,
         context: SubjectContext,
         deathRecords: [ScoredRecord],
-        censusRecords: [ScoredRecord] = []
+        censusRecords: [ScoredRecord] = [],
+        subjectChapmanCode: String = ""
     ) -> BiographicalFitResult {
         var plausibility: Double = 1.0
         var notes: [String] = []
@@ -170,7 +180,7 @@ nonisolated enum BiographicalFitEvaluator {
         // was a child (age ≤ infantDeathWindow) AND died before the
         // subject's known first child was born.
         if let earliestChild = context.earliestChildYear {
-            for d in deathRecords where sameIdentity(candidate.record, d.record) {
+            for d in deathRecords where sameIdentity(candidate.record, d.record, subjectChapmanCode: subjectChapmanCode) {
                 guard let deathYear = recordDeathYear(d),
                       let age = recordAgeAtDeath(d)
                 else { continue }
@@ -199,7 +209,7 @@ nonisolated enum BiographicalFitEvaluator {
         // candidate, 12 years apart at implied-birth level → skip).
         if plausibility > 0 {
             for d in deathRecords {
-                guard sameIdentity(candidate.record, d.record),
+                guard sameIdentity(candidate.record, d.record, subjectChapmanCode: subjectChapmanCode),
                       let dy = recordDeathYear(d),
                       let age = recordAgeAtDeath(d) else { continue }
                 let implied = dy - age
@@ -249,7 +259,7 @@ nonisolated enum BiographicalFitEvaluator {
         // corroboration-based tie-break then surfaces the winner.
         if plausibility > 0 {
             for c in censusRecords {
-                guard sameIdentity(candidate.record, c.record),
+                guard sameIdentity(candidate.record, c.record, subjectChapmanCode: subjectChapmanCode),
                       case .census(let censusBody) = c.record
                 else { continue }
                 let age: Int
@@ -348,11 +358,36 @@ nonisolated enum BiographicalFitEvaluator {
         }
     }
 
-    /// Loose identity check between two source records. Used to gate
-    /// the cross-reference logic — we only want to back-calculate a
-    /// death's age against a birth that plausibly names the same
-    /// person.
-    private static func sameIdentity(_ a: SourceRecord, _ b: SourceRecord) -> Bool {
+    /// Subject-anchored identity check. Used to gate the cross-reference
+    /// logic — we only want to back-calculate a death's age (or
+    /// census's age) against a birth that plausibly names the SUBJECT,
+    /// not a same-named different person in a different county.
+    ///
+    /// Three-stage check:
+    ///   1. Surname must match (case-insensitive) on both sides
+    ///   2. Given-name first-token must match on both sides
+    ///      (permissive — handles "Geo." / "George" via first-token
+    ///       comparison would still fail; that's a known gap. The
+    ///       current gate is a first-token equality after lowercasing,
+    ///       matching the legacy semantics.)
+    ///   3. If `record` (the b-side — typically the evidence record:
+    ///      death, census, etc.) carries derivable location data → its
+    ///      chapman code must match `subjectChapmanCode`. When the
+    ///      record's location is missing or not mappable, this stage
+    ///      is permissive (passes) — many record types don't carry a
+    ///      reliable chapman-code anchor (probate registry is the
+    ///      registry's location, not the testator's; burial cemetery
+    ///      can be anywhere). Filter on the data that's reliable;
+    ///      don't penalise gaps in source coverage.
+    ///
+    /// `subjectChapmanCode` defaults to "" so callers that pass nothing
+    /// fall through to the legacy (pre-stage-3) behaviour. Production
+    /// callers via `evaluate()` always pass the subject's home chapman.
+    private static func sameIdentity(
+        _ a: SourceRecord,
+        _ b: SourceRecord,
+        subjectChapmanCode: String = ""
+    ) -> Bool {
         let aSurname = (a.surname ?? "").lowercased()
         let bSurname = (b.surname ?? "").lowercased()
         guard !aSurname.isEmpty, aSurname == bSurname else { return false }
@@ -362,6 +397,58 @@ nonisolated enum BiographicalFitEvaluator {
         // initial / middle name. Match on the first token of each.
         let aFirst = aGiven.split(separator: " ").first.map(String.init) ?? ""
         let bFirst = bGiven.split(separator: " ").first.map(String.init) ?? ""
-        return !aFirst.isEmpty && aFirst == bFirst
+        guard !aFirst.isEmpty, aFirst == bFirst else { return false }
+
+        // Stage 3 — chapman-code anchor. Permissive when caller doesn't
+        // supply a subject chapman (back-compat) OR the record's
+        // location isn't mappable (covers probate/burial/military).
+        guard !subjectChapmanCode.isEmpty else { return true }
+        guard let recordChapman = chapmanCode(of: b) else { return true }
+        return recordChapman.uppercased() == subjectChapmanCode.uppercased()
+    }
+
+    /// Map a record's location field(s) to a Chapman code, when one is
+    /// derivable. Returns `nil` when the record has no location data,
+    /// when the location isn't in `FreeBMDDistrictCatalogue`, or when
+    /// the field's semantics don't align with "where the person lived
+    /// at the time of the event" (probate registry, burial cemetery).
+    ///
+    /// Coverage policy (slice 4 robustness pass, 2026-05-28):
+    ///   • BMD birth/death/marriage indexes → district → catalogue lookup
+    ///   • Census records → birthCounty (when already a 3-letter code)
+    ///     OR district → catalogue lookup
+    ///   • Other types → nil (permissive)
+    ///
+    /// Probate `registry` is deliberately NOT mapped — wills can be
+    /// registered at the London Principal Registry for a Belper testator,
+    /// so registry chapman code doesn't reliably anchor to where the
+    /// person lived. Burial `cemetery`/`burialLocation` is similarly
+    /// ambiguous (a person can be buried far from where they lived).
+    ///
+    /// Internal access (not `private`) so unit tests can verify the
+    /// mapping behaviour directly.
+    static func chapmanCode(of record: SourceRecord) -> String? {
+        switch record {
+        case .birth(let r):
+            return chapmanCodeForDistrict(r.district)
+        case .death(let r):
+            return chapmanCodeForDistrict(r.district)
+        case .marriage(let r):
+            return chapmanCodeForDistrict(r.district)
+        case .census(let r):
+            if let bc = r.birthCounty?.trimmingCharacters(in: .whitespaces),
+               bc.count == 3, bc == bc.uppercased() {
+                return bc   // already a chapman code
+            }
+            return chapmanCodeForDistrict(r.district)
+        case .burial, .probate, .military, .parish, .pedigree:
+            return nil
+        }
+    }
+
+    private static func chapmanCodeForDistrict(_ district: String?) -> String? {
+        guard let name = district?.trimmingCharacters(in: .whitespaces), !name.isEmpty
+        else { return nil }
+        return FreeBMDDistrictCatalogue.shared.district(named: name)?.chapmanCode
     }
 }

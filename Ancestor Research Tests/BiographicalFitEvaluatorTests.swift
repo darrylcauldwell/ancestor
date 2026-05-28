@@ -348,7 +348,8 @@ struct BiographicalFitEvaluatorTests {
 
     private func makeDeathRecord(
         id: String, given: String, surname: String,
-        year: Int, age: Int
+        year: Int, age: Int,
+        district: String? = nil
     ) -> ScoredRecord {
         let common = RecordCommon(
             id: id, sourceID: "freebmd",
@@ -357,12 +358,253 @@ struct BiographicalFitEvaluatorTests {
         )
         let r = DeathRecord(
             common: common, deathYear: year, deathDate: nil,
-            deathPlace: nil, age: age, quarter: nil, district: nil,
+            deathPlace: nil, age: age, quarter: nil, district: district,
             volume: nil, page: nil, spouseSurname: nil
         )
         return ScoredRecord(
             id: id, record: .death(r),
             verdict: .lead, gates: [], summary: ""
         )
+    }
+
+    private func makeCensusRecord(
+        id: String, given: String, surname: String,
+        censusYear: Int, age: Int,
+        district: String? = nil,
+        birthCounty: String? = nil
+    ) -> ScoredRecord {
+        let common = RecordCommon(
+            id: id, sourceID: "freecen",
+            name: "\(given) \(surname)", surname: surname, givenName: given,
+            detailURL: nil, rawFields: [:]
+        )
+        let r = CensusRecord(
+            common: common, censusYear: censusYear,
+            age: age, birthYear: nil,
+            birthPlace: nil, birthCounty: birthCounty,
+            relationship: nil, occupation: nil,
+            address: nil, parish: nil, district: district,
+            household: nil
+        )
+        return ScoredRecord(
+            id: id, record: .census(r),
+            verdict: .lead, gates: [], summary: ""
+        )
+    }
+
+    // MARK: - Stage 3: chapman-code anchor (slice 4 robustness, 2026-05-28)
+    //
+    // The pre-stage-3 sameIdentity matched every same-named record
+    // nationwide as "could be the subject" — which scrambled the
+    // George Brooks 1870-vs-1883 disambiguation by counting cross-county
+    // namesake deaths as both corroboration AND penalty inputs.
+    // Stage 3 anchors the check on the subject's home chapman code:
+    // when the record carries a derivable location, it must match the
+    // subject's chapman or the record is excluded entirely.
+
+    @Test func locationFilter_crossCountyDeath_doesNotPenalisePlausibility() {
+        // DBY subject; "George Brooks" died in a district that maps to
+        // a different chapman code. Implied birth from age would be a
+        // ×0.4 mismatch under old logic. Stage 3 excludes the record →
+        // plausibility stays 1.0.
+        let subject = makeSubject(
+            profileID: "@SUBJ@", surname: "Brooks", given: "George",
+            birthFrom: 1880, birthTo: 1890
+        )
+        let candidate = makeBirthRecord(
+            id: "b1", given: "George", surname: "Brooks",
+            year: 1883, place: "Belper"   // DBY
+        )
+        // "Marylebone" is a London district (LND in the catalogue) —
+        // a same-named different person.
+        let crossCountyDeath = makeDeathRecord(
+            id: "d-cross", given: "George", surname: "Brooks",
+            year: 1906, age: 20, district: "Marylebone"
+        )
+        let results = BiographicalFitEvaluator.evaluate(
+            candidates: [candidate],
+            subject: subject,
+            deathRecords: [crossCountyDeath],
+            snapshot: makeSnapshot(subjectID: "@SUBJ@", children: [])
+        )
+        #expect(results.count == 1)
+        #expect(results[0].plausibility == 1.0)   // no penalty applied
+        #expect(results[0].corroboratingMatches == 0)
+    }
+
+    @Test func locationFilter_sameCountyDeath_stillCorroborates() {
+        // Two DBY death records of "George Brooks" matching candidate
+        // 1883 — both pass sameIdentity (record chapman == DBY subject
+        // chapman) → both count as corroborating matches.
+        let subject = makeSubject(
+            profileID: "@SUBJ@", surname: "Brooks", given: "George",
+            birthFrom: 1880, birthTo: 1890
+        )
+        let candidate = makeBirthRecord(
+            id: "b1", given: "George", surname: "Brooks",
+            year: 1883, place: "Belper"
+        )
+        // Both Belper (DBY) and Bakewell (DBY) — same chapman as subject.
+        let dByDeath1 = makeDeathRecord(
+            id: "d-dby-1", given: "George", surname: "Brooks",
+            year: 1949, age: 66, district: "Belper"
+        )
+        let dByDeath2 = makeDeathRecord(
+            id: "d-dby-2", given: "George", surname: "Brooks",
+            year: 1957, age: 73, district: "Bakewell"
+        )
+        let results = BiographicalFitEvaluator.evaluate(
+            candidates: [candidate],
+            subject: subject,
+            deathRecords: [dByDeath1, dByDeath2],
+            snapshot: makeSnapshot(subjectID: "@SUBJ@", children: [])
+        )
+        #expect(results.count == 1)
+        #expect(results[0].plausibility == 1.0)
+        #expect(results[0].corroboratingMatches == 2)
+    }
+
+    @Test func locationFilter_recordMissingDistrict_passesPermissively() {
+        // A FreeBMD death record with no district field falls through
+        // stage 3's permissive branch — the record is included as if
+        // stage 3 didn't run. Maintains backward-compat for sources
+        // that don't reliably carry district.
+        let subject = makeSubject(
+            profileID: "@SUBJ@", surname: "Brooks", given: "George",
+            birthFrom: 1880, birthTo: 1890
+        )
+        let candidate = makeBirthRecord(
+            id: "b1", given: "George", surname: "Brooks",
+            year: 1883, place: "Belper"
+        )
+        let noDistrictDeath = makeDeathRecord(
+            id: "d-nd", given: "George", surname: "Brooks",
+            year: 1949, age: 66, district: nil   // no location data
+        )
+        let results = BiographicalFitEvaluator.evaluate(
+            candidates: [candidate],
+            subject: subject,
+            deathRecords: [noDistrictDeath],
+            snapshot: makeSnapshot(subjectID: "@SUBJ@", children: [])
+        )
+        #expect(results[0].corroboratingMatches == 1)
+    }
+
+    @Test func locationFilter_crossCountyCensus_doesNotCorroborate() {
+        // Census record with district mapping to a different chapman
+        // code than subject → excluded from Rule 4.
+        let subject = makeSubject(
+            profileID: "@SUBJ@", surname: "Brooks", given: "George",
+            birthFrom: 1880, birthTo: 1890
+        )
+        let candidate = makeBirthRecord(
+            id: "b1", given: "George", surname: "Brooks",
+            year: 1883, place: "Belper"
+        )
+        let crossCountyCensus = makeCensusRecord(
+            id: "c-cross", given: "George", surname: "Brooks",
+            censusYear: 1891, age: 8,
+            district: "Marylebone"   // LND
+        )
+        let results = BiographicalFitEvaluator.evaluate(
+            candidates: [candidate],
+            subject: subject,
+            deathRecords: [],
+            snapshot: makeSnapshot(subjectID: "@SUBJ@", children: []),
+            censusRecords: [crossCountyCensus]
+        )
+        #expect(results[0].corroboratingMatches == 0)   // cross-county dropped
+    }
+
+    @Test func locationFilter_sameCountyCensus_corroborates() {
+        let subject = makeSubject(
+            profileID: "@SUBJ@", surname: "Brooks", given: "George",
+            birthFrom: 1880, birthTo: 1890
+        )
+        let candidate = makeBirthRecord(
+            id: "b1", given: "George", surname: "Brooks",
+            year: 1883, place: "Belper"
+        )
+        let dByCensus = makeCensusRecord(
+            id: "c-dby", given: "George", surname: "Brooks",
+            censusYear: 1891, age: 8,
+            district: "Belper"
+        )
+        let results = BiographicalFitEvaluator.evaluate(
+            candidates: [candidate],
+            subject: subject,
+            deathRecords: [],
+            snapshot: makeSnapshot(subjectID: "@SUBJ@", children: []),
+            censusRecords: [dByCensus]
+        )
+        #expect(results[0].corroboratingMatches == 1)
+    }
+
+    @Test func locationFilter_censusBirthCountyAsChapman_used() {
+        // FreeCen sometimes carries `birthCounty` as a 3-letter chapman
+        // code directly. The helper should recognise that without going
+        // through the district catalogue.
+        let subject = makeSubject(
+            profileID: "@SUBJ@", surname: "Brooks", given: "George",
+            birthFrom: 1880, birthTo: 1890
+        )
+        let candidate = makeBirthRecord(
+            id: "b1", given: "George", surname: "Brooks",
+            year: 1883, place: "Belper"
+        )
+        // No district set; birthCounty is the chapman code "DBY".
+        let bcCensus = makeCensusRecord(
+            id: "c-bc", given: "George", surname: "Brooks",
+            censusYear: 1891, age: 8,
+            district: nil, birthCounty: "DBY"
+        )
+        let results = BiographicalFitEvaluator.evaluate(
+            candidates: [candidate],
+            subject: subject,
+            deathRecords: [],
+            snapshot: makeSnapshot(subjectID: "@SUBJ@", children: []),
+            censusRecords: [bcCensus]
+        )
+        #expect(results[0].corroboratingMatches == 1)
+    }
+
+    // MARK: - chapmanCode(of:) helper
+
+    @Test func chapmanCodeOf_birthRecord_viaDistrictCatalogue() {
+        let r = makeBirthRecord(
+            id: "b1", given: "George", surname: "Brooks",
+            year: 1883, place: "Belper"
+        )
+        #expect(BiographicalFitEvaluator.chapmanCode(of: r.record) == "DBY")
+    }
+
+    @Test func chapmanCodeOf_deathRecord_viaDistrictCatalogue() {
+        let r = makeDeathRecord(
+            id: "d1", given: "George", surname: "Brooks",
+            year: 1949, age: 66, district: "Belper"
+        )
+        #expect(BiographicalFitEvaluator.chapmanCode(of: r.record) == "DBY")
+    }
+
+    @Test func chapmanCodeOf_censusRecord_prefersBirthCountyWhen3LetterCode() {
+        // birthCounty "DBY" takes precedence over district "Marylebone".
+        // (Edge case: a Marylebone enumeration district recorded
+        // birthCounty = DBY for a Derbyshire-born resident in London.
+        // Stage 3 anchors on birth county since that's about the
+        // subject's home, not the current enumeration.)
+        let r = makeCensusRecord(
+            id: "c1", given: "George", surname: "Brooks",
+            censusYear: 1891, age: 8,
+            district: "Marylebone", birthCounty: "DBY"
+        )
+        #expect(BiographicalFitEvaluator.chapmanCode(of: r.record) == "DBY")
+    }
+
+    @Test func chapmanCodeOf_recordsWithoutLocation_returnNil() {
+        let r = makeDeathRecord(
+            id: "d-nd", given: "George", surname: "Brooks",
+            year: 1949, age: 66, district: nil
+        )
+        #expect(BiographicalFitEvaluator.chapmanCode(of: r.record) == nil)
     }
 }
