@@ -1485,6 +1485,95 @@ final class ResearchViewModel {
         }
     }
 
+    /// Accept a `.supported` `.birthYearCandidate` hypothesis (slice 5 of
+    /// `project_multi_hypothesis_birth_year_plan`). Writes the chosen year
+    /// to `Profile.birthDate`, reusing the matching `Profile.sources[.birthDate]`
+    /// entry's `raw` + `origin` so provenance is preserved (e.g. the
+    /// freebmd "Dec 1883" source becomes the canonical attestation
+    /// rather than a generic "1883").
+    ///
+    /// The directional-overwrite rule (`shouldOverwriteDateField`)
+    /// deliberately refuses to choose between same-span precise values
+    /// — disambiguation is the multi-hypothesis pivot's job, and this
+    /// IS that pivot. So this method bypasses the policy and writes
+    /// unconditionally when the user accepts a `.supported` hypothesis.
+    ///
+    /// No-op when:
+    ///   • hypothesis is not `.birthYearCandidate` kind
+    ///   • verdict is not `.supported` (or is model-assisted)
+    ///   • no current project DB is open
+    ///   • profile referenced by the hypothesis doesn't exist
+    func acceptBirthYearCandidate(
+        _ hypothesis: ResearchHypothesis,
+        into appState: AppState
+    ) {
+        guard let db = appState.currentDatabase else {
+            errorMessage = "No project open"
+            return
+        }
+        do {
+            try Self.applyBirthYearCandidate(
+                hypothesis, snapshot: appState.snapshot, db: db
+            )
+            appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+        } catch ApplyBirthYearCandidateError.notSupported,
+                ApplyBirthYearCandidateError.wrongKind {
+            // Defensive guards — UI shouldn't expose Accept for these,
+            // but log silently if it does. No user-visible error.
+            return
+        } catch ApplyBirthYearCandidateError.profileMissing(let id) {
+            errorMessage = "Profile \(id) not found in current snapshot"
+        } catch {
+            errorMessage = "Failed to apply birth year: \(error.localizedDescription)"
+        }
+    }
+
+    /// Pure apply: does the actual write through `ProjectDatabase`.
+    /// Static + nonisolated so unit tests can exercise it without an
+    /// `AppState` harness. Returns void on success; throws on missing
+    /// profile / unsuitable hypothesis.
+    nonisolated static func applyBirthYearCandidate(
+        _ hypothesis: ResearchHypothesis,
+        snapshot: FamilyGraphSnapshot,
+        db: ProjectDatabase
+    ) throws {
+        guard case .birthYearCandidate(let profileID, let year) = hypothesis.kind else {
+            throw ApplyBirthYearCandidateError.wrongKind
+        }
+        guard hypothesis.isDeterministicallySupported else {
+            throw ApplyBirthYearCandidateError.notSupported
+        }
+        guard let profile = snapshot.profiles[profileID] else {
+            throw ApplyBirthYearCandidateError.profileMissing(profileID)
+        }
+
+        // Prefer an existing precise source attesting to this year — its
+        // raw preserves month detail ("Dec 1883" vs bare "1883") and its
+        // origin preserves provenance tier.
+        let chosen = (profile.sources[.birthDate] ?? []).first { src in
+            let parsed = GenealogicalDate(parsing: src.raw)
+            guard let e = parsed.earliest, let l = parsed.latest else { return false }
+            return e == l && e == year
+        }
+        let raw = chosen?.raw ?? String(year)
+        let origin = chosen?.origin ?? .engineEnrichment
+        let candidate = GenealogicalDate(parsing: raw)
+
+        _ = try db.editProfile(
+            profileID: profile.id,
+            changes: [],
+            dateChanges: [(.birthDate, profile.birthDate, candidate)],
+            source: origin
+        )
+    }
+
+    /// Errors thrown by `applyBirthYearCandidate`.
+    nonisolated enum ApplyBirthYearCandidateError: Error {
+        case wrongKind
+        case notSupported
+        case profileMissing(String)
+    }
+
     /// Reject a sibling proposal: persist the proposal id so it won't reappear
     /// on subsequent research runs for the same subject.
     func rejectSibling(_ proposal: SiblingProposal) {
