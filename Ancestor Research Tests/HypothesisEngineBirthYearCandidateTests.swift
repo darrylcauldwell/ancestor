@@ -469,4 +469,71 @@ struct HypothesisEngineBirthYearCandidateTests {
         let viaCentral = HypothesisEngine.grade(h, state: state, snapshot: snap)
         #expect(viaCentral.verdict == .supported)
     }
+
+    // MARK: - Pipeline-flow shape (slice 3)
+    //
+    // `ResearchPipeline.runBirthYearCandidateFlow` is private — these
+    // tests exercise the same generate → grade chain through the
+    // central HypothesisEngine surfaces that the flow itself calls.
+    // The flow is otherwise just `drafts.map { finalizeHypothesis }`
+    // which is a one-line transformation; the meaningful invariants
+    // live in the generate + grade behaviour, plus the discriminator
+    // routing the central switch does.
+
+    @Test func slice3_flow_emitsAndGradesEndToEndForCompetingCandidates() {
+        // Real-shape end-to-end: generate via central switch, grade
+        // every draft via central switch. Mirrors what
+        // ResearchPipeline.runBirthYearCandidateFlow does internally.
+        let profile = makeProfile(id: "subj", birthDateSources: [
+            birthDateSource("Jun 1870"),
+            birthDateSource("Jun 1895")
+        ])
+        var state = ResearchState(subject: makeSubject(profileID: "subj"))
+        state.scoredRecords = []
+        let snap = snapshotWithChild(parent: profile, childID: "kid", childBirthYear: 1900)
+
+        let drafts = HypothesisEngine.generate(
+            for: .birthYearCandidate, state: state, snapshot: snap
+        )
+        #expect(drafts.count == 2)
+
+        let graded = drafts.map { draft in
+            (draft, HypothesisEngine.grade(draft, state: state, snapshot: snap))
+        }
+        // One supported (1870 — plausible parent age 30 at child birth)
+        // and one contradicted (1895 — implausible parent age 5).
+        let supportedYears = graded.compactMap { (draft, result) -> Int? in
+            guard result.verdict == .supported else { return nil }
+            if case .birthYearCandidate(_, let y) = draft.kind { return y }
+            return nil
+        }
+        let contradictedYears = graded.compactMap { (draft, result) -> Int? in
+            guard result.verdict == .contradicted else { return nil }
+            if case .birthYearCandidate(_, let y) = draft.kind { return y }
+            return nil
+        }
+        #expect(supportedYears == [1870])
+        #expect(contradictedYears == [1895])
+    }
+
+    @Test func slice3_flow_emitsNothingWhenNoCompetingCandidates() {
+        // The pipeline calls this flow unconditionally per run; it must
+        // be a quiet no-op when the subject only has one (or zero)
+        // precise candidates. Generator's guard handles it.
+        let profile = makeProfile(id: "subj", birthDateSources: [
+            birthDateSource("Jun 1870")
+        ])
+        let state = ResearchState(subject: makeSubject(profileID: "subj"))
+        let drafts = HypothesisEngine.generate(
+            for: .birthYearCandidate, state: state, snapshot: snapshot(with: profile)
+        )
+        #expect(drafts.isEmpty)
+    }
+
+    @Test func slice3_birthYearCandidateInDiscriminatorAllCases() {
+        // Discriminator must include `.birthYearCandidate` so any
+        // generator that iterates over `HypothesisKindDiscriminator.allCases`
+        // picks up the new kind. Protects against accidental removal.
+        #expect(HypothesisKindDiscriminator.allCases.contains(.birthYearCandidate))
+    }
 }

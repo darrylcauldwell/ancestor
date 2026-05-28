@@ -684,7 +684,21 @@ final class ResearchPipeline {
         let parentHypotheses = await runParentHypothesisFlow(
             state: &state, scope: config.scope, cache: queryCache
         )
-        let firstPassHypotheses = preIterationHypotheses + siblingHypotheses + parentHypotheses
+
+        // DETERMINISTIC: birth-year candidate flow (project_multi_
+        // hypothesis_birth_year_plan slice 3). When the subject's
+        // Profile.sources[.birthDate] carries ≥ 2 distinct precise
+        // (span-0) year values that the directional-overwrite rule
+        // refuses to pick between (e.g. George Brooks: Jun 1870 vs
+        // Dec 1883), emit one .birthYearCandidate per year and grade
+        // each via BiographicalFitEvaluator. Post-loop placement so
+        // the grader sees the iteration's accumulated death-shape
+        // records (rules 1 + 2 inputs). No deficit dispatch yet
+        // (slice 4) — T7's second pass will pick up .inconclusive
+        // verdicts once deficitQueryBirthYearCandidate returns probes.
+        let birthYearCandidateHypotheses = runBirthYearCandidateFlow(state: state)
+
+        let firstPassHypotheses = preIterationHypotheses + siblingHypotheses + parentHypotheses + birthYearCandidateHypotheses
 
         // T7 second pass (V2 spec §5.3). At most once per research()
         // call; only fires when there's at least one inconclusive
@@ -1278,6 +1292,35 @@ final class ResearchPipeline {
     /// Returns the finalised hypotheses. The pipeline's caller projects
     /// `.supported` ones back into the legacy `SiblingProposal` shape
     /// for the UI surface.
+
+    /// Generate + grade `.birthYearCandidate` hypotheses for the subject
+    /// profile. Synchronous because slice-3's deficitQuery returns `[]`
+    /// — no dispatch loop is needed. Slice 4 will introduce census +
+    /// marriage probes that T7's existing second-pass dispatcher fires
+    /// against `.inconclusive` verdicts.
+    ///
+    /// Reads from `state` (the iteration's death-shape records feed the
+    /// grader's BiographicalFitEvaluator rules 1 + 2) and `snapshot`
+    /// (children of the subject feed rule 3). Pure transformation —
+    /// `state` is read, not mutated; no out-of-band dispatch.
+    private func runBirthYearCandidateFlow(state: ResearchState) -> [ResearchHypothesis] {
+        let drafts = HypothesisEngine.generate(
+            for: .birthYearCandidate, state: state, snapshot: snapshot
+        )
+        guard !drafts.isEmpty else {
+            return []   // single-candidate / wide-range only — quiet no-op
+        }
+        logger.info("Birth-year-candidate flow: \(drafts.count) competing candidates")
+        let now = Date()
+        return drafts.map { draft in
+            Self.finalizeHypothesis(
+                draft: draft,
+                gradeResult: HypothesisEngine.grade(draft, state: state, snapshot: snapshot),
+                at: now
+            )
+        }
+    }
+
     private func runSiblingHypothesisFlow(
         state: inout ResearchState
     ) async -> [ResearchHypothesis] {
