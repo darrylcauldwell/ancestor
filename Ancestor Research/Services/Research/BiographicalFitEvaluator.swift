@@ -107,11 +107,23 @@ nonisolated enum BiographicalFitEvaluator {
     /// life timeline. Returns one result per evaluable candidate, sorted
     /// by plausibility descending. Candidates without a usable
     /// `birthYear` are skipped (not included in the returned array).
+    ///
+    /// `censusRecords` is optional (defaults to empty) so existing
+    /// callers (slice C subject-self-narrowing) don't need to change.
+    /// When supplied, Rule 4 cross-checks each census record's
+    /// `(censusYear - age)` back-calculation against each candidate
+    /// — matches increment `corroboratingMatches`. Census ages drift
+    /// (UK 19c enumeration is endemic ±5), so census mismatch does
+    /// NOT apply a plausibility penalty; it just doesn't corroborate.
+    /// Multiple corroborating census records pile up on whichever
+    /// candidate they actually attest to, surfacing the right one
+    /// through the corroboration-based tie-break the grader applies.
     static func evaluate(
         candidates: [ScoredRecord],
         subject: ResearchSubject,
         deathRecords: [ScoredRecord],
-        snapshot: FamilyGraphSnapshot
+        snapshot: FamilyGraphSnapshot,
+        censusRecords: [ScoredRecord] = []
     ) -> [BiographicalFitResult] {
         let context = SubjectContext.build(subject: subject, snapshot: snapshot)
         var results: [BiographicalFitResult] = []
@@ -122,7 +134,8 @@ nonisolated enum BiographicalFitEvaluator {
                     candidate: c,
                     candidateBirthYear: birthYear,
                     context: context,
-                    deathRecords: deathRecords
+                    deathRecords: deathRecords,
+                    censusRecords: censusRecords
                 )
             )
         }
@@ -135,7 +148,8 @@ nonisolated enum BiographicalFitEvaluator {
         candidate: ScoredRecord,
         candidateBirthYear: Int,
         context: SubjectContext,
-        deathRecords: [ScoredRecord]
+        deathRecords: [ScoredRecord],
+        censusRecords: [ScoredRecord] = []
     ) -> BiographicalFitResult {
         var plausibility: Double = 1.0
         var notes: [String] = []
@@ -212,6 +226,54 @@ nonisolated enum BiographicalFitEvaluator {
                 notes.append("ruled out: would be \(parentAge) at first child's birth (\(earliestChild))")
             } else {
                 notes.append("parent-age plausible: \(parentAge) at first child's birth (\(earliestChild))")
+            }
+        }
+
+        // Rule 4 — census-age back-calculation (corroboration only).
+        //
+        // For each census record passing `sameIdentity`, compute
+        // `censusYear - age` and compare to the candidate's birth year.
+        // Within `censusAgeTolerance` (±2) → counts as a corroborating
+        // match (increments the counter, no plausibility change).
+        // Outside the relevance window (gap > deathRelevanceWindow=5) →
+        // skip entirely: the census record is about a different
+        // same-named person at a different generation.
+        //
+        // Unlike rule 2, mismatch within the relevance window does NOT
+        // apply a plausibility penalty. UK 19c census ages drift ±5
+        // routinely (illiteracy, vanity, enumerator estimation), and a
+        // single off-by-3 age is weak evidence even at face value.
+        // Census records contribute only POSITIVELY — letting
+        // corroboration pile up on whichever candidate the records
+        // actually attest to. The `.birthYearCandidate` grader's
+        // corroboration-based tie-break then surfaces the winner.
+        if plausibility > 0 {
+            for c in censusRecords {
+                guard sameIdentity(candidate.record, c.record),
+                      case .census(let censusBody) = c.record
+                else { continue }
+                let age: Int
+                let impliedBirth: Int
+                if let recordedBirth = censusBody.birthYear {
+                    // FreeCen sometimes carries the implied birth year
+                    // directly (chapman-level imports compute it on
+                    // ingest). Prefer it when present.
+                    impliedBirth = recordedBirth
+                    age = censusBody.censusYear - recordedBirth
+                } else if let recordedAge = censusBody.age {
+                    age = recordedAge
+                    impliedBirth = censusBody.censusYear - recordedAge
+                } else {
+                    continue   // no age data → can't compare
+                }
+                let gap = abs(impliedBirth - candidateBirthYear)
+                if gap > deathRelevanceWindow { continue }
+                if gap <= ScoringRules.censusAgeTolerance {
+                    notes.append("census-age corroboration: \(censusBody.censusYear) age \(age) implies birth ~\(impliedBirth)")
+                    corroboratingMatches += 1
+                } else {
+                    notes.append("census-age near-miss: \(censusBody.censusYear) age \(age) implies birth ~\(impliedBirth), candidate is \(candidateBirthYear) — no penalty (census drift endemic)")
+                }
             }
         }
 

@@ -380,8 +380,9 @@ struct HypothesisEngineBirthYearCandidateTests {
         let r1883 = HypothesisEngine.gradeBirthYearCandidate(h1883, state: state, snapshot: snap)
         #expect(r1870.verdict == .inconclusive)
         #expect(r1883.verdict == .inconclusive)
-        // The reasoning should reference slice 4's role for future work.
-        #expect(r1870.reasoning.contains("slice-4") || r1870.reasoning.contains("slice 4"))
+        // Without slice 4 census evidence in state, corroboration is
+        // zero for both candidates — the reasoning surfaces that.
+        #expect(r1870.reasoning.contains("corroboration"))
     }
 
     @Test func grade_inconclusiveWhenNoChildrenAnchor() {
@@ -535,5 +536,265 @@ struct HypothesisEngineBirthYearCandidateTests {
         // generator that iterates over `HypothesisKindDiscriminator.allCases`
         // picks up the new kind. Protects against accidental removal.
         #expect(HypothesisKindDiscriminator.allCases.contains(.birthYearCandidate))
+    }
+
+    // MARK: - Slice 4 — deficit query + corroboration tie-break
+
+    /// Build a CENSUS ScoredRecord with surname/given matching the
+    /// canonical subject (so `sameIdentity` passes in the evaluator).
+    private func censusRecord(
+        id: String,
+        surname: String = "Brooks",
+        givenName: String = "George",
+        censusYear: Int,
+        age: Int? = nil,
+        birthYear: Int? = nil
+    ) -> ScoredRecord {
+        let common = RecordCommon(
+            id: id, sourceID: "freecen", name: nil,
+            surname: surname, givenName: givenName,
+            detailURL: nil, rawFields: [:]
+        )
+        let census = CensusRecord(
+            common: common,
+            censusYear: censusYear,
+            age: age,
+            birthYear: birthYear,
+            birthPlace: nil, birthCounty: nil,
+            relationship: nil, occupation: nil,
+            address: nil, parish: nil, district: nil,
+            household: nil
+        )
+        return ScoredRecord(
+            id: id, record: .census(census),
+            verdict: .lead, gates: [], summary: ""
+        )
+    }
+
+    private func georgeBrooksProfile() -> Profile {
+        makeProfile(id: "george", birthDateSources: [
+            birthDateSource("Jun 1870"),
+            birthDateSource("Dec 1883")
+        ])
+    }
+
+    private func georgeBrooksSubject() -> ResearchSubject {
+        ResearchSubject(
+            profileID: "george", surname: "Brooks", givenName: "George",
+            middleName: nil,
+            birthYearFrom: nil, birthYearTo: nil,
+            deathYearFrom: nil, deathYearTo: nil,
+            gender: .male, region: nil,
+            mode: .extend, familyContext: nil,
+            homeChapmanCode: "DBY"
+        )
+    }
+
+    // MARK: deficitQueryBirthYearCandidate
+
+    @Test func deficitQuery_level1_emitsCensusProbesForApplicableYears() {
+        // For a candidate born 1883, UK census years are 1841/51/61/71/81/91/01/11/21.
+        // Applicable = strictly > 1883 AND ≤ 1883 + 80 = 1963.
+        // → 1891, 1901, 1911, 1921 (1881 excluded as not > 1883).
+        let hypothesis = birthYearCandidateHypothesis(profileID: "george", year: 1883)
+        var state = ResearchState(subject: georgeBrooksSubject())
+        state.scoredRecords = []
+        let queries = HypothesisEngine.deficitQueryBirthYearCandidate(
+            for: hypothesis, atLevel: 1, state: state
+        )
+        let years = queries.compactMap { q -> Int? in
+            if case .freeCen(let params) = q.sourceParams { return params.censusYear }
+            return nil
+        }
+        #expect(Set(years) == [1891, 1901, 1911, 1921])
+        // Surname + chapman code propagated.
+        #expect(queries.allSatisfy { $0.surname == "Brooks" })
+        #expect(queries.allSatisfy { q in
+            if case .freeCen(let p) = q.sourceParams { return p.chapmanCode == "DBY" }
+            return false
+        })
+        // birthYearRange around the candidate with ±2 tolerance.
+        let ranges = queries.compactMap { q -> ClosedRange<Int>? in
+            if case .freeCen(let p) = q.sourceParams { return p.birthYearRange }
+            return nil
+        }
+        #expect(ranges.allSatisfy { $0 == 1881...1885 })
+    }
+
+    @Test func deficitQuery_level1_emptyWhenSurnameMissing() {
+        let hypothesis = birthYearCandidateHypothesis(profileID: "p1", year: 1883)
+        let subjectNoSurname = ResearchSubject(
+            profileID: "p1", surname: nil, givenName: nil,
+            middleName: nil,
+            birthYearFrom: nil, birthYearTo: nil,
+            deathYearFrom: nil, deathYearTo: nil,
+            gender: nil, region: nil,
+            mode: .extend, familyContext: nil,
+            homeChapmanCode: "DBY"
+        )
+        let state = ResearchState(subject: subjectNoSurname)
+        let queries = HypothesisEngine.deficitQueryBirthYearCandidate(
+            for: hypothesis, atLevel: 1, state: state
+        )
+        #expect(queries.isEmpty)
+    }
+
+    @Test func deficitQuery_levelHigherThan1_returnsEmpty() {
+        let hypothesis = birthYearCandidateHypothesis(profileID: "george", year: 1883)
+        let state = ResearchState(subject: georgeBrooksSubject())
+        for level in 2...5 {
+            let queries = HypothesisEngine.deficitQueryBirthYearCandidate(
+                for: hypothesis, atLevel: level, state: state
+            )
+            #expect(queries.isEmpty, "Level \(level) should return [] (ladder exhausted)")
+        }
+    }
+
+    @Test func deficitQuery_wrongKind_returnsEmpty() {
+        let now = Date()
+        let kind = HypothesisKind.parentInferred(gender: .male, surname: "Brooks")
+        let h = ResearchHypothesis(
+            id: kind.identityKey(subjectProfileID: "george"),
+            subjectProfileID: "george",
+            kind: kind,
+            verdict: .inconclusive,
+            isModelAssisted: false,
+            supportingEvidence: [],
+            contradictingEvidence: [],
+            reasoning: "",
+            createdAt: now, lastTestedAt: now,
+            attempts: 0, history: []
+        )
+        let state = ResearchState(subject: georgeBrooksSubject())
+        let queries = HypothesisEngine.deficitQueryBirthYearCandidate(
+            for: h, atLevel: 1, state: state
+        )
+        #expect(queries.isEmpty)
+    }
+
+    @Test func deficitQuery_centralSwitchRoutesToExtension() {
+        let hypothesis = birthYearCandidateHypothesis(profileID: "george", year: 1883)
+        let state = ResearchState(subject: georgeBrooksSubject())
+        let viaCentral = HypothesisEngine.deficitQuery(
+            for: hypothesis, atLevel: 1, state: state
+        )
+        #expect(viaCentral.count == 4)   // 1891, 1901, 1911, 1921
+    }
+
+    // MARK: Corroboration tie-break
+
+    @Test func grade_corroborationTieBreak_pickWinner_forGeorgeBrooks1883() {
+        // Canonical case: both 1870 and 1883 score plausibility 1.0 on
+        // rule 3 alone (first child b. 1912 → ages 42 and 29, both
+        // inside 14–65). Two 1891 + 1901 census records of "George
+        // Brooks aged 8 / aged 18" implied-birth 1883 corroborate the
+        // 1883 candidate and are outside the relevance window of 1870
+        // (gap 13 / 13 > 5). Corroboration count: 1883 = 2, 1870 = 0.
+        // Margin 2 ≥ 2 → .supported for 1883.
+        let profile = georgeBrooksProfile()
+        var state = ResearchState(subject: georgeBrooksSubject())
+        state.scoredRecords = [
+            censusRecord(id: "c1891", censusYear: 1891, age: 8),
+            censusRecord(id: "c1901", censusYear: 1901, age: 18)
+        ]
+        let snap = snapshotWithChild(parent: profile, childID: "hilda", childBirthYear: 1912)
+
+        let h1883 = birthYearCandidateHypothesis(profileID: "george", year: 1883)
+        let r1883 = HypothesisEngine.gradeBirthYearCandidate(h1883, state: state, snapshot: snap)
+        #expect(r1883.verdict == .supported)
+        #expect(r1883.reasoning.contains("corroboration"))
+
+        let h1870 = birthYearCandidateHypothesis(profileID: "george", year: 1870)
+        let r1870 = HypothesisEngine.gradeBirthYearCandidate(h1870, state: state, snapshot: snap)
+        #expect(r1870.verdict == .contradicted)
+    }
+
+    @Test func grade_corroborationTieBreak_needsMarginOfTwo() {
+        // Just ONE corroborating census record isn't enough to break a
+        // tie — a single off-by-3 transcription error can produce a
+        // spurious match. Margin requires ≥ 2.
+        let profile = georgeBrooksProfile()
+        var state = ResearchState(subject: georgeBrooksSubject())
+        state.scoredRecords = [
+            censusRecord(id: "c1891", censusYear: 1891, age: 8)  // only one
+        ]
+        let snap = snapshotWithChild(parent: profile, childID: "hilda", childBirthYear: 1912)
+
+        let h1883 = birthYearCandidateHypothesis(profileID: "george", year: 1883)
+        let r1883 = HypothesisEngine.gradeBirthYearCandidate(h1883, state: state, snapshot: snap)
+        // With only ONE corroboration, the margin is 1 < 2 → still inconclusive.
+        #expect(r1883.verdict == .inconclusive)
+    }
+
+    @Test func grade_censusOutsideRelevanceWindow_isIgnored() {
+        // A census of "George Brooks aged 30 in 1891" implies birth 1861.
+        // For a 1870 candidate, gap = 9, outside relevance window (5) →
+        // skipped. For an 1883 candidate, gap = 22 → also skipped.
+        // Neither corroborates; both stay tied → .inconclusive.
+        let profile = georgeBrooksProfile()
+        var state = ResearchState(subject: georgeBrooksSubject())
+        state.scoredRecords = [
+            censusRecord(id: "c1891-old", censusYear: 1891, age: 30)
+        ]
+        let snap = snapshotWithChild(parent: profile, childID: "hilda", childBirthYear: 1912)
+
+        let h1883 = birthYearCandidateHypothesis(profileID: "george", year: 1883)
+        let r1883 = HypothesisEngine.gradeBirthYearCandidate(h1883, state: state, snapshot: snap)
+        #expect(r1883.verdict == .inconclusive)
+    }
+
+    @Test func grade_censusNearMiss_corroboratesNeither() {
+        // A census record with "George Brooks aged 12 in 1891" implies
+        // birth 1879 — within relevance window of BOTH candidates
+        // (gap 9 for 1870, gap 4 for 1883) but only WITHIN the
+        // censusAgeTolerance (±2) of NEITHER (gap 9 way over, gap 4 over 2).
+        // No penalty applied (slice 4 design: census mismatches don't
+        // deduct plausibility), no corroboration counted. → inconclusive.
+        let profile = georgeBrooksProfile()
+        var state = ResearchState(subject: georgeBrooksSubject())
+        state.scoredRecords = [
+            censusRecord(id: "c1891-mid", censusYear: 1891, age: 12)
+        ]
+        let snap = snapshotWithChild(parent: profile, childID: "hilda", childBirthYear: 1912)
+
+        let h1883 = birthYearCandidateHypothesis(profileID: "george", year: 1883)
+        let r1883 = HypothesisEngine.gradeBirthYearCandidate(h1883, state: state, snapshot: snap)
+        // Both candidates stay 1.0 plausibility; corroboration zero for both.
+        // No penalty applied either way → .inconclusive.
+        #expect(r1883.verdict == .inconclusive)
+    }
+
+    @Test func grade_censusBirthYearFieldPreferredOverAge() {
+        // FreeCen sometimes carries the implied birth year directly.
+        // The evaluator should prefer it when present.
+        let profile = georgeBrooksProfile()
+        var state = ResearchState(subject: georgeBrooksSubject())
+        state.scoredRecords = [
+            censusRecord(id: "c1891", censusYear: 1891, age: nil, birthYear: 1883),
+            censusRecord(id: "c1901", censusYear: 1901, age: nil, birthYear: 1883)
+        ]
+        let snap = snapshotWithChild(parent: profile, childID: "hilda", childBirthYear: 1912)
+
+        let h1883 = birthYearCandidateHypothesis(profileID: "george", year: 1883)
+        let r1883 = HypothesisEngine.gradeBirthYearCandidate(h1883, state: state, snapshot: snap)
+        #expect(r1883.verdict == .supported)
+    }
+
+    @Test func grade_corroborationTieBreak_loserStillContradicted() {
+        // The 1870 candidate has no corroboration; 1883 has 2.
+        // Verify the LOSING grader returns .contradicted (paired with
+        // the .supported test above to confirm both sides of the tie-break).
+        let profile = georgeBrooksProfile()
+        var state = ResearchState(subject: georgeBrooksSubject())
+        state.scoredRecords = [
+            censusRecord(id: "c1891", censusYear: 1891, age: 8),
+            censusRecord(id: "c1901", censusYear: 1901, age: 18)
+        ]
+        let snap = snapshotWithChild(parent: profile, childID: "hilda", childBirthYear: 1912)
+
+        let h1870 = birthYearCandidateHypothesis(profileID: "george", year: 1870)
+        let r1870 = HypothesisEngine.gradeBirthYearCandidate(h1870, state: state, snapshot: snap)
+        #expect(r1870.verdict == .contradicted)
+        #expect(r1870.reasoning.contains("corroboration"))
     }
 }

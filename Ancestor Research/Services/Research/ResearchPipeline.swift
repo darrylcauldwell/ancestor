@@ -686,17 +686,20 @@ final class ResearchPipeline {
         )
 
         // DETERMINISTIC: birth-year candidate flow (project_multi_
-        // hypothesis_birth_year_plan slice 3). When the subject's
+        // hypothesis_birth_year_plan slice 3 + 4). When the subject's
         // Profile.sources[.birthDate] carries ≥ 2 distinct precise
         // (span-0) year values that the directional-overwrite rule
         // refuses to pick between (e.g. George Brooks: Jun 1870 vs
-        // Dec 1883), emit one .birthYearCandidate per year and grade
-        // each via BiographicalFitEvaluator. Post-loop placement so
-        // the grader sees the iteration's accumulated death-shape
-        // records (rules 1 + 2 inputs). No deficit dispatch yet
-        // (slice 4) — T7's second pass will pick up .inconclusive
-        // verdicts once deficitQueryBirthYearCandidate returns probes.
-        let birthYearCandidateHypotheses = runBirthYearCandidateFlow(state: state)
+        // Dec 1883), emit one .birthYearCandidate per year, dispatch
+        // each draft's level-1 census deficit-query probes (slice 4),
+        // then grade via BiographicalFitEvaluator. Post-loop placement
+        // so the grader sees the iteration's accumulated death-shape
+        // records (rules 1 + 2 inputs). T7's second pass handles
+        // higher ladder levels — currently empty for this kind, but
+        // T8 (MLX strategist) is the future home for tie-break cases.
+        let birthYearCandidateHypotheses = await runBirthYearCandidateFlow(
+            state: &state
+        )
 
         let firstPassHypotheses = preIterationHypotheses + siblingHypotheses + parentHypotheses + birthYearCandidateHypotheses
 
@@ -1293,17 +1296,22 @@ final class ResearchPipeline {
     /// `.supported` ones back into the legacy `SiblingProposal` shape
     /// for the UI surface.
 
-    /// Generate + grade `.birthYearCandidate` hypotheses for the subject
-    /// profile. Synchronous because slice-3's deficitQuery returns `[]`
-    /// — no dispatch loop is needed. Slice 4 will introduce census +
-    /// marriage probes that T7's existing second-pass dispatcher fires
-    /// against `.inconclusive` verdicts.
+    /// Generate, dispatch deficit probes, and grade `.birthYearCandidate`
+    /// hypotheses for the subject profile.
     ///
-    /// Reads from `state` (the iteration's death-shape records feed the
-    /// grader's BiographicalFitEvaluator rules 1 + 2) and `snapshot`
-    /// (children of the subject feed rule 3). Pure transformation —
-    /// `state` is read, not mutated; no out-of-band dispatch.
-    private func runBirthYearCandidateFlow(state: ResearchState) -> [ResearchHypothesis] {
+    /// Slice 4: for each draft, dispatch the level-1 census probes
+    /// returned by `deficitQueryBirthYearCandidate`. The records feed
+    /// `state.scoredRecords` (tagged as enrichment so clustering
+    /// ignores them) and become Rule 4 input for the grader's
+    /// `BiographicalFitEvaluator` call. The grader's
+    /// corroboration-based tie-break (≥ 2 census matches gap) then
+    /// surfaces the discriminator when plausibilities tie at top.
+    ///
+    /// Levels ≥ 2 return empty, so T7's second-pass is a no-op for
+    /// this kind after first-pass dispatch.
+    private func runBirthYearCandidateFlow(
+        state: inout ResearchState
+    ) async -> [ResearchHypothesis] {
         let drafts = HypothesisEngine.generate(
             for: .birthYearCandidate, state: state, snapshot: snapshot
         )
@@ -1311,6 +1319,32 @@ final class ResearchPipeline {
             return []   // single-candidate / wide-range only — quiet no-op
         }
         logger.info("Birth-year-candidate flow: \(drafts.count) competing candidates")
+
+        // Dispatch level-1 census probes for every draft. Drafts share
+        // the subject so duplicate probes (same census year) collapse
+        // via state-level ID dedup below. Each draft asks for the same
+        // (chapmanCode, censusYear, ±2 birth-range) combinations; the
+        // FreeCen source caches at the URL layer so wire-level cost is
+        // bounded.
+        var appendedIDs: Set<String> = Set(state.scoredRecords.map(\.id))
+        var totalNew = 0
+        for draft in drafts {
+            let queries = HypothesisEngine.deficitQuery(
+                for: draft, atLevel: 1, state: state
+            )
+            for query in queries {
+                let newRecords = await dispatchCensusCandidateQuery(query)
+                let fresh = newRecords.filter { !appendedIDs.contains($0.id) }
+                state.scoredRecords.append(contentsOf: fresh)
+                state.enrichmentRecordIDs.formUnion(fresh.map(\.id))
+                appendedIDs.formUnion(fresh.map(\.id))
+                totalNew += fresh.count
+            }
+        }
+        if totalNew > 0 {
+            logger.info("Birth-year-candidate dispatch level 1: \(totalNew) new census records")
+        }
+
         let now = Date()
         return drafts.map { draft in
             Self.finalizeHypothesis(
@@ -1318,6 +1352,24 @@ final class ResearchPipeline {
                 gradeResult: HypothesisEngine.grade(draft, state: state, snapshot: snapshot),
                 at: now
             )
+        }
+    }
+
+    /// Run a single FreeCen census probe and surface raw lead records
+    /// — mirror of `dispatchSiblingCandidateQuery` but bound to the
+    /// `freecen` source. The records aren't scored (the calling flow
+    /// surfaces them through `BiographicalFitEvaluator`'s Rule 4
+    /// `sameIdentity` check, not via the 4-gate scorer). Tagged as
+    /// enrichment by the caller so clustering ignores them.
+    private func dispatchCensusCandidateQuery(
+        _ query: RecordQuery
+    ) async -> [ScoredRecord] {
+        guard let freecen = dispatcher.registry.allSources().first(where: { $0.sourceID == "freecen" }) else {
+            return []
+        }
+        let result = await freecen.search(query)
+        return result.records.map { record in
+            ScoredRecord(id: record.id, record: record, verdict: .lead, gates: [], summary: "")
         }
     }
 

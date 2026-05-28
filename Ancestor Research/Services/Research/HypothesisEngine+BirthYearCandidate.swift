@@ -3,27 +3,32 @@ import Foundation
 /// `.birthYearCandidate(profileID, year)` kind — generator, grader, and
 /// expansiveness ladder.
 ///
-/// **Slices 1 + 2 of `project_multi_hypothesis_birth_year_plan`.**
-/// Slice 1 shipped the generator. Slice 2 now wires
-/// `BiographicalFitEvaluator` into the grader: each `.birthYearCandidate`
-/// is scored against the subject's known life-timeline (children's birth
-/// years drive Rule 3 — age 14–65 at first child; death-shape records
-/// in state drive Rules 1 + 2). The grader compares the candidate's
-/// plausibility against the best competitor and returns:
-///   • `.supported`   — this year is the winner AND beats the second-best
-///                       candidate by ≥ `decisiveMargin` (0.4)
-///   • `.contradicted` — another year is the winner AND beats this one by
-///                       ≥ `decisiveMargin`
-///   • `.inconclusive` — winner unclear (ties at top, or all candidates
-///                       score 1.0 because rule 3 alone passes)
+/// **Slices 1 + 2 + 4 of `project_multi_hypothesis_birth_year_plan`.**
+/// Slice 1 shipped the generator. Slice 2 wired `BiographicalFitEvaluator`
+/// into the grader. Slice 4 wires the expansiveness ladder: level 1
+/// emits one FreeCen census probe per applicable UK census year (the
+/// nearest census after birth and any subsequent census during the
+/// candidate's plausible adulthood), with the subject's home Chapman
+/// code + a tight birthYearRange around the candidate. Census records
+/// returning carry an `age` field; the grader passes them through to
+/// `BiographicalFitEvaluator` via the new `censusRecords:` parameter so
+/// Rule 4 can `(censusYear - age)` back-calculate and corroborate.
+///
+/// The grader returns:
+///   • `.supported`   — this year is the plausibility winner AND beats
+///                       the second-best candidate by ≥ `decisiveMargin`
+///                       (0.4), OR plausibilities are tied at the top
+///                       but this year has ≥ 2 more corroborating
+///                       matches than any competitor.
+///   • `.contradicted` — another year is the winner via either rule
+///   • `.inconclusive` — neither rule resolves
 ///
 /// The canonical case (George Brooks: 1870 vs 1883, first child 1912)
-/// scores both candidates 1.0 on rule 3 alone — both ages (42, 29) fall
-/// inside 14–65. Slice 2 returns `.inconclusive` for both. Slice 4's
-/// deficit queries will dispatch census + marriage probes that bring in
-/// records whose age-at-record fields tilt the evaluator decisively.
-///
-/// `deficitQuery` still returns `[]` (slice 4's job).
+/// scores both candidates 1.0 on rule 3 alone. With slice 4 census
+/// probes, the 1891 Belper census ("George Brooks aged 8") corroborates
+/// 1883 with implied-birth 1883 (gap 0; within tolerance) and is
+/// irrelevant to 1870 (gap 13; outside the relevance window). The
+/// corroboration tie-break then picks 1883 as `.supported`.
 nonisolated extension HypothesisEngine {
 
     /// Plausibility-gap threshold for declaring a winner. 0.4 chosen to
@@ -34,6 +39,16 @@ nonisolated extension HypothesisEngine {
     /// Calibration TODO after first real-data run with corroborating
     /// records from slice 4.
     fileprivate static let birthYearCandidateDecisiveMargin: Double = 0.4
+
+    /// Corroboration-count margin for the tie-break rule. When two
+    /// candidates can't be separated by plausibility (typically both
+    /// 1.0 — rule 3 alone passes), the candidate with ≥ this many more
+    /// corroborating matches wins. Two independent census ages
+    /// agreeing on a specific year is the minimum bar — a single
+    /// census record could be transcription error; two from different
+    /// years can't be the same error. Mirrors the "≥ 2 independent
+    /// signals" pattern in V2 spec §5.8.
+    fileprivate static let birthYearCandidateCorroborationMargin: Int = 2
 
     /// Emit one `.birthYearCandidate` per distinct precise (span-0)
     /// birth-year value currently attested in `Profile.sources[.birthDate]`,
@@ -187,12 +202,21 @@ nonisolated extension HypothesisEngine {
             default: return false
             }
         }
+        // Slice 4: pass census records to the evaluator so Rule 4
+        // (census-age back-calculation) can corroborate the right
+        // candidate when level-1 deficit-query probes have populated
+        // state with census evidence.
+        let censusShapeRecords = state.scoredRecords.filter { scored in
+            if case .census = scored.record { return true }
+            return false
+        }
 
         let results = BiographicalFitEvaluator.evaluate(
             candidates: candidates,
             subject: state.subject,
             deathRecords: deathShapeRecords,
-            snapshot: snapshot
+            snapshot: snapshot,
+            censusRecords: censusShapeRecords
         )
         guard let thisResult = results.first(where: { $0.candidateBirthYear == year }) else {
             // evaluate() skips candidates without a birthYear — shouldn't
@@ -220,6 +244,7 @@ nonisolated extension HypothesisEngine {
         let competing = allYears.filter { $0 != year }
         let competingSummary = competing.map(String.init).joined(separator: ", ")
 
+        // Decision rule 1: plausibility-margin winner.
         if winnerIsThis,
            topMinusSecond >= birthYearCandidateDecisiveMargin {
             return GradeResult(
@@ -240,12 +265,56 @@ nonisolated extension HypothesisEngine {
                 reasoning: "Year \(year) loses biographical fit (plausibility \(formatScore(thisPlausibility)) vs winner \(formatScore(topPlausibility)), gap ≥ \(formatScore(birthYearCandidateDecisiveMargin))). Competing years: [\(competingSummary)]. \(thisResult.reasoning)"
             )
         }
+
+        // Decision rule 2: corroboration tie-break (slice 4).
+        // When plausibilities can't separate the candidates (typically
+        // all 1.0 — rule 3 alone passes), corroboration counts from
+        // Rule 4 census-age back-calculation surface the discriminator.
+        // Decisive iff exactly one candidate has ≥ 2 more corroborating
+        // matches than every other candidate at the same plausibility tier.
+        let topTierResults = results.filter { $0.plausibility == topPlausibility }
+        if topTierResults.count >= 2 {
+            let sortedByCorroboration = topTierResults.sorted {
+                $0.corroboratingMatches > $1.corroboratingMatches
+            }
+            let topC = sortedByCorroboration[0].corroboratingMatches
+            let secondC = sortedByCorroboration[1].corroboratingMatches
+            if topC - secondC >= birthYearCandidateCorroborationMargin {
+                let winnerYear = sortedByCorroboration[0].candidateBirthYear
+                if year == winnerYear {
+                    return GradeResult(
+                        verdict: .supported,
+                        isModelAssisted: false,
+                        supportingEvidence: [],
+                        contradictingEvidence: [],
+                        reasoning: "Year \(year) wins corroboration tie-break (\(topC) census/death matches vs next \(secondC), margin ≥ \(birthYearCandidateCorroborationMargin)). Competing years: [\(competingSummary)]. \(thisResult.reasoning)"
+                    )
+                }
+                // Different year won the corroboration race — this one
+                // is .contradicted iff its own corroboration count
+                // trails the winner by ≥ the margin. (At plausibility
+                // tier-mates, lacking corroboration is the deciding
+                // signal; matching corroboration to a different year
+                // doesn't auto-contradict if THIS year tied for top
+                // corroboration but lost only via ties broken on year
+                // — handled by the >= 2 margin requirement.)
+                if topC - thisResult.corroboratingMatches >= birthYearCandidateCorroborationMargin {
+                    return GradeResult(
+                        verdict: .contradicted,
+                        isModelAssisted: false,
+                        supportingEvidence: [],
+                        contradictingEvidence: [],
+                        reasoning: "Year \(year) loses corroboration tie-break (\(thisResult.corroboratingMatches) census/death matches vs winner \(winnerYear) at \(topC), gap ≥ \(birthYearCandidateCorroborationMargin)). Competing years: [\(competingSummary)]. \(thisResult.reasoning)"
+                    )
+                }
+            }
+        }
         return GradeResult(
             verdict: .inconclusive,
             isModelAssisted: false,
             supportingEvidence: [],
             contradictingEvidence: [],
-            reasoning: "Year \(year) plausibility \(formatScore(thisPlausibility)); top \(formatScore(topPlausibility)); margin below \(formatScore(birthYearCandidateDecisiveMargin)). Competing years: [\(competingSummary)]. Awaiting slice-4 corroborating evidence. \(thisResult.reasoning)"
+            reasoning: "Year \(year) plausibility \(formatScore(thisPlausibility)); top \(formatScore(topPlausibility)); margin below \(formatScore(birthYearCandidateDecisiveMargin)); corroboration \(thisResult.corroboratingMatches). Competing years: [\(competingSummary)]. \(thisResult.reasoning)"
         )
     }
 
@@ -254,18 +323,78 @@ nonisolated extension HypothesisEngine {
         String(format: "%.2f", x)
     }
 
-    /// Expansiveness ladder for `.birthYearCandidate`. Slice 1 stub —
-    /// slice 4 will return the level-0 census probe for the implied age
-    /// at the nearest census year and the level-1 marriage probe for the
-    /// plausible spouse-age at known marriage.
+    /// Expansiveness ladder for `.birthYearCandidate`.
+    ///
+    /// `level 1` (slice 4) → one FreeCen census probe per applicable
+    /// UK census year between `candidateYear + 1` and `candidateYear + 80`.
+    /// Each probe is chapman-coded to the subject's home county and
+    /// carries a tight `birthYearRange` of `±censusAgeTolerance` (2)
+    /// around the candidate's year. The FreeCen source rates census
+    /// records via the standard scorer; matching records flow into
+    /// `state.scoredRecords` (tagged as enrichment) and the grader's
+    /// next call passes them to `BiographicalFitEvaluator`'s Rule 4.
+    ///
+    /// `level ≥ 2` → empty. Marriage probes were considered (per the
+    /// original plan) but BMD marriage indexes don't carry ages, so a
+    /// marriage probe at level 2 wouldn't discriminate birth years. T8
+    /// (MLX strategist, paper-only) is the intended next step beyond
+    /// level 1.
+    ///
+    /// Required preconditions: subject has `surname` and `homeChapmanCode`
+    /// (set on `ResearchSubject` by `ResearchSubjectBuilder`). When
+    /// either is missing the probe set is empty and T7 skips this
+    /// hypothesis on its second pass.
     static func deficitQueryBirthYearCandidate(
         for hypothesis: ResearchHypothesis,
         atLevel level: Int,
         state: ResearchState
     ) -> [RecordQuery] {
-        _ = hypothesis
-        _ = level
-        _ = state
-        return []
+        guard case .birthYearCandidate(_, let candidateYear) = hypothesis.kind else {
+            return []
+        }
+        switch level {
+        case 1:
+            return censusProbes(candidateYear: candidateYear, state: state)
+        default:
+            return []
+        }
+    }
+
+    /// One FreeCen probe per UK census year inside the candidate's
+    /// plausible adulthood. Returns `[]` when surname is missing —
+    /// without surname the FreeCen query is too broad to be useful.
+    private static func censusProbes(
+        candidateYear: Int, state: ResearchState
+    ) -> [RecordQuery] {
+        let surname = (state.subject.surname ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        guard !surname.isEmpty else { return [] }
+        let chapmanCode = state.subject.homeChapmanCode
+        let tolerance = ScoringRules.censusAgeTolerance
+        let birthYearRange = (candidateYear - tolerance)...(candidateYear + tolerance)
+        // Candidate must have been alive AND named in the census — the
+        // upper bound (80y) caps at human lifespan; the lower bound
+        // (≥ candidate + 1) skips the census in their birth year itself
+        // (FreeCen would only catch newborns at the April enumeration
+        // date, a noisy edge case for our discriminator purpose).
+        let applicableCensusYears = ScoringRules.censusYears.filter { y in
+            y > candidateYear && y <= candidateYear + 80
+        }
+        return applicableCensusYears.map { year in
+            RecordQuery(
+                surname: surname,
+                givenName: state.subject.givenName,
+                recordType: .census,
+                yearFrom: year,
+                yearTo: year,
+                gender: state.subject.gender,
+                region: state.subject.region,
+                sourceParams: .freeCen(FreeCenParams(
+                    chapmanCode: chapmanCode,
+                    censusYear: year,
+                    birthYearRange: birthYearRange
+                ))
+            )
+        }
     }
 }
