@@ -1587,10 +1587,15 @@ final class ResearchPipeline {
             let b = await brideSide
             return g + b
         case .parentInferred, .subjectIdentity, .clusterIsSubject,
+             .birthYearCandidate,
              .burialAtParish, .secondMarriage:
             // These kinds either have no ladder (parentInferred,
             // subjectIdentity, clusterIsSubject) or aren't yet in
-            // V2 scope. deficitQuery returned non-nil so the caller
+            // V2 scope. `.birthYearCandidate` is slice-1 wired (the
+            // generator emits hypotheses) but its level-0 census /
+            // level-1 marriage probes are slice 4 — until then, the
+            // engine's `deficitQuery` returns [], so this branch is
+            // unreached. deficitQuery returned non-nil so the caller
             // reached us; honour that even though nothing dispatches.
             return []
         }

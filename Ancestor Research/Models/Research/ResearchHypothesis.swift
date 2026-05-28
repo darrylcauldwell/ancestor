@@ -170,6 +170,24 @@ nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
     /// lead-only clusters; user-facing via §5.11.
     case clusterIsSubject(clusterID: UUID)
 
+    /// "Among the precise (span-0) birth-year values currently attested
+    /// in `Profile.sources[.birthDate]`, this year is the correct one."
+    /// One hypothesis per distinct competing candidate year; verdicts
+    /// compare biographical fit deterministically and let T7 dispatch
+    /// corroborating census + marriage probes when the fit margins are
+    /// inconclusive. The disambiguator the directional-overwrite rule
+    /// in `Profile` apply-paths deliberately *refuses* to perform on its
+    /// own (refusing is the right call — silent "most-recent wins"
+    /// would seed the wrong year half the time). See
+    /// `project_multi_hypothesis_birth_year_plan` memory and
+    /// RESEARCH_PIPELINE_SPEC.md Part II §5 (V2 hypothesis framework).
+    ///
+    /// Generator fires only when ≥ 2 distinct precise candidates compete
+    /// for one profile. A single precise candidate is handled by
+    /// subject-self-narrowing's pending-fact path (slice B); a wide
+    /// range alone needs neither path.
+    case birthYearCandidate(profileID: String, year: Int)
+
     /// "The subject was buried at this parish in this year window."
     /// Future kind; not in scope for T11/T12 but enumerated to show
     /// the framework absorbs new kinds without architectural change.
@@ -188,6 +206,7 @@ nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
         case .siblingExists:          return "siblingExists"
         case .subjectSpouseMarriage:  return "subjectSpouseMarriage"
         case .clusterIsSubject:       return "clusterIsSubject"
+        case .birthYearCandidate:     return "birthYearCandidate"
         case .burialAtParish:         return "burialAtParish"
         case .secondMarriage:         return "secondMarriage"
         }
@@ -212,6 +231,12 @@ nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
             return "subjectSpouseMarriage:\(subject):\(groomSurname.uppercased())x\(brideSurname.uppercased()):\(window.lowerBound)-\(window.upperBound)"
         case .clusterIsSubject(let clusterID):
             return "clusterIsSubject:\(subject):\(clusterID.uuidString)"
+        case .birthYearCandidate(let profileID, let year):
+            // Profile ID is part of the payload (not just `subject`) so the
+            // key stays self-describing if a future caller ever passes
+            // `subjectProfileID: nil` with a non-nil payload profileID.
+            // Under normal use the two match and `subject == profileID`.
+            return "birthYearCandidate:\(profileID):\(year)"
         case .burialAtParish(let parish, let window):
             return "burialAtParish:\(subject):\(parish.uppercased()):\(window.lowerBound)-\(window.upperBound)"
         case .secondMarriage(let afterYear):
