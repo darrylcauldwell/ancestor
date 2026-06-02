@@ -109,7 +109,7 @@ final class PendingFactsProcessor {
 
             // Step 4: Build a SourceRecord and score through 4-gate scorer
             let homeChapmanCode = (try? db.loadProjectMeta())?
-                .resolvedHomeChapmanCode ?? "DBY"
+                .resolvedHomeChapmanCode ?? ""
             let subject = ResearchSubject.fromProfile(profile, snapshot: snapshot, mode: .extend, homeChapmanCode: homeChapmanCode)
             let sourceRecord = buildSourceRecord(from: finding, tierEntry: tierEntry)
 

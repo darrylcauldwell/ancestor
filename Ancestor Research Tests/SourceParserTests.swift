@@ -9,11 +9,15 @@ struct SourceParserTests {
     // MARK: - Record Scorer (as a parser-level test)
 
     @Test func scorerClassifiesMatchingBirthAsFact() {
-        let subject = ResearchSubject(
+        var subject = ResearchSubject(
             surname: "LAND", givenName: "THOMAS",
             birthYearFrom: 1834, birthYearTo: 1834,
             gender: .male, region: .englandAndWales, mode: .extend, familyContext: nil
         )
+        // The record's district ("Bakewell") is in DBY. The struct
+        // default is "" now per feedback_no_hardcoded_regions; the test
+        // anchors on DBY explicitly so the geography gate passes.
+        subject.homeChapmanCode = "DBY"
         let record = SourceRecord.birth(BirthRecord(
             common: RecordCommon(id: "t", sourceID: "freebmd", name: nil,
                 surname: "LAND", givenName: "THOMAS", detailURL: nil, rawFields: [:]),

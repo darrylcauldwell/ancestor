@@ -157,9 +157,12 @@ final class ResearchViewModel {
 
         selectedProfile = nil
         selectedLead = lead
+        // Project-level fallback; "" when unset. fromLead has no
+        // profile-derivation path (leads aren't on the tree yet) so this
+        // is the only chapman source for the subject.
         let homeChapmanCode = appDatabase
             .flatMap { try? $0.loadProjectMeta() }?
-            .resolvedHomeChapmanCode ?? "DBY"
+            .resolvedHomeChapmanCode ?? ""
         let subject = ResearchSubject.fromLead(
             lead, mode: selectedMode, homeChapmanCode: homeChapmanCode
         )
@@ -193,9 +196,13 @@ final class ResearchViewModel {
 
         selectedProfile = profile
         selectedLead = nil
+        // Project-level fallback; "" when unset. fromProfile's derivation
+        // chain prefers the profile's own birthLocationCode/birthLocation
+        // over this fallback, so non-DBY profiles in a project with a
+        // chapman setting still get correctly anchored to their own home.
         let homeChapmanCode = appDatabase
             .flatMap { try? $0.loadProjectMeta() }?
-            .resolvedHomeChapmanCode ?? "DBY"
+            .resolvedHomeChapmanCode ?? ""
         let subject = ResearchSubject.fromProfile(
             profile,
             snapshot: snapshot,
@@ -1133,7 +1140,10 @@ final class ResearchViewModel {
                 region: nil,
                 mode: .extend,
                 familyContext: nil,
-                homeChapmanCode: "DBY"
+                // Projection-time subject — only used downstream by the
+                // pure projector which doesn't consult chapman, so leave
+                // unset rather than fabricating a Derbyshire anchor.
+                homeChapmanCode: ""
             )
         }()
         guard let subject = subjectForProjection else { return [] }

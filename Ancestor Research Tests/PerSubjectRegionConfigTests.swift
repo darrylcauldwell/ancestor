@@ -151,7 +151,12 @@ struct PerSubjectRegionConfigTests {
 
     // MARK: - AC1.3 — Project.homeChapmanCode + resolvedHomeChapmanCode fallback
 
-    @Test func ac1_3_legacyProjectResolvesToDBY() {
+    @Test func ac1_3_legacyProjectResolvesToEmpty() {
+        // Updated 2026-06-02: legacy projects no longer silently default
+        // to "DBY". Callers must handle empty chapman gracefully (the
+        // chapman-anchor filter in BiographicalFitEvaluator skips when
+        // empty; SearchDispatcher degrades / skips chapman-coded probes).
+        // See feedback_no_hardcoded_regions.
         let legacy = Project(
             id: UUID(),
             name: "Test",
@@ -162,7 +167,7 @@ struct PerSubjectRegionConfigTests {
             archivedAt: nil,
             homeChapmanCode: nil
         )
-        #expect(legacy.resolvedHomeChapmanCode == "DBY")
+        #expect(legacy.resolvedHomeChapmanCode == "")
     }
 
     @Test func ac1_3_projectWithExplicitCodeResolvesToThatCode() {
@@ -184,7 +189,12 @@ struct PerSubjectRegionConfigTests {
     // Full integration (synthetic Leicestershire project end-to-end) requires per-county
     // data; tested here at the subject-construction layer.
 
-    @Test func ac1_4_researchSubjectDefaultsToDBY() {
+    @Test func ac1_4_researchSubjectDefaultsToEmpty() {
+        // Updated 2026-06-02: removed "DBY" struct default. Callers must
+        // pass the project setting (or rely on `fromProfile`'s derivation
+        // chain to extract chapman from profile birth-location data).
+        // Empty means "no anchor known" — downstream callers handle
+        // that explicitly. See feedback_no_hardcoded_regions.
         let subject = ResearchSubject(
             profileID: nil,
             surname: "Test",
@@ -198,7 +208,7 @@ struct PerSubjectRegionConfigTests {
             mode: .extend,
             familyContext: nil
         )
-        #expect(subject.homeChapmanCode == "DBY")
+        #expect(subject.homeChapmanCode == "")
     }
 
     @Test func ac1_4_researchSubjectThreadsHomeCodeFromCaller() {

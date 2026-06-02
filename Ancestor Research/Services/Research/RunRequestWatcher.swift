@@ -117,7 +117,7 @@ final class RunRequestWatcher {
     private func execute(request: PendingRequest, db: ProjectDatabase) async {
         let mode = ResearchMode(rawValue: request.mode) ?? .extend
         let scope = ResearchScope(rawValue: request.scope) ?? .county
-        let homeChapmanCode = (try? db.loadProjectMeta())?.resolvedHomeChapmanCode ?? "DBY"
+        let homeChapmanCode = (try? db.loadProjectMeta())?.resolvedHomeChapmanCode ?? ""
 
         // Resolve subject. Profile takes precedence; either-or guaranteed
         // by the MCP tool but defensively handled here.

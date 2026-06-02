@@ -264,7 +264,7 @@ struct RecordScorerProbateTests {
         deathLocation: String? = nil,
         deathYear: Int? = nil
     ) -> ResearchSubject {
-        ResearchSubject(
+        var s = ResearchSubject(
             surname: "Smith",
             givenName: "John",
             middleName: nil,
@@ -277,6 +277,12 @@ struct RecordScorerProbateTests {
             deathLocation: deathLocation,
             mode: .extend
         )
+        // Tests assume a Derbyshire-home subject (Manchester registry
+        // catchment includes DBY, Bristol doesn't, etc.). Set explicitly
+        // — the struct's default is "" now per
+        // feedback_no_hardcoded_regions.
+        s.homeChapmanCode = "DBY"
+        return s
     }
 
     private func probateRecord(

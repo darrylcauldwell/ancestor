@@ -241,7 +241,7 @@ struct ClusterReviewView: View {
                 snapshot: appState.snapshot,
                 mode: vm.selectedMode,
                 homeChapmanCode: (try? appState.currentDatabase?.loadProjectMeta())?
-                    .resolvedHomeChapmanCode ?? "DBY"
+                    .resolvedHomeChapmanCode ?? ""
             )
             let prose = await ResearchInterpreter.compareCandidates(
                 clusters: result.clusters,
@@ -1646,7 +1646,9 @@ struct ClusterReviewView: View {
                     deathYearFrom: nil, deathYearTo: nil,
                     gender: vm.selectedProfile?.gender,
                     region: nil, mode: .extend, familyContext: nil,
-                    homeChapmanCode: "DBY"
+                    // Pseudo-state for the gender resolver — doesn't
+                    // consult chapman, so leave unset.
+                    homeChapmanCode: ""
                 ))
                 let res = HypothesisEngine.resolveSubjectSpouseGender(
                     state: pseudoState, snapshot: appState.snapshot, childMMNs: [:]

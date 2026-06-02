@@ -143,11 +143,19 @@ nonisolated struct ResearchSubject: Sendable {
     /// set. See RESEARCH_PIPELINE_SPEC §11.4.
     var focus: ResearchFocus? = nil
     var familyContext: FamilyContext?
-    /// Chapman code of the subject's home county — drives per-subject scoring
-    /// and dispatch lookups. Defaults to "DBY" (Derbyshire) for legacy data
-    /// where the project's home_chapman_code wasn't set at creation. See
-    /// RESEARCH_AXES_SPEC.md Change 1.
-    var homeChapmanCode: String = "DBY"
+    /// Chapman code of the subject's home county — drives per-subject scoring,
+    /// dispatch lookups, and the `BiographicalFitEvaluator` chapman anchor
+    /// (slice 4 of [[project_multi_hypothesis_birth_year_plan]]).
+    ///
+    /// Empty string when no anchor is derivable. Callers must handle the
+    /// empty case gracefully — the evaluator skips its chapman filter,
+    /// SearchDispatcher should degrade to national scope or skip the
+    /// chapman-coded probe. **No hardcoded Derbyshire default** — earlier
+    /// builds defaulted to "DBY", which silently misfiltered non-DBY
+    /// subjects (`feedback_no_hardcoded_regions`). The right value flows
+    /// through `fromProfile`'s derivation chain (profile birthLocationCode
+    /// → birthLocation → project setting → "").
+    var homeChapmanCode: String = ""
 }
 
 /// Known family members for the family context gate.
@@ -375,12 +383,25 @@ nonisolated extension ResearchSubject {
     }
 
     /// Build from an existing profile.
+    ///
+    /// `homeChapmanCode` parameter is the project-level setting (the user's
+    /// chosen dominant county for the tree at project creation, or "" if
+    /// unset). It's used as a fallback ONLY when the profile's own location
+    /// data doesn't resolve to a chapman. Derivation order (most specific
+    /// wins):
+    ///   1. `profile.birthLocationCode` (gazetteer ID — split on `:`, take
+    ///      the chapman prefix)
+    ///   2. `profile.birthLocation` (free-text place name) via
+    ///      `FreeBMDDistrictCatalogue.shared.district(named:)?.chapmanCode`
+    ///   3. The `homeChapmanCode` parameter (project-level setting)
+    ///   4. "" (no anchor — evaluator's chapman filter and dispatcher's
+    ///      chapman-coded probes degrade to permissive / national)
     static func fromProfile(
         _ profile: Profile,
         snapshot: FamilyGraphSnapshot,
         mode: ResearchMode = .extend,
         focus: ResearchFocus? = nil,
-        homeChapmanCode: String = "DBY"
+        homeChapmanCode: String = ""
     ) -> ResearchSubject {
         // Build family context from the tree
         let spouses = snapshot.spousesOf(profile.id)
@@ -531,8 +552,60 @@ nonisolated extension ResearchSubject {
             mode: mode,
             focus: focus,
             familyContext: context,
-            homeChapmanCode: homeChapmanCode
+            homeChapmanCode: Self.deriveHomeChapmanCode(
+                from: profile, projectFallback: homeChapmanCode
+            )
         )
+    }
+
+    /// Resolve a Chapman code for a subject from the profile's own data,
+    /// falling back to the project-level setting. Used by every builder
+    /// so derivation logic stays in one place.
+    ///
+    /// Order:
+    ///   1. `birthLocationCode` — the gazetteer ID set via LocationPicker.
+    ///      Format is "{CHAPMAN}:{place}" (e.g. "DBY:Crich"). Take the
+    ///      prefix up to the colon and validate it as a 3-letter code.
+    ///   2. `birthLocation` — free-text place name. Look up via
+    ///      `FreeBMDDistrictCatalogue.shared.district(named:)?.chapmanCode`.
+    ///      Matches when the location name happens to be a registration
+    ///      district name (Belper, Bakewell, Marylebone, …).
+    ///   3. `projectFallback` — the project-level setting the user chose at
+    ///      creation. Used when the profile has no usable location data.
+    ///   4. Empty string — anchor unresolvable.
+    static func deriveHomeChapmanCode(
+        from profile: Profile,
+        projectFallback: String
+    ) -> String {
+        if let code = chapmanCodeFromLocationCode(profile.birthLocationCode) {
+            return code
+        }
+        if let name = profile.birthLocation?.trimmingCharacters(in: .whitespaces),
+           !name.isEmpty,
+           let code = FreeBMDDistrictCatalogue.shared
+            .district(named: name)?.chapmanCode {
+            return code
+        }
+        return projectFallback
+    }
+
+    /// Parse a 3-letter Chapman code prefix from a gazetteer ID like
+    /// "DBY:Crich". Returns nil for nil input, empty input, or strings
+    /// without a colon-delimited 3-letter prefix.
+    private static func chapmanCodeFromLocationCode(_ code: String?) -> String? {
+        guard let code = code?.trimmingCharacters(in: .whitespaces),
+              !code.isEmpty else { return nil }
+        let prefix: String
+        if let colon = code.firstIndex(of: ":") {
+            prefix = String(code[..<colon])
+        } else {
+            prefix = code
+        }
+        let cleaned = prefix.trimmingCharacters(in: .whitespaces).uppercased()
+        guard cleaned.count == 3,
+              cleaned.allSatisfy({ $0.isLetter })
+        else { return nil }
+        return cleaned
     }
 
     /// Build from a Lead. Leads aren't on the tree yet so there's no family
@@ -541,10 +614,13 @@ nonisolated extension ResearchSubject {
     /// the dispatcher searches for *this* person, not the profile that
     /// generated the lead. Without this constructor, `investigateLead` was
     /// re-researching the generating profile rather than the lead itself.
+    /// `homeChapmanCode` parameter is the project-level setting; leads
+    /// don't carry chapman-mappable location data, so it's the only
+    /// derivation source available. Pass "" if unset.
     static func fromLead(
         _ lead: Lead,
         mode: ResearchMode = .extend,
-        homeChapmanCode: String = "DBY"
+        homeChapmanCode: String = ""
     ) -> ResearchSubject {
         ResearchSubject(
             profileID: nil,
@@ -562,15 +638,27 @@ nonisolated extension ResearchSubject {
         )
     }
 
-    /// Build from manual user input.
+    /// Build from manual user input. `location` is the user's free-text
+    /// place; if it resolves via `FreeBMDDistrictCatalogue` to a chapman
+    /// code, that wins over the `homeChapmanCode` parameter (project
+    /// setting). Pass "" if the project setting is unset.
     static func fromUserInput(
         surname: String?, givenName: String?,
         birthYear: Int?, deathYear: Int?,
         gender: Gender?, location: String?,
         mode: ResearchMode = .extend,
-        homeChapmanCode: String = "DBY"
+        homeChapmanCode: String = ""
     ) -> ResearchSubject {
-        ResearchSubject(
+        let derivedChapman: String = {
+            if let name = location?.trimmingCharacters(in: .whitespaces),
+               !name.isEmpty,
+               let code = FreeBMDDistrictCatalogue.shared
+                .district(named: name)?.chapmanCode {
+                return code
+            }
+            return homeChapmanCode
+        }()
+        return ResearchSubject(
             surname: surname, givenName: givenName,
             birthYearFrom: birthYear, birthYearTo: birthYear,
             deathYearFrom: deathYear, deathYearTo: deathYear,
@@ -578,7 +666,7 @@ nonisolated extension ResearchSubject {
             region: location.map { .county($0) },
             mode: mode,
             familyContext: nil,
-            homeChapmanCode: homeChapmanCode
+            homeChapmanCode: derivedChapman
         )
     }
 }

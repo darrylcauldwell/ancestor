@@ -86,8 +86,11 @@ final class WholeTreeResearchViewModel {
             logger.info("Researching \(idx)/\(queueCount): \(profile.displayName)")
 
             let sourceInfoMap = registry.buildSourceInfoMap()
+            // Project fallback only; fromProfile's derivation chain prefers
+            // the profile's own birth location and only uses this when the
+            // profile is location-less.
             let homeChapmanCode = (try? database?.loadProjectMeta())?
-                .resolvedHomeChapmanCode ?? "DBY"
+                .resolvedHomeChapmanCode ?? ""
             let subject = ResearchSubject.fromProfile(profile, snapshot: snapshot, mode: .extend, homeChapmanCode: homeChapmanCode)
             let config = ResearchConfig.extend
 

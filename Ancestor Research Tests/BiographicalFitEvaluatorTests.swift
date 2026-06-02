@@ -283,7 +283,8 @@ struct BiographicalFitEvaluatorTests {
 
     private func makeSubject(
         profileID: String, surname: String, given: String,
-        birthFrom: Int, birthTo: Int
+        birthFrom: Int, birthTo: Int,
+        homeChapmanCode: String = "DBY"
     ) -> ResearchSubject {
         var s = ResearchSubject(
             profileID: profileID, surname: surname, givenName: given,
@@ -291,6 +292,7 @@ struct BiographicalFitEvaluatorTests {
         )
         s.birthYearFrom = birthFrom
         s.birthYearTo = birthTo
+        s.homeChapmanCode = homeChapmanCode
         return s
     }
 

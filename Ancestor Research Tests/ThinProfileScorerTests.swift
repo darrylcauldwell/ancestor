@@ -155,7 +155,7 @@ struct ThinProfileScorerTests {
     }
 
     private func ernestCauldwell() -> ResearchSubject {
-        ResearchSubject(
+        var s = ResearchSubject(
             surname: "Cauldwell",
             givenName: "Ernest",
             birthYearFrom: 1886,
@@ -164,6 +164,11 @@ struct ThinProfileScorerTests {
             region: .englandAndWales,
             mode: .extend
         )
+        // Belper/Bakewell birth records pass geography only when the
+        // subject's home chapman matches. Struct default is "" now;
+        // tests must set the anchor explicitly.
+        s.homeChapmanCode = "DBY"
+        return s
     }
 
     private func wideBirthWindowSubject() -> ResearchSubject {
