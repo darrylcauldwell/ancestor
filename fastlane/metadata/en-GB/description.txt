@@ -19,7 +19,7 @@ DISCOVERIES
 The app surfaces findings you didn't ask for: household members from census records, maiden names from mother-in-law surnames, spouse identifications from marriage records, occupations, addresses, and military service.
 
 LOCAL REASONING MODEL
-Optional on-device AI using Apple Silicon — loads a reasoning model (DeepSeek-R1) to suggest research strategy, evaluate evidence clusters, draft biographical summaries, and disambiguate conflicting records. Runs locally, no cloud required.
+Optional on-device AI using Apple Silicon — loads an open-weight reasoning model of your choice to suggest research strategy, evaluate evidence clusters, draft biographical summaries, and disambiguate conflicting records. Runs locally, no cloud required.
 
 PRIVACY
 Your family tree data stays on your Mac. The app searches external genealogy sources but never uploads your tree — only search parameters (surname, given name, year range) are sent. The local reasoning model runs entirely on-device. No third-party AI APIs are used; no analytics or telemetry are collected.

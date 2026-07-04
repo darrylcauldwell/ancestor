@@ -6,7 +6,7 @@ import os
 /// 2. Disambiguation — "wrong person vs wrong tree" chain-of-thought
 /// 3. Strategy suggestion — reason about which source to search next
 ///
-/// Uses DeepSeek-R1 (reasoning model with <think> tags), not a generic LLM.
+/// Uses the local reasoning model selected in Settings (`ReasoningModel`).
 /// All outputs are suggestions — the deterministic engine has final say.
 /// When the model and deterministic engine disagree, deterministic wins.
 nonisolated struct ResearchInterpreter {

@@ -32,7 +32,7 @@ Only the search parameters listed above are sent. Your full tree data is never t
 
 ### Local Reasoning Model
 
-The app can optionally load a local AI reasoning model (DeepSeek-R1) using Apple's MLX framework. This model runs entirely on your device using Apple Silicon. No data is sent to any external service for local model inference.
+The app can optionally load a local, open-weight AI reasoning model (selected in Settings) using Apple's MLX framework. The model runs entirely on your device using Apple Silicon. No data is sent to any external service for local model inference; the only network activity involved is the one-time download of the model weights themselves.
 
 ## Data Collection
 

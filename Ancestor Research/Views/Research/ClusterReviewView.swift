@@ -213,7 +213,7 @@ struct ClusterReviewView: View {
                 .buttonStyle(.glass)
                 .controlSize(.small)
                 .disabled(isComparingCandidates)
-                .help("Use the local reasoning model to disambiguate these candidates in plain English. Requires DeepSeek-R1 to be loaded in Settings.")
+                .help("Use the local reasoning model to disambiguate these candidates in plain English. Requires a reasoning model to be loaded in Settings.")
             }
 
             Button("New Research") {
@@ -269,7 +269,7 @@ struct ClusterReviewView: View {
     private static let modelUnavailableFallback = """
     The local reasoning model isn't loaded yet, so I can't generate disambiguation prose right now.
 
-    Load DeepSeek-R1 from Settings → Local Reasoning Model → Load Model (downloads ~7 GB on first use, then ~2 GB resident). Once it's ready, click Compare candidates again and you'll get a side-by-side comparison of each candidate cluster with a final summary.
+    Load a model from Settings → Local Reasoning Model → Load Model (the recommended Qwen3.5 4B downloads ~3 GB on first use). Once it's ready, click Compare candidates again and you'll get a side-by-side comparison of each candidate cluster with a final summary.
     """
 
     private var gpsScoreBadge: some View {

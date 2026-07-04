@@ -7,10 +7,14 @@ import MLXLMCommon
 /// raw value via `@AppStorage("reasoningModelChoice")` and passes the
 /// matching `configuration` to `LocalInferenceService.loadModel(...)`.
 ///
-/// 7B options are pre-registered in `LLMRegistry` (no inline ID needed).
-/// The 14B variants are constructed inline because the registry does
-/// not pre-register them.
+/// Some options are pre-registered in `LLMRegistry`; the rest are
+/// constructed inline by HuggingFace repo ID. Gemma 4 E4B deliberately
+/// uses the QAT repo, NOT the registry's `gemma4_e4b_it_4bit`: the
+/// plain 4-bit quant (Apr 2026) has broken PLE layers that produce
+/// garbage output and was never requantized.
 public nonisolated enum ReasoningModel: String, CaseIterable, Sendable, Identifiable {
+    case qwen35_4B = "qwen-3.5-4b"
+    case gemma4_E4B = "gemma-4-e4b"
     case deepSeekR1_7B = "deepseek-r1-7b"
     case qwen25_7B = "qwen-2.5-7b"
     case qwen25_14B = "qwen-2.5-14b"
@@ -20,6 +24,8 @@ public nonisolated enum ReasoningModel: String, CaseIterable, Sendable, Identifi
 
     public var displayName: String {
         switch self {
+        case .qwen35_4B: "Qwen3.5 4B (4-bit)"
+        case .gemma4_E4B: "Gemma 4 E4B QAT (4-bit)"
         case .deepSeekR1_7B: "DeepSeek-R1 Distill Qwen 7B (4-bit)"
         case .qwen25_7B: "Qwen 2.5 7B Instruct (4-bit)"
         case .qwen25_14B: "Qwen 2.5 14B Instruct (4-bit)"
@@ -29,22 +35,28 @@ public nonisolated enum ReasoningModel: String, CaseIterable, Sendable, Identifi
 
     public var subtitle: String {
         switch self {
-        case .deepSeekR1_7B: "Chain-of-thought reasoning, fastest option"
-        case .qwen25_7B: "General-purpose instruct model, no <think> tags"
-        case .qwen25_14B: "Stronger general reasoning, recommended for Level-2 strategist"
-        case .deepSeekR1_14B: "Best chain-of-thought; slower, highest RAM"
+        case .qwen35_4B: "Recommended — strongest instruction-following per GB; thinking disabled for deterministic latency"
+        case .gemma4_E4B: "Alternative with native function-call tokens; higher RAM"
+        case .deepSeekR1_7B: "Legacy chain-of-thought model; weak instruction following"
+        case .qwen25_7B: "Previous-generation instruct model, no <think> tags"
+        case .qwen25_14B: "Previous-generation 14B; superseded by Qwen3.5 4B"
+        case .deepSeekR1_14B: "Legacy chain-of-thought; slower, highest RAM"
         }
     }
 
     public var memoryEstimateGB: Double {
         switch self {
+        case .qwen35_4B: 4.0
         case .deepSeekR1_7B, .qwen25_7B: 4.5
+        case .gemma4_E4B: 7.5
         case .qwen25_14B, .deepSeekR1_14B: 8.5
         }
     }
 
     public var configuration: ModelConfiguration {
         switch self {
+        case .qwen35_4B: ModelConfiguration(id: "mlx-community/Qwen3.5-4B-MLX-4bit")
+        case .gemma4_E4B: ModelConfiguration(id: "mlx-community/gemma-4-E4B-it-qat-4bit")
         case .deepSeekR1_7B: LLMRegistry.deepSeekR1_7B_4bit
         case .qwen25_7B: LLMRegistry.qwen2_5_7b
         case .qwen25_14B: ModelConfiguration(id: "mlx-community/Qwen2.5-14B-Instruct-4bit")
@@ -56,6 +68,8 @@ public nonisolated enum ReasoningModel: String, CaseIterable, Sendable, Identifi
     /// reachable from callers that don't import `MLXLMCommon`.
     public var huggingFaceID: String {
         switch self {
+        case .qwen35_4B: "mlx-community/Qwen3.5-4B-MLX-4bit"
+        case .gemma4_E4B: "mlx-community/gemma-4-E4B-it-qat-4bit"
         case .deepSeekR1_7B: "mlx-community/DeepSeek-R1-Distill-Qwen-7B-4bit"
         case .qwen25_7B: "mlx-community/Qwen2.5-7B-Instruct-4bit"
         case .qwen25_14B: "mlx-community/Qwen2.5-14B-Instruct-4bit"
@@ -63,15 +77,17 @@ public nonisolated enum ReasoningModel: String, CaseIterable, Sendable, Identifi
         }
     }
 
-    public static let `default`: ReasoningModel = .deepSeekR1_7B
+    public static let `default`: ReasoningModel = .qwen35_4B
 }
 
 /// Local reasoning model service using MLX on Apple Silicon.
 ///
-/// This runs DeepSeek-R1 (a reasoning model, not a generic LLM).
-/// It uses chain-of-thought with <think> tags to work through
-/// genealogical problems: cluster evaluation, disambiguation,
-/// strategy selection, and evidence summaries.
+/// Runs whichever open-weight model the user selects in Settings
+/// (`ReasoningModel`) for the app's bounded advisory tasks: search
+/// strategy suggestions, candidate comparison, and prose-fact
+/// extraction. Thinking/chain-of-thought is disabled where the
+/// model's chat template supports it — these tasks need schema-valid
+/// output, not visible reasoning.
 ///
 /// Architecture: deterministic-probabilistic-deterministic sandwich.
 /// The reasoning model never decides facts — only reasons about
@@ -80,9 +96,8 @@ public nonisolated enum ReasoningModel: String, CaseIterable, Sendable, Identifi
 actor LocalInferenceService {
     static let shared = LocalInferenceService()
 
-    /// The default reasoning model — DeepSeek-R1 7B 4-bit.
-    /// Pre-registered in LLMRegistry, no custom downloader needed.
-    static let defaultConfiguration = LLMRegistry.deepSeekR1_7B_4bit
+    /// Single source of truth for the default: `ReasoningModel.default`.
+    static let defaultConfiguration = ReasoningModel.default.configuration
 
     private var modelContainer: ModelContainer?
     private var session: ChatSession?
@@ -258,7 +273,10 @@ actor LocalInferenceService {
             let container = try await task.value
             modelContainer = container
             currentModelID = configuration.name
-            session = ChatSession(container)
+            session = ChatSession(
+                container,
+                additionalContext: Self.templateContext(for: configuration.name)
+            )
             loadingTask = nil
             return container
         } catch {
@@ -299,7 +317,10 @@ actor LocalInferenceService {
             }
             messages.append(["role": "user", "content": prompt])
 
-            let userInput = UserInput(messages: messages)
+            let userInput = UserInput(
+                messages: messages,
+                additionalContext: Self.templateContext(for: currentModelID)
+            )
             let lmInput = try await container.prepare(input: userInput)
 
             // Collect all generated text. maxTokens is enforced by the
@@ -362,8 +383,22 @@ actor LocalInferenceService {
 
     // MARK: - Response Processing
 
+    /// Chat-template kwargs merged into the Jinja render context by
+    /// `applyChatTemplate(messages:tools:additionalContext:)`.
+    /// Qwen3/Qwen3.5 hybrid-thinking templates read `enable_thinking`;
+    /// think-tokens are pure latency here because a rules layer
+    /// validates all output. Other models' templates ignore unknown
+    /// kwargs, but return nil anyway so their input is byte-identical
+    /// to before. `stripThinkTags` stays as the safety net — the flag
+    /// is occasionally ignored, and DeepSeek-R1 has no such switch.
+    nonisolated private static func templateContext(for modelID: String?) -> [String: any Sendable]? {
+        guard let modelID, modelID.lowercased().contains("qwen3") else { return nil }
+        return ["enable_thinking": false]
+    }
+
     /// Strip <think>...</think> reasoning blocks from the response.
-    /// DeepSeek-R1 outputs its chain-of-thought in these tags.
+    /// Reasoning models (DeepSeek-R1; Qwen3.5 when the template flag
+    /// is ignored) emit chain-of-thought in these tags.
     /// We preserve the final answer after the thinking phase.
     nonisolated private func stripThinkTags(from text: String) -> String {
         var result = text
