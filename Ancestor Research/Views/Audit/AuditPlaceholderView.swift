@@ -446,33 +446,3 @@ struct GapsPlaceholderView: View {
         .frame(height: 8)
     }
 }
-
-nonisolated extension CompletenessCheck {
-    var label: String {
-        switch self {
-        case .field(let field): "Missing \(field.rawValue)"
-        case .hasParents: "No parents"
-        }
-    }
-
-    var shortLabel: String {
-        switch self {
-        case .field(let field):
-            switch field {
-            case .firstName: "name"
-            case .middleName: "middle"
-            case .lastName: "surname"
-            case .marriedSurname: "married"
-            case .nickName: "nickname"
-            case .mothersMaidenName: "mother's maiden"
-            case .gender: "gender"
-            case .birthDate: "birth"
-            case .birthLocation: "b.loc"
-            case .deathDate: "death"
-            case .deathLocation: "d.loc"
-            case .bio: "bio"
-            }
-        case .hasParents: "parents"
-        }
-    }
-}

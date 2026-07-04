@@ -2550,18 +2550,6 @@ nonisolated extension ProjectDatabase {
     }
 }
 
-nonisolated extension GenealogicalDate {
-    /// Internal init for reconstructing from database columns.
-    init(original: String, earliest: Int?, latest: Int?,
-         isApproximate: Bool, qualifier: DateQualifier) {
-        self.original = original
-        self.earliest = earliest
-        self.latest = latest
-        self.isApproximate = isApproximate
-        self.qualifier = qualifier
-    }
-}
-
 // MARK: - Field disputes (M16.14)
 
 nonisolated extension ProjectDatabase {

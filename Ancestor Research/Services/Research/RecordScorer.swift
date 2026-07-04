@@ -1,36 +1,5 @@
 import Foundation
 
-/// Scored result — a source record classified through 4 gates.
-nonisolated struct ScoredRecord: Identifiable, Sendable {
-    let id: String
-    let record: SourceRecord
-    let verdict: RecordVerdict
-    let gates: [GateResult]
-    let summary: String
-}
-
-nonisolated enum RecordVerdict: String, Codable, Sendable {
-    case fact, lead, impossible
-}
-
-nonisolated struct GateResult: Sendable {
-    let gate: ScoringGate
-    let outcome: GateOutcome
-    let reason: String
-}
-
-nonisolated enum ScoringGate: String, Codable, Sendable {
-    case name, date, geography, familyContext
-}
-
-nonisolated enum GateOutcome: String, Codable, Sendable {
-    case pass
-    case fail           // hard fail — disqualifies (name mismatch, date impossibility)
-    case softFail       // non-disqualifying — geography/type mismatch is suspicious but not fatal
-    case impossible     // violates hard temporal rules
-    case skip           // gate not applicable (no data to check)
-}
-
 // MARK: - Accept policy
 
 /// THE record-level accept predicate — the single source of truth for

@@ -71,6 +71,8 @@ xcuserdata/
 DerivedData/
 
 # Swift Package Manager build directories
+AncestorKit/.build/
+AncestorKit/Package.resolved
 FieldResearcherMCP/.build/
 FieldResearcherMCP/Package.resolved
 SourceTests/.build/

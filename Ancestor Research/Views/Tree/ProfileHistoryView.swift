@@ -1,9 +1,10 @@
 import SwiftUI
+import AncestorKit
 
 /// Per-profile audit trail timeline showing every change to this profile.
 struct ProfileHistoryView: View {
     let profile: Profile
-    let transactions: [Transaction]
+    let transactions: [AncestorKit.Transaction]
     let fieldChanges: [FieldChange]
     var onUndo: ((UUID) -> Void)?
 

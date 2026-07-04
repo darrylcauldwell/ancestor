@@ -12,6 +12,7 @@
 		A1B2C3D4E5F60004DEADBEEF /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60005DEADBEEF /* MLXLMCommon */; };
 		A1B2C3D4E5F60006DEADBEEF /* MLXHuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60007DEADBEEF /* MLXHuggingFace */; };
 		A1B2C3D4E5F60009DEADBEEF /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000ADEADBEEF /* Tokenizers */; };
+		ACEK17000000000000000001 /* AncestorKit in Frameworks */ = {isa = PBXBuildFile; productRef = ACEK17000000000000000002 /* AncestorKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -49,6 +50,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				ACEK17000000000000000001 /* AncestorKit in Frameworks */,
 				3E8156BF2F9BA1A800D37FC5 /* GRDB in Frameworks */,
 				A1B2C3D4E5F60001DEADBEEF /* MLXLLM in Frameworks */,
 				A1B2C3D4E5F60004DEADBEEF /* MLXLMCommon in Frameworks */,
@@ -123,6 +125,7 @@
 			);
 			name = "Ancestor Research";
 			packageProductDependencies = (
+				ACEK17000000000000000002 /* AncestorKit */,
 				39C6F347BBD297A3033F5CEA /* GRDB */,
 				A1B2C3D4E5F60002DEADBEEF /* MLXLLM */,
 				A1B2C3D4E5F60005DEADBEEF /* MLXLMCommon */,
@@ -183,6 +186,7 @@
 			mainGroup = 3E2FD78F2F9B89F200491FEB;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				ACEK17000000000000000003 /* XCLocalSwiftPackageReference "AncestorKit" */,
 				23B42F21C1F41CE36B81FD87 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 				A1B2C3D4E5F60003DEADBEEF /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 				A1B2C3D4E5F60008DEADBEEF /* XCRemoteSwiftPackageReference "swift-transformers" */,
@@ -513,6 +517,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		ACEK17000000000000000003 /* XCLocalSwiftPackageReference "AncestorKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = AncestorKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		23B42F21C1F41CE36B81FD87 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -541,6 +552,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		ACEK17000000000000000002 /* AncestorKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AncestorKit;
+		};
 		39C6F347BBD297A3033F5CEA /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 23B42F21C1F41CE36B81FD87 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
