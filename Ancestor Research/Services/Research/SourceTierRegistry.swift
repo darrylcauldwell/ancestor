@@ -6,7 +6,7 @@ import Foundation
 nonisolated struct SourceTierRegistry {
 
     /// Look up the trust tier for a URL.
-    static func lookup(url: String) -> SourceTierEntry {
+    nonisolated static func lookup(url: String) -> SourceTierEntry {
         guard let host = extractHost(from: url) else {
             return .unknown
         }
@@ -29,14 +29,14 @@ nonisolated struct SourceTierRegistry {
     }
 
     /// Check if a URL is from a restricted (paywalled/licenced) source.
-    static func isRestricted(url: String) -> Bool {
+    nonisolated static func isRestricted(url: String) -> Bool {
         let entry = lookup(url: url)
         return entry.restricted
     }
 
     // MARK: - Host Extraction
 
-    private static func extractHost(from urlString: String) -> String? {
+    nonisolated private static func extractHost(from urlString: String) -> String? {
         if let url = URL(string: urlString) {
             return url.host
         }
@@ -51,7 +51,7 @@ nonisolated struct SourceTierRegistry {
 
     /// Hand-curated registry of known genealogy domains.
     /// Grows over time as the Field Researcher encounters new sites.
-    private static let entries: [String: SourceTierEntry] = [
+    nonisolated private static let entries: [String: SourceTierEntry] = [
         // Official archives — primary trust
         "cwgc.org": .init(
             trustTier: .primary, directness: .primary,

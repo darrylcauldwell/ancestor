@@ -884,6 +884,45 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // PUBLISHER_SPEC Change 1 — publisher-domain tables. Mac-local
+        // publisher state: never part of the canonical genealogy, never
+        // published themselves, excluded from any future canonical sync.
+        // publish_policy — per-person redaction override (§5); absent row
+        //   = .auto (resolve via potentiallyLiving). acknowledged_at backs
+        //   the pre-publish review gate and Change 7's auto-publish rule.
+        // published_ids — permanent record-UUID identity (§4.1); rows
+        //   survive delete/omit/re-add; superseded_by records merges.
+        // published_state — per-record checksum of the last acknowledged
+        //   upload (presence diff basis). publish_meta — one-row project
+        //   scalars (generation must be monotonic across zone nukes).
+        // publish_media — presence = attachment opted into publishing.
+        migrator.registerMigration("v30_publisher_tables") { db in
+            try db.create(table: "publish_policy") { t in
+                t.column("profile_id", .text).primaryKey()
+                t.column("policy", .text).notNull().defaults(to: "auto")
+                t.column("acknowledged_at", .datetime)
+            }
+            try db.create(table: "published_ids") { t in
+                t.column("entity_kind", .text).notNull()
+                t.column("canonical_id", .text).notNull()
+                t.column("record_uuid", .text).notNull()
+                t.column("superseded_by", .text)
+                t.primaryKey(["entity_kind", "canonical_id"])
+            }
+            try db.create(table: "published_state") { t in
+                t.column("record_uuid", .text).primaryKey()
+                t.column("checksum", .text).notNull()
+            }
+            try db.create(table: "publish_meta") { t in
+                t.column("id", .integer).primaryKey()
+                t.column("generation", .integer).notNull().defaults(to: 0)
+                t.column("last_published_at", .datetime)
+            }
+            try db.create(table: "publish_media") { t in
+                t.column("attachment_id", .text).primaryKey()
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
