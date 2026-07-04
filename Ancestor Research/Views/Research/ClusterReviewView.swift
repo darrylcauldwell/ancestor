@@ -427,7 +427,7 @@ struct ClusterReviewView: View {
                             switch vm.recordDecisions[rec.id] {
                             case .accepted: return true
                             case .rejected: return false
-                            default:        return ResearchViewModel.wouldApply(rec)
+                            default:        return RecordScorer.wouldApply(rec)
                             }
                         }.count
                         let total = cluster.records.count
@@ -529,7 +529,7 @@ struct ClusterReviewView: View {
                 // clear the gates.
                 let recordDecision = vm.recordDecisions[scored.id]
                 let effectiveWillApply = recordDecision == .accepted
-                    || (recordDecision != .rejected && ResearchViewModel.wouldApply(scored))
+                    || (recordDecision != .rejected && RecordScorer.wouldApply(scored))
                 if alreadyApplied {
                     // Already-applied wins over the will-apply / skipped
                     // dichotomy — it's the most specific state and the

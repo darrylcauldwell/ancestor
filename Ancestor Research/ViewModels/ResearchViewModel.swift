@@ -804,7 +804,7 @@ final class ResearchViewModel {
             case .rejected:
                 continue                           // user said no
             default:
-                guard Self.wouldApply(scored) else { continue }
+                guard RecordScorer.wouldApply(scored) else { continue }
             }
 
             applyFactToSubject(scored, profile: profile, snapshot: appState.snapshot, db: db)
@@ -876,24 +876,6 @@ final class ResearchViewModel {
                 status: .unreviewed
             )
         }
-    }
-
-    /// True when the record is a marriage AND the scorer's `familyContext`
-    /// gate passed because the record's spouse matches the subject's known
-    /// spouse. Used to bypass the `verdict == .fact` filter in `applyCluster`
-    /// for the subject-marriage-to-existing-spouse-edge case where FreeBMD
-    /// transcription gaps demote an otherwise-correct match to `.lead`.
-    nonisolated static func recognisesKnownSpouse(_ scored: ScoredRecord) -> Bool {
-        guard case .marriage = scored.record else { return false }
-        return scored.gates.contains { $0.gate == .familyContext && $0.outcome == .pass }
-    }
-
-    /// Single source of truth for "would `applyCluster` write this record?".
-    /// Cluster review reads this to surface a per-record badge and to count
-    /// the Apply button label. Mirrors exactly the predicate inside
-    /// `applyCluster`'s loop — if you change one, change both.
-    nonisolated static func wouldApply(_ scored: ScoredRecord) -> Bool {
-        scored.verdict == .fact || recognisesKnownSpouse(scored)
     }
 
     private func applyFactToSubject(_ scored: ScoredRecord, profile: Profile, snapshot: FamilyGraphSnapshot, db: ProjectDatabase) {

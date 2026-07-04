@@ -31,6 +31,37 @@ nonisolated enum GateOutcome: String, Codable, Sendable {
     case skip           // gate not applicable (no data to check)
 }
 
+// MARK: - Accept policy
+
+/// THE record-level accept predicate — the single source of truth for
+/// "should an accepted cluster/record write this record's data to the
+/// tree?". Lives beside `RecordVerdict` so every consumer (cluster-review
+/// badges and Apply button, `applyCluster`'s loop, any future auto-apply
+/// path) applies the identical bar; it previously lived on
+/// `ResearchViewModel` with a "if you change one, change both" comment.
+///
+/// Distinct from the MCP §14.3 auto-approval gate and the run-watcher's
+/// proposal-promotion gate — those govern *autonomy* (may the machine act
+/// without a human?) and are deliberately stricter; this governs record
+/// quality only.
+extension RecordScorer {
+
+    /// True when the record is a marriage AND the scorer's `familyContext`
+    /// gate passed because the record's spouse matches the subject's known
+    /// spouse. Used to bypass the `verdict == .fact` filter for the
+    /// subject-marriage-to-existing-spouse-edge case where FreeBMD
+    /// transcription gaps demote an otherwise-correct match to `.lead`.
+    nonisolated static func recognisesKnownSpouse(_ scored: ScoredRecord) -> Bool {
+        guard case .marriage = scored.record else { return false }
+        return scored.gates.contains { $0.gate == .familyContext && $0.outcome == .pass }
+    }
+
+    /// Would applying this record write its data to the profile?
+    nonisolated static func wouldApply(_ scored: ScoredRecord) -> Bool {
+        scored.verdict == .fact || recognisesKnownSpouse(scored)
+    }
+}
+
 /// Deterministic record classifier — fact, lead, or impossible.
 /// Faithfully ported from Python's agent/scorer.py.
 ///
