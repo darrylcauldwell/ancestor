@@ -66,6 +66,13 @@ struct PublishSpikeTests {
     private static let containerID = "iCloud.dev.dreamfold.Ancestor-Research"
 
     @Test func runtimeProof() async throws {
+        // CRITICAL: swift-dependencies detects the TEST context and
+        // sqlite-data then substitutes MockCloudContainer/MockSyncEngine —
+        // instant fake acks, nothing touches Apple's servers. These suites
+        // exist precisely to hit the real development environment, so
+        // force live context before any engine is created.
+        prepareDependencies { $0.context = .live }
+
         // Pre-flight: the Mac must be signed into iCloud.
         let status = try await CKContainer(identifier: Self.containerID).accountStatus()
         try #require(status == .available,

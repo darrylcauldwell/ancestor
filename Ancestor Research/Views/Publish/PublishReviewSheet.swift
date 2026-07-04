@@ -113,6 +113,23 @@ final class PublishReviewModel {
         }
     }
 
+    /// Change 5 — fetch-or-create the share and present Apple's
+    /// cloud-sharing window. Failures surface in the sheet's failed phase.
+    func inviteFamily() {
+        guard let db else { return }
+        let projectID = project.id
+        let projectName = project.name
+        Task { [weak self] in
+            do {
+                let (share, container) = try await PublishSharing.share(
+                    projectID: projectID, projectName: projectName, db: db)
+                CloudSharingPresenter.present(share: share, container: container)
+            } catch {
+                self?.phase = .failed(error.localizedDescription)
+            }
+        }
+    }
+
     func publish() {
         guard let db, canPublish else { return }
         phase = .publishing("Starting…")
@@ -191,7 +208,10 @@ struct PublishReviewSheet: View {
                         .font(AppTypography.cardMeta)
                         .foregroundStyle(.orange)
                 }
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+                HStack {
+                    Button("Invite Family…") { model.inviteFamily() }
+                    Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+                }
             }
             .padding()
             .frame(maxHeight: .infinity)

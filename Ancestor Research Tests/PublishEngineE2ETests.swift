@@ -1,4 +1,5 @@
 import Testing
+import Dependencies
 import Foundation
 import CloudKit
 import GRDB
@@ -15,6 +16,13 @@ import AncestorKit
 struct PublishEngineE2ETests {
 
     @Test func publishThenDeltaRepublish() async throws {
+        // CRITICAL: swift-dependencies detects the TEST context and
+        // sqlite-data then substitutes MockCloudContainer/MockSyncEngine —
+        // instant fake acks, nothing touches Apple's servers. These suites
+        // exist precisely to hit the real development environment, so
+        // force live context before any engine is created.
+        prepareDependencies { $0.context = .live }
+
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("publish-e2e-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
@@ -78,5 +86,76 @@ struct PublishEngineE2ETests {
         #expect(third.stats.updated == 1 && third.stats.unchanged == 3,
                 "idle republish moves only the manifest row")
         print("E2E PASS 3 — idle republish is manifest-only traffic")
+
+        // Change 5 — share lifecycle. share() is idempotent (same share on
+        // repeat call); unpublish deletes the zone; a republish after
+        // unpublish keeps every record UUID (§4.1 permanence) and continues
+        // the generation sequence (monotonic through unpublish).
+        // DIAGNOSTIC — exact CK coordinates the sync engine recorded.
+        let store = try PublishedStore.open(projectID: projectID)
+        let metaRows = try await store.db.read { database in
+            try Row.fetchAll(database, sql: """
+                SELECT recordName, zoneName, ownerName,
+                       lastKnownServerRecord IS NOT NULL AS acked
+                FROM sqlitedata_icloud_metadata
+                """)
+        }
+        for row in metaRows {
+            print("E2E META: name=\(row["recordName"] as String? ?? "?") zone=\(row["zoneName"] as String? ?? "?") owner=\(row["ownerName"] as String? ?? "?") acked=\(row["acked"] as Bool? ?? false)")
+        }
+        let zones = try await CKContainer(identifier: PublishEngine.containerID)
+            .privateCloudDatabase.allRecordZones()
+        for zone in zones {
+            print("E2E ZONE ON SERVER: \(zone.zoneID.zoneName) owner=\(zone.zoneID.ownerName)")
+        }
+
+        if let manifestMeta = metaRows.first(where: { (($0["recordName"] as String?) ?? "").contains("anifest") }) {
+            let name: String = manifestMeta["recordName"]
+            let zone: String = manifestMeta["zoneName"]
+            let owner: String = manifestMeta["ownerName"]
+            let directID = CKRecord.ID(recordName: name,
+                                       zoneID: CKRecordZone.ID(zoneName: zone, ownerName: owner))
+            do {
+                let fetched = try await CKContainer(identifier: PublishEngine.containerID)
+                    .privateCloudDatabase.record(for: directID)
+                print("E2E DIRECT FETCH OK: type=\(fetched.recordType) name=\(fetched.recordID.recordName)")
+            } catch {
+                print("E2E DIRECT FETCH FAIL: \((error as NSError).code) for \(name) @ \(zone)/\(owner)")
+            }
+        }
+
+        let share1: CKShare
+        do {
+            (share1, _) = try await PublishSharing.share(
+                projectID: projectID, projectName: "E2E Fixture", db: db)
+        } catch {
+            let ns = error as NSError
+            print("E2E SHARE FAIL detail: \(ns.domain) \(ns.code) userInfo=\(ns.userInfo)")
+            throw error
+        }
+        let (share2, _) = try await PublishSharing.share(
+            projectID: projectID, projectName: "E2E Fixture", db: db)
+        #expect(share1.recordID == share2.recordID, "share() must reuse the existing share")
+        print("E2E PASS 4 — share created and idempotent: \(share1.recordID.recordName)")
+
+        let identityBefore = try db.loadPublishedIdentityMap()
+        try await PublishSharing.unpublish(projectID: projectID)
+        #expect(!PublishSharing.hasPublishedStore(projectID: projectID))
+        // Idempotent unpublish.
+        try await PublishSharing.unpublish(projectID: projectID)
+        print("E2E PASS 5 — unpublish removed zone + local store, idempotently")
+
+        // CloudKit zone deletion is eventually consistent — brief pause
+        // before recreating the same zone name.
+        try await Task.sleep(for: .seconds(5))
+        let fourth = try await PublishEngine.publish(
+            projectID: projectID, db: db,
+            mediaSourceDirectory: dir.appendingPathComponent("media"),
+            progress: { _ in })
+        #expect(fourth.generation == 4, "generation continues through unpublish")
+        #expect(fourth.stats.inserted == 4, "fresh store repopulates fully")
+        let identityAfter = try db.loadPublishedIdentityMap()
+        #expect(identityBefore == identityAfter, "record UUIDs survive unpublish — §4.1")
+        print("E2E PASS 6 — republish after unpublish: generation 4, identical identities")
     }
 }

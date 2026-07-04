@@ -8,6 +8,8 @@ struct ProjectPickerView: View {
     // .ancestor archive export/import (M13)
     @State private var exportingProjectID: UUID?
     @State private var publishTarget: Project?
+    @State private var unpublishTarget: Project?
+    @State private var sharingBusy = false
     @State private var bundleExportError: String?
     @State private var pendingExportName: String = "project"
     @State private var showingExporter = false
@@ -107,6 +109,22 @@ struct ProjectPickerView: View {
         }
         .sheet(item: $publishTarget) { project in
             PublishReviewSheet(model: PublishReviewModel(project: project))
+        }
+        .confirmationDialog(
+            "Unpublish “\(unpublishTarget?.name ?? "")” from iCloud?",
+            isPresented: Binding(
+                get: { unpublishTarget != nil },
+                set: { if !$0 { unpublishTarget = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Unpublish", role: .destructive) {
+                if let project = unpublishTarget { runUnpublish(project) }
+                unpublishTarget = nil
+            }
+            Button("Cancel", role: .cancel) { unpublishTarget = nil }
+        } message: {
+            Text("This removes the shared copy from iCloud and revokes every family invitation. Your research data on this Mac is unaffected, and you can publish again at any time.")
         }
         // Single importer, enum-driven — see `activeImporter` doc.
         .fileImporter(
@@ -420,6 +438,37 @@ struct ProjectPickerView: View {
         }
     }
 
+    /// PUBLISHER_SPEC Change 5 — Apple's cloud-sharing window for the
+    /// published tree (invite + manage participants; read-only enforced
+    /// server-side). Requires a prior publish.
+    private func presentFamilySharing(_ project: Project) {
+        sharingBusy = true
+        Task {
+            defer { sharingBusy = false }
+            do {
+                let (_, db) = try ProjectStore.openProject(project.id)
+                let (share, container) = try await PublishSharing.share(
+                    projectID: project.id, projectName: project.name, db: db)
+                CloudSharingPresenter.present(share: share, container: container)
+            } catch {
+                bundleExportError = error.localizedDescription
+            }
+        }
+    }
+
+    /// PUBLISHER_SPEC Change 5 — unpublish (GDPR-erasure path). Zone
+    /// deletion evicts all participants server-side; identity and
+    /// generation survive locally so a republish stays monotonic.
+    private func runUnpublish(_ project: Project) {
+        Task {
+            do {
+                try await PublishSharing.unpublish(projectID: project.id)
+            } catch {
+                bundleExportError = error.localizedDescription
+            }
+        }
+    }
+
     /// PUBLISHER_SPEC Change 2 — offline family bundle (redacted §4
     /// schema as JSON + media). Same permanent record UUIDs the CloudKit
     /// publish will use; never touches published_state/publish_meta.
@@ -468,6 +517,17 @@ struct ProjectPickerView: View {
             publishTarget = project
         } label: {
             Label("Publish Tree to iCloud…", systemImage: "icloud.and.arrow.up")
+        }
+        Button {
+            presentFamilySharing(project)
+        } label: {
+            Label("Family Sharing…", systemImage: "person.crop.circle.badge.plus")
+        }
+        .disabled(sharingBusy)
+        Button {
+            unpublishTarget = project
+        } label: {
+            Label("Unpublish Tree…", systemImage: "icloud.slash")
         }
         Button {
             appState.openProject(project)
