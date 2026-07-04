@@ -3,3 +3,4 @@
 // without per-file imports. New platform targets (viewers, publisher)
 // import AncestorKit directly instead.
 @_exported import AncestorKit
+@_exported import AncestorKitUI

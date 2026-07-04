@@ -16,12 +16,12 @@ import Foundation
 ///
 /// Pure / `nonisolated` so unit tests can exercise it without a MainActor
 /// dance.
-nonisolated enum HighContrastShape {
+public nonisolated enum HighContrastShape {
 
     /// State kinds that the app currently encodes with a colour-only signal.
     /// Listed here so the helper can map each one to its glyph alternative
     /// in one place.
-    enum StateKind {
+    public enum StateKind {
         /// A per-source confidence dot — currently a small orange dot.
         case sourceConfidenceTentative
         /// A per-source confidence dot — currently a small green dot.
@@ -32,7 +32,7 @@ nonisolated enum HighContrastShape {
     /// the user has `accessibilityDifferentiateWithoutColor` enabled.
     /// Returns `nil` when the default rendering is already non-colour
     /// (e.g., severity icons that always carry a glyph).
-    static func differentiator(
+    public static func differentiator(
         for state: StateKind,
         differentiateWithoutColor: Bool
     ) -> String? {
@@ -54,7 +54,7 @@ nonisolated enum HighContrastShape {
     ///
     /// 3.0pt at ratio 0 (totally empty) tapering down to 1.0pt at ratio 1
     /// (complete). The mapping is linear and clamps outside [0, 1].
-    static func completenessRingWeight(ratio: Double) -> Double {
+    public static func completenessRingWeight(ratio: Double) -> Double {
         let clamped = max(0, min(1, ratio))
         let maxWeight = 3.0
         let minWeight = 1.0

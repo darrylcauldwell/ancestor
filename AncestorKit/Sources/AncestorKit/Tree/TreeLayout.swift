@@ -3,85 +3,95 @@ import Foundation
 /// Assigns 2D positions to profiles for tree rendering.
 /// Uses progressive disclosure — shows a window of generations around the
 /// focal person, never all profiles at once.
-nonisolated struct TreeLayout {
+public nonisolated struct TreeLayout {
 
     // MARK: - Node Kind (type-safe ghost representation)
 
     /// What kind of node this is — real profile or ghost placeholder.
     /// GhostRole is defined in Models/GhostRole.swift (shared with Research pipeline).
-    enum NodeKind: Sendable {
+    public enum NodeKind: Sendable {
         case profile(Profile, ProfileCompleteness)
         case ghost(parentOf: String, role: GhostRole)
     }
 
     /// A positioned node for rendering.
-    struct LayoutNode: Identifiable {
-        let id: String
-        let kind: NodeKind
-        let x: Double
-        let y: Double
-        let generation: Int
-        let hasMoreAncestors: Bool
-        let hasMoreDescendants: Bool
+    public struct LayoutNode: Identifiable {
+        public let id: String
+        public let kind: NodeKind
+        public let x: Double
+        public let y: Double
+        public let generation: Int
+        public let hasMoreAncestors: Bool
+        public let hasMoreDescendants: Bool
 
-        var isGhost: Bool {
+        public var isGhost: Bool {
             if case .ghost = kind { return true }
             return false
         }
 
-        var profile: Profile? {
+        public var profile: Profile? {
             if case .profile(let p, _) = kind { return p }
             return nil
         }
 
-        var completeness: ProfileCompleteness? {
+        public var completeness: ProfileCompleteness? {
             if case .profile(_, let c) = kind { return c }
             return nil
         }
     }
 
     /// A visual edge between two positioned nodes.
-    struct LayoutEdge: Identifiable {
-        let id: String
-        let fromID: String
-        let toID: String
-        let fromX: Double
-        let fromY: Double
-        let toX: Double
-        let toY: Double
-        let type: RelationshipType
+    public struct LayoutEdge: Identifiable {
+        public let id: String
+        public let fromID: String
+        public let toID: String
+        public let fromX: Double
+        public let fromY: Double
+        public let toX: Double
+        public let toY: Double
+        public let type: RelationshipType
     }
 
-    struct LayoutResult {
-        let nodes: [LayoutNode]          // Real profiles only
-        let ghostNodes: [LayoutNode]     // Ghost placeholders only
-        let edges: [LayoutEdge]
-        let width: Double
-        let height: Double
-        let rootID: String?
+    public struct LayoutResult {
+        public let nodes: [LayoutNode]          // Real profiles only
+        public let ghostNodes: [LayoutNode]     // Ghost placeholders only
+        public let edges: [LayoutEdge]
+        public let width: Double
+        public let height: Double
+        public let rootID: String?
+
+        public init(nodes: [LayoutNode], ghostNodes: [LayoutNode], edges: [LayoutEdge],
+                    width: Double, height: Double, rootID: String?) {
+            self.nodes = nodes
+            self.ghostNodes = ghostNodes
+            self.edges = edges
+            self.width = width
+            self.height = height
+            self.rootID = rootID
+        }
 
         /// All nodes for rendering (real + ghost).
-        var allNodes: [LayoutNode] { nodes + ghostNodes }
+        public var allNodes: [LayoutNode] { nodes + ghostNodes }
     }
 
     // MARK: - Configuration
 
-    static let nodeWidth: Double = 160
-    static let nodeHeight: Double = 64
-    static let horizontalSpacing: Double = 12
-    static let verticalSpacing: Double = 44
-    static let spouseSpacing: Double = 10
-    static let arrowHitWidth: Double = 80
-    static let arrowHitHeight: Double = 20
-    static let infoIconSize: Double = 24
-    static let ghostNodeWidth: Double = 100
-    static let ghostNodeHeight: Double = 48
+    public static let nodeWidth: Double = 160
+    public static let nodeHeight: Double = 64
+    public static let horizontalSpacing: Double = 12
+    public static let verticalSpacing: Double = 44
+    public static let spouseSpacing: Double = 10
+    public static let arrowHitWidth: Double = 80
+    public static let arrowHitHeight: Double = 20
+    public static let infoIconSize: Double = 24
+    public static let ghostNodeWidth: Double = 100
+    public static let ghostNodeHeight: Double = 48
 
     // MARK: - Compact Pedigree Layout
 
     /// Width measurement for a subtree, computed once per profile and cached.
     private struct SubtreeWidth {
-        let width: Double
+        public let width: Double
     }
 
     private enum ParentSide { case left, right }
@@ -173,7 +183,7 @@ nonisolated struct TreeLayout {
 
     /// Compact pedigree layout — bottom-up width accumulation with ghost nodes.
     /// Root at bottom centre, parents above. Ghost placeholders for missing ancestors.
-    static func pedigreeLayout(
+    public static func pedigreeLayout(
         rootID: String,
         snapshot: FamilyGraphSnapshot,
         maxGenerations: Int = 5
@@ -411,7 +421,7 @@ nonisolated struct TreeLayout {
     /// Show descendants of a focal person, expanding downward.
     /// Spouses are placed inline during layout (not post-processed)
     /// to ensure correct horizontal spacing at every level.
-    static func descendantLayout(
+    public static func descendantLayout(
         rootID: String,
         snapshot: FamilyGraphSnapshot,
         maxGenerations: Int = 4

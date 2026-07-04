@@ -10,9 +10,14 @@ let package = Package(
     name: "AncestorKit",
     platforms: [.macOS("26.0")],
     products: [
-        .library(name: "AncestorKit", targets: ["AncestorKit"])
+        .library(name: "AncestorKit", targets: ["AncestorKit"]),
+        .library(name: "AncestorKitUI", targets: ["AncestorKitUI"])
     ],
     targets: [
-        .target(name: "AncestorKit", path: "Sources/AncestorKit")
+        .target(name: "AncestorKit", path: "Sources/AncestorKit"),
+        // SwiftUI-dependent shared rendering (Canvas tree renderer, display
+        // metrics). Separate target so the Foundation-pure core stays clean;
+        // Canvas is available on macOS/iOS/tvOS alike.
+        .target(name: "AncestorKitUI", dependencies: ["AncestorKit"], path: "Sources/AncestorKitUI")
     ]
 )

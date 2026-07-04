@@ -40,6 +40,19 @@ struct TreeGraphView: View {
     /// Identifiable wrapper so a profile-ID string can drive `.sheet(item:)`.
     /// SwiftUI keys the sheet by `id`, so the inner view only ever renders
     /// with a non-nil ID and avoids the EmptyView race.
+    /// Fonts + platform accent for the shared Canvas renderer.
+    /// AppTypography stays app-side; viewer targets build their own theme.
+    static let canvasTheme = TreeCanvasTheme(
+        name: AppTypography.canvasName,
+        nameSmall: AppTypography.canvasNameSmall,
+        dates: AppTypography.canvasDates,
+        location: AppTypography.canvasLocation,
+        badge: AppTypography.canvasBadge,
+        infoIcon: AppTypography.canvasInfoIcon,
+        arrow: AppTypography.canvasArrow,
+        controlAccent: Color(.controlAccentColor)
+    )
+
     struct SheetID: Identifiable, Hashable {
         let id: String
     }
@@ -654,12 +667,12 @@ struct TreeGraphView: View {
 
             // Draw grouped parent-child connectors (one path per parent, no overlap)
             for (_, group) in parentChildGroups {
-                drawParentChildGroup(context: &context, from: group.from, children: group.children)
+                TreeCanvasRenderer.drawParentChildGroup(context: &context, from: group.from, children: group.children)
             }
 
             // Draw spouse connectors
             for edge in spouseEdges {
-                drawEdge(context: &context, from: edge.from, to: edge.to, type: .spouse)
+                TreeCanvasRenderer.drawEdge(context: &context, from: edge.from, to: edge.to, type: .spouse)
             }
 
             // M8 W5 — render active relationship hypotheses as dashed,
@@ -678,7 +691,7 @@ struct TreeGraphView: View {
                     }
                     let p1 = CGPoint(x: f.x + offsetX, y: f.y + offsetY)
                     let p2 = CGPoint(x: t.x + offsetX, y: t.y + offsetY)
-                    drawHypotheticalEdge(context: &context, from: p1, to: p2)
+                    TreeCanvasRenderer.drawHypotheticalEdge(context: &context, from: p1, to: p2)
                 }
             }
 
@@ -697,7 +710,7 @@ struct TreeGraphView: View {
                         width: TreeLayout.ghostNodeWidth,
                         height: TreeLayout.ghostNodeHeight
                     )
-                    drawGhostNode(context: &context, node: node, rect: rect)
+                    TreeCanvasRenderer.drawGhostNode(context: &context, node: node, rect: rect, theme: Self.canvasTheme)
                 } else {
                     let rect = CGRect(
                         x: node.x + offsetX - TreeLayout.nodeWidth / 2,
@@ -733,10 +746,13 @@ struct TreeGraphView: View {
                         hasTentativeFact: profileHasTentativeFact(node.profile),
                         showResearchIndicators: showResearchIndicators
                     )
-                    drawNode(context: &context, node: node, rect: rect,
-                            isSelected: isSelected, isRoot: isRoot, isHovered: isHovered, dimmed: dimmed,
-                            inFocus: inFocus, hasNote: hasNote, hasOpenQuestion: hasOpenQuestion,
-                            hasTentativeFact: hasTentativeFact)
+                    TreeCanvasRenderer.drawNode(
+                        context: &context, node: node, rect: rect,
+                        scale: treeVM.scale, snapshot: appState.snapshot,
+                        theme: Self.canvasTheme,
+                        isSelected: isSelected, isRoot: isRoot, isHovered: isHovered, dimmed: dimmed,
+                        inFocus: inFocus, hasNote: hasNote, hasOpenQuestion: hasOpenQuestion,
+                        hasTentativeFact: hasTentativeFact)
                 }
             }
         }
@@ -744,73 +760,6 @@ struct TreeGraphView: View {
     }
 
     // MARK: - Drawing
-
-    /// Draw a single parent with all children as one connected path.
-    /// Parent → vertical drop → horizontal bar → vertical drops to each child.
-    /// No overlapping segments.
-    private func drawParentChildGroup(context: inout GraphicsContext, from: CGPoint, children: [CGPoint]) {
-        guard !children.isEmpty else { return }
-
-        let fromBottom = CGPoint(x: from.x, y: from.y + TreeLayout.nodeHeight / 2)
-        let childTops = children.map { CGPoint(x: $0.x, y: $0.y - TreeLayout.nodeHeight / 2) }
-        let midY = (fromBottom.y + childTops[0].y) / 2
-
-        var path = Path()
-
-        // Parent down to midY
-        path.move(to: fromBottom)
-        path.addLine(to: CGPoint(x: fromBottom.x, y: midY))
-
-        // Horizontal bar spanning all children
-        let leftX = min(fromBottom.x, childTops.map(\.x).min()!)
-        let rightX = max(fromBottom.x, childTops.map(\.x).max()!)
-        path.move(to: CGPoint(x: leftX, y: midY))
-        path.addLine(to: CGPoint(x: rightX, y: midY))
-
-        // Vertical drops to each child
-        for top in childTops {
-            path.move(to: CGPoint(x: top.x, y: midY))
-            path.addLine(to: top)
-        }
-
-        context.stroke(path, with: .color(.secondary.opacity(0.4)), lineWidth: 1.5)
-    }
-
-    private func drawEdge(context: inout GraphicsContext, from: CGPoint, to: CGPoint, type: RelationshipType) {
-        var path = Path()
-        if type == .spouse {
-            let fromRight = CGPoint(x: from.x + TreeLayout.nodeWidth / 2, y: from.y)
-            let toLeft = CGPoint(x: to.x - TreeLayout.nodeWidth / 2, y: to.y)
-            path.move(to: fromRight)
-            path.addLine(to: toLeft)
-            context.stroke(path, with: .color(.pink.opacity(0.6)), lineWidth: 2)
-        } else {
-            let fromBottom = CGPoint(x: from.x, y: from.y + TreeLayout.nodeHeight / 2)
-            let toTop = CGPoint(x: to.x, y: to.y - TreeLayout.nodeHeight / 2)
-            let midY = (fromBottom.y + toTop.y) / 2
-
-            path.move(to: fromBottom)
-            path.addLine(to: CGPoint(x: fromBottom.x, y: midY))
-            path.addLine(to: CGPoint(x: toTop.x, y: midY))
-            path.addLine(to: toTop)
-            context.stroke(path, with: .color(.secondary.opacity(0.4)), lineWidth: 1.5)
-        }
-    }
-
-    /// Hypothetical relationships render as dashed, muted lines that connect
-    /// the centres of the two profiles. We don't pick a routing direction
-    /// (parent/spouse) because hypotheses span both — a dashed straight line
-    /// reads as "tentative" and stays visually distinct from confirmed edges.
-    private func drawHypotheticalEdge(context: inout GraphicsContext, from: CGPoint, to: CGPoint) {
-        var path = Path()
-        path.move(to: from)
-        path.addLine(to: to)
-        context.stroke(
-            path,
-            with: .color(.purple.opacity(0.5)),
-            style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])
-        )
-    }
 
     /// Returns true when any of the four headline fields (firstName, lastName,
     /// birthDate, deathDate) on the given profile has its sources reduced to
@@ -824,257 +773,6 @@ struct TreeGraphView: View {
             if effectiveConfidence(sources) == .tentative { return true }
         }
         return false
-    }
-
-    private func drawNode(
-        context: inout GraphicsContext,
-        node: TreeLayout.LayoutNode,
-        rect: CGRect,
-        isSelected: Bool,
-        isRoot: Bool,
-        isHovered: Bool,
-        dimmed: Bool,
-        inFocus: Bool = false,
-        hasNote: Bool = false,
-        hasOpenQuestion: Bool = false,
-        hasTentativeFact: Bool = false
-    ) {
-        let cornerRadius: Double = 12
-        let path = Path(roundedRect: rect, cornerRadius: cornerRadius)
-
-        // Background — completeness gradient
-        guard let profile = node.profile, let comp = node.completeness else { return }
-        let ratio = comp.maximum > 0 ? Double(comp.score) / Double(comp.maximum) : 0
-        let fillColor: Color = if isSelected {
-            .accentColor.opacity(0.3)
-        } else if isRoot {
-            .blue.opacity(0.15)
-        } else if dimmed {
-            .gray.opacity(0.1)
-        } else {
-            Color(
-                red: 1.0 - ratio * 0.7,
-                green: 0.3 + ratio * 0.7,
-                blue: 0.3
-            ).opacity(0.15)
-        }
-        context.fill(path, with: .color(fillColor))
-
-        // Border — with hover highlight (instant, no animation).
-        // M24 — for default (non-selected/root/hovered) nodes, the border
-        // line weight is derived from completeness ratio so colourblind and
-        // high-contrast users can read "this profile needs work" without
-        // depending on the red→green fill gradient. Incomplete profiles
-        // render a thicker ring; complete profiles a thin one.
-        let borderColor: Color
-        let borderWidth: Double
-        if isSelected {
-            borderColor = .accentColor
-            borderWidth = 2.5
-        } else if isRoot {
-            borderColor = .blue.opacity(0.5)
-            borderWidth = 2
-        } else if isHovered {
-            borderColor = .secondary.opacity(0.5)
-            borderWidth = 1.5
-        } else {
-            borderColor = .secondary.opacity(0.2)
-            borderWidth = HighContrastShape.completenessRingWeight(ratio: ratio)
-        }
-        context.stroke(path, with: .color(borderColor), lineWidth: borderWidth)
-
-        // M8 W3 — focus ring drawn just outside the border for profiles in
-        // the active focus set. DESIGN.md §7.7.7 "subtle ring or background".
-        if inFocus {
-            let ringRect = rect.insetBy(dx: -3, dy: -3)
-            let ringPath = Path(roundedRect: ringRect, cornerRadius: cornerRadius + 3)
-            context.stroke(
-                ringPath,
-                with: .color(.accentColor.opacity(0.6)),
-                style: StrokeStyle(lineWidth: 2)
-            )
-        }
-
-        // Name
-        let name = profile.displayName
-        if treeVM.scale > 0.4 {
-            let nameText = Text(name)
-                .font(AppTypography.canvasName)
-                .foregroundStyle(dimmed ? .tertiary : .primary)
-            context.draw(
-                context.resolve(nameText),
-                at: CGPoint(x: rect.midX, y: rect.midY - 12),
-                anchor: .center
-            )
-
-            // Birth/death years with living-person handling
-            var dateStr = ""
-            if let by = profile.birthDate?.bestYear {
-                dateStr += "b.\(by)"
-            }
-            if let dy = profile.deathDate?.bestYear {
-                dateStr += dateStr.isEmpty ? "d.\(dy)" : " — d.\(dy)"
-            } else if comp.potentiallyLiving && profile.birthDate != nil {
-                dateStr += dateStr.isEmpty ? "living" : " — living"
-            }
-            if !dateStr.isEmpty {
-                let dateText = Text(dateStr)
-                    .font(AppTypography.canvasDates)
-                    .foregroundStyle(.secondary)
-                context.draw(
-                    context.resolve(dateText),
-                    at: CGPoint(x: rect.midX, y: rect.midY + 8),
-                    anchor: .center
-                )
-            }
-
-            // Birth location at higher zoom
-            if treeVM.scale > 0.7, let loc = profile.birthLocation {
-                let shortLoc = loc.components(separatedBy: ",").first ?? loc
-                let locText = Text(shortLoc)
-                    .font(AppTypography.canvasLocation)
-                    .foregroundStyle(.tertiary)
-                context.draw(
-                    context.resolve(locText),
-                    at: CGPoint(x: rect.midX, y: rect.midY + 24),
-                    anchor: .center
-                )
-            }
-        } else {
-            // Low zoom: name only
-            let nameText = Text(name)
-                .font(AppTypography.canvasNameSmall)
-                .foregroundStyle(dimmed ? .quaternary : .secondary)
-            context.draw(
-                context.resolve(nameText),
-                at: CGPoint(x: rect.midX, y: rect.midY),
-                anchor: .center
-            )
-        }
-
-        // Completeness badge
-        let badge = Text("\(comp.score)/\(comp.maximum)")
-            .font(AppTypography.canvasBadge)
-            .foregroundStyle(ratio >= 1.0 ? .green : .orange)
-        context.draw(
-            context.resolve(badge),
-            at: CGPoint(x: rect.maxX - 18, y: rect.minY + 12),
-            anchor: .center
-        )
-
-        // M12 — tentative-fact marker. A small "~" glyph in the top-left
-        // signals at least one core field (name / birth / death) has only
-        // tentative sources. Sits opposite the completeness badge so the
-        // two never collide. DESIGN.md §5.14.
-        if hasTentativeFact {
-            let marker = Text("~")
-                .font(AppTypography.canvasInfoIcon)
-                .foregroundStyle(.orange)
-            context.draw(
-                context.resolve(marker),
-                at: CGPoint(x: rect.minX + 12, y: rect.minY + 12),
-                anchor: .center
-            )
-        }
-
-        // M8 W1+W2 indicators — note dot and open-question marker, drawn in
-        // the bottom-left so they don't collide with the completeness badge
-        // (top-right) or the ⓘ icon (bottom-right).
-        // DESIGN.md §7.7.7 "Profile with attached note" / "Profile with open question".
-        if hasNote {
-            let icon = Text(Image(systemName: "note.text"))
-                .font(AppTypography.canvasBadge)
-                .foregroundStyle(.secondary)
-            context.draw(
-                context.resolve(icon),
-                at: CGPoint(x: rect.minX + 10, y: rect.maxY - 10),
-                anchor: .center
-            )
-        }
-        if hasOpenQuestion {
-            let icon = Text("?")
-                .font(AppTypography.canvasBadge)
-                .foregroundStyle(.orange)
-            context.draw(
-                context.resolve(icon),
-                at: CGPoint(x: rect.minX + (hasNote ? 24 : 10), y: rect.maxY - 10),
-                anchor: .center
-            )
-        }
-
-        // ⓘ icon — shown on selected node at ALL zoom levels
-        if isSelected {
-            let iconSize = TreeLayout.infoIconSize
-            let iconX = rect.maxX - iconSize / 2 - 4
-            let iconY = rect.maxY - iconSize / 2 - 4
-            let icon = Text("ⓘ")
-                .font(AppTypography.canvasInfoIcon)
-                .foregroundStyle(Color(.controlAccentColor))
-            context.draw(
-                context.resolve(icon),
-                at: CGPoint(x: iconX, y: iconY),
-                anchor: .center
-            )
-        }
-
-        // Arrow indicators — recenter triggers
-        if node.hasMoreAncestors {
-            let parentCount = appState.snapshot.parentsOf(node.id).count
-            let label = Text("▲ \(parentCount) parent\(parentCount == 1 ? "" : "s")")
-                .font(AppTypography.canvasArrow)
-                .foregroundStyle(Color(.controlAccentColor))
-            context.draw(
-                context.resolve(label),
-                at: CGPoint(x: rect.midX, y: rect.minY - 12),
-                anchor: .center
-            )
-        }
-        if node.hasMoreDescendants {
-            let childCount = appState.snapshot.childrenOf(node.id).count
-            let label = Text("▼ \(childCount) child\(childCount == 1 ? "" : "ren")")
-                .font(AppTypography.canvasArrow)
-                .foregroundStyle(Color(.controlAccentColor))
-            context.draw(
-                context.resolve(label),
-                at: CGPoint(x: rect.midX, y: rect.maxY + 12),
-                anchor: .center
-            )
-        }
-    }
-
-    private func drawGhostNode(context: inout GraphicsContext, node: TreeLayout.LayoutNode, rect: CGRect) {
-        let cornerRadius: Double = 10
-        let path = Path(roundedRect: rect, cornerRadius: cornerRadius)
-
-        // Dashed border, no fill
-        context.stroke(path, with: .color(.secondary.opacity(0.2)),
-                       style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-
-        // "?" label
-        let label = Text("?")
-            .font(AppTypography.canvasName)
-            .foregroundStyle(.secondary.opacity(0.4))
-        context.draw(context.resolve(label),
-                     at: CGPoint(x: rect.midX, y: rect.midY - 6),
-                     anchor: .center)
-
-        // Role subtitle from enum
-        let subtitle: String
-        if case .ghost(_, let role) = node.kind {
-            switch role {
-            case .father: subtitle = "Unknown father"
-            case .mother: subtitle = "Unknown mother"
-            case .unknown: subtitle = "Unknown"
-            }
-        } else {
-            subtitle = "Unknown"
-        }
-        let subText = Text(subtitle)
-            .font(AppTypography.canvasLocation)
-            .foregroundStyle(.secondary.opacity(0.3))
-        context.draw(context.resolve(subText),
-                     at: CGPoint(x: rect.midX, y: rect.midY + 10),
-                     anchor: .center)
     }
 
     // MARK: - Gestures
@@ -1470,39 +1168,5 @@ struct TreeGraphView: View {
             )
             .focused($focus, equals: .search)
         }
-    }
-}
-
-// MARK: - Indicator visibility (M16.11)
-
-/// Pure helpers behind the "Show research indicators" Settings toggle.
-/// Centralised so unit tests can verify each indicator type's gate
-/// independently of the Canvas drawing code.
-nonisolated enum TreeIndicatorVisibility {
-    /// Focus ring fires only when the profile is in the active focus set
-    /// AND the user hasn't disabled research indicators.
-    static func focusRingVisible(
-        nodeID: String,
-        activeFocusSet: FocusSet?,
-        showResearchIndicators: Bool
-    ) -> Bool {
-        guard showResearchIndicators else { return false }
-        return activeFocusSet?.profileIDs.contains(nodeID) ?? false
-    }
-
-    /// Note dot fires only when there's at least one note AND the user
-    /// hasn't disabled indicators.
-    static func noteVisible(hasNote: Bool, showResearchIndicators: Bool) -> Bool {
-        showResearchIndicators && hasNote
-    }
-
-    /// Open-question marker — same rule as note dot.
-    static func questionVisible(hasOpenQuestion: Bool, showResearchIndicators: Bool) -> Bool {
-        showResearchIndicators && hasOpenQuestion
-    }
-
-    /// Tentative-fact tilde — same rule.
-    static func tentativeVisible(hasTentativeFact: Bool, showResearchIndicators: Bool) -> Bool {
-        showResearchIndicators && hasTentativeFact
     }
 }
