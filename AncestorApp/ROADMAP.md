@@ -572,6 +572,33 @@ Optional harness feature.
 Out of architectural scope per RESEARCH_PIPELINE_SPEC §5.6. First-
 launch UI tour. Defer until everything else lands.
 
+## Epic 13 — User-seeded hypotheses [M]
+
+From the 2026-07-05 agentic-harness discussion ("I think George
+Wheeldon's parents might have been called Bob & Sue"). A user-stated
+hunch becomes a first-class `ResearchHypothesis` (new kind, e.g.
+`.parentCandidate`) that drives targeted probes — parent-marriage
+searches, mother's-name birth-index axes, census household matching —
+with the standard verdict lifecycle (supported / refuted /
+insufficient) and §3.6 rejection memory. A hunch is a *search
+directive*, never data: distinct from family testimony (which enters
+as a citable source via the review queue) and invisible to the tree
+until records survive the gates.
+
+- Rails already built: V2 hypothesis framework (T11/T12), deficit
+  probes, thin-placeholder corroboration (SubjectSpouseMarriage),
+  parent-proposal accept path. Kin to unbuilt T9 (hypothesis-driven
+  planning) — consider folding into its design.
+- Interim path that works TODAY (document, don't build): add the
+  hypothesised parents as tentative placeholder profiles; the
+  pipeline exploits them via familyContext + parent-marriage
+  machinery; evidence upgrades or contradicts.
+- Entry surfaces, in order of arrival: MCP (external agent parses the
+  sentence, seeds the hypothesis), Workbench UI, and eventually the
+  in-app natural-language surface (local model parses; deterministic
+  harness does the rest).
+- Needs a change entry in RESEARCH_PIPELINE_SPEC before work starts.
+
 ---
 
 ## Suggested first three sessions
