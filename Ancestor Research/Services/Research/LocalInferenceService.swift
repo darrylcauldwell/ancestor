@@ -302,17 +302,18 @@ actor LocalInferenceService {
             let userInput = UserInput(messages: messages)
             let lmInput = try await container.prepare(input: userInput)
 
-            // Collect all generated text
+            // Collect all generated text. maxTokens is enforced by the
+            // generator itself — a char-count heuristic here used to cut
+            // JSON mid-object, which strict parsers then rejected.
             var fullText = ""
             let stream = try await container.generate(
                 input: lmInput,
-                parameters: GenerateParameters(temperature: 0.3)
+                parameters: GenerateParameters(maxTokens: maxTokens, temperature: 0.3)
             )
             for try await generation in stream {
                 switch generation {
                 case .chunk(let text):
                     fullText += text
-                    if fullText.count > maxTokens * 4 { break } // rough token-to-char limit
                 case .info:
                     break
                 default:
@@ -349,7 +350,7 @@ actor LocalInferenceService {
                 return nil
             }
 
-            if let parsed = extractJSON(from: raw) {
+            if let parsed = Self.extractJSON(from: raw) {
                 return parsed
             }
 
@@ -385,7 +386,13 @@ actor LocalInferenceService {
 
     /// Try to extract JSON from text that might contain markdown or extra text.
     /// Faithfully ported from Python's _extract_json().
-    nonisolated private func extractJSON(from text: String) -> Any? {
+    ///
+    /// This is THE json-from-model-output parser: every call site that
+    /// consumes `reason()` output must go through it (or the typed
+    /// convenience below) rather than raw `JSONSerialization` — models
+    /// routinely wrap JSON in code fences or preamble, and a strict
+    /// parse silently discards otherwise-valid suggestions.
+    nonisolated static func extractJSON(from text: String) -> Any? {
         if let data = text.data(using: .utf8),
            let obj = try? JSONSerialization.jsonObject(with: data) {
             return obj
@@ -426,5 +433,11 @@ actor LocalInferenceService {
         }
 
         return nil
+    }
+
+    /// Typed convenience over `extractJSON(from:)` for the common
+    /// single-object case.
+    nonisolated static func extractJSONDictionary(from text: String) -> [String: Any]? {
+        extractJSON(from: text) as? [String: Any]
     }
 }

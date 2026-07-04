@@ -126,9 +126,9 @@ nonisolated struct ResearchInterpreter {
             maxTokens: 256
         ) else { return nil }
 
-        // Parse JSON from reasoning output
-        guard let data = raw.data(using: .utf8),
-              let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        // Parse JSON from reasoning output — lenient extraction so a
+        // code-fenced or preambled response isn't silently discarded.
+        guard let response = LocalInferenceService.extractJSONDictionary(from: raw),
               let sourceID = response["source_id"] as? String,
               let reason = response["reason"] as? String else { return nil }
 
@@ -204,10 +204,9 @@ nonisolated struct ResearchInterpreter {
     /// matters here: surname is required, given+district+year window
     /// are all optional.
     private static func parseFocusedQuery(from raw: String, subject: ResearchSubject) -> FocusedQuery? {
-        guard let data = raw.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let obj = LocalInferenceService.extractJSONDictionary(from: raw)
         else {
-            logger.notice("Level-2: parse failed — output is not valid JSON")
+            logger.notice("Level-2: parse failed — no JSON object found in output")
             return nil
         }
         // Explicit "give up" signal — model is telling us further

@@ -302,47 +302,13 @@ nonisolated struct ProseCorpusExtractor {
 
     // MARK: - JSON parsing
 
-    /// Parse a JSON object from arbitrary LLM text. Handles raw JSON,
-    /// fenced code blocks (```json…``` and bare ```…```), and a
-    /// fallback `{...}` slice. Mirrors `LocalInferenceService`'s
-    /// internal `extractJSON` so the extractor stays self-contained
-    /// and doesn't have to surface a non-Sendable `Any?` across the
-    /// LLM actor boundary.
+    /// Parse a JSON object from arbitrary LLM text. Delegates to the
+    /// shared lenient parser (raw JSON, ```json fences, bare fences,
+    /// `{...}` slice). `extractJSON` is `nonisolated static`, so there
+    /// is no actor hop and no non-Sendable value crossing an isolation
+    /// boundary — the historical reason this was a local copy.
     nonisolated static func parseJSONObject(from text: String) -> [String: Any]? {
-        if let data = text.data(using: .utf8),
-           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            return obj
-        }
-        if let jsonStart = text.range(of: "```json"),
-           let blockEnd = text.range(of: "```", range: jsonStart.upperBound..<text.endIndex) {
-            let jsonText = String(text[jsonStart.upperBound..<blockEnd.lowerBound])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if let data = jsonText.data(using: .utf8),
-               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                return obj
-            }
-        }
-        if let start = text.range(of: "```") {
-            let afterStart = text[start.upperBound...]
-            if let end = afterStart.range(of: "```") {
-                let jsonText = String(afterStart[..<end.lowerBound])
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if let data = jsonText.data(using: .utf8),
-                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    return obj
-                }
-            }
-        }
-        if let startIdx = text.firstIndex(of: "{"),
-           let endIdx = text.lastIndex(of: "}"),
-           startIdx < endIdx {
-            let jsonText = String(text[startIdx...endIdx])
-            if let data = jsonText.data(using: .utf8),
-               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                return obj
-            }
-        }
-        return nil
+        LocalInferenceService.extractJSONDictionary(from: text)
     }
 }
 
