@@ -5,6 +5,23 @@
 **Repo:** Same repo as existing Python backend (`/Users/darrylcauldwell/Development/ancestor/AncestorApp/`)
 **Version:** MVP v1.0
 
+> **⚠️ Supersession notice (2026-07).** This document is the original
+> end-state vision and parts of it no longer describe the product:
+>
+> - **AI architecture (§4.1, §13):** the planned Python API server / IPC
+>   enrichment tier was never built. The shipped runtime is Swift-only
+>   with an on-device MLX model behind the deterministic sandwich —
+>   `AncestorApp/RESEARCH_PIPELINE_SPEC.md` is authoritative for
+>   everything AI and pipeline.
+> - **Single-user / no-cloud posture (§7.14, §7.15):** under active
+>   revision. The current direction adds an opt-in, read-only CloudKit
+>   "published tree" for family viewing on iPad/tvOS — see
+>   `AncestorApp/ARCHITECTURE_REVIEW_2026-07.md`. PRIVACY.md is updated
+>   alongside any shipped change here.
+>
+> Everything else (workbench, hypotheses, uncertainty visualisation,
+> reports, audit) remains the design reference.
+
 ---
 
 ## 1. Context

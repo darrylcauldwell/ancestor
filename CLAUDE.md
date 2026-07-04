@@ -84,10 +84,11 @@ python import_twin_to_app.py    # one-shot import .wikitree-twin.json → app sq
                                                   Claude Code (dev tooling —
                                                   not shipped in the app)
 
-   Reasoning tier:                               MLX local model (DeepSeek-R1)
-   in-app probabilistic                          handles disambiguation,
-   work uses ONLY the local MLX                  next-search suggestion,
-   model — no outbound API calls.                free-text evidence extraction.
+   Reasoning tier:                               MLX local model (user-selected;
+   in-app probabilistic                          default Qwen3.5-4B, thinking off)
+   work uses ONLY the local MLX                  handles next-search suggestion,
+   model — no outbound API calls.                candidate comparison, and
+                                                 free-text evidence extraction.
 ```
 
 Inside the Swift app:
@@ -123,7 +124,7 @@ Per this project's spec-driven convention (and memory `no_github_issues.md`), pl
 ## Gotchas
 
 - **Xcode synchronized groups** miss new JSON/asset files until Xcode is quit and reopened; `xcodebuild` from CLI sees them fine. (Memory: `feedback_xcode_synchronized_group_resources.md`.)
-- **`.gitignore` line 77 (`models/`)** matches the Swift `Ancestor Research/Models/` directory too — new model files need `git add -f`. (Memory: `feedback_gitignore_models_dir.md`.)
+- **After an Xcode update, mlx-swift may fail to build** with "cannot execute tool 'metal'" — the Metal Toolchain is a separately-downloaded component: `xcodebuild -downloadComponent MetalToolchain`.
 - **`BackupServiceTests`** has a known intermittent flake under parallel execution; re-run in isolation before treating as a real failure. (Memory: `feedback_backupservice_flake.md`.)
 - **`.sheet(isPresented:) + if let`** renders an EmptyView rectangle — use `.sheet(item:)` with an Identifiable wrapper. (Memory: `feedback_sheet_isPresented_race.md`.)
 - **MLX models** are multi-GB and ignored by git (`models/`). They must be downloaded locally; the app handles this on first run.
