@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dreamfold.dev/ancestor/family-bundle.schema.json",
+  "title": "Ancestor Research Family Bundle",
+  "description": "The viewer contract for PUBLISHER_SPEC §4 published schema v1, as exported by 'Export Family Bundle…' (Change 2). A bundle is a folder containing manifest.json, people.json, relationships.json, events.json, media.json, and a media/ directory. The CloudKit zone (Change 4) carries the same records with the same UUIDs; viewer code written against bundles works unchanged against zones. Viewers must tolerate unknown additional fields (forward compatibility, §4.3).",
+  "$defs": {
+    "publishedDate": {
+      "type": "object",
+      "description": "Full five-field GenealogicalDate encoding — component-built dates are not reparseable from 'original' alone.",
+      "required": ["original", "qualifierRaw", "isApproximate"],
+      "properties": {
+        "original": { "type": "string" },
+        "earliest": { "type": ["integer", "null"] },
+        "latest": { "type": ["integer", "null"] },
+        "qualifierRaw": { "type": "string" },
+        "isApproximate": { "type": "boolean" }
+      }
+    },
+    "person": {
+      "type": "object",
+      "required": ["id", "schemaVersion", "displayName", "bioText", "citationsJSON", "badgesJSON", "isRedacted", "isProvisional"],
+      "properties": {
+        "id": { "type": "string", "description": "Publisher-minted permanent UUID (§4.1)" },
+        "schemaVersion": { "type": "integer", "const": 1 },
+        "displayName": { "type": "string" },
+        "givenName": { "type": ["string", "null"] },
+        "familyName": { "type": ["string", "null"] },
+        "genderRaw": { "type": ["string", "null"] },
+        "birth": { "anyOf": [{ "$ref": "#/$defs/publishedDate" }, { "type": "null" }] },
+        "birthPlace": { "type": ["string", "null"] },
+        "death": { "anyOf": [{ "$ref": "#/$defs/publishedDate" }, { "type": "null" }] },
+        "deathPlace": { "type": ["string", "null"] },
+        "bioText": { "type": "string", "description": "Empty until Change 6 bio synthesis" },
+        "citationsJSON": { "type": "string", "description": "JSON-encoded array of {field, source, url?, trustTier?}; '[]' for redacted persons" },
+        "badgesJSON": { "type": "string", "description": "JSON-encoded {completenessScore, completenessMax, convergence?}; '{}' for redacted persons" },
+        "isRedacted": { "type": "boolean", "description": "true = living person shown name-only (§5); render as a name-only card, distinct from absent" },
+        "isProvisional": { "type": "boolean", "description": "No given name and no vital facts — render as a ghost card" }
+      }
+    },
+    "relationship": {
+      "type": "object",
+      "required": ["id", "schemaVersion", "fromPerson", "toPerson", "typeRaw", "subtypeRaw"],
+      "properties": {
+        "id": { "type": "string" },
+        "schemaVersion": { "type": "integer", "const": 1 },
+        "fromPerson": { "type": "string", "description": "Person record UUID" },
+        "toPerson": { "type": "string" },
+        "typeRaw": { "type": "string", "enum": ["parent", "spouse"] },
+        "roleRaw": { "type": ["string", "null"] },
+        "subtypeRaw": { "type": "string" },
+        "marriage": { "anyOf": [{ "$ref": "#/$defs/publishedDate" }, { "type": "null" }], "description": "Stripped (null) when either party is redacted (§5)" },
+        "marriageLocation": { "type": ["string", "null"] },
+        "divorce": { "anyOf": [{ "$ref": "#/$defs/publishedDate" }, { "type": "null" }] }
+      }
+    },
+    "lifeEvent": {
+      "type": "object",
+      "required": ["id", "schemaVersion", "person", "kindRaw"],
+      "properties": {
+        "id": { "type": "string" },
+        "schemaVersion": { "type": "integer", "const": 1 },
+        "person": { "type": "string" },
+        "kindRaw": { "type": "string" },
+        "date": { "anyOf": [{ "$ref": "#/$defs/publishedDate" }, { "type": "null" }] },
+        "location": { "type": ["string", "null"] },
+        "detailsJSON": { "type": ["string", "null"], "description": "JSON-encoded LifeEventDetails; census household rosters appear only for events dated ≤ currentYear − 100 (§5)" },
+        "sourceURL": { "type": ["string", "null"] }
+      }
+    },
+    "media": {
+      "type": "object",
+      "required": ["id", "schemaVersion", "person", "kind", "relativePath"],
+      "properties": {
+        "id": { "type": "string" },
+        "schemaVersion": { "type": "integer", "const": 1 },
+        "person": { "type": "string" },
+        "kind": { "type": "string", "enum": ["portrait", "document"] },
+        "caption": { "type": ["string", "null"] },
+        "relativePath": { "type": "string", "description": "Path under the bundle's media/ directory" }
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "required": ["schemaVersion", "generation", "personCount", "relationshipCount", "publishedAtISO"],
+      "properties": {
+        "schemaVersion": { "type": "integer", "const": 1 },
+        "generation": { "type": "integer", "description": "Freshness signal only — not an atomicity guarantee (§4.3)" },
+        "rootPerson": { "type": ["string", "null"], "description": "Do not assume connectivity from this — disconnected components are published (§4.3)" },
+        "personCount": { "type": "integer" },
+        "relationshipCount": { "type": "integer" },
+        "publishedAtISO": { "type": "string" }
+      }
+    }
+  },
+  "type": "object",
+  "properties": {
+    "manifest.json": { "$ref": "#/$defs/manifest" },
+    "people.json": { "type": "array", "items": { "$ref": "#/$defs/person" } },
+    "relationships.json": { "type": "array", "items": { "$ref": "#/$defs/relationship" } },
+    "events.json": { "type": "array", "items": { "$ref": "#/$defs/lifeEvent" } },
+    "media.json": { "type": "array", "items": { "$ref": "#/$defs/media" } }
+  }
+}

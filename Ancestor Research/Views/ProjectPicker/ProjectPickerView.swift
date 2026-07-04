@@ -7,6 +7,7 @@ struct ProjectPickerView: View {
 
     // .ancestor archive export/import (M13)
     @State private var exportingProjectID: UUID?
+    @State private var bundleExportError: String?
     @State private var pendingExportName: String = "project"
     @State private var showingExporter = false
 
@@ -94,6 +95,14 @@ struct ProjectPickerView: View {
             defaultFilename: pendingExportName
         ) { result in
             handleExportResult(result)
+        }
+        .alert("Family bundle export failed", isPresented: Binding(
+            get: { bundleExportError != nil },
+            set: { if !$0 { bundleExportError = nil } }
+        )) {
+            Button("OK", role: .cancel) { bundleExportError = nil }
+        } message: {
+            Text(bundleExportError ?? "")
         }
         // Single importer, enum-driven — see `activeImporter` doc.
         .fileImporter(
@@ -407,6 +416,36 @@ struct ProjectPickerView: View {
         }
     }
 
+    /// PUBLISHER_SPEC Change 2 — offline family bundle (redacted §4
+    /// schema as JSON + media). Same permanent record UUIDs the CloudKit
+    /// publish will use; never touches published_state/publish_meta.
+    private func exportFamilyBundle(_ project: Project) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Export Here"
+        panel.message = "Choose where to save the family bundle folder"
+        guard panel.runModal() == .OK, let directory = panel.url else { return }
+        do {
+            let (_, db) = try ProjectStore.openProject(project.id)
+            let destination = directory.appendingPathComponent(
+                "\(project.name) Family Bundle", isDirectory: true)
+            let summary = try FamilyBundleExporter.export(
+                db: db,
+                mediaSourceDirectory: ProjectStore.mediaDirectory(for: project.id),
+                to: destination,
+                now: Date()
+            )
+            if !summary.missingMediaPaths.isEmpty {
+                bundleExportError = "Bundle exported, but \(summary.missingMediaPaths.count) media file(s) were missing on disk and were skipped."
+            }
+            NSWorkspace.shared.activateFileViewerSelecting([summary.bundleURL])
+        } catch {
+            bundleExportError = error.localizedDescription
+        }
+    }
+
     @ViewBuilder
     private func activeContextMenu(_ project: Project) -> some View {
         Button {
@@ -415,6 +454,11 @@ struct ProjectPickerView: View {
             showingExporter = true
         } label: {
             Label("Export as .ancestor archive…", systemImage: "archivebox")
+        }
+        Button {
+            exportFamilyBundle(project)
+        } label: {
+            Label("Export Family Bundle…", systemImage: "person.2.crop.square.stack")
         }
         Button {
             appState.openProject(project)
