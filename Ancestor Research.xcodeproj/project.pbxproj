@@ -14,6 +14,7 @@
 		A1B2C3D4E5F60009DEADBEEF /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6000ADEADBEEF /* Tokenizers */; };
 		ACEK17000000000000000001 /* AncestorKit in Frameworks */ = {isa = PBXBuildFile; productRef = ACEK17000000000000000002 /* AncestorKit */; };
 		ACEK17000000000000000004 /* AncestorKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = ACEK17000000000000000005 /* AncestorKitUI */; };
+		ACEK17000000000000000007 /* SQLiteData in Frameworks */ = {isa = PBXBuildFile; productRef = ACEK17000000000000000008 /* SQLiteData */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,6 +53,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				ACEK17000000000000000001 /* AncestorKit in Frameworks */,
+				ACEK17000000000000000007 /* SQLiteData in Frameworks */,
 				ACEK17000000000000000004 /* AncestorKitUI in Frameworks */,
 				3E8156BF2F9BA1A800D37FC5 /* GRDB in Frameworks */,
 				A1B2C3D4E5F60001DEADBEEF /* MLXLLM in Frameworks */,
@@ -128,6 +130,7 @@
 			name = "Ancestor Research";
 			packageProductDependencies = (
 				ACEK17000000000000000002 /* AncestorKit */,
+				ACEK17000000000000000008 /* SQLiteData */,
 				ACEK17000000000000000005 /* AncestorKitUI */,
 				39C6F347BBD297A3033F5CEA /* GRDB */,
 				A1B2C3D4E5F60002DEADBEEF /* MLXLLM */,
@@ -189,6 +192,7 @@
 			mainGroup = 3E2FD78F2F9B89F200491FEB;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				ACEK17000000000000000006 /* XCRemoteSwiftPackageReference "sqlite-data" */,
 				ACEK17000000000000000003 /* XCLocalSwiftPackageReference "AncestorKit" */,
 				23B42F21C1F41CE36B81FD87 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 				A1B2C3D4E5F60003DEADBEEF /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
@@ -552,17 +556,17 @@
 				minimumVersion = 1.3.0;
 			};
 		};
+		ACEK17000000000000000006 /* XCRemoteSwiftPackageReference "sqlite-data" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pointfreeco/sqlite-data";
+			requirement = {
+				kind = exactVersion;
+				version = 1.6.6;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		ACEK17000000000000000002 /* AncestorKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AncestorKit;
-		};
-		ACEK17000000000000000005 /* AncestorKitUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AncestorKitUI;
-		};
 		39C6F347BBD297A3033F5CEA /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 23B42F21C1F41CE36B81FD87 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
@@ -587,6 +591,19 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A1B2C3D4E5F60008DEADBEEF /* XCRemoteSwiftPackageReference "swift-transformers" */;
 			productName = Tokenizers;
+		};
+		ACEK17000000000000000002 /* AncestorKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AncestorKit;
+		};
+		ACEK17000000000000000005 /* AncestorKitUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AncestorKitUI;
+		};
+		ACEK17000000000000000008 /* SQLiteData */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ACEK17000000000000000006 /* XCRemoteSwiftPackageReference "sqlite-data" */;
+			productName = SQLiteData;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
