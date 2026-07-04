@@ -367,23 +367,7 @@ struct PendingFactsReviewView: View {
     }
 
     private func loadNarrativeFindings(db: ProjectDatabase) -> [NarrativeFindingRow] {
-        (try? db.dbQueue.read { readDB in
-            let rows = try Row.fetchAll(readDB, sql: """
-                SELECT * FROM narrative_findings WHERE profile_id = ? ORDER BY submitted_at DESC
-                """, arguments: [profileID])
-            return rows.map { row in
-                NarrativeFindingRow(
-                    id: row["id"] as String? ?? UUID().uuidString,
-                    category: row["category"] as String? ?? "",
-                    description: row["description"] as String? ?? "",
-                    dateOrPeriod: row["date_or_period"] as String?,
-                    sourceURL: row["source_url"] as String? ?? "",
-                    sourceTitle: row["source_title"] as String? ?? "",
-                    evidenceText: row["evidence_text"] as String? ?? "",
-                    agentID: row["agent_id"] as String? ?? "unknown"
-                )
-            }
-        }) ?? []
+        (try? db.loadNarrativeFindingRows(profileID: profileID)) ?? []
     }
 
     // MARK: - Actions
@@ -404,35 +388,11 @@ struct PendingFactsReviewView: View {
     }
 
     private func applyFactToProfile(finding: ProcessedFinding, db: ProjectDatabase) {
-        let field = finding.finding.field
-        let value = finding.finding.value
-
-        // Map finding field to profile column
-        let (column, datePrefix): (String?, String) = switch field {
-        case "birthDate", "baptismDate": ("birth_date_original", "birth_date")
-        case "deathDate", "burialDate": ("death_date_original", "death_date")
-        case "birthLocation": ("birth_location", "")
-        case "deathLocation": ("death_location", "")
-        default: (nil, "")
-        }
-
-        guard let column else { return } // Fields like occupation/address are narrative, not profile columns
-
-        // Update profile in database
-        try? db.dbQueue.write { writeDB in
-            try writeDB.execute(
-                sql: "UPDATE profiles SET \(column) = ? WHERE id = ?",
-                arguments: [value, profileID]
-            )
-
-            // If it's a date field, also update the year columns
-            if !datePrefix.isEmpty, let year = EvidenceFirewall.extractYear(from: value) {
-                try writeDB.execute(
-                    sql: "UPDATE profiles SET \(datePrefix)_earliest = ?, \(datePrefix)_latest = ? WHERE id = ?",
-                    arguments: [year, year, profileID]
-                )
-            }
-        }
+        try? db.applyAcceptedPendingFact(
+            profileID: profileID,
+            field: finding.finding.field,
+            value: finding.finding.value
+        )
 
         // Rebuild snapshot to reflect the change
         if let newSnapshot = try? db.buildSnapshot() {
@@ -441,24 +401,12 @@ struct PendingFactsReviewView: View {
     }
 
     private func addFieldSource(finding: ProcessedFinding, db: ProjectDatabase) {
-        let profileField: String = switch finding.finding.field {
-        case "birthDate", "baptismDate": "birthDate"
-        case "deathDate", "burialDate": "deathDate"
-        case "birthLocation": "birthLocation"
-        case "deathLocation": "deathLocation"
-        default: finding.finding.field
-        }
-
-        try? db.dbQueue.write { writeDB in
-            try writeDB.execute(sql: """
-                INSERT INTO field_sources (entity_id, entity_kind, field, origin, raw, added_at)
-                VALUES (?, 'profile', ?, 'field-researcher', ?, ?)
-                """, arguments: [
-                    profileID, profileField,
-                    "\(finding.finding.value) [\(finding.finding.sourceTitle)]",
-                    Date(),
-                ])
-        }
+        try? db.addFieldResearcherProvenance(
+            profileID: profileID,
+            field: finding.finding.field,
+            value: finding.finding.value,
+            sourceTitle: finding.finding.sourceTitle
+        )
     }
 
     private func rejectFinding(_ finding: ProcessedFinding) {
@@ -468,24 +416,4 @@ struct PendingFactsReviewView: View {
         try? db.saveRejection(profileID: profileID, recordID: finding.id)
         processedFindings.removeAll { $0.id == finding.id }
     }
-}
-
-// MARK: - Helper Types
-
-import GRDB
-
-struct NarrativeFindingRow: Identifiable {
-    let id: String
-    let category: String
-    let description: String
-    let dateOrPeriod: String?
-    let sourceURL: String
-    let sourceTitle: String
-    let evidenceText: String
-    /// Agent that produced the narrative. Drives the
-    /// `PendingFactsReviewView` filter chip — narratives carrying
-    /// `prose-extractor:<corpus_id>` come from the prose-corpus
-    /// subsystem; everything else comes from the MCP field-researcher
-    /// or in-app submissions.
-    let agentID: String
 }
