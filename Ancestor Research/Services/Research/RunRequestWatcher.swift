@@ -167,19 +167,18 @@ final class RunRequestWatcher {
             return
         }
 
-        let sourceInfoMap = registry.buildSourceInfoMap()
-        let config = ResearchConfig.preset(for: mode).with(scope: scope)
-        let dispatcher = SearchDispatcher(
+        // Phase 1 slice 6: canonical construction via ResearchRunService.
+        // Note this ADDS rejectionLookup to watcher runs — previously the
+        // hand-rolled copy here omitted it, so MCP-triggered runs ignored
+        // user record discards (§3.6). Divergence fixed by construction.
+        let built = ResearchRunService.makePipeline(
             registry: registry,
-            regionConfig: RegionConfig.derbyshire
-        )
-        let pipeline = ResearchPipeline(
-            dispatcher: dispatcher,
             snapshot: appState.snapshot,
-            sourceInfoMap: sourceInfoMap,
-            childEvidenceMMNLookup: ResearchPipeline.makeChildEvidenceMMNLookup(database: db),
-            pendingFactWriter: ResearchPipeline.makePendingFactWriter(database: db)
+            database: db
         )
+        let sourceInfoMap = built.sourceInfoMap
+        let config = ResearchConfig.preset(for: mode).with(scope: scope)
+        let pipeline = built.pipeline
 
         // Diagnostic dispatch log — subscribe to the activity bus
         // before the pipeline starts, collect every per-source query

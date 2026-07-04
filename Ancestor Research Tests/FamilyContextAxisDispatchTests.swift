@@ -535,7 +535,7 @@ struct FamilyContextAxisDispatchTests {
     private func makeDispatcher() -> SearchDispatcher {
         let registry = SourceRegistry()
         bootstrapSources(registry: registry)
-        return SearchDispatcher(registry: registry, regionConfig: RegionConfig.derbyshire)
+        return SearchDispatcher(registry: registry)
     }
 
     private func subjectWithMotherSurname(

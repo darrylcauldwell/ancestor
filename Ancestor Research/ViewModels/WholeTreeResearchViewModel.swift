@@ -85,7 +85,6 @@ final class WholeTreeResearchViewModel {
             let idx = self.currentIndex + 1
             logger.info("Researching \(idx)/\(queueCount): \(profile.displayName)")
 
-            let sourceInfoMap = registry.buildSourceInfoMap()
             // Project fallback only; fromProfile's derivation chain prefers
             // the profile's own birth location and only uses this when the
             // profile is location-less.
@@ -94,15 +93,11 @@ final class WholeTreeResearchViewModel {
             let subject = ResearchSubject.fromProfile(profile, snapshot: snapshot, mode: .extend, homeChapmanCode: homeChapmanCode)
             let config = ResearchConfig.extend
 
-            let dispatcher = SearchDispatcher(registry: registry, regionConfig: RegionConfig.derbyshire)
-            let pipeline = ResearchPipeline(
-                dispatcher: dispatcher,
+            let pipeline = ResearchRunService.makePipeline(
+                registry: registry,
                 snapshot: snapshot,
-                sourceInfoMap: sourceInfoMap,
-                childEvidenceMMNLookup: ResearchPipeline.makeChildEvidenceMMNLookup(database: database),
-                pendingFactWriter: ResearchPipeline.makePendingFactWriter(database: database),
-                rejectionLookup: ResearchPipeline.makeRejectionLookup(database: database)
-            )
+                database: database
+            ).pipeline
 
             let result = await pipeline.research(subject: subject, config: config)
             currentResult = result

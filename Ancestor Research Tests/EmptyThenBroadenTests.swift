@@ -160,7 +160,7 @@ struct EmptyThenBroadenTests {
     func ac6_5_williamCauldwellDiscoverFindsCWGCVariants() async {
         let registry = SourceRegistry()
         bootstrapSources(registry: registry)
-        let dispatcher = SearchDispatcher(registry: registry, regionConfig: RegionConfig.derbyshire)
+        let dispatcher = SearchDispatcher(registry: registry)
         let subject = ResearchSubject(
             profileID: nil,
             surname: "Cauldwell", givenName: "William",
@@ -191,7 +191,7 @@ struct EmptyThenBroadenTests {
     private func makeDispatcher(stub: TierRecordingSource) -> SearchDispatcher {
         let registry = SourceRegistry()
         registry.register(stub)
-        return SearchDispatcher(registry: registry, regionConfig: RegionConfig.derbyshire)
+        return SearchDispatcher(registry: registry)
     }
 
     private func makeSubject() -> ResearchSubject {

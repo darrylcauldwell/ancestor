@@ -6,7 +6,6 @@ import Foundation
 @MainActor
 struct SearchDispatcher {
     let registry: SourceRegistry
-    let regionConfig: RegionConfig
 
     /// Dispatch searches across all enabled sources for the given record types.
     /// `scope` widens fan-out for scope-aware sources (FreeBMD; FreeCen/FreeREG later).

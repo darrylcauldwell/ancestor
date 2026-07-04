@@ -9,6 +9,9 @@ import os
 final class ResearchPipeline {
     let dispatcher: SearchDispatcher
     let snapshot: FamilyGraphSnapshot
+
+    /// Subject's home county for the current run — see research().
+    private var runHomeChapmanCode: String = ""
     let sourceInfoMap: [String: SourceInfo]
 
     /// Q2 Option B fallback (RESEARCH_PIPELINE_SPEC §5.14.1 clause 5).
@@ -106,6 +109,12 @@ final class ResearchPipeline {
 
     /// Run the research pipeline for a subject.
     func research(subject: ResearchSubject, config: ResearchConfig) async -> ResearchResult {
+        // Stashed for run-scoped helpers (marriage-dispatch district
+        // fan-out) that sit several call levels below and don't carry
+        // the subject. One research() per pipeline instance by
+        // construction (ResearchRunService builds a fresh pipeline per
+        // run), so this cannot leak across subjects.
+        runHomeChapmanCode = subject.homeChapmanCode
         var state = ResearchState(subject: subject)
         // Per-run query cache. Lives for the duration of this profile's
         // pipeline only — discarded when this function returns so cross-
@@ -1729,7 +1738,14 @@ final class ResearchPipeline {
         case .parish:
             districtCodes = []
         case .district, .county, .adjacent:
-            districtCodes = Array(dispatcher.regionConfig.districts.values)
+            // Subject's home county via the same two-tier lookup the main
+            // fan-out uses (SearchDispatcher.buildQueries) — replaces the
+            // old dispatcher.regionConfig, which was always Derbyshire
+            // regardless of subject. Empty chapman → empty list → honest
+            // no-fan-out degradation.
+            districtCodes = Array(
+                RegionConfig.districts(forChapmanCode: runHomeChapmanCode).values
+            )
         case .national:
             let yr = yearFrom...yearTo
             districtCodes = FreeBMDDistrictCatalogue.shared.covering(years: yr).map { $0.code }

@@ -58,7 +58,7 @@ struct SearchStrictnessTests {
     @Test func ac4_3_dispatcherAcceptsModeParameter() async {
         let registry = SourceRegistry()
         bootstrapSources(registry: registry)
-        let dispatcher = SearchDispatcher(registry: registry, regionConfig: RegionConfig.derbyshire)
+        let dispatcher = SearchDispatcher(registry: registry)
 
         let subject = ResearchSubject(
             profileID: nil,

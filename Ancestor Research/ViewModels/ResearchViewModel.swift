@@ -361,18 +361,12 @@ final class ResearchViewModel {
         let config = ResearchConfig.preset(for: selectedMode).with(scope: selectedScope)
         progressMessage = "Searching \(subject.displayName)..."
 
-        let dispatcher = SearchDispatcher(
+        let pipeline = ResearchRunService.makePipeline(
             registry: registry,
-            regionConfig: RegionConfig.derbyshire
-        )
-        let pipeline = ResearchPipeline(
-            dispatcher: dispatcher,
             snapshot: snapshot,
-            sourceInfoMap: sourceInfoMap,
-            childEvidenceMMNLookup: ResearchPipeline.makeChildEvidenceMMNLookup(database: appDatabase),
-            pendingFactWriter: ResearchPipeline.makePendingFactWriter(database: appDatabase),
-            rejectionLookup: ResearchPipeline.makeRejectionLookup(database: appDatabase)
-        )
+            database: appDatabase,
+            sourceInfoMap: sourceInfoMap
+        ).pipeline
 
         let result = await pipeline.research(subject: subject, config: config)
         iterationPhaseEnd = Date()

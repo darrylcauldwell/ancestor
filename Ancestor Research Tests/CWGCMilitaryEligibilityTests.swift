@@ -20,7 +20,7 @@ struct CWGCMilitaryEligibilityTests {
     private func dispatcher() -> SearchDispatcher {
         let registry = SourceRegistry()
         registry.register(cwgc)
-        return SearchDispatcher(registry: registry, regionConfig: .derbyshire)
+        return SearchDispatcher(registry: registry)
     }
 
     private func subject(
