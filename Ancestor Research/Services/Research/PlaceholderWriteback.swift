@@ -181,13 +181,10 @@ nonisolated struct PlaceholderWriteback {
                 qualifier: newEarliest == newLatest ? .yearOnly : .between
             )
             let oldDate = profile.birthDate
-            let newSpan = newLatest - newEarliest
-            let oldSpan: Int? = {
-                guard let oe = oldDate?.earliest, let ol = oldDate?.latest else { return nil }
-                return ol - oe
-            }()
-            // Only narrow, never widen, the existing window.
-            if oldSpan == nil || newSpan < oldSpan! {
+            // Only narrow, never widen, the existing window — the shared
+            // directional-overwrite policy (previously a hand-rolled copy
+            // of the same span comparison).
+            if ApplyEngine.shouldOverwriteDateField(existing: oldDate, candidate: newDate) {
                 dateChanges.append((field: .birthDate, oldDate: oldDate, newDate: newDate))
             }
         }
