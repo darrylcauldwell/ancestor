@@ -7,6 +7,7 @@ struct ProjectPickerView: View {
 
     // .ancestor archive export/import (M13)
     @State private var exportingProjectID: UUID?
+    @State private var publishTarget: Project?
     @State private var bundleExportError: String?
     @State private var pendingExportName: String = "project"
     @State private var showingExporter = false
@@ -103,6 +104,9 @@ struct ProjectPickerView: View {
             Button("OK", role: .cancel) { bundleExportError = nil }
         } message: {
             Text(bundleExportError ?? "")
+        }
+        .sheet(item: $publishTarget) { project in
+            PublishReviewSheet(model: PublishReviewModel(project: project))
         }
         // Single importer, enum-driven — see `activeImporter` doc.
         .fileImporter(
@@ -459,6 +463,11 @@ struct ProjectPickerView: View {
             exportFamilyBundle(project)
         } label: {
             Label("Export Family Bundle…", systemImage: "person.2.crop.square.stack")
+        }
+        Button {
+            publishTarget = project
+        } label: {
+            Label("Publish Tree to iCloud…", systemImage: "icloud.and.arrow.up")
         }
         Button {
             appState.openProject(project)

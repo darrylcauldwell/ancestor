@@ -89,12 +89,12 @@ nonisolated enum PublishEngine {
         seams: PublishCloudSeams? = nil,
         now: Date = Date(),
         ackTimeout: Duration = .seconds(120),
-        progress: (@Sendable (String) -> Void)? = nil
+        progress: (@MainActor @Sendable (String) -> Void)? = nil
     ) async throws -> PublishSummary {
         let seams = seams ?? .live(containerID: containerID)
 
         // 1. Pre-flight — fail before any work if iCloud can't take it.
-        progress?("Checking iCloud account…")
+        await progress?("Checking iCloud account…")
         let status = try await seams.accountStatus()
         guard status == .available else {
             throw PublishError.iCloudUnavailable(rawStatus: status.rawValue)
@@ -103,7 +103,7 @@ nonisolated enum PublishEngine {
         // 2. Projection at generation + 1 (this engine owns the bump).
         let localGeneration = try db.loadPublishGeneration()
         let candidateGeneration = localGeneration + 1
-        progress?("Building redacted projection…")
+        await progress?("Building redacted projection…")
         var (inputs, identity) = try PublishInputs.load(
             db: db, now: now, generation: candidateGeneration)
         let tree = PublishedTree.project(inputs, identity: &identity)
@@ -112,7 +112,7 @@ nonisolated enum PublishEngine {
         try db.savePublishedIDs(identity.minted)
 
         // 3. Second-Mac generation guard.
-        progress?("Checking for publishes from other Macs…")
+        await progress?("Checking for publishes from other Macs…")
         let zoneID = CKRecordZone.ID(zoneName: projectID.uuidString)
         let manifestRecordID = CKRecord.ID(
             recordName: "\(manifestID):publishedManifests", zoneID: zoneID)
@@ -124,14 +124,14 @@ nonisolated enum PublishEngine {
         }
 
         // 4. Reconcile the published store (checksum diff, update-in-place).
-        progress?("Writing published store…")
+        await progress?("Writing published store…")
         let store = try PublishedStore.open(projectID: projectID)
         let stats = try store.apply(
             tree: tree, manifestID: manifestID, mediaSourceDirectory: mediaSourceDirectory)
 
         // 5. Sync — engine per publish; explicit sendChanges() is BINDING
         // (Change 3 finding: the scheduler defers indefinitely otherwise).
-        progress?("Uploading to iCloud…")
+        await progress?("Uploading to iCloud…")
         let engine = try SyncEngine(
             for: store.db,
             tables: StoreManifest.self, StorePerson.self, StoreRelationship.self,
@@ -153,7 +153,7 @@ nonisolated enum PublishEngine {
         while acked < total, ContinuousClock.now < deadline {
             try await Task.sleep(for: .seconds(2))
             acked = try store.ackedRows()
-            progress?("Confirmed \(acked) of \(total) records…")
+            await progress?("Confirmed \(acked) of \(total) records…")
         }
         guard acked >= total else {
             throw PublishError.syncTimeout(acked: acked, total: total)
@@ -161,7 +161,7 @@ nonisolated enum PublishEngine {
 
         // 7. Commit the bump — only after the server has everything.
         try db.setPublishGeneration(candidateGeneration, publishedAt: now)
-        progress?("Published generation \(candidateGeneration).")
+        await progress?("Published generation \(candidateGeneration).")
         return PublishSummary(
             generation: candidateGeneration, stats: stats,
             ackedRecords: acked, totalRecords: total)

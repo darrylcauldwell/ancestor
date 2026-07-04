@@ -71,6 +71,37 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// Acknowledgement state (§5 review gate): profileID → when a human
+    /// last confirmed this person's resolved policy. Persons without a
+    /// row (or with NULL) have never been acknowledged.
+    func loadPublishAcknowledgements() throws -> [String: Date] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT profile_id, acknowledged_at FROM publish_policy
+                WHERE acknowledged_at IS NOT NULL
+                """)
+            var out: [String: Date] = [:]
+            for row in rows { out[row["profile_id"]] = row["acknowledged_at"] }
+            return out
+        }
+    }
+
+    /// Record the §5 eyeball confirmation for a set of persons. Inserts
+    /// `auto` rows for persons that had no explicit policy — the
+    /// acknowledgement is per-person state regardless of override.
+    func acknowledgePublishPolicies(profileIDs: [String], at date: Date) throws {
+        guard !profileIDs.isEmpty else { return }
+        try dbQueue.write { db in
+            for id in profileIDs {
+                try db.execute(sql: """
+                    INSERT INTO publish_policy (profile_id, policy, acknowledged_at)
+                    VALUES (?, 'auto', ?)
+                    ON CONFLICT(profile_id) DO UPDATE SET acknowledged_at = excluded.acknowledged_at
+                    """, arguments: [id, date])
+            }
+        }
+    }
+
     // MARK: - publish_media (§4.2 — per-attachment opt-in)
 
     func loadPublishMediaOptIns() throws -> Set<UUID> {
