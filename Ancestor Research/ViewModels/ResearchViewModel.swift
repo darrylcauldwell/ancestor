@@ -122,6 +122,15 @@ final class ResearchViewModel {
         }
     }
 
+    /// Surface `ApplyEngine` write failures through the same log +
+    /// `errorMessage` channel as `persist(_:_:)`.
+    private func report(_ failures: [ApplyEngine.WriteFailure]) {
+        for f in failures {
+            logger.error("\(f.what) failed: \(f.error.localizedDescription)")
+            errorMessage = "\(f.what) failed: \(f.error.localizedDescription)"
+        }
+    }
+
     /// Status of each source during a research run.
     struct SourceStatus: Identifiable {
         let id: String
@@ -807,7 +816,7 @@ final class ResearchViewModel {
                 guard RecordScorer.wouldApply(scored) else { continue }
             }
 
-            applyFactToSubject(scored, profile: profile, snapshot: appState.snapshot, db: db)
+            report(ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: appState.snapshot, db: db))
             // Non-BMD records (census/burial/probate/parish) still get a LifeEvent
             // — same path acceptCluster takes. BMD records return nil here.
             if let event = scored.record.projectToLifeEvent(profileID: profile.id) {
@@ -838,7 +847,7 @@ final class ResearchViewModel {
                 status: .savedAsLead
             )
         }
-        applyFactToSubject(scored, profile: profile, snapshot: appState.snapshot, db: db)
+        report(ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: appState.snapshot, db: db))
         if let event = scored.record.projectToLifeEvent(profileID: profile.id) {
             persist("Save life event") { try db.addLifeEventIfAbsent(event) }
         }
@@ -876,184 +885,6 @@ final class ResearchViewModel {
                 status: .unreviewed
             )
         }
-    }
-
-    private func applyFactToSubject(_ scored: ScoredRecord, profile: Profile, snapshot: FamilyGraphSnapshot, db: ProjectDatabase) {
-        let origin = SourceOrigin(identifier: scored.record.sourceID)
-        switch scored.record {
-        case .birth(let r):
-            let dateCandidate = Self.bmdDate(year: r.birthYear, quarter: r.quarter, exact: r.birthDate)
-            applyDateField(.birthDate, existing: profile.birthDate, candidate: dateCandidate, profileID: profile.id, origin: origin, db: db)
-            applyStringField(
-                .birthLocation, existing: profile.birthLocation,
-                existingSources: profile.sources[.birthLocation] ?? [],
-                candidate: r.birthPlace ?? r.district,
-                profileID: profile.id, origin: origin, db: db
-            )
-        case .death(let r):
-            let dateCandidate = Self.bmdDate(year: r.deathYear, quarter: r.quarter, exact: r.deathDate)
-            applyDateField(.deathDate, existing: profile.deathDate, candidate: dateCandidate, profileID: profile.id, origin: origin, db: db)
-            applyStringField(
-                .deathLocation, existing: profile.deathLocation,
-                existingSources: profile.sources[.deathLocation] ?? [],
-                candidate: r.deathPlace ?? r.district,
-                profileID: profile.id, origin: origin, db: db
-            )
-        case .marriage(let m):
-            applyMarriageToSubjectSpouseEdge(m, profileID: profile.id, snapshot: snapshot, db: db)
-        case .pedigree, .census, .burial, .military, .probate, .parish:
-            // Non-BMD types fall through to the LifeEvent projection path in applyCluster.
-            break
-        }
-    }
-
-    /// Apply a subject-side marriage record to the spouse edge between this
-    /// subject and the matching spouse profile. Match is by surname (the
-    /// `Spouse` field in BMD post-1912 marriage rows carries the spouse's
-    /// surname). Marriage data is written only into nil columns via
-    /// `fillRelationshipMarriage` — existing values the user typed manually
-    /// are never overwritten (`Check Before Overwrite` rule).
-    private func applyMarriageToSubjectSpouseEdge(
-        _ m: MarriageRecord,
-        profileID: String,
-        snapshot: FamilyGraphSnapshot,
-        db: ProjectDatabase
-    ) {
-        guard let recordSpouseRaw = m.spouseName?.trimmingCharacters(in: .whitespaces),
-              !recordSpouseRaw.isEmpty else { return }
-        // BMD spouse field is normally just a surname (post-1912 marriages).
-        // Defensive split: pick the trailing token in case it's "GIVEN SURNAME".
-        let recordSpouseSurname = (recordSpouseRaw.split(separator: " ").last.map(String.init)
-            ?? recordSpouseRaw).uppercased()
-
-        let spouseEdges = snapshot.relationships.filter { rel in
-            rel.type == .spouse && (rel.from == profileID || rel.to == profileID)
-        }
-        let matched = spouseEdges.first { rel in
-            let otherID = rel.from == profileID ? rel.to : rel.from
-            guard let other = snapshot.profiles[otherID] else { return false }
-            return (other.lastName ?? "").uppercased() == recordSpouseSurname
-        }
-        guard let edge = matched else { return }
-
-        let dateCandidate = Self.bmdDate(year: m.marriageYear, quarter: m.quarter, exact: m.marriageDate)
-        let locationCandidate = m.marriagePlace ?? m.district
-        persist("Record marriage on spouse edge") {
-            try db.fillRelationshipMarriage(
-                relationshipID: edge.id,
-                candidateDate: dateCandidate,
-                candidateLocation: locationCandidate
-            )
-        }
-    }
-
-    private func applyDateField(
-        _ field: ProfileField,
-        existing: GenealogicalDate?,
-        candidate: GenealogicalDate?,
-        profileID: String,
-        origin: SourceOrigin,
-        db: ProjectDatabase
-    ) {
-        guard let candidate else { return }
-        if Self.shouldOverwriteDateField(existing: existing, candidate: candidate) {
-            persist("Apply \(field) date") { try db.editProfile(profileID: profileID, changes: [], dateChanges: [(field, existing, candidate)], source: origin) }
-        } else {
-            persist("Record alternative \(field) fact") { try db.recordAlternativeFact(profileID: profileID, field: field, rawValue: candidate.original, source: origin) }
-        }
-    }
-
-    /// Should an applied date overwrite the profile's existing value, or only
-    /// be logged as an alternative fact?
-    ///
-    /// The "Check Before Overwrite" rule (`feedback_check_before_overwrite.md`)
-    /// is **directional**: never overwrite *precise* data with *imprecise*
-    /// data. The original `existing == nil` guard implemented the rule as
-    /// **absolute** — any set value blocks any incoming value — which means a
-    /// wide GEDCOM range like `BET 1869 AND 1896` blocks a 31-source
-    /// cluster-confirmed `Dec 1883`. Fix: overwrite when the candidate's
-    /// year-span is **strictly narrower** than the existing value's.
-    ///
-    /// Same-span candidates (e.g. two different precise quarters) do not
-    /// overwrite — that's a disambiguation problem (the multi-hypothesis
-    /// pivot owns it). They still land in `field_sources` via the
-    /// `recordAlternativeFact` branch, preserving evidence for later.
-    nonisolated static func shouldOverwriteDateField(
-        existing: GenealogicalDate?,
-        candidate: GenealogicalDate
-    ) -> Bool {
-        guard let existing else { return true }
-        return yearSpan(of: candidate) < yearSpan(of: existing)
-    }
-
-    nonisolated private static func yearSpan(of date: GenealogicalDate) -> Int {
-        guard let earliest = date.earliest, let latest = date.latest else { return .max }
-        return latest - earliest
-    }
-
-    private func applyStringField(
-        _ field: ProfileField,
-        existing: String?,
-        existingSources: [FieldSource],
-        candidate: String?,
-        profileID: String,
-        origin: SourceOrigin,
-        db: ProjectDatabase
-    ) {
-        guard let trimmed = candidate?.trimmingCharacters(in: .whitespaces), !trimmed.isEmpty else { return }
-        if Self.shouldOverwriteStringField(existing: existing, existingSources: existingSources, candidateOrigin: origin) {
-            persist("Apply \(field) value") { try db.editProfile(profileID: profileID, changes: [(field, existing, trimmed)], dateChanges: [], source: origin) }
-        } else {
-            persist("Record alternative \(field) fact") { try db.recordAlternativeFact(profileID: profileID, field: field, rawValue: trimmed, source: origin) }
-        }
-    }
-
-    /// Should an applied string overwrite the profile's existing value, or
-    /// only be logged as an alternative fact?
-    ///
-    /// Strings have no precision axis like dates, so we substitute
-    /// provenance via `SourceOrigin.tier`. A higher-tier candidate
-    /// overrides a lower-tier existing value:
-    ///
-    /// - existing nil/empty → write candidate
-    /// - existing's highest known tier < candidate's tier → overwrite
-    /// - otherwise → keep existing, log candidate as alternative fact
-    ///
-    /// Defensive default when the existing value is set but `field_sources`
-    /// is empty: treat existing as `.userAuthoritative` (don't overwrite).
-    /// In normal use every Profile.* write also writes `field_sources`, so
-    /// this branch only fires if the audit log is corrupt — better to err
-    /// toward preserving the user's data than to silently overwrite.
-    ///
-    /// Same-tier candidates do not overwrite — that's a disambiguation
-    /// problem (multi-hypothesis investigation owns it for cases where two
-    /// research sources disagree). They still land in `field_sources` via
-    /// `recordAlternativeFact`.
-    nonisolated static func shouldOverwriteStringField(
-        existing: String?,
-        existingSources: [FieldSource],
-        candidateOrigin: SourceOrigin
-    ) -> Bool {
-        if (existing ?? "").trimmingCharacters(in: .whitespaces).isEmpty { return true }
-        guard let existingTier = existingSources.map(\.origin.tier).max() else {
-            return false
-        }
-        return candidateOrigin.tier > existingTier
-    }
-
-    /// Build a `GenealogicalDate` from a BMD record's year + quarter. BMD
-    /// quarters are labelled by the END month ("Mar quarter" = Jan–Mar);
-    /// year-granularity storage means we keep that nuance in the original
-    /// string ("Mar 1976") rather than in earliest/latest.
-    private static func bmdDate(year: Int?, quarter: String?, exact: String?) -> GenealogicalDate? {
-        if let exact = exact?.trimmingCharacters(in: .whitespaces), !exact.isEmpty {
-            return GenealogicalDate(parsing: exact)
-        }
-        guard let year else { return nil }
-        if let q = quarter?.trimmingCharacters(in: .whitespaces), !q.isEmpty {
-            return GenealogicalDate(parsing: "\(q) \(year)")
-        }
-        return GenealogicalDate(parsing: String(year))
     }
 
     /// Mark every record in this cluster as `discarded`. Both the new column
@@ -1425,7 +1256,7 @@ final class ResearchViewModel {
                      (rel.from == otherParent.id && rel.to == parent.id))
                 }
                 guard let edge else { break }
-                let dateCandidate = Self.bmdDate(year: m.marriageYear, quarter: m.quarter, exact: m.marriageDate)
+                let dateCandidate = ApplyEngine.bmdDate(year: m.marriageYear, quarter: m.quarter, exact: m.marriageDate)
                 let locationCandidate = m.marriagePlace ?? m.district
                 if persist("Record marriage on spouse edge", {
                     try db.fillRelationshipMarriage(
@@ -1582,68 +1413,22 @@ final class ResearchViewModel {
             return
         }
         do {
-            try Self.applyBirthYearCandidate(
+            try ApplyEngine.applyBirthYearCandidate(
                 hypothesis, snapshot: appState.snapshot, db: db
             )
             if let snap = persist("Refresh tree snapshot", { try db.buildSnapshot() }) {
                 appState.snapshot = snap
             }
-        } catch ApplyBirthYearCandidateError.notSupported,
-                ApplyBirthYearCandidateError.wrongKind {
+        } catch ApplyEngine.ApplyBirthYearCandidateError.notSupported,
+                ApplyEngine.ApplyBirthYearCandidateError.wrongKind {
             // Defensive guards — UI shouldn't expose Accept for these,
             // but log silently if it does. No user-visible error.
             return
-        } catch ApplyBirthYearCandidateError.profileMissing(let id) {
+        } catch ApplyEngine.ApplyBirthYearCandidateError.profileMissing(let id) {
             errorMessage = "Profile \(id) not found in current snapshot"
         } catch {
             errorMessage = "Failed to apply birth year: \(error.localizedDescription)"
         }
-    }
-
-    /// Pure apply: does the actual write through `ProjectDatabase`.
-    /// Static + nonisolated so unit tests can exercise it without an
-    /// `AppState` harness. Returns void on success; throws on missing
-    /// profile / unsuitable hypothesis.
-    nonisolated static func applyBirthYearCandidate(
-        _ hypothesis: ResearchHypothesis,
-        snapshot: FamilyGraphSnapshot,
-        db: ProjectDatabase
-    ) throws {
-        guard case .birthYearCandidate(let profileID, let year) = hypothesis.kind else {
-            throw ApplyBirthYearCandidateError.wrongKind
-        }
-        guard hypothesis.isDeterministicallySupported else {
-            throw ApplyBirthYearCandidateError.notSupported
-        }
-        guard let profile = snapshot.profiles[profileID] else {
-            throw ApplyBirthYearCandidateError.profileMissing(profileID)
-        }
-
-        // Prefer an existing precise source attesting to this year — its
-        // raw preserves month detail ("Dec 1883" vs bare "1883") and its
-        // origin preserves provenance tier.
-        let chosen = (profile.sources[.birthDate] ?? []).first { src in
-            let parsed = GenealogicalDate(parsing: src.raw)
-            guard let e = parsed.earliest, let l = parsed.latest else { return false }
-            return e == l && e == year
-        }
-        let raw = chosen?.raw ?? String(year)
-        let origin = chosen?.origin ?? .engineEnrichment
-        let candidate = GenealogicalDate(parsing: raw)
-
-        _ = try db.editProfile(
-            profileID: profile.id,
-            changes: [],
-            dateChanges: [(.birthDate, profile.birthDate, candidate)],
-            source: origin
-        )
-    }
-
-    /// Errors thrown by `applyBirthYearCandidate`.
-    nonisolated enum ApplyBirthYearCandidateError: Error {
-        case wrongKind
-        case notSupported
-        case profileMissing(String)
     }
 
     /// Reject a sibling proposal: persist the proposal id so it won't reappear

@@ -28,7 +28,7 @@ nonisolated struct SourceOrigin: Codable, Hashable, Sendable {
     }
 
     /// Three-tier model used by the apply-path overwrite policy for string
-    /// fields (see ResearchViewModel.shouldOverwriteStringField). The
+    /// fields (see ApplyEngine.shouldOverwriteStringField). The
     /// directional "Check Before Overwrite" rule (per
     /// feedback_check_before_overwrite.md) needs a precision axis to compare
     /// against — strings have none, so we substitute provenance:

@@ -1637,7 +1637,7 @@ nonisolated extension ProjectDatabase {
             // nil-only rule, which silently blocked precise BMD quarters
             // from overwriting wide GEDCOM ranges. Now: overwrite when the
             // candidate's year-span is strictly narrower than the existing
-            // value's. Mirrors ResearchViewModel.shouldOverwriteDateField.
+            // value's. Mirrors ApplyEngine.shouldOverwriteDateField.
             guard let row = try Row.fetchOne(
                 db,
                 sql: """
@@ -2726,7 +2726,7 @@ nonisolated extension ProjectDatabase {
     /// narrower precise candidate (per the same rule as the start-of-run
     /// seeding from `ResearchSubject.narrowBirthWindowFromSources`) AND
     /// the apply-time overwrite policy
-    /// (`ResearchViewModel.shouldOverwriteDateField`) would have written
+    /// (`ApplyEngine.shouldOverwriteDateField`) would have written
     /// it, update the canonical column.
     ///
     /// Why this is needed: profiles already on disk that were "applied"
@@ -2760,7 +2760,7 @@ nonisolated extension ProjectDatabase {
                 guard let candidate = Self.narrowestUnambiguousDate(
                     from: sources, currentSpan: Self.yearSpan(of: existing)
                 ) else { continue }
-                guard ResearchViewModel.shouldOverwriteDateField(
+                guard ApplyEngine.shouldOverwriteDateField(
                     existing: existing, candidate: candidate
                 ) else { continue }
 

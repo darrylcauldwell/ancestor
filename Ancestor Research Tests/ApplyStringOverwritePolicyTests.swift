@@ -33,7 +33,7 @@ struct ApplyStringOverwritePolicyTests {
     @Test func freebmdOverridesWikitreeInitialImport() {
         // The canonical George case: Basford (wikitree) yields to Belper
         // (freebmd cluster).
-        let result = ResearchViewModel.shouldOverwriteStringField(
+        let result = ApplyEngine.shouldOverwriteStringField(
             existing: "Basford",
             existingSources: [source(origin: .wikitree)],
             candidateOrigin: .freebmd
@@ -42,7 +42,7 @@ struct ApplyStringOverwritePolicyTests {
     }
 
     @Test func freebmdOverridesGedcomInitialImport() {
-        let result = ResearchViewModel.shouldOverwriteStringField(
+        let result = ApplyEngine.shouldOverwriteStringField(
             existing: "Basford",
             existingSources: [source(origin: .gedcom)],
             candidateOrigin: .freebmd
@@ -54,7 +54,7 @@ struct ApplyStringOverwritePolicyTests {
         // User-typed location takes over a freebmd-derived one — but in
         // practice user edits are made through a different code path; this
         // just pins that the tier comparison is symmetric.
-        let result = ResearchViewModel.shouldOverwriteStringField(
+        let result = ApplyEngine.shouldOverwriteStringField(
             existing: "Belper",
             existingSources: [source(origin: .freebmd)],
             candidateOrigin: .manualMemory
@@ -68,7 +68,7 @@ struct ApplyStringOverwritePolicyTests {
         // freebmd vs freecen — same tier. Don't auto-pick; the
         // multi-hypothesis slice resolves disagreements via corroborating
         // evidence.
-        let result = ResearchViewModel.shouldOverwriteStringField(
+        let result = ApplyEngine.shouldOverwriteStringField(
             existing: "Belper",
             existingSources: [source(origin: .freebmd)],
             candidateOrigin: .freecen
@@ -79,7 +79,7 @@ struct ApplyStringOverwritePolicyTests {
     @Test func initialImportDoesNotOverrideResearchSource() {
         // Going the wrong way: a wikitree value can't replace a freebmd
         // value. Preserves the citation-grade evidence.
-        let result = ResearchViewModel.shouldOverwriteStringField(
+        let result = ApplyEngine.shouldOverwriteStringField(
             existing: "Belper",
             existingSources: [source(origin: .freebmd)],
             candidateOrigin: .wikitree
@@ -90,7 +90,7 @@ struct ApplyStringOverwritePolicyTests {
     @Test func researchSourceDoesNotOverrideManual() {
         // User-typed wins over research source — never silently overwrite a
         // user's decision.
-        let result = ResearchViewModel.shouldOverwriteStringField(
+        let result = ApplyEngine.shouldOverwriteStringField(
             existing: "Belper, Derbyshire",
             existingSources: [source(origin: .manualMemory)],
             candidateOrigin: .freebmd
@@ -105,7 +105,7 @@ struct ApplyStringOverwritePolicyTests {
         // wikitree import AND a later manual confirmation), the *highest*
         // tier sets the bar. A research-source candidate can't override
         // because manual is on file.
-        let result = ResearchViewModel.shouldOverwriteStringField(
+        let result = ApplyEngine.shouldOverwriteStringField(
             existing: "Belper",
             existingSources: [
                 source(origin: .wikitree),
@@ -119,7 +119,7 @@ struct ApplyStringOverwritePolicyTests {
     // MARK: - Empty existing
 
     @Test func writesWhenExistingIsNil() {
-        let result = ResearchViewModel.shouldOverwriteStringField(
+        let result = ApplyEngine.shouldOverwriteStringField(
             existing: nil,
             existingSources: [],
             candidateOrigin: .freebmd
@@ -128,7 +128,7 @@ struct ApplyStringOverwritePolicyTests {
     }
 
     @Test func writesWhenExistingIsEmptyString() {
-        let result = ResearchViewModel.shouldOverwriteStringField(
+        let result = ApplyEngine.shouldOverwriteStringField(
             existing: "   ",
             existingSources: [],
             candidateOrigin: .freebmd
@@ -144,7 +144,7 @@ struct ApplyStringOverwritePolicyTests {
         // Either way, refuse to overwrite. Preserves the user's data;
         // the candidate still lands as an alternative fact via the
         // caller's else-branch.
-        let result = ResearchViewModel.shouldOverwriteStringField(
+        let result = ApplyEngine.shouldOverwriteStringField(
             existing: "Belper",
             existingSources: [],
             candidateOrigin: .freebmd

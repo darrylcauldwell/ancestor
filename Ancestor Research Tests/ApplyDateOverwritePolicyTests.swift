@@ -21,7 +21,7 @@ struct ApplyDateOverwritePolicyTests {
 
     @Test func overwritesWhenExistingIsNil() {
         let candidate = GenealogicalDate(parsing: "Dec 1883")
-        #expect(ResearchViewModel.shouldOverwriteDateField(existing: nil, candidate: candidate))
+        #expect(ApplyEngine.shouldOverwriteDateField(existing: nil, candidate: candidate))
     }
 
     @Test func overwritesWhenCandidateIsStrictlyNarrower() {
@@ -29,14 +29,14 @@ struct ApplyDateOverwritePolicyTests {
         // BMD quarter. Span 0 < span 27 → overwrite.
         let existing = GenealogicalDate(parsing: "BET 1869 AND 1896")
         let candidate = GenealogicalDate(parsing: "Dec 1883")
-        #expect(ResearchViewModel.shouldOverwriteDateField(existing: existing, candidate: candidate))
+        #expect(ApplyEngine.shouldOverwriteDateField(existing: existing, candidate: candidate))
     }
 
     @Test func overwritesWhenCandidateNarrowsAnApproximateWindow() {
         // ABT 1880 → ±5 → span 10. Candidate is a precise quarter.
         let existing = GenealogicalDate(parsing: "ABT 1880")
         let candidate = GenealogicalDate(parsing: "Mar 1882")
-        #expect(ResearchViewModel.shouldOverwriteDateField(existing: existing, candidate: candidate))
+        #expect(ApplyEngine.shouldOverwriteDateField(existing: existing, candidate: candidate))
     }
 
     // MARK: - Preserving precision (the original rule)
@@ -47,7 +47,7 @@ struct ApplyDateOverwritePolicyTests {
         // must not regress it.
         let existing = GenealogicalDate(parsing: "Dec 1883")
         let candidate = GenealogicalDate(parsing: "BET 1869 AND 1896")
-        #expect(!ResearchViewModel.shouldOverwriteDateField(existing: existing, candidate: candidate))
+        #expect(!ApplyEngine.shouldOverwriteDateField(existing: existing, candidate: candidate))
     }
 
     @Test func keepsExistingWhenCandidateIsEquallyPrecise() {
@@ -56,13 +56,13 @@ struct ApplyDateOverwritePolicyTests {
         // problem owned by multi-hypothesis investigation, not this layer.
         let existing = GenealogicalDate(parsing: "Jun 1870")
         let candidate = GenealogicalDate(parsing: "Dec 1883")
-        #expect(!ResearchViewModel.shouldOverwriteDateField(existing: existing, candidate: candidate))
+        #expect(!ApplyEngine.shouldOverwriteDateField(existing: existing, candidate: candidate))
     }
 
     @Test func keepsExistingWhenCandidateMatchesExactly() {
         let existing = GenealogicalDate(parsing: "Dec 1883")
         let candidate = GenealogicalDate(parsing: "Dec 1883")
-        #expect(!ResearchViewModel.shouldOverwriteDateField(existing: existing, candidate: candidate))
+        #expect(!ApplyEngine.shouldOverwriteDateField(existing: existing, candidate: candidate))
     }
 
     // MARK: - Edge cases
@@ -73,7 +73,7 @@ struct ApplyDateOverwritePolicyTests {
         let existing = GenealogicalDate(parsing: "?")
         let candidate = GenealogicalDate(parsing: "Dec 1883")
         // existing has nil earliest/latest → yearSpan == .max → overwrite.
-        #expect(ResearchViewModel.shouldOverwriteDateField(existing: existing, candidate: candidate))
+        #expect(ApplyEngine.shouldOverwriteDateField(existing: existing, candidate: candidate))
     }
 
     @Test func openEndedExistingIsWiderThanPreciseCandidate() {
@@ -81,6 +81,6 @@ struct ApplyDateOverwritePolicyTests {
         // A precise candidate must overwrite.
         let existing = GenealogicalDate(parsing: "AFT 1880")
         let candidate = GenealogicalDate(parsing: "Dec 1883")
-        #expect(ResearchViewModel.shouldOverwriteDateField(existing: existing, candidate: candidate))
+        #expect(ApplyEngine.shouldOverwriteDateField(existing: existing, candidate: candidate))
     }
 }

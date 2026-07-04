@@ -4,7 +4,7 @@ import Foundation
 
 /// Slice 5 of `project_multi_hypothesis_birth_year_plan` — apply path
 /// for user-accepted `.birthYearCandidate` hypotheses. Exercises the
-/// static `ResearchViewModel.applyBirthYearCandidate(_:snapshot:db:)`
+/// static `ApplyEngine.applyBirthYearCandidate(_:snapshot:db:)`
 /// helper (testable without an `AppState` harness).
 @MainActor
 struct BirthYearCandidateAcceptTests {
@@ -98,7 +98,7 @@ struct BirthYearCandidateAcceptTests {
         let snapshot = try db.buildSnapshot()
         let h = birthYearCandidateHypothesis(profileID: "george", year: 1883)
 
-        try ResearchViewModel.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
+        try ApplyEngine.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
 
         let updated = try db.buildSnapshot()
         let updatedProfile = try #require(updated.profiles["george"])
@@ -130,7 +130,7 @@ struct BirthYearCandidateAcceptTests {
         let snapshot = try db.buildSnapshot()
         let h = birthYearCandidateHypothesis(profileID: "p1", year: 1883)
 
-        try ResearchViewModel.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
+        try ApplyEngine.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
 
         let updated = try db.buildSnapshot()
         let updatedProfile = try #require(updated.profiles["p1"])
@@ -162,7 +162,7 @@ struct BirthYearCandidateAcceptTests {
         let snapshot = try db.buildSnapshot()
         let h = birthYearCandidateHypothesis(profileID: "subj", year: 1883)
 
-        try ResearchViewModel.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
+        try ApplyEngine.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
 
         let updated = try db.buildSnapshot()
         let newDate = try #require(updated.profiles["subj"]?.birthDate)
@@ -184,7 +184,7 @@ struct BirthYearCandidateAcceptTests {
         let snapshot = try db.buildSnapshot()
         let h = birthYearCandidateHypothesis(profileID: "p1", year: 1883)
 
-        try ResearchViewModel.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
+        try ApplyEngine.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
 
         let updated = try db.buildSnapshot()
         let newDate = try #require(updated.profiles["p1"]?.birthDate)
@@ -199,8 +199,8 @@ struct BirthYearCandidateAcceptTests {
         try seedProfile(id: "p1", db: db)
         let snapshot = try db.buildSnapshot()
         let h = birthYearCandidateHypothesis(profileID: "p1", year: 1883, verdict: .inconclusive)
-        #expect(throws: ResearchViewModel.ApplyBirthYearCandidateError.self) {
-            try ResearchViewModel.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
+        #expect(throws: ApplyEngine.ApplyBirthYearCandidateError.self) {
+            try ApplyEngine.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
         }
     }
 
@@ -212,8 +212,8 @@ struct BirthYearCandidateAcceptTests {
         try seedProfile(id: "p1", db: db)
         let snapshot = try db.buildSnapshot()
         let h = birthYearCandidateHypothesis(profileID: "p1", year: 1883, isModelAssisted: true)
-        #expect(throws: ResearchViewModel.ApplyBirthYearCandidateError.self) {
-            try ResearchViewModel.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
+        #expect(throws: ApplyEngine.ApplyBirthYearCandidateError.self) {
+            try ApplyEngine.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
         }
     }
 
@@ -234,8 +234,8 @@ struct BirthYearCandidateAcceptTests {
             createdAt: now, lastTestedAt: now,
             attempts: 1, history: []
         )
-        #expect(throws: ResearchViewModel.ApplyBirthYearCandidateError.self) {
-            try ResearchViewModel.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
+        #expect(throws: ApplyEngine.ApplyBirthYearCandidateError.self) {
+            try ApplyEngine.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
         }
     }
 
@@ -243,8 +243,8 @@ struct BirthYearCandidateAcceptTests {
         let db = try makeTempDB()
         let snapshot = try db.buildSnapshot()  // empty
         let h = birthYearCandidateHypothesis(profileID: "unknown", year: 1883)
-        #expect(throws: ResearchViewModel.ApplyBirthYearCandidateError.self) {
-            try ResearchViewModel.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
+        #expect(throws: ApplyEngine.ApplyBirthYearCandidateError.self) {
+            try ApplyEngine.applyBirthYearCandidate(h, snapshot: snapshot, db: db)
         }
     }
 }
