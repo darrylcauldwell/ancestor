@@ -471,7 +471,8 @@ Be concrete, terse, and honest about uncertainty. Never invent facts that aren't
         whose answer would advance the research — e.g. "census 1891 to see this
         person's household when they were ~7" or "Brooks marriages 1879-1882
         Belper to find the parents' wedding". Stay deterministic on
-        constraints (Derbyshire, narrow window, exact district name).
+        constraints (the subject's home county, narrow window, exact
+        district name).
 
         Return JSON ONLY:
         {

@@ -80,3 +80,20 @@ Plan:
 - **Phase 4 — viewers:** iPad first (friendliest platform, validates the pipeline; TestFlight to family), then the tvOS focus-driven shell.
 - **Phase 5 — AI (parallel track):** `ReasoningBackend` + FoundationModels backend; eval harness (Epic 1) before any escalation-tier decision.
 - **Deferred until/unless family contribution or iPad authoring becomes a goal:** key normalisation, tree/research store split, two-way CKSyncEngine over the canonical store.
+
+## 6. Accepted debt register (updated 2026-07-04, post Phase 0+1)
+
+Consciously deferred, chosen-not-forgotten. Revisit triggers noted.
+
+| Item | Where | Why deferred / trigger |
+|---|---|---|
+| Qwen3.5-4B acceptance run (George Brooks + prose smoke) | app session needed | The only Phase 0 decision validated by research, not observation. Run at next app session; doubles as Phase 1's real-tree accept smoke. |
+| §5.8 eval harness (ROADMAP Epic 1) | not built | The project's own designed instrument for model decisions. Build before any further AI-tier bets (Foundation Models A/B, escalation tiers). |
+| `censusYear ?? 1861` fallback for household leads | ResearchRunService.persist | Magic default when no census record carries a year; harmless ordering guess. Fix if lead quality work resumes. |
+| `errorMessage` last-wins on multiple write failures | ResearchViewModel.report | Cosmetic; an aggregate toast would be better. Fold into any error-UX pass. |
+| HuggingFaceDownloader buffers whole files in RAM, no resume | HuggingFaceDownloader.swift | Multi-GB peak + restart-from-zero on network blips. Fix before any public-facing release (first-run experience). |
+| Legacy tables `record_rejections`, `field_researcher_sessions` | ProjectDatabase migrations | Annotated, not dropped. Drop in the pre-CloudKit schema pass (Phase 3) so they're never projected. |
+| App Store description text (model-agnostic rewrite) | fastlane/metadata | Committed in repo; ships with the next `mac metadata` lane run — no dedicated submission. |
+| Transactional core for synchronous persist writes (evidence+hypotheses+run row) | ResearchRunService.persist | Blocked on LeadStore actor shape (can't hold a GRDB write txn across awaits). Revisit with LeadStore changes. |
+| Incremental persistence (write as sources complete) | engine architecture | The real destination for run persistence; pairs with moving ResearchPipeline off MainActor (Phase 5 / iPad-era work). |
+| Watcher spouse-edge materialisation asymmetry | acceptProposedRelative (VM-only slice-11 step) | Auto-accept doesn't materialise parents' spouse edges; UI accept does. Unify when auto-accept graduates beyond the dev build flag. |
