@@ -76,8 +76,9 @@ FieldResearcherMCP/Package.resolved
 SourceTests/.build/
 SourceTests/Package.resolved
 
-# Downloaded MLX models (multi-GB)
-models/
+# Downloaded MLX models (multi-GB) — anchored to repo root so the rule
+# cannot swallow Swift sources under "Ancestor Research/Models/"
+/models/
 
 # Captured fixture data (may contain real personal records)
 SourceTests/Fixtures/
