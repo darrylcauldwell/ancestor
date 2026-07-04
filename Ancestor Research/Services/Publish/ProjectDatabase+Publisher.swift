@@ -104,4 +104,17 @@ nonisolated extension ProjectDatabase {
             try Int.fetchOne(db, sql: "SELECT generation FROM publish_meta WHERE id = 1") ?? 0
         }
     }
+
+    /// Commit a successful publish (PublishEngine only; called after all
+    /// records are server-acked so the generation is strictly monotonic
+    /// and survives nuke-and-republish per spec Change 4).
+    func setPublishGeneration(_ generation: Int, publishedAt: Date) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO publish_meta (id, generation, last_published_at) VALUES (1, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET generation = excluded.generation,
+                    last_published_at = excluded.last_published_at
+                """, arguments: [generation, publishedAt])
+        }
+    }
 }

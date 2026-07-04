@@ -47,24 +47,10 @@ nonisolated enum FamilyBundleExporter {
             throw FamilyBundleExportError.destinationExists(bundleDirectory)
         }
 
-        // Assemble projection inputs from canonical + publisher tables.
-        let snapshot = try db.buildSnapshot()
-        let project = try db.loadProjectMeta()
-        var identity = PublishedIdentity(existing: try db.loadPublishedIdentityMap())
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
-        let inputs = PublishedTree.Inputs(
-            snapshot: snapshot,
-            lifeEvents: try db.loadAllLifeEvents(),
-            attachments: try db.loadAttachments(),
-            policies: try db.loadPublishPolicies(),
-            mediaOptIns: try db.loadPublishMediaOptIns(),
-            convergenceByProfile: [:],   // wired when run envelopes carry convergence (Change 4/6)
-            rootProfileID: project?.homePersonID,
-            currentYear: calendar.component(.year, from: now),
-            generation: try db.loadPublishGeneration(),
-            publishedAtISO: ISO8601DateFormatter().string(from: now)
-        )
+        // Shared assembly (PublishInputs) so bundle and CloudKit publishes
+        // can never drift. Bundles carry the CURRENT generation, read-only.
+        var (inputs, identity) = try PublishInputs.load(
+            db: db, now: now, generation: try db.loadPublishGeneration())
         let tree = PublishedTree.project(inputs, identity: &identity)
 
         // Write the bundle. Deterministic bytes: sortedKeys + stable
