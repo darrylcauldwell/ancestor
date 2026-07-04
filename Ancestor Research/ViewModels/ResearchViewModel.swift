@@ -93,6 +93,35 @@ final class ResearchViewModel {
 
     private let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "ResearchVM")
 
+    // MARK: - Persistence error surfacing
+
+    /// Run a persistence operation whose failure used to be `try?`-swallowed.
+    /// A failed write must never look like success (the accept-flow bug
+    /// class): failures are logged and surfaced via `errorMessage`.
+    /// Returns nil on failure so call sites keep their optional flow.
+    @discardableResult
+    private func persist<T>(_ what: String, _ op: () throws -> T) -> T? {
+        do {
+            return try op()
+        } catch {
+            logger.error("\(what) failed: \(error.localizedDescription)")
+            errorMessage = "\(what) failed: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    /// Async variant of `persist(_:_:)`.
+    @discardableResult
+    private func persist<T>(_ what: String, _ op: () async throws -> T) async -> T? {
+        do {
+            return try await op()
+        } catch {
+            logger.error("\(what) failed: \(error.localizedDescription)")
+            errorMessage = "\(what) failed: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
     /// Status of each source during a research run.
     struct SourceStatus: Identifiable {
         let id: String
@@ -427,7 +456,7 @@ final class ResearchViewModel {
                 if let filter = leadFilter, !filter.accepts(scored) {
                     continue
                 }
-                _ = try? await leadStore.createFromScoredRecord(scored, profileID: profileID)
+                await persist("Save lead") { try await leadStore.createFromScoredRecord(scored, profileID: profileID) }
             }
             for member in result.householdMembers {
                 let censusYear = result.allScoredRecords
@@ -435,7 +464,7 @@ final class ResearchViewModel {
                         if case .census(let c) = r.record { return c.censusYear }
                         return nil
                     }.first ?? 1861
-                _ = try? await leadStore.createFromHouseholdMember(member, profileID: profileID, censusYear: censusYear)
+                await persist("Save household lead") { try await leadStore.createFromHouseholdMember(member, profileID: profileID, censusYear: censusYear) }
             }
 
             let searchedSources = Set(result.allScoredRecords.map(\.record.sourceID))
@@ -445,17 +474,19 @@ final class ResearchViewModel {
                 searchedSourceCount: searchedSources.count,
                 totalSourceCount: registry.allSources().count
             )
-            try? db.saveResearchRun(
-                id: UUID(),
-                profileID: profileID,
-                mode: selectedMode,
-                startedAt: Date(),
-                completedAt: Date(),
-                factCount: result.confirmedFacts.count,
-                leadCount: result.leads.count,
-                clusterCount: result.clusters.count,
-                gpsScore: gps.score
-            )
+            persist("Save research run") {
+                try db.saveResearchRun(
+                    id: UUID(),
+                    profileID: profileID,
+                    mode: selectedMode,
+                    startedAt: Date(),
+                    completedAt: Date(),
+                    factCount: result.confirmedFacts.count,
+                    leadCount: result.leads.count,
+                    clusterCount: result.clusters.count,
+                    gpsScore: gps.score
+                )
+            }
         }
 
         // Lead path: flip status to .investigated so the Leads tab reflects
@@ -472,7 +503,7 @@ final class ResearchViewModel {
                 investigatedAt: Date(),
                 resolvedAt: lead.resolvedAt, resolution: lead.resolution
             )
-            try? db.saveLead(updated)
+            persist("Update lead status") { try db.saveLead(updated) }
             selectedLead = updated
         }
     }
@@ -738,10 +769,10 @@ final class ResearchViewModel {
         clusterDecisions[cluster.id] = .accepted
         guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
         let ids = cluster.records.map(\.record.id)
-        try? db.updateEvidenceUserStatus(profileID: profileID, sourceRecordIDs: ids, status: .savedAsLead)
+        persist("Save evidence status") { try db.updateEvidenceUserStatus(profileID: profileID, sourceRecordIDs: ids, status: .savedAsLead) }
         for scored in cluster.records {
             if let event = scored.record.projectToLifeEvent(profileID: profileID) {
-                _ = try? db.addLifeEventIfAbsent(event)
+                persist("Save life event") { try db.addLifeEventIfAbsent(event) }
             }
         }
     }
@@ -760,7 +791,7 @@ final class ResearchViewModel {
         clusterDecisions[cluster.id] = .accepted
         guard let db = appState.currentDatabase, let profile = selectedProfile else { return }
         let ids = cluster.records.map(\.record.id)
-        try? db.updateEvidenceUserStatus(profileID: profile.id, sourceRecordIDs: ids, status: .savedAsLead)
+        persist("Save evidence status") { try db.updateEvidenceUserStatus(profileID: profile.id, sourceRecordIDs: ids, status: .savedAsLead) }
 
         for scored in cluster.records {
             // Per-record overrides win over gate predicate.
@@ -780,11 +811,13 @@ final class ResearchViewModel {
             // Non-BMD records (census/burial/probate/parish) still get a LifeEvent
             // — same path acceptCluster takes. BMD records return nil here.
             if let event = scored.record.projectToLifeEvent(profileID: profile.id) {
-                _ = try? db.addLifeEventIfAbsent(event)
+                persist("Save life event") { try db.addLifeEventIfAbsent(event) }
             }
         }
 
-        appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+        if let snap = persist("Refresh tree snapshot", { try db.buildSnapshot() }) {
+            appState.snapshot = snap
+        }
     }
 
     // MARK: - Per-record overrides (Task #35)
@@ -798,16 +831,20 @@ final class ResearchViewModel {
     func applyRecord(_ scored: ScoredRecord, into appState: AppState) {
         recordDecisions[scored.id] = .accepted
         guard let db = appState.currentDatabase, let profile = selectedProfile else { return }
-        try? db.updateEvidenceUserStatus(
-            profileID: profile.id,
-            sourceRecordIDs: [scored.record.id],
-            status: .savedAsLead
-        )
+        persist("Save evidence status") {
+            try db.updateEvidenceUserStatus(
+                profileID: profile.id,
+                sourceRecordIDs: [scored.record.id],
+                status: .savedAsLead
+            )
+        }
         applyFactToSubject(scored, profile: profile, snapshot: appState.snapshot, db: db)
         if let event = scored.record.projectToLifeEvent(profileID: profile.id) {
-            _ = try? db.addLifeEventIfAbsent(event)
+            persist("Save life event") { try db.addLifeEventIfAbsent(event) }
         }
-        appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+        if let snap = persist("Refresh tree snapshot", { try db.buildSnapshot() }) {
+            appState.snapshot = snap
+        }
     }
 
     /// Discard a single record from a cluster — marks `user_status = discarded`
@@ -817,12 +854,14 @@ final class ResearchViewModel {
     func discardRecord(_ scored: ScoredRecord) {
         recordDecisions[scored.id] = .rejected
         guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
-        try? db.updateEvidenceUserStatus(
-            profileID: profileID,
-            sourceRecordIDs: [scored.record.id],
-            status: .discarded
-        )
-        try? db.saveRejection(profileID: profileID, recordID: scored.record.id)
+        persist("Save discard status") {
+            try db.updateEvidenceUserStatus(
+                profileID: profileID,
+                sourceRecordIDs: [scored.record.id],
+                status: .discarded
+            )
+        }
+        persist("Save rejection") { try db.saveRejection(profileID: profileID, recordID: scored.record.id) }
     }
 
     /// Clear a per-record decision so it falls back to the cluster's
@@ -830,11 +869,13 @@ final class ResearchViewModel {
     func resetRecordDecision(_ scored: ScoredRecord) {
         recordDecisions.removeValue(forKey: scored.id)
         guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
-        try? db.updateEvidenceUserStatus(
-            profileID: profileID,
-            sourceRecordIDs: [scored.record.id],
-            status: .unreviewed
-        )
+        persist("Reset record status") {
+            try db.updateEvidenceUserStatus(
+                profileID: profileID,
+                sourceRecordIDs: [scored.record.id],
+                status: .unreviewed
+            )
+        }
     }
 
     /// True when the record is a marriage AND the scorer's `familyContext`
@@ -915,11 +956,13 @@ final class ResearchViewModel {
 
         let dateCandidate = Self.bmdDate(year: m.marriageYear, quarter: m.quarter, exact: m.marriageDate)
         let locationCandidate = m.marriagePlace ?? m.district
-        _ = try? db.fillRelationshipMarriage(
-            relationshipID: edge.id,
-            candidateDate: dateCandidate,
-            candidateLocation: locationCandidate
-        )
+        persist("Record marriage on spouse edge") {
+            try db.fillRelationshipMarriage(
+                relationshipID: edge.id,
+                candidateDate: dateCandidate,
+                candidateLocation: locationCandidate
+            )
+        }
     }
 
     private func applyDateField(
@@ -932,9 +975,9 @@ final class ResearchViewModel {
     ) {
         guard let candidate else { return }
         if Self.shouldOverwriteDateField(existing: existing, candidate: candidate) {
-            _ = try? db.editProfile(profileID: profileID, changes: [], dateChanges: [(field, existing, candidate)], source: origin)
+            persist("Apply \(field) date") { try db.editProfile(profileID: profileID, changes: [], dateChanges: [(field, existing, candidate)], source: origin) }
         } else {
-            _ = try? db.recordAlternativeFact(profileID: profileID, field: field, rawValue: candidate.original, source: origin)
+            persist("Record alternative \(field) fact") { try db.recordAlternativeFact(profileID: profileID, field: field, rawValue: candidate.original, source: origin) }
         }
     }
 
@@ -977,9 +1020,9 @@ final class ResearchViewModel {
     ) {
         guard let trimmed = candidate?.trimmingCharacters(in: .whitespaces), !trimmed.isEmpty else { return }
         if Self.shouldOverwriteStringField(existing: existing, existingSources: existingSources, candidateOrigin: origin) {
-            _ = try? db.editProfile(profileID: profileID, changes: [(field, existing, trimmed)], dateChanges: [], source: origin)
+            persist("Apply \(field) value") { try db.editProfile(profileID: profileID, changes: [(field, existing, trimmed)], dateChanges: [], source: origin) }
         } else {
-            _ = try? db.recordAlternativeFact(profileID: profileID, field: field, rawValue: trimmed, source: origin)
+            persist("Record alternative \(field) fact") { try db.recordAlternativeFact(profileID: profileID, field: field, rawValue: trimmed, source: origin) }
         }
     }
 
@@ -1039,9 +1082,9 @@ final class ResearchViewModel {
         clusterDecisions[cluster.id] = .rejected
         guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
         let ids = cluster.records.map(\.record.id)
-        try? db.updateEvidenceUserStatus(profileID: profileID, sourceRecordIDs: ids, status: .discarded)
+        persist("Save discard status") { try db.updateEvidenceUserStatus(profileID: profileID, sourceRecordIDs: ids, status: .discarded) }
         for record in cluster.records {
-            try? db.saveRejection(profileID: profileID, recordID: record.id)
+            persist("Save rejection") { try db.saveRejection(profileID: profileID, recordID: record.id) }
         }
     }
 
@@ -1054,7 +1097,7 @@ final class ResearchViewModel {
         clusterDecisions.removeValue(forKey: cluster.id)
         guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
         let ids = cluster.records.map(\.record.id)
-        try? db.updateEvidenceUserStatus(profileID: profileID, sourceRecordIDs: ids, status: .unreviewed)
+        persist("Reset record status") { try db.updateEvidenceUserStatus(profileID: profileID, sourceRecordIDs: ids, status: .unreviewed) }
     }
 
     func deferCluster(_ cluster: LifeCluster) {
@@ -1095,13 +1138,15 @@ final class ResearchViewModel {
     /// final say when the subject's profile is too sparse for the scorer.
     func overrideRejection(_ scored: ScoredRecord) {
         guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
-        try? db.updateEvidenceUserStatus(
-            profileID: profileID,
-            sourceRecordIDs: [scored.record.id],
-            status: .savedAsLead
-        )
+        persist("Save evidence status") {
+            try db.updateEvidenceUserStatus(
+                profileID: profileID,
+                sourceRecordIDs: [scored.record.id],
+                status: .savedAsLead
+            )
+        }
         if let event = scored.record.projectToLifeEvent(profileID: profileID) {
-            _ = try? db.addLifeEventIfAbsent(event)
+            persist("Save life event") { try db.addLifeEventIfAbsent(event) }
         }
         // Flip the observable signal so SwiftUI re-renders the row.
         overriddenRecordIDs.insert(scored.record.id)
@@ -1159,8 +1204,23 @@ final class ResearchViewModel {
         guard let db = appDatabase, let profileID = selectedProfile?.id else {
             return proposals
         }
-        let rejected = (try? db.loadRejections(profileID: profileID)) ?? []
+        let rejected = Self.loadRejectionsLogged(db: db, profileID: profileID, logger: logger)
         return proposals.filter { !rejected.contains($0.id) }
+    }
+
+    /// Read-path helper: rejection loads can run during view rendering,
+    /// so failures log (no `errorMessage` mutation mid-render) and fall
+    /// back to unfiltered — previously-rejected items resurfacing is
+    /// visible, not silent data loss.
+    nonisolated private static func loadRejectionsLogged(
+        db: ProjectDatabase, profileID: String, logger: Logger
+    ) -> Set<String> {
+        do {
+            return try db.loadRejections(profileID: profileID)
+        } catch {
+            logger.error("Load rejections failed — proposals shown unfiltered: \(error.localizedDescription)")
+            return []
+        }
     }
 
     /// Accept a proposed relative: create a ghost Profile + parent-of
@@ -1212,7 +1272,9 @@ final class ResearchViewModel {
                 // surfaces the trio for the user to merge manually.
                 _ = try db.acceptProposedRelative(proposal)
             }
-            appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+            if let snap = persist("Refresh tree snapshot", { try db.buildSnapshot() }) {
+                appState.snapshot = snap
+            }
             proposedRelativeDecisions[proposal.id] = .accepted
 
             // Slice 11 — when both parents are now linked AND a supported
@@ -1223,13 +1285,17 @@ final class ResearchViewModel {
             // refreshed the snapshot, so the just-accepted parent is in
             // the graph.
             if let result = currentResult {
-                _ = try? db.ensureSpouseEdgeForParents(
-                    ofSubject: subjectID,
-                    hypotheses: result.hypotheses,
-                    scoredRecords: result.allScoredRecords,
-                    snapshot: appState.snapshot
-                )
-                appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+                persist("Materialise parents' spouse edge") {
+                    try db.ensureSpouseEdgeForParents(
+                        ofSubject: subjectID,
+                        hypotheses: result.hypotheses,
+                        scoredRecords: result.allScoredRecords,
+                        snapshot: appState.snapshot
+                    )
+                }
+                if let snap = persist("Refresh tree snapshot", { try db.buildSnapshot() }) {
+                    appState.snapshot = snap
+                }
             }
         } catch {
             errorMessage = "Failed to create relative: \(error.localizedDescription)"
@@ -1291,12 +1357,14 @@ final class ResearchViewModel {
               let upgrade = Self.firstNameUpgrade(for: proposal, existing: existing)
         else { return }
         let origin = SourceOrigin(identifier: proposal.evidence.first?.record.sourceID ?? "freebmd")
-        _ = try? db.editProfile(
-            profileID: existingID,
-            changes: [(.firstName, nil, upgrade)],
-            dateChanges: [],
-            source: origin
-        )
+        persist("Upgrade ghost first name") {
+            try db.editProfile(
+                profileID: existingID,
+                changes: [(.firstName, nil, upgrade)],
+                dateChanges: [],
+                source: origin
+            )
+        }
     }
 
     /// Slice 12 pure-function gate. Returns the canonical first-name to
@@ -1348,13 +1416,16 @@ final class ResearchViewModel {
            let given = proposal.proposedGivenName?.trimmingCharacters(in: .whitespaces),
            !given.isEmpty {
             let origin = SourceOrigin(identifier: proposal.evidence.first?.record.sourceID ?? "freebmd")
-            _ = try? db.editProfile(
-                profileID: parent.id,
-                changes: [(.firstName, nil, given.capitalized)],
-                dateChanges: [],
-                source: origin
-            )
-            written += 1
+            if persist("Apply parent given name", {
+                try db.editProfile(
+                    profileID: parent.id,
+                    changes: [(.firstName, nil, given.capitalized)],
+                    dateChanges: [],
+                    source: origin
+                )
+            }) != nil {
+                written += 1
+            }
         }
 
         // Cross-validating records (evidence after the originating birth).
@@ -1374,19 +1445,24 @@ final class ResearchViewModel {
                 guard let edge else { break }
                 let dateCandidate = Self.bmdDate(year: m.marriageYear, quarter: m.quarter, exact: m.marriageDate)
                 let locationCandidate = m.marriagePlace ?? m.district
-                _ = try? db.fillRelationshipMarriage(
-                    relationshipID: edge.id,
-                    candidateDate: dateCandidate,
-                    candidateLocation: locationCandidate
-                )
-                written += 1
+                if persist("Record marriage on spouse edge", {
+                    try db.fillRelationshipMarriage(
+                        relationshipID: edge.id,
+                        candidateDate: dateCandidate,
+                        candidateLocation: locationCandidate
+                    )
+                }) != nil {
+                    written += 1
+                }
             default:
                 break
             }
         }
 
         if written > 0 {
-            appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+            if let snap = persist("Refresh tree snapshot", { try db.buildSnapshot() }) {
+                appState.snapshot = snap
+            }
             proposedRelativeDecisions[proposal.id] = .accepted
         }
         return written
@@ -1397,7 +1473,7 @@ final class ResearchViewModel {
     func rejectProposedRelative(_ proposal: ProposedRelative) {
         proposedRelativeDecisions[proposal.id] = .rejected
         guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
-        try? db.saveRejection(profileID: profileID, recordID: proposal.id)
+        persist("Save rejection") { try db.saveRejection(profileID: profileID, recordID: proposal.id) }
     }
 
     // MARK: - Sibling Proposal Decisions
@@ -1428,7 +1504,7 @@ final class ResearchViewModel {
         guard let db = appDatabase, let profileID = selectedProfile?.id else {
             return proposals
         }
-        let rejected = (try? db.loadRejections(profileID: profileID)) ?? []
+        let rejected = Self.loadRejectionsLogged(db: db, profileID: profileID, logger: logger)
         return proposals.filter { !rejected.contains($0.id) }
     }
 
@@ -1461,7 +1537,9 @@ final class ResearchViewModel {
             case .noMatch, .multipleMatches:
                 _ = try db.acceptSiblingProposal(proposal)
             }
-            appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+            if let snap = persist("Refresh tree snapshot", { try db.buildSnapshot() }) {
+                appState.snapshot = snap
+            }
             siblingDecisions[proposal.id] = .accepted
         } catch {
             errorMessage = "Failed to create sibling: \(error.localizedDescription)"
@@ -1525,7 +1603,9 @@ final class ResearchViewModel {
             try Self.applyBirthYearCandidate(
                 hypothesis, snapshot: appState.snapshot, db: db
             )
-            appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+            if let snap = persist("Refresh tree snapshot", { try db.buildSnapshot() }) {
+                appState.snapshot = snap
+            }
         } catch ApplyBirthYearCandidateError.notSupported,
                 ApplyBirthYearCandidateError.wrongKind {
             // Defensive guards — UI shouldn't expose Accept for these,
@@ -1589,7 +1669,7 @@ final class ResearchViewModel {
     func rejectSibling(_ proposal: SiblingProposal) {
         siblingDecisions[proposal.id] = .rejected
         guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
-        try? db.saveRejection(profileID: profileID, recordID: proposal.id)
+        persist("Save rejection") { try db.saveRejection(profileID: profileID, recordID: proposal.id) }
     }
 
     var acceptedClusters: [LifeCluster] {
@@ -1674,7 +1754,9 @@ final class ResearchViewModel {
 
         // Refresh snapshot so the new ghost is reachable for downstream
         // operations (apply paths look it up by ID).
-        appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+        if let snap = persist("Refresh tree snapshot", { try db.buildSnapshot() }) {
+            appState.snapshot = snap
+        }
 
         // Persist the in-memory research result under the new profile. Same
         // shape as the profile-research path's persistence block, just
@@ -1706,17 +1788,19 @@ final class ResearchViewModel {
                 searchedSourceCount: Set(registrySources).count,
                 totalSourceCount: max(Set(registrySources).count, 1)
             )
-            try? db.saveResearchRun(
-                id: UUID(),
-                profileID: ghostID,
-                mode: selectedMode,
-                startedAt: Date(),
-                completedAt: Date(),
-                factCount: result.confirmedFacts.count,
-                leadCount: result.leads.count,
-                clusterCount: result.clusters.count,
-                gpsScore: gps.score
-            )
+            persist("Save research run") {
+                try db.saveResearchRun(
+                    id: UUID(),
+                    profileID: ghostID,
+                    mode: selectedMode,
+                    startedAt: Date(),
+                    completedAt: Date(),
+                    factCount: result.confirmedFacts.count,
+                    leadCount: result.leads.count,
+                    clusterCount: result.clusters.count,
+                    gpsScore: gps.score
+                )
+            }
         }
 
         // Hand subject identity over to the new ghost so Triage's apply
