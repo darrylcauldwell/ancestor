@@ -1052,39 +1052,15 @@ final class ResearchViewModel {
             return
         }
         do {
-            let candidates = Array(appState.snapshot.profiles.values)
-            switch ProposalDedup.decide(
-                query: ProposalDedup.Query(parentProposal: proposal),
-                candidates: candidates
-            ) {
-            case .matched(let existingID):
-                try ensureParentEdge(
-                    fromExistingProfile: existingID,
-                    toSubject: subjectID,
-                    role: parentRole(for: proposal.gender),
-                    in: appState.snapshot,
-                    db: db
-                )
-                // Slice 12 — lossless upgrade. The matched existing ghost
-                // may have been created by an earlier run (e.g. surname-only
-                // before the parent-marriage was findable). Today's proposal
-                // carries a recovered given name from the marriage cross-
-                // reference. Fill the existing ghost's `first_name` rather
-                // than leaving the user with "Land — 1/7" forever. Never
-                // overwrite an existing first_name (that would be an
-                // identity correction, not an enrichment).
-                upgradeGhostFirstNameIfApplicable(
-                    existingID: existingID,
-                    proposal: proposal,
-                    in: appState,
-                    db: db
-                )
-            case .noMatch, .multipleMatches:
-                // multipleMatches still creates new — CLAUDE.md "When
-                // in doubt, split". Audit's duplicateDetection rule
-                // surfaces the trio for the user to merge manually.
-                _ = try db.acceptProposedRelative(proposal)
-            }
+            var failures: [ApplyEngine.WriteFailure] = []
+            _ = try ApplyEngine.acceptParentProposal(
+                proposal,
+                subjectID: subjectID,
+                snapshot: appState.snapshot,
+                db: db,
+                failures: &failures
+            )
+            report(failures)
             if let snap = persist("Refresh tree snapshot", { try db.buildSnapshot() }) {
                 appState.snapshot = snap
             }
@@ -1113,92 +1089,6 @@ final class ResearchViewModel {
         } catch {
             errorMessage = "Failed to create relative: \(error.localizedDescription)"
         }
-    }
-
-    /// Add a parent → subject edge using the existing profile, only
-    /// when no equivalent edge already exists. Idempotent — repeated
-    /// calls do nothing after the first.
-    private func ensureParentEdge(
-        fromExistingProfile parentID: String,
-        toSubject subjectID: String,
-        role: ParentRole,
-        in snapshot: FamilyGraphSnapshot,
-        db: ProjectDatabase
-    ) throws {
-        // Snapshot-level pre-check avoids the DB round-trip when we
-        // already know the edge is there.
-        let existingParents = Set(snapshot.parentsOf(subjectID).map(\.id))
-        guard !existingParents.contains(parentID) else { return }
-
-        let edge = Relationship(
-            id: UUID(),
-            from: parentID,
-            to: subjectID,
-            type: .parent,
-            role: role,
-            subtype: .biological,
-            marriageDate: nil,
-            marriageLocation: nil,
-            divorceDate: nil
-        )
-        _ = try db.addRelationshipIfAbsent(edge)
-    }
-
-    private func parentRole(for gender: Gender?) -> ParentRole {
-        switch gender {
-        case .male:   .father
-        case .female: .mother
-        default:      .unspecified
-        }
-    }
-
-    /// Slice 12 — given-name upgrade-on-accept. When the dedup matched
-    /// an existing surname-only ghost AND the proposal carries a
-    /// recovered given name (from the parent-marriage cross-reference),
-    /// fill the ghost's `first_name`. This closes the gap surfaced by
-    /// the user's Land profile staying surname-only after accepting
-    /// "Ida L Land" — the dedup matched the existing surname-only
-    /// ghost from a prior run, so no new profile was created and the
-    /// given name was effectively discarded.
-    private func upgradeGhostFirstNameIfApplicable(
-        existingID: String,
-        proposal: ProposedRelative,
-        in appState: AppState,
-        db: ProjectDatabase
-    ) {
-        guard let existing = appState.snapshot.profiles[existingID],
-              let upgrade = Self.firstNameUpgrade(for: proposal, existing: existing)
-        else { return }
-        let origin = SourceOrigin(identifier: proposal.evidence.first?.record.sourceID ?? "freebmd")
-        persist("Upgrade ghost first name") {
-            try db.editProfile(
-                profileID: existingID,
-                changes: [(.firstName, nil, upgrade)],
-                dateChanges: [],
-                source: origin
-            )
-        }
-    }
-
-    /// Slice 12 pure-function gate. Returns the canonical first-name to
-    /// write iff the existing ghost has no first_name AND the proposal
-    /// carries a non-empty proposedGivenName. Never overwrites an
-    /// existing non-empty first_name (that would be an identity
-    /// correction, not a recovery). Capitalised for consistency with
-    /// the rest of the editProfile pipeline. Extracted as a static for
-    /// unit testing.
-    static func firstNameUpgrade(
-        for proposal: ProposedRelative,
-        existing: Profile
-    ) -> String? {
-        let currentFirstName = (existing.firstName ?? "")
-            .trimmingCharacters(in: .whitespaces)
-        guard currentFirstName.isEmpty else { return nil }
-        guard let proposed = proposal.proposedGivenName?
-                .trimmingCharacters(in: .whitespaces),
-              !proposed.isEmpty
-        else { return nil }
-        return proposed.capitalized
     }
 
     /// Apply enrichment data from an already-linked proposed relative onto

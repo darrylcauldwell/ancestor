@@ -231,6 +231,157 @@ nonisolated struct ApplyEngine {
         return GenealogicalDate(parsing: String(year))
     }
 
+    // MARK: - Proposal-level accept (parent proposals)
+
+    /// Outcome of accepting a parent proposal — callers use it for
+    /// bookkeeping (UI decision state, auto-accept promotion counts).
+    enum ProposalAcceptOutcome {
+        case linkedExisting(String)
+        case createdNew
+    }
+
+    /// The single parent-proposal accept path: dedup against existing
+    /// profiles, link-or-create, and the lossless given-name upgrade.
+    /// Shared by the UI accept flow and the run-watcher auto-accept so
+    /// the two can never diverge — the watcher previously called
+    /// `db.acceptProposedRelative` directly, bypassing dedup, and could
+    /// create duplicate ghosts the UI path would have linked.
+    ///
+    /// The essential link/create write throws; the non-essential
+    /// given-name upgrade reports into `failures` instead so its failure
+    /// never aborts an otherwise-successful accept.
+    ///
+    /// `@MainActor` because `ProposalDedup` is main-actor-isolated (project
+    /// default isolation); both callers (the ViewModel and the run watcher)
+    /// are main-actor anyway.
+    @MainActor
+    static func acceptParentProposal(
+        _ proposal: ProposedRelative,
+        subjectID: String,
+        snapshot: FamilyGraphSnapshot,
+        db: ProjectDatabase,
+        failures: inout [WriteFailure]
+    ) throws -> ProposalAcceptOutcome {
+        let candidates = Array(snapshot.profiles.values)
+        switch ProposalDedup.decide(
+            query: ProposalDedup.Query(parentProposal: proposal),
+            candidates: candidates
+        ) {
+        case .matched(let existingID):
+            try ensureParentEdge(
+                fromExistingProfile: existingID,
+                toSubject: subjectID,
+                role: parentRole(for: proposal.gender),
+                in: snapshot,
+                db: db
+            )
+            // Slice 12 — lossless upgrade. The matched existing ghost
+            // may have been created by an earlier run (e.g. surname-only
+            // before the parent-marriage was findable). Today's proposal
+            // carries a recovered given name from the marriage cross-
+            // reference. Fill the existing ghost's `first_name` rather
+            // than leaving the user with "Land — 1/7" forever. Never
+            // overwrite an existing first_name (that would be an
+            // identity correction, not an enrichment).
+            upgradeGhostFirstNameIfApplicable(
+                existingID: existingID,
+                proposal: proposal,
+                snapshot: snapshot,
+                db: db,
+                failures: &failures
+            )
+            return .linkedExisting(existingID)
+        case .noMatch, .multipleMatches:
+            // multipleMatches still creates new — CLAUDE.md "When
+            // in doubt, split". Audit's duplicateDetection rule
+            // surfaces the trio for the user to merge manually.
+            _ = try db.acceptProposedRelative(proposal)
+            return .createdNew
+        }
+    }
+
+    /// Add a parent → subject edge using the existing profile, only
+    /// when no equivalent edge already exists. Idempotent — repeated
+    /// calls do nothing after the first.
+    private static func ensureParentEdge(
+        fromExistingProfile parentID: String,
+        toSubject subjectID: String,
+        role: ParentRole,
+        in snapshot: FamilyGraphSnapshot,
+        db: ProjectDatabase
+    ) throws {
+        // Snapshot-level pre-check avoids the DB round-trip when we
+        // already know the edge is there.
+        let existingParents = Set(snapshot.parentsOf(subjectID).map(\.id))
+        guard !existingParents.contains(parentID) else { return }
+
+        let edge = Relationship(
+            id: UUID(),
+            from: parentID,
+            to: subjectID,
+            type: .parent,
+            role: role,
+            subtype: .biological,
+            marriageDate: nil,
+            marriageLocation: nil,
+            divorceDate: nil
+        )
+        _ = try db.addRelationshipIfAbsent(edge)
+    }
+
+    private static func parentRole(for gender: Gender?) -> ParentRole {
+        switch gender {
+        case .male:   .father
+        case .female: .mother
+        default:      .unspecified
+        }
+    }
+
+    /// Slice 12 — given-name upgrade-on-accept. When the dedup matched
+    /// an existing surname-only ghost AND the proposal carries a
+    /// recovered given name (from the parent-marriage cross-reference),
+    /// fill the ghost's `first_name`.
+    private static func upgradeGhostFirstNameIfApplicable(
+        existingID: String,
+        proposal: ProposedRelative,
+        snapshot: FamilyGraphSnapshot,
+        db: ProjectDatabase,
+        failures: inout [WriteFailure]
+    ) {
+        guard let existing = snapshot.profiles[existingID],
+              let upgrade = firstNameUpgrade(for: proposal, existing: existing)
+        else { return }
+        let origin = SourceOrigin(identifier: proposal.evidence.first?.record.sourceID ?? "freebmd")
+        attempt("Upgrade ghost first name", into: &failures) {
+            try db.editProfile(
+                profileID: existingID,
+                changes: [(.firstName, nil, upgrade)],
+                dateChanges: [],
+                source: origin
+            )
+        }
+    }
+
+    /// Slice 12 pure-function gate. Returns the canonical first-name to
+    /// write iff the existing ghost has no first_name AND the proposal
+    /// carries a non-empty proposedGivenName. Never overwrites an
+    /// existing non-empty first_name (that would be an identity
+    /// correction, not a recovery). Capitalised for consistency with
+    /// the rest of the editProfile pipeline. Static for unit testing.
+    static func firstNameUpgrade(
+        for proposal: ProposedRelative,
+        existing: Profile
+    ) -> String? {
+        let currentFirstName = (existing.firstName ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        guard currentFirstName.isEmpty else { return nil }
+        guard let proposed = proposal.proposedGivenName?
+                .trimmingCharacters(in: .whitespaces),
+              !proposed.isEmpty
+        else { return nil }
+        return proposed.capitalized
+    }
+
     // MARK: - Birth-year candidate
 
     /// Pure apply: does the actual write through `ProjectDatabase`.

@@ -323,17 +323,29 @@ final class RunRequestWatcher {
             // identity narrowing above.
             let hasFact = proposal.evidence.contains { $0.verdict == .fact }
             guard hasFact else { continue }
-            // Skip if a parent with this surname + gender is already linked —
-            // mirrors the "Already linked" UI suppression in cluster review.
-            if case .parentOf(let subjectID) = proposal.relationship {
-                let already = appState.snapshot.parentsOf(subjectID).contains { p in
-                    p.gender == proposal.gender &&
-                    (p.lastName ?? "").caseInsensitiveCompare(proposal.proposedSurname ?? "") == .orderedSame
-                }
-                if already { continue }
+            guard case .parentOf(let subjectID) = proposal.relationship else { continue }
+            // Phase 1 slice 4: the SAME accept path as the UI
+            // (ApplyEngine.acceptParentProposal) — dedup decides link vs
+            // create, so auto-accept can no longer mint duplicate ghosts
+            // the UI path would have linked, and an already-linked parent
+            // is an idempotent no-op (plus given-name upgrade) instead of
+            // a bypassed skip.
+            var failures: [ApplyEngine.WriteFailure] = []
+            do {
+                _ = try ApplyEngine.acceptParentProposal(
+                    proposal,
+                    subjectID: subjectID,
+                    snapshot: appState.snapshot,
+                    db: db,
+                    failures: &failures
+                )
+                promoted += 1
+            } catch {
+                logger.error("Auto-accept promote failed for \(proposal.id): \(error.localizedDescription)")
             }
-            _ = try? db.acceptProposedRelative(proposal)
-            promoted += 1
+            for f in failures {
+                logger.error("\(f.what) failed: \(f.error.localizedDescription)")
+            }
         }
         return promoted
     }

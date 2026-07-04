@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Slice 12 — `ResearchViewModel.firstNameUpgrade(for:existing:)` pure
+/// Slice 12 — `ApplyEngine.firstNameUpgrade(for:existing:)` pure
 /// gating logic. Returns the canonical first name to write when the
 /// existing ghost is surname-only AND the proposal carries a recovered
 /// given name; nil otherwise. Closes the gap surfaced by Lilian's
@@ -55,7 +55,7 @@ struct GivenNameUpgradeOnAcceptTests {
         // returns "Ida L" so the caller writes it via editProfile.
         let existing = makeProfile(firstName: nil)
         let proposal = makeProposal(proposedGivenName: "Ida L")
-        let upgrade = ResearchViewModel.firstNameUpgrade(for: proposal, existing: existing)
+        let upgrade = ApplyEngine.firstNameUpgrade(for: proposal, existing: existing)
         #expect(upgrade == "Ida L")
     }
 
@@ -64,7 +64,7 @@ struct GivenNameUpgradeOnAcceptTests {
         // path should normalise so the profile stores "John" not "JOHN".
         let existing = makeProfile(firstName: nil)
         let proposal = makeProposal(proposedGivenName: "george h")
-        let upgrade = ResearchViewModel.firstNameUpgrade(for: proposal, existing: existing)
+        let upgrade = ApplyEngine.firstNameUpgrade(for: proposal, existing: existing)
         #expect(upgrade == "George H")
     }
 
@@ -77,7 +77,7 @@ struct GivenNameUpgradeOnAcceptTests {
         // via discrepancy, don't silently rewrite.
         let existing = makeProfile(firstName: "Mary")
         let proposal = makeProposal(proposedGivenName: "Ida L")
-        let upgrade = ResearchViewModel.firstNameUpgrade(for: proposal, existing: existing)
+        let upgrade = ApplyEngine.firstNameUpgrade(for: proposal, existing: existing)
         #expect(upgrade == nil)
     }
 
@@ -86,14 +86,14 @@ struct GivenNameUpgradeOnAcceptTests {
         // Accepting them shouldn't trigger an upgrade.
         let existing = makeProfile(firstName: nil)
         let proposal = makeProposal(proposedGivenName: nil)
-        let upgrade = ResearchViewModel.firstNameUpgrade(for: proposal, existing: existing)
+        let upgrade = ApplyEngine.firstNameUpgrade(for: proposal, existing: existing)
         #expect(upgrade == nil)
     }
 
     @Test func noUpgradeWhenProposalGivenNameIsWhitespace() {
         let existing = makeProfile(firstName: nil)
         let proposal = makeProposal(proposedGivenName: "   ")
-        let upgrade = ResearchViewModel.firstNameUpgrade(for: proposal, existing: existing)
+        let upgrade = ApplyEngine.firstNameUpgrade(for: proposal, existing: existing)
         #expect(upgrade == nil)
     }
 
@@ -102,7 +102,7 @@ struct GivenNameUpgradeOnAcceptTests {
         // Treat as empty → eligible to upgrade.
         let existing = makeProfile(firstName: "   ")
         let proposal = makeProposal(proposedGivenName: "Ida L")
-        let upgrade = ResearchViewModel.firstNameUpgrade(for: proposal, existing: existing)
+        let upgrade = ApplyEngine.firstNameUpgrade(for: proposal, existing: existing)
         #expect(upgrade == "Ida L", "whitespace-only existing treated as empty — upgrade should fire")
     }
 }
