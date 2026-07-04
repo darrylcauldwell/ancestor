@@ -58,7 +58,8 @@ struct DeterminismBoundaryTests {
         )))
 
         let clusters = ClusteringEngine.cluster(
-            records: [impossible, fact], sourceInfoMap: sourceInfoMap
+            records: [impossible, fact], sourceInfoMap: sourceInfoMap,
+            homeChapmanCode: "DBY"
         )
 
         // The impossible record must not appear in any cluster

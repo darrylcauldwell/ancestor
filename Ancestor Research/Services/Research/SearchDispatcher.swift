@@ -76,13 +76,13 @@ struct SearchDispatcher {
     /// The dispatched query is logged into `searchHistory` by the
     /// pipeline so the audit trail includes both the focused query
     /// and the strategist's `rationale` string.
-    func dispatchOne(focused: FocusedQuery, cache: QueryCache? = nil) async -> [SourceRecord] {
+    func dispatchOne(focused: FocusedQuery, homeChapmanCode: String, cache: QueryCache? = nil) async -> [SourceRecord] {
         guard let source = registry.allSources().first(where: { $0.sourceID == focused.sourceID }) else {
             return []
         }
         let yearRange: (from: Int?, to: Int?) = (focused.yearFrom, focused.yearTo)
         guard sourceCovers(source, yearRange: yearRange) else { return [] }
-        let query = focused.toRecordQuery()
+        let query = focused.toRecordQuery(homeChapmanCode: homeChapmanCode)
         return await QueryCache.wrappedSearch(source: source, query: query, cache: cache)
     }
 

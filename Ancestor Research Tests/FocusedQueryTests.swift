@@ -22,7 +22,7 @@ struct FocusedQueryTests {
             district: "722",   // Belper code
             rationale: "find George's parents' marriage"
         )
-        let rq = focused.toRecordQuery()
+        let rq = focused.toRecordQuery(homeChapmanCode: "DBY")
         #expect(rq.surname == "Brooks")
         #expect(rq.givenName == "Samuel")
         #expect(rq.recordType == .marriage)
@@ -44,9 +44,32 @@ struct FocusedQueryTests {
             district: nil,
             rationale: "find George as a child with his parents"
         )
-        let rq = focused.toRecordQuery()
+        let rq = focused.toRecordQuery(homeChapmanCode: "LEI")
         if case .freeCen(let params) = rq.sourceParams {
             #expect(params.censusYear == 1891)
+            // The strategist's output carries no county — the subject's
+            // Chapman code must thread through to the chapman-coded source.
+            #expect(params.chapmanCode == "LEI")
+        } else {
+            Issue.record("expected .freeCen params")
+        }
+    }
+
+    @Test func toRecordQuery_emptyChapmanBecomesNil() {
+        let focused = FocusedQuery(
+            sourceID: "freecen",
+            recordType: .census,
+            surname: "Brooks",
+            givenName: nil,
+            yearFrom: 1891, yearTo: 1891,
+            district: nil,
+            rationale: "subject with no derivable county"
+        )
+        let rq = focused.toRecordQuery(homeChapmanCode: "")
+        if case .freeCen(let params) = rq.sourceParams {
+            // No anchor must surface as nil (source reports outsideCoverage),
+            // never as a hardcoded county.
+            #expect(params.chapmanCode == nil)
         } else {
             Issue.record("expected .freeCen params")
         }
@@ -60,7 +83,7 @@ struct FocusedQueryTests {
             givenName: nil, yearFrom: nil, yearTo: nil, district: nil,
             rationale: "test fallback"
         )
-        let rq = focused.toRecordQuery()
+        let rq = focused.toRecordQuery(homeChapmanCode: "DBY")
         if case .generic = rq.sourceParams {
             // pass — unknown sourceID falls through to .generic so the
             // dispatcher can still attempt a generic query if any source

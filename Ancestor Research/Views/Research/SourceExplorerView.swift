@@ -172,6 +172,15 @@ struct SourceExplorerView: View {
 
         var allResults: [SourceRecord] = []
 
+        // County scope for chapman-coded sources comes from the project's
+        // derivation chain (never a hardcoded region). Empty = no anchor;
+        // the source reports itself outside coverage.
+        let projectChapman: String? = {
+            guard let code = appState.currentProject?.resolvedHomeChapmanCode,
+                  !code.isEmpty else { return nil }
+            return code
+        }()
+
         let sourcesToSearch: [any RecordSource]
         if let sourceID = selectedSourceID,
            let source = registry.source(for: sourceID) {
@@ -185,7 +194,7 @@ struct SourceExplorerView: View {
                 // Build source-specific params
                 let params: SourceQueryParams = switch source.sourceID {
                 case "freebmd": .freeBMD(FreeBMDParams(districtCode: nil, wildcardSurname: false, motherSurname: nil, spouseSurname: nil))
-                case "freecen": .freeCen(FreeCenParams(chapmanCode: "DBY", censusYear: birthYearValue.flatMap { _ in nil }, birthYearRange: nil))
+                case "freecen": .freeCen(FreeCenParams(chapmanCode: projectChapman, censusYear: birthYearValue.flatMap { _ in nil }, birthYearRange: nil))
                 case "findagrave": .findAGrave(FindAGraveParams(yearRangeWidth: 5, location: nil))
                 case "cwgc": .cwgc(CWGCParams(conflict: nil))
                 default: .generic

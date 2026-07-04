@@ -69,13 +69,15 @@ actor FreeREGSource: RecordSource {
         // Get chapman code from query params.
         // Dispatcher passes a freeREG param (from .national scope fan-out) or, for
         // backwards-compat with older call sites, accept a freeCen param too.
+        // FreeREG is chapman-coded: without a county code the query cannot
+        // be scoped, so degrade honestly instead of guessing a county.
         let chapmanCode: String
-        if case .freeREG(let params) = query.sourceParams, let code = params.chapmanCode {
+        if case .freeREG(let params) = query.sourceParams, let code = params.chapmanCode, !code.isEmpty {
             chapmanCode = code
-        } else if case .freeCen(let params) = query.sourceParams, let code = params.chapmanCode {
+        } else if case .freeCen(let params) = query.sourceParams, let code = params.chapmanCode, !code.isEmpty {
             chapmanCode = code
         } else {
-            chapmanCode = "DBY"
+            return .outsideCoverage(reason: "No home county (Chapman code) available to scope a FreeREG search")
         }
 
         let summary = Self.activitySummary(query: query, surname: surname, chapmanCode: chapmanCode)

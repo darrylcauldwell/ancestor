@@ -700,8 +700,9 @@ nonisolated final class ProjectDatabase: Sendable {
         }
 
         // RESEARCH_AXES_SPEC Change 1 — per-subject RegionConfig. NULL on
-        // legacy projects; call sites fall back to "DBY" (behaviour-preserving
-        // for the existing Derbyshire-anchored data). Derived at creation
+        // legacy projects; resolution goes through
+        // Project.resolvedHomeChapmanCode (empty string = no region anchor —
+        // there is no hardcoded county fallback). Derived at creation
         // from the home-person anchor's birth location once the gazetteer
         // ships (RESEARCH_AND_CLEANSE_SPEC Change 2).
         migrator.registerMigration("v21_project_home_chapman_code") { db in

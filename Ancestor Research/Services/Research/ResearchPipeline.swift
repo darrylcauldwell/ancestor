@@ -349,7 +349,11 @@ final class ResearchPipeline {
                         availableSources: availableSources
                     ) {
                         logger.notice("Level-2 focused query: \(focused.sourceID)/\(focused.recordType.rawValue) — \(focused.rationale)")
-                        let extra = await dispatcher.dispatchOne(focused: focused, cache: queryCache)
+                        let extra = await dispatcher.dispatchOne(
+                            focused: focused,
+                            homeChapmanCode: state.subject.homeChapmanCode,
+                            cache: queryCache
+                        )
                         strategistSummary = "Level-2: \(focused.rationale)"
                         if !extra.isEmpty {
                             let extraScored = extra.map { record in

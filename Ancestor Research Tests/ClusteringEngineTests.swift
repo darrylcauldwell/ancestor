@@ -72,7 +72,7 @@ struct ClusteringEngineTests {
             ))),
         ]
 
-        let clusters = ClusteringEngine.cluster(records: records, sourceInfoMap: emptySourceInfo)
+        let clusters = ClusteringEngine.cluster(records: records, sourceInfoMap: emptySourceInfo, homeChapmanCode: "DBY")
         #expect(clusters.count == 3)
     }
 
@@ -94,7 +94,8 @@ struct ClusteringEngineTests {
         )))
 
         let clusters = ClusteringEngine.cluster(
-            records: [birth, census], sourceInfoMap: emptySourceInfo
+            records: [birth, census], sourceInfoMap: emptySourceInfo,
+            homeChapmanCode: "DBY"
         )
         #expect(clusters.count == 1)
         #expect(clusters[0].records.count == 2)
@@ -131,7 +132,8 @@ struct ClusteringEngineTests {
 
         let clusters = ClusteringEngine.cluster(
             records: [birth, marriage, censusWithHannah],
-            sourceInfoMap: emptySourceInfo
+            sourceInfoMap: emptySourceInfo,
+            homeChapmanCode: "DBY"
         )
         // All three should be in the same cluster
         #expect(clusters.count == 1)
@@ -156,7 +158,7 @@ struct ClusteringEngineTests {
             district: "Bakewell", volume: nil, page: nil, mothersMaidenName: nil
         )))
         // These should seed as 2 separate clusters (different years)
-        let clusters = ClusteringEngine.cluster(records: [b1, b2], sourceInfoMap: emptySourceInfo)
+        let clusters = ClusteringEngine.cluster(records: [b1, b2], sourceInfoMap: emptySourceInfo, homeChapmanCode: "DBY")
         #expect(clusters.count == 2)
     }
 
@@ -181,7 +183,7 @@ struct ClusteringEngineTests {
             household: nil
         )))
 
-        let clusters = ClusteringEngine.cluster(records: [c1, c2], sourceInfoMap: emptySourceInfo)
+        let clusters = ClusteringEngine.cluster(records: [c1, c2], sourceInfoMap: emptySourceInfo, homeChapmanCode: "DBY")
         #expect(clusters.count == 2)
     }
 
@@ -197,7 +199,7 @@ struct ClusteringEngineTests {
             district: "Bakewell", volume: nil, page: nil, mothersMaidenName: nil
         )))
 
-        let clusters = ClusteringEngine.cluster(records: [birth], sourceInfoMap: emptySourceInfo)
+        let clusters = ClusteringEngine.cluster(records: [birth], sourceInfoMap: emptySourceInfo, homeChapmanCode: "DBY")
         #expect(clusters.count == 1)
         let conf = clusters[0].evidenceConfidence(sourceInfoMap: emptySourceInfo)
         #expect(conf.sourcing.sourceCount == 1)
@@ -219,7 +221,7 @@ struct ClusteringEngineTests {
             district: "Bakewell", volume: nil, page: nil, spouseSurname: nil
         )), verdict: .lead)
 
-        let clusters = ClusteringEngine.cluster(records: [lead1, lead2], sourceInfoMap: emptySourceInfo)
+        let clusters = ClusteringEngine.cluster(records: [lead1, lead2], sourceInfoMap: emptySourceInfo, homeChapmanCode: "DBY")
         for cluster in clusters {
             #expect(cluster.matchQuality == .possible)
         }
@@ -252,7 +254,7 @@ struct ClusteringEngineTests {
             ]
         )))
 
-        let score = ClusteringEngine.assignmentScore(record: census, cluster: cluster)
+        let score = ClusteringEngine.assignmentScore(record: census, cluster: cluster, homeChapmanCode: "DBY")
         // date=1.0*0.4 + location=1.0*0.3 + household=0.0*0.3 (no prior household to match)
         // Actually household needs existing cluster members to match against
         #expect(score >= 0.7) // date + location
@@ -276,7 +278,7 @@ struct ClusteringEngineTests {
             district: "Kensington", volume: nil, page: nil, spouseSurname: nil
         )))
 
-        let score = ClusteringEngine.assignmentScore(record: mismatch, cluster: cluster)
+        let score = ClusteringEngine.assignmentScore(record: mismatch, cluster: cluster, homeChapmanCode: "DBY")
         #expect(score < 0.4)
     }
 
@@ -295,7 +297,8 @@ struct ClusteringEngineTests {
         )), verdict: .impossible)
 
         let clusters = ClusteringEngine.cluster(
-            records: [fact, impossible], sourceInfoMap: emptySourceInfo
+            records: [fact, impossible], sourceInfoMap: emptySourceInfo,
+            homeChapmanCode: "DBY"
         )
         let allRecordIDs = clusters.flatMap { $0.records.map(\.id) }
         #expect(!allRecordIDs.contains("b2"))
@@ -319,7 +322,8 @@ struct ClusteringEngineTests {
         )))
 
         let clusters = ClusteringEngine.cluster(
-            records: [census, death], sourceInfoMap: emptySourceInfo
+            records: [census, death], sourceInfoMap: emptySourceInfo,
+            homeChapmanCode: "DBY"
         )
         #expect(clusters.count == 1)
         #expect(clusters[0].records.count == 2)

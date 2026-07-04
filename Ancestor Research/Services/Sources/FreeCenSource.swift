@@ -66,11 +66,13 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
         guard query.recordType == .census else { return .outsideCoverage(reason: "FreeCen only provides census records") }
         guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
 
+        // FreeCen is chapman-coded: without a county code the query cannot
+        // be scoped, so degrade honestly instead of guessing a county.
         let chapmanCode: String
-        if case .freeCen(let p) = query.sourceParams, let code = p.chapmanCode {
+        if case .freeCen(let p) = query.sourceParams, let code = p.chapmanCode, !code.isEmpty {
             chapmanCode = code
         } else {
-            chapmanCode = "DBY"
+            return .outsideCoverage(reason: "No home county (Chapman code) available to scope a FreeCen search")
         }
         let year = query.yearFrom  // census year
 

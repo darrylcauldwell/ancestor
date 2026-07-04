@@ -15,7 +15,7 @@ nonisolated struct ClusteringEngine {
     static func cluster(
         records: [ScoredRecord],
         sourceInfoMap: [String: SourceInfo],
-        homeChapmanCode: String = "DBY"
+        homeChapmanCode: String
     ) -> [LifeCluster] {
         // Filter out impossible records — they don't belong to any life
         let viable = records.filter { $0.verdict != .impossible }
@@ -140,7 +140,7 @@ nonisolated struct ClusteringEngine {
 
     /// Weighted assignment score per the spec formula.
     /// score = date_compatibility × 0.4 + location_consistency × 0.3 + household_confirmation × 0.3
-    static func assignmentScore(record: ScoredRecord, cluster: LifeCluster, homeChapmanCode: String = "DBY") -> Double {
+    static func assignmentScore(record: ScoredRecord, cluster: LifeCluster, homeChapmanCode: String) -> Double {
         let dateScore = dateCompatibility(record: record, cluster: cluster)
         let locationScore = locationConsistency(record: record, cluster: cluster, homeChapmanCode: homeChapmanCode)
         let householdScore = householdConfirmation(record: record, cluster: cluster)
