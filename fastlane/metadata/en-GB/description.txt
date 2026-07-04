@@ -22,4 +22,4 @@ LOCAL REASONING MODEL
 Optional on-device AI using Apple Silicon — loads an open-weight reasoning model of your choice to suggest research strategy, evaluate evidence clusters, draft biographical summaries, and disambiguate conflicting records. Runs locally, no cloud required.
 
 PRIVACY
-Your family tree data stays on your Mac. The app searches external genealogy sources but never uploads your tree — only search parameters (surname, given name, year range) are sent. The local reasoning model runs entirely on-device. No third-party AI APIs are used; no analytics or telemetry are collected.
+Your family tree data stays on your Mac. If you choose, publish a redacted copy to your own iCloud for family you invite — living people appear name-only by default, invitees can view but never edit, and you can unpublish at any time. The app searches external genealogy sources but never uploads your tree — only search parameters (surname, given name, year range) are sent. The local reasoning model runs entirely on-device. No third-party AI APIs are used; no analytics or telemetry are collected.
