@@ -2,6 +2,13 @@ import Foundation
 
 /// Assembles a biographical narrative from confirmed facts and research results.
 /// Uses deterministic templates with optional reasoning model enhancement.
+///
+/// NOTE: currently has no production callers — retained deliberately
+/// (Phase 0 step 5 dead-code sweep, 2026-07). `templateNarrative` is the
+/// planned deterministic bio generator for publish-time viewer bios in
+/// the CloudKit publisher work (ARCHITECTURE_REVIEW_2026-07.md Phase 3)
+/// and PROSE_CORPUS_SPEC bio synthesis. Delete only if that direction
+/// is abandoned.
 nonisolated struct NarrativeAssembler {
 
     /// Assemble a biography from research results for a profile.
