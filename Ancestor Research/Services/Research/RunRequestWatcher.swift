@@ -199,21 +199,15 @@ final class RunRequestWatcher {
         collectorTask.cancel()
         let dispatchLog = await collector.entries
 
-        // Build a lead filter from the subject profile (when present)
-        // so the persistence step can reject obviously-wrong
-        // namesakes — alive-but-probate-record, far-off birth year,
-        // etc. The filter is `nil` for lead-investigation runs (no
-        // profile yet exists to filter against).
-        let leadFilter: LeadFilter? = profileIDForPersistence
-            .flatMap { appState.snapshot.profiles[$0] }
-            .map(LeadFilter.deriving(from:))
+        // Lead filtering (obviously-wrong namesakes, alive-vs-dead rules)
+        // happens inside ResearchRunService.persist, derived from
+        // snapshot + profileID — same derivation the UI path gets.
         let runID = await persistResult(
             result: result,
             mode: mode,
             sourceInfoMap: sourceInfoMap,
             profileID: profileIDForPersistence,
             leadToFinalise: leadForFinalise,
-            leadFilter: leadFilter,
             dispatchLog: dispatchLog,
             db: db
         )
@@ -382,95 +376,28 @@ final class RunRequestWatcher {
     /// — kept here as a standalone path so the watcher doesn't depend on
     /// the UI view-model. Returns the new research_runs id when persistence
     /// runs (profile-keyed), nil for pure lead investigations.
+    /// Phase 1 slice 6b: thin wrapper over the shared
+    /// `ResearchRunService.persist` path. Watcher-specific concerns —
+    /// the eval envelope (with per-source throttle capture) and the two
+    /// autonomous-run options (parentInferred lead emission, placeholder
+    /// write-back) — are composed here; everything else is the same code
+    /// the UI path runs. The old hand-rolled mirror had drifted: no
+    /// hypothesis upsert, detached fire-and-forget lead writes racing
+    /// run completion, and try?-swallowed errors throughout.
     private func persistResult(
         result: ResearchResult,
         mode: ResearchMode,
         sourceInfoMap: [String: SourceInfo],
         profileID: String?,
         leadToFinalise: Lead?,
-        leadFilter: LeadFilter?,
         dispatchLog: [DispatchLogCollector.Entry] = [],
         db: ProjectDatabase
     ) async -> String? {
-        var savedRunID: UUID? = nil
-        if let profileID {
-            for scored in result.allScoredRecords {
-                let citation = CitationRenderer.cite(scored.record)
-                _ = try? db.saveEvidence(
-                    profileID: profileID,
-                    scored: scored,
-                    citationFull: citation.full,
-                    citationURL: citation.url
-                )
-            }
-            // Spawn child leads from this run's scored leads + household
-            // members, same as the UI path.
-            let leadStore = LeadStore(db: db)
-            Task.detached(priority: .utility) { [result, leadFilter] in
-                for scored in result.leads {
-                    // Filter obviously-wrong namesakes before they
-                    // ever enter the leads table. See LeadFilter
-                    // for the alive-vs-dead + precise-birth-year
-                    // rules.
-                    if let filter = leadFilter, !filter.accepts(scored) {
-                        continue
-                    }
-                    _ = try? await leadStore.createFromScoredRecord(scored, profileID: profileID)
-                }
-                for member in result.householdMembers {
-                    let censusYear = result.allScoredRecords
-                        .compactMap { r -> Int? in
-                            if case .census(let c) = r.record { return c.censusYear }
-                            return nil
-                        }.first ?? 1861
-                    _ = try? await leadStore.createFromHouseholdMember(
-                        member, profileID: profileID, censusYear: censusYear
-                    )
-                }
-                // Emit a relationship-tagged lead for every
-                // `.parentInferred(gender, surname)` hypothesis that grades
-                // `.supported`. Unlike the generic scored-record path above
-                // (which has no kin context and leaves `relationship: nil`),
-                // this emitter carries enough context for `promote_lead`'s
-                // gate to accept it — unblocks autonomous tree expansion.
-                for hypothesis in result.hypotheses {
-                    guard case .parentInferred = hypothesis.kind else { continue }
-                    guard hypothesis.verdict == .supported else { continue }
-                    _ = try? await leadStore.createFromParentInferredHypothesis(hypothesis)
-                }
-
-                // Thin-placeholder write-back (ENGINE_FOUNDATION_SPEC
-                // #Change2). If the subject was thin and the scored
-                // records converge on a single given name + tight year
-                // window, enrich the placeholder so the next research
-                // hop uses rich-profile gates. `apply` is idempotent
-                // (re-checks density before writing) so this is safe
-                // to run unconditionally.
-                let extracted: [(givenName: String?, birthYear: Int?)] = result.allScoredRecords
-                    .filter { $0.verdict != .impossible }
-                    .map { scored in
-                        (
-                            givenName: scored.record.common.givenName,
-                            birthYear: PlaceholderWriteback.extractBirthYear(from: scored.record)
-                        )
-                    }
-                if let proposal = PlaceholderWriteback.propose(from: extracted) {
-                    _ = try? PlaceholderWriteback.apply(
-                        proposal: proposal,
-                        profileID: profileID,
-                        db: db
-                    )
-                }
-            }
-
-            let runID = UUID()
-            let searchedSources = Set(result.allScoredRecords.map(\.record.sourceID))
-            let gps = GPSScorer.score(
-                result: result,
-                sourceInfoMap: sourceInfoMap,
-                searchedSourceCount: searchedSources.count,
-                totalSourceCount: registry.allSources().count
-            )
+        // Eval envelope is only stored on the run row, which only exists
+        // for profile-keyed runs — skip the per-source throttle probing
+        // for pure lead investigations.
+        var resultJSON: String? = nil
+        if profileID != nil {
             // Capture per-source throttle state at completion time so
             // the eval envelope can mark throttled-source runs distinct
             // from drift-source runs. A FreeBMD circuit-breaker trip
@@ -482,56 +409,36 @@ final class RunRequestWatcher {
                     throttledSources.append(src.sourceID)
                 }
             }
-            let resultJSON = Self.buildResultEnvelope(
+            resultJSON = Self.buildResultEnvelope(
                 result: result,
                 throttledSources: throttledSources,
                 dispatchLog: dispatchLog
             )
-            // Only claim `savedRunID = runID` when saveResearchRun
-            // actually succeeded. Previously the `try?` swallowed
-            // SQLite lock errors silently; the caller (markCompleted)
-            // would then write that run_id into research_run_requests
-            // even though no matching research_runs row existed. The
-            // MCP get_research_result tool then 404'd on a run_id it
-            // couldn't find — the harness saw `run_not_found` and
-            // exploded. Surface the error and leave savedRunID nil
-            // when the write failed so downstream stays consistent.
-            do {
-                try db.saveResearchRun(
-                    id: runID,
-                    profileID: profileID,
-                    mode: mode,
-                    startedAt: Date(),
-                    completedAt: Date(),
-                    factCount: result.confirmedFacts.count,
-                    leadCount: result.leads.count,
-                    clusterCount: result.clusters.count,
-                    gpsScore: gps.score,
-                    resultJSON: resultJSON
-                )
-                savedRunID = runID
-            } catch {
-                logger.error("saveResearchRun failed for profile \(profileID): \(error.localizedDescription)")
-                // savedRunID stays nil — markCompleted will write a
-                // completed status without a run_id, which the harness
-                // treats as a pipeline failure rather than a phantom
-                // success.
-            }
         }
-        if let lead = leadToFinalise {
-            let updated = Lead(
-                id: lead.id, profileID: lead.profileID,
-                name: lead.name, surname: lead.surname, givenName: lead.givenName,
-                birthYear: lead.birthYear, deathYear: lead.deathYear,
-                relationship: lead.relationship, source: lead.source,
-                status: .investigated, evidence: lead.evidence,
-                createdAt: lead.createdAt,
-                investigatedAt: Date(),
-                resolvedAt: lead.resolvedAt, resolution: lead.resolution
-            )
-            try? db.saveLead(updated)
+
+        let outcome = await ResearchRunService.persist(
+            result: result,
+            mode: mode,
+            sourceInfoMap: sourceInfoMap,
+            registry: registry,
+            snapshot: appState.snapshot,
+            profileID: profileID,
+            leadToFinalise: leadToFinalise,
+            options: ResearchRunService.PersistOptions(
+                emitParentInferredLeads: true,
+                runPlaceholderWriteback: true,
+                resultJSON: resultJSON
+            ),
+            db: db
+        )
+        // Headless surface: every failure goes to the log. A failed
+        // saveResearchRun leaves outcome.runID nil — markCompleted then
+        // writes a completed status without a run_id, which the harness
+        // treats as a pipeline failure rather than a phantom success.
+        for f in outcome.failures {
+            logger.error("\(f.what) failed: \(f.error.localizedDescription)")
         }
-        return savedRunID?.uuidString
+        return outcome.runID?.uuidString
     }
 
     /// Serialize the §3 eval envelope into a JSON string for the

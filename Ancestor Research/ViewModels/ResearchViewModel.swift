@@ -415,99 +415,26 @@ final class ResearchViewModel {
         updateSourceStatuses(from: result)
         logger.info("Research complete: \(result.clusters.count) clusters, \(result.confirmedFacts.count) facts, \(result.leads.count) leads")
 
-        // Persistence is profile-keyed: evidence rows + child leads +
-        // run-record all need a profileID. Lead-investigation runs skip
-        // these blocks and instead update the lead's own status below.
-        if let profileID = persistProfileID, let db = appDatabase {
-            var saved = 0
-            for scored in result.allScoredRecords {
-                let citation = CitationRenderer.cite(scored.record)
-                do {
-                    try db.saveEvidence(
-                        profileID: profileID,
-                        scored: scored,
-                        citationFull: citation.full,
-                        citationURL: citation.url
-                    )
-                    saved += 1
-                } catch {
-                    logger.warning("Failed to save evidence for \(scored.record.id): \(error.localizedDescription)")
-                }
-            }
-            logger.info("Persisted \(saved)/\(result.allScoredRecords.count) evidence records for \(subject.displayName)")
-
-            // T12-sibling Phase 1: persist pipeline-generated hypotheses
-            // alongside evidence. Upsert preserves created_at and the
-            // user_rejected flag across re-runs (V2 spec §4.3). Read path
-            // is the MCP `ancestor://research_hypotheses/{id}` resource
-            // and (in T12 Phase 3) the cluster-review UI.
-            if !result.hypotheses.isEmpty {
-                do {
-                    try db.upsertHypotheses(result.hypotheses)
-                    logger.info("Persisted \(result.hypotheses.count) hypotheses for \(subject.displayName)")
-                } catch {
-                    logger.warning("Failed to persist hypotheses: \(error.localizedDescription)")
-                }
-            }
-
-            let leadStore = LeadStore(db: db)
-            // Profile-aware lead filter: rejects death-shaped records
-            // for living profiles and namesake leads outside the
-            // precise-birth-year window. See LeadFilter for rules.
-            let leadFilter = snapshot.profiles[profileID].map(LeadFilter.deriving(from:))
-            for scored in result.leads {
-                if let filter = leadFilter, !filter.accepts(scored) {
-                    continue
-                }
-                await persist("Save lead") { try await leadStore.createFromScoredRecord(scored, profileID: profileID) }
-            }
-            for member in result.householdMembers {
-                let censusYear = result.allScoredRecords
-                    .compactMap { r -> Int? in
-                        if case .census(let c) = r.record { return c.censusYear }
-                        return nil
-                    }.first ?? 1861
-                await persist("Save household lead") { try await leadStore.createFromHouseholdMember(member, profileID: profileID, censusYear: censusYear) }
-            }
-
-            let searchedSources = Set(result.allScoredRecords.map(\.record.sourceID))
-            let gps = GPSScorer.score(
+        // Phase 1 slice 6b: THE shared persistence path. Evidence rows +
+        // hypotheses + child leads + run-record are profile-keyed; lead-
+        // investigation runs skip them (evidence stays in memory on the VM,
+        // visible in Triage, until the user promotes the lead) and only
+        // flip the investigated lead's status.
+        if let db = appDatabase {
+            let outcome = await ResearchRunService.persist(
                 result: result,
+                mode: selectedMode,
                 sourceInfoMap: sourceInfoMap,
-                searchedSourceCount: searchedSources.count,
-                totalSourceCount: registry.allSources().count
+                registry: registry,
+                snapshot: snapshot,
+                profileID: persistProfileID,
+                leadToFinalise: leadToFinalise,
+                db: db
             )
-            persist("Save research run") {
-                try db.saveResearchRun(
-                    id: UUID(),
-                    profileID: profileID,
-                    mode: selectedMode,
-                    startedAt: Date(),
-                    completedAt: Date(),
-                    factCount: result.confirmedFacts.count,
-                    leadCount: result.leads.count,
-                    clusterCount: result.clusters.count,
-                    gpsScore: gps.score
-                )
+            report(outcome.failures)
+            if let updated = outcome.finalisedLead {
+                selectedLead = updated
             }
-        }
-
-        // Lead path: flip status to .investigated so the Leads tab reflects
-        // that this lead has been searched. Evidence stays in memory on the
-        // VM (visible in Triage) until the user promotes the lead.
-        if let lead = leadToFinalise, let db = appDatabase {
-            let updated = Lead(
-                id: lead.id, profileID: lead.profileID,
-                name: lead.name, surname: lead.surname, givenName: lead.givenName,
-                birthYear: lead.birthYear, deathYear: lead.deathYear,
-                relationship: lead.relationship, source: lead.source,
-                status: .investigated, evidence: lead.evidence,
-                createdAt: lead.createdAt,
-                investigatedAt: Date(),
-                resolvedAt: lead.resolvedAt, resolution: lead.resolution
-            )
-            persist("Update lead status") { try db.saveLead(updated) }
-            selectedLead = updated
         }
     }
 
