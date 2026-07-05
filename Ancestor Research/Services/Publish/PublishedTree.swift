@@ -200,10 +200,18 @@ nonisolated extension PublishedTree {
             guard let profile = snapshot.profiles[canonicalID],
                   let policy = resolved[canonicalID], policy != .omit else { continue }
             let uuid = identity.uuid(kind: "person", canonicalID: canonicalID)
+            // Change 6 — deterministic bio from committed facts, full
+            // persons only (nameOnly bios stay empty by §5 zero-leakage).
+            let bioText = policy == .full
+                ? PublishBioBuilder.bio(
+                    for: profile, lifeEvents: inputs.lifeEvents,
+                    snapshot: snapshot, resolved: resolved)
+                : ""
             persons.append(publishPerson(
                 profile: profile, uuid: uuid, policy: policy,
                 completeness: snapshot.completeness(for: canonicalID),
-                convergence: inputs.convergenceByProfile[canonicalID]
+                convergence: inputs.convergenceByProfile[canonicalID],
+                bioText: bioText
             ))
         }
 
@@ -306,7 +314,8 @@ nonisolated extension PublishedTree {
         uuid: String,
         policy: ResolvedPublishPolicy,
         completeness: ProfileCompleteness,
-        convergence: String?
+        convergence: String?,
+        bioText: String
     ) -> PublishedPerson {
         if policy == .nameOnly {
             // §5: displayName + relationship edges only. Zero leakage:
@@ -335,7 +344,7 @@ nonisolated extension PublishedTree {
             birthPlace: profile.birthLocation,
             death: profile.deathDate.map(PublishedDate.init),
             deathPlace: profile.deathLocation,
-            bioText: "",
+            bioText: bioText,
             citationsJSON: citationsJSON(for: profile),
             badgesJSON: badgesJSON(completeness: completeness, convergence: convergence),
             isRedacted: false,
