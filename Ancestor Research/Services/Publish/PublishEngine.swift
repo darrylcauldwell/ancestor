@@ -99,7 +99,7 @@ nonisolated enum PublishEngine {
         storeURL: URL? = nil,
         defaultZone: CKRecordZone? = nil,
         now: Date = Date(),
-        ackTimeout: Duration = .seconds(120),
+        ackTimeout: Duration = .seconds(600),
         progress: (@MainActor @Sendable (String) -> Void)? = nil
     ) async throws -> PublishSummary {
         let seams = seams ?? .live(containerID: containerID)
@@ -161,32 +161,54 @@ nonisolated enum PublishEngine {
         let stats = try store.apply(
             tree: tree, manifestID: manifestID, mediaSourceDirectory: mediaSourceDirectory)
 
-        // 6. Push and drain. Completion = every row server-acked AND the
-        // pending queue empty (acks alone can't see pending UPDATEs).
+        // 6. Push and drain — PACED. CloudKit rate-limits burst uploads
+        // (both real-tree first publishes died at batch 3, ~record 500):
+        // the engine's own scheduler would honor retry-after, but manual
+        // sendChanges() surfaces the throttle as an error. So: re-invoke
+        // sendChanges with the server's retry-after (or backoff), and keep
+        // going as long as records keep landing. Completion = every row
+        // server-acked AND the pending queue drained.
         await progress?("Uploading to iCloud…")
-        do {
-            try await engine.sendChanges()
-        } catch let error as CKError where error.code == .quotaExceeded {
-            throw PublishError.quotaExceeded
-        }
         let total = try store.totalRows()
         guard total > 0 else {
             // The manifest row alone makes total ≥ 1; zero means the store
             // was emptied under us — never report success on nothing.
             throw PublishError.storeInconsistent
         }
-        var acked = try store.ackedRows()
-        var pending = try store.pendingChangeCount()
         let deadline = ContinuousClock.now + ackTimeout
-        while (acked < total || pending > 0), ContinuousClock.now < deadline {
-            try await Task.sleep(for: .seconds(2))
-            acked = try store.ackedRows()
-            pending = try store.pendingChangeCount()
+        var attempt = 0
+        var lastAcked = -1
+        while true {
+            do {
+                try await engine.sendChanges()
+            } catch let error as CKError where error.code == .quotaExceeded {
+                throw PublishError.quotaExceeded
+            } catch {
+                let acked = try store.ackedRows()
+                let progressMade = acked > lastAcked
+                lastAcked = acked
+                attempt += 1
+                guard ContinuousClock.now < deadline, progressMade || attempt <= 5 else {
+                    throw error
+                }
+                let delay = (error as? CKError)?.retryAfterSeconds
+                    ?? Double(min(1 << min(attempt, 5), 30))
+                await progress?(
+                    "iCloud is pacing the upload — resuming in \(Int(delay))s (\(acked) of \(total) confirmed)")
+                try await Task.sleep(for: .seconds(delay))
+                continue
+            }
+            let pending = try store.pendingChangeCount()
+            let acked = try store.ackedRows()
             await progress?("Confirmed \(acked) of \(total) records…")
+            if pending == 0 && acked >= total { break }
+            guard ContinuousClock.now < deadline else {
+                throw PublishError.syncTimeout(acked: acked, total: total)
+            }
+            try await Task.sleep(for: .seconds(2))
         }
-        guard acked >= total, pending == 0 else {
-            throw PublishError.syncTimeout(acked: acked, total: total)
-        }
+
+        let acked = try store.ackedRows()
 
         // 7. Commit the bump — only after the server has everything.
         try db.setPublishGeneration(candidateGeneration, publishedAt: now)
