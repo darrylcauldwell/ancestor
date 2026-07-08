@@ -143,6 +143,9 @@ nonisolated struct PublishedStore {
 
     static func open(at url: URL) throws -> PublishedStore {
         var configuration = Configuration()
+        // Brief overlap with a winding-down sender task from a previous
+        // publish must wait, not throw "database is locked".
+        configuration.busyMode = .timeout(5)
         configuration.prepareDatabase { db in
             try db.attachMetadatabase()
         }

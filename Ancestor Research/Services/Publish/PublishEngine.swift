@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import CloudKit
 import GRDB
 import SQLiteData
@@ -64,6 +65,13 @@ nonisolated struct PublishCloudSeams {
             }
         )
     }
+}
+
+/// SyncEngine isn't declared Sendable but its internals are mutex-guarded
+/// (library design: callable from any context) — boxed for the sender task.
+private nonisolated struct UnsafeSendBox<T>: @unchecked Sendable {
+    let value: T
+    init(value: T) { self.value = value }
 }
 
 nonisolated enum PublishEngine {
@@ -175,16 +183,48 @@ nonisolated enum PublishEngine {
             // was emptied under us — never report success on nothing.
             throw PublishError.storeInconsistent
         }
+        // Completion is decided by OBSERVABLE STATE (acked count + pending
+        // queue), never by a library call returning: the first real publish
+        // finished server-side while the awaited sendChanges() hung forever,
+        // freezing the UI on a stale message. The sender runs as a child
+        // task, re-kicked with backoff when it errors; this loop polls the
+        // metadatabase every 2s, drives progress, and exits on the numbers.
         let deadline = ContinuousClock.now + ackTimeout
+        let sendError = Mutex<(any Error)?>(nil)
+        var sender: Task<Void, Never>? = nil
         var attempt = 0
         var lastAcked = -1
+        defer { sender?.cancel() }
+        // Join (not just cancel) the sender on EVERY exit — a lingering
+        // detached task holds database transactions and the next publish
+        // hits "database is locked".
+        func joinSender() async {
+            sender?.cancel()
+            if let sender { _ = await sender.value }
+            sender = nil
+        }
+        do {
         while true {
-            do {
-                try await engine.sendChanges()
-            } catch let error as CKError where error.code == .quotaExceeded {
-                throw PublishError.quotaExceeded
-            } catch {
-                let acked = try store.ackedRows()
+            if sender == nil || sender!.isCancelled {
+                let boxed = UnsafeSendBox(value: engine)
+                sender = Task.detached { @Sendable in
+                    do {
+                        try await boxed.value.sendChanges()
+                    } catch {
+                        sendError.withLock { $0 = error }
+                    }
+                }
+            }
+            try await Task.sleep(for: .seconds(2))
+
+            let acked = try store.ackedRows()
+            let pending = try store.pendingChangeCount()
+            if pending == 0 && acked >= total { break }
+
+            if let error = sendError.withLock({ let e = $0; $0 = nil; return e }) {
+                if let ck = error as? CKError, ck.code == .quotaExceeded {
+                    throw PublishError.quotaExceeded
+                }
                 let progressMade = acked > lastAcked
                 lastAcked = acked
                 attempt += 1
@@ -196,17 +236,21 @@ nonisolated enum PublishEngine {
                 await progress?(
                     "iCloud is pacing the upload — resuming in \(Int(delay))s (\(acked) of \(total) confirmed)")
                 try await Task.sleep(for: .seconds(delay))
+                sender?.cancel()
+                sender = nil
                 continue
             }
-            let pending = try store.pendingChangeCount()
-            let acked = try store.ackedRows()
+
             await progress?("Confirmed \(acked) of \(total) records…")
-            if pending == 0 && acked >= total { break }
             guard ContinuousClock.now < deadline else {
                 throw PublishError.syncTimeout(acked: acked, total: total)
             }
-            try await Task.sleep(for: .seconds(2))
         }
+        } catch {
+            await joinSender()
+            throw error
+        }
+        await joinSender()
 
         let acked = try store.ackedRows()
 
