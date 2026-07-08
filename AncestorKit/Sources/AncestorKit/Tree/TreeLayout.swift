@@ -56,17 +56,17 @@ public nonisolated struct TreeLayout {
         public let nodes: [LayoutNode]          // Real profiles only
         public let ghostNodes: [LayoutNode]     // Ghost placeholders only
         public let edges: [LayoutEdge]
-        public let width: Double
-        public let height: Double
+        public let contentWidth: Double
+        public let contentHeight: Double
         public let rootID: String?
 
         public init(nodes: [LayoutNode], ghostNodes: [LayoutNode], edges: [LayoutEdge],
-                    width: Double, height: Double, rootID: String?) {
+                    contentWidth: Double, contentHeight: Double, rootID: String?) {
             self.nodes = nodes
             self.ghostNodes = ghostNodes
             self.edges = edges
-            self.width = width
-            self.height = height
+            self.contentWidth = contentWidth
+            self.contentHeight = contentHeight
             self.rootID = rootID
         }
 
@@ -91,7 +91,7 @@ public nonisolated struct TreeLayout {
 
     /// Width measurement for a subtree, computed once per profile and cached.
     private struct SubtreeWidth {
-        public let width: Double
+        let width: Double
     }
 
     private enum ParentSide { case left, right }
@@ -410,8 +410,8 @@ public nonisolated struct TreeLayout {
             nodes: realNodes,
             ghostNodes: ghostNodes,
             edges: edges,
-            width: maxX - minX + horizontalSpacing * 2,
-            height: maxY - minY + verticalSpacing * 2,
+            contentWidth: maxX - minX + horizontalSpacing * 2,
+            contentHeight: maxY - minY + verticalSpacing * 2,
             rootID: rootID
         )
     }
@@ -538,7 +538,7 @@ public nonisolated struct TreeLayout {
         let height = (nodes.map(\.y).max() ?? 0) + nodeHeight * 2
 
         return LayoutResult(nodes: nodes, ghostNodes: [],
-                           edges: edges, width: width, height: height, rootID: rootID)
+                           edges: edges, contentWidth: width, contentHeight: height, rootID: rootID)
     }
 
     // MARK: - Helpers

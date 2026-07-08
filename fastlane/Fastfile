@@ -37,7 +37,7 @@ platform :mac do
 
     increment_version_number(
       xcodeproj: "Ancestor Research.xcodeproj",
-      version_number: "1.0"
+      version_number: "1.1"
     )
 
     asc_key_id = ENV.fetch("ASC_KEY_ID")
@@ -50,7 +50,11 @@ platform :mac do
       export_method: "app-store",
       project: "Ancestor Research.xcodeproj",
       destination: "generic/platform=macOS",
-      xcargs: "-skipMacroValidation -allowProvisioningUpdates -authenticationKeyPath '#{File.expand_path(asc_key_path)}' -authenticationKeyID #{asc_key_id} -authenticationKeyIssuerID #{asc_issuer_id}",
+      # arm64-only: MLX requires Apple Silicon. -Onone: Swift 6.3.2 crashes
+      # deserializing AncestorKit's optimized module (result not found: width;
+      # survives renames/singlefile/cold builds) — ROADMAP follow-up to repro
+      # + report upstream; MLX perf unaffected (C++/Metal).
+      xcargs: "ARCHS=arm64 SWIFT_OPTIMIZATION_LEVEL=-Onone -skipMacroValidation -allowProvisioningUpdates -authenticationKeyPath '#{File.expand_path(asc_key_path)}' -authenticationKeyID #{asc_key_id} -authenticationKeyIssuerID #{asc_issuer_id}",
       export_options: {
         signingStyle: "automatic",
         teamID: "N6BK2WX94Z"
@@ -97,7 +101,7 @@ platform :mac do
       force: true,
       platform: "osx",
       build_number: build.to_s,
-      app_version: "1.0",
+      app_version: "1.1",
       precheck_include_in_app_purchases: false,
       submission_information: {
         export_compliance_uses_encryption: false,

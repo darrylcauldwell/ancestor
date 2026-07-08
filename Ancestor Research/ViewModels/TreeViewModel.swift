@@ -18,7 +18,7 @@ nonisolated enum TreeViewMode: String, CaseIterable {
 /// View model for the interactive tree graph.
 @MainActor @Observable
 final class TreeViewModel {
-    var layout: TreeLayout.LayoutResult = .init(nodes: [], ghostNodes: [], edges: [], width: 0, height: 0, rootID: nil)
+    var layout: TreeLayout.LayoutResult = .init(nodes: [], ghostNodes: [], edges: [], contentWidth: 0, contentHeight: 0, rootID: nil)
     var selectedProfileID: String?
     var rootProfileID: String?
     var viewMode: TreeViewMode = .pedigree
@@ -68,7 +68,7 @@ final class TreeViewModel {
                 layout = TreeLayout.descendantLayout(rootID: rootID, snapshot: snapshot, maxGenerations: visibleGenerations)
             }
         } else {
-            layout = .init(nodes: [], ghostNodes: [], edges: [], width: 0, height: 0, rootID: nil)
+            layout = .init(nodes: [], ghostNodes: [], edges: [], contentWidth: 0, contentHeight: 0, rootID: nil)
         }
         scale = 1.0
         offset = .zero
