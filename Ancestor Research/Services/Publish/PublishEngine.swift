@@ -17,6 +17,7 @@ nonisolated enum PublishError: Error, LocalizedError, Equatable {
     case publishedFromAnotherMac(serverGeneration: Int, localGeneration: Int)
     case quotaExceeded
     case syncTimeout(acked: Int, total: Int)
+    case storeInconsistent
 
     var errorDescription: String? {
         switch self {
@@ -27,7 +28,9 @@ nonisolated enum PublishError: Error, LocalizedError, Equatable {
         case .quotaExceeded:
             return "Your iCloud storage is full. Free up space or reduce published media, then try again."
         case .syncTimeout(let acked, let total):
-            return "Publishing stalled: \(acked) of \(total) records were confirmed by iCloud. The remaining records will finish syncing automatically; you can also try publishing again."
+            return "Publishing stalled: \(acked) of \(total) records were confirmed by iCloud. Publish again to resume — already-confirmed records are never re-uploaded."
+        case .storeInconsistent:
+            return "The published store ended up empty mid-publish. Nothing was published; please try again."
         }
     }
 }
@@ -67,6 +70,12 @@ nonisolated enum PublishEngine {
 
     static let containerID = "iCloud.dev.dreamfold.Ancestor-Research"
 
+    /// sqlite-data's default zone — all published records live here; the
+    /// per-project zone design died with the cross-contamination finding
+    /// (engine syncs database-wide) and was already obsolete for sharing
+    /// (shares are manifest-rooted hierarchies since Change 3).
+    static let zoneID = CKRecordZone.ID(zoneName: "co.pointfree.SQLiteData.defaultZone")
+
     /// The §4.1 manifest identity is a singleton per project.
     static let manifestIdentityKind = "manifest"
     static let manifestIdentityCanonical = "singleton"
@@ -87,6 +96,8 @@ nonisolated enum PublishEngine {
         db: ProjectDatabase,
         mediaSourceDirectory: URL,
         seams: PublishCloudSeams? = nil,
+        storeURL: URL? = nil,
+        defaultZone: CKRecordZone? = nil,
         now: Date = Date(),
         ackTimeout: Duration = .seconds(120),
         progress: (@MainActor @Sendable (String) -> Void)? = nil
@@ -113,9 +124,9 @@ nonisolated enum PublishEngine {
 
         // 3. Second-Mac generation guard.
         await progress?("Checking for publishes from other Macs…")
-        let zoneID = CKRecordZone.ID(zoneName: projectID.uuidString)
         let manifestRecordID = CKRecord.ID(
-            recordName: "\(manifestID):publishedManifests", zoneID: zoneID)
+            recordName: "\(manifestID):publishedManifests",
+            zoneID: defaultZone?.zoneID ?? Self.zoneID)
         let serverGeneration = try await seams.serverGeneration(manifestRecordID)
         guard generationGuardAllows(
             serverGeneration: serverGeneration, localGeneration: localGeneration) else {
@@ -123,39 +134,57 @@ nonisolated enum PublishEngine {
                 serverGeneration: serverGeneration ?? 0, localGeneration: localGeneration)
         }
 
-        // 4. Reconcile the published store (checksum diff, update-in-place).
-        await progress?("Writing published store…")
-        let store = try PublishedStore.open(projectID: projectID)
-        let stats = try store.apply(
-            tree: tree, manifestID: manifestID, mediaSourceDirectory: mediaSourceDirectory)
-
-        // 5. Sync — engine per publish; explicit sendChanges() is BINDING
-        // (Change 3 finding: the scheduler defers indefinitely otherwise).
-        await progress?("Uploading to iCloud…")
+        // 4. Engine BEFORE writes — sqlite-data's change triggers exist only
+        // while an engine is attached ("all edits made after stopping the
+        // sync engine will not be synchronized"), and awaiting start()
+        // completes the initial server reconciliation BEFORE our rows exist.
+        // This closes the first-real-publish wipe: a fetch reporting the
+        // zone deleted (e.g. after Unpublish) purges local rows for that
+        // zone, and with apply-before-start it raced our upload — 967 rows
+        // lost on a real tree while small fixtures won the race.
+        await progress?("Preparing iCloud sync…")
+        let store = try storeURL.map { try PublishedStore.open(at: $0) }
+            ?? PublishedStore.openShared()
         let engine = try SyncEngine(
             for: store.db,
             tables: StoreManifest.self, StorePerson.self, StoreRelationship.self,
                     StoreLifeEvent.self, StoreMedia.self,
             containerIdentifier: containerID,
-            defaultZone: CKRecordZone(zoneName: projectID.uuidString),
-            startImmediately: true)
+            defaultZone: defaultZone ?? CKRecordZone(zoneID: Self.zoneID),
+            startImmediately: false)
         defer { engine.stop() }
+        try await engine.start()
+
+        // 5. Reconcile the published store (checksum diff, update-in-place)
+        // — every change now recorded as pending via live triggers.
+        await progress?("Writing published store…")
+        let stats = try store.apply(
+            tree: tree, manifestID: manifestID, mediaSourceDirectory: mediaSourceDirectory)
+
+        // 6. Push and drain. Completion = every row server-acked AND the
+        // pending queue empty (acks alone can't see pending UPDATEs).
+        await progress?("Uploading to iCloud…")
         do {
             try await engine.sendChanges()
         } catch let error as CKError where error.code == .quotaExceeded {
             throw PublishError.quotaExceeded
         }
-
-        // 6. Wait for server acks.
         let total = try store.totalRows()
+        guard total > 0 else {
+            // The manifest row alone makes total ≥ 1; zero means the store
+            // was emptied under us — never report success on nothing.
+            throw PublishError.storeInconsistent
+        }
         var acked = try store.ackedRows()
+        var pending = try store.pendingChangeCount()
         let deadline = ContinuousClock.now + ackTimeout
-        while acked < total, ContinuousClock.now < deadline {
+        while (acked < total || pending > 0), ContinuousClock.now < deadline {
             try await Task.sleep(for: .seconds(2))
             acked = try store.ackedRows()
+            pending = try store.pendingChangeCount()
             await progress?("Confirmed \(acked) of \(total) records…")
         }
-        guard acked >= total else {
+        guard acked >= total, pending == 0 else {
             throw PublishError.syncTimeout(acked: acked, total: total)
         }
 

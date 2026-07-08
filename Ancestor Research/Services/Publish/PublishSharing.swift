@@ -33,24 +33,28 @@ nonisolated enum PublishSharing {
     static func share(
         projectID: UUID,
         projectName: String,
-        db: ProjectDatabase
+        db: ProjectDatabase,
+        storeURL: URL? = nil,
+        defaultZone: CKRecordZone? = nil
     ) async throws -> (share: CKShare, container: CKContainer) {
         let identityKey = PublishedIdentity.key(
             kind: PublishEngine.manifestIdentityKind,
             canonicalID: PublishEngine.manifestIdentityCanonical)
+        let resolvedStoreURL = storeURL ?? PublishedStore.sharedURL
         guard let manifestUUID = try db.loadPublishedIdentityMap()[identityKey],
-              FileManager.default.fileExists(atPath: PublishedStore.url(for: projectID).path)
+              FileManager.default.fileExists(atPath: resolvedStoreURL.path)
         else { throw PublishSharingError.notPublished }
 
-        let store = try PublishedStore.open(projectID: projectID)
+        let store = try PublishedStore.open(at: resolvedStoreURL)
         let engine = try SyncEngine(
             for: store.db,
             tables: StoreManifest.self, StorePerson.self, StoreRelationship.self,
                     StoreLifeEvent.self, StoreMedia.self,
             containerIdentifier: PublishEngine.containerID,
-            defaultZone: CKRecordZone(zoneName: projectID.uuidString),
-            startImmediately: true)
+            defaultZone: defaultZone ?? CKRecordZone(zoneID: PublishEngine.zoneID),
+            startImmediately: false)
         defer { engine.stop() }
+        try await engine.start()
 
         let manifest = try await store.db.read { database in
             try StoreManifest.find(manifestUUID).fetchOne(database)
@@ -85,52 +89,64 @@ nonisolated enum PublishSharing {
         throw lastError
     }
 
-    /// Unpublish: server-side zone deletion (share dies with the zone;
-    /// all participants lose access; every published record is removed —
-    /// the GDPR-erasure path), then local store cleanup. Idempotent:
-    /// unpublishing an already-unpublished project succeeds silently.
-    static func unpublish(projectID: UUID) async throws {
-        let container = CKContainer(identifier: PublishEngine.containerID)
-        let zoneID = CKRecordZone.ID(zoneName: projectID.uuidString)
-        do {
-            _ = try await container.privateCloudDatabase.modifyRecordZones(
-                saving: [], deleting: [zoneID])
-        } catch let error as CKError where
-            error.code == .zoneNotFound || error.code == .userDeletedZone {
-            // Already gone server-side — proceed to local cleanup.
+    /// Unpublish: tombstone every record in this project's manifest
+    /// lineage (participants lose the shared hierarchy; server records
+    /// are deleted — the GDPR-erasure path). The store and zone are
+    /// shared across projects, so unpublish deletes ROWS, never files or
+    /// zones. Idempotent: no rows means nothing to do.
+    static func unpublish(
+        projectID: UUID,
+        db: ProjectDatabase,
+        storeURL: URL? = nil,
+        defaultZone: CKRecordZone? = nil
+    ) async throws {
+        let identityKey = PublishedIdentity.key(
+            kind: PublishEngine.manifestIdentityKind,
+            canonicalID: PublishEngine.manifestIdentityCanonical)
+        guard let manifestUUID = try db.loadPublishedIdentityMap()[identityKey] else {
+            return   // never published — nothing to erase
         }
-        try removeLocalStore(projectID: projectID)
+        let store = try storeURL.map { try PublishedStore.open(at: $0) }
+            ?? PublishedStore.openShared()
+        let engine = try SyncEngine(
+            for: store.db,
+            tables: StoreManifest.self, StorePerson.self, StoreRelationship.self,
+                    StoreLifeEvent.self, StoreMedia.self,
+            containerIdentifier: PublishEngine.containerID,
+            defaultZone: defaultZone ?? CKRecordZone(zoneID: PublishEngine.zoneID),
+            startImmediately: false)
+        defer { engine.stop() }
+        try await engine.start()
+
+        // Tombstone the rows. CloudKit deletes the CKShare automatically
+        // when its root record (the manifest) is deleted, which evicts all
+        // participants — no explicit unshare needed (and engine.unshare's
+        // metadata lookup misses shares created in other engine sessions,
+        // spuriously reporting an issue).
+        _ = try store.deleteProject(manifestID: manifestUUID)
+        try await engine.sendChanges()
+
+        // Drain the tombstones with a bounded wait.
+        let deadline = ContinuousClock.now + .seconds(60)
+        while try store.pendingChangeCount() > 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .seconds(2))
+        }
     }
 
-    /// Remove the published store and its SQLiteData metadatabase
-    /// (`.{name}.metadata-{container}.sqlite` hidden sibling) plus WAL/SHM
-    /// journals. `published_ids` and `publish_meta` live in the CANONICAL
-    /// database and are deliberately untouched.
-    static func removeLocalStore(projectID: UUID) throws {
-        let fm = FileManager.default
-        let storeURL = PublishedStore.url(for: projectID)
-        let directory = storeURL.deletingLastPathComponent()
-        let storeName = storeURL.deletingPathExtension().lastPathComponent
-        let candidates = [
-            storeURL.lastPathComponent,
-            storeURL.lastPathComponent + "-wal",
-            storeURL.lastPathComponent + "-shm",
-            ".\(storeName).metadata-\(PublishEngine.containerID).sqlite",
-            ".\(storeName).metadata-\(PublishEngine.containerID).sqlite-wal",
-            ".\(storeName).metadata-\(PublishEngine.containerID).sqlite-shm",
-        ]
-        for name in candidates {
-            let url = directory.appendingPathComponent(name)
-            if fm.fileExists(atPath: url.path) {
-                try fm.removeItem(at: url)
-            }
-        }
-    }
-
-    /// Whether this project currently has a published store on disk —
-    /// drives the "unpublish first?" prompt in the delete flow and menu
-    /// enablement.
-    static func hasPublishedStore(projectID: UUID) -> Bool {
-        FileManager.default.fileExists(atPath: PublishedStore.url(for: projectID).path)
+    /// Whether this project has published rows in the shared store —
+    /// drives menu enablement and delete-flow prompts.
+    static func hasPublishedStore(projectID: UUID, db: ProjectDatabase) -> Bool {
+        let identityKey = PublishedIdentity.key(
+            kind: PublishEngine.manifestIdentityKind,
+            canonicalID: PublishEngine.manifestIdentityCanonical)
+        guard let manifestUUID = try? db.loadPublishedIdentityMap()[identityKey],
+              FileManager.default.fileExists(atPath: PublishedStore.sharedURL.path),
+              let store = try? PublishedStore.openShared(),
+              let count = try? store.db.read({ db in
+                  try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM publishedManifests WHERE id = ?",
+                                   arguments: [manifestUUID]) ?? 0
+              })
+        else { return false }
+        return count > 0
     }
 }

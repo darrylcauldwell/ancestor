@@ -462,7 +462,8 @@ struct ProjectPickerView: View {
     private func runUnpublish(_ project: Project) {
         Task {
             do {
-                try await PublishSharing.unpublish(projectID: project.id)
+                let (_, db) = try ProjectStore.openProject(project.id)
+                try await PublishSharing.unpublish(projectID: project.id, db: db)
             } catch {
                 bundleExportError = error.localizedDescription
             }

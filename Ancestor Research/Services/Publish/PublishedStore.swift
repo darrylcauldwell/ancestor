@@ -126,13 +126,19 @@ nonisolated struct PublishedStore {
         var missingMediaPaths: [String] = []
     }
 
-    static func url(for projectID: UUID) -> URL {
-        ProjectStore.projectsDirectory
-            .appendingPathComponent("\(projectID.uuidString).publish.sqlite")
+    /// ONE published store for the whole app. CKSyncEngine syncs the
+    /// entire database scope (all zones), so per-project stores would
+    /// cross-contaminate: project B's engine fetches project A's records,
+    /// then B's presence-deletes tombstone A server-side. One store, the
+    /// library's default zone, and manifest-lineage isolation is
+    /// sqlite-data's intended model. (Found live: stale-zone records
+    /// bled into a fresh store as phantom rows.)
+    static var sharedURL: URL {
+        ProjectStore.projectsDirectory.appendingPathComponent("published.sqlite")
     }
 
-    static func open(projectID: UUID) throws -> PublishedStore {
-        try open(at: url(for: projectID))
+    static func openShared() throws -> PublishedStore {
+        try open(at: sharedURL)
     }
 
     static func open(at url: URL) throws -> PublishedStore {
@@ -372,13 +378,24 @@ nonisolated struct PublishedStore {
                 }
             }
 
-            // Presence deletes — children before parents so every tombstone
-            // is explicit (CASCADE would also fire, but explicit deletes give
-            // deterministic stats and sync ordering).
-            stats.deleted += try deleteAbsent(db, table: "publishedMedia", keep: keepMedia)
-            stats.deleted += try deleteAbsent(db, table: "publishedLifeEvents", keep: keepEvents)
-            stats.deleted += try deleteAbsent(db, table: "publishedRelationships", keep: keepRelationships)
-            stats.deleted += try deleteAbsent(db, table: "publishedPersons", keep: keepPersons)
+            // Presence deletes — children before parents, SCOPED to this
+            // manifest's lineage so other projects sharing the store are
+            // untouchable by definition.
+            stats.deleted += try deleteAbsent(
+                db, table: "publishedMedia", keep: keepMedia,
+                scope: "personID IN (SELECT id FROM publishedPersons WHERE manifestID = ?)",
+                scopeArgument: manifestID)
+            stats.deleted += try deleteAbsent(
+                db, table: "publishedLifeEvents", keep: keepEvents,
+                scope: "personID IN (SELECT id FROM publishedPersons WHERE manifestID = ?)",
+                scopeArgument: manifestID)
+            stats.deleted += try deleteAbsent(
+                db, table: "publishedRelationships", keep: keepRelationships,
+                scope: "fromPersonID IN (SELECT id FROM publishedPersons WHERE manifestID = ?)",
+                scopeArgument: manifestID)
+            stats.deleted += try deleteAbsent(
+                db, table: "publishedPersons", keep: keepPersons,
+                scope: "manifestID = ?", scopeArgument: manifestID)
         }
         return stats
     }
@@ -395,12 +412,32 @@ nonisolated struct PublishedStore {
         }
     }
 
+    /// Changes recorded by the engine's triggers that CloudKit has not
+    /// yet accepted. A publish is complete only when this drains to zero —
+    /// `ackedRows` alone can't see pending UPDATEs (the old server record
+    /// still satisfies "not null").
+    func pendingChangeCount() throws -> Int {
+        try db.read { db in
+            try Int.fetchOne(db, sql:
+                "SELECT COUNT(*) FROM sqlitedata_icloud_pendingRecordZoneChanges") ?? 0
+        }
+    }
+
     /// Rows CloudKit has acknowledged (lastKnownServerRecord present).
+    /// Scoped to OUR record types — the metadatabase also tracks
+    /// engine-level entries (zone/table registrations), which inflated an
+    /// unscoped count to 9 for a 4-record store and defeated exact
+    /// completion accounting.
     func ackedRows() throws -> Int {
         try db.read { db in
             try Int.fetchOne(db, sql: """
                 SELECT COUNT(*) FROM sqlitedata_icloud_metadata
                 WHERE lastKnownServerRecord IS NOT NULL
+                  AND (recordName LIKE '%:publishedManifests'
+                    OR recordName LIKE '%:publishedPersons'
+                    OR recordName LIKE '%:publishedRelationships'
+                    OR recordName LIKE '%:publishedLifeEvents'
+                    OR recordName LIKE '%:publishedMedia')
                 """) ?? 0
         }
     }
@@ -426,12 +463,36 @@ nonisolated struct PublishedStore {
         }
     }
 
-    private func deleteAbsent(_ db: Database, table: String, keep: [String]) throws -> Int {
+    private func deleteAbsent(
+        _ db: Database, table: String, keep: [String],
+        scope: String, scopeArgument: String
+    ) throws -> Int {
         let placeholders = keep.isEmpty ? "''" : keep.map { _ in "?" }.joined(separator: ",")
         try db.execute(
-            sql: "DELETE FROM \(table) WHERE id NOT IN (\(placeholders))",
-            arguments: StatementArguments(keep))
+            sql: "DELETE FROM \(table) WHERE \(scope) AND id NOT IN (\(placeholders))",
+            arguments: StatementArguments([scopeArgument] + keep))
         return db.changesCount
+    }
+
+    /// Tombstone every row belonging to one manifest lineage — the
+    /// unpublish path. Must run with a STARTED engine attached so the
+    /// deletes reach CloudKit as record tombstones.
+    func deleteProject(manifestID: String) throws -> Int {
+        try db.write { db in
+            var deleted = 0
+            for (table, scope) in [
+                ("publishedMedia", "personID IN (SELECT id FROM publishedPersons WHERE manifestID = ?)"),
+                ("publishedLifeEvents", "personID IN (SELECT id FROM publishedPersons WHERE manifestID = ?)"),
+                ("publishedRelationships", "fromPersonID IN (SELECT id FROM publishedPersons WHERE manifestID = ?)"),
+                ("publishedPersons", "manifestID = ?"),
+                ("publishedManifests", "id = ?"),
+            ] {
+                try db.execute(sql: "DELETE FROM \(table) WHERE \(scope)",
+                               arguments: [manifestID])
+                deleted += db.changesCount
+            }
+            return deleted
+        }
     }
 
     private func personArguments(
