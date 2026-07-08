@@ -73,6 +73,25 @@ struct PublishEngineE2ETests {
             marriageDate: GenealogicalDate(parsing: "1912"),
             marriageLocation: "Belper", divorceDate: nil))
 
+        // Life event + opted-in media: exercises the CKAsset upload path
+        // live AND ensures the dev environment JIT-creates ALL FIVE record
+        // types — production promote must never freeze a partial schema.
+        _ = try db.addLifeEvent(LifeEvent(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000C1")!,
+            profileID: "@G@", type: .census,
+            date: GenealogicalDate(parsing: "1911"), location: "Belper",
+            details: .census(CensusDetails(
+                household: [HouseholdMember(name: "Ida Brooks", relationship: "Wife")]))))
+        try Data("e2e-portrait-bytes".utf8).write(
+            to: dir.appendingPathComponent("media/portrait.jpg"))
+        let attachment = AncestorKit.Attachment(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+            filename: "portrait.jpg", mediaType: .photo, caption: "George, 1920",
+            relativePath: "portrait.jpg", attachedTo: .profile(id: "@G@"),
+            addedAt: Date(timeIntervalSince1970: 0))
+        _ = try db.addAttachment(attachment)
+        try db.setPublishMediaOptIn(attachmentID: attachment.id, optedIn: true)
+
         // Publish 1 — everything new.
         let first = try await PublishEngine.publish(
             projectID: projectID, db: db,
@@ -80,7 +99,7 @@ struct PublishEngineE2ETests {
             storeURL: storeURL, defaultZone: testZone,
             progress: { print("E2E publish 1: \($0)") })
         #expect(first.generation == 1)
-        #expect(first.stats.inserted == 4)
+        #expect(first.stats.inserted == 6, "manifest + 2 persons + edge + event + media")
         print("E2E PASS 1 — generation 1, \(first.ackedRecords)/\(first.totalRecords) acked")
 
         // Publish 2 — one field changed; only the person + manifest move.
@@ -97,7 +116,7 @@ struct PublishEngineE2ETests {
         #expect(second.generation == 2, "generation strictly monotonic")
         #expect(second.stats.updated == 2 && second.stats.inserted == 0 && second.stats.deleted == 0,
                 "delta republish touches only the changed person + manifest")
-        #expect(second.stats.unchanged == 2)
+        #expect(second.stats.unchanged == 4)
         print("E2E PASS 2 — generation 2, delta of \(second.stats.updated) updates only")
 
         // SERVER-TRUTH check (added after the 967-record real-tree wipe):
@@ -131,7 +150,7 @@ struct PublishEngineE2ETests {
             storeURL: storeURL, defaultZone: testZone,
             progress: { _ in })
         #expect(third.generation == 3)
-        #expect(third.stats.updated == 1 && third.stats.unchanged == 3,
+        #expect(third.stats.updated == 1 && third.stats.unchanged == 5,
                 "idle republish moves only the manifest row")
         print("E2E PASS 3 — idle republish is manifest-only traffic")
 
@@ -214,7 +233,7 @@ struct PublishEngineE2ETests {
             storeURL: storeURL, defaultZone: testZone,
             progress: { _ in })
         #expect(fourth.generation == 4, "generation continues through unpublish")
-        #expect(fourth.stats.inserted == 4, "project rows repopulate fully")
+        #expect(fourth.stats.inserted == 6, "project rows repopulate fully")
         let identityAfter = try db.loadPublishedIdentityMap()
         #expect(identityBefore == identityAfter, "record UUIDs survive unpublish — §4.1")
 
