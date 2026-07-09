@@ -15,6 +15,7 @@
 		ACEK17000000000000000001 /* AncestorKit in Frameworks */ = {isa = PBXBuildFile; productRef = ACEK17000000000000000002 /* AncestorKit */; };
 		ACEK17000000000000000004 /* AncestorKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = ACEK17000000000000000005 /* AncestorKitUI */; };
 		ACEK17000000000000000007 /* SQLiteData in Frameworks */ = {isa = PBXBuildFile; productRef = ACEK17000000000000000008 /* SQLiteData */; };
+		ACVK17000000000000000001 /* AncestorViewerKit in Frameworks */ = {isa = PBXBuildFile; productRef = ACVK17000000000000000002 /* AncestorViewerKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -71,6 +72,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				ACVK17000000000000000001 /* AncestorViewerKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -163,6 +165,9 @@
 				3E81571A2F9BA27400D37FC5 /* Ancestor Research Tests */,
 			);
 			name = "Ancestor Research Tests";
+			packageProductDependencies = (
+				ACVK17000000000000000002 /* AncestorViewerKit */,
+			);
 			productName = "Ancestor Research Tests";
 			productReference = 3E8157192F9BA27400D37FC5 /* Ancestor Research Tests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -198,6 +203,7 @@
 			packageReferences = (
 				ACEK17000000000000000006 /* XCRemoteSwiftPackageReference "sqlite-data" */,
 				ACEK17000000000000000003 /* XCLocalSwiftPackageReference "AncestorKit" */,
+				ACVK17000000000000000003 /* XCLocalSwiftPackageReference "AncestorViewerKit" */,
 				23B42F21C1F41CE36B81FD87 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 				A1B2C3D4E5F60003DEADBEEF /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 				A1B2C3D4E5F60008DEADBEEF /* XCRemoteSwiftPackageReference "swift-transformers" */,
@@ -533,6 +539,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = AncestorKit;
 		};
+		ACVK17000000000000000003 /* XCLocalSwiftPackageReference "AncestorViewerKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = AncestorViewerKit;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -608,6 +618,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = ACEK17000000000000000006 /* XCRemoteSwiftPackageReference "sqlite-data" */;
 			productName = SQLiteData;
+		};
+		ACVK17000000000000000002 /* AncestorViewerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AncestorViewerKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

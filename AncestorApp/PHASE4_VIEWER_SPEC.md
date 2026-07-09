@@ -59,7 +59,9 @@ PUBLISHER_SPEC §4 is authoritative: record types `TreeManifest_v1`, `Person_v1`
 4. Do not assume connectivity from `rootPerson`; disconnected components exist; reconcile against `personCount`.
 5. Deletions arrive as record tombstones in the change fetch (unpublish = row tombstoning); the cache must apply them.
 
-## 4. AncestorViewerKit (the shared core — Change 1)
+## 4. AncestorViewerKit (the shared core — Change 1) — SHIPPED 2026-07-09
+
+> **Shipped** (2 commits, 2026-07-09): `AncestorViewerKit/` package (7 sources, 26 offline tests green via `swift test`), AncestorKit/AncestorKitUI platforms extended and compiler-proven for `generic/platform=tvOS` + `iOS`, package wired into the app test target, and the live E2E (`ViewerLiveE2ETests`, env-gated `RUN_VIEWER_E2E=1`) green in 10s against the real dev-environment zone: 967 records fetched, profile/relationship counts reconciled exactly with the generation-3 manifest, redaction contract verified on real data, incremental refresh no-op confirmed. Implementation notes: all published fields are ENCRYPTED (read via `record.encryptedValues`; `asset` is the plain-ASSET exception); tombstones and id-fallback parse the `<uuid>:<tableName>` record-name convention; the cache has NO foreign keys on purpose (records arrive in arbitrary order mid-publish); no mock-container trap exists here — ZoneFetcher talks to CKContainer directly, so E2E runs are live by construction.
 
 New SwiftPM package beside AncestorKit/AncestorKitUI. Depends on AncestorKit + CloudKit + GRDB. **Hand-rolled read-only fetch, not SQLiteData** (decision log #2): the viewer never writes, so a bidirectional sync engine is unwanted surface area (a viewer bug must not be *able* to push); PUBLISHER_SPEC §2's diagram already specifies `CKFetchRecordZoneChangesOperation` + change tokens for viewers; and one fetch core parameterised by database scope (`.private` for same-account, `.shared` for participants) covers both shells — SQLiteData's shared-DB consumer story would need its own spike for zero benefit here.
 
