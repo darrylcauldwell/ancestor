@@ -19,6 +19,9 @@
 		ACVK17000000000000000004 /* AncestorKit in Frameworks */ = {isa = PBXBuildFile; productRef = ACVK17000000000000000005 /* AncestorKit */; };
 		ACVK17000000000000000006 /* AncestorKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = ACVK17000000000000000007 /* AncestorKitUI */; };
 		ACVK17000000000000000008 /* AncestorViewerKit in Frameworks */ = {isa = PBXBuildFile; productRef = ACVK17000000000000000009 /* AncestorViewerKit */; };
+		ACVI170000000000000000C1 /* AncestorKit in Frameworks */ = {isa = PBXBuildFile; productRef = ACVI170000000000000000C2 /* AncestorKit */; };
+		ACVI170000000000000000C3 /* AncestorKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = ACVI170000000000000000C4 /* AncestorKitUI */; };
+		ACVI170000000000000000C5 /* AncestorViewerKit in Frameworks */ = {isa = PBXBuildFile; productRef = ACVI170000000000000000C6 /* AncestorViewerKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -33,6 +36,7 @@
 
 /* Begin PBXFileReference section */
 		3E0467A830000CF4004648DB /* Ancestor-Viewer-TV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ancestor-Viewer-TV.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		ACVI170000000000000000AA /* Ancestor-Viewer-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ancestor-Viewer-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3E2FD7982F9B89F200491FEB /* Ancestor Research.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ancestor Research.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3E8157192F9BA27400D37FC5 /* Ancestor Research Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Ancestor Research Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		540C5CCC76287B3809A8A9BD /* Ancestor Research Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Ancestor Research Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -43,6 +47,11 @@
 		3E0467A930000CF4004648DB /* Ancestor-Viewer-TV */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "Ancestor-Viewer-TV";
+			sourceTree = "<group>";
+		};
+		ACVI170000000000000000AB /* Ancestor-Viewer-iOS */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Ancestor-Viewer-iOS";
 			sourceTree = "<group>";
 		};
 		3E2FD79A2F9B89F200491FEB /* Ancestor Research */ = {
@@ -65,6 +74,16 @@
 				ACVK17000000000000000004 /* AncestorKit in Frameworks */,
 				ACVK17000000000000000006 /* AncestorKitUI in Frameworks */,
 				ACVK17000000000000000008 /* AncestorViewerKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		ACVI170000000000000000AC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				ACVI170000000000000000C1 /* AncestorKit in Frameworks */,
+				ACVI170000000000000000C3 /* AncestorKitUI in Frameworks */,
+				ACVI170000000000000000C5 /* AncestorViewerKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -100,6 +119,7 @@
 				3E2FD79A2F9B89F200491FEB /* Ancestor Research */,
 				3E81571A2F9BA27400D37FC5 /* Ancestor Research Tests */,
 				3E0467A930000CF4004648DB /* Ancestor-Viewer-TV */,
+				ACVI170000000000000000AB /* Ancestor-Viewer-iOS */,
 				3E2FD7992F9B89F200491FEB /* Products */,
 				686FB74CE7ADF010C2BF4D14 /* Frameworks */,
 			);
@@ -112,6 +132,7 @@
 				540C5CCC76287B3809A8A9BD /* Ancestor Research Tests.xctest */,
 				3E8157192F9BA27400D37FC5 /* Ancestor Research Tests.xctest */,
 				3E0467A830000CF4004648DB /* Ancestor-Viewer-TV.app */,
+				ACVI170000000000000000AA /* Ancestor-Viewer-iOS.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -158,6 +179,31 @@
 			);
 			productName = "Ancestor-Viewer-TV";
 			productReference = 3E0467A830000CF4004648DB /* Ancestor-Viewer-TV.app */;
+			productType = "com.apple.product-type.application";
+		};
+		ACVI170000000000000000AF /* Ancestor-Viewer-iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ACVI170000000000000000B2 /* Build configuration list for PBXNativeTarget "Ancestor-Viewer-iOS" */;
+			buildPhases = (
+				ACVI170000000000000000AD /* Sources */,
+				ACVI170000000000000000AC /* Frameworks */,
+				ACVI170000000000000000AE /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				ACVI170000000000000000AB /* Ancestor-Viewer-iOS */,
+			);
+			name = "Ancestor-Viewer-iOS";
+			packageProductDependencies = (
+				ACVI170000000000000000C2 /* AncestorKit */,
+				ACVI170000000000000000C4 /* AncestorKitUI */,
+				ACVI170000000000000000C6 /* AncestorViewerKit */,
+			);
+			productName = "Ancestor-Viewer-iOS";
+			productReference = ACVI170000000000000000AA /* Ancestor-Viewer-iOS.app */;
 			productType = "com.apple.product-type.application";
 		};
 		3E2FD7972F9B89F200491FEB /* Ancestor Research */ = {
@@ -227,6 +273,9 @@
 					3E0467A730000CF4004648DB = {
 						CreatedOnToolsVersion = 26.5;
 					};
+					ACVI170000000000000000AF = {
+						CreatedOnToolsVersion = 26.5;
+					};
 					3E2FD7972F9B89F200491FEB = {
 						CreatedOnToolsVersion = 26.3;
 					};
@@ -261,12 +310,20 @@
 				3E2FD7972F9B89F200491FEB /* Ancestor Research */,
 				3E8157182F9BA27400D37FC5 /* Ancestor Research Tests */,
 				3E0467A730000CF4004648DB /* Ancestor-Viewer-TV */,
+				ACVI170000000000000000AF /* Ancestor-Viewer-iOS */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		3E0467A630000CF4004648DB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		ACVI170000000000000000AE /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -291,6 +348,13 @@
 
 /* Begin PBXSourcesBuildPhase section */
 		3E0467A430000CF4004648DB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		ACVI170000000000000000AD /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -384,6 +448,78 @@
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 3;
 				TVOS_DEPLOYMENT_TARGET = 26.5;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		ACVI170000000000000000B0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Ancestor-Viewer-iOS/Ancestor-Viewer-iOS.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N6BK2WX94Z;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.dreamfold.Ancestor-Viewer";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		ACVI170000000000000000B1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Ancestor-Viewer-iOS/Ancestor-Viewer-iOS.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N6BK2WX94Z;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.dreamfold.Ancestor-Viewer";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
@@ -631,6 +767,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		ACVI170000000000000000B2 /* Build configuration list for PBXNativeTarget "Ancestor-Viewer-iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ACVI170000000000000000B0 /* Debug */,
+				ACVI170000000000000000B1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		3E0467B230000CF5004648DB /* Build configuration list for PBXNativeTarget "Ancestor-Viewer-TV" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -767,6 +912,18 @@
 			productName = AncestorKitUI;
 		};
 		ACVK17000000000000000009 /* AncestorViewerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AncestorViewerKit;
+		};
+		ACVI170000000000000000C2 /* AncestorKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AncestorKit;
+		};
+		ACVI170000000000000000C4 /* AncestorKitUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AncestorKitUI;
+		};
+		ACVI170000000000000000C6 /* AncestorViewerKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AncestorViewerKit;
 		};

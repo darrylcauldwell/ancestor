@@ -16,7 +16,7 @@ struct TreeScreen: View {
     @State private var personSheet: FocusedPerson?
     @FocusState private var canvasFocused: Bool
 
-    private let scale = 1.15
+    private let scale = 1.5
     private let maxGenerations = 3
 
     /// Identifiable wrapper — .sheet(item:) per the project's
@@ -76,6 +76,9 @@ struct TreeScreen: View {
 
     private func canvas(layout: TreeLayout.LayoutResult, focalID: String, size: CGSize) -> some View {
         let rootNode = layout.nodes.first { $0.id == focalID }
+        // The macOS pattern, copied faithfully: scale the GraphicsContext
+        // and draw in LAYOUT coordinates — fixed theme fonts then scale
+        // with the canvas instead of drifting out of their nodes.
         return Canvas { context, canvasSize in
             let transform = CanvasTransform(
                 canvasSize: canvasSize,
@@ -83,32 +86,34 @@ struct TreeScreen: View {
                 rootY: rootNode?.y ?? 0,
                 offset: .zero,
                 scale: scale)
+            context.translateBy(x: canvasSize.width / 2, y: canvasSize.height / 2)
+            context.scaleBy(x: scale, y: scale)
+            let ox = transform.drawOffsetX
+            let oy = transform.drawOffsetY
 
             for edge in layout.edges {
-                let from = transform.toScreen(x: edge.fromX, y: edge.fromY)
-                let to = transform.toScreen(x: edge.toX, y: edge.toY)
+                let from = CGPoint(x: edge.fromX + ox, y: edge.fromY + oy)
+                let to = CGPoint(x: edge.toX + ox, y: edge.toY + oy)
                 TreeCanvasRenderer.drawEdge(context: &context, from: from, to: to, type: edge.type)
             }
 
             for node in layout.ghostNodes {
-                let centre = transform.toScreen(x: node.x, y: node.y)
                 let rect = CGRect(
-                    x: centre.x - TreeLayout.ghostNodeWidth * scale / 2,
-                    y: centre.y - TreeLayout.ghostNodeHeight * scale / 2,
-                    width: TreeLayout.ghostNodeWidth * scale,
-                    height: TreeLayout.ghostNodeHeight * scale)
+                    x: node.x + ox - TreeLayout.ghostNodeWidth / 2,
+                    y: node.y + oy - TreeLayout.ghostNodeHeight / 2,
+                    width: TreeLayout.ghostNodeWidth,
+                    height: TreeLayout.ghostNodeHeight)
                 TreeCanvasRenderer.drawGhostNode(
                     context: &context, node: node, rect: rect,
                     theme: AppTypography.treeCanvasTheme)
             }
 
             for node in layout.nodes {
-                let centre = transform.toScreen(x: node.x, y: node.y)
                 let rect = CGRect(
-                    x: centre.x - TreeLayout.nodeWidth * scale / 2,
-                    y: centre.y - TreeLayout.nodeHeight * scale / 2,
-                    width: TreeLayout.nodeWidth * scale,
-                    height: TreeLayout.nodeHeight * scale)
+                    x: node.x + ox - TreeLayout.nodeWidth / 2,
+                    y: node.y + oy - TreeLayout.nodeHeight / 2,
+                    width: TreeLayout.nodeWidth,
+                    height: TreeLayout.nodeHeight)
                 TreeCanvasRenderer.drawNode(
                     context: &context,
                     node: node,
