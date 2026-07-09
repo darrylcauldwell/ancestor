@@ -16,6 +16,9 @@
 		ACEK17000000000000000004 /* AncestorKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = ACEK17000000000000000005 /* AncestorKitUI */; };
 		ACEK17000000000000000007 /* SQLiteData in Frameworks */ = {isa = PBXBuildFile; productRef = ACEK17000000000000000008 /* SQLiteData */; };
 		ACVK17000000000000000001 /* AncestorViewerKit in Frameworks */ = {isa = PBXBuildFile; productRef = ACVK17000000000000000002 /* AncestorViewerKit */; };
+		ACVK17000000000000000004 /* AncestorKit in Frameworks */ = {isa = PBXBuildFile; productRef = ACVK17000000000000000005 /* AncestorKit */; };
+		ACVK17000000000000000006 /* AncestorKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = ACVK17000000000000000007 /* AncestorKitUI */; };
+		ACVK17000000000000000008 /* AncestorViewerKit in Frameworks */ = {isa = PBXBuildFile; productRef = ACVK17000000000000000009 /* AncestorViewerKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -29,6 +32,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		3E0467A830000CF4004648DB /* Ancestor-Viewer-TV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ancestor-Viewer-TV.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3E2FD7982F9B89F200491FEB /* Ancestor Research.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ancestor Research.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3E8157192F9BA27400D37FC5 /* Ancestor Research Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Ancestor Research Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		540C5CCC76287B3809A8A9BD /* Ancestor Research Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Ancestor Research Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -36,23 +40,34 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		3E0467A930000CF4004648DB /* Ancestor-Viewer-TV */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Ancestor-Viewer-TV";
+			sourceTree = "<group>";
+		};
 		3E2FD79A2F9B89F200491FEB /* Ancestor Research */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "Ancestor Research";
 			sourceTree = "<group>";
 		};
 		3E81571A2F9BA27400D37FC5 /* Ancestor Research Tests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "Ancestor Research Tests";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		3E0467A530000CF4004648DB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				ACVK17000000000000000004 /* AncestorKit in Frameworks */,
+				ACVK17000000000000000006 /* AncestorKitUI in Frameworks */,
+				ACVK17000000000000000008 /* AncestorViewerKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		3E2FD7952F9B89F200491FEB /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -84,6 +99,7 @@
 			children = (
 				3E2FD79A2F9B89F200491FEB /* Ancestor Research */,
 				3E81571A2F9BA27400D37FC5 /* Ancestor Research Tests */,
+				3E0467A930000CF4004648DB /* Ancestor-Viewer-TV */,
 				3E2FD7992F9B89F200491FEB /* Products */,
 				686FB74CE7ADF010C2BF4D14 /* Frameworks */,
 			);
@@ -95,6 +111,7 @@
 				3E2FD7982F9B89F200491FEB /* Ancestor Research.app */,
 				540C5CCC76287B3809A8A9BD /* Ancestor Research Tests.xctest */,
 				3E8157192F9BA27400D37FC5 /* Ancestor Research Tests.xctest */,
+				3E0467A830000CF4004648DB /* Ancestor-Viewer-TV.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -118,6 +135,31 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		3E0467A730000CF4004648DB /* Ancestor-Viewer-TV */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3E0467B230000CF5004648DB /* Build configuration list for PBXNativeTarget "Ancestor-Viewer-TV" */;
+			buildPhases = (
+				3E0467A430000CF4004648DB /* Sources */,
+				3E0467A530000CF4004648DB /* Frameworks */,
+				3E0467A630000CF4004648DB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				3E0467A930000CF4004648DB /* Ancestor-Viewer-TV */,
+			);
+			name = "Ancestor-Viewer-TV";
+			packageProductDependencies = (
+				ACVK17000000000000000005 /* AncestorKit */,
+				ACVK17000000000000000007 /* AncestorKitUI */,
+				ACVK17000000000000000009 /* AncestorViewerKit */,
+			);
+			productName = "Ancestor-Viewer-TV";
+			productReference = 3E0467A830000CF4004648DB /* Ancestor-Viewer-TV.app */;
+			productType = "com.apple.product-type.application";
+		};
 		3E2FD7972F9B89F200491FEB /* Ancestor Research */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 3E2FD7A32F9B89F300491FEB /* Build configuration list for PBXNativeTarget "Ancestor Research" */;
@@ -179,9 +221,12 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2630;
+				LastSwiftUpdateCheck = 2650;
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
+					3E0467A730000CF4004648DB = {
+						CreatedOnToolsVersion = 26.5;
+					};
 					3E2FD7972F9B89F200491FEB = {
 						CreatedOnToolsVersion = 26.3;
 					};
@@ -215,11 +260,19 @@
 			targets = (
 				3E2FD7972F9B89F200491FEB /* Ancestor Research */,
 				3E8157182F9BA27400D37FC5 /* Ancestor Research Tests */,
+				3E0467A730000CF4004648DB /* Ancestor-Viewer-TV */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		3E0467A630000CF4004648DB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		3E2FD7962F9B89F200491FEB /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -237,6 +290,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		3E0467A430000CF4004648DB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		3E2FD7942F9B89F200491FEB /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -262,6 +322,72 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		3E0467B030000CF5004648DB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Ancestor-Viewer-TV/Ancestor-Viewer-TV.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N6BK2WX94Z;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.dreamfold.Ancestor-Viewer-TV";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = appletvos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 3;
+				TVOS_DEPLOYMENT_TARGET = 26.5;
+			};
+			name = Debug;
+		};
+		3E0467B130000CF5004648DB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Ancestor-Viewer-TV/Ancestor-Viewer-TV.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N6BK2WX94Z;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.dreamfold.Ancestor-Viewer-TV";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = appletvos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 3;
+				TVOS_DEPLOYMENT_TARGET = 26.5;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		3E2FD7A12F9B89F300491FEB /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -505,6 +631,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		3E0467B230000CF5004648DB /* Build configuration list for PBXNativeTarget "Ancestor-Viewer-TV" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3E0467B030000CF5004648DB /* Debug */,
+				3E0467B130000CF5004648DB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		3E2FD7932F9B89F200491FEB /* Build configuration list for PBXProject "Ancestor Research" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -620,6 +755,18 @@
 			productName = SQLiteData;
 		};
 		ACVK17000000000000000002 /* AncestorViewerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AncestorViewerKit;
+		};
+		ACVK17000000000000000005 /* AncestorKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AncestorKit;
+		};
+		ACVK17000000000000000007 /* AncestorKitUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AncestorKitUI;
+		};
+		ACVK17000000000000000009 /* AncestorViewerKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AncestorViewerKit;
 		};

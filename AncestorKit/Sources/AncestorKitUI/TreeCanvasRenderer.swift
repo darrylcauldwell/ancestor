@@ -118,7 +118,8 @@ public enum TreeCanvasRenderer {
         inFocus: Bool = false,
         hasNote: Bool = false,
         hasOpenQuestion: Bool = false,
-        hasTentativeFact: Bool = false
+        hasTentativeFact: Bool = false,
+        showsCompletenessBadge: Bool = true
     ) {
         let cornerRadius: Double = 12
         let path = Path(roundedRect: rect, cornerRadius: cornerRadius)
@@ -233,15 +234,19 @@ public enum TreeCanvasRenderer {
             )
         }
 
-        // Completeness badge
-        let badge = Text("\(comp.score)/\(comp.maximum)")
-            .font(theme.badge)
-            .foregroundStyle(ratio >= 1.0 ? .green : .orange)
-        context.draw(
-            context.resolve(badge),
-            at: CGPoint(x: rect.maxX - 18, y: rect.minY + 12),
-            anchor: .center
-        )
+        // Completeness badge — researcher UI; viewer shells pass false
+        // (their completeness is recomputed over a REDACTED projection,
+        // so the score would mislead — PHASE4_VIEWER_SPEC decision #4).
+        if showsCompletenessBadge {
+            let badge = Text("\(comp.score)/\(comp.maximum)")
+                .font(theme.badge)
+                .foregroundStyle(ratio >= 1.0 ? .green : .orange)
+            context.draw(
+                context.resolve(badge),
+                at: CGPoint(x: rect.maxX - 18, y: rect.minY + 12),
+                anchor: .center
+            )
+        }
 
         // M12 — tentative-fact marker. A small "~" glyph in the top-left
         // signals at least one core field (name / birth / death) has only
