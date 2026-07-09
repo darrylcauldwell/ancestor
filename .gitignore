@@ -73,6 +73,8 @@ DerivedData/
 # Swift Package Manager build directories
 AncestorKit/.build/
 AncestorKit/Package.resolved
+AncestorViewerKit/.build/
+AncestorViewerKit/Package.resolved
 FieldResearcherMCP/.build/
 FieldResearcherMCP/Package.resolved
 SourceTests/.build/

@@ -8,7 +8,9 @@ import PackageDescription
 // no scrapers, no MLX.
 let package = Package(
     name: "AncestorKit",
-    platforms: [.macOS("26.0")],
+    // iOS/tvOS added for the Phase 4 viewers (PHASE4_VIEWER_SPEC Change 1) —
+    // the sources are Foundation/SwiftUI-pure, so no code changes needed.
+    platforms: [.macOS("26.0"), .iOS("26.0"), .tvOS("26.0")],
     products: [
         .library(name: "AncestorKit", targets: ["AncestorKit"]),
         .library(name: "AncestorKitUI", targets: ["AncestorKitUI"])
