@@ -11,6 +11,51 @@ def asc_api_key
   )
 end
 
+# Shared helper for the viewer targets (iOS + tvOS). These targets are NOT
+# agvtool-managed — agvtool/increment_build_number would stomp the Mac app's
+# build number too — so the build number is passed per-invocation via xcargs
+# CURRENT_PROJECT_VERSION and never written into the project.
+def viewer_beta(scheme:, app_identifier:, tf_platform:, destination:)
+  api_key = asc_api_key
+
+  begin
+    latest_build = latest_testflight_build_number(
+      api_key: api_key,
+      app_identifier: app_identifier,
+      platform: tf_platform
+    )
+  rescue => e
+    UI.message("No existing TestFlight builds found — starting at 1")
+    latest_build = 0
+  end
+  new_build = latest_build + 1
+  UI.message("Building #{scheme} as build #{new_build}")
+
+  asc_key_id = ENV.fetch("ASC_KEY_ID")
+  asc_issuer_id = ENV.fetch("ASC_ISSUER_ID")
+  asc_key_path = ENV.fetch("ASC_KEY_PATH")
+
+  build_app(
+    scheme: scheme,
+    export_method: "app-store",
+    project: "Ancestor Research.xcodeproj",
+    destination: destination,
+    # No ARCHS/-Onone workaround here — that's MLX/Mac-specific.
+    xcargs: "CURRENT_PROJECT_VERSION=#{new_build} -skipMacroValidation -allowProvisioningUpdates -authenticationKeyPath '#{File.expand_path(asc_key_path)}' -authenticationKeyID #{asc_key_id} -authenticationKeyIssuerID #{asc_issuer_id}",
+    export_options: {
+      signingStyle: "automatic",
+      teamID: "N6BK2WX94Z"
+    }
+  )
+
+  upload_to_testflight(
+    api_key: api_key,
+    app_identifier: app_identifier,
+    app_platform: tf_platform,
+    skip_waiting_for_build_processing: true
+  )
+end
+
 platform :mac do
   desc "Push a new beta build to TestFlight"
   lane :beta do
@@ -128,6 +173,30 @@ platform :mac do
       project: "Ancestor Research.xcodeproj",
       destination: "platform=macOS",
       xcargs: "-skipMacroValidation"
+    )
+  end
+end
+
+platform :ios do
+  desc "Push a new Ancestor Viewer (iOS) beta build to TestFlight"
+  lane :beta do
+    viewer_beta(
+      scheme: "Ancestor-Viewer-iOS",
+      app_identifier: "dev.dreamfold.Ancestor-Viewer",
+      tf_platform: "ios",
+      destination: "generic/platform=iOS"
+    )
+  end
+end
+
+platform :tvos do
+  desc "Push a new Ancestor Viewer (tvOS) beta build to TestFlight"
+  lane :beta do
+    viewer_beta(
+      scheme: "Ancestor-Viewer-TV",
+      app_identifier: "dev.dreamfold.Ancestor-Viewer-TV",
+      tf_platform: "appletvos",
+      destination: "generic/platform=tvOS"
     )
   end
 end
