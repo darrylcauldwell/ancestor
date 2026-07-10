@@ -170,6 +170,15 @@ struct TreeGraphView: View {
                                     compareRightID = nil
                                     showComparePicker = true
                                 }
+                                Divider()
+                                // The home person anchors the relationship
+                                // calculator and becomes the published
+                                // manifest's rootPerson — without it viewers
+                                // fall back to the best-connected person.
+                                Button("Set as Home Person") {
+                                    appState.setHomePerson(id: anchorID)
+                                }
+                                .disabled(anchorID == appState.currentProject?.homePersonID)
                             }
                         }
 
