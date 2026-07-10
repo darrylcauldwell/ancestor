@@ -14,9 +14,12 @@ struct TreeScreen: View {
     @State private var focalID: String?
     @State private var selectedPerson: SelectedPerson?
 
-    @State private var committedOffset: CGSize = .zero
+    // nil = "not touched yet" — the fit-to-screen default is computed
+    // per-render from live geometry (a one-shot write raced initial
+    // layout on iPad); the first gesture takes over.
+    @State private var userOffset: CGSize?
     @GestureState private var dragOffset: CGSize = .zero
-    @State private var committedScale = 1.0
+    @State private var userScale: Double?
     @GestureState private var pinchScale = 1.0
 
     private let maxGenerations = 4
@@ -25,13 +28,27 @@ struct TreeScreen: View {
         let id: String
     }
 
-    private var scale: Double {
-        min(max(committedScale * pinchScale, 0.35), 2.5)
+    private func fitScale(layout: TreeLayout.LayoutResult, size: CGSize) -> Double {
+        let fit = size.width / max(layout.contentWidth, 1)
+        return min(max(fit, 0.35), 1.0)
     }
 
-    private var offset: CGSize {
-        CGSize(width: committedOffset.width + dragOffset.width,
-               height: committedOffset.height + dragOffset.height)
+    /// The transform pins the root near the bottom edge; recentre the
+    /// whole content block vertically on tall screens.
+    private func fitOffset(layout: TreeLayout.LayoutResult, size: CGSize, scale: Double) -> CGSize {
+        let shift = (layout.contentHeight * scale - size.height) / 2
+            + TreeLayout.nodeHeight * scale
+        return CGSize(width: 0, height: min(shift, 0))
+    }
+
+    private func effectiveScale(layout: TreeLayout.LayoutResult, size: CGSize) -> Double {
+        min(max((userScale ?? fitScale(layout: layout, size: size)) * pinchScale, 0.35), 2.5)
+    }
+
+    private func effectiveOffset(layout: TreeLayout.LayoutResult, size: CGSize, scale: Double) -> CGSize {
+        let base = userOffset ?? fitOffset(layout: layout, size: size, scale: scale)
+        return CGSize(width: base.width + dragOffset.width,
+                      height: base.height + dragOffset.height)
     }
 
     private var resolvedFocalID: String? {
@@ -50,22 +67,8 @@ struct TreeScreen: View {
                         canvas(layout: layout, focalID: focal, size: geometry.size)
                             .contentShape(Rectangle())
                             .gesture(tapGesture(layout: layout, size: geometry.size, focalID: focal))
-                            .simultaneousGesture(dragGesture)
-                            .simultaneousGesture(pinchGesture)
-                            .task(id: focal) {
-                                // Fit-to-width whenever the focal person
-                                // changes — a pedigree is wide, phones are
-                                // narrow; start framed, pinch from there.
-                                // Vertically: the transform pins the root
-                                // near the bottom edge; recentre the whole
-                                // content block on tall screens.
-                                let fit = geometry.size.width / max(layout.contentWidth, 1)
-                                let s = min(max(fit, 0.35), 1.0)
-                                committedScale = s
-                                let verticalShift = (layout.contentHeight * s - geometry.size.height) / 2
-                                    + TreeLayout.nodeHeight * s
-                                committedOffset = CGSize(width: 0, height: min(verticalShift, 0))
-                            }
+                            .simultaneousGesture(dragGesture(layout: layout, size: geometry.size))
+                            .simultaneousGesture(pinchGesture(layout: layout, size: geometry.size))
                     }
                 } else {
                     StatusScreen(
@@ -93,8 +96,8 @@ struct TreeScreen: View {
             .sheet(item: $selectedPerson) { person in
                 PersonSheet(personID: person.id, tree: tree) { newFocal in
                     focalID = newFocal
-                    committedOffset = .zero
-                    committedScale = 1.0
+                    userOffset = nil   // back to fit-to-screen for the new root
+                    userScale = nil
                 }
             }
             .overlay(alignment: .bottom) {
@@ -113,6 +116,8 @@ struct TreeScreen: View {
     // MARK: - Canvas
 
     private func canvas(layout: TreeLayout.LayoutResult, focalID: String, size: CGSize) -> some View {
+        let scale = effectiveScale(layout: layout, size: size)
+        let offset = effectiveOffset(layout: layout, size: size, scale: scale)
         let transform = self.transform(layout: layout, focalID: focalID, size: size)
         // The macOS pattern, copied faithfully: scale the GraphicsContext
         // and draw in LAYOUT coordinates — fixed theme fonts then scale
@@ -157,11 +162,12 @@ struct TreeScreen: View {
 
     private func transform(layout: TreeLayout.LayoutResult, focalID: String, size: CGSize) -> CanvasTransform {
         let rootNode = layout.nodes.first { $0.id == focalID }
+        let scale = effectiveScale(layout: layout, size: size)
         return CanvasTransform(
             canvasSize: size,
             rootX: rootNode?.x ?? 0,
             rootY: rootNode?.y ?? 0,
-            offset: offset,
+            offset: effectiveOffset(layout: layout, size: size, scale: scale),
             scale: scale)
     }
 
@@ -173,24 +179,27 @@ struct TreeScreen: View {
 
     // MARK: - Gestures
 
-    private var dragGesture: some Gesture {
+    private func dragGesture(layout: TreeLayout.LayoutResult, size: CGSize) -> some Gesture {
         DragGesture()
             .updating($dragOffset) { value, state, _ in
                 state = value.translation
             }
             .onEnded { value in
-                committedOffset.width += value.translation.width
-                committedOffset.height += value.translation.height
+                let scale = effectiveScale(layout: layout, size: size)
+                let base = userOffset ?? fitOffset(layout: layout, size: size, scale: scale)
+                userOffset = CGSize(width: base.width + value.translation.width,
+                                    height: base.height + value.translation.height)
             }
     }
 
-    private var pinchGesture: some Gesture {
+    private func pinchGesture(layout: TreeLayout.LayoutResult, size: CGSize) -> some Gesture {
         MagnifyGesture()
             .updating($pinchScale) { value, state, _ in
                 state = value.magnification
             }
             .onEnded { value in
-                committedScale = min(max(committedScale * value.magnification, 0.35), 2.5)
+                let base = userScale ?? fitScale(layout: layout, size: size)
+                userScale = min(max(base * value.magnification, 0.35), 2.5)
             }
     }
 
