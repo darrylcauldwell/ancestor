@@ -53,8 +53,7 @@ struct TreeScreen: View {
 
     private var resolvedFocalID: String? {
         if let focalID, tree.snapshot.profiles[focalID] != nil { return focalID }
-        if let root = tree.manifest.rootPerson, tree.snapshot.profiles[root] != nil { return root }
-        return tree.snapshot.profiles.keys.sorted().first
+        return tree.suggestedRootID
     }
 
     var body: some View {

@@ -151,6 +151,27 @@ struct SnapshotBuilderTests {
         #expect(tree.media["P1"]?.first?.kind == "portrait")
     }
 
+    @Test func suggestedRootPrefersManifestThenConnectivity() {
+        // Manifest root present in the published set → wins.
+        let withRoot = SnapshotBuilder.build(
+            manifest: manifest, persons: [ernest, redactedMary], relationships: [], events: [], media: [])
+        #expect(withRoot.suggestedRootID == "P1")
+
+        // Rootless manifest → best-connected person, never an isolated one.
+        let rootless = ManifestRow(id: "M2")
+        let isolated = PersonRow(id: "A0", manifestID: "M2", displayName: "Aaaa Alone")
+        let child = PersonRow(id: "P5", manifestID: "M2", displayName: "Helen Cauldwell",
+                              givenName: "Helen", familyName: "Cauldwell")
+        let rels = [
+            RelationshipRow(id: "R1", fromPersonID: "P1", toPersonID: "P2", typeRaw: "spouse"),
+            RelationshipRow(id: "R2", fromPersonID: "P1", toPersonID: "P5", typeRaw: "parent")
+        ]
+        let tree = SnapshotBuilder.build(
+            manifest: rootless, persons: [isolated, ernest, redactedMary, child],
+            relationships: rels, events: [], media: [])
+        #expect(tree.suggestedRootID == "P1")   // degree 2 beats everyone; never "A0"
+    }
+
     @Test func schemaVersionGuardFlags() {
         let futureManifest = ManifestRow(id: "M9", schemaVersion: ViewerSchema.supportedVersion + 1)
         let current = SnapshotBuilder.build(

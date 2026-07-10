@@ -35,6 +35,13 @@ public nonisolated struct ViewerTree: Sendable {
     public var schemaExceedsSupported: Bool {
         manifest.schemaVersion > ViewerSchema.supportedVersion
     }
+
+    /// Where a viewer should land: the manifest's root person when
+    /// published, else the best-connected person. Never an isolated
+    /// record — an entry point with no relationships strands focus-driven
+    /// navigation (found live: a rootless manifest dropped the TV shell
+    /// on a name-only person with zero edges).
+    public let suggestedRootID: String?
 }
 
 public nonisolated enum SnapshotBuilder {
@@ -100,12 +107,34 @@ public nonisolated enum SnapshotBuilder {
             mediaByPerson[key]?.sort { $0.kind == "portrait" && $1.kind != "portrait" }
         }
 
+        let snapshot = FamilyGraphSnapshot(profiles: profiles, relationships: edges)
         return ViewerTree(
             manifest: manifest,
-            snapshot: FamilyGraphSnapshot(profiles: profiles, relationships: edges),
+            snapshot: snapshot,
             annotations: annotations,
             events: eventsByPerson,
-            media: mediaByPerson)
+            media: mediaByPerson,
+            suggestedRootID: suggestedRoot(manifest: manifest, snapshot: snapshot))
+    }
+
+    /// Manifest root when it exists in the published set; otherwise the
+    /// person with the most relationship edges (ties broken by name for
+    /// determinism); nil only for an empty tree.
+    static func suggestedRoot(manifest: ManifestRow, snapshot: FamilyGraphSnapshot) -> String? {
+        if let root = manifest.rootPerson, snapshot.profiles[root] != nil { return root }
+        var degree: [String: Int] = [:]
+        for edge in snapshot.relationships {
+            degree[edge.from, default: 0] += 1
+            degree[edge.to, default: 0] += 1
+        }
+        return snapshot.profiles.values
+            .max { lhs, rhs in
+                let l = degree[lhs.id] ?? 0
+                let r = degree[rhs.id] ?? 0
+                if l != r { return l < r }
+                return (lhs.displayName, lhs.id) > (rhs.displayName, rhs.id)
+            }?
+            .id
     }
 
     // MARK: - Row → model
