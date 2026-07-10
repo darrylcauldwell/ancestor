@@ -46,21 +46,29 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3E0467A930000CF4004648DB /* Ancestor-Viewer-TV */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = "Ancestor-Viewer-TV";
 			sourceTree = "<group>";
 		};
 		3E2FD79A2F9B89F200491FEB /* Ancestor Research */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = "Ancestor Research";
 			sourceTree = "<group>";
 		};
 		3E81571A2F9BA27400D37FC5 /* Ancestor Research Tests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = "Ancestor Research Tests";
 			sourceTree = "<group>";
 		};
 		ACVI170000000000000000AB /* Ancestor-Viewer-iOS */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = "Ancestor-Viewer-iOS";
 			sourceTree = "<group>";
 		};
@@ -584,7 +592,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Ancestor Research/Ancestor_Research.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = N6BK2WX94Z;
 				ENABLE_APP_SANDBOX = YES;
@@ -621,7 +629,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Ancestor Research/Ancestor_Research.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = N6BK2WX94Z;
 				ENABLE_APP_SANDBOX = YES;
@@ -655,7 +663,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = N6BK2WX94Z;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -676,7 +684,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = N6BK2WX94Z;
 				GENERATE_INFOPLIST_FILE = YES;
