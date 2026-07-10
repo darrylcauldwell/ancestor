@@ -3,9 +3,14 @@ import CloudKit
 import AncestorKit
 import AncestorViewerKit
 
-/// App-level state for the viewer: account gate → fetch → cached tree.
-/// Renders from cache immediately when one exists (render-before-refresh,
-/// PUBLISHER_SPEC §4.3), then refreshes from the zone.
+/// App-level state for the viewer: account gate → scope probe → fetch →
+/// cached tree. Renders from cache immediately when one exists
+/// (render-before-refresh, PUBLISHER_SPEC §4.3), then refreshes.
+///
+/// Scope: the owner's devices find the tree in the PRIVATE database; a
+/// family member who accepted a share finds it in the SHARED database.
+/// The model probes (last-successful scope first) and remembers what
+/// worked, so one binary serves both audiences with no configuration.
 @Observable
 @MainActor
 final class ViewerModel {
@@ -22,9 +27,11 @@ final class ViewerModel {
     private(set) var manifests: [ManifestRow] = []
     private(set) var tree: ViewerTree?
     private(set) var isRefreshing = false
+    private(set) var scope: ViewerDatabaseScope?
 
     private var store: ViewerStore?
     private var selectedManifestID: String?
+    private static let scopeKey = "viewerDatabaseScope"
 
     func launch() async {
         guard store == nil else { return }
@@ -45,33 +52,32 @@ final class ViewerModel {
             return
         }
 
-        do {
-            let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("PublishedTree", isDirectory: true)
-            try FileManager.default.createDirectory(at: caches, withIntermediateDirectories: true)
-            let fetcher = ZoneFetcher(
-                scope: .privateDatabase,
-                assetDirectory: caches.appendingPathComponent("assets", isDirectory: true))
-            let cache = try ViewerCache.open(at: caches.appendingPathComponent("cache.sqlite"))
-            let store = ViewerStore(fetcher: fetcher, cache: cache)
-            self.store = store
-
-            // Purged cache / first run both land here with nothing cached —
-            // stay in .loading until the fetch delivers.
-            manifests = (try? await store.cachedManifests()) ?? []
-            if !manifests.isEmpty {
-                try await selectBestManifest()
-                phase = .ready
+        // Probe scopes, remembered-winner first. `treeNotFound` in one
+        // scope is not a failure — the tree may live in the other.
+        for candidate in scopeProbeOrder() {
+            do {
+                try configureStore(scope: candidate)
+                if let store {
+                    manifests = (try? await store.cachedManifests()) ?? []
+                    if !manifests.isEmpty {
+                        try await selectBestManifest()
+                        phase = .ready
+                    }
+                }
+                try await refresh()
+                UserDefaults.standard.set(candidate.rawValue, forKey: Self.scopeKey)
+                scope = candidate
+                return
+            } catch ViewerError.treeNotFound {
+                store = nil
+                continue
+            } catch {
+                store = nil
+                phase = tree == nil ? .failed(error.localizedDescription) : .ready
+                return
             }
-
-            try await refresh()
-        } catch ViewerError.treeNotFound {
-            phase = tree == nil ? .notPublished : .ready
-        } catch {
-            // A failed refresh over a valid cache degrades to stale-but-
-            // rendered; with no cache it is a real failure state.
-            phase = tree == nil ? .failed(error.localizedDescription) : .ready
         }
+        phase = tree == nil ? .notPublished : .ready
     }
 
     func refresh() async throws {
@@ -87,6 +93,25 @@ final class ViewerModel {
         phase = .ready
     }
 
+    /// A CloudKit share invite was accepted (Change 4): join the share,
+    /// switch to the shared database, and start over from scratch.
+    func acceptShare(_ metadata: CKShare.Metadata) async {
+        phase = .loading
+        do {
+            let container = CKContainer(identifier: ZoneFetcher.defaultContainerIdentifier)
+            _ = try await container.accept(metadata)
+            UserDefaults.standard.set(
+                ViewerDatabaseScope.sharedDatabase.rawValue, forKey: Self.scopeKey)
+            store = nil
+            tree = nil
+            manifests = []
+            selectedManifestID = nil
+            await launch()
+        } catch {
+            phase = .failed("Couldn't join the shared tree: \(error.localizedDescription)")
+        }
+    }
+
     func select(manifestID: String) async {
         selectedManifestID = manifestID
         do {
@@ -94,6 +119,38 @@ final class ViewerModel {
         } catch {
             phase = .failed(error.localizedDescription)
         }
+    }
+
+    // MARK: - Private
+
+    private func scopeProbeOrder() -> [ViewerDatabaseScope] {
+        let saved = UserDefaults.standard.string(forKey: Self.scopeKey)
+            .flatMap(ViewerDatabaseScope.init(rawValue:))
+        switch saved {
+        case .sharedDatabase: return [.sharedDatabase, .privateDatabase]
+        default: return [.privateDatabase, .sharedDatabase]
+        }
+    }
+
+    /// Per-scope cache files — switching audience never mixes replicas.
+    private func configureStore(scope: ViewerDatabaseScope) throws {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("PublishedTree-\(scope.rawValue)", isDirectory: true)
+        try FileManager.default.createDirectory(at: caches, withIntermediateDirectories: true)
+        let fetcher = ZoneFetcher(
+            scope: scope,
+            assetDirectory: caches.appendingPathComponent("assets", isDirectory: true))
+        let cache = try ViewerCache.open(at: caches.appendingPathComponent("cache.sqlite"))
+        store = ViewerStore(fetcher: fetcher, cache: cache)
+    }
+
+    private func selectBestManifest() async throws {
+        guard let store else { return }
+        let current = selectedManifestID.flatMap { id in manifests.first { $0.id == id } }
+        let chosen = current ?? manifests.max { $0.generation < $1.generation }
+        guard let chosen else { return }
+        selectedManifestID = chosen.id
+        tree = try await store.tree(manifestID: chosen.id)
     }
 
     #if DEBUG
@@ -166,13 +223,4 @@ final class ViewerModel {
         phase = .ready
     }
     #endif
-
-    private func selectBestManifest() async throws {
-        guard let store else { return }
-        let current = selectedManifestID.flatMap { id in manifests.first { $0.id == id } }
-        let chosen = current ?? manifests.max { $0.generation < $1.generation }
-        guard let chosen else { return }
-        selectedManifestID = chosen.id
-        tree = try await store.tree(manifestID: chosen.id)
-    }
 }
