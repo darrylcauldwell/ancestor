@@ -52,7 +52,7 @@ struct FocusInfoPanel: View {
                 }
 
                 HStack(spacing: 12) {
-                    Text("Press to read more")
+                    Text("Press to read more  ·  Hold to find a person")
                         .font(AppTypography.controlLabel)
                         .foregroundStyle(.tertiary)
                     if refreshing {

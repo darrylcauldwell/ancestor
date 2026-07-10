@@ -13,6 +13,7 @@ struct TreeScreen: View {
 
     @State private var focalID: String?
     @State private var selectedPerson: SelectedPerson?
+    @State private var showingSearch = false
 
     // nil = "not touched yet" — the fit-to-screen default is computed
     // per-render from live geometry (a one-shot write raced initial
@@ -81,6 +82,14 @@ struct TreeScreen: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
+                        showingSearch = true
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    .accessibilityLabel("Find a person")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
                         Task { try? await model.refresh() }
                     } label: {
                         if model.isRefreshing {
@@ -90,6 +99,13 @@ struct TreeScreen: View {
                         }
                     }
                     .accessibilityLabel("Refresh from iCloud")
+                }
+            }
+            .sheet(isPresented: $showingSearch) {
+                PersonSearchSheet(tree: tree) { personID in
+                    focalID = personID
+                    userOffset = nil
+                    userScale = nil
                 }
             }
             .sheet(item: $selectedPerson) { person in

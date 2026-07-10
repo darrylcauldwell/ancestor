@@ -14,6 +14,7 @@ struct TreeScreen: View {
 
     @State private var focalID: String?
     @State private var personSheet: FocusedPerson?
+    @State private var showingSearch = false
     @FocusState private var canvasFocused: Bool
 
     private let scale = 1.5
@@ -41,6 +42,7 @@ struct TreeScreen: View {
                         .focused($canvasFocused)
                         .onMoveCommand { direction in move(direction, from: focal) }
                         .onTapGesture { personSheet = FocusedPerson(id: focal) }
+                        .onLongPressGesture { showingSearch = true }
                         .onPlayPauseCommand { Task { try? await model.refresh() } }
 
                     FocusInfoPanel(
@@ -60,6 +62,11 @@ struct TreeScreen: View {
         .ignoresSafeArea()
         .fullScreenCover(item: $personSheet) { person in
             PersonScreen(personID: person.id, tree: tree)
+        }
+        .fullScreenCover(isPresented: $showingSearch) {
+            PersonSearchScreen(tree: tree) { personID in
+                focalID = personID
+            }
         }
         .overlay(alignment: .bottom) {
             if tree.schemaExceedsSupported {
