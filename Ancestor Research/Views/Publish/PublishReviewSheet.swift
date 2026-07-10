@@ -30,8 +30,20 @@ final class PublishReviewModel {
         case failed(String)
     }
 
+    struct MediaRow: Identifiable {
+        let id: UUID
+        let filename: String
+        let caption: String?
+        let kindLabel: String                // "Photo" / "Document"
+        let ownerID: String
+        let ownerName: String
+        var ownerPublishable: Bool           // owner resolves .full — else opt-in has no effect
+        var optedIn: Bool
+    }
+
     let project: Project
     private(set) var rows: [PersonRow] = []
+    private(set) var mediaRows: [MediaRow] = []
     private(set) var phase: Phase = .loading
     private var db: ProjectDatabase?
 
@@ -42,6 +54,7 @@ final class PublishReviewModel {
     var unacknowledgedCount: Int { rows.filter { !$0.acknowledged }.count }
     var redactedCount: Int { rows.filter { $0.resolved == .nameOnly }.count }
     var omittedCount: Int { rows.filter { $0.resolved == .omit }.count }
+    var sharedMediaCount: Int { mediaRows.filter { $0.optedIn && $0.ownerPublishable }.count }
     var canPublish: Bool {
         if case .reviewing = phase { return unacknowledgedCount == 0 }
         return false
@@ -81,6 +94,31 @@ final class PublishReviewModel {
                 if ($0.resolved == .nameOnly) != ($1.resolved == .nameOnly) { return $0.resolved == .nameOnly }
                 return $0.displayName < $1.displayName
             }
+
+            // Media opt-in (§4.2): profile-targeted photos/documents only —
+            // transcriptions are citation material, lifeEvent/fieldSource
+            // targets are excluded from v1 by decision log #7.
+            let optIns = try database.loadPublishMediaOptIns()
+            let resolvedByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.resolved) })
+            mediaRows = try database.loadAttachments().compactMap { attachment in
+                guard case .profile(let ownerID) = attachment.attachedTo,
+                      attachment.mediaType != .transcription,
+                      let owner = snapshot.profiles[ownerID]
+                else { return nil }
+                return MediaRow(
+                    id: attachment.id,
+                    filename: attachment.filename,
+                    caption: attachment.caption,
+                    kindLabel: attachment.mediaType == .photo ? "Photo" : "Document",
+                    ownerID: ownerID,
+                    ownerName: owner.displayName,
+                    ownerPublishable: resolvedByID[ownerID] == .full,
+                    optedIn: optIns.contains(attachment.id))
+            }
+            .sorted {
+                if $0.ownerName != $1.ownerName { return $0.ownerName < $1.ownerName }
+                return $0.filename < $1.filename
+            }
             phase = .reviewing
         } catch {
             phase = .failed(error.localizedDescription)
@@ -97,6 +135,21 @@ final class PublishReviewModel {
             // A deliberate change is itself an acknowledgement.
             try db.acknowledgePublishPolicies(profileIDs: [rowID], at: Date())
             rows[index].acknowledged = true
+            // Policy changes flip whether this person's media can publish.
+            let publishable = rows[index].resolved == .full
+            for mediaIndex in mediaRows.indices where mediaRows[mediaIndex].ownerID == rowID {
+                mediaRows[mediaIndex].ownerPublishable = publishable
+            }
+        } catch {
+            phase = .failed(error.localizedDescription)
+        }
+    }
+
+    func setMediaOptIn(_ optedIn: Bool, for attachmentID: UUID) {
+        guard let db, let index = mediaRows.firstIndex(where: { $0.id == attachmentID }) else { return }
+        do {
+            try db.setPublishMediaOptIn(attachmentID: attachmentID, optedIn: optedIn)
+            mediaRows[index].optedIn = optedIn
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -151,7 +204,13 @@ final class PublishReviewModel {
 }
 
 struct PublishReviewSheet: View {
+    enum ReviewTab: String, CaseIterable {
+        case people = "People"
+        case media = "Media"
+    }
+
     @State var model: PublishReviewModel
+    @State private var tab: ReviewTab = .people
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -234,7 +293,50 @@ struct PublishReviewSheet: View {
 
     private var reviewList: some View {
         VStack(spacing: 0) {
-            List {
+            Picker("", selection: $tab) {
+                ForEach(ReviewTab.allCases, id: \.self) { tab in
+                    Text(tab == .media
+                         ? "Media (\(model.sharedMediaCount)/\(model.mediaRows.count))"
+                         : "People (\(model.rows.count))")
+                        .tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal)
+            .padding(.top, 8)
+
+            switch tab {
+            case .people: peopleList
+            case .media: PublishMediaList(model: model)
+            }
+
+            Divider()
+            HStack {
+                Text(tab == .people
+                     ? "\(model.rows.count) people — \(model.redactedCount) name-only, \(model.omittedCount) not published"
+                     : "\(model.sharedMediaCount) of \(model.mediaRows.count) photos & documents will be shared — each counts against your iCloud storage")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if model.unacknowledgedCount > 0 {
+                    Button("Confirm All Redactions (\(model.unacknowledgedCount))") {
+                        model.acknowledgeAll()
+                    }
+                }
+                Button("Publish") { model.publish() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!model.canPublish)
+                    .help(model.canPublish
+                          ? "Publish the redacted tree to iCloud"
+                          : "Confirm every person’s policy first")
+            }
+            .padding()
+        }
+    }
+
+    private var peopleList: some View {
+        List {
                 ForEach(model.rows) { row in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
@@ -264,26 +366,6 @@ struct PublishReviewSheet: View {
                     }
                 }
             }
-            Divider()
-            HStack {
-                Text("\(model.rows.count) people — \(model.redactedCount) name-only, \(model.omittedCount) not published")
-                    .font(AppTypography.cardMeta)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if model.unacknowledgedCount > 0 {
-                    Button("Confirm All Redactions (\(model.unacknowledgedCount))") {
-                        model.acknowledgeAll()
-                    }
-                }
-                Button("Publish") { model.publish() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!model.canPublish)
-                    .help(model.canPublish
-                          ? "Publish the redacted tree to iCloud"
-                          : "Confirm every person’s policy first")
-            }
-            .padding()
-        }
     }
 
     private func policyBadge(_ row: PublishReviewModel.PersonRow) -> some View {
