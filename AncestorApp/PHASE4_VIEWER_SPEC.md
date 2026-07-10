@@ -103,7 +103,9 @@ New app target **Ancestor** for iPhone/iPad (bundle `dev.dreamfold.Ancestor-View
 
 **Acceptance:** owner's iPhone renders the tree via `.private` scope from production; pan/zoom/tap hit-testing correct at all scales; person sheet parity with tvOS person screen; works on iPad.
 
-## 7. Share acceptance + participant validation (Change 4)
+## 7. Share acceptance + participant validation (Change 4) — CODE HALF BUILT 2026-07-10
+
+> **Built** (commit 9aa988f), pending live validation: iOS acceptance flow (`ShareAcceptance.swift` — AppDelegate → SceneDelegate `userDidAcceptCloudKitShareWith` + cold-launch `connectionOptions.cloudKitShareMetadata`, buffered through `ShareAcceptanceRelay` until the model exists; `ViewerModel.acceptShare` calls `container.accept(metadata)` then relaunches in `.sharedDatabase` scope; `CKSharingSupported=YES` merged via `Ancestor-Viewer-iOS-Info.plist`, verified in the built product). Both shells now run a **dual-scope probe** (remembered-winner → private → shared, per-scope cache files) so one binary serves owner and participant with no configuration — this is also the tvOS `.shared` wiring this section required. **Remaining: the entire live validation matrix** (second-account iPhone: accept → read-only render, server-side write rejection, revocation, unpublish tombstones, redaction-as-participant audit) — needs Darryl's second iPhone and a production publish + invite.
 
 The deferred PUBLISHER_SPEC Change 5 acceptance items, now executable because a client app exists:
 
