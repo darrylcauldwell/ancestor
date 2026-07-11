@@ -1,6 +1,6 @@
 # ADR-005 — FamilySearch-originated tree data is evidence, never conclusions
 
-**Status:** Proposed 2026-07-11 — awaiting review
+**Status:** Accepted 2026-07-11 (Darryl)
 **Depends on:** ADR-001 (canonical model), ADR-002 (FS Tree service is the module this governs)
 
 ## Context
