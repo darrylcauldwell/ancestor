@@ -1,6 +1,6 @@
 # ADR-004 — Model evolution is a closed four-item list
 
-**Status:** Proposed 2026-07-11 — awaiting review
+**Status:** Accepted 2026-07-11 (Darryl)
 **Depends on:** ADR-001 ("canonical" is not "finished"); feeds ADR-003 (each evolution updates the mapping document)
 
 ## Context
