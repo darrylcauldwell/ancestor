@@ -1,5 +1,8 @@
 # Kinship Spec — fan-out tree-building and relationship verification
 
+> **Decision pending (2026-07-11):** whether this work joins the core push — respecced Swift-first — is proposed as `adr/ADR-007-kinship-joins-core-swift-first.md`. If accepted, #Change3–5 are redesigned in a Swift-first v2 spec and #Change9 (the wholesale port) dissolves. The Python-first plan below is retained as design input only (swift-is-what-ships rule, 2026-05).
+
+
 > **#Change3–5 deferred (2026-05-25):** Primitives `find_siblings`
 > + `find_children` (#Change1–2) are shipped. The fan-out walker
 > (`discover_kin`), `find_spouses`, and `verify_relationship`

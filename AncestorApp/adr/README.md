@@ -10,3 +10,4 @@ ADRs record one architectural decision each — the facts that forced it, the de
 | [ADR-004](ADR-004-model-evolution-closed-list.md) | Model evolution is a closed four-item list | **Accepted** |
 | [ADR-005](ADR-005-fs-tree-data-is-evidence.md) | FamilySearch-originated tree data is evidence, never conclusions | **Accepted** |
 | [ADR-006](ADR-006-no-general-treeprovider.md) | No general TreeProvider abstraction | **Accepted** |
+| [ADR-007](ADR-007-kinship-joins-core-swift-first.md) | Kinship primitives join the core push, respecced Swift-first | Proposed |
