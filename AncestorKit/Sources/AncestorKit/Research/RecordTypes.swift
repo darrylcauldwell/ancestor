@@ -337,10 +337,28 @@ public nonisolated struct HouseholdMember: Codable, Sendable, Hashable {
     public let birthPlace: String?
     public let occupation: String?
     public let sex: String?
+    /// Marital-status column (M/S/W/U…) — distinguishes wife vs widow vs
+    /// unmarried sister on identical relationship strings (connector-audit
+    /// FT-15).
+    public let maritalStatus: String?
+    /// Birth-county column — disambiguates common birth-place strings
+    /// (connector-audit FT-15).
+    public let birthCounty: String?
+    /// Disability column (connector-audit FT-15). A flat typed field, not a
+    /// rawFields bag: this struct has no bag and its design is flat optionals.
+    public let disability: String?
+    /// Notes column (connector-audit FT-15). Flat typed field, as above.
+    public let notes: String?
+    /// True when the source marked this member's row as "the person found in
+    /// your search" — Python's `is_target` (sources/freecen.py:318), ported
+    /// for connector-audit FT-10. Optional so legacy persisted JSON in
+    /// `evidence_records` (which predates the field) decodes as nil
+    /// ("unknown") rather than failing.
+    public let isTarget: Bool?
 
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
-    public init(name: String, relationship: String, age: Int? = nil, birthYear: Int? = nil, birthPlace: String? = nil, occupation: String? = nil, sex: String? = nil) {
+    public init(name: String, relationship: String, age: Int? = nil, birthYear: Int? = nil, birthPlace: String? = nil, occupation: String? = nil, sex: String? = nil, maritalStatus: String? = nil, birthCounty: String? = nil, disability: String? = nil, notes: String? = nil, isTarget: Bool? = nil) {
         self.name = name
         self.relationship = relationship
         self.age = age
@@ -348,6 +366,11 @@ public nonisolated struct HouseholdMember: Codable, Sendable, Hashable {
         self.birthPlace = birthPlace
         self.occupation = occupation
         self.sex = sex
+        self.maritalStatus = maritalStatus
+        self.birthCounty = birthCounty
+        self.disability = disability
+        self.notes = notes
+        self.isTarget = isTarget
     }
 
 }

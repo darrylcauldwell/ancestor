@@ -360,7 +360,12 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             let givenName = nameParts.count > 1 ? nameParts.dropLast().joined(separator: " ") : nil
 
             let common = RecordCommon(
-                id: "freecen_\(recordCensusYear ?? 0)_\(surname ?? "")_\(givenName ?? "")",
+                id: stableRecordID(
+                    detailURL: recordURL,
+                    censusYear: recordCensusYear,
+                    surname: surname,
+                    givenName: givenName
+                ),
                 sourceID: "freecen",
                 name: name,
                 surname: surname,
@@ -440,14 +445,22 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
                     return stripHTML(String(table[range]))
                 }
 
-            // Skip 11 header cells, process data in groups of 11
+            // Skip 11 header cells, process data in groups of 11.
+            // Columns: Surname, Forenames, Relationship, Marital Status,
+            // Sex, Age, Occupation, Birth County, Birth Place, Disability,
+            // Notes (sources/freecen.py:279-289).
             let dataCells = Array(cells.dropFirst(11))
-            // Handle "person found in your search" marker in first cell
+            // Handle "person found in your search" marker in first cell.
+            // Python remembers WHERE the marker cell lands (target_row_start,
+            // sources/freecen.py:296-307) so the marked member — not merely
+            // the first — can be selected as the search target below (FT-10).
             var processed: [String] = []
+            var targetRowStart: Int?
             for cell in dataCells {
                 if cell.lowercased().contains("person found in your search") {
                     let parts = cell.components(separatedBy: "\n")
                     let surname = parts.first(where: { !$0.lowercased().contains("person found") && !$0.trimmingCharacters(in: .whitespaces).isEmpty })?.trimmingCharacters(in: .whitespaces) ?? ""
+                    targetRowStart = processed.count
                     processed.append(surname)
                 } else {
                     processed.append(cell)
@@ -468,7 +481,12 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
                     birthYear: nil,  // computed from census year - age
                     birthPlace: row[8],
                     occupation: row[6],
-                    sex: row[4]
+                    sex: row[4],
+                    maritalStatus: row[3].isEmpty ? nil : row[3],
+                    birthCounty: row[7].isEmpty ? nil : row[7],
+                    disability: row[9].isEmpty ? nil : row[9],
+                    notes: row[10].isEmpty ? nil : row[10],
+                    isTarget: i == targetRowStart  // Python: is_target = (i == target_row_start)
                 ))
                 i += 11
             }
@@ -484,19 +502,37 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
                 birthYear: member.age.map { censusYear - $0 },
                 birthPlace: member.birthPlace,
                 occupation: member.occupation,
-                sex: member.sex
+                sex: member.sex,
+                maritalStatus: member.maritalStatus,
+                birthCounty: member.birthCounty,
+                disability: member.disability,
+                notes: member.notes,
+                isTarget: member.isTarget
             )
         }
 
-        // Build a CensusRecord for the first member (the search target)
-        guard let target = membersWithBirthYear.first else { return nil }
+        // Build a CensusRecord for the search target (FT-10). FreeCen lists
+        // households head-first, so the member the results page marked as
+        // "the person found in your search" is the subject — the first
+        // member is only correct as a no-marker fallback (Python selects on
+        // is_target the same way, sources/freecen.py:318).
+        guard let target = membersWithBirthYear.first(where: { $0.isTarget == true })
+                ?? membersWithBirthYear.first else { return nil }
+
+        let targetSurname = target.name.split(separator: " ").last.map(String.init)
+        let targetGivenName = target.name.split(separator: " ").dropLast().joined(separator: " ")
 
         let common = RecordCommon(
-            id: "freecen_detail_\(censusYear)_\(target.name)",
+            id: stableRecordID(
+                detailURL: recordURL,
+                censusYear: censusYear,
+                surname: targetSurname,
+                givenName: targetGivenName
+            ),
             sourceID: "freecen",
             name: target.name,
-            surname: target.name.split(separator: " ").last.map(String.init),
-            givenName: target.name.split(separator: " ").dropLast().joined(separator: " "),
+            surname: targetSurname,
+            givenName: targetGivenName,
             detailURL: recordURL,
             rawFields: dwelling
         )
@@ -515,6 +551,37 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             district: dwelling["district"],
             household: membersWithBirthYear
         ))
+    }
+
+    /// Stable record ID (connector-audit FT-12). Record IDs are load-bearing
+    /// across runs and across enrichment: `evidence_records` keys on
+    /// `"<profile>|<source_record_id>"` and rejectionLookup suppresses user
+    /// discards by `SourceRecord.id` — so the same census entry must carry
+    /// the same ID whether it is the bare search row or the household-
+    /// enriched detail record, and two same-name people must never collapse
+    /// to one ID. Same idiom as FreeREGSource.stableRecordID (FT-16).
+    ///
+    /// Preference order:
+    /// 1. The server-stable entry ID embedded in the detail URL
+    ///    (`/search_records/<id>`) — shared by the search row and the
+    ///    detail page, so enrichment no longer flips the ID.
+    /// 2. The legacy name composite (`freecen_<year>_<surname>_<given>`),
+    ///    only when no detail link was parsed — keeping pre-existing
+    ///    evidence keys for link-less rows intact.
+    nonisolated static func stableRecordID(
+        detailURL: String?,
+        censusYear: Int?, surname: String?, givenName: String?
+    ) -> String {
+        if let detailURL, let url = URL(string: detailURL) {
+            // lastPathComponent drops any query string; guard against a
+            // degenerate href like "/search_records/?q=…" where the last
+            // path segment is the route name rather than an entry ID.
+            let segment = url.lastPathComponent
+            if !segment.isEmpty, segment != "/", segment != "search_records" {
+                return "freecen_\(segment)"
+            }
+        }
+        return "freecen_\(censusYear ?? 0)_\(surname ?? "")_\(givenName ?? "")"
     }
 
     // MARK: - HTML Helpers
