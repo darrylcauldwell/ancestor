@@ -82,9 +82,12 @@ nonisolated enum HypothesisEngine {
         case .birthYearCandidate:
             return generateBirthYearCandidate(state: state, snapshot: snapshot)
         case .parentCandidates:
-            // §5.15 Slice 1: user-seeded only — the engine never invents
-            // a hunch. Slice 2's generator reads the v32 seeds table via
-            // the watcher-materialised rows; until then this arm is inert.
+            // §5.15.1 regeneration exemption — permanent, not a stub.
+            // The engine never invents a hunch: `.user` rows are
+            // materialised from the v32 seeds table by
+            // `HypothesisSeedService`, and the regeneration cycle never
+            // creates, deletes, or reshapes them — only re-grades them
+            // (ResearchPipeline.runUserSeededHypothesisFlow).
             return []
         case .subjectIdentity, .clusterIsSubject,
              .burialAtParish, .secondMarriage:
@@ -112,11 +115,7 @@ nonisolated enum HypothesisEngine {
         case .birthYearCandidate:
             return gradeBirthYearCandidate(hypothesis, state: state, snapshot: snapshot)
         case .parentCandidates:
-            // §5.15 Slice 2 lands the real grader (§5.15.4, Decision E5:
-            // supported requires the marriage + linkage chain). Slice 1
-            // never routes these rows into a run, so the stub is unreachable
-            // in practice — present only for switch exhaustiveness.
-            return .inconclusiveStub
+            return gradeParentCandidates(hypothesis, state: state, snapshot: snapshot)
         case .subjectIdentity, .clusterIsSubject,
              .burialAtParish, .secondMarriage:
             return .inconclusiveStub   // future kinds
@@ -252,10 +251,7 @@ nonisolated enum HypothesisEngine {
         case .birthYearCandidate:
             return deficitQueryBirthYearCandidate(for: hypothesis, atLevel: level, state: state)
         case .parentCandidates:
-            // §5.15.3's levels 1–3 (parent-marriage index, MMN linkage,
-            // census household) land in Slice 2 with the T7 carve-out
-            // (Decision E4). Inert until then.
-            return []
+            return deficitQueryParentCandidates(for: hypothesis, atLevel: level, state: state)
         case .subjectIdentity, .clusterIsSubject,
              .burialAtParish, .secondMarriage:
             return []   // future kinds

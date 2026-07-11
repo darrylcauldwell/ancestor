@@ -41,6 +41,16 @@ final class ResearchPipeline {
     /// gesture sticks across research runs.
     let rejectionLookup: ((String) -> Set<String>)?
 
+    /// Per-profile user-seeded hypothesis lookup (RESEARCH_PIPELINE_SPEC
+    /// §5.15 Slice 2). Returns the persisted `origin == .user`
+    /// `research_hypotheses` rows for a profile — the hunches
+    /// `HypothesisSeedService` materialised from the v32 seeds table.
+    /// Backed by `ProjectDatabase.loadHypotheses(forProfile:)`, which
+    /// excludes `user_rejected = 1` rows — §5.15.6: no deficit level is
+    /// ever dispatched for a rejected row. Nil means no database (unit
+    /// tests, read-only runs) — the user-hunch flow is a no-op.
+    let userHypothesisLookup: ((String) -> [ResearchHypothesis])?
+
     private let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "Pipeline")
 
     init(
@@ -49,7 +59,8 @@ final class ResearchPipeline {
         sourceInfoMap: [String: SourceInfo],
         childEvidenceMMNLookup: ((String) -> String?)? = nil,
         pendingFactWriter: ((PendingFact) -> Void)? = nil,
-        rejectionLookup: ((String) -> Set<String>)? = nil
+        rejectionLookup: ((String) -> Set<String>)? = nil,
+        userHypothesisLookup: ((String) -> [ResearchHypothesis])? = nil
     ) {
         self.dispatcher = dispatcher
         self.snapshot = snapshot
@@ -57,6 +68,7 @@ final class ResearchPipeline {
         self.childEvidenceMMNLookup = childEvidenceMMNLookup
         self.pendingFactWriter = pendingFactWriter
         self.rejectionLookup = rejectionLookup
+        self.userHypothesisLookup = userHypothesisLookup
     }
 
     /// Build a `childEvidenceMMNLookup` closure backed by
@@ -104,6 +116,20 @@ final class ResearchPipeline {
         guard let database else { return nil }
         return { profileID in
             (try? database.loadRejections(profileID: profileID)) ?? []
+        }
+    }
+
+    /// Build a `userHypothesisLookup` closure backed by
+    /// `ProjectDatabase.loadHypotheses(forProfile:)` (§5.15 Slice 2).
+    /// Read-only; filters to `origin == .user`. Rejected rows never
+    /// surface — `loadHypotheses` excludes `user_rejected = 1` by
+    /// default, which is the §5.15.6 dispatch-suppression contract.
+    /// Load failures fall through to an empty list.
+    static func makeUserHypothesisLookup(database: ProjectDatabase?) -> ((String) -> [ResearchHypothesis])? {
+        guard let database else { return nil }
+        return { profileID in
+            ((try? database.loadHypotheses(forProfile: profileID)) ?? [])
+                .filter { $0.origin == .user }
         }
     }
 
@@ -718,7 +744,19 @@ final class ResearchPipeline {
             state: &state
         )
 
-        let firstPassHypotheses = preIterationHypotheses + siblingHypotheses + parentHypotheses + birthYearCandidateHypotheses
+        // DETERMINISTIC: user-seeded hypothesis flow (RESEARCH_PIPELINE_SPEC
+        // §5.15 Slice 2). Loads the subject's persisted `origin == .user`
+        // `.parentCandidates` rows, dispatches ONE unconditional level-1
+        // parent-marriage probe for never-probed rows (T7 stall-gate
+        // carve-out, Decision E4 — a user directive is not engine
+        // speculation), and grades per §5.15.4 (Decision E5 — supported
+        // requires the marriage + linkage chain). Ladder levels 2–3 ride
+        // the normal T7 stall gate below.
+        let userSeededHypotheses = await runUserSeededHypothesisFlow(
+            state: &state, scope: config.scope, cache: queryCache
+        )
+
+        let firstPassHypotheses = preIterationHypotheses + siblingHypotheses + parentHypotheses + birthYearCandidateHypotheses + userSeededHypotheses
 
         // T7 second pass (V2 spec §5.3). At most once per research()
         // call; only fires when there's at least one inconclusive
@@ -1549,6 +1587,167 @@ final class ResearchPipeline {
         }
     }
 
+    // MARK: - User-seeded hypothesis flow (RESEARCH_PIPELINE_SPEC §5.15)
+
+    /// Run the `.parentCandidates` user-hunch path (§5.15.3, Decision E4).
+    ///
+    /// User rows are never generated — `HypothesisSeedService`
+    /// materialised them from the v32 seeds table (regeneration
+    /// exemption, §5.15.1); this flow only dispatches and re-grades:
+    ///
+    ///   1. load the subject's `origin == .user` rows via
+    ///      `userHypothesisLookup` (rejected rows are already excluded
+    ///      at the lookup — §5.15.6: no deficit level is ever dispatched
+    ///      for a rejected row);
+    ///   2. for never-probed rows (`attempts == 0`), dispatch the
+    ///      level-1 parent-marriage probe **unconditionally** — the T7
+    ///      stall-gate carve-out (Decision E4): the gate guards against
+    ///      engine speculation, and a user directive is not speculation.
+    ///      Exception: a row the pre-dispatch grade already refutes
+    ///      against the current tree/state (confirmed-parent conflict,
+    ///      MMN conflict — the §5.15.2 immediate-contradiction cases)
+    ///      is graded without dispatch: the user learns now instead of
+    ///      after a wasted fan-out;
+    ///   3. filter probe results through `record_rejections` before they
+    ///      reach state (§5.15.6 — a hunch cannot resurrect records the
+    ///      user discarded), tag them as enrichment (they describe the
+    ///      candidate parents' marriage, not a candidate life of the
+    ///      subject — same convention as `.parentMarriage`);
+    ///   4. grade per §5.15.4 (Decision E5 — supported requires the
+    ///      marriage + linkage chain; couple attestation alone stays
+    ///      inconclusive).
+    ///
+    /// Ladder levels 2–3 (MMN linkage probe, census household probe)
+    /// ride the normal T7 stall gate in `runSecondPass` — the rows
+    /// returned here join the run's hypothesis list, so an
+    /// `.inconclusive` row with ladder headroom is T7-eligible as
+    /// standard, incrementing `attempts` per level.
+    ///
+    /// Storm guards are untouched: the level-1 fan-out rides the same
+    /// `dispatchMarriageQuery` → `SearchDispatcher.freeBMDGeoAxes` path
+    /// as `.parentMarriage` (empty chapman → honest no-fan-out), and
+    /// the §5.14.2 thin-subject storm guard returns from `research()`
+    /// before this flow is ever reached.
+    private func runUserSeededHypothesisFlow(
+        state: inout ResearchState,
+        scope: ResearchScope,
+        cache: QueryCache? = nil
+    ) async -> [ResearchHypothesis] {
+        guard let profileID = state.subject.profileID,
+              let lookup = userHypothesisLookup else { return [] }
+        let userRows = lookup(profileID).filter { row in
+            guard row.origin == .user else { return false }
+            if case .parentCandidates = row.kind { return true }
+            return false
+        }
+        guard !userRows.isEmpty else { return [] }
+        logger.info("User-seeded hypothesis flow: \(userRows.count) hunch(es) for \(profileID)")
+        let rejectedIDs = rejectionLookup?(profileID) ?? []
+
+        var results: [ResearchHypothesis] = []
+        let now = Date()
+        for row in userRows {
+            var attempts = row.attempts
+            // Pre-dispatch grade: catches the §5.15.2 immediate
+            // contradictions (tree conflict / MMN conflict) so a
+            // refuted hunch never burns queries.
+            let preGrade = HypothesisEngine.grade(row, state: state, snapshot: snapshot)
+            if Self.shouldDispatchUserSeededLevelOne(row, preGradeVerdict: preGrade.verdict) {
+                let queries = HypothesisEngine.deficitQuery(
+                    for: row, atLevel: 1, state: state
+                )
+                if !queries.isEmpty {
+                    let priorIDs = Set(state.scoredRecords.map(\.id))
+                    var appended: [ScoredRecord] = []
+                    var appendedIDs: Set<String> = []
+                    for query in queries {
+                        let records = await dispatchHypothesisDeficitQuery(
+                            query: query, hypothesisKind: row.kind,
+                            scope: scope, cache: cache
+                        )
+                        for r in Self.excludingRejected(records, rejectedIDs: rejectedIDs)
+                        where !priorIDs.contains(r.id) && !appendedIDs.contains(r.id) {
+                            appended.append(r)
+                            appendedIDs.insert(r.id)
+                        }
+                    }
+                    state.scoredRecords.append(contentsOf: appended)
+                    state.enrichmentRecordIDs.formUnion(appended.map(\.id))
+                    attempts = 1
+                    logger.info("User-hunch level-1 dispatch (\(row.id)): \(queries.count) queries → \(appended.count) new records")
+                }
+                // queries.isEmpty = no groom-side surname derivable —
+                // attempts stays 0 (nothing was dispatched); the grader
+                // explains the gap in `reasoning`.
+            }
+
+            // Final grade — against post-dispatch state when we
+            // dispatched, else the pre-grade stands (the engine only
+            // re-grades `.user` rows, §5.15.1).
+            let gradeResult: HypothesisEngine.GradeResult
+            let transitionReason: String
+            if attempts != row.attempts {
+                gradeResult = HypothesisEngine.grade(row, state: state, snapshot: snapshot)
+                transitionReason = "level-1 user-hunch probe grading"
+            } else {
+                gradeResult = preGrade
+                transitionReason = "user-hunch re-grading"
+            }
+            let transition = ResearchHypothesis.Transition(
+                verdict: gradeResult.verdict,
+                isModelAssisted: gradeResult.isModelAssisted,
+                at: now,
+                reason: transitionReason
+            )
+            results.append(ResearchHypothesis(
+                id: row.id,
+                subjectProfileID: row.subjectProfileID,
+                kind: row.kind,
+                origin: row.origin,
+                verdict: gradeResult.verdict,
+                isModelAssisted: gradeResult.isModelAssisted,
+                supportingEvidence: gradeResult.supportingEvidence,
+                contradictingEvidence: gradeResult.contradictingEvidence,
+                reasoning: gradeResult.reasoning,
+                createdAt: row.createdAt,
+                lastTestedAt: now,
+                attempts: attempts,
+                history: row.history + (row.verdict != gradeResult.verdict ? [transition] : [])
+            ))
+        }
+        return results
+    }
+
+    /// Decision E4 predicate (§5.15.3): `origin == .user` rows with
+    /// `attempts == 0` get ONE unconditional level-1 dispatch in the
+    /// post-loop phase — the user asked; the two-condition stall gate
+    /// exists to stop the engine burning queries on its own
+    /// speculations, and a user directive is not speculation. The
+    /// carve-out fires once: the dispatch sets `attempts = 1`, so
+    /// subsequent levels ride the normal T7 gate and the §5.11
+    /// "investigate further" gesture. Rows the pre-dispatch grade
+    /// already refutes (`.contradicted` against tree/state) skip the
+    /// dispatch — the answer exists without burning queries (§5.15.2).
+    nonisolated static func shouldDispatchUserSeededLevelOne(
+        _ hypothesis: ResearchHypothesis,
+        preGradeVerdict: ResearchHypothesis.Verdict
+    ) -> Bool {
+        hypothesis.origin == .user
+            && hypothesis.attempts == 0
+            && preGradeVerdict != .contradicted
+    }
+
+    /// §5.15.6 — `record_rejections` filters probe results before they
+    /// reach state/scoring, as everywhere: a hunch cannot resurrect
+    /// records the user already discarded.
+    nonisolated static func excludingRejected(
+        _ records: [ScoredRecord],
+        rejectedIDs: Set<String>
+    ) -> [ScoredRecord] {
+        guard !rejectedIDs.isEmpty else { return records }
+        return records.filter { !rejectedIDs.contains($0.id) }
+    }
+
     // MARK: - T7 second pass (V2 spec §5.3)
 
     /// Hypothesis-guided second pass. Runs at most once per
@@ -1662,7 +1861,8 @@ final class ResearchPipeline {
     private func dispatchHypothesisDeficitQuery(
         query: RecordQuery,
         hypothesisKind: HypothesisKind,
-        scope: ResearchScope
+        scope: ResearchScope,
+        cache: QueryCache? = nil
     ) async -> [ScoredRecord] {
         switch hypothesisKind {
         case .siblingExists:
@@ -1702,8 +1902,57 @@ final class ResearchPipeline {
             let g = await groomSide
             let b = await brideSide
             return g + b
+        case .parentCandidates(_, _, _, let motherMaidenSurname, _):
+            // §5.15.3 probe routing — the ladder level is encoded in the
+            // query's record type:
+            //   .marriage (level 1) → parent-marriage index probe.
+            //     Two-sided fan-out when the bride's maiden surname is
+            //     hinted (reference-tuple reunion via
+            //     MarriageEnrichmentEngine at grading, exactly as
+            //     `.parentMarriage`); groom-side only when unknown —
+            //     the bride's maiden surname is recovered at grading
+            //     from the post-1912 spouseSurname column / same-page
+            //     pairing (Part I §11.5).
+            //   .birth (level 2) → the subject's own birth-index search
+            //     with the MMN axis (Part I §11.4 `.birth` focus shape).
+            //   .census (level 3) → FreeCen household probe.
+            switch query.recordType {
+            case .marriage:
+                guard let groomSurname = query.surname, !groomSurname.isEmpty else {
+                    return []
+                }
+                let yearFrom = query.yearFrom ?? 0
+                let yearTo = query.yearTo ?? 0
+                let mms = motherMaidenSurname?.trimmingCharacters(in: .whitespaces)
+                if let mms, !mms.isEmpty {
+                    async let groomSide = dispatchMarriageQuery(
+                        surname: groomSurname, spouseSurname: mms,
+                        yearFrom: yearFrom, yearTo: yearTo, scope: scope, cache: cache
+                    )
+                    async let brideSide = dispatchMarriageQuery(
+                        surname: mms, spouseSurname: groomSurname,
+                        yearFrom: yearFrom, yearTo: yearTo, scope: scope, cache: cache
+                    )
+                    let g = await groomSide
+                    let b = await brideSide
+                    return g + b
+                }
+                return await dispatchMarriageQuery(
+                    surname: groomSurname, spouseSurname: nil,
+                    yearFrom: yearFrom, yearTo: yearTo, scope: scope, cache: cache
+                )
+            case .birth:
+                // Single focused FreeBMD query (national districtid="" —
+                // FT-02 proven wire behaviour); mirrors the sibling
+                // candidate dispatch shape.
+                return await dispatchSiblingCandidateQuery(query)
+            case .census:
+                return await dispatchCensusCandidateQuery(query)
+            default:
+                return []
+            }
         case .parentInferred, .subjectIdentity, .clusterIsSubject,
-             .birthYearCandidate, .parentCandidates,
+             .birthYearCandidate,
              .burialAtParish, .secondMarriage:
             // These kinds either have no ladder (parentInferred,
             // subjectIdentity, clusterIsSubject) or aren't yet in
@@ -1730,9 +1979,13 @@ final class ResearchPipeline {
 
     /// Build and dispatch a FreeBMD marriage query through the existing source.
     /// Honours scope by fanning out across the same district set as the main pipeline.
+    /// `spouseSurname` is optional for the §5.15 user-hunch probe where the
+    /// bride's maiden surname is unknown — nil omits the spouse-surname
+    /// axis (groom-side-only search); the bride side is recovered at
+    /// grading time from the spouseSurname column / same-page pairing.
     private func dispatchMarriageQuery(
         surname: String,
-        spouseSurname: String,
+        spouseSurname: String?,
         yearFrom: Int,
         yearTo: Int,
         scope: ResearchScope,
