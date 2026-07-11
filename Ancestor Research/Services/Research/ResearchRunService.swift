@@ -188,8 +188,35 @@ enum ResearchRunService {
             // succeeded — a swallowed SQLite lock error here used to leave
             // research_run_requests pointing at a run row that didn't
             // exist, and MCP get_research_result 404'd on it.
+            // T1-01 piece 5 — persist genuine negatives. Only
+            // (source, recordType) pairs whose every main-loop query
+            // answered cleanly with zero records (and with no record in
+            // hand from any other flow) are recorded; errors, blocks,
+            // throttles, and truncated pages leave no negative. Coexists
+            // with the whole-tree resume-state rows, which live under
+            // profile_id "__whole_tree__".
+            let negatives = NegativeSearchAggregator.genuineNegatives(
+                outcomes: result.searchOutcomes,
+                scoredRecords: result.allScoredRecords
+            )
+            for negative in negatives {
+                do {
+                    try db.saveNegativeSearch(
+                        profileID: profileID,
+                        sourceID: negative.sourceID,
+                        recordType: negative.recordType.rawValue,
+                        params: #"{"queryCount":\#(negative.queryCount)}"#
+                    )
+                } catch {
+                    failures.append(.init(what: "Save negative search", error: error))
+                }
+            }
+
             let runID = UUID()
-            let searchedSources = Set(result.allScoredRecords.map(\.record.sourceID))
+            // T1-01 / FT-23 — outcome-aware accounting: sources that only
+            // errored / were blocked / returned truncated pages no longer
+            // count toward "reasonably exhaustive search".
+            let searchedSources = GPSScorer.searchedSourceIDs(for: result)
             let gps = GPSScorer.score(
                 result: result,
                 sourceInfoMap: sourceInfoMap,

@@ -137,7 +137,9 @@ struct ClusterReviewView: View {
 
     private var gpsScore: GPSScore {
         let sourceInfoMap = registry.buildSourceInfoMap()
-        let searchedSources = Set(result.allScoredRecords.map(\.record.sourceID))
+        // T1-01 / FT-23 — outcome-aware: error-only / truncated-only
+        // sources don't count as searched.
+        let searchedSources = GPSScorer.searchedSourceIDs(for: result)
         return GPSScorer.score(
             result: result,
             sourceInfoMap: sourceInfoMap,

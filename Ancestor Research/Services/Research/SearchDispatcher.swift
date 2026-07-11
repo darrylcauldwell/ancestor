@@ -22,6 +22,23 @@ struct SearchDispatcher {
         mode: ResearchMode = .extend,
         cache: QueryCache? = nil
     ) async -> [SourceRecord] {
+        await dispatchWithOutcomes(
+            subject: subject, recordTypes: recordTypes,
+            scope: scope, mode: mode, cache: cache
+        ).records
+    }
+
+    /// Envelope-preserving dispatch (connector-audit T1-01). Same
+    /// fan-out as `dispatch`, but also returns one `SearchOutcomeEntry`
+    /// per (source, query) so the pipeline can record genuine negatives
+    /// and GPS criterion-1 can exclude error/truncated searches.
+    func dispatchWithOutcomes(
+        subject: ResearchSubject,
+        recordTypes: Set<RecordType>,
+        scope: ResearchScope = .county,
+        mode: ResearchMode = .extend,
+        cache: QueryCache? = nil
+    ) async -> (records: [SourceRecord], outcomes: [SearchOutcomeEntry]) {
         let ladder = Self.strictnessLadder(for: mode)
 
         // Enumerate (source, recordType) targets. Per-source coverage check
@@ -36,7 +53,9 @@ struct SearchDispatcher {
             }
         }
 
-        return await withTaskGroup(of: [SourceRecord].self) { group in
+        return await withTaskGroup(
+            of: (records: [SourceRecord], outcomes: [SearchOutcomeEntry]).self
+        ) { group in
             for (source, recordType) in targets {
                 group.addTask { [source, recordType] in
                     await self.dispatchToSource(
@@ -51,10 +70,12 @@ struct SearchDispatcher {
                 }
             }
             var combined: [SourceRecord] = []
+            var outcomes: [SearchOutcomeEntry] = []
             for await batch in group {
-                combined.append(contentsOf: batch)
+                combined.append(contentsOf: batch.records)
+                outcomes.append(contentsOf: batch.outcomes)
             }
-            return deduplicate(combined)
+            return (deduplicate(combined), outcomes)
         }
     }
 
@@ -88,6 +109,16 @@ struct SearchDispatcher {
     /// Walk the strictness ladder for one source. For non-`.all` modes, stop
     /// at the first tier that returns non-empty results. For `.all`, run every
     /// tier and let the outer deduplication collapse overlap.
+    ///
+    /// T1-01 honesty rule: an empty tier only justifies broadening when
+    /// its emptiness is PROVEN — every query in the tier answered
+    /// cleanly (availability ok, not truncated) with zero records. When
+    /// any query errored, was blocked/throttled, or came back truncated,
+    /// the tier's emptiness is an artifact; walking looser tiers would
+    /// hammer a failing source and launder the failure into "searched
+    /// the whole ladder, found nothing". Stop instead. `.all` mode is
+    /// unchanged — it runs every tier by contract, not as a reaction
+    /// to emptiness.
     private func dispatchToSource(
         source: any RecordSource,
         subject: ResearchSubject,
@@ -96,11 +127,12 @@ struct SearchDispatcher {
         ladder: [SearchStrictness],
         mode: ResearchMode,
         cache: QueryCache?
-    ) async -> [SourceRecord] {
+    ) async -> (records: [SourceRecord], outcomes: [SearchOutcomeEntry]) {
         let baseQueries = buildQueries(source: source, subject: subject, recordType: recordType, scope: scope)
-        guard !baseQueries.isEmpty else { return [] }
+        guard !baseQueries.isEmpty else { return ([], []) }
 
         var accumulated: [SourceRecord] = []
+        var outcomes: [SearchOutcomeEntry] = []
         for strictness in ladder {
             let tierQueries = Self.applyStrictness(baseQueries, strictness: strictness, source: source)
             guard !tierQueries.isEmpty else { continue }
@@ -108,27 +140,49 @@ struct SearchDispatcher {
             // Dedupe identical queries within the tier — variant fan-out can
             // produce duplicate (source, fields) tuples when a surname has no
             // variants and `.variant` collapses back to a single .strict query.
-            let batch = await withTaskGroup(of: [SourceRecord].self) { tierGroup in
+            let (tierRecords, tierOutcomes) = await withTaskGroup(
+                of: (records: [SourceRecord], outcome: SearchOutcomeEntry).self,
+                returning: ([SourceRecord], [SearchOutcomeEntry]).self
+            ) { tierGroup in
                 for query in tierQueries {
                     tierGroup.addTask { [source, query, cache] in
-                        await QueryCache.wrappedSearch(source: source, query: query, cache: cache)
+                        let (records, outcome) = await QueryCache.wrappedSearchWithOutcome(
+                            source: source, query: query, cache: cache
+                        )
+                        let entry = SearchOutcomeEntry(
+                            sourceID: source.sourceID,
+                            recordType: query.recordType,
+                            strictness: query.strictness,
+                            queryKey: QueryCache.cacheKey(sourceID: source.sourceID, query: query),
+                            outcome: outcome
+                        )
+                        return (records, entry)
                     }
                 }
                 var collected: [SourceRecord] = []
+                var collectedOutcomes: [SearchOutcomeEntry] = []
                 for await b in tierGroup {
-                    collected.append(contentsOf: b)
+                    collected.append(contentsOf: b.records)
+                    collectedOutcomes.append(b.outcome)
                 }
-                return collected
+                return (collected, collectedOutcomes)
             }
-            accumulated.append(contentsOf: batch)
+            accumulated.append(contentsOf: tierRecords)
+            outcomes.append(contentsOf: tierOutcomes)
 
-            // Empty-then-broaden: stop at the first tier with results unless
-            // mode == .all (which always runs every tier).
-            if mode != .all && !batch.isEmpty {
+            guard mode != .all else { continue }
+
+            // Empty-then-broaden: stop at the first tier with results.
+            if !tierRecords.isEmpty {
+                break
+            }
+            // Empty tier — broaden only when the emptiness is conclusive.
+            let tierConclusive = tierOutcomes.allSatisfy { $0.outcome.isConclusive }
+            if !tierConclusive {
                 break
             }
         }
-        return accumulated
+        return (accumulated, outcomes)
     }
 
     /// Strictness ladder per mode — see RESEARCH_AXES_SPEC §3.1 / §5.2.

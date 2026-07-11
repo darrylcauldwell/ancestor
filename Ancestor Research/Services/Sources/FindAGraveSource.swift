@@ -70,7 +70,17 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
     // MARK: - Search
 
     func search(_ query: RecordQuery) async -> SourceQueryResult {
-        guard recordTypes.contains(query.recordType) else { return .outsideCoverage(reason: "Find a Grave does not provide \(query.recordType.rawValue) records") }
+        await searchWithOutcome(query).result
+    }
+
+    /// Envelope-aware search (connector-audit T1-01; instances T1-15 /
+    /// T1-16). Cloudflare block pages and API error codes map to
+    /// `.unavailable` — never a clean zero — and the response's own
+    /// `total`/`tooMany` are parsed so the pinned limit=20 page is
+    /// flagged as truncated when more memorials exist. Raising the
+    /// limit / paging via skip is deferred to the efficiency series.
+    func searchWithOutcome(_ query: RecordQuery) async -> SourceSearchEnvelope {
+        guard recordTypes.contains(query.recordType) else { return SourceSearchEnvelope(.outsideCoverage(reason: "Find a Grave does not provide \(query.recordType.rawValue) records")) }
 
         // Extract source-specific params
         let fagParams: FindAGraveParams
@@ -120,8 +130,9 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
 
             let urlString = Self.searchURL + "?" + params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }.joined(separator: "&")
             guard let url = URL(string: urlString) else {
-                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0, strictness: query.strictness))
-                return .results([])
+                // T1-15: an internal failure is not "no memorial exists".
+                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "invalid search URL", strictness: query.strictness))
+                return SourceSearchEnvelope(.unavailable(reason: "invalid search URL"))
             }
 
             // All FAG fetches go through WKWebView (spec §22). URLSession's
@@ -139,18 +150,51 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
                 try await FindAGraveBrowserFetcher.fetchText(url: url)
             }
             let data = Data(jsonText.utf8)
-            let results = Self.parseSearchResults(data)
-            lastSuccessfulSearch = Date()
-            lastError = nil
-            logger.info("Search returned \(results.count) results")
-            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count, strictness: query.strictness))
-            return .results(results)
+            switch Self.parseSearchResponse(data) {
+            case .blockPage:
+                // T1-15: a non-JSON body from the browser fetcher is
+                // FAG's anti-bot challenge (or another HTML shell), not
+                // an empty index. Recording it as zero results would
+                // read "no memorial exists" during a Cloudflare storm.
+                let reason = "non-JSON response (likely Cloudflare block page)"
+                lastError = reason
+                logger.warning("Search blocked: \(reason)")
+                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: reason, strictness: query.strictness))
+                return SourceSearchEnvelope(
+                    result: .unavailable(reason: reason),
+                    outcome: SearchOutcome(resultCount: 0, availability: .blocked(reason: reason))
+                )
+            case .apiError(let code):
+                let reason = "Find a Grave API error (code \(code.map(String.init) ?? "unknown"))"
+                lastError = reason
+                logger.warning("Search failed: \(reason)")
+                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: reason, strictness: query.strictness))
+                return SourceSearchEnvelope(.unavailable(reason: reason))
+            case .success(let results, let total, let tooMany):
+                lastSuccessfulSearch = Date()
+                lastError = nil
+                // T1-16 (honesty slice): the request is pinned to
+                // limit=20/skip=0 — when the API's own total (or its
+                // tooMany flag) says more memorials exist, the page is
+                // a partial answer.
+                let truncated = tooMany || (total.map { results.count < $0 } ?? false)
+                logger.info("Search returned \(results.count) of \(total ?? results.count) results")
+                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count, strictness: query.strictness))
+                return SourceSearchEnvelope(
+                    result: .results(results),
+                    outcome: SearchOutcome(
+                        resultCount: results.count,
+                        totalAvailable: total,
+                        truncated: truncated
+                    )
+                )
+            }
 
         } catch {
             lastError = error.localizedDescription
             logger.warning("Search failed: \(error.localizedDescription)")
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
-            return .unavailable(reason: error.localizedDescription)
+            return SourceSearchEnvelope(.unavailable(reason: error.localizedDescription))
         }
     }
 
@@ -199,14 +243,38 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
             let html = try await rateLimitedRequest {
                 try await FindAGraveBrowserFetcher.fetchHTML(url: url)
             }
-            if let record = Self.parseMemorialDetail(html, memorialID: memorialID) {
-                return .results([record])
-            }
-            return .results([])
+            return Self.classifyMemorialDetail(html, memorialID: memorialID)
         } catch {
             logger.warning("Detail fetch failed for memorial \(memorialID): \(error.localizedDescription)")
             return .unavailable(reason: error.localizedDescription)
         }
+    }
+
+    /// T1-15 (detail half): when the memorial-marker guard fails, only a
+    /// body carrying FAG's genuine not-found copy is an honest empty —
+    /// anything else (Cloudflare challenge, generic site shell) is the
+    /// source refusing to answer and must surface as `.unavailable`,
+    /// not "no memorial exists".
+    nonisolated static func classifyMemorialDetail(_ html: String, memorialID: Int) -> SourceQueryResult {
+        if let record = parseMemorialDetail(html, memorialID: memorialID) {
+            return .results([record])
+        }
+        // Genuine not-found markers (memorial deleted / merged / bad ID).
+        // Conservative substring set; confirm against a live capture in
+        // the next live-probe session (audit §5.6).
+        // (No bare "404" substring — a block page's asset URLs could
+        // contain it, and misclassifying a block as a clean empty is the
+        // exact failure this guard exists to prevent.)
+        let notFoundMarkers = [
+            "does not exist",
+            "may have been removed",
+            "page not found",
+        ]
+        let lowered = html.lowercased()
+        if notFoundMarkers.contains(where: { lowered.contains($0) }) {
+            return .results([])
+        }
+        return .unavailable(reason: "memorial page unrecognized (no memorial or not-found markers) — likely block page")
     }
 
     // MARK: - Cloudflare clearance (§22)
@@ -264,14 +332,50 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
 
     // MARK: - Parsing (static, testable with canned data)
 
-    /// Parse JSON search results into SourceRecords.
-    nonisolated static func parseSearchResults(_ data: Data) -> [SourceRecord] {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let responseCode = json["responseCode"] as? Int, responseCode == 200,
-              let records = json["records"] as? [[String: Any]] else {
-            return []
-        }
+    /// Typed search-response classification (connector-audit T1-15).
+    /// Python parity: findagrave.py:174-188 distinguishes "Failed to
+    /// parse response" / "API error (code N)" / total / tooMany.
+    nonisolated enum SearchParse: Sendable {
+        /// Well-formed API payload. `total` is the API's own claimed hit
+        /// count; `tooMany` its overflow flag.
+        case success(records: [SourceRecord], total: Int?, tooMany: Bool)
+        /// Body is not a JSON object — via the browser fetcher this is
+        /// almost always Cloudflare's challenge / an HTML shell.
+        case blockPage
+        /// JSON payload with a non-200 embedded responseCode.
+        case apiError(code: Int?)
+    }
 
+    /// Classify a search response body. Never conflates failure shapes
+    /// with an empty result set.
+    nonisolated static func parseSearchResponse(_ data: Data) -> SearchParse {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .blockPage
+        }
+        guard let responseCode = json["responseCode"] as? Int else {
+            return .apiError(code: nil)
+        }
+        guard responseCode == 200 else {
+            return .apiError(code: responseCode)
+        }
+        // Missing "records" on a 200 payload is a genuine empty set
+        // (python parity: data.get("records", [])).
+        let rawRecords = json["records"] as? [[String: Any]] ?? []
+        let total = json["total"] as? Int
+        let tooMany = json["tooMany"] as? Bool ?? false
+        return .success(records: parseRecordArray(rawRecords), total: total, tooMany: tooMany)
+    }
+
+    /// Records-only convenience preserved for callers/tests that don't
+    /// consume the envelope — failure shapes collapse to [] here.
+    nonisolated static func parseSearchResults(_ data: Data) -> [SourceRecord] {
+        if case .success(let records, _, _) = parseSearchResponse(data) {
+            return records
+        }
+        return []
+    }
+
+    nonisolated private static func parseRecordArray(_ records: [[String: Any]]) -> [SourceRecord] {
         return records.compactMap { rec -> SourceRecord? in
             let memorialID = rec["memorialId"] as? Int ?? 0
             let nameForURL = rec["nameForURL"] as? String ?? ""

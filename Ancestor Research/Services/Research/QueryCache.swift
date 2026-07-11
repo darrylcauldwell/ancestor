@@ -14,11 +14,25 @@ import Foundation
 /// Hit / miss accounting is recorded for observability; `stats()` exposes
 /// the totals so a pipeline can log cache effectiveness post-run.
 actor QueryCache {
-    private var cache: [String: [SourceRecord]] = [:]
+    /// Cached records plus the honesty envelope they arrived with
+    /// (T1-01). Truncated-but-ok results ARE cached — re-issuing the
+    /// identical query would fetch the identical partial page — but the
+    /// outcome preserves `truncated`/`totalAvailable` so a cache hit
+    /// never launders a partial answer into a complete one.
+    private struct Entry {
+        let records: [SourceRecord]
+        let outcome: SearchOutcome
+    }
+
+    private var cache: [String: Entry] = [:]
     private var hits = 0
     private var misses = 0
 
     func get(_ key: String) -> [SourceRecord]? {
+        getEntry(key)?.records
+    }
+
+    private func getEntry(_ key: String) -> Entry? {
         if let v = cache[key] {
             hits += 1
             return v
@@ -28,7 +42,11 @@ actor QueryCache {
     }
 
     func set(_ key: String, results: [SourceRecord]) {
-        cache[key] = results
+        set(key, results: results, outcome: SearchOutcome(resultCount: results.count))
+    }
+
+    private func set(_ key: String, results: [SourceRecord], outcome: SearchOutcome) {
+        cache[key] = Entry(records: results, outcome: outcome)
     }
 
     func contains(_ key: String) -> Bool {
@@ -52,23 +70,40 @@ actor QueryCache {
     /// Errors / unavailable / outsideCoverage results are NOT cached —
     /// only `.results(records)`. A transient throttling or session
     /// expiry would otherwise pin a bad answer for the rest of the run.
+    ///
+    /// Records-only convenience — callers that consume the honesty
+    /// envelope (T1-01) use `wrappedSearchWithOutcome` instead.
     static func wrappedSearch(
         source: any RecordSource,
         query: RecordQuery,
         cache: QueryCache?
     ) async -> [SourceRecord] {
+        await wrappedSearchWithOutcome(source: source, query: query, cache: cache).records
+    }
+
+    /// Envelope-preserving variant of `wrappedSearch` (T1-01). Same
+    /// caching policy — only clean `.results` are cached (with their
+    /// outcome, so a truncated page-1 answer stays flagged on cache
+    /// hits); errors/throttles/blocks return an empty record list plus
+    /// the outcome that says WHY it's empty, and are never cached.
+    static func wrappedSearchWithOutcome(
+        source: any RecordSource,
+        query: RecordQuery,
+        cache: QueryCache?
+    ) async -> (records: [SourceRecord], outcome: SearchOutcome) {
         guard let cache else {
-            return await source.search(query).records
+            let envelope = await source.searchWithOutcome(query)
+            return (envelope.result.records, envelope.outcome)
         }
         let key = cacheKey(sourceID: source.sourceID, query: query)
-        if let hit = await cache.get(key) { return hit }
-        let result = await source.search(query)
-        guard case .results(let records) = result else {
+        if let hit = await cache.getEntry(key) { return (hit.records, hit.outcome) }
+        let envelope = await source.searchWithOutcome(query)
+        guard case .results(let records) = envelope.result else {
             // Don't poison the cache with transient failures.
-            return []
+            return ([], envelope.outcome)
         }
-        await cache.set(key, results: records)
-        return records
+        await cache.set(key, results: records, outcome: envelope.outcome)
+        return (records, envelope.outcome)
     }
 
     /// Stable wire-determining key. Two queries with identical keys must

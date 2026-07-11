@@ -103,8 +103,18 @@ actor FreeBMDSource: RecordSource {
     // MARK: - Search
 
     func search(_ query: RecordQuery) async -> SourceQueryResult {
-        guard recordTypes.contains(query.recordType) else { return .outsideCoverage(reason: "FreeBMD does not cover \(query.recordType.rawValue)") }
-        guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
+        await searchWithOutcome(query).result
+    }
+
+    /// Envelope-aware search (connector-audit T1-01; instances FT-05 /
+    /// FT-23). The adaptive year-split reports unsplittable too-many-
+    /// results overflow as truncation (with the interstitial's own
+    /// entry count as `totalAvailable`), and throttle shapes map to
+    /// `availability: .throttled` — so neither reads as "searched,
+    /// found nothing" downstream.
+    func searchWithOutcome(_ query: RecordQuery) async -> SourceSearchEnvelope {
+        guard recordTypes.contains(query.recordType) else { return SourceSearchEnvelope(.outsideCoverage(reason: "FreeBMD does not cover \(query.recordType.rawValue)")) }
+        guard let surname = query.surname, !surname.isEmpty else { return SourceSearchEnvelope(.results([])) }
 
         // Park behind the circuit breaker if 429s have been piling up.
         // Better cooperative behaviour than retrying into an already-
@@ -113,7 +123,10 @@ actor FreeBMDSource: RecordSource {
         // subsequent queries short-circuit to `.unavailable` so this run
         // doesn't keep poking a source that's plainly told us to stop.
         if giveUpRequests {
-            return .unavailable(reason: "FreeBMD throttle exhausted; giving up for this process")
+            return SourceSearchEnvelope(
+                result: .unavailable(reason: "FreeBMD throttle exhausted; giving up for this process"),
+                outcome: SearchOutcome(resultCount: 0, availability: .throttled)
+            )
         }
         await awaitCircuitClosed()
 
@@ -204,7 +217,7 @@ actor FreeBMDSource: RecordSource {
                 "find.y": "1",
             ]
 
-            let results = try await fetchWindowWithAdaptiveSplit(
+            let window = try await fetchWindowWithAdaptiveSplit(
                 baseFields: baseFields,
                 yearFrom: query.yearFrom,
                 yearTo: clampedEnd,
@@ -213,18 +226,30 @@ actor FreeBMDSource: RecordSource {
                 summary: summary,
                 depth: 0
             )
+            let results = window.records
             lastSuccessfulSearch = Date()
             lastError = nil
             recordSuccess()
-            logger.info("\(summary, privacy: .public) → \(results.count) results")
+            if window.truncated {
+                logger.warning("\(summary, privacy: .public) → \(results.count) results TRUNCATED (interstitial claims \(window.claimedTotal.map(String.init) ?? "unknown", privacy: .public) entries)")
+            } else {
+                logger.info("\(summary, privacy: .public) → \(results.count) results")
+            }
             await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: results.count, strictness: query.strictness))
-            return .results(results)
+            return SourceSearchEnvelope(
+                result: .results(results),
+                outcome: SearchOutcome(
+                    resultCount: results.count,
+                    totalAvailable: window.claimedTotal,
+                    truncated: window.truncated
+                )
+            )
 
         } catch is CancellationError {
             // Intentional pipeline shutdown — preserve session tokens (they
             // remain valid for subsequent runs in the same process) and
             // don't surface as an error on the activity feed.
-            return .unavailable(reason: "cancelled")
+            return SourceSearchEnvelope(.unavailable(reason: "cancelled"))
         } catch let httpError as HTTPError where httpError.isThrottled {
             // 429 reached us *after* `postSearchWithRetry` already burned
             // its 3 in-request retries. Treat it as a clean throttling
@@ -235,7 +260,10 @@ actor FreeBMDSource: RecordSource {
             lastError = "HTTP 429 (throttled)"
             logger.warning("Search throttled after retries — preserving session, advancing circuit breaker")
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "throttled", strictness: query.strictness))
-            return .unavailable(reason: "throttled")
+            return SourceSearchEnvelope(
+                result: .unavailable(reason: "throttled"),
+                outcome: SearchOutcome(resultCount: 0, availability: .throttled)
+            )
         } catch HTTPError.unauthorized {
             // Genuine auth failure — session is bad, clear it so the next
             // query re-establishes. This is the only case where clearing
@@ -248,7 +276,7 @@ actor FreeBMDSource: RecordSource {
             lastError = "unauthorized"
             logger.warning("Search failed: unauthorized — session cleared")
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "unauthorized", strictness: query.strictness))
-            return .unavailable(reason: "unauthorized")
+            return SourceSearchEnvelope(.unavailable(reason: "unauthorized"))
         } catch {
             // Other transient failures (timeouts, 5xx, network blips,
             // parse errors). Preserve session tokens — they're still valid;
@@ -256,7 +284,7 @@ actor FreeBMDSource: RecordSource {
             lastError = error.localizedDescription
             logger.warning("Search failed: \(error.localizedDescription) — session preserved")
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
-            return .unavailable(reason: error.localizedDescription)
+            return SourceSearchEnvelope(.unavailable(reason: error.localizedDescription))
         }
     }
 
@@ -277,6 +305,16 @@ actor FreeBMDSource: RecordSource {
     /// overflow surfaces as the 105KB interstitial we logged in pass 9.
     /// Adaptive split recovers the records without bloating every
     /// query's request count (the wide path stays one HTTP).
+    /// One year-window fetch plus its truncation truth (FT-05 / FT-23).
+    /// `truncated` is set when a too-many-results overflow could not be
+    /// (fully) split away; `claimedTotal` carries the interstitial's own
+    /// entry count when one parsed.
+    private struct WindowFetch {
+        let records: [SourceRecord]
+        let truncated: Bool
+        let claimedTotal: Int?
+    }
+
     private func fetchWindowWithAdaptiveSplit(
         baseFields: [String: String],
         yearFrom: Int?,
@@ -285,7 +323,7 @@ actor FreeBMDSource: RecordSource {
         recordType: RecordType,
         summary: String,
         depth: Int
-    ) async throws -> [SourceRecord] {
+    ) async throws -> WindowFetch {
         var fields = baseFields
         fields["start"] = yearFrom.map(String.init) ?? ""
         fields["end"] = yearTo.map(String.init) ?? ""
@@ -322,14 +360,36 @@ actor FreeBMDSource: RecordSource {
             // and FreeBMD's quarter-edges duplicate it across both halves
             // (defensive — empirically the row IDs are stable so set-by-id
             // is sufficient).
-            let combined = try await lower + upper
+            let (lowerFetch, upperFetch) = try await (lower, upper)
+            let combined = lowerFetch.records + upperFetch.records
             var seen: Set<String> = []
-            return combined.filter { record in
+            let deduped = combined.filter { record in
                 let id = record.id
                 if seen.contains(id) { return false }
                 seen.insert(id)
                 return true
             }
+            // A truncated half means the whole window's answer is
+            // partial; per-window claimed totals don't aggregate
+            // meaningfully, so drop them on the combined path.
+            return WindowFetch(
+                records: deduped,
+                truncated: lowerFetch.truncated || upperFetch.truncated,
+                claimedTotal: nil
+            )
+        }
+
+        if isOverflow {
+            // FT-05: unsplittable overflow (single-year window, depth cap,
+            // or missing bounds). Previously fell through to parsing the
+            // interstitial and returned [] — indistinguishable from a
+            // genuine empty. Surface it as truncation with the
+            // interstitial's own entry count (python parity:
+            // freebmd.py:83-86, `(\d[\d,]+)\s+entr`).
+            let claimed = Self.parseOverflowEntryCount(html)
+            logger.warning("\(summary, privacy: .public) unsplittable overflow at \(yearFrom.map(String.init) ?? "?", privacy: .public)–\(yearTo.map(String.init) ?? "?", privacy: .public) depth=\(depth) — \(claimed.map(String.init) ?? "unknown", privacy: .public) entries claimed, returning truncated")
+            let results = Self.parseSearchResults(html, recordType: recordType, querySurname: querySurname)
+            return WindowFetch(records: results, truncated: true, claimedTotal: claimed)
         }
 
         let results = Self.parseSearchResults(html, recordType: recordType, querySurname: querySurname)
@@ -340,7 +400,20 @@ actor FreeBMDSource: RecordSource {
                 ?? "<no searchData>"
             logger.info("\(summary, privacy: .public) → 0 results [htmlLen=\(html.count) hasSearchData=\(hasSearchData) captcha=\(captchaHit) head=\(dataMarker, privacy: .public)]")
         }
-        return results
+        return WindowFetch(records: results, truncated: false, claimedTotal: nil)
+    }
+
+    /// FT-23 — the overflow interstitial's own claimed entry count.
+    /// Python parity: freebmd.py:84 (`(\d[\d,]+)\s+entr`, case-
+    /// insensitive). Nil when the copy isn't present.
+    nonisolated static func parseOverflowEntryCount(_ html: String) -> Int? {
+        let pattern = #"(\d[\d,]+)\s+entr"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+              let range = Range(match.range(at: 1), in: html) else {
+            return nil
+        }
+        return Int(html[range].replacingOccurrences(of: ",", with: ""))
     }
 
     // MARK: - Circuit breaker

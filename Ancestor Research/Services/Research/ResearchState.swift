@@ -7,6 +7,13 @@ struct ResearchState: Sendable {
     var scoredRecords: [ScoredRecord] = []
     var householdMembers: [HouseholdMember] = []
     var searchHistory: [SearchAttempt] = []
+    /// Per-(source, query) honesty envelopes from the main iteration-loop
+    /// dispatches (T1-01). Deliberately NOT populated by the post-loop
+    /// pivot probes (post-marriage / mother-in-law / child-gap) — those
+    /// search for other people or under substituted identities, so their
+    /// clean-zero outcomes must never read as "the subject was searched
+    /// and absent".
+    var searchOutcomes: [SearchOutcomeEntry] = []
     var discrepancies: [ResearchDiscrepancy] = []
     /// IDs of records collected by hypothesis-flow dispatch (marriage
     /// enrichment, sibling candidate search). Kept in `scoredRecords`
@@ -47,6 +54,68 @@ nonisolated struct SearchAttempt: Sendable {
     let searchKey: String
     let resultCount: Int
     let timestamp: Date
+}
+
+/// Per-(source, query) honesty-envelope record from one dispatcher
+/// fan-out (connector-audit T1-01). Where `SearchAttempt` is the
+/// human-facing aggregate history, these entries carry the per-query
+/// availability/truncation truth that negative-evidence recording and
+/// GPS criterion-1 accounting consume.
+nonisolated struct SearchOutcomeEntry: Sendable {
+    let sourceID: String
+    let recordType: RecordType
+    let strictness: SearchStrictness
+    /// `QueryCache.cacheKey` for the query — stable per wire request.
+    let queryKey: String
+    let outcome: SearchOutcome
+}
+
+/// Aggregates per-query outcomes into the genuine negatives that may be
+/// persisted to `negative_searches` (T1-01 piece 5). Pure and
+/// deterministic — the persistence call site is
+/// `ResearchRunService.persist`.
+nonisolated enum NegativeSearchAggregator {
+
+    struct Negative: Equatable {
+        let sourceID: String
+        let recordType: RecordType
+        /// How many clean-zero queries back this negative — recorded in
+        /// `negative_searches.search_params` for audit.
+        let queryCount: Int
+    }
+
+    /// A (source, recordType) pair is a genuine negative iff EVERY
+    /// outcome for the pair is a clean negative (availability ok, not
+    /// truncated, zero records) AND no scored record from that pair
+    /// exists anywhere in the run (strategist/pivot/hypothesis flows
+    /// dispatch outside the main fan-out, so a record in hand always
+    /// vetoes). Any error, block, throttle, or truncation in the pair
+    /// leaves its emptiness unproven — nothing is recorded.
+    static func genuineNegatives(
+        outcomes: [SearchOutcomeEntry],
+        scoredRecords: [ScoredRecord]
+    ) -> [Negative] {
+        struct PairKey: Hashable {
+            let sourceID: String
+            let recordType: RecordType
+        }
+        var grouped: [PairKey: [SearchOutcomeEntry]] = [:]
+        for entry in outcomes {
+            grouped[PairKey(sourceID: entry.sourceID, recordType: entry.recordType), default: []].append(entry)
+        }
+        let recordPairs: Set<PairKey> = Set(scoredRecords.map {
+            PairKey(sourceID: $0.record.sourceID, recordType: $0.record.recordType)
+        })
+        return grouped
+            .filter { key, entries in
+                !recordPairs.contains(key)
+                    && entries.allSatisfy { $0.outcome.isCleanNegative }
+            }
+            .map { key, entries in
+                Negative(sourceID: key.sourceID, recordType: key.recordType, queryCount: entries.count)
+            }
+            .sorted { ($0.sourceID, $0.recordType.rawValue) < ($1.sourceID, $1.recordType.rawValue) }
+    }
 }
 
 /// Configuration for a research run.
@@ -109,6 +178,12 @@ nonisolated struct ResearchResult: Sendable {
     let discrepancies: [ResearchDiscrepancy]
     let householdMembers: [HouseholdMember]
     let searchHistory: [SearchAttempt]
+    /// Per-(source, query) honesty envelopes (T1-01) from the main
+    /// iteration-loop dispatches. Empty on intermediate snapshots,
+    /// `.empty`, and legacy results — consumers must treat "no
+    /// outcomes" as "envelope unavailable", not "nothing searched"
+    /// (see `GPSScorer.searchedSourceIDs`).
+    let searchOutcomes: [SearchOutcomeEntry]
     /// Pipeline-generated research hypotheses (V2 spec §4.1). Populated
     /// by `HypothesisEngine` after the post-loop phase. T12 completed
     /// the migration: `.siblingExists`, `.parentInferred`, and
@@ -149,6 +224,7 @@ nonisolated struct ResearchResult: Sendable {
         discrepancies: [ResearchDiscrepancy],
         householdMembers: [HouseholdMember],
         searchHistory: [SearchAttempt],
+        searchOutcomes: [SearchOutcomeEntry] = [],
         hypotheses: [ResearchHypothesis] = [],
         parentLinkVerdict: String? = nil,
         identityVerdict: String? = nil,
@@ -163,6 +239,7 @@ nonisolated struct ResearchResult: Sendable {
         self.discrepancies = discrepancies
         self.householdMembers = householdMembers
         self.searchHistory = searchHistory
+        self.searchOutcomes = searchOutcomes
         self.hypotheses = hypotheses
         self.parentLinkVerdict = parentLinkVerdict
         self.identityVerdict = identityVerdict

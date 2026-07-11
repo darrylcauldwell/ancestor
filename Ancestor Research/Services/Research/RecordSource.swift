@@ -17,6 +17,26 @@ nonisolated enum SourceKind: String, Codable, Sendable {
     case localPlugin
 }
 
+/// A search result paired with its honesty envelope (connector-audit
+/// T1-01). The result carries the records; the outcome says whether an
+/// empty result can be trusted as evidence of absence and whether a
+/// non-empty one is complete.
+nonisolated struct SourceSearchEnvelope: Sendable {
+    let result: SourceQueryResult
+    let outcome: SearchOutcome
+
+    init(result: SourceQueryResult, outcome: SearchOutcome) {
+        self.result = result
+        self.outcome = outcome
+    }
+
+    /// Derive the outcome from the result's default mapping — for
+    /// return sites that have nothing richer to say.
+    init(_ result: SourceQueryResult) {
+        self.init(result: result, outcome: result.outcome)
+    }
+}
+
 /// The single protocol all sources conform to.
 /// Not actor-bound — stateless sources are structs, stateful sources are actors.
 /// Both are Sendable.
@@ -38,9 +58,23 @@ protocol RecordSource: Sendable {
     nonisolated var descriptiveName: String { get }
 
     func search(_ query: RecordQuery) async -> SourceQueryResult
+
+    /// Envelope-aware search (connector-audit T1-01). A protocol
+    /// requirement (not just an extension method) so calls through
+    /// `any RecordSource` dispatch dynamically to connector overrides.
+    /// The default derives the outcome from the plain `search` result;
+    /// connectors that can parse hit counts, detect truncation, or
+    /// classify block pages override to return a richer envelope.
+    func searchWithOutcome(_ query: RecordQuery) async -> SourceSearchEnvelope
 }
 
 extension RecordSource {
+    /// Default envelope: whatever `search` said, mapped 1:1. Sources
+    /// with no truncation/availability detection get this for free.
+    func searchWithOutcome(_ query: RecordQuery) async -> SourceSearchEnvelope {
+        SourceSearchEnvelope(await search(query))
+    }
+
     /// Default kind — most sources are general-purpose. Local plugins override.
     nonisolated var kind: SourceKind { .general }
 

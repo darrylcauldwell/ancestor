@@ -680,6 +680,106 @@ public nonisolated enum SourceQueryResult: Sendable {
     }
 }
 
+// MARK: - Search Outcome (honesty envelope — connector audit T1-01 / FT-22 / FT-23)
+
+/// How the source answered one (source, query) attempt.
+///
+/// Distinct from `SourceQueryResult`, which carries the records themselves:
+/// availability classifies whether an empty answer can be *trusted* as
+/// evidence of absence. Blocks, API errors, throttles, and auth walls must
+/// never be recorded as "searched, found nothing" — that poisons
+/// negative-evidence reasoning and the GPS "reasonably exhaustive search"
+/// criterion (CONNECTOR_AUDIT_2026-07 §5.1, §6.1 T1-01).
+public nonisolated enum SearchAvailability: Sendable, Equatable {
+    /// The source answered normally. Emptiness is meaningful (subject to
+    /// `truncated`).
+    case ok
+    /// The source failed to answer (HTTP error, malformed payload, page
+    /// outside coverage, validation error). Emptiness is meaningless.
+    case error(reason: String)
+    /// The source is rate-limiting us. Emptiness is meaningless.
+    case throttled
+    /// Anti-bot / block page detected (e.g. Find a Grave's Cloudflare
+    /// challenge). Emptiness is meaningless.
+    case blocked(reason: String)
+    /// The source needs credentials it doesn't have. Emptiness is meaningless.
+    case requiresAuth
+}
+
+/// Per-(source, query) search outcome — the honesty envelope.
+///
+/// `truncated` covers the page-1 problem (FT-22): connectors that fetch a
+/// single page of a paginated result set, or hit a too-many-results
+/// interstitial, must flag that the answer is partial. `totalAvailable`
+/// carries the site's own claimed hit count when one was parsed (FT-23),
+/// so `resultCount < totalAvailable` is checkable downstream.
+///
+/// Only a clean outcome — `availability == .ok`, `truncated == false`,
+/// `resultCount == 0` — may be recorded as a genuine negative search.
+public nonisolated struct SearchOutcome: Sendable, Equatable {
+    /// Records actually parsed and returned for this query.
+    public let resultCount: Int
+    /// The site's own claimed total hit count, when the connector parsed
+    /// one (FreeCen "We found N Results", Probate `resultsCount`, FAG
+    /// `total`, FreeBMD's overflow entry count). Nil when unknown.
+    public let totalAvailable: Int?
+    /// True when the returned records are known or suspected to be a
+    /// partial answer: parsed rows < claimed total, pagination nav
+    /// present, or an unsplittable too-many-results overflow.
+    public let truncated: Bool
+    public let availability: SearchAvailability
+
+    public init(
+        resultCount: Int,
+        totalAvailable: Int? = nil,
+        truncated: Bool = false,
+        availability: SearchAvailability = .ok
+    ) {
+        self.resultCount = resultCount
+        self.totalAvailable = totalAvailable
+        self.truncated = truncated
+        self.availability = availability
+    }
+
+    /// True when this outcome's record set can be trusted as the source's
+    /// complete answer — the source responded normally and did not
+    /// truncate. Only conclusive outcomes count toward GPS criterion 1,
+    /// and only conclusive emptiness may stop-or-broaden the strictness
+    /// ladder on merit.
+    public var isConclusive: Bool {
+        availability == .ok && !truncated
+    }
+
+    /// True when this outcome is a genuine "searched, found nothing" —
+    /// the only shape that may be persisted as negative evidence.
+    public var isCleanNegative: Bool {
+        isConclusive && resultCount == 0
+    }
+}
+
+extension SourceQueryResult {
+    /// Map the plain result into the honesty envelope. This is the
+    /// *default* mapping — connectors that can detect truncation, hit
+    /// counts, or block pages return a richer `SearchOutcome` through
+    /// `searchWithOutcome` instead. Note `.outsideCoverage` maps to
+    /// `.error`: nothing was searched, so the emptiness must not read
+    /// as a genuine negative.
+    public var outcome: SearchOutcome {
+        switch self {
+        case .results(let r):
+            return SearchOutcome(resultCount: r.count)
+        case .unavailable(let reason):
+            return SearchOutcome(resultCount: 0, availability: .error(reason: reason))
+        case .throttled:
+            return SearchOutcome(resultCount: 0, availability: .throttled)
+        case .outsideCoverage(let reason):
+            return SearchOutcome(resultCount: 0, availability: .error(reason: "outside coverage: \(reason)"))
+        case .requiresAuth:
+            return SearchOutcome(resultCount: 0, availability: .requiresAuth)
+        }
+    }
+}
+
 // MARK: - Source Readiness
 
 public nonisolated enum SourceReadiness: Sendable {

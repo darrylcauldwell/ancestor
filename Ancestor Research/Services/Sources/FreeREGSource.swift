@@ -53,10 +53,18 @@ actor FreeREGSource: RecordSource {
     // MARK: - Search
 
     func search(_ query: RecordQuery) async -> SourceQueryResult {
+        await searchWithOutcome(query).result
+    }
+
+    /// Envelope-aware search (connector-audit T1-01; instances FT-22 /
+    /// FT-23). Parses the results page's own "N results" hit count and
+    /// flags page-1 truncation (rows < N, or a pagination nav present)
+    /// — multi-page fetching is deferred to the efficiency series.
+    func searchWithOutcome(_ query: RecordQuery) async -> SourceSearchEnvelope {
         guard recordTypes.contains(query.recordType) else {
-            return .outsideCoverage(reason: "FreeREG provides parish register records only")
+            return SourceSearchEnvelope(.outsideCoverage(reason: "FreeREG provides parish register records only"))
         }
-        guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
+        guard let surname = query.surname, !surname.isEmpty else { return SourceSearchEnvelope(.results([])) }
 
         // Map record type to FreeREG form value
         let recordTypeValue: String
@@ -78,7 +86,7 @@ actor FreeREGSource: RecordSource {
         } else if case .freeCen(let params) = query.sourceParams, let code = params.chapmanCode, !code.isEmpty {
             chapmanCode = code
         } else {
-            return .outsideCoverage(reason: "No home county (Chapman code) available to scope a FreeREG search")
+            return SourceSearchEnvelope(.outsideCoverage(reason: "No home county (Chapman code) available to scope a FreeREG search"))
         }
 
         let summary = Self.activitySummary(query: query, surname: surname, chapmanCode: chapmanCode)
@@ -130,14 +138,27 @@ actor FreeREGSource: RecordSource {
 
             let html = String(data: data, encoding: .utf8) ?? ""
             let records = Self.parseResults(html, recordType: query.recordType)
-            logger.info("FreeREG: \(records.count) results for \(surname)")
+            // FT-23: the site's own claimed hit count; FT-22: rows <
+            // claimed total (or a pagination nav with no parsable count)
+            // means this page is a partial answer.
+            let totalAvailable = Self.parseResultCount(html)
+            let truncated = totalAvailable.map { records.count < $0 }
+                ?? Self.hasPaginationNav(html)
+            logger.info("FreeREG: \(records.count) of \(totalAvailable ?? records.count) results for \(surname)")
             await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count, strictness: query.strictness))
-            return .results(records)
+            return SourceSearchEnvelope(
+                result: .results(records),
+                outcome: SearchOutcome(
+                    resultCount: records.count,
+                    totalAvailable: totalAvailable,
+                    truncated: truncated
+                )
+            )
         } catch {
             csrfToken = nil  // Reset on error
             logger.error("FreeREG search failed: \(error.localizedDescription)")
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
-            return .unavailable(reason: error.localizedDescription)
+            return SourceSearchEnvelope(.unavailable(reason: error.localizedDescription))
         }
     }
 
@@ -231,6 +252,30 @@ actor FreeREGSource: RecordSource {
     }
 
     // MARK: - Parsing (nonisolated static — testable)
+
+    /// FT-23 — FreeREG's own claimed hit count. Python parity:
+    /// freereg_search.py:204-207 matches `\d+\s+result` on the page's
+    /// strings (the exact copy varies; the digits-before-"result(s)"
+    /// shape is stable). Widened to tolerate thousands separators.
+    /// Nil when no count text is present. Guarded against matching
+    /// "no results" copy (no digits there, so the regex can't anyway).
+    nonisolated static func parseResultCount(_ html: String) -> Int? {
+        let pattern = #"([\d,]+)\s+results?"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+              let range = Range(match.range(at: 1), in: html) else {
+            return nil
+        }
+        return Int(html[range].replacingOccurrences(of: ",", with: ""))
+    }
+
+    /// FT-22 — fallback truncation signal when no hit count parsed:
+    /// a Rails pagination nav (will_paginate/kaminari emit
+    /// `class="pagination"`; kaminari also `rel="next"`) means more
+    /// pages exist beyond the one we fetched.
+    nonisolated static func hasPaginationNav(_ html: String) -> Bool {
+        html.contains(#"class="pagination"#) || html.contains(#"rel="next""#)
+    }
 
     /// Parse FreeREG search results HTML table.
     nonisolated static func parseResults(_ html: String, recordType: RecordType) -> [SourceRecord] {

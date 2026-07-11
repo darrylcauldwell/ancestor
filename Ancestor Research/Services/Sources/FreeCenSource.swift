@@ -63,8 +63,16 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
     // MARK: - Search
 
     func search(_ query: RecordQuery) async -> SourceQueryResult {
-        guard query.recordType == .census else { return .outsideCoverage(reason: "FreeCen only provides census records") }
-        guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
+        await searchWithOutcome(query).result
+    }
+
+    /// Envelope-aware search (connector-audit T1-01; instances FT-22 /
+    /// FT-23). Parses the site's own "We found N Results" hit count and
+    /// flags page-1 truncation (rows < N, or a pagination nav present)
+    /// — multi-page fetching is deferred to the efficiency series.
+    func searchWithOutcome(_ query: RecordQuery) async -> SourceSearchEnvelope {
+        guard query.recordType == .census else { return SourceSearchEnvelope(.outsideCoverage(reason: "FreeCen only provides census records")) }
+        guard let surname = query.surname, !surname.isEmpty else { return SourceSearchEnvelope(.results([])) }
 
         // FreeCen is chapman-coded: without a county code the query cannot
         // be scoped, so degrade honestly instead of guessing a county.
@@ -72,7 +80,7 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
         if case .freeCen(let p) = query.sourceParams, let code = p.chapmanCode, !code.isEmpty {
             chapmanCode = code
         } else {
-            return .outsideCoverage(reason: "No home county (Chapman code) available to scope a FreeCen search")
+            return SourceSearchEnvelope(.outsideCoverage(reason: "No home county (Chapman code) available to scope a FreeCen search"))
         }
         let year = query.yearFrom  // census year
 
@@ -144,9 +152,15 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
 
             guard let html = String(data: data, encoding: .utf8) else {
                 await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "Invalid encoding", strictness: query.strictness))
-                return .unavailable(reason: "Invalid encoding")
+                return SourceSearchEnvelope(.unavailable(reason: "Invalid encoding"))
             }
             let results = Self.parseSearchResults(html, censusYear: year)
+            // FT-23: the site's own claimed hit count; FT-22: rows <
+            // claimed total (or a pagination nav with no parsable count)
+            // means this page is a partial answer.
+            let totalAvailable = Self.parseResultCount(html)
+            let truncated = totalAvailable.map { results.count < $0 }
+                ?? Self.hasPaginationNav(html)
             // Enrich the top hit with household composition so the
             // verdict-emitter has parent-surname tokens to intersect.
             // Python's pattern caps at 5 (agent/discover.py:195), but
@@ -160,9 +174,16 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             let enriched = await enrichWithHousehold(results, cap: 1)
             lastSuccessfulSearch = Date()
             lastError = nil
-            logger.info("Search returned \(enriched.count) results for \(surname)")
+            logger.info("Search returned \(enriched.count) of \(totalAvailable ?? enriched.count) results for \(surname)")
             await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: enriched.count, strictness: query.strictness))
-            return .results(enriched)
+            return SourceSearchEnvelope(
+                result: .results(enriched),
+                outcome: SearchOutcome(
+                    resultCount: enriched.count,
+                    totalAvailable: totalAvailable,
+                    truncated: truncated
+                )
+            )
 
         } catch {
             lastError = error.localizedDescription
@@ -170,7 +191,7 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             sessionCookie = nil
             csrfToken = nil
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
-            return .unavailable(reason: error.localizedDescription)
+            return SourceSearchEnvelope(.unavailable(reason: error.localizedDescription))
         }
     }
 
@@ -308,6 +329,29 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
     }
 
     // MARK: - Parsing (static, testable)
+
+    /// FT-23 — FreeCen's own claimed hit count. The results page states
+    /// "We found N Results"; python parity: freecen.py:90
+    /// (`re.search(r"We found (\d+)\s+Results?", html)`), widened to
+    /// tolerate thousands separators. Nil when the marker is absent
+    /// (not a results page).
+    nonisolated static func parseResultCount(_ html: String) -> Int? {
+        let pattern = #"We found ([\d,]+)\s+Results?"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+              let range = Range(match.range(at: 1), in: html) else {
+            return nil
+        }
+        return Int(html[range].replacingOccurrences(of: ",", with: ""))
+    }
+
+    /// FT-22 — fallback truncation signal when no hit count parsed:
+    /// a Rails pagination nav (will_paginate/kaminari emit
+    /// `class="pagination"`; kaminari also `rel="next"`) means more
+    /// pages exist beyond the one we fetched.
+    nonisolated static func hasPaginationNav(_ html: String) -> Bool {
+        html.contains(#"class="pagination"#) || html.contains(#"rel="next""#)
+    }
 
     /// Parse FreeCen search results HTML table.
     nonisolated static func parseSearchResults(_ html: String, censusYear: Int?) -> [SourceRecord] {

@@ -64,6 +64,33 @@ nonisolated struct GPSScorer {
 
     // MARK: - Criterion 1: Reasonably Exhaustive Search
 
+    /// Which sources count as "searched" for criterion 1 (connector-audit
+    /// T1-01 / FT-23). A source counts when it produced at least one
+    /// CONCLUSIVE outcome — availability ok and not truncated — so a
+    /// source that only ever errored, was blocked/throttled, or returned
+    /// page-1-truncated answers no longer inflates "reasonably
+    /// exhaustive search". Two fallbacks keep legacy behaviour intact:
+    ///   • results with no outcome envelope at all (persisted pre-T1-01
+    ///     runs, intermediate snapshots) fall back to the old
+    ///     record-derived accounting;
+    ///   • sources reached only outside the main fan-out (strategist
+    ///     `dispatchOne`, pivots) carry no envelope, but a record in
+    ///     hand proves the source was searched and answered.
+    static func searchedSourceIDs(for result: ResearchResult) -> Set<String> {
+        let recordSources = Set(result.allScoredRecords.map(\.record.sourceID))
+        guard !result.searchOutcomes.isEmpty else {
+            return recordSources
+        }
+        var searched = Set(
+            result.searchOutcomes
+                .filter { $0.outcome.isConclusive }
+                .map(\.sourceID)
+        )
+        let envelopedSources = Set(result.searchOutcomes.map(\.sourceID))
+        searched.formUnion(recordSources.subtracting(envelopedSources))
+        return searched
+    }
+
     /// Met if we searched at least 3 of the available sources, or all if fewer than 3 exist.
     private static func criterion1ExhaustiveSearch(
         result: ResearchResult?, searched: Int, total: Int

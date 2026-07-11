@@ -1359,12 +1359,13 @@ final class ResearchViewModel {
             logger.info("Promotion persisted \(saved)/\(result.allScoredRecords.count) evidence records under \(ghostID)")
 
             // Run-record for the GPS scorer / research-log surfaces.
-            let registrySources = result.allScoredRecords.map(\.record.sourceID)
+            // T1-01 / FT-23 — outcome-aware searched-source accounting.
+            let searchedSources = GPSScorer.searchedSourceIDs(for: result)
             let gps = GPSScorer.score(
                 result: result,
                 sourceInfoMap: [:],
-                searchedSourceCount: Set(registrySources).count,
-                totalSourceCount: max(Set(registrySources).count, 1)
+                searchedSourceCount: searchedSources.count,
+                totalSourceCount: max(searchedSources.count, 1)
             )
             persist("Save research run") {
                 try db.saveResearchRun(

@@ -169,14 +169,18 @@ final class ResearchPipeline {
 
             logger.notice("Pipeline iteration \(iteration)/\(config.maxIterations) for \(subject.displayName)")
 
-            // DETERMINISTIC: dispatch and score
-            let dispatchedRecords = await dispatcher.dispatch(
+            // DETERMINISTIC: dispatch and score. Envelope-preserving
+            // dispatch (T1-01) — per-query outcomes accumulate on the
+            // state so genuine negatives and GPS accounting can tell
+            // "searched, found nothing" from "blocked/errored/truncated".
+            let (dispatchedRecords, dispatchOutcomes) = await dispatcher.dispatchWithOutcomes(
                 subject: state.subject,
                 recordTypes: state.activeRecordTypes,
                 scope: config.scope,
                 mode: state.subject.mode,
                 cache: queryCache
             )
+            state.searchOutcomes.append(contentsOf: dispatchOutcomes)
 
             // Capture prior record IDs before append, so the stopping check
             // below can detect a "stable point" — an iteration that returned
@@ -794,6 +798,7 @@ final class ResearchPipeline {
             discrepancies: state.discrepancies,
             householdMembers: state.householdMembers,
             searchHistory: state.searchHistory,
+            searchOutcomes: state.searchOutcomes,
             hypotheses: allHypotheses,
             parentLinkVerdict: parentLink,
             identityVerdict: identity,

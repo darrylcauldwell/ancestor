@@ -42,10 +42,19 @@ struct ProbateSource: RecordSource {
     // MARK: - Search
 
     func search(_ query: RecordQuery) async -> SourceQueryResult {
+        await searchWithOutcome(query).result
+    }
+
+    /// Envelope-aware search (connector-audit T1-01; instances T1-24 /
+    /// T1-25). Nuxeo error payloads map to `.unavailable`, and the
+    /// hard 50-row page cap is flagged as truncation against the
+    /// response's own `resultsCount` — pagination itself is deferred
+    /// to the efficiency series.
+    func searchWithOutcome(_ query: RecordQuery) async -> SourceSearchEnvelope {
         guard query.recordType == .probate else {
-            return .outsideCoverage(reason: "Probate Calendar only provides probate records")
+            return SourceSearchEnvelope(.outsideCoverage(reason: "Probate Calendar only provides probate records"))
         }
-        guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
+        guard let surname = query.surname, !surname.isEmpty else { return SourceSearchEnvelope(.results([])) }
 
         let summary = Self.activitySummary(query: query, surname: surname)
         await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
@@ -78,14 +87,35 @@ struct ProbateSource: RecordSource {
                 "skipAggregates": "true",
             ])
 
+            // T1-25: a 200-status Nuxeo error body ({"hasError":true,…})
+            // or a malformed/non-JSON payload is a source failure, not
+            // an empty index — mirror the CWGC branded-500 pattern.
+            if let errorReason = Self.parseError(data) {
+                logger.error("Probate search failed: \(errorReason)")
+                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: errorReason, strictness: query.strictness))
+                return SourceSearchEnvelope(.unavailable(reason: errorReason))
+            }
+
             let records = Self.parseJSON(data, surname: surname)
-            logger.info("Probate: \(records.count) results for \(surname)")
+            // T1-24 (honesty slice): the request is pinned to page 0 /
+            // pageSize 50; when the server's own resultsCount exceeds
+            // what we parsed, flag the truncation and log "N of M".
+            let totalAvailable = Self.parseTotalCount(data)
+            let truncated = totalAvailable.map { records.count < $0 } ?? false
+            logger.info("Probate: \(records.count) of \(totalAvailable ?? records.count) results for \(surname)")
             await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count, strictness: query.strictness))
-            return .results(records)
+            return SourceSearchEnvelope(
+                result: .results(records),
+                outcome: SearchOutcome(
+                    resultCount: records.count,
+                    totalAvailable: totalAvailable,
+                    truncated: truncated
+                )
+            )
         } catch {
             logger.error("Probate search failed: \(error.localizedDescription)")
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
-            return .unavailable(reason: error.localizedDescription)
+            return SourceSearchEnvelope(.unavailable(reason: error.localizedDescription))
         }
     }
 
@@ -105,6 +135,35 @@ struct ProbateSource: RecordSource {
     }
 
     // MARK: - Parsing (nonisolated static — testable)
+
+    /// T1-25 — classify a response body as a source failure. Returns a
+    /// human-readable reason, or nil when the body is a well-formed
+    /// results payload (which may legitimately contain zero entries).
+    /// Ported from Python's `data.get("hasError")` check
+    /// (sources/probate.py:168-169), extended to cover malformed/non-JSON
+    /// bodies that previously parsed as zero probate records.
+    nonisolated static func parseError(_ data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return "malformed response (not a JSON object)"
+        }
+        if (json["hasError"] as? Bool) == true {
+            let message = (json["errorMessage"] as? String)?.trimmingCharacters(in: .whitespaces)
+            return "Probate API error: \((message?.isEmpty == false ? message! : "unknown"))"
+        }
+        guard json["entries"] is [[String: Any]] else {
+            return "malformed response (no entries array)"
+        }
+        return nil
+    }
+
+    /// T1-24 — the response's own claimed total hit count (Nuxeo
+    /// `resultsCount`, python parity: probate.py:171). Nil when absent.
+    nonisolated static func parseTotalCount(_ data: Data) -> Int? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return json["resultsCount"] as? Int
+    }
 
     nonisolated static func parseJSON(_ data: Data, surname: String) -> [SourceRecord] {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
