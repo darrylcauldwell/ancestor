@@ -1,6 +1,6 @@
 # ADR-003 — GEDCOM X is adopted as vocabulary, not schema
 
-**Status:** Proposed 2026-07-11 — awaiting review
+**Status:** Accepted 2026-07-11 (Darryl)
 **Depends on:** ADR-001 (which rejects GEDCOM X as schema; this ADR harvests its surviving value)
 
 ## Context

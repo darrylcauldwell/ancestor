@@ -1,6 +1,6 @@
 # ADR-002 — FamilySearch integrates as two bounded surfaces, never as a schema driver
 
-**Status:** Proposed 2026-07-11 — awaiting review
+**Status:** Accepted 2026-07-11 (Darryl)
 **Depends on:** ADR-001 (canonical model), ADR-005 (firewall posture), ADR-006 (no general TreeProvider)
 
 ## Context
