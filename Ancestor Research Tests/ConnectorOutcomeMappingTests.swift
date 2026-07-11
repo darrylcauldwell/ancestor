@@ -61,8 +61,13 @@ struct ConnectorOutcomeMappingTests {
     }
 
     @MainActor
-    @Test func probateSearchFlagsCapTruncation() async {
-        let http = AnyURLHTTPClient(data: Data(Self.probateFixture(entries: 2, resultsCount: 50).utf8))
+    @Test func probateSearchSinglePageShortfallIsTruncated() async {
+        // Server claims 50 hits but serves 2 entries with pageCount 1 —
+        // the paging loop (T1-24) has nothing more to fetch, so the
+        // shortfall must stay flagged as truncation, not read as a
+        // complete answer. (Multi-page accumulation and the 500 budget
+        // are covered in ProbatePagingTests.)
+        let http = AnyURLHTTPClient(data: Data(Self.probateFixture(entries: 2, resultsCount: 50, pageCount: 1).utf8))
         let source = ProbateSource(http: http)
         let envelope = await source.searchWithOutcome(Self.probateQuery())
         guard case .results(let records) = envelope.result else {
@@ -236,7 +241,7 @@ struct ConnectorOutcomeMappingTests {
         )
     }
 
-    private static func probateFixture(entries: Int, resultsCount: Int) -> String {
+    private static func probateFixture(entries: Int, resultsCount: Int, pageCount: Int = 1) -> String {
         let entryJSON = (0..<entries).map { i in
             #"""
             {"uid": "uid-\#(i)", "properties": {
@@ -246,7 +251,7 @@ struct ConnectorOutcomeMappingTests {
             }}
             """#
         }.joined(separator: ",")
-        return #"{"entries": [\#(entryJSON)], "resultsCount": \#(resultsCount), "pageCount": 60}"#
+        return #"{"entries": [\#(entryJSON)], "resultsCount": \#(resultsCount), "pageCount": \#(pageCount)}"#
     }
 }
 

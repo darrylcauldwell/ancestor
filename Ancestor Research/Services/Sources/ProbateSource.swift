@@ -39,6 +39,13 @@ struct ProbateSource: RecordSource {
     nonisolated private static let searchEndpoint = "/api/csp/api/v1/search/pp/pp_mainstream_default_search/execute"
     nonisolated private static let userAgent = "AncestorResearch/1.0 (macOS; genealogy research tool; github.com/darrylcauldwell/ancestor)"
 
+    /// Total-results budget across all pages — Python parity
+    /// (probate.py:130 `max_results=500`). Internal (not private) so the
+    /// paging tests can reference the budget instead of hardcoding it.
+    nonisolated static let maxResults = 500
+    /// The API's own per-request cap (probate.py:64 `_MAX_PAGE_SIZE`).
+    nonisolated private static let maxPageSize = 1000
+
     // MARK: - Search
 
     func search(_ query: RecordQuery) async -> SourceQueryResult {
@@ -46,10 +53,13 @@ struct ProbateSource: RecordSource {
     }
 
     /// Envelope-aware search (connector-audit T1-01; instances T1-24 /
-    /// T1-25). Nuxeo error payloads map to `.unavailable`, and the
-    /// hard 50-row page cap is flagged as truncation against the
-    /// response's own `resultsCount` — pagination itself is deferred
-    /// to the efficiency series.
+    /// T1-25). Nuxeo error payloads map to `.unavailable`. Pagination is
+    /// a faithful port of Python's paging loop (probate.py:163-191):
+    /// page 0 first, read `resultsCount`/`pageCount` from the response,
+    /// then loop pages 1..<pageCount accumulating entries until the
+    /// 500-record budget or an empty page. `truncated` is false when all
+    /// pages were fetched within budget, true (with `totalAvailable`)
+    /// when the budget — or an early termination — cut the answer short.
     func searchWithOutcome(_ query: RecordQuery) async -> SourceSearchEnvelope {
         guard query.recordType == .probate else {
             return SourceSearchEnvelope(.outsideCoverage(reason: "Probate Calendar only provides probate records"))
@@ -59,33 +69,33 @@ struct ProbateSource: RecordSource {
         let summary = Self.activitySummary(query: query, surname: surname)
         await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
 
+        // Search params shared by every page request (paging params are
+        // appended per page in fetchPage).
+        var baseItems = [
+            URLQueryItem(name: "hmcts_grant_schema_surname", value: surname.uppercased()),
+            URLQueryItem(name: "hmcts_grant_schema_grantdocTypeOf", value: ""),
+            URLQueryItem(name: "sortBy", value: ""),
+            URLQueryItem(name: "sortOrder", value: ""),
+        ]
+
+        if let givenName = query.givenName, !givenName.isEmpty {
+            baseItems.append(URLQueryItem(name: "hmcts_grant_schema_firstnames", value: givenName.uppercased()))
+        }
+        if let yearFrom = query.yearFrom {
+            baseItems.append(URLQueryItem(name: "hmcts_grant_schema_dateofdeath_min", value: "\(yearFrom)-01-01T00:00:00.000Z"))
+        }
+        if let yearTo = query.yearTo {
+            baseItems.append(URLQueryItem(name: "hmcts_grant_schema_dateofdeath_max", value: "\(yearTo)-12-31T23:59:59.999Z"))
+        }
+
         do {
-            var components = URLComponents(string: Self.baseURL + Self.searchEndpoint)!
-            var queryItems = [
-                URLQueryItem(name: "hmcts_grant_schema_surname", value: surname.uppercased()),
-                URLQueryItem(name: "hmcts_grant_schema_grantdocTypeOf", value: ""),
-                URLQueryItem(name: "sortBy", value: ""),
-                URLQueryItem(name: "sortOrder", value: ""),
-                URLQueryItem(name: "currentPageIndex", value: "0"),
-                URLQueryItem(name: "pageSize", value: "50"),
-            ]
-
-            if let givenName = query.givenName, !givenName.isEmpty {
-                queryItems.append(URLQueryItem(name: "hmcts_grant_schema_firstnames", value: givenName.uppercased()))
-            }
-            if let yearFrom = query.yearFrom {
-                queryItems.append(URLQueryItem(name: "hmcts_grant_schema_dateofdeath_min", value: "\(yearFrom)-01-01T00:00:00.000Z"))
-            }
-            if let yearTo = query.yearTo {
-                queryItems.append(URLQueryItem(name: "hmcts_grant_schema_dateofdeath_max", value: "\(yearTo)-12-31T23:59:59.999Z"))
-            }
-            components.queryItems = queryItems
-
-            let data = try await http.get(url: components.url!, headers: [
-                "User-Agent": Self.userAgent,
-                "X-NXproperties": "hmcts_grant_schema",
-                "skipAggregates": "true",
-            ])
+            // Page 0 — pageSize = min(budget, API cap), Python parity
+            // (probate.py:163-164).
+            let data = try await fetchPage(
+                baseItems: baseItems,
+                pageIndex: 0,
+                pageSize: min(Self.maxResults, Self.maxPageSize)
+            )
 
             // T1-25: a 200-status Nuxeo error body ({"hasError":true,…})
             // or a malformed/non-JSON payload is a source failure, not
@@ -96,11 +106,41 @@ struct ProbateSource: RecordSource {
                 return SourceSearchEnvelope(.unavailable(reason: errorReason))
             }
 
-            let records = Self.parseJSON(data, surname: surname)
-            // T1-24 (honesty slice): the request is pinned to page 0 /
-            // pageSize 50; when the server's own resultsCount exceeds
-            // what we parsed, flag the truncation and log "N of M".
+            var records = Self.parseJSON(data, surname: surname)
             let totalAvailable = Self.parseTotalCount(data)
+            let pageCount = Self.parsePageCount(data) ?? 1
+
+            // T1-24: fetch additional pages if needed — faithful port of
+            // probate.py:176-189. Empty entries terminate; a mid-loop
+            // error breaks with the partial answer (Python's bare
+            // `except: break`), never mapping to `.unavailable` — the
+            // truncated flag below keeps the partial answer honest.
+            var page = 1
+            while page < pageCount && records.count < Self.maxResults {
+                do {
+                    let remaining = Self.maxResults - records.count
+                    let pageData = try await fetchPage(
+                        baseItems: baseItems,
+                        pageIndex: page,
+                        pageSize: min(remaining, Self.maxPageSize)
+                    )
+                    let pageRecords = Self.parseJSON(pageData, surname: surname)
+                    if pageRecords.isEmpty { break }
+                    records.append(contentsOf: pageRecords)
+                } catch {
+                    logger.warning("Probate: page \(page) fetch failed (\(error.localizedDescription)) — returning partial results")
+                    break
+                }
+                page += 1
+            }
+            if records.count > Self.maxResults {
+                records = Array(records.prefix(Self.maxResults))
+            }
+
+            // truncated=false when every page was fetched within budget
+            // (accumulated count matches the server's own claimed total);
+            // true when the 500 budget — or an early break — left claimed
+            // records unfetched.
             let truncated = totalAvailable.map { records.count < $0 } ?? false
             logger.info("Probate: \(records.count) of \(totalAvailable ?? records.count) results for \(surname)")
             await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count, strictness: query.strictness))
@@ -117,6 +157,24 @@ struct ProbateSource: RecordSource {
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
             return SourceSearchEnvelope(.unavailable(reason: error.localizedDescription))
         }
+    }
+
+    /// One Nuxeo page request (Python `_fetch_page`, probate.py:113-126).
+    /// Same endpoint, headers, and param set as before — only
+    /// `currentPageIndex`/`pageSize` vary per page. Rate politeness is
+    /// unchanged: requests are sequential through the shared
+    /// retry/backoff `HTTPClient`, exactly like the Python loop.
+    private func fetchPage(baseItems: [URLQueryItem], pageIndex: Int, pageSize: Int) async throws -> Data {
+        var components = URLComponents(string: Self.baseURL + Self.searchEndpoint)!
+        components.queryItems = baseItems + [
+            URLQueryItem(name: "currentPageIndex", value: "\(pageIndex)"),
+            URLQueryItem(name: "pageSize", value: "\(pageSize)"),
+        ]
+        return try await http.get(url: components.url!, headers: [
+            "User-Agent": Self.userAgent,
+            "X-NXproperties": "hmcts_grant_schema",
+            "skipAggregates": "true",
+        ])
     }
 
     /// Build a one-line description of a Probate query for the live activity feed.
@@ -163,6 +221,16 @@ struct ProbateSource: RecordSource {
             return nil
         }
         return json["resultsCount"] as? Int
+    }
+
+    /// T1-24 — the response's claimed page count (Nuxeo `pageCount`,
+    /// python parity: probate.py:176, default 1 applied at the call
+    /// site). Nil when absent.
+    nonisolated static func parsePageCount(_ data: Data) -> Int? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return json["pageCount"] as? Int
     }
 
     nonisolated static func parseJSON(_ data: Data, surname: String) -> [SourceRecord] {
