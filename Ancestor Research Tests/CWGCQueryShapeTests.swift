@@ -2,8 +2,8 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Connector-audit T1-07 + T1-12 + T1-06 (query side) + T1-13 (search
-/// level) — CWGC's wire shape (CONNECTOR_AUDIT_2026-07.md §6.2).
+/// Connector-audit T1-07 + T1-12 + T1-14 + T1-06 (query side) + T1-13
+/// (search level) — CWGC's wire shape (CONNECTOR_AUDIT_2026-07.md §6.2).
 @MainActor
 struct CWGCQueryShapeTests {
 
@@ -15,14 +15,15 @@ struct CWGCQueryShapeTests {
         recordType: RecordType = .death,
         yearFrom: Int? = nil,
         yearTo: Int? = nil,
-        strictness: SearchStrictness = .strict
+        strictness: SearchStrictness = .strict,
+        conflict: String? = nil
     ) -> RecordQuery {
         RecordQuery(
             surname: surname, givenName: givenName,
             recordType: recordType,
             yearFrom: yearFrom, yearTo: yearTo,
             gender: .male, region: nil,
-            sourceParams: .cwgc(CWGCParams(conflict: nil)),
+            sourceParams: .cwgc(CWGCParams(conflict: conflict)),
             strictness: strictness
         )
     }
@@ -94,6 +95,56 @@ struct CWGCQueryShapeTests {
     @Test func strictnessControlsTabExact() {
         #expect(wire(query(strictness: .strict))["Tab"] == "exact")
         #expect(wire(query(strictness: .loose))["Tab"] == nil)
+    }
+
+    // MARK: - T1-14 — explicit conflict overrides the year-derived WarSelect
+
+    @Test func explicitConflictOverridesYearDerivedWarSelect() {
+        // A window that spans both wars normally omits WarSelect (T1-07),
+        // but a strategist that pins WW1 should force WarSelect=1.
+        let params = wire(query(yearFrom: 1916, yearTo: 1946, conflict: "WW1"))
+        #expect(params["WarSelect"] == "1",
+                "explicit conflict wins over the both-wars year overlap")
+        // The death-year bounds still ride along unchanged.
+        #expect(params["DateDeathFromYear"] == "1916")
+        #expect(params["DateDeathToYear"] == "1946")
+    }
+
+    @Test func explicitConflictCanContradictTheYearWindow() {
+        // A WW2 window (1943–1946) with an explicit WW1 pin — the explicit
+        // value wins even against the year overlap that would say WW2. (The
+        // strategist owns the contradiction; the connector honours the pin.)
+        let params = wire(query(yearFrom: 1943, yearTo: 1946, conflict: "2"))
+        #expect(params["WarSelect"] == "2")
+        let ww1Pinned = wire(query(yearFrom: 1943, yearTo: 1946, conflict: "First World War"))
+        #expect(ww1Pinned["WarSelect"] == "1",
+                "an explicit WW1 pin overrides a WW2 year window")
+    }
+
+    @Test func nilConflictFallsBackToYearWindow() {
+        // Dead-plumbing parity: conflict:nil behaves exactly as before —
+        // the year window drives WarSelect.
+        #expect(wire(query(yearFrom: 1915, yearTo: 1919, conflict: nil))["WarSelect"] == "1")
+    }
+
+    @Test func unrecognisedConflictFallsBackToYearWindow() {
+        // A garbage/unknown conflict must not silently pin the wrong war —
+        // it falls back to the year overlap rather than emitting nonsense.
+        #expect(wire(query(yearFrom: 1915, yearTo: 1919, conflict: "Korea"))["WarSelect"] == "1")
+        // Blank string is treated as absent.
+        #expect(wire(query(yearFrom: 1916, yearTo: 1946, conflict: "  "))["WarSelect"] == nil)
+    }
+
+    @Test func conflictWarSelectVocabulary() {
+        // The mapper accepts the wire values and common human synonyms.
+        #expect(CWGCSource.conflictWarSelect("1") == "1")
+        #expect(CWGCSource.conflictWarSelect("WWI") == "1")
+        #expect(CWGCSource.conflictWarSelect("Great War") == "1")
+        #expect(CWGCSource.conflictWarSelect("2") == "2")
+        #expect(CWGCSource.conflictWarSelect("Second World War") == "2")
+        #expect(CWGCSource.conflictWarSelect(nil) == nil)
+        #expect(CWGCSource.conflictWarSelect("") == nil)
+        #expect(CWGCSource.conflictWarSelect("Boer War") == nil)
     }
 
     // MARK: - T1-06 (query side) — the initials probe's shape

@@ -206,7 +206,14 @@ struct CWGCSource: RecordSource {
         if let initials, !initials.isEmpty {
             items.append(URLQueryItem(name: "Initials", value: initials))
         }
-        if let war = warSelect(yearFrom: query.yearFrom, yearTo: query.yearTo) {
+        // T1-14 — an explicit conflict from CWGCParams (populated by the
+        // MLX strategist / FocusedQuery when its rationale is war-specific)
+        // wins over the year-derived WarSelect. Previously CWGCParams.conflict
+        // was dead plumbing — always constructed nil, never read here — so a
+        // strategist that knew "this is a WW1 casualty" could not pin the war
+        // and fell back on the year window's overlap heuristic. When conflict
+        // is nil/unrecognised the year-derived value stands.
+        if let war = warSelect(for: query) {
             items.append(URLQueryItem(name: "WarSelect", value: war))
         }
         if let yearFrom = query.yearFrom {
@@ -216,6 +223,38 @@ struct CWGCSource: RecordSource {
             items.append(URLQueryItem(name: "DateDeathToYear", value: String(clampToCorpus(yearTo))))
         }
         return items
+    }
+
+    /// Resolve the WarSelect wire value for a query. An explicit conflict
+    /// pinned in `CWGCParams` (T1-14) takes precedence over the year-derived
+    /// overlap test (T1-07); an absent/unrecognised conflict falls back to
+    /// the year window.
+    nonisolated static func warSelect(for query: RecordQuery) -> String? {
+        if case .cwgc(let params) = query.sourceParams,
+           let explicit = conflictWarSelect(params.conflict) {
+            return explicit
+        }
+        return warSelect(yearFrom: query.yearFrom, yearTo: query.yearTo)
+    }
+
+    /// T1-14 — map an explicit `CWGCParams.conflict` string to a WarSelect
+    /// wire value. Accepts the wire values themselves ("1"/"2") and the
+    /// common human-readable synonyms a strategist might emit; returns nil
+    /// for nil/blank/unrecognised so the caller falls back to the year window
+    /// rather than silently pinning the wrong war.
+    nonisolated static func conflictWarSelect(_ conflict: String?) -> String? {
+        guard let raw = conflict?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        switch raw.lowercased() {
+        case "1", "ww1", "wwi", "ww 1", "world war 1", "world war i",
+             "first world war", "great war":
+            return "1"
+        case "2", "ww2", "wwii", "ww 2", "world war 2", "world war ii",
+             "second world war":
+            return "2"
+        default:
+            return nil
+        }
     }
 
     /// T1-07 — WarSelect from window overlap. Returns "1" when the window
@@ -232,6 +271,71 @@ struct CWGCSource: RecordSource {
 
     nonisolated private static func clampToCorpus(_ year: Int) -> Int {
         min(max(year, corpusYearRange.lowerBound), corpusYearRange.upperBound)
+    }
+
+    // MARK: - Military eligibility (T1-08)
+
+    /// T1-08 — decide whether a subject is military-eligible enough to reach
+    /// CWGC, using **interval** semantics over the birth and death windows.
+    ///
+    /// The prior gate (`SearchDispatcher` → `ScoringRules.militaryEligible`)
+    /// tested `birthYearFrom` as a single point against the eligibility
+    /// ranges, so two real cases never reached CWGC:
+    ///
+    ///  1. A **straddling birth window** — 'ABT 1879' widened to 1876–1882
+    ///     has `birthYearFrom == 1876`, outside WW1 eligibility (1880–1900),
+    ///     even though 1880–1882 lies squarely inside it.
+    ///  2. A **war-years death with no birth year** — a subject known to have
+    ///     died 1916 but with no birth year was skipped entirely, though a
+    ///     death squarely in war years is the single strongest CWGC trigger.
+    ///
+    /// This replaces the point test with an overlap test on the birth window
+    /// against the eligibility ranges, PLUS an independent trigger when the
+    /// death window overlaps the war-death spans regardless of birth-year
+    /// knowledge. Gender gate is unchanged — CWGC coverage stays male-only
+    /// (nil gender falls through, matching the dispatcher's existing
+    /// `gender == .male || gender == nil` predicate and the spec-pinned
+    /// male military scope; the women/Civilian-War-Dead widening in §7 is
+    /// explicitly out of scope). Pure and side-effect-free so the dispatcher
+    /// can call it directly (follow-up) and it can be unit-tested in isolation.
+    nonisolated static func isMilitaryEligible(
+        gender: Gender?,
+        birthYearFrom: Int?,
+        birthYearTo: Int?,
+        deathYearFrom: Int?,
+        deathYearTo: Int?
+    ) -> Bool {
+        // A positive female signal excludes; nil gender is permitted (a male
+        // profile imported without explicit gender must not silently miss
+        // CWGC).
+        guard gender != .female else { return false }
+
+        // Birth-window overlap against the WW1/WW2 eligibility ranges.
+        if let bf = birthYearFrom {
+            let bt = max(birthYearTo ?? bf, bf)
+            if intervalsOverlap(bf, bt, ScoringRules.ww1Eligibility)
+                || intervalsOverlap(bf, bt, ScoringRules.ww2Eligibility) {
+                return true
+            }
+        }
+
+        // Independent death-window trigger — a death in the war-death spans
+        // is a CWGC trigger even with no birth year at all.
+        if let df = deathYearFrom {
+            let dt = max(deathYearTo ?? df, df)
+            if intervalsOverlap(df, dt, ww1Span) || intervalsOverlap(df, dt, ww2Span) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// Closed-interval overlap: [aFrom, aTo] intersects `range`.
+    nonisolated private static func intervalsOverlap(
+        _ aFrom: Int, _ aTo: Int, _ range: ClosedRange<Int>
+    ) -> Bool {
+        aFrom <= range.upperBound && aTo >= range.lowerBound
     }
 
     /// T1-06 — the Initials value for the fallback probe: first letter of
@@ -251,7 +355,7 @@ struct CWGCSource: RecordSource {
     /// wire's WarSelect (T1-07) so the label matches what was actually sent.
     nonisolated static func activitySummary(query: RecordQuery, surname: String) -> String {
         let warLabel: String
-        switch warSelect(yearFrom: query.yearFrom, yearTo: query.yearTo) {
+        switch warSelect(for: query) {
         case "1": warLabel = "WWI "
         case "2": warLabel = "WWII "
         default: warLabel = ""
