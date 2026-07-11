@@ -1,4 +1,43 @@
-# Roadmap — closing the spec backlog
+# Roadmap — routing document
+
+**Status:** Living (updated 2026-07-11). This file routes: where each phase stands and which document owns what happens next. Per-spec change lists stay authoritative on design (see `AncestorApp/README.md` for the full document index).
+
+## Phase state
+
+| Phase / programme | State | Owning doc |
+|---|---|---|
+| Phase 1 — pipeline consolidation | Complete 2026-07-04 | RESEARCH_PIPELINE_SPEC.md |
+| Phase 2 — AncestorKit extraction | Complete 2026-07-04 | (as-built in code) |
+| Phase 3 — CloudKit publisher | Shipped (Changes 1–6; first real publish 2026-07-08) | PUBLISHER_SPEC.md |
+| Phase 4 — viewer apps | Delivered + accepted 2026-07-10; parked | PHASE4_VIEWER_SPEC.md |
+| FamilySearch architecture | Decided 2026-07-11 — six ADRs accepted; e-agreement sent, awaiting AppKey | adr/ · FAMILYSEARCH_SOURCE_SPEC.md · GEDCOMX_CONCEPT_MAPPING.md |
+| Release ceremony (all phases) | Deferred until every phase complete — user decision 2026-07-10 | — |
+
+**Declared priority (user, 2026-07-10): core research capability before polish.**
+
+## Live queues, in rough order
+
+1. **`CONNECTOR_AUDIT_2026-07.md`** — verified fix backlog (FT + T1), awaiting triage; combined top-5 in its §3.
+2. **`MODEL_EVOLUTION_SPEC.md`** — accepted 2026-07-11; Changes 1–4 (E1→E4) queued; **E1 is next** and is the prerequisite for FS person linkage.
+3. **`FAMILYSEARCH_SOURCE_SPEC.md`** §§14–19 — official-API read leg; **blocked on Beta AppKey arrival**.
+4. **`ENGINE_FOUNDATION_SPEC.md`** Phases C+D (#Change5–8) — deferred; overlaps the audit (see its cross-link note); triage together with queue 1.
+5. **`RESEARCH_PIPELINE_SPEC.md`** Part II remainder — T9, T23, T31 (+ §5.8 harness extensions).
+6. **Epic 13 — user-seeded hypotheses** — queued; needs a RESEARCH_PIPELINE_SPEC change entry before build.
+
+## Parked by explicit decision
+
+- `PROSE_CORPUS_SPEC.md` — polish, after a solid core (user, 2026-07-10)
+- `SOURCE_MEDIA_SPEC.md` — paper-only
+- `KINSHIP_SPEC.md` #Change3–5 (+ #Change9 Swift port) — behind engine foundation
+- Production publish / viewer TestFlight / family invites — behind all-phases-complete
+
+## Note on the appendix
+
+Everything below the rule is the May 2026 compilation retained verbatim — its session logs are the historical record, but its epic statuses are stale (e.g. Epic 1 shipped 2026-05-24; Phases 1–4 above post-date it entirely). Trust the tables above.
+
+---
+
+# Appendix — May 2026 compilation (retained verbatim; statuses historical)
 
 **Status:** Living document (2026-05-23). Compiled from a sweep across
 all `AncestorApp/*_SPEC.md` files. Each epic ties to one or more

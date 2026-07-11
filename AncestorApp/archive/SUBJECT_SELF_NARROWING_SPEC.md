@@ -1,6 +1,6 @@
 # Subject Self-Narrowing — Specification
 
-**Status:** Draft (2026-05-27). Slice A (consensus detector) shipped
+**Status:** Shipped 2026-05-27 — Slices A, B and C all delivered. As-built reference (archived 2026-07-11).
 behind a `logger.notice` line; this spec governs Slice B (surfacing
 the consensus as a reviewable profile-update proposal) and the
 guards Slice B must carry.

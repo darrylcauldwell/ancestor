@@ -1,6 +1,6 @@
 # PUBLISHER_SPEC — Family Tree Publisher
 
-**Status:** Draft v1.1 (2026-07-04) — v1 revised after two-agent adversarial review (codebase-contradiction + completeness); all blockers folded in. No changes started.
+**Status:** Shipped — Changes 1–6 delivered; first real publish 2026-07-08 (generation 3, 967/967 server-acked); media opt-in UI 2026-07-10. Change 7 (auto-publish) optional/queued. As-built reference; §4 is the viewers’ data contract. (v1.1 was revised after two-agent adversarial review before implementation.)
 **Governing context:** `ARCHITECTURE_REVIEW_2026-07.md` Phase 3 (architecture adjudicated there: publisher over synced store).
 **Supersedes:** DESIGN.md §13's "Mobile Companion" / "Share read-only link" / "Cloud sync" bullets, and amends DESIGN.md §7.14/§7.15's no-cloud posture (opt-in, derived-snapshot-only).
 

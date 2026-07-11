@@ -5,6 +5,8 @@ specs (`PROSE_CORPUS`, `FAMILYSEARCH_SOURCE`, `SOURCE_MEDIA`,
 `KINSHIP` #Change3–5, `RESEARCH_PIPELINE_SPEC` Part II) are deferred
 until this one ships.
 
+> **Cross-link (2026-07-11):** `CONNECTOR_AUDIT_2026-07.md` now covers adjacent territory with verified findings — its T1-01 search-outcome envelope (truncation/availability honesty) and §5.2 persistent negative-search cache interact directly with #Change5/#Change6 sequencing, and several audit efficiency items are explicitly sequenced behind that envelope. Triage the audit and Phase C together rather than starting either in isolation.
+
 **Scope:** Eight engine-correctness and engine-self-knowledge changes
 needed before any output-surface or coverage-extension work is worth
 doing. When this spec is shipped, the engine should be:

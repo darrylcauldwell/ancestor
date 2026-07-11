@@ -1,6 +1,6 @@
 # Swift MCP Eval Backend Spec
 
-**Status:** Draft (2026-05-23). Not implemented.
+**Status:** Shipped — Epic 1 (#Change1–9) closed 2026-05-24; the swift-mcp eval harness is operational and has run full-corpus parity passes since. As-built reference (archived 2026-07-11).
 
 ## 1. Why this spec exists
 

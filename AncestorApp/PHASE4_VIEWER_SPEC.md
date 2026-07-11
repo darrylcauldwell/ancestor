@@ -1,6 +1,6 @@
 # PHASE4_VIEWER_SPEC — Family Tree Viewers (tvOS, iOS)
 
-**Status:** Draft v1 (2026-07-09) — no changes started.
+**Status:** Delivered — all four changes shipped and accepted 2026-07-10 (participant sharing proven live in dev). As-built reference. Production ceremony (prod publish, viewer TestFlight, invites) deferred until every phase is complete — user decision 2026-07-10.
 **Governing context:** `PUBLISHER_SPEC.md` §4 is the data contract this spec consumes; `ARCHITECTURE_REVIEW_2026-07.md` §3 adjudicated the publisher/viewer split and assessed UI portability.
 **Order decision (supersedes the review's "iPad first"):** tvOS ships first, on the owner's own iCloud account — same-account access reads the published zone straight from the private database, needing no share acceptance (which tvOS cannot do anyway). The iOS viewer follows and adds CKShare acceptance for family on other iCloud accounts. Decision log #1.
 
