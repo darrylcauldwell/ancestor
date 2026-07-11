@@ -254,6 +254,18 @@ public nonisolated struct ProbateRecord: Codable, Sendable {
     public let birthDate: String?
     public let ageAtDeath: Int?
     public let address: String?
+    /// T1-28 — estate postcode (Nuxeo `hmctsgrant:estatepostcode`). The
+    /// strongest geographic disambiguator the source offers: unlike the
+    /// joined address lines, a postcode pins a locality precisely. Python
+    /// has always parsed it (sources/probate.py:103); the Swift port had
+    /// dropped it. Nil when the grant carries no postcode (soldier wills,
+    /// older grants).
+    public let postcode: String?
+    /// T1-28 — honorific/title (Nuxeo `hmctsgrant:estatetitle`, e.g.
+    /// "MRS" / "MISS" / "DR"). Carries marital-status and gender signal
+    /// for the married-woman matching pathway. Python parses it
+    /// (sources/probate.py:104). Nil when absent.
+    public let title: String?
     public let grantType: String?
     public let registry: String?
     public let probateNumber: String?
@@ -261,7 +273,9 @@ public nonisolated struct ProbateRecord: Codable, Sendable {
 
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
-    public init(common: RecordCommon, deathDate: String? = nil, deathYear: Int? = nil, probateDate: String? = nil, birthDate: String? = nil, ageAtDeath: Int? = nil, address: String? = nil, grantType: String? = nil, registry: String? = nil, probateNumber: String? = nil, regimentNumber: Int? = nil) {
+    /// `postcode`/`title` default nil so pre-T1-28 construction sites are
+    /// unchanged.
+    public init(common: RecordCommon, deathDate: String? = nil, deathYear: Int? = nil, probateDate: String? = nil, birthDate: String? = nil, ageAtDeath: Int? = nil, address: String? = nil, postcode: String? = nil, title: String? = nil, grantType: String? = nil, registry: String? = nil, probateNumber: String? = nil, regimentNumber: Int? = nil) {
         self.common = common
         self.deathDate = deathDate
         self.deathYear = deathYear
@@ -269,6 +283,8 @@ public nonisolated struct ProbateRecord: Codable, Sendable {
         self.birthDate = birthDate
         self.ageAtDeath = ageAtDeath
         self.address = address
+        self.postcode = postcode
+        self.title = title
         self.grantType = grantType
         self.registry = registry
         self.probateNumber = probateNumber
@@ -590,15 +606,34 @@ public nonisolated struct FreeBMDParams: Sendable {
     public let wildcardSurname: Bool
     public let motherSurname: String?
     public let spouseSurname: String?
+    /// FT-03 — GRO reference volume for a same-page page-lookup query.
+    /// FreeBMD's search form accepts a `vol` + `pgno` pair that fetches
+    /// the 2–4 index entries registered on ONE GRO page in a single
+    /// request. A marriage is registered on the same (volume, page)
+    /// under BOTH parties' surnames, so a page-lookup on a subject-side
+    /// marriage's own (vol, page) returns the spouse-side entry
+    /// deterministically — even when NO spouse is on the tree (unlike
+    /// the surname-sweep path, which needs the spouse surname up front).
+    /// nil = no page filter; the two page fields are emitted only when
+    /// BOTH are non-empty (a lone vol or page is not a valid page key).
+    public let volume: String?
+    /// FT-03 — GRO reference page for a same-page page-lookup query. See
+    /// `volume`. Paired with it: both must be set for the source to emit
+    /// the `vol`/`pgno` form fields.
+    public let page: String?
 
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
-    public init(districtCode: String? = nil, countyCode: String? = nil, wildcardSurname: Bool, motherSurname: String? = nil, spouseSurname: String? = nil) {
+    /// `volume`/`page` default nil so pre-FT-03 construction sites are
+    /// unchanged.
+    public init(districtCode: String? = nil, countyCode: String? = nil, wildcardSurname: Bool, motherSurname: String? = nil, spouseSurname: String? = nil, volume: String? = nil, page: String? = nil) {
         self.districtCode = districtCode
         self.countyCode = countyCode
         self.wildcardSurname = wildcardSurname
         self.motherSurname = motherSurname
         self.spouseSurname = spouseSurname
+        self.volume = volume
+        self.page = page
     }
 
 }
@@ -761,7 +796,19 @@ public nonisolated struct CWGCParams: Sendable {
 }
 
 public nonisolated struct ProbateParams: Sendable {
-    public let courtType: String?       // "PROBATE", "ADMINISTRATION", etc.
+    /// Grant-type scope for the Nuxeo `hmcts_grant_schema_grantdocTypeOf`
+    /// filter, e.g. "PROBATE" / "ADMINISTRATION" — and, for soldier-wills
+    /// or intestacy scoping, the document type the calendar exposes.
+    ///
+    /// T1-28 — this used to be dead plumbing: every construction site
+    /// passed nil and `ProbateSource` never read `query.sourceParams`, so
+    /// `grantdocTypeOf` always went out empty. `ProbateSource.search` now
+    /// READS this param and puts it on the wire when non-empty, so a caller
+    /// that wants intestacy/soldier-will scoping can finally reach it. The
+    /// existing dispatcher/FocusedQuery construction sites still pass nil
+    /// (an empty filter = "all grant types", unchanged wire behaviour), so
+    /// this is opt-in, not a behaviour change.
+    public let courtType: String?
 
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.

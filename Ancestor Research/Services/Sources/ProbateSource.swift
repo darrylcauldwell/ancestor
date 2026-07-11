@@ -5,7 +5,9 @@ import os
 /// https://probatesearch.service.gov.uk/
 /// Access: GET with query params → Nuxeo JSON API
 /// Auth: None
-/// Coverage: ~1996+ digital grants, plus WWI/WWII soldier wills
+/// Coverage: ~1996+ digital grants, plus WWI/WWII soldier wills. Pre-1996
+/// grants are NOT in this system (sources/probate.py:23-27) — see the
+/// T1-26 coverage predicate below.
 /// Faithfully ported from Python's sources/probate.py
 struct ProbateSource: RecordSource {
 
@@ -14,7 +16,23 @@ struct ProbateSource: RecordSource {
     nonisolated let sourceID = "probate"
     nonisolated let displayName = "Probate Calendar"
     nonisolated let recordTypes: Set<RecordType> = [.probate]
-    nonisolated let coverageYearRange: ClosedRange<Int>? = 1858...2026
+    /// T1-26 — the DECLARED range is the union of everything the digital
+    /// index actually holds: the earliest covered year is 1914 (WWI
+    /// soldier wills), and the digital calendar runs to the present. This
+    /// is deliberately BROAD — the dispatcher's `sourceCovers` does a plain
+    /// year-window OVERLAP test against this single range (SearchDispatcher
+    /// .swift:231-236), so a single `ClosedRange` cannot express the real
+    /// coverage, which is a *predicate*: digital grants from ~1996 OR a
+    /// soldier will (male, death in the 1914-1921 / 1939-1947 windows).
+    /// The old `1858...2026` claimed a century of Victorian/Edwardian
+    /// coverage that does not exist; a subject who died 1900 fired a query
+    /// that structurally cannot succeed and the empty answer was cached as
+    /// a legitimate negative. The precise predicate lives in
+    /// `coversDeathWindow` and is enforced inside `searchWithOutcome`,
+    /// which returns `.outsideCoverage` (never cached, never a negative)
+    /// for windows the index cannot hold — mirroring FreeCen's census-year
+    /// guard (FT-14).
+    nonisolated let coverageYearRange: ClosedRange<Int>? = 1914...2026
     nonisolated let coverageRegions: Set<Region> = [.englandAndWales]
     nonisolated let dataLineage: SourceLineage = .primaryRecord
     nonisolated let trustTier: SourceTrustTier = .primary
@@ -46,6 +64,44 @@ struct ProbateSource: RecordSource {
     /// The API's own per-request cap (probate.py:64 `_MAX_PAGE_SIZE`).
     nonisolated private static let maxPageSize = 1000
 
+    // MARK: - Coverage (T1-26)
+
+    /// First year of the digital probate calendar. Grants before this are
+    /// not in the system (sources/probate.py:23-27) — only the separate
+    /// soldier-wills collection reaches earlier. Internal so tests can
+    /// pin the boundary without hardcoding it.
+    nonisolated static let digitalCalendarFloor = 1996
+    /// Soldier-wills windows (WWI and WWII eras) — the only pre-1996 grants
+    /// the calendar holds, and only for men who died on active service.
+    /// A subject whose death window overlaps one of these, and who is
+    /// male (or of unknown sex — we don't exclude on a missing fact), is
+    /// still covered even before the digital floor.
+    nonisolated static let soldierWillsWindows: [ClosedRange<Int>] = [1914...1921, 1939...1947]
+
+    /// T1-26 coverage predicate. True when a subject's death window could
+    /// plausibly land in what the index actually holds:
+    ///   • any death in/after the ~1996 digital floor, OR
+    ///   • a soldier will — the death window overlaps a WWI/WWII window and
+    ///     the subject is male or of unknown sex.
+    /// A nil bound is treated as open (Int.min/Int.max) exactly like the
+    /// dispatcher's `sourceCovers`, so a window with an unknown far edge is
+    /// never wrongly excluded. When this returns false the query is
+    /// guaranteed-empty and must degrade to `.outsideCoverage`, not a
+    /// clean negative.
+    nonisolated static func coversDeathWindow(from: Int?, to: Int?, gender: Gender?) -> Bool {
+        let lo = from ?? Int.min
+        let hi = to ?? Int.max
+        // Digital calendar: any part of the window at/after the floor.
+        if hi >= digitalCalendarFloor { return true }
+        // Soldier wills: window must overlap a war window AND the subject
+        // must not be positively female (a woman cannot have a soldier
+        // will; unknown sex is admitted rather than excluded).
+        if gender == .female { return false }
+        return soldierWillsWindows.contains { war in
+            lo <= war.upperBound && hi >= war.lowerBound
+        }
+    }
+
     // MARK: - Search
 
     func search(_ query: RecordQuery) async -> SourceQueryResult {
@@ -66,21 +122,88 @@ struct ProbateSource: RecordSource {
         }
         guard let surname = query.surname, !surname.isEmpty else { return SourceSearchEnvelope(.results([])) }
 
+        // T1-26 — coverage guard, enforced BEFORE the query hits the wire
+        // (or the activity feed): the digital calendar starts ~1996, with a
+        // soldier-wills carve-out for the WWI/WWII windows. A death window
+        // entirely outside real coverage (e.g. a Victorian 1880-1905 death)
+        // is guaranteed-empty; degrade to `.outsideCoverage` so the empty
+        // answer is NOT cached and NOT recorded as a negative — the same
+        // move as FreeCen's off-census-year guard (FT-14). Nothing else
+        // distinguishes "index empty for this person" from "index does not
+        // cover this era", which is exactly the false-negative this fixes.
+        guard Self.coversDeathWindow(from: query.yearFrom, to: query.yearTo, gender: query.gender) else {
+            let window: String = {
+                switch (query.yearFrom, query.yearTo) {
+                case let (f?, t?) where f == t: return "\(f)"
+                case let (f?, t?): return "\(f)–\(t)"
+                case let (f?, nil): return "from \(f)"
+                case let (nil, t?): return "to \(t)"
+                default: return "the requested window"
+                }
+            }()
+            return SourceSearchEnvelope(.outsideCoverage(
+                reason: "Probate Calendar's digital index starts ~\(Self.digitalCalendarFloor) (plus WWI/WWII soldier wills); \(window) predates it — check the physical Probate Calendar or The National Archives"
+            ))
+        }
+
         let summary = Self.activitySummary(query: query, surname: surname)
         await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
+
+        // T1-28 — grant-type scope. Previously always "" (dead plumbing:
+        // no construction site set `ProbateParams.courtType` and the
+        // connector never read `query.sourceParams`). Now READ it, so a
+        // caller can scope to a grant type ("PROBATE"/"ADMINISTRATION",
+        // soldier wills, intestacy). Existing callers pass nil → "" → the
+        // unchanged "all grant types" wire behaviour.
+        let grantDocType: String = {
+            if case .probate(let p) = query.sourceParams,
+               let ct = p.courtType?.trimmingCharacters(in: .whitespaces), !ct.isEmpty {
+                return ct.uppercased()
+            }
+            return ""
+        }()
 
         // Search params shared by every page request (paging params are
         // appended per page in fetchPage).
         var baseItems = [
             URLQueryItem(name: "hmcts_grant_schema_surname", value: surname.uppercased()),
-            URLQueryItem(name: "hmcts_grant_schema_grantdocTypeOf", value: ""),
+            URLQueryItem(name: "hmcts_grant_schema_grantdocTypeOf", value: grantDocType),
             URLQueryItem(name: "sortBy", value: ""),
             URLQueryItem(name: "sortOrder", value: ""),
         ]
 
-        if let givenName = query.givenName, !givenName.isEmpty {
-            baseItems.append(URLQueryItem(name: "hmcts_grant_schema_firstnames", value: givenName.uppercased()))
+        // T1-29 — send only the FIRST given token, not the whole
+        // multi-given string. The codebase has hit this exact class twice:
+        // FreeBMD's `given` and FAG's `firstname` both prefix-match the
+        // FIRST registered given name only, so a subject stored "ERNEST
+        // VICTOR" whose grant reads "ERNEST" (or "ERNEST V") silently
+        // misses when the full string is sent — a false negative
+        // indistinguishable from a genuine no-match. The Nuxeo
+        // `firstnames` semantics are UNVERIFIED against the live form (no
+        // network in this session; audit T1-29 flags a live probe), but
+        // the failure mode is asymmetric: first-token is a superset match
+        // of full-string under prefix/exact matching and can only ever
+        // return MORE candidates (the scorer then rejects wrong given
+        // names downstream), whereas full-string can return zero where a
+        // record exists. Coercing to the first token is therefore the safe
+        // default; if a live probe later proves Nuxeo does substring
+        // matching across all givens, revert to the full string here.
+        // (Python shares the full-string exposure — probate.py:147 — so
+        // this is a new-code fix, not a port divergence.)
+        if let firstGiven = Self.firstGivenName(query.givenName) {
+            baseItems.append(URLQueryItem(name: "hmcts_grant_schema_firstnames", value: firstGiven.uppercased()))
         }
+
+        // NOTE (T1-29, date-of-probate axis): the audit asks whether a
+        // `dateofprobate` bound exists so "recently granted" probes are
+        // possible for unknown modern deaths. The connector filters on
+        // `dateofdeath_min/max` only; no `dateofprobate` request param is
+        // evidenced in the Nuxeo page-provider schema (the response CARRIES
+        // `hmctsgrant:dateofprobate`, but that is a returned field, not a
+        // documented filter). The existing ±-window on the death axis
+        // already absorbs the usual months-to-years grant lag, so no
+        // date-of-probate axis is added until a live probe confirms the
+        // provider accepts one.
         if let yearFrom = query.yearFrom {
             baseItems.append(URLQueryItem(name: "hmcts_grant_schema_dateofdeath_min", value: "\(yearFrom)-01-01T00:00:00.000Z"))
         }
@@ -254,10 +377,28 @@ struct ProbateSource: RecordSource {
             let ageAtDeath = props["hmctsgrant:estateage_atdeath"] as? Int
 
             let address = joinAddress(props)
+            // T1-28 — postcode and title, previously dropped. Postcode is
+            // the strongest geographic disambiguator the source offers;
+            // title carries marital-status/gender signal (Python parity:
+            // sources/probate.py:103-104).
+            let postcode = (props["hmctsgrant:estatepostcode"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            let title = (props["hmctsgrant:estatetitle"] as? String ?? "").trimmingCharacters(in: .whitespaces)
             let grantType = (props["hmctsgrant:grantdocTypeoOfName"] as? String ?? "").trimmingCharacters(in: .whitespaces)
             let registry = (props["hmctsgrant:registryofficename"] as? String ?? "").trimmingCharacters(in: .whitespaces)
             let probateNumber = (props["hmctsgrant:probatenumber"] as? String ?? "").trimmingCharacters(in: .whitespaces)
             let regimentNumber = props["hmctsgrant:regimentnumber"] as? Int
+
+            // T1-28 — expose postcode/title in rawFields too, so any read
+            // site (citations, the geography gate once it prefers postcode)
+            // can reach them without threading the typed fields. Empty
+            // strings are dropped so a missing field reads as absent.
+            var rawFields: [String: String] = [
+                "grant_type": grantType,
+                "registry": registry,
+                "address": address,
+            ]
+            if !postcode.isEmpty { rawFields["postcode"] = postcode }
+            if !title.isEmpty { rawFields["title"] = title }
 
             let common = RecordCommon(
                 id: "probate_\(uid)",
@@ -266,11 +407,7 @@ struct ProbateSource: RecordSource {
                 surname: entrySurname.isEmpty ? nil : entrySurname,
                 givenName: firstNames.isEmpty ? nil : firstNames,
                 detailURL: nil,
-                rawFields: [
-                    "grant_type": grantType,
-                    "registry": registry,
-                    "address": address,
-                ]
+                rawFields: rawFields
             )
 
             return .probate(ProbateRecord(
@@ -281,6 +418,8 @@ struct ProbateSource: RecordSource {
                 birthDate: birthDate,
                 ageAtDeath: ageAtDeath,
                 address: address.isEmpty ? nil : address,
+                postcode: postcode.isEmpty ? nil : postcode,
+                title: title.isEmpty ? nil : title,
                 grantType: grantType.isEmpty ? nil : grantType,
                 registry: registry.isEmpty ? nil : registry,
                 probateNumber: probateNumber.isEmpty ? nil : probateNumber,
@@ -319,5 +458,18 @@ struct ProbateSource: RecordSource {
             .compactMap { (props[$0] as? String)?.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
             .joined(separator: ", ")
+    }
+
+    /// T1-29 — first whitespace-separated token of a given-name string,
+    /// trimmed. `nil`/empty input returns `nil`. Coerces multi-given names
+    /// ("Ernest Victor") to the first-given-only filter, mirroring
+    /// `FreeBMDSource.firstGivenName` — the same idiom the codebase already
+    /// applies to FreeBMD's `given` and FAG's `firstname`. Internal (not
+    /// private) so the firstname tests can assert the coercion directly.
+    nonisolated static func firstGivenName(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        guard let first = raw.split(whereSeparator: { $0.isWhitespace }).first else { return nil }
+        let trimmed = String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
