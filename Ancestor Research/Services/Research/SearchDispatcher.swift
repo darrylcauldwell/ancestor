@@ -621,6 +621,28 @@ struct SearchDispatcher {
                 if case .county(let name) = subject.region { return name }
                 return nil
             }()
+            // T1-16 (fetch half) — subject-side year axes. FAG's
+            // birthyear/deathyear are SEPARATE person-fact axes, so they
+            // are populated from the subject's own birth/death windows,
+            // never from the record-type search window (`yearRange` /
+            // query.yearFrom/To): for `.burial` that window is
+            // death-year ± 2 — or, when death is unknown, the
+            // birth+15..birth+95 guess — and the pre-removal code that
+            // mapped its bounds onto birthyear/deathyear asked FAG for a
+            // birthyear=2015/deathyear=2019 child when the subject
+            // actually DIED ~2017. A burial search keys on the death
+            // year when one is known; the birth year rides along as an
+            // independent narrowing when known. No real death window →
+            // no death filter (the fallback guess is unrepresentable
+            // inside FAG's ±25 max tolerance and would manufacture
+            // false negatives — FindAGraveSource.yearAxis drops any
+            // window that wide anyway).
+            let fagBirthRange: ClosedRange<Int>? = subject.birthYearFrom.map { bf in
+                bf...max(subject.birthYearTo ?? bf, bf)
+            }
+            let fagDeathRange: ClosedRange<Int>? = subject.deathYearFrom.map { df in
+                df...max(subject.deathYearTo ?? df, df)
+            }
             let fagSurnames = subject.surnamesToProbe(for: recordType)
             return fagSurnames.map { surnameToTry in
                 RecordQuery(
@@ -633,7 +655,25 @@ struct SearchDispatcher {
                     region: subject.region,
                     sourceParams: .findAGrave(FindAGraveParams(
                         yearRangeWidth: 5,
-                        location: fagLocation
+                        location: fagLocation,
+                        birthYearRange: fagBirthRange,
+                        deathYearRange: fagDeathRange,
+                        // `limit` stays at the wire default (20) for
+                        // first-pass probes; a truncated-page raise is a
+                        // caller decision via this dispatcher-settable
+                        // param — no automatic skip-loops (T1-16).
+                        //
+                        // T1-23 — female subjects: also match `lastname`
+                        // against the memorial's maiden-name field.
+                        // Mirrors the maiden-axis gating in
+                        // `surnamesToProbe` (gender == .female is the
+                        // trigger): the wikitree convention stores women
+                        // under maiden surname while inverted imports
+                        // carry the married form, and the flag makes
+                        // either probe find a memorial filed the other
+                        // way round. Broadening-only, so no era/record-
+                        // type gate is needed.
+                        includeMaidenName: subject.gender == .female
                     ))
                 )
             }

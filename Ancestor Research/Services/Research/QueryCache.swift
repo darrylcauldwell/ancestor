@@ -132,6 +132,11 @@ actor QueryCache {
         var censusYear = ""
         var birthYearRange = ""
         var fagLocation = ""
+        var fagBirthYearRange = ""
+        var fagDeathYearRange = ""
+        var fagLimit = ""
+        var fagYearWidth = ""
+        var fagMaiden = ""
         switch query.sourceParams {
         case .freeBMD(let p):
             if let ss = p.spouseSurname, !ss.isEmpty { spouseSurname = ss }
@@ -150,8 +155,22 @@ actor QueryCache {
             // parish never reaches the wire request.
             chapmanCode = p.chapmanCode ?? ""
         case .findAGrave(let p):
-            // yearRangeWidth never reaches the wire request.
+            // T1-16 / T1-23: every one of these changes the outbound
+            // search URL — year axes (birthyear/deathyear + their
+            // filter tolerances), page size, and the maiden-name flag.
+            // Keying `limit` means a truncated-page raise (20 → 100)
+            // is a genuine re-fetch, never served the cached partial
+            // page. `yearRangeWidth` now reaches the wire as the
+            // filter-tolerance floor whenever a year range is present;
+            // it is keyed unconditionally — a conservative key
+            // (distinct keys for occasionally-identical requests)
+            // costs a cache hit, never correctness.
             fagLocation = p.location ?? ""
+            fagBirthYearRange = p.birthYearRange.map { "\($0.lowerBound)-\($0.upperBound)" } ?? ""
+            fagDeathYearRange = p.deathYearRange.map { "\($0.lowerBound)-\($0.upperBound)" } ?? ""
+            fagLimit = String(p.limit)
+            fagYearWidth = String(p.yearRangeWidth)
+            fagMaiden = p.includeMaidenName ? "maiden" : ""
         case .cwgc, .probate, .wirksworth, .generic:
             // CWGC conflict / Probate courtType / Wirksworth parishHint
             // never reach the wire request.
@@ -182,6 +201,13 @@ actor QueryCache {
             fagLocation,
             // FT-01 addition — appended, preserving prior positions.
             countyCode,
+            // T1-16 / T1-23 additions — appended, preserving prior
+            // positions (grep-able log format preserved).
+            fagBirthYearRange,
+            fagDeathYearRange,
+            fagLimit,
+            fagYearWidth,
+            fagMaiden,
         ]
         return parts.joined(separator: "|")
     }

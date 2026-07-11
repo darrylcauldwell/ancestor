@@ -85,6 +85,59 @@ struct QueryCacheTests {
         #expect(none != some)
     }
 
+    // MARK: - T1-16 / T1-23 — FAG year axes, limit, and maiden flag are wire-affecting
+
+    @Test func findAGraveDeathYearRangeProducesDistinctKeys() {
+        let precise = QueryCache.cacheKey(sourceID: "findagrave", query: fagQuery(deathYearRange: 2017...2017))
+        let fuzzy = QueryCache.cacheKey(sourceID: "findagrave", query: fagQuery(deathYearRange: 1914...1918))
+        #expect(precise != fuzzy,
+                "queries differing only in the death-year axis must not share a cache key")
+    }
+
+    @Test func findAGraveNilDeathYearRangeIsDistinctFromPopulated() {
+        let none = QueryCache.cacheKey(sourceID: "findagrave", query: fagQuery(deathYearRange: nil))
+        let some = QueryCache.cacheKey(sourceID: "findagrave", query: fagQuery(deathYearRange: 2017...2017))
+        #expect(none != some)
+    }
+
+    @Test func findAGraveBirthYearRangeProducesDistinctKeys() {
+        let none = QueryCache.cacheKey(sourceID: "findagrave", query: fagQuery(birthYearRange: nil))
+        let some = QueryCache.cacheKey(sourceID: "findagrave", query: fagQuery(birthYearRange: 1887...1887))
+        #expect(none != some)
+    }
+
+    @Test func findAGraveLimitProducesDistinctKeys() {
+        // The truncated-page raise (T1-16): limit 20 → 100 must be a
+        // genuine re-fetch, never served the cached partial page.
+        let page20 = QueryCache.cacheKey(sourceID: "findagrave", query: fagQuery(limit: 20))
+        let page100 = QueryCache.cacheKey(sourceID: "findagrave", query: fagQuery(limit: 100))
+        #expect(page20 != page100,
+                "a raised-limit re-request must not be served the truncated page-1 cache entry")
+    }
+
+    @Test func findAGraveLimitRaiseHitsSourceAgain() async {
+        let cache = QueryCache()
+        let source = CountingRecordSource(sourceID: "findagrave")
+        _ = await QueryCache.wrappedSearch(source: source, query: fagQuery(limit: 20), cache: cache)
+        _ = await QueryCache.wrappedSearch(source: source, query: fagQuery(limit: 100), cache: cache)
+        let calls = await source.searchCount
+        #expect(calls == 2,
+                "the raised-limit re-request must reach the wire; got \(calls) call(s)")
+    }
+
+    @Test func findAGraveMaidenFlagProducesDistinctKeys() {
+        let without = QueryCache.cacheKey(sourceID: "findagrave", query: fagQuery(includeMaidenName: false))
+        let with = QueryCache.cacheKey(sourceID: "findagrave", query: fagQuery(includeMaidenName: true))
+        #expect(without != with,
+                "the maiden-name-widened probe must not be served the unwidened query's cached results")
+    }
+
+    @Test func identicalFindAGraveQueriesShareOneKey() {
+        let a = QueryCache.cacheKey(sourceID: "findagrave", query: fagQuery(deathYearRange: 2017...2017, includeMaidenName: true))
+        let b = QueryCache.cacheKey(sourceID: "findagrave", query: fagQuery(deathYearRange: 2017...2017, includeMaidenName: true))
+        #expect(a == b)
+    }
+
     // MARK: - FT-24 (c) — identical queries still dedupe
 
     @Test func identicalFreeCenQueriesShareOneKey() {
@@ -145,13 +198,23 @@ struct QueryCacheTests {
         )
     }
 
-    private func fagQuery(location: String?) -> RecordQuery {
+    private func fagQuery(
+        location: String? = "Belper",
+        birthYearRange: ClosedRange<Int>? = nil,
+        deathYearRange: ClosedRange<Int>? = nil,
+        limit: Int = 20,
+        includeMaidenName: Bool = false
+    ) -> RecordQuery {
         RecordQuery(
             surname: "Cauldwell", givenName: "Robert",
             recordType: .burial,
             yearFrom: 1914, yearTo: 1918,
             gender: .male, region: .englandAndWales,
-            sourceParams: .findAGrave(FindAGraveParams(yearRangeWidth: 5, location: location))
+            sourceParams: .findAGrave(FindAGraveParams(
+                yearRangeWidth: 5, location: location,
+                birthYearRange: birthYearRange, deathYearRange: deathYearRange,
+                limit: limit, includeMaidenName: includeMaidenName
+            ))
         )
     }
 

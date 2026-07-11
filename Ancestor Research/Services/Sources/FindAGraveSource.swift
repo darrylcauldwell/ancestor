@@ -91,43 +91,7 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
 
         do {
-            var params: [String: String] = [
-                "ajax": "true",
-                "skip": "0",
-                "limit": "20",
-            ]
-
-            if let surname = query.surname, !surname.isEmpty {
-                params["lastname"] = surname
-            }
-            // Find a Grave's `firstname` parameter does prefix matching
-            // against the first registered given name only. Memorials with
-            // names like "Ernest Victor Cauldwell" are indexed as
-            // firstname="Ernest" + middlename="Victor"; sending the full
-            // multi-given string ("Ernest Victor") returns zero matches.
-            // Strip to the first token so the dispatcher's `Ernest Victor`
-            // subject becomes a usable FAG query — mirrors the fix for
-            // FreeBMD's `given` field.
-            if let firstGiven = Self.firstGivenName(query.givenName), !firstGiven.isEmpty {
-                params["firstname"] = firstGiven
-            }
-            // Year filtering deliberately omitted. The previous code mapped
-            // `query.yearFrom` → `birthyear` and `query.yearTo` → `deathyear`,
-            // but those are the bounds of a single search-window axis (e.g.
-            // for a burial record type, both refer to death year ±2), not
-            // separate birth/death year values. For Ernest the query
-            // produced birthyear=2015/deathyear=2019 — a 4-year-old child,
-            // returning zero memorial hits.
-            //
-            // Until FAG gets proper subject-side birth+death year plumbing
-            // via FindAGraveParams (§23 work), name-and-location search is
-            // the correct narrowing — uncommon UK surnames like Cauldwell
-            // return manageable result sets without year filters, and the
-            // scorer's date gate catches any wrong-year hits downstream.
-            if let location = fagParams.location, !location.isEmpty {
-                params["location"] = location
-            }
-
+            let params = Self.searchRequestParams(query: query, params: fagParams)
             let urlString = Self.searchURL + "?" + params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }.joined(separator: "&")
             guard let url = URL(string: urlString) else {
                 // T1-15: an internal failure is not "no memorial exists".
@@ -198,7 +162,117 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         }
     }
 
-    /// Build a one-line description of a FindAGrave query for the live activity feed.
+    // MARK: - Search request shape (T1-16 / T1-23)
+
+    /// FAG's year-filter tolerance vocabulary — live-form ground truth,
+    /// mirrored by the Python reference (sources/findagrave.py:134):
+    /// `0` means exact (the filter param is omitted entirely), otherwise
+    /// one of these discrete widths goes out as
+    /// `birthyearfilter`/`deathyearfilter`.
+    nonisolated static let yearFilterLadder = [1, 2, 3, 5, 10, 25]
+
+    /// Resolve a subject-side year window into FAG's (center, tolerance)
+    /// wire shape (T1-16).
+    ///
+    /// - center: midpoint of the window (the `birthyear`/`deathyear`
+    ///   value).
+    /// - tolerance: smallest ladder rung ≥ max(`floor`, window
+    ///   half-span) — the filter may be WIDER than needed (recall-safe;
+    ///   the scorer's date gate rejects wrong-year hits downstream) but
+    ///   never narrower than the window. nil tolerance = exact match,
+    ///   filter param omitted (Python parity: `if year_range:`).
+    ///
+    /// Returns nil when there is no window, or when the window's
+    /// half-span exceeds the widest rung (±25): a filter that cannot
+    /// cover the window would EXCLUDE plausible years — false negatives
+    /// by construction — so an unrepresentable window goes out
+    /// unfiltered instead.
+    nonisolated static func yearAxis(
+        range: ClosedRange<Int>?,
+        floor toleranceFloor: Int
+    ) -> (center: Int, tolerance: Int?)? {
+        guard let range else { return nil }
+        let center = (range.lowerBound + range.upperBound) / 2
+        let halfSpan = max(center - range.lowerBound, range.upperBound - center)
+        let needed = max(toleranceFloor, halfSpan)
+        if needed == 0 { return (center, nil) }
+        guard let tolerance = yearFilterLadder.first(where: { $0 >= needed }) else {
+            return nil
+        }
+        return (center, tolerance)
+    }
+
+    /// The complete wire-param set for a search request — the single
+    /// seam the query-shape tests pin (FindAGraveQueryShapeTests).
+    ///
+    /// Year-axis history (T1-16): year filtering was REMOVED here after
+    /// a real bug — the old code mapped `query.yearFrom` → `birthyear`
+    /// and `query.yearTo` → `deathyear`, but those are the bounds of a
+    /// single record-type search window (for `.burial`, both are death
+    /// year ± slack), not separate birth/death facts. For Ernest
+    /// (died ~2017) the query produced birthyear=2015/deathyear=2019 —
+    /// a 4-year-old child, zero memorial hits. The RESTORED design
+    /// reads subject-side windows from `FindAGraveParams` only;
+    /// `query.yearFrom`/`yearTo` are deliberately never consulted for
+    /// year params, and each axis carries its own tolerance via
+    /// `yearAxis`.
+    nonisolated static func searchRequestParams(
+        query: RecordQuery,
+        params fagParams: FindAGraveParams
+    ) -> [String: String] {
+        var params: [String: String] = [
+            "ajax": "true",
+            "skip": "0",
+            // T1-16: dispatcher-settable page size, clamped to FAG's
+            // accepted band (~100 max — sources/findagrave.py:135).
+            "limit": String(min(max(fagParams.limit, 1), 100)),
+        ]
+
+        if let surname = query.surname, !surname.isEmpty {
+            params["lastname"] = surname
+        }
+        // Find a Grave's `firstname` parameter does prefix matching
+        // against the first registered given name only. Memorials with
+        // names like "Ernest Victor Cauldwell" are indexed as
+        // firstname="Ernest" + middlename="Victor"; sending the full
+        // multi-given string ("Ernest Victor") returns zero matches.
+        // Strip to the first token so the dispatcher's `Ernest Victor`
+        // subject becomes a usable FAG query — mirrors the fix for
+        // FreeBMD's `given` field.
+        if let firstGiven = firstGivenName(query.givenName), !firstGiven.isEmpty {
+            params["firstname"] = firstGiven
+        }
+        // T1-16: separate subject-side year axes. A burial search keys
+        // on the death year when one is known; the birth year rides
+        // along as an independent narrowing. Absent windows emit no
+        // year params at all — name-and-location search remains the
+        // fallback narrowing, with the scorer's date gate catching
+        // wrong-year hits downstream.
+        if let birth = yearAxis(range: fagParams.birthYearRange, floor: fagParams.yearRangeWidth) {
+            params["birthyear"] = String(birth.center)
+            if let tolerance = birth.tolerance {
+                params["birthyearfilter"] = String(tolerance)
+            }
+        }
+        if let death = yearAxis(range: fagParams.deathYearRange, floor: fagParams.yearRangeWidth) {
+            params["deathyear"] = String(death.center)
+            if let tolerance = death.tolerance {
+                params["deathyearfilter"] = String(tolerance)
+            }
+        }
+        if let location = fagParams.location, !location.isEmpty {
+            params["location"] = location
+        }
+        // T1-23: match `lastname` against the memorial's maiden-name
+        // field too (checkbox-presence semantics — the live form only
+        // sends the param when ticked). Broadening-only; see the
+        // FindAGraveParams doc for provenance.
+        if fagParams.includeMaidenName {
+            params["includeMaidenName"] = "true"
+        }
+        return params
+    }
+
     /// First whitespace-separated token of a given-name string, trimmed.
     /// Used to coerce multi-given names ("Ernest Victor") to Find a Grave's
     /// first-given-only filter. Mirrors `FreeBMDSource.firstGivenName`.

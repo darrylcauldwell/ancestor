@@ -619,14 +619,71 @@ public nonisolated struct FreeCenParams: Sendable {
 }
 
 public nonisolated struct FindAGraveParams: Sendable {
+    /// Requested tolerance FLOOR for the year-axis filters — the value
+    /// behind FAG's `birthyearfilter`/`deathyearfilter` wire params
+    /// (T1-16). The connector rounds it UP through FAG's discrete
+    /// tolerance ladder (1/2/3/5/10/25; 0 = exact) and widens it
+    /// further when a subject-side window needs more slack — the
+    /// emitted filter may be wider than requested, never narrower.
     public let yearRangeWidth: Int
     public let location: String?
+    /// Subject-side birth-year window (T1-16). Populated from the
+    /// SUBJECT's `birthYearFrom...birthYearTo` — never from
+    /// `RecordQuery.yearFrom`/`yearTo`, which are the bounds of ONE
+    /// record-type search window (for `.burial` both bounds are
+    /// death-year ± slack). Mapping that window onto birth+death
+    /// simultaneously is the historical birthyear=2015/deathyear=2019
+    /// child-query bug the year params were removed for. nil = no
+    /// birth-year filter on the wire.
+    public let birthYearRange: ClosedRange<Int>?
+    /// Subject-side death-year window (T1-16) — the axis a burial
+    /// search keys on. Only a REAL death window belongs here; the
+    /// dispatcher never maps the birth+15..birth+95 fallback guess in
+    /// (FAG's widest tolerance is ±25, so an ~80-year guess would be
+    /// silently narrowed into a false-negative filter). nil = no
+    /// death-year filter on the wire.
+    public let deathYearRange: ClosedRange<Int>?
+    /// Page size (FAG's `limit` wire param). Default keeps the
+    /// historical 20; dispatcher-settable so a truncated first page
+    /// (envelope `truncated`/`totalAvailable`, T1-01/T1-16) can be
+    /// re-requested larger — FAG accepts up to ~100
+    /// (sources/findagrave.py:135). Distinct limits are distinct
+    /// QueryCache keys, so a raise is a genuine re-fetch, never served
+    /// the cached partial page. No `skip` pagination — batching stays
+    /// out by design.
+    public let limit: Int
+    /// T1-23 (request-param half) — emit FAG's `includeMaidenName`
+    /// flag so `lastname` also matches the memorial's maiden-name
+    /// field. Populated for female subjects: married women are
+    /// frequently memorialised under one surname with the other
+    /// recorded as maiden name, and without the flag the maiden-filed
+    /// memorial is server-side unfindable. Not in the Python
+    /// reference's param enumeration (the audit's §7 note); ground
+    /// truth is the live search form's "Include maiden name" checkbox —
+    /// same provenance as T1-18's `includeNickName`. Broadening-only:
+    /// extra hits are scored downstream, so a server-side no-op costs
+    /// nothing and can never manufacture a false negative.
+    public let includeMaidenName: Bool
 
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
-    public init(yearRangeWidth: Int, location: String? = nil) {
+    /// New params default to today's wire behaviour (no year filters,
+    /// limit 20, no maiden flag) so pre-T1-16 construction sites
+    /// (FocusedQuery, SourceExplorerView) are unchanged.
+    public init(
+        yearRangeWidth: Int,
+        location: String? = nil,
+        birthYearRange: ClosedRange<Int>? = nil,
+        deathYearRange: ClosedRange<Int>? = nil,
+        limit: Int = 20,
+        includeMaidenName: Bool = false
+    ) {
         self.yearRangeWidth = yearRangeWidth
         self.location = location
+        self.birthYearRange = birthYearRange
+        self.deathYearRange = deathYearRange
+        self.limit = limit
+        self.includeMaidenName = includeMaidenName
     }
 
 }
