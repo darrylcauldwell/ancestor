@@ -1,6 +1,6 @@
 # ADR-006 — No general TreeProvider abstraction
 
-**Status:** Proposed 2026-07-11 — awaiting review
+**Status:** Accepted 2026-07-11 (Darryl — noting intent to pursue WikiTree write-access restoration; see reversal condition 2)
 **Depends on:** ADR-001 (AncestorKit is the shipped contract), ADR-002 (the FS Tree service stays FS-specific)
 
 ## Context
