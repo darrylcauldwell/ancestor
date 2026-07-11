@@ -1,6 +1,6 @@
 # ADR-001 — The Ancestor domain model is canonical; no external standard becomes the internal schema
 
-**Status:** Proposed 2026-07-11 — awaiting review
+**Status:** Accepted 2026-07-11 (Darryl)
 **Source analysis:** R2 canonical-model decision (fs-research corpus, 2026-07-10)
 
 ## Context

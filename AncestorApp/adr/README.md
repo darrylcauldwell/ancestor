@@ -4,7 +4,7 @@ ADRs record one architectural decision each — the facts that forced it, the de
 
 | ADR | Title | Status |
 |---|---|---|
-| [ADR-001](ADR-001-domain-model-canonical.md) | The Ancestor domain model is canonical; no external standard becomes the internal schema | Proposed |
+| [ADR-001](ADR-001-domain-model-canonical.md) | The Ancestor domain model is canonical; no external standard becomes the internal schema | **Accepted** |
 | [ADR-002](ADR-002-familysearch-two-bounded-surfaces.md) | FamilySearch integrates as two bounded surfaces, never as a schema driver | Proposed |
 | [ADR-003](ADR-003-gedcomx-vocabulary-not-schema.md) | GEDCOM X is adopted as vocabulary, not schema | Proposed |
 | [ADR-004](ADR-004-model-evolution-closed-list.md) | Model evolution is a closed four-item list | Proposed |
