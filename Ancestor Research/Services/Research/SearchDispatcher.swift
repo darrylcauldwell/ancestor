@@ -311,6 +311,52 @@ struct SearchDispatcher {
         }
     }
 
+    /// FT-25 / FT-28 — group a broad-scope FreeCen RESIDENCE fan-out into
+    /// batched requests. Blank codes (an empty home) are dropped first so a
+    /// batch never carries an empty repeated key. When the batching gate is
+    /// OFF (the safe default until the repeated-key idiom is probed against
+    /// FreeCen's live form — CONNECTOR_AUDIT FT-27), every code is its own
+    /// single-element group → one code per request, the proven pre-FT-25
+    /// wire shape. When ON, codes chunk into `FreeCenParams.batchGroupSize`
+    /// groups. nonisolated + static so ResearchScopeHierarchyTests can pin
+    /// the emitted group shape without a live dispatcher.
+    nonisolated static func freeCenResidenceGroups(
+        _ codes: [String],
+        batchingEnabled: Bool = FreeCenParams.multiCodeBatchEnabled,
+        groupSize: Int = FreeCenParams.batchGroupSize
+    ) -> [[String]] {
+        chapmanGroups(codes, batchingEnabled: batchingEnabled, groupSize: groupSize)
+    }
+
+    /// FT-25 / FT-28 — group a FreeREG chapman fan-out into batched
+    /// requests. Same gate + grouping mechanics as FreeCen (the two Rails
+    /// forms share the `chapman_codes[]` idiom); default OFF until probed.
+    nonisolated static func freeREGChapmanGroups(
+        _ codes: [String],
+        batchingEnabled: Bool = FreeREGParams.multiCodeBatchEnabled,
+        groupSize: Int = FreeREGParams.batchGroupSize
+    ) -> [[String]] {
+        chapmanGroups(codes, batchingEnabled: batchingEnabled, groupSize: groupSize)
+    }
+
+    /// Shared chunking for the two chapman-batching helpers. Drops blanks,
+    /// then: gate off → one code per group; gate on → chunks of `groupSize`
+    /// (>=1 clamped). Preserves input order so the wire shape and cache key
+    /// are deterministic.
+    private nonisolated static func chapmanGroups(
+        _ codes: [String],
+        batchingEnabled: Bool,
+        groupSize: Int
+    ) -> [[String]] {
+        let cleaned = codes.filter { !$0.isEmpty }
+        guard batchingEnabled else { return cleaned.map { [$0] } }
+        let size = max(1, groupSize)
+        guard cleaned.count > size else { return cleaned.isEmpty ? [] : [cleaned] }
+        return stride(from: 0, to: cleaned.count, by: size).map {
+            Array(cleaned[$0..<min($0 + size, cleaned.count)])
+        }
+    }
+
     /// Apply a non-strict strictness value to a freshly built set of queries.
     ///
     /// - `.strict`: queries are passed through unchanged.
@@ -529,23 +575,31 @@ struct SearchDispatcher {
             //   Falls back to the residence fan-out when the subject has
             //   no derivable home chapman code (empty = no anchor).
             let home = subject.homeChapmanCode
-            // Exactly one axis per query: (residence, birthCounty).
-            let cenGeoAxes: [(residence: String?, birth: String?)]
+            // Exactly one axis per query. residenceCodes carries a BATCH
+            // (FT-25/FT-28) — a single code stays a one-element array, so
+            // the source emits a byte-identical single-key request. The
+            // birth axis is always a single code (broad census sweeps scope
+            // by birth county as ONE code — no fan-out to batch there).
+            let cenGeoAxes: [(residenceCodes: [String], birth: String?)]
             switch scope {
             case .parish, .district, .county:
-                cenGeoAxes = [(home, nil)]
+                cenGeoAxes = [([home], nil)]
             case .adjacent:
                 if home.isEmpty {
-                    cenGeoAxes = ([home] + RegionConfig.adjacentCounties(home)).map { ($0, nil) }
+                    // FT-28 — batch the residence fan-out into conservative
+                    // groups when enabled; otherwise one code per query.
+                    let codes = [home] + RegionConfig.adjacentCounties(home)
+                    cenGeoAxes = Self.freeCenResidenceGroups(codes).map { ($0, nil) }
                 } else {
-                    cenGeoAxes = [(nil, home)]
+                    cenGeoAxes = [([], home)]
                 }
             case .national:
                 if home.isEmpty {
                     let entries: [UKChapmanCode] = UKChapmanCodes.shared.gbAndChannelIslands()
-                    cenGeoAxes = entries.map { ($0.code, nil) }
+                    // FT-28 — batch the ~90-code national residence sweep.
+                    cenGeoAxes = Self.freeCenResidenceGroups(entries.map { $0.code }).map { ($0, nil) }
                 } else {
-                    cenGeoAxes = [(nil, home)]
+                    cenGeoAxes = [([], home)]
                 }
             }
             let birthRange = subject.birthYearFrom.flatMap { from in
@@ -555,7 +609,13 @@ struct SearchDispatcher {
             return cenSurnames.flatMap { surnameToTry in
                 censusYears.flatMap { year in
                     cenGeoAxes.map { geo in
-                        RecordQuery(
+                        // A single-element residence group is passed as the
+                        // scalar `chapmanCode` (byte-identical wire + cache
+                        // key to the pre-FT-25 shape); a multi-element group
+                        // becomes the `chapmanCodes` batch.
+                        let single = geo.residenceCodes.count == 1 ? geo.residenceCodes[0] : nil
+                        let batch = geo.residenceCodes.count > 1 ? geo.residenceCodes : nil
+                        return RecordQuery(
                             surname: surnameToTry,
                             givenName: subject.givenName,
                             recordType: .census,
@@ -564,7 +624,8 @@ struct SearchDispatcher {
                             gender: subject.gender,
                             region: subject.region,
                             sourceParams: .freeCen(FreeCenParams(
-                                chapmanCode: geo.residence,
+                                chapmanCode: single,
+                                chapmanCodes: batch,
                                 censusYear: year,
                                 birthYearRange: birthRange,
                                 birthChapmanCode: geo.birth
@@ -591,11 +652,19 @@ struct SearchDispatcher {
                 let entries: [UKChapmanCode] = UKChapmanCodes.shared.englandAndWales()
                 regChapmanCodes = entries.map { $0.code }
             }
+            // FT-28 — batch the ~7 (adjacent) / ~70 (national) code fan-out
+            // into conservative groups when enabled; otherwise one code per
+            // query. A single-code group is passed as the scalar
+            // `chapmanCode` (byte-identical wire + cache key to pre-FT-25);
+            // a multi-code group becomes the `chapmanCodes` batch.
+            let regCodeGroups = Self.freeREGChapmanGroups(regChapmanCodes)
             // FreeREG splits by register type; recordType drives this on the source side.
             let regSurnames = subject.surnamesToProbe(for: recordType)
             return regSurnames.flatMap { surnameToTry in
-                regChapmanCodes.map { code in
-                    RecordQuery(
+                regCodeGroups.map { group in
+                    let single = group.count == 1 ? group[0] : nil
+                    let batch = group.count > 1 ? group : nil
+                    return RecordQuery(
                         surname: surnameToTry,
                         givenName: subject.givenName,
                         recordType: recordType,
@@ -606,7 +675,8 @@ struct SearchDispatcher {
                         sourceParams: .freeREG(FreeREGParams(
                             registerType: nil,
                             parish: nil,
-                            chapmanCode: code
+                            chapmanCode: single,
+                            chapmanCodes: batch
                         ))
                     )
                 }

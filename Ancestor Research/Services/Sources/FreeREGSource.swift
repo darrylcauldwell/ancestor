@@ -88,59 +88,74 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
         default: recordTypeValue = ""  // All types
         }
 
-        // Get chapman code from query params.
+        // Get chapman code(s) from query params.
         // Dispatcher passes a freeREG param (from .national scope fan-out) or, for
         // backwards-compat with older call sites, accept a freeCen param too.
         // FreeREG is chapman-coded: without a county code the query cannot
         // be scoped, so degrade honestly instead of guessing a county.
-        let chapmanCode: String
-        if case .freeREG(let params) = query.sourceParams, let code = params.chapmanCode, !code.isEmpty {
-            chapmanCode = code
-        } else if case .freeCen(let params) = query.sourceParams, let code = params.chapmanCode, !code.isEmpty {
-            chapmanCode = code
+        //
+        // FT-25 — the dispatcher may pass a BATCH of codes (`chapmanCodes`)
+        // to carry in one request via repeated `chapman_codes[]` keys;
+        // when present and non-empty it supersedes the single `chapmanCode`.
+        // Order is preserved so the wire shape and cache key stay stable.
+        let chapmanCodes: [String]
+        if case .freeREG(let params) = query.sourceParams {
+            chapmanCodes = Self.resolveChapmanCodes(batch: params.chapmanCodes, single: params.chapmanCode)
+        } else if case .freeCen(let params) = query.sourceParams {
+            chapmanCodes = Self.resolveChapmanCodes(batch: params.chapmanCodes, single: params.chapmanCode)
         } else {
+            chapmanCodes = []
+        }
+        guard !chapmanCodes.isEmpty else {
             return SourceSearchEnvelope(.outsideCoverage(reason: "No home county (Chapman code) available to scope a FreeREG search"))
         }
 
-        let summary = Self.activitySummary(query: query, surname: surname, chapmanCode: chapmanCode)
+        let summary = Self.activitySummary(query: query, surname: surname, chapmanCode: Self.scopeLabel(chapmanCodes))
         await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
 
         do {
             try await ensureSession()
 
-            var fields: [String: String] = [
-                "search_query[last_name]": surname,
-                "search_query[chapman_codes][]": chapmanCode,
-                "commit": "Search",
+            // FT-25 — ordered pairs (not a dict) so the repeated
+            // `search_query[chapman_codes][]` key survives on the wire when
+            // the dispatcher batched several counties into one request.
+            var fields: [(String, String)] = [
+                ("search_query[last_name]", surname),
             ]
+            // One repeated key per code — a single-code query emits exactly
+            // one pair, byte-identical to the pre-FT-25 single-value shape.
+            for code in chapmanCodes {
+                fields.append(("search_query[chapman_codes][]", code))
+            }
+            fields.append(("commit", "Search"))
             // RESEARCH_AXES_SPEC Change 5/6: FreeREG exposes a Name Soundex
             // checkbox at `search_query[fuzzy]` (form value `"true"`).
             // .loose enables it. .variant is the dispatcher tier marker —
             // the surname has been substituted to a variant before arriving,
             // so the variant probe is exact-match (no fuzzy field).
             if query.strictness == .loose {
-                fields["search_query[fuzzy]"] = "true"
+                fields.append(("search_query[fuzzy]", "true"))
             }
             if let token = csrfToken {
-                fields["authenticity_token"] = token
+                fields.append(("authenticity_token", token))
             }
             if let givenName = query.givenName, !givenName.isEmpty {
-                fields["search_query[first_name]"] = givenName
+                fields.append(("search_query[first_name]", givenName))
             }
             if !recordTypeValue.isEmpty {
-                fields["search_query[record_type]"] = recordTypeValue
+                fields.append(("search_query[record_type]", recordTypeValue))
             }
             if let yearFrom = query.yearFrom {
-                fields["search_query[start_year]"] = String(yearFrom)
+                fields.append(("search_query[start_year]", String(yearFrom)))
             }
             if let yearTo = query.yearTo {
-                fields["search_query[end_year]"] = String(yearTo)
+                fields.append(("search_query[end_year]", String(yearTo)))
             }
 
             let data = try await rateLimitedRequest {
                 try await self.http.postForm(
                     url: URL(string: Self.searchPostURL)!,
-                    fields: fields,
+                    multiFields: fields,
                     headers: [
                         "User-Agent": Self.userAgent,
                         "X-CSRF-Token": self.csrfToken ?? "",
@@ -227,6 +242,25 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
             return SourceSearchEnvelope(.unavailable(reason: error.localizedDescription))
         }
+    }
+
+    /// FT-25 — resolve the chapman code(s) to put on the wire. A non-empty
+    /// batch (`chapmanCodes`, blanks dropped) wins over the single code; a
+    /// non-empty single code is the sole fallback. Empty in both = no axis.
+    /// nonisolated + static so the query-shape tests can pin the precedence.
+    nonisolated static func resolveChapmanCodes(batch: [String]?, single: String?) -> [String] {
+        if let batch {
+            let cleaned = batch.filter { !$0.isEmpty }
+            if !cleaned.isEmpty { return cleaned }
+        }
+        if let single, !single.isEmpty { return [single] }
+        return []
+    }
+
+    /// Activity-feed label for one or many codes: the single code, or
+    /// "N counties" for a batch (keeps the feed line short).
+    nonisolated static func scopeLabel(_ codes: [String]) -> String {
+        codes.count == 1 ? codes[0] : "\(codes.count) counties"
     }
 
     /// Build a one-line description of a FreeREG query for the live activity feed.

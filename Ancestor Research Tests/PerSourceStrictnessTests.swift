@@ -261,9 +261,14 @@ final class CapturingHTTPClient: HTTPClient, @unchecked Sendable {
     private let lock = NSLock()
     private var _lastURL: URL?
     private var _lastFormBody: String?
+    private var _lastMultiFields: [(String, String)]?
 
     var lastURL: URL? { lock.withLock { _lastURL } }
     var lastFormBody: String? { lock.withLock { _lastFormBody } }
+    /// FT-25 — the ordered pairs from the `multiFields` path, preserving
+    /// repeated keys (e.g. several `search_query[chapman_codes][]`). nil
+    /// when the connector used the single-value `postForm(fields:)` path.
+    var lastMultiFields: [(String, String)]? { lock.withLock { _lastMultiFields } }
 
     func get(url: URL, headers: [String: String]) async throws -> Data {
         lock.withLock { _lastURL = url }
@@ -274,6 +279,20 @@ final class CapturingHTTPClient: HTTPClient, @unchecked Sendable {
         lock.withLock {
             _lastURL = url
             _lastFormBody = fields.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: "&")
+        }
+        return Data()
+    }
+
+    /// FT-25 — override the multi-value path so repeated keys are NOT
+    /// collapsed (the protocol-extension default merges into a dict, losing
+    /// a batched chapman set). `lastFormBody` is built from the ordered
+    /// pairs so existing single-value assertions (`body.contains(...)`)
+    /// keep working AND a batch shows every repeated key.
+    func postForm(url: URL, multiFields: [(String, String)], headers: [String: String], timeout: TimeInterval) async throws -> Data {
+        lock.withLock {
+            _lastURL = url
+            _lastMultiFields = multiFields
+            _lastFormBody = multiFields.map { "\($0.0)=\($0.1)" }.joined(separator: "&")
         }
         return Data()
     }

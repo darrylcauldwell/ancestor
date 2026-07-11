@@ -604,10 +604,47 @@ public nonisolated struct FreeBMDParams: Sendable {
 }
 
 public nonisolated struct FreeCenParams: Sendable {
+    /// FT-25 / FT-28 batching gate — repeated-key multi-code requests.
+    ///
+    /// When true, the dispatcher batches a broad-scope RESIDENCE fan-out
+    /// (the `.national`/`.adjacent` fallback when no home chapman is
+    /// derivable) into groups of `Self.batchGroupSize` codes carried in
+    /// ONE request via the repeated `search_query[chapman_codes][]`
+    /// idiom (the `multiFields` transport primitive). When false — the
+    /// safe default — the dispatcher emits the pre-FT-25 one-code-per-
+    /// query fan-out, which is proven wire behaviour (Python builds the
+    /// POST as a tuple list precisely for the repeated key, but whether
+    /// FreeCen's live form honours it is UNVERIFIED — CONNECTOR_AUDIT
+    /// FT-27; needs the one live probe session before enabling blind,
+    /// exactly as `FreeBMDParams.countyQueryEnabled` was gated).
+    ///
+    /// Default false = flag for a probe rather than enable blind.
+    public static let multiCodeBatchEnabled = false
+
+    /// FT-28 group size — how many chapman codes ride ONE batched
+    /// request. Conservative (not all-at-once): a whole-scope single
+    /// request maximises first-page truncation, which FT-22/FT-23 flag
+    /// as already more likely under wider queries. 10 cuts a ~90-code
+    /// national residence sweep to ~9 requests (a ~10× reduction) while
+    /// keeping each query's result set an order of magnitude smaller than
+    /// batching everything, so the 500-result / 10-page pagination budget
+    /// recovers most truncation. Automatic re-split on truncation (the
+    /// audit's "mirroring FreeBMD's adaptive split") is the runtime
+    /// follow-up; the static group size keeps the wire conservative until
+    /// then.
+    public static let batchGroupSize = 10
+
     /// RESIDENCE county filter — where the subject lived at census time
     /// (FreeCen's `search_query[chapman_codes][]`). nil/empty = no
     /// residence filter on the wire.
     public let chapmanCode: String?
+    /// FT-25 — a BATCH of residence chapman codes carried in one request
+    /// via repeated `search_query[chapman_codes][]` keys. Set by the
+    /// dispatcher for broad-scope residence fan-out when
+    /// `multiCodeBatchEnabled`; supersedes the single `chapmanCode` when
+    /// present and non-empty. nil/empty = no batch (use `chapmanCode`).
+    /// Order is preserved so the wire shape (and cache key) is stable.
+    public let chapmanCodes: [String]?
     public let censusYear: Int?
     public let birthYearRange: ClosedRange<Int>?
     /// BIRTH county filter (connector-audit FT-11) — FreeCen's
@@ -630,9 +667,11 @@ public nonisolated struct FreeCenParams: Sendable {
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
     /// `birthChapmanCode` defaults nil so pre-FT-11 construction sites
-    /// (FocusedQuery, SourceExplorerView) are unchanged.
-    public init(chapmanCode: String? = nil, censusYear: Int? = nil, birthYearRange: ClosedRange<Int>? = nil, birthChapmanCode: String? = nil) {
+    /// (FocusedQuery, SourceExplorerView) are unchanged. `chapmanCodes`
+    /// defaults nil so pre-FT-25 construction sites are unchanged.
+    public init(chapmanCode: String? = nil, chapmanCodes: [String]? = nil, censusYear: Int? = nil, birthYearRange: ClosedRange<Int>? = nil, birthChapmanCode: String? = nil) {
         self.chapmanCode = chapmanCode
+        self.chapmanCodes = chapmanCodes
         self.censusYear = censusYear
         self.birthYearRange = birthYearRange
         self.birthChapmanCode = birthChapmanCode
@@ -744,16 +783,44 @@ public nonisolated struct WirksworthParams: Sendable {
 }
 
 public nonisolated struct FreeREGParams: Sendable {
+    /// FT-25 / FT-28 batching gate — repeated-key multi-code requests.
+    /// FreeREG's `.adjacent` (~7 codes) and `.national` (~70 codes)
+    /// scopes always fan out per chapman code; when true the dispatcher
+    /// batches them into groups of `Self.batchGroupSize` codes per
+    /// request via the repeated `search_query[chapman_codes][]` idiom.
+    /// Default false — the pre-FT-25 one-code-per-query fan-out is proven
+    /// wire behaviour; whether FreeREG's live form honours the repeated
+    /// key is UNVERIFIED (CONNECTOR_AUDIT FT-27, same as FreeCen), so
+    /// this flags for a probe rather than enabling blind — the
+    /// `FreeBMDParams.countyQueryEnabled` pattern.
+    public static let multiCodeBatchEnabled = false
+
+    /// FT-28 group size — codes per batched request. Conservative for
+    /// the same truncation reason as FreeCen (see
+    /// `FreeCenParams.batchGroupSize`): 10 cuts a ~70-code national sweep
+    /// to ~7 requests while keeping each result set well within the
+    /// 500-result / 10-page pagination budget.
+    public static let batchGroupSize = 10
+
     public let registerType: String?    // "ba" (baptism), "ma" (marriage), "bu" (burial)
     public let parish: String?
     public let chapmanCode: String?
+    /// FT-25 — a BATCH of chapman codes carried in one request via
+    /// repeated `search_query[chapman_codes][]` keys. Supersedes the
+    /// single `chapmanCode` when present and non-empty. nil/empty = no
+    /// batch (use `chapmanCode`). Order is preserved so the wire shape
+    /// (and cache key) is stable.
+    public let chapmanCodes: [String]?
 
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
-    public init(registerType: String? = nil, parish: String? = nil, chapmanCode: String? = nil) {
+    /// `chapmanCodes` defaults nil so pre-FT-25 construction sites are
+    /// unchanged.
+    public init(registerType: String? = nil, parish: String? = nil, chapmanCode: String? = nil, chapmanCodes: [String]? = nil) {
         self.registerType = registerType
         self.parish = parish
         self.chapmanCode = chapmanCode
+        self.chapmanCodes = chapmanCodes
     }
 
 }

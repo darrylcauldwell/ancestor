@@ -94,13 +94,19 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
         // born, the tree-known stable fact). Without at least one axis
         // the query cannot be scoped, so degrade honestly instead of
         // guessing a county.
-        var residenceChapman: String?
+        // FT-25 — the residence axis (`chapman_codes[]`) may carry a BATCH
+        // of codes in one request via repeated keys; the birth axis
+        // (`birth_chapman_codes[]`) stays single (the dispatcher scopes
+        // broad census sweeps by birth county as ONE code, so there is no
+        // birth-axis fan-out to batch). A non-empty batch supersedes the
+        // single residence code; order is preserved for a stable wire shape.
+        var residenceChapmanCodes: [String] = []
         var birthChapman: String?
         if case .freeCen(let p) = query.sourceParams {
-            if let code = p.chapmanCode, !code.isEmpty { residenceChapman = code }
+            residenceChapmanCodes = FreeCenSource.resolveResidenceCodes(batch: p.chapmanCodes, single: p.chapmanCode)
             if let code = p.birthChapmanCode, !code.isEmpty { birthChapman = code }
         }
-        guard residenceChapman != nil || birthChapman != nil else {
+        guard !residenceChapmanCodes.isEmpty || birthChapman != nil else {
             return SourceSearchEnvelope(.outsideCoverage(reason: "No home county (Chapman code) available to scope a FreeCen search"))
         }
 
@@ -126,7 +132,8 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             ))
         }
 
-        let scopeLabel = residenceChapman ?? birthChapman.map { "born \($0)" } ?? ""
+        let scopeLabel = Self.residenceScopeLabel(residenceChapmanCodes)
+            ?? birthChapman.map { "born \($0)" } ?? ""
         let summary = Self.activitySummary(query: query, surname: surname, chapmanCode: scopeLabel, censusYear: year)
         await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
 
@@ -163,36 +170,42 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
                 return (String(range.lowerBound), String(range.upperBound))
             }()
 
-            var fields: [String: String] = [
-                "utf8": "✓",
-                "authenticity_token": csrfToken ?? "",
-                "search_query[last_name]": surname,
-                "search_query[first_name]": query.givenName ?? "",
-                "search_query[record_type]": year.map(String.init) ?? "",
-                "search_query[fuzzy]": fuzzyFlag,
-                "search_query[search_nearby_places]": "0",
-                "search_query[disabled]": "0",
-                "search_query[start_year]": startYear,
-                "search_query[end_year]": endYear,
-                "search_query[sex]": sexValue,
-                "search_query[marital_status]": "",
-                "search_query[occupation]": "",
+            // FT-25 — ordered pairs (not a dict) so a batched residence
+            // axis emits one repeated `search_query[chapman_codes][]` key
+            // per code and they all survive on the wire.
+            var fields: [(String, String)] = [
+                ("utf8", "✓"),
+                ("authenticity_token", csrfToken ?? ""),
+                ("search_query[last_name]", surname),
+                ("search_query[first_name]", query.givenName ?? ""),
+                ("search_query[record_type]", year.map(String.init) ?? ""),
+                ("search_query[fuzzy]", fuzzyFlag),
+                ("search_query[search_nearby_places]", "0"),
+                ("search_query[disabled]", "0"),
+                ("search_query[start_year]", startYear),
+                ("search_query[end_year]", endYear),
+                ("search_query[sex]", sexValue),
+                ("search_query[marital_status]", ""),
+                ("search_query[occupation]", ""),
             ]
             // FT-11 — the two county axes are independent. The residence
             // filter is OMITTED entirely when scoping by birth county
             // (an absent Rails array param means "no residence filter"),
             // letting one request cover every residence county server-side.
-            if let residenceChapman {
-                fields["search_query[chapman_codes][]"] = residenceChapman
+            // FT-25 — one repeated residence key per batched code; a single
+            // residence code emits exactly one pair (byte-identical to the
+            // pre-FT-25 single-value shape).
+            for code in residenceChapmanCodes {
+                fields.append(("search_query[chapman_codes][]", code))
             }
             if let birthChapman {
-                fields["search_query[birth_chapman_codes][]"] = birthChapman
+                fields.append(("search_query[birth_chapman_codes][]", birthChapman))
             }
 
             let data = try await rateLimitedRequest {
                 try await self.http.postForm(
                     url: Self.searchURL,
-                    fields: fields,
+                    multiFields: fields,
                     headers: [
                         "User-Agent": Self.userAgent,
                         "Cookie": self.sessionCookie ?? "",
@@ -294,6 +307,32 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             csrfToken = nil
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
             return SourceSearchEnvelope(.unavailable(reason: error.localizedDescription))
+        }
+    }
+
+    /// FT-25 — resolve the RESIDENCE chapman code(s) for the wire. A
+    /// non-empty batch (`chapmanCodes`, blanks dropped) wins over the
+    /// single residence code; a non-empty single code is the sole
+    /// fallback. Empty in both = no residence axis (the birth axis, if
+    /// set, scopes the query instead). nonisolated + static so the
+    /// query-shape tests can pin the precedence.
+    nonisolated static func resolveResidenceCodes(batch: [String]?, single: String?) -> [String] {
+        if let batch {
+            let cleaned = batch.filter { !$0.isEmpty }
+            if !cleaned.isEmpty { return cleaned }
+        }
+        if let single, !single.isEmpty { return [single] }
+        return []
+    }
+
+    /// Activity-feed label for the residence axis: the single code, or
+    /// "N counties" for a batch; nil when the residence axis is empty (the
+    /// caller falls back to the birth-axis label).
+    nonisolated static func residenceScopeLabel(_ codes: [String]) -> String? {
+        switch codes.count {
+        case 0: return nil
+        case 1: return codes[0]
+        default: return "\(codes.count) counties"
         }
     }
 

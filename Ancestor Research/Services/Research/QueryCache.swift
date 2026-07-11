@@ -147,6 +147,23 @@ actor QueryCache {
         }
     }
 
+    /// FT-25/FT-28 — the residence chapman key component for FreeCen and
+    /// FreeREG. A batched query (`chapmanCodes`, blanks dropped, non-empty)
+    /// is a DIFFERENT wire request from any single-county query, so its SET
+    /// of codes must reach the key: they are joined with `+` in the order
+    /// the dispatcher emits them (that order reaches the wire and is
+    /// deterministic). A single `chapmanCode` with no batch returns the bare
+    /// code — byte-identical to the pre-FT-25 key, so historical one-code
+    /// entries never collide with a batch and never miss a legitimate hit.
+    /// Empty in both = "" (no residence axis; the birth axis keys the query).
+    nonisolated static func residenceChapmanKeyComponent(single: String?, batch: [String]?) -> String {
+        if let batch {
+            let cleaned = batch.filter { !$0.isEmpty }
+            if !cleaned.isEmpty { return cleaned.joined(separator: "+") }
+        }
+        return single ?? ""
+    }
+
     /// Stable wire-determining key. Two queries with identical keys must
     /// produce identical HTTP requests. Field ordering matters for
     /// future-you reading logs: keep it surname-first so a `grep` finds
@@ -189,7 +206,14 @@ actor QueryCache {
             // the same subject collide on one cache entry.
             countyCode = p.countyCode ?? ""
         case .freeCen(let p):
-            chapmanCode = p.chapmanCode ?? ""
+            // FT-25/FT-28: the residence axis may carry a BATCH of codes
+            // (`chapmanCodes`) in one repeated-key request — a different
+            // wire request from any single-county query, so the SET of codes
+            // must reach the key or a batched multi-county result would be
+            // served for a single-county probe (and vice versa). A single
+            // `chapmanCode` (batch nil) keys exactly as before FT-25, so no
+            // cache regression on the historical one-code path.
+            chapmanCode = Self.residenceChapmanKeyComponent(single: p.chapmanCode, batch: p.chapmanCodes)
             // FT-11: birth-county axis (`birth_chapman_codes[]`) is a
             // distinct wire field from the residence chapman — an
             // .adjacent/.national birth-scoped query must not collide
@@ -200,7 +224,9 @@ actor QueryCache {
         case .freeREG(let p):
             // registerType is derived from query.recordType (already keyed);
             // parish never reaches the wire request.
-            chapmanCode = p.chapmanCode ?? ""
+            // FT-25/FT-28: same batched-set keying as FreeCen's residence
+            // axis — a batched multi-county query is a distinct wire request.
+            chapmanCode = Self.residenceChapmanKeyComponent(single: p.chapmanCode, batch: p.chapmanCodes)
         case .findAGrave(let p):
             // T1-16 / T1-23: every one of these changes the outbound
             // search URL — year axes (birthyear/deathyear + their
