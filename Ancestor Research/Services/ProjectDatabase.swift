@@ -42,7 +42,7 @@ nonisolated final class ProjectDatabase: Sendable {
         try Self.makeMigrator().migrate(dbQueue)
     }
 
-    /// The full migration chain, v1…v31. Static (no instance state) so tests
+    /// The full migration chain, v1…v34. Static (no instance state) so tests
     /// can drive the migrator directly — e.g. migrate a scratch DB
     /// `upTo:` a given version, seed legacy-shaped rows, then complete the
     /// chain to exercise a data migration in isolation.
@@ -1056,6 +1056,45 @@ nonisolated final class ProjectDatabase: Sendable {
                 """)
         }
 
+        // MARK: v34 — typed external-identifier records (MODEL_EVOLUTION_SPEC
+        // §Change1 / ADR-004 E1). The untyped `external_ids` string-map column
+        // (v1) holds one current ID per system with no type and no lifecycle,
+        // so a merged-away FamilySearch PID (HTTP 301 merge-forwarding) can't
+        // be represented. This adds a `external_identifiers` JSON column — an
+        // array of typed `ExternalIdentifier` records (system/value/kind/
+        // supersededBy/recordedAt) — and backfills every existing `external_ids`
+        // entry as a `.primary` record, losslessly.
+        //
+        // New-column, not replace-in-column, for bisectability (spec decision):
+        // `external_ids` freezes in place for one release as rollback insurance
+        // and keeps being written from the projection; reads prefer
+        // `external_identifiers` and fall back to `external_ids`. This mirrors
+        // the publisher's own outbound `published_ids.superseded_by` mechanism
+        // (v30), applied inbound for the first time.
+        migrator.registerMigration("v34_external_identifiers") { db in
+            try db.alter(table: "profiles") { t in
+                t.add(column: "external_identifiers", .text).notNull().defaults(to: "[]")
+            }
+            // Backfill: every existing external_ids entry → one .primary record.
+            // Done row-by-row in Swift (rather than a SQL JSON expression) so
+            // the backfill uses the exact same `Array(legacy:)` rule as the
+            // decode path, keeping the two forever in step.
+            let rows = try Row.fetchAll(db, sql: "SELECT id, external_ids FROM profiles")
+            for row in rows {
+                let id: String = row["id"]
+                let legacyJSON: String = row["external_ids"] ?? "{}"
+                let legacy = (try? JSONDecoder().decode(
+                    [String: String].self, from: Data(legacyJSON.utf8))) ?? [:]
+                guard !legacy.isEmpty else { continue } // "[]" default already correct
+                let records = [ExternalIdentifier](legacy: legacy)
+                let json = (try? JSONEncoder().encode(records))
+                    .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+                try db.execute(
+                    sql: "UPDATE profiles SET external_identifiers = ? WHERE id = ?",
+                    arguments: [json, id])
+            }
+        }
+
         return migrator
     }
 
@@ -1099,8 +1138,23 @@ nonisolated final class ProjectDatabase: Sendable {
 
     private static func profileFromRow(_ row: Row, db: Database) throws -> Profile {
         let id: String = row["id"]
-        let externalIDsJSON: String = row["external_ids"]
-        let externalIDs = (try? JSONDecoder().decode([String: String].self, from: Data(externalIDsJSON.utf8))) ?? [:]
+        // E1 (MODEL_EVOLUTION_SPEC §Change1): prefer the typed
+        // `external_identifiers` column; fall back to the legacy
+        // `external_ids` string-map column (pre-v34 rows, or the frozen
+        // rollback-insurance copy). A row that somehow has neither yields an
+        // empty identifier list. `mergingLegacyMap` makes the fallback lossless
+        // even if both columns are populated.
+        let externalIdentifiers: [ExternalIdentifier] = {
+            var records: [ExternalIdentifier] = []
+            if let json: String = row["external_identifiers"],
+               let data = json.data(using: .utf8),
+               let decoded = try? JSONDecoder().decode([ExternalIdentifier].self, from: data) {
+                records = decoded
+            }
+            let legacyJSON: String = row["external_ids"] ?? "{}"
+            let legacy = (try? JSONDecoder().decode([String: String].self, from: Data(legacyJSON.utf8))) ?? [:]
+            return records.mergingLegacyMap(legacy)
+        }()
 
         let birthDate = dateFromRow(row, prefix: "birth_date")
         let deathDate = dateFromRow(row, prefix: "death_date")
@@ -1177,7 +1231,7 @@ nonisolated final class ProjectDatabase: Sendable {
 
         return Profile(
             id: id,
-            externalIDs: externalIDs,
+            externalIdentifiers: externalIdentifiers,
             firstName: row["first_name"],
             middleName: row["middle_name"],
             lastName: row["last_name"],
@@ -1363,24 +1417,30 @@ nonisolated final class ProjectDatabase: Sendable {
     }
 
     private static func insertProfile(_ profile: Profile, transactionID: UUID, db: Database) throws {
+        // E1: the legacy `external_ids` string-map column keeps being written
+        // from the projection (rollback insurance for one release); the new
+        // `external_identifiers` column carries the typed record list — the
+        // source of truth from which the projection derives.
         let externalIDsJSON = (try? JSONEncoder().encode(profile.externalIDs))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        let externalIdentifiersJSON = (try? JSONEncoder().encode(profile.externalIdentifiers))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
 
         let attributesJSON: String? = profile.attributes.flatMap {
             (try? JSONEncoder().encode($0)).flatMap { String(data: $0, encoding: .utf8) }
         }
 
         try db.execute(sql: """
-            INSERT INTO profiles (id, external_ids,
+            INSERT INTO profiles (id, external_ids, external_identifiers,
                 first_name, middle_name, last_name, married_surname, nick_name, mothers_maiden_name,
                 gender, attributes, is_deleted,
                 birth_date_original, birth_date_earliest, birth_date_latest, birth_date_qualifier,
                 birth_location, birth_location_code,
                 death_date_original, death_date_earliest, death_date_latest, death_date_qualifier,
                 death_location, death_location_code, bio, created_by_transaction_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
-                profile.id, externalIDsJSON,
+                profile.id, externalIDsJSON, externalIdentifiersJSON,
                 profile.firstName, profile.middleName, profile.lastName,
                 profile.marriedSurname,
                 profile.nickName, profile.mothersMaidenName,
