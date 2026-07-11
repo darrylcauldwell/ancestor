@@ -1,6 +1,6 @@
 # CONNECTOR_AUDIT_2026-07 — Free-Trio Connector Audit Findings
 
-**Status: Proposed — awaiting review.** Drafted overnight 2026-07-10/11 from the audit envelope; no fixes started, no commits made. Every item below is a *proposed* backlog entry until Darryl triages it. (§§6–8 appended 2026-07-11 after tier-1 verification completed.)
+**Status: FT set triaged and ACCEPTED (Darryl, 2026-07-11) — FT-01…FT-29 are all approved for implementation; work started same day in top-5 order. T1 set (§§6–8) awaiting triage.** Drafted overnight 2026-07-10/11 from the audit envelope. (§§6–8 appended 2026-07-11 after tier-1 verification completed.)
 
 ---
 
