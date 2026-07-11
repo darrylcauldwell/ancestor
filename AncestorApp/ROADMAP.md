@@ -15,9 +15,9 @@
 
 **Declared priority (user, 2026-07-10): core research capability before polish.**
 
-## The road, in order
+## Implementation order
 
-Nothing below is parked — everything has a place and a gate. A stage starts when its gate opens; the polish stage's gate is the core being declared solid, the release stage's gate is every phase being complete.
+This section reads as the build sequence — top to bottom is the intended order of implementation. Nothing is parked: later items simply occur later. A stage begins when its gate opens; the gate for polish is the core being declared solid, and the gate for release is every phase being complete.
 
 ### Stage 1 — now: make the core solid (declared priority, 2026-07-10)
 
