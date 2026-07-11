@@ -3429,7 +3429,7 @@ observable in eval first).
 
 ### 5.15 `.parentCandidates` — user-seeded hypotheses (Epic 13, new task)
 
-**Status: Proposed — awaiting review (2026-07-11).** Roadmap Epic 13
+**Status: Accepted 2026-07-11 (Darryl) — buildable per the §5.15.12 slicing plan.** Roadmap Epic 13
 (2026-07-05 agentic-harness discussion). Sliced 0–5 below;
 implementation gated on this entry being signed off.
 
