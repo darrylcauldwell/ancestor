@@ -39,6 +39,46 @@ struct FocusedQueryTests {
         }
     }
 
+    // MARK: - FT-07 — district NAME resolves to a numeric districtid
+
+    @Test func toRecordQuery_freebmdResolvesDistrictNameToNumericID() {
+        // FT-07 — an MLX strategist emits a district NAME ("Belper"), not a
+        // numeric ID. The old code passed the name straight through as
+        // `districtid` (a numeric-ID field), silently matching nothing. It
+        // must now resolve to the catalogue's numeric code.
+        let focused = FocusedQuery(
+            sourceID: "freebmd",
+            recordType: .marriage,
+            surname: "Brooks",
+            givenName: "Samuel",
+            yearFrom: 1879, yearTo: 1882,
+            district: "Belper",   // NAME, not code
+            rationale: "find George's parents' marriage"
+        )
+        let rq = focused.toRecordQuery(homeChapmanCode: "DBY")
+        guard case .freeBMD(let params) = rq.sourceParams else {
+            Issue.record("expected .freeBMD params"); return
+        }
+        #expect(params.districtCode == "722",
+                "Belper must resolve to its numeric FreeBMD code, not pass through as a name")
+        #expect(params.countyCode == nil, "FocusedQuery must stay district-level")
+    }
+
+    @Test func toRecordQuery_freebmdKeepsAlreadyNumericDistrictCode() {
+        // A code that is already numeric passes through unchanged — the
+        // SourceExplorer / existing-test path that legitimately sends "722".
+        #expect(FocusedQuery.resolveFreeBMDDistrictCode("722") == "722")
+    }
+
+    @Test func toRecordQuery_freebmdUnresolvableNameFallsBackToSourceWide() {
+        // An unresolvable district name must NOT go out as a name; it falls
+        // back to source-wide ("") — over-fetching (the geography gate still
+        // filters) beats the wrong-typed value matching nothing at all.
+        #expect(FocusedQuery.resolveFreeBMDDistrictCode("Nowhereville") == "")
+        #expect(FocusedQuery.resolveFreeBMDDistrictCode(nil) == "")
+        #expect(FocusedQuery.resolveFreeBMDDistrictCode("  ") == "")
+    }
+
     @Test func toRecordQuery_freecenMapsYearToCensusYear() {
         let focused = FocusedQuery(
             sourceID: "freecen",

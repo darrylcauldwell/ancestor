@@ -2044,7 +2044,9 @@ final class ResearchPipeline {
         let geoAxes = SearchDispatcher.freeBMDGeoAxes(
             scope: scope,
             homeChapmanCode: runHomeChapmanCode,
-            countyQueriesEnabled: FreeBMDParams.countyQueryEnabled
+            countyQueriesEnabled: FreeBMDParams.countyQueryEnabled,
+            yearFrom: yearFrom,
+            yearTo: yearTo
         )
         guard !geoAxes.isEmpty else { return [] }
 
@@ -2254,22 +2256,6 @@ final class ResearchPipeline {
         scope: ResearchScope,
         cache: QueryCache?
     ) async -> [SourceRecord] {
-        // Known spouse surnames to probe — recorded married name plus the
-        // recoverable maiden form (see `FamilyContext.spouseFatherSurname`).
-        var knownSpouseSurnames: [String] = []
-        if let s = subject.familyContext?.spouseSurname?
-            .trimmingCharacters(in: .whitespaces), !s.isEmpty {
-            knownSpouseSurnames.append(s)
-        }
-        if let m = subject.familyContext?.spouseFatherSurname?
-            .trimmingCharacters(in: .whitespaces), !m.isEmpty,
-           !knownSpouseSurnames.contains(where: {
-               $0.caseInsensitiveCompare(m) == .orderedSame
-           }) {
-            knownSpouseSurnames.append(m)
-        }
-        guard !knownSpouseSurnames.isEmpty else { return records }
-
         guard let subjectSurname = subject.surname?
             .trimmingCharacters(in: .whitespaces),
               !subjectSurname.isEmpty else { return records }
@@ -2286,33 +2272,87 @@ final class ResearchPipeline {
         }
         guard !subjectMarriages.isEmpty else { return records }
 
-        let years = subjectMarriages.compactMap(\.marriageYear)
-        guard let yearFrom = years.min(), let yearTo = years.max() else { return records }
-
-        // Dispatch spouse-side queries. The `spouseSurname` arg on
-        // `dispatchMarriageQuery` becomes FreeBMD's `s_surname` filter —
-        // narrows post-1912 results server-side; pre-1912 the column is
-        // blank so the server returns the full surname set regardless,
-        // which is what we need for pairing.
         var spouseSideMarriages: [MarriageRecord] = []
-        for spouseSurname in knownSpouseSurnames {
-            if spouseSurname.caseInsensitiveCompare(subjectSurname) == .orderedSame {
-                continue   // same-surname couples have nothing to pair
-            }
-            let scored = await dispatchMarriageQuery(
-                surname: spouseSurname,
-                spouseSurname: subjectSurname,
-                yearFrom: yearFrom,
-                yearTo: yearTo,
+
+        // FT-03 — page-lookup path (primary). Each subject-side marriage
+        // carrying its own GRO (vol, page) is registered on the same page
+        // as the other party, filed under the OTHER surname. A single
+        // `vol`/`pgno` page-lookup returns the 2–4 entries on that page;
+        // the entry whose surname differs from ours IS the partner. This
+        // works even when NO spouse is on the tree — the mechanism the
+        // audit's FT-03 asks for ("enumerate page 943's couples"),
+        // unreachable by the surname sweep below. Deduped by (vol, page)
+        // so N marriages on the same page fetch that page once.
+        var seenPages: Set<String> = []
+        for m in subjectMarriages {
+            guard let vol = m.volume?.trimmingCharacters(in: .whitespaces), !vol.isEmpty,
+                  let page = m.page?.trimmingCharacters(in: .whitespaces), !page.isEmpty,
+                  let year = m.marriageYear
+            else { continue }
+            let pageKey = "\(vol.uppercased())/\(page.uppercased())"
+            guard seenPages.insert(pageKey).inserted else { continue }
+            let entries = await dispatchPageLookupQuery(
+                volume: vol,
+                page: page,
+                district: m.district,
+                yearFrom: year,
+                yearTo: year,
                 scope: scope,
                 cache: cache
             )
-            for s in scored {
-                if case .marriage(let m) = s.record {
-                    spouseSideMarriages.append(m)
+            // Only the OTHER party is a usable spouse-side entry — an
+            // entry under our own surname is the subject's own row echoed
+            // back. `SamePageCouplePairing.annotate` further requires a
+            // non-empty differing surname, so this is a cheap pre-filter.
+            for e in entries where
+                (e.common.surname?.caseInsensitiveCompare(subjectSurname) ?? .orderedSame) != .orderedSame {
+                spouseSideMarriages.append(e)
+            }
+        }
+
+        // Surname-sweep path (complement). When the tree DOES name a
+        // spouse, sweep that surname across the district window too — it
+        // recovers pairings the page lookup missed (e.g. a subject-side
+        // record that arrived without a parsed vol/page). Pre-Sep-1912 the
+        // spouse-surname column is blank, so the server returns the full
+        // surname set and pairing happens on the reference tuple; the
+        // `spouseSurname` arg narrows post-1912 server-side.
+        var knownSpouseSurnames: [String] = []
+        if let s = subject.familyContext?.spouseSurname?
+            .trimmingCharacters(in: .whitespaces), !s.isEmpty {
+            knownSpouseSurnames.append(s)
+        }
+        if let mf = subject.familyContext?.spouseFatherSurname?
+            .trimmingCharacters(in: .whitespaces), !mf.isEmpty,
+           !knownSpouseSurnames.contains(where: {
+               $0.caseInsensitiveCompare(mf) == .orderedSame
+           }) {
+            knownSpouseSurnames.append(mf)
+        }
+        if !knownSpouseSurnames.isEmpty {
+            let years = subjectMarriages.compactMap(\.marriageYear)
+            if let yearFrom = years.min(), let yearTo = years.max() {
+                for spouseSurname in knownSpouseSurnames {
+                    if spouseSurname.caseInsensitiveCompare(subjectSurname) == .orderedSame {
+                        continue   // same-surname couples have nothing to pair
+                    }
+                    let scored = await dispatchMarriageQuery(
+                        surname: spouseSurname,
+                        spouseSurname: subjectSurname,
+                        yearFrom: yearFrom,
+                        yearTo: yearTo,
+                        scope: scope,
+                        cache: cache
+                    )
+                    for s in scored {
+                        if case .marriage(let m) = s.record {
+                            spouseSideMarriages.append(m)
+                        }
+                    }
                 }
             }
         }
+
         guard !spouseSideMarriages.isEmpty else { return records }
 
         let (annotated, pairCount) = SamePageCouplePairing.annotate(
@@ -2323,6 +2363,50 @@ final class ResearchPipeline {
             logger.info("Same-page pairing: annotated \(pairCount) subject-side marriages from \(spouseSideMarriages.count) spouse-side entries")
         }
         return annotated
+    }
+
+    /// FT-03 — dispatch a single FreeBMD `vol`/`pgno` page-lookup and
+    /// return the marriage entries on that GRO page. Surname is left blank
+    /// (the whole point is to enumerate a page whose other party we don't
+    /// know yet); the vol/page pair is the sole geographic key, so no geo
+    /// fan-out is needed. The narrow single-year window keeps the wire
+    /// cheap and the page unambiguous (BMD volume codes are reused across
+    /// years). Returns `[]` when FreeBMD isn't registered or the query
+    /// yields nothing.
+    private func dispatchPageLookupQuery(
+        volume: String,
+        page: String,
+        district: String?,
+        yearFrom: Int,
+        yearTo: Int,
+        scope: ResearchScope,
+        cache: QueryCache?
+    ) async -> [MarriageRecord] {
+        guard let freebmd = dispatcher.registry.allSources()
+            .first(where: { $0.sourceID == "freebmd" }) else { return [] }
+        let query = RecordQuery(
+            surname: "",
+            givenName: nil,
+            recordType: .marriage,
+            yearFrom: yearFrom,
+            yearTo: yearTo,
+            gender: nil,
+            region: nil,
+            sourceParams: .freeBMD(FreeBMDParams(
+                districtCode: nil,
+                countyCode: nil,
+                wildcardSurname: false,
+                motherSurname: nil,
+                spouseSurname: nil,
+                volume: volume,
+                page: page
+            ))
+        )
+        let records = await QueryCache.wrappedSearch(source: freebmd, query: query, cache: cache)
+        return records.compactMap { rec -> MarriageRecord? in
+            guard case .marriage(let m) = rec else { return nil }
+            return m
+        }
     }
 
     // MARK: - Discrepancy Detection

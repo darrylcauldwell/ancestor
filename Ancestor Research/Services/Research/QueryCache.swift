@@ -196,6 +196,7 @@ actor QueryCache {
         var fagLimit = ""
         var fagYearWidth = ""
         var fagMaiden = ""
+        var freeBMDVolPage = ""
         switch query.sourceParams {
         case .freeBMD(let p):
             if let ss = p.spouseSurname, !ss.isEmpty { spouseSurname = ss }
@@ -205,6 +206,16 @@ actor QueryCache {
             // without it a county-level query and a national query for
             // the same subject collide on one cache entry.
             countyCode = p.countyCode ?? ""
+            // FT-03: the vol/pgno page-lookup pair changes the outbound
+            // `vol`/`pgno` fields — a page-scoped query and an ordinary
+            // surname query for the same subject/year must never collide
+            // on one cache entry. Keyed as a joined pair only when BOTH
+            // are present (mirrors the source's emit gate); a lone value
+            // keys as "" so historical non-page queries are unaffected.
+            if let v = p.volume?.trimmingCharacters(in: .whitespaces), !v.isEmpty,
+               let pg = p.page?.trimmingCharacters(in: .whitespaces), !pg.isEmpty {
+                freeBMDVolPage = "\(v)/\(pg)"
+            }
         case .freeCen(let p):
             // FT-25/FT-28: the residence axis may carry a BATCH of codes
             // (`chapmanCodes`) in one repeated-key request — a different
@@ -288,6 +299,8 @@ actor QueryCache {
             fagMaiden,
             // FT-11 addition — appended, preserving prior positions.
             birthChapmanCode,
+            // FT-03 addition — appended, preserving prior positions.
+            freeBMDVolPage,
         ]
         return parts.joined(separator: "|")
     }

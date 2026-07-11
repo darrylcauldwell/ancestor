@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// A single targeted query proposed by the Level-2 query strategist
 /// (`ResearchInterpreter.suggestNextFocusedQuery`).
@@ -82,7 +83,7 @@ nonisolated struct FocusedQuery: Sendable {
             switch sourceID.lowercased() {
             case "freebmd":
                 return .freeBMD(FreeBMDParams(
-                    districtCode: district ?? "",
+                    districtCode: Self.resolveFreeBMDDistrictCode(district),
                     wildcardSurname: false,
                     motherSurname: nil,
                     spouseSurname: nil
@@ -126,5 +127,39 @@ nonisolated struct FocusedQuery: Sendable {
             sourceParams: sourceParams,
             strictness: .strict
         )
+    }
+
+    private static let logger = Logger(
+        subsystem: "dev.dreamfold.Ancestor-Research",
+        category: "FocusedQuery"
+    )
+
+    /// FT-07 — resolve the strategist's `district` field to a FreeBMD
+    /// `districtid` value. The field is documented as a name the dispatcher
+    /// "will resolve" (an MLX strategist emits "Belper", not "722"), but the
+    /// old `toRecordQuery` passed it straight through as `districtid` — a
+    /// numeric-ID form field — so `districtid=Belper` went out against
+    /// numeric options and silently matched nothing.
+    ///
+    /// Resolution order:
+    ///   1. nil / empty → `""` (source-wide, the documented no-constraint).
+    ///   2. all-digits → treat as an already-resolved code, pass through
+    ///      (keeps SourceExplorer/tests that legitimately pass "722").
+    ///   3. name → `FreeBMDDistrictCatalogue.district(named:).code`.
+    ///   4. unresolvable name → `""` with a logged warning; a source-wide
+    ///      search over-fetches (the geography gate still filters) whereas
+    ///      the wrong-typed name matched nothing at all.
+    static func resolveFreeBMDDistrictCode(_ district: String?) -> String {
+        guard let raw = district?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else {
+            return ""
+        }
+        if raw.allSatisfy(\.isNumber) {
+            return raw
+        }
+        if let match = FreeBMDDistrictCatalogue.shared.district(named: raw) {
+            return match.code
+        }
+        logger.warning("FocusedQuery: could not resolve FreeBMD district name '\(raw, privacy: .public)' to a district ID — falling back to source-wide search")
+        return ""
     }
 }

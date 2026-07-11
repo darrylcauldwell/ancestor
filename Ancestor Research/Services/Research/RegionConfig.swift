@@ -172,16 +172,58 @@ nonisolated struct RegionConfig: Codable, Sendable {
     static func districts(forChapmanCode code: String) -> [String: String] {
         let upper = code.uppercased()
         if upper == "DBY" { return Self.derbyshire.districts }
-        let entries = FreeBMDDistrictCatalogue.shared.districts(forChapmanCode: upper)
+        // FT-09 — umbrella-code expansion. `uk-chapman-codes.json` carries
+        // umbrella codes (e.g. "YKS") that no catalogue district is tagged
+        // with — every Yorkshire district is WRY/NRY/ERY — so a
+        // YKS-derived subject would otherwise resolve to ZERO districts
+        // with no warning. Expand the umbrella to its constituents and
+        // union their districts.
+        let sourceCodes = Self.expandUmbrellaChapmanCode(upper)
         var map: [String: String] = [:]
-        for entry in entries {
-            // First occurrence wins — districts with successor renames
-            // (e.g. Glossop → High Peak) appear twice in the catalogue
-            // with different validity windows but the same canonical name
-            // would otherwise collide. The earlier-seen entry keeps its slot.
-            if map[entry.name] == nil { map[entry.name] = entry.code }
+        for sub in sourceCodes {
+            let entries = FreeBMDDistrictCatalogue.shared.districts(forChapmanCode: sub)
+            for entry in entries {
+                // First occurrence wins — districts with successor renames
+                // (e.g. Glossop → High Peak) appear twice in the catalogue
+                // with different validity windows but the same canonical name
+                // would otherwise collide. The earlier-seen entry keeps its slot.
+                if map[entry.name] == nil { map[entry.name] = entry.code }
+            }
         }
         return map
+    }
+
+    /// FT-09 — county-level `countyid` values for a chapman code, expanding
+    /// umbrella codes to their constituents. `freeBMDCountyID` keys on the
+    /// captured live-form table, which lists the constituent ridings
+    /// (WRY/NRY/ERY) but not the "YKS" umbrella, so a YKS subject would
+    /// resolve to zero county axes; expansion yields one `countyid` per
+    /// constituent county. Non-umbrella codes return their single value (or
+    /// none). Empty for an unknown/blank code.
+    static func freeBMDCountyIDs(forChapmanCode code: String) -> [String] {
+        let upper = code.trimmingCharacters(in: .whitespaces).uppercased()
+        guard !upper.isEmpty else { return [] }
+        return Self.expandUmbrellaChapmanCode(upper).compactMap { freeBMDCountyID(forChapmanCode: $0) }
+    }
+
+    /// FT-09 — umbrella Chapman codes that stand for a set of historical
+    /// counties none of which is tagged with the umbrella itself. Expanding
+    /// them is the difference between a YKS subject getting real FreeBMD
+    /// queries and getting silently zero. A non-umbrella code expands to
+    /// just itself. Backed by a small static table (the umbrella set is
+    /// tiny and stable — the historic ridings of Yorkshire and Lincolnshire
+    /// parts).
+    private static let umbrellaChapmanCodes: [String: [String]] = [
+        // Yorkshire → its three historic ridings.
+        "YKS": ["WRY", "NRY", "ERY"],
+        // Lincolnshire parts (Chapman's LIN umbrella over the historic
+        // Parts of Lindsey/Kesteven/Holland). LIN is directly tagged in the
+        // catalogue, so it is NOT listed here — expansion returns [LIN].
+    ]
+
+    static func expandUmbrellaChapmanCode(_ code: String) -> [String] {
+        let upper = code.trimmingCharacters(in: .whitespaces).uppercased()
+        return Self.umbrellaChapmanCodes[upper] ?? [upper]
     }
 
     /// FT-01 — the FreeBMD `countyid` wire value for a county-level query.

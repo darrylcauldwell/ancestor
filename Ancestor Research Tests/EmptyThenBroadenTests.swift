@@ -186,7 +186,153 @@ struct EmptyThenBroadenTests {
                 "discover-mode William Cauldwell should surface ≥2 CALDWELL/CAUDWELL CWGC matches; got \(variantHits.count)")
     }
 
+    // MARK: - FT-04 — county→national scope escalation
+
+    @Test func escalatePredicate_firesOnConclusiveCleanEmpty() {
+        // FreeBMD, county scope, extend mode, zero records, every outcome a
+        // conclusive clean empty → escalate.
+        let outcomes = [Self.outcomeEntry(.init(resultCount: 0))]
+        #expect(SearchDispatcher.shouldEscalateScope(
+            source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
+            records: [], outcomes: outcomes))
+    }
+
+    @Test func escalatePredicate_doesNotFireOnError() {
+        // T1-01 honesty envelope: an errored empty is not a clean empty.
+        let outcomes = [Self.outcomeEntry(.init(resultCount: 0, availability: .error(reason: "boom")))]
+        #expect(!SearchDispatcher.shouldEscalateScope(
+            source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
+            records: [], outcomes: outcomes))
+    }
+
+    @Test func escalatePredicate_doesNotFireOnTruncated() {
+        // A truncated page-1 answer is not a trustworthy empty either.
+        let outcomes = [Self.outcomeEntry(.init(resultCount: 0, totalAvailable: 999, truncated: true))]
+        #expect(!SearchDispatcher.shouldEscalateScope(
+            source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
+            records: [], outcomes: outcomes))
+    }
+
+    @Test func escalatePredicate_doesNotFireOnThrottled() {
+        let outcomes = [Self.outcomeEntry(.init(resultCount: 0, availability: .throttled))]
+        #expect(!SearchDispatcher.shouldEscalateScope(
+            source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
+            records: [], outcomes: outcomes))
+    }
+
+    @Test func escalatePredicate_doesNotFireWhenAnyRecordsFound() {
+        // Non-empty county result — no need to escalate.
+        let rec = SourceRecord.death(DeathRecord(common: RecordCommon(id: "x", sourceID: "freebmd", rawFields: [:])))
+        #expect(!SearchDispatcher.shouldEscalateScope(
+            source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
+            records: [rec], outcomes: [Self.outcomeEntry(.init(resultCount: 1))]))
+    }
+
+    @Test func escalatePredicate_onlyFreeBMD() {
+        // CWGC/FAG/Probate are inherently national — no district-vs-national
+        // escalation. Only FreeBMD escalates.
+        let outcomes = [Self.outcomeEntry(.init(resultCount: 0), sourceID: "cwgc")]
+        #expect(!SearchDispatcher.shouldEscalateScope(
+            source: TierRecordingSource(emptyAt: [.strict], sourceID: "cwgc"),
+            scope: .county, mode: .extend, records: [], outcomes: outcomes))
+    }
+
+    @Test func escalatePredicate_notAtNationalOrParish() {
+        let clean = [Self.outcomeEntry(.init(resultCount: 0))]
+        #expect(!SearchDispatcher.shouldEscalateScope(
+            source: ScopeRecordingFreeBMD(), scope: .national, mode: .extend,
+            records: [], outcomes: clean))
+        #expect(!SearchDispatcher.shouldEscalateScope(
+            source: ScopeRecordingFreeBMD(), scope: .parish, mode: .extend,
+            records: [], outcomes: clean))
+    }
+
+    @Test func escalatePredicate_notInAllMode() {
+        // .all runs the full ladder by contract, not as a reaction to
+        // emptiness — escalation would double its national fan-out.
+        let clean = [Self.outcomeEntry(.init(resultCount: 0))]
+        #expect(!SearchDispatcher.shouldEscalateScope(
+            source: ScopeRecordingFreeBMD(), scope: .county, mode: .all,
+            records: [], outcomes: clean))
+    }
+
+    @Test func escalatePredicate_notOnEmptyOutcomes() {
+        // No axes ran → nothing to escalate from.
+        #expect(!SearchDispatcher.shouldEscalateScope(
+            source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
+            records: [], outcomes: []))
+    }
+
+    @Test func dispatch_escalatesToNationalOnCountyCleanEmpty() async {
+        // End-to-end at the dispatcher: a FreeBMD-shaped source that returns
+        // a conclusive clean empty at county scope is re-walked at national
+        // scope (districtid="" → both geo axes nil).
+        let stub = ScopeRecordingFreeBMD(emptyEverywhere: true)
+        let registry = SourceRegistry()
+        registry.register(stub)
+        let dispatcher = SearchDispatcher(registry: registry)
+        _ = await dispatcher.dispatch(
+            subject: makeSubject(), recordTypes: [.death],
+            scope: .county, mode: .extend
+        )
+        let sawNational = await stub.sawNationalQuery
+        #expect(sawNational, "county clean-empty must escalate to a national districtid=\"\" query")
+    }
+
+    @Test func dispatch_doesNotEscalateWhenCountyErrors() async {
+        // An errored county answer must NOT escalate (honesty envelope).
+        let stub = ScopeRecordingFreeBMD(emptyEverywhere: true, errorEverywhere: true)
+        let registry = SourceRegistry()
+        registry.register(stub)
+        let dispatcher = SearchDispatcher(registry: registry)
+        _ = await dispatcher.dispatch(
+            subject: makeSubject(), recordTypes: [.death],
+            scope: .county, mode: .extend
+        )
+        let sawNational = await stub.sawNationalQuery
+        #expect(!sawNational, "an errored county answer must not trigger national escalation")
+    }
+
+    // MARK: - T1-12 — CWGC dispatched once per run even with two targets
+
+    @Test func cwgcDispatchedOnceWhenDeathAndBurialBothActive() async {
+        // Two record-type targets (.death, .burial) that build wire-
+        // identical CWGC queries must collapse to a single dispatch — no
+        // duplicate HTTP request racing past the per-run cache.
+        let cwgc = CountingCWGC()
+        let registry = SourceRegistry()
+        registry.register(cwgc)
+        let dispatcher = SearchDispatcher(registry: registry)
+        _ = await dispatcher.dispatch(
+            subject: makeMilitarySubject(),
+            recordTypes: [.death, .burial],
+            scope: .county, mode: .verify
+        )
+        let count = await cwgc.searchCount
+        #expect(count == 1, "CWGC must dispatch exactly once for wire-identical .death/.burial targets; got \(count)")
+    }
+
     // MARK: - Helpers
+
+    private static func outcomeEntry(_ outcome: SearchOutcome, sourceID: String = "freebmd") -> SearchOutcomeEntry {
+        SearchOutcomeEntry(
+            sourceID: sourceID, recordType: .death, strictness: .strict,
+            queryKey: "k", outcome: outcome
+        )
+    }
+
+    private func makeMilitarySubject() -> ResearchSubject {
+        // Birth 1895 → WW1-eligible, so buildQueries' cwgc case emits a query.
+        ResearchSubject(
+            profileID: nil,
+            surname: "Cauldwell", givenName: "William",
+            birthYearFrom: 1895, birthYearTo: 1895,
+            deathYearFrom: 1916, deathYearTo: 1916,
+            gender: .male, region: nil,
+            mode: .verify, familyContext: nil,
+            homeChapmanCode: "DBY"
+        )
+    }
 
     private func makeDispatcher(stub: TierRecordingSource) -> SearchDispatcher {
         let registry = SourceRegistry()
@@ -257,5 +403,78 @@ actor TierRecordingSource: RecordSource {
             ))
         }
         return .results(records)
+    }
+}
+
+/// FT-04 stub — a FreeBMD-shaped source (`sourceID == "freebmd"`, so the
+/// dispatcher's freebmd `buildQueries` branch and the FT-04 escalation
+/// predicate both treat it as FreeBMD) that records whether a national
+/// query (both geo axes nil → districtid="") ever reached it, and returns
+/// configurable empty/error envelopes.
+actor ScopeRecordingFreeBMD: RecordSource {
+    nonisolated let sourceID = "freebmd"
+    nonisolated let displayName = "FreeBMD (test)"
+    nonisolated let recordTypes: Set<RecordType> = [.birth, .death, .marriage]
+    nonisolated let coverageYearRange: ClosedRange<Int>? = 1837...1992
+    nonisolated let coverageRegions: Set<Region> = [.englandAndWales]
+    nonisolated let dataLineage: SourceLineage = .independentTranscription(of: "test")
+    nonisolated let trustTier: SourceTrustTier = .transcription
+    nonisolated let evidenceDirectness: EvidenceDirectness = .directTranscription
+    nonisolated let tosStatus = SourceToSStatus(level: .open, summary: "test stub")
+
+    let emptyEverywhere: Bool
+    let errorEverywhere: Bool
+    private(set) var sawNationalQuery = false
+
+    init(emptyEverywhere: Bool = true, errorEverywhere: Bool = false) {
+        self.emptyEverywhere = emptyEverywhere
+        self.errorEverywhere = errorEverywhere
+    }
+
+    func search(_ query: RecordQuery) async -> SourceQueryResult {
+        await searchWithOutcome(query).result
+    }
+
+    func searchWithOutcome(_ query: RecordQuery) async -> SourceSearchEnvelope {
+        if case .freeBMD(let p) = query.sourceParams,
+           (p.districtCode ?? "").isEmpty, (p.countyCode ?? "").isEmpty {
+            sawNationalQuery = true
+        }
+        if errorEverywhere {
+            return SourceSearchEnvelope(
+                result: .unavailable(reason: "test error"),
+                outcome: SearchOutcome(resultCount: 0, availability: .error(reason: "test error"))
+            )
+        }
+        if emptyEverywhere {
+            return SourceSearchEnvelope(
+                result: .results([]),
+                outcome: SearchOutcome(resultCount: 0)
+            )
+        }
+        return SourceSearchEnvelope(result: .results([]), outcome: SearchOutcome(resultCount: 0))
+    }
+}
+
+/// T1-12 stub — a CWGC-shaped source that declares BOTH `.death` and
+/// `.burial` (the pre-fix condition) and counts every `search` call. The
+/// dispatcher's target dedupe must collapse the two wire-identical targets
+/// so this counts exactly one.
+actor CountingCWGC: RecordSource {
+    nonisolated let sourceID = "cwgc"
+    nonisolated let displayName = "CWGC (test)"
+    nonisolated let recordTypes: Set<RecordType> = [.death, .burial]
+    nonisolated let coverageYearRange: ClosedRange<Int>? = 1914...1947
+    nonisolated let coverageRegions: Set<Region> = [.commonwealthMilitary]
+    nonisolated let dataLineage: SourceLineage = .primaryRecord
+    nonisolated let trustTier: SourceTrustTier = .primary
+    nonisolated let evidenceDirectness: EvidenceDirectness = .primary
+    nonisolated let tosStatus = SourceToSStatus(level: .open, summary: "test stub")
+
+    private(set) var searchCount = 0
+
+    func search(_ query: RecordQuery) async -> SourceQueryResult {
+        searchCount += 1
+        return .results([])
     }
 }

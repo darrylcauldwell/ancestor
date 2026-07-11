@@ -108,14 +108,19 @@ struct FreeBMDQueryShapeTests {
     @Test func geoAxesAdjacentGateOnAddsNeighbourCounties() {
         // With county-level queries available, .adjacent stops degrading
         // to home-county-only: one axis per home + neighbour county.
+        // FT-09: umbrella neighbours (YKS) expand to their ridings and the
+        // set is deduped by countyid, so the expected count is the number
+        // of DISTINCT countyid values across home + expanded neighbours.
         let axes = SearchDispatcher.freeBMDGeoAxes(
             scope: .adjacent, homeChapmanCode: "DBY", countyQueriesEnabled: true
         )
-        let expected = 1 + RegionConfig.adjacentCounties("DBY")
-            .compactMap { RegionConfig.freeBMDCountyID(forChapmanCode: $0) }
-            .count
-        #expect(expected >= 2, "DBY must have at least one resolvable neighbour")
-        #expect(axes.count == expected)
+        var expectedIDs: Set<String> = []
+        for code in ["DBY"] + RegionConfig.adjacentCounties("DBY") {
+            expectedIDs.formUnion(RegionConfig.freeBMDCountyIDs(forChapmanCode: code))
+        }
+        #expect(expectedIDs.count >= 2, "DBY must have at least one resolvable neighbour")
+        #expect(axes.count == expectedIDs.count)
+        #expect(Set(axes.compactMap { $0.countyCode }) == expectedIDs)
         #expect(axes.allSatisfy { $0.districtCode == nil })
         #expect(axes.first?.countyCode == RegionConfig.freeBMDCountyID(forChapmanCode: "DBY"))
     }
@@ -164,13 +169,24 @@ struct FreeBMDQueryShapeTests {
     @Test func dispatcherCountyScopeWithGateOffUsesDistrictLoop() {
         // The pre-FT-01 per-district path stays available behind the flag
         // (surgical fallback if the live form's vocabulary drifts).
+        // FT-09: the loop is now era-filtered — for an 1880 subject the
+        // post-1974/1994/1997 composite districts (High Peak, Ilkeston,
+        // Amber Valley, South Derbyshire) can't hold a match and are
+        // dropped, so the count is the year-valid subset, not the full 12.
         let dispatcher = SearchDispatcher(registry: SourceRegistry())
         let queries = dispatcher.buildQueriesForTest(
             source: FreeBMDSource(), subject: Self.makeSubject(),
             recordType: .birth, scope: .county,
             freeBMDCountyQueriesEnabled: false
         )
-        #expect(queries.count == RegionConfig.districts(forChapmanCode: "DBY").count)
+        let allCodes = Array(RegionConfig.districts(forChapmanCode: "DBY").values)
+        // For a .birth window the dispatcher pads ±2 → ~1878–1882.
+        let expectedCodes = SearchDispatcher.eraFilterDistrictCodes(
+            allCodes, yearFrom: 1878, yearTo: 1882
+        )
+        #expect(queries.count == expectedCodes.count)
+        #expect(expectedCodes.count < allCodes.count,
+                "era filter must drop at least one post-1974 composite for an 1880 subject")
         for q in queries {
             guard case .freeBMD(let p) = q.sourceParams else {
                 Issue.record("expected .freeBMD params")
@@ -300,6 +316,80 @@ struct FreeBMDQueryShapeTests {
         let body = captured.lastFormBody ?? ""
         #expect(!body.contains("countyid"),
                 "countyid must be omitted (not sent empty) on district/national queries; body was \(body)")
+    }
+
+    // MARK: - FT-03 — vol/pgno page-lookup wire emission
+
+    @MainActor
+    @Test func sourceSendsVolAndPgnoWhenBothSet() async {
+        // FT-03 — a same-page page-lookup transmits the GRO reference pair
+        // so FreeBMD returns the couple registered on that page.
+        let captured = CapturingHTTPClient()
+        let source = FreeBMDSource(http: captured)
+        let query = RecordQuery(
+            surname: "", givenName: nil, recordType: .marriage,
+            yearFrom: 1901, yearTo: 1901, gender: nil, region: nil,
+            sourceParams: .freeBMD(FreeBMDParams(
+                districtCode: nil, countyCode: nil, wildcardSurname: false,
+                volume: "7b", page: "1397"
+            )),
+            strictness: .strict
+        )
+        _ = await source.search(query)
+        let body = captured.lastFormBody ?? ""
+        #expect(body.contains("vol=7b"),
+                "page-lookup must transmit the volume; body was \(body)")
+        #expect(body.contains("pgno=1397"),
+                "page-lookup must transmit the page; body was \(body)")
+    }
+
+    @MainActor
+    @Test func sourceOmitsVolPgnoWhenEitherMissing() async {
+        // A lone vol or page is not a usable page key — the pair is emitted
+        // only when BOTH are present (mirrors the FT-06 presence caution).
+        for params in [
+            FreeBMDParams(wildcardSurname: false, volume: "7b", page: nil),
+            FreeBMDParams(wildcardSurname: false, volume: nil, page: "1397"),
+            FreeBMDParams(wildcardSurname: false, volume: "", page: "1397"),
+        ] {
+            let captured = CapturingHTTPClient()
+            let source = FreeBMDSource(http: captured)
+            let query = RecordQuery(
+                surname: "Smith", givenName: nil, recordType: .marriage,
+                yearFrom: 1901, yearTo: 1901, gender: nil, region: nil,
+                sourceParams: .freeBMD(params), strictness: .strict
+            )
+            _ = await source.search(query)
+            let body = captured.lastFormBody ?? ""
+            #expect(!body.contains("vol=") && !body.contains("pgno="),
+                    "vol/pgno must be omitted unless both are non-empty; body was \(body)")
+        }
+    }
+
+    @Test func cacheKeySeparatesPageLookupFromOrdinaryQuery() {
+        // FT-03 — the vol/pgno pair is wire-affecting, so a page-lookup and
+        // an ordinary surname query for the same subject/year must not
+        // collide on one cache entry (FT-24 rule).
+        func query(volume: String?, page: String?) -> RecordQuery {
+            RecordQuery(
+                surname: "Cauldwell", givenName: nil, recordType: .marriage,
+                yearFrom: 1901, yearTo: 1901, gender: nil, region: nil,
+                sourceParams: .freeBMD(FreeBMDParams(
+                    districtCode: nil, countyCode: nil, wildcardSurname: false,
+                    volume: volume, page: page
+                )),
+                strictness: .strict
+            )
+        }
+        let ordinary = QueryCache.cacheKey(sourceID: "freebmd", query: query(volume: nil, page: nil))
+        let pageLookup = QueryCache.cacheKey(sourceID: "freebmd", query: query(volume: "7b", page: "1397"))
+        let otherPage = QueryCache.cacheKey(sourceID: "freebmd", query: query(volume: "7b", page: "1398"))
+        #expect(ordinary != pageLookup, "page-lookup must key distinctly from an ordinary query")
+        #expect(pageLookup != otherPage, "different pages must key distinctly")
+        // A lone value (not a valid page key) keys identically to none —
+        // no cache regression on historical non-page queries.
+        let loneVol = QueryCache.cacheKey(sourceID: "freebmd", query: query(volume: "7b", page: nil))
+        #expect(loneVol == ordinary, "a lone vol must not perturb the key")
     }
 
     // MARK: - FT-02 × FT-05/FT-23 — overflow, adaptive split, truncation honesty

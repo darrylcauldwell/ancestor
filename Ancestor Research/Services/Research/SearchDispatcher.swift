@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Dispatches searches across all applicable sources.
 /// Knows source-specific patterns: multi-district for FreeBMD, per-census-year for FreeCen.
@@ -61,6 +62,25 @@ struct SearchDispatcher {
                 guard sourceCovers(source, yearRange: yearRange) else { continue }
                 targets.append((source, recordType))
             }
+        }
+
+        // T1-12 — collapse targets that would produce a wire-identical
+        // query set. CWGC is the motivating case: its `.death` and
+        // `.burial` record-type targets both build the same `.death` CWGC
+        // query (buildQueries ignores the requested type for CWGC and the
+        // two share a year window), so two byte-identical HTTP requests
+        // raced past the per-run QueryCache on iteration 1 of every
+        // military-eligible subject, then got discarded by dedupe(). We
+        // fingerprint each target by its source plus the SORTED set of
+        // cache keys its base queries would emit (strictness-independent —
+        // the ladder walks the same tiers either way); a later target whose
+        // fingerprint already appeared is dropped so the source is
+        // dispatched once. General fix: any two targets that hit the wire
+        // identically now dispatch once, regardless of a source's declared
+        // `recordTypes`.
+        targets = dedupeWireIdenticalTargets(targets) { source, recordType in
+            self.buildQueries(source: source, subject: subject, recordType: recordType, scope: scope)
+                .map { QueryCache.cacheKey(sourceID: source.sourceID, query: $0) }
         }
 
         return await withTaskGroup(
@@ -131,6 +151,91 @@ struct SearchDispatcher {
     /// unchanged — it runs every tier by contract, not as a reaction
     /// to emptiness.
     private func dispatchToSource(
+        source: any RecordSource,
+        subject: ResearchSubject,
+        recordType: RecordType,
+        scope: ResearchScope,
+        ladder: [SearchStrictness],
+        mode: ResearchMode,
+        cache: QueryCache?,
+        negativeCache: NegativeSearchCache
+    ) async -> (records: [SourceRecord], outcomes: [SearchOutcomeEntry]) {
+        var (accumulated, outcomes) = await walkLadder(
+            source: source, subject: subject, recordType: recordType,
+            scope: scope, ladder: ladder, mode: mode,
+            cache: cache, negativeCache: negativeCache
+        )
+
+        // FT-04 — SCOPE-ESCALATE tier (ported from Python's
+        // `agent/discover.py:_freebmd_national_fallback`). When a
+        // county-scoped FreeBMD search comes back CLEANLY empty — every
+        // tier answered conclusively (availability ok, not truncated)
+        // with zero records — escalate geography by firing one national
+        // `districtid=""` pass. A subject registered one county over
+        // (industrial migration, border spillover, registry-of-birth ≠
+        // residence — the Lydia Kenworthy case: twin says Stanton DBY,
+        // FreeBMD registered Huddersfield YKS) is invisible at .county
+        // scope but reachable nationally; the scorer's geography gate
+        // still down-weights distant hits, so this raises recall, not
+        // noise.
+        //
+        // Honesty envelope (T1-01): escalate ONLY on a genuine clean
+        // empty. If any tier errored, was blocked/throttled, or came
+        // back truncated, the emptiness is an artifact — escalating
+        // would hammer a failing source and launder the failure into
+        // "searched county AND nationally, found nothing". The escalation
+        // outcomes are appended, so searchHistory records it as a
+        // distinct step.
+        if Self.shouldEscalateScope(source: source, scope: scope, mode: mode,
+                                    records: accumulated, outcomes: outcomes) {
+            let (nationalRecords, nationalOutcomes) = await walkLadder(
+                source: source, subject: subject, recordType: recordType,
+                scope: .national, ladder: ladder, mode: mode,
+                cache: cache, negativeCache: negativeCache
+            )
+            accumulated.append(contentsOf: nationalRecords)
+            outcomes.append(contentsOf: nationalOutcomes)
+        }
+
+        return (accumulated, outcomes)
+    }
+
+    /// FT-04 — the escalation predicate. County→national escalation fires
+    /// only for FreeBMD (the sole source with a district-vs-national scope
+    /// distinction — CWGC/FAG/Probate are inherently national; FreeCen/
+    /// FreeREG already have their own broad-scope birth-county axis), only
+    /// from a `.county`/`.adjacent` starting scope, and only on a genuine
+    /// conclusive clean-empty. `.all` mode is excluded: it runs the full
+    /// ladder by contract, not as a reaction to emptiness, and a
+    /// scope-escalation reaction would double its national fan-out. nonisolated
+    /// + static so the escalation-ladder tests can assert the predicate
+    /// directly without a live dispatcher.
+    nonisolated static func shouldEscalateScope(
+        source: any RecordSource,
+        scope: ResearchScope,
+        mode: ResearchMode,
+        records: [SourceRecord],
+        outcomes: [SearchOutcomeEntry]
+    ) -> Bool {
+        guard source.sourceID == "freebmd" else { return false }
+        guard scope == .county || scope == .adjacent else { return false }
+        guard mode != .all else { return false }
+        guard records.isEmpty else { return false }
+        // Must have actually searched something, and every outcome must be
+        // a conclusive clean empty (availability ok, not truncated, zero
+        // records). An empty outcome list means nothing ran (no axes) — no
+        // basis to escalate.
+        guard !outcomes.isEmpty else { return false }
+        return outcomes.allSatisfy { $0.outcome.isConclusive && $0.outcome.resultCount == 0 }
+    }
+
+    /// Walk the strictness ladder for one source at ONE scope. For
+    /// non-`.all` modes, stops at the first tier that returns non-empty
+    /// results; broadens past an empty tier only when its emptiness is
+    /// conclusive (T1-01). For `.all`, runs every tier by contract. Pulled
+    /// out of `dispatchToSource` so the FT-04 scope-escalation tier can
+    /// re-walk it at `.national` without duplicating the tier-walk body.
+    private func walkLadder(
         source: any RecordSource,
         subject: ResearchSubject,
         recordType: RecordType,
@@ -226,6 +331,34 @@ struct SearchDispatcher {
         }
     }
 
+    /// T1-12 — drop `(source, recordType)` targets whose base-query set is
+    /// wire-identical to an earlier kept target's. `keyProvider` returns the
+    /// cache keys a target's base queries would emit; two targets with the
+    /// same source and the same SORTED key multiset are the same wire work.
+    /// Targets that build ZERO queries are always kept (they are cheap
+    /// no-ops in `dispatchToSource` and must never collapse a distinct
+    /// empty target). Order-preserving so the first requester of a given
+    /// wire query wins and the fan-out stays deterministic.
+    private func dedupeWireIdenticalTargets(
+        _ targets: [(any RecordSource, RecordType)],
+        keyProvider: ((any RecordSource), RecordType) -> [String]
+    ) -> [(any RecordSource, RecordType)] {
+        var seenFingerprints: Set<String> = []
+        var out: [(any RecordSource, RecordType)] = []
+        for (source, recordType) in targets {
+            let keys = keyProvider(source, recordType)
+            guard !keys.isEmpty else {
+                out.append((source, recordType))
+                continue
+            }
+            let fingerprint = source.sourceID + "\u{1F}" + keys.sorted().joined(separator: "\u{1E}")
+            if seenFingerprints.insert(fingerprint).inserted {
+                out.append((source, recordType))
+            }
+        }
+        return out
+    }
+
     // MARK: - Query Building
 
     private func sourceCovers(_ source: any RecordSource, yearRange: (from: Int?, to: Int?)) -> Bool {
@@ -288,26 +421,91 @@ struct SearchDispatcher {
     nonisolated static func freeBMDGeoAxes(
         scope: ResearchScope,
         homeChapmanCode: String,
-        countyQueriesEnabled: Bool
+        countyQueriesEnabled: Bool,
+        yearFrom: Int? = nil,
+        yearTo: Int? = nil
     ) -> [(districtCode: String?, countyCode: String?)] {
         switch scope {
         case .parish:
             return []
         case .district, .county, .adjacent:
-            if countyQueriesEnabled {
-                var counties = [homeChapmanCode]
-                if scope == .adjacent {
-                    counties += RegionConfig.adjacentCounties(homeChapmanCode)
-                }
-                return counties.compactMap { code in
-                    RegionConfig.freeBMDCountyID(forChapmanCode: code)
-                        .map { (districtCode: String?.none, countyCode: String?.some($0)) }
-                }
+            var counties = [homeChapmanCode]
+            if scope == .adjacent {
+                counties += RegionConfig.adjacentCounties(homeChapmanCode)
             }
-            return RegionConfig.districts(forChapmanCode: homeChapmanCode)
-                .values.map { (districtCode: String?.some($0), countyCode: String?.none) }
+            let axes: [(districtCode: String?, countyCode: String?)]
+            if countyQueriesEnabled {
+                // FT-09 — expand umbrella codes (YKS → WRY/NRY/ERY) so a
+                // subject anchored on an umbrella county resolves to real
+                // county axes instead of silently zero. Dedupe by countyid:
+                // .adjacent lists can name both an umbrella (YKS) and one of
+                // its constituents (WRY), which would otherwise emit WRY
+                // twice.
+                var seenCountyIDs: Set<String> = []
+                axes = counties.flatMap { code in
+                    RegionConfig.freeBMDCountyIDs(forChapmanCode: code)
+                }.compactMap { countyID -> (districtCode: String?, countyCode: String?)? in
+                    guard seenCountyIDs.insert(countyID).inserted else { return nil }
+                    return (districtCode: nil, countyCode: countyID)
+                }
+            } else {
+                // FT-09 — era-filter the per-district loop: a district
+                // whose validity window (from the bundled catalogue) does
+                // not overlap the search window cannot hold a matching
+                // record, so a post-1974 composite (High Peak, Amber
+                // Valley, …) is dropped for an 1850s subject instead of
+                // burning a guaranteed-empty request. `districts(forChapman
+                // Code:)` also expands umbrella codes now (union of the
+                // ridings' districts).
+                let codes = RegionConfig.districts(forChapmanCode: homeChapmanCode).values
+                let validCodes = Self.eraFilterDistrictCodes(
+                    Array(codes), yearFrom: yearFrom, yearTo: yearTo
+                )
+                axes = validCodes.map { (districtCode: String?.some($0), countyCode: String?.none) }
+            }
+            // FT-09 — fail loudly (log) when a non-empty chapman resolves to
+            // zero axes. An umbrella code we haven't aliased, a county with
+            // no catalogue districts, or an era filter that removed every
+            // candidate all land here; silent zero was the bug.
+            if axes.isEmpty && !homeChapmanCode.trimmingCharacters(in: .whitespaces).isEmpty {
+                Self.geoLogger.warning("FreeBMD \(String(describing: scope), privacy: .public) scope resolved chapman '\(homeChapmanCode, privacy: .public)' to ZERO geographic axes (gate=\(countyQueriesEnabled), years=\(yearFrom.map(String.init) ?? "?", privacy: .public)-\(yearTo.map(String.init) ?? "?", privacy: .public)) — no FreeBMD queries will run for this subject")
+            }
+            return axes
         case .national:
             return [(districtCode: nil, countyCode: nil)]
+        }
+    }
+
+    private nonisolated static let geoLogger = Logger(
+        subsystem: "dev.dreamfold.Ancestor-Research",
+        category: "SearchDispatcher.freeBMDGeoAxes"
+    )
+
+    /// FT-09 — keep only district codes whose catalogue validity window
+    /// overlaps the search window. When the window is open (both bounds
+    /// nil) every code is kept (no basis to filter). A code with no
+    /// catalogue entry is kept (unknown validity — we can't prove it
+    /// can't match, and the hand-curated DBY map has codes the era filter
+    /// shouldn't silently drop). Order-preserving so the wire fan-out is
+    /// deterministic.
+    nonisolated static func eraFilterDistrictCodes(
+        _ codes: [String],
+        yearFrom: Int?,
+        yearTo: Int?
+    ) -> [String] {
+        guard yearFrom != nil || yearTo != nil else { return codes }
+        let lower = yearFrom ?? Int.min
+        let upper = yearTo ?? Int.max
+        guard lower <= upper else { return codes }
+        let range = lower...upper
+        let catalogue = FreeBMDDistrictCatalogue.shared.all()
+        // A code can appear on multiple catalogue rows (successor renames);
+        // keep it if ANY row with that code overlaps the window. Codes with
+        // no catalogue row are kept (unknown validity).
+        return codes.filter { code in
+            let rows = catalogue.filter { $0.code == code }
+            guard !rows.isEmpty else { return true }
+            return rows.contains { $0.overlaps(years: range) }
         }
     }
 
@@ -471,7 +669,9 @@ struct SearchDispatcher {
             let geoAxes = Self.freeBMDGeoAxes(
                 scope: scope,
                 homeChapmanCode: subject.homeChapmanCode,
-                countyQueriesEnabled: freeBMDCountyQueriesEnabled
+                countyQueriesEnabled: freeBMDCountyQueriesEnabled,
+                yearFrom: yearRange.from,
+                yearTo: yearRange.to
             )
             // FreeBMD's s_surname field is overloaded per record type
             // (see FreeBMDSource): spouse surname for marriages,

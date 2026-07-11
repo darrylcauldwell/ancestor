@@ -114,7 +114,23 @@ actor FreeBMDSource: RecordSource {
     /// found nothing" downstream.
     func searchWithOutcome(_ query: RecordQuery) async -> SourceSearchEnvelope {
         guard recordTypes.contains(query.recordType) else { return SourceSearchEnvelope(.outsideCoverage(reason: "FreeBMD does not cover \(query.recordType.rawValue)")) }
-        guard let surname = query.surname, !surname.isEmpty else { return SourceSearchEnvelope(.results([])) }
+        // FT-03 — a same-page page-lookup (`vol`+`pgno` both set) is a
+        // legitimate surname-less query: it enumerates the couples on one
+        // GRO page to recover a partner we don't yet have a surname for.
+        // The GRO reference pair bounds the result set tightly, so the
+        // usual "surname required to avoid an unbounded search" guard
+        // doesn't apply. Every other query still requires a surname.
+        let hasPageKey: Bool = {
+            guard case .freeBMD(let p) = query.sourceParams else { return false }
+            let v = p.volume?.trimmingCharacters(in: .whitespaces) ?? ""
+            let pg = p.page?.trimmingCharacters(in: .whitespaces) ?? ""
+            return !v.isEmpty && !pg.isEmpty
+        }()
+        let querySurname = query.surname ?? ""
+        guard !querySurname.isEmpty || hasPageKey else {
+            return SourceSearchEnvelope(.results([]))
+        }
+        let surname = querySurname
 
         // Park behind the circuit breaker if 429s have been piling up.
         // Better cooperative behaviour than retrying into an already-
@@ -225,6 +241,18 @@ actor FreeBMDSource: RecordSource {
             // national queries never carried it before.
             if let countyID = params?.countyCode, !countyID.isEmpty {
                 baseFields["countyid"] = countyID
+            }
+            // FT-03 — same-page page-lookup. The form's `vol` + `pgno`
+            // pair fetches the handful of index entries registered on
+            // one GRO page, recovering a marriage's other party without a
+            // surname sweep. Emitted only when BOTH are present (a lone
+            // vol or page is not a usable page key); omitted entirely
+            // otherwise — same Perl CGI presence caution as `countyid`
+            // (FT-06), and every historical query left them off.
+            if let vol = params?.volume?.trimmingCharacters(in: .whitespaces), !vol.isEmpty,
+               let pgno = params?.page?.trimmingCharacters(in: .whitespaces), !pgno.isEmpty {
+                baseFields["vol"] = vol
+                baseFields["pgno"] = pgno
             }
 
             let window = try await fetchWindowWithAdaptiveSplit(
