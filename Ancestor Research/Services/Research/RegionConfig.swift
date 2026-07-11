@@ -184,6 +184,46 @@ nonisolated struct RegionConfig: Codable, Sendable {
         return map
     }
 
+    /// FT-01 — the FreeBMD `countyid` form value for one county.
+    ///
+    /// Live-form ground truth (CONNECTOR_AUDIT_2026-07 §2.1 FT-01): the
+    /// county dropdown's option values are compound strings — the Chapman
+    /// code followed by that county's district IDs, comma-separated
+    /// (e.g. "BDF,66,133,…"). A browser submits the option value verbatim,
+    /// so the connector sends the same shape. We reconstruct the value
+    /// from the SAME district set the per-district loop uses today
+    /// (`districts(forChapmanCode:)`), so a county-level query targets
+    /// exactly the districts the loop would have visited — one request
+    /// instead of N. District IDs are sorted numerically for a
+    /// deterministic wire value (and stable cache keys); the live form's
+    /// own ordering is unknown, but comma-list order should not be
+    /// load-bearing server-side.
+    ///
+    /// UNVERIFIED against today's live form — whether search.pl requires
+    /// the option's exact ID list (ours may lag the form's), parses the
+    /// IDs at all, or only reads the Chapman prefix cannot be determined
+    /// statically. Consumption is gated behind
+    /// `FreeBMDParams.countyQueryEnabled` (default false) until the
+    /// FT-27 live probe session captures a real submission.
+    ///
+    /// Returns nil when no districts are known for the code — parity
+    /// with the district loop, which emits zero queries in that case.
+    static func freeBMDCountyID(forChapmanCode code: String) -> String? {
+        let chapman = code.trimmingCharacters(in: .whitespaces).uppercased()
+        guard !chapman.isEmpty else { return nil }
+        let ids = Array(districts(forChapmanCode: chapman).values)
+        guard !ids.isEmpty else { return nil }
+        let sorted = ids.sorted { lhs, rhs in
+            switch (Int(lhs), Int(rhs)) {
+            case let (l?, r?): return l < r
+            case (nil, nil):   return lhs < rhs
+            case (nil, _):     return false
+            case (_, nil):     return true
+            }
+        }
+        return ([chapman] + sorted).joined(separator: ",")
+    }
+
     /// Single-hop adjacency lookup. Returns the Chapman codes of counties
     /// bordering the given county; empty array for island chains, sea-bounded
     /// codes, or unknown inputs. Symmetric — `A in adjacentCounties(B)` iff

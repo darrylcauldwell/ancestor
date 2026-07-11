@@ -555,15 +555,47 @@ public nonisolated enum SourceQueryParams: Sendable {
 }
 
 public nonisolated struct FreeBMDParams: Sendable {
+    /// FT-01 feature gate — county-level `countyid` queries.
+    ///
+    /// When true, the dispatcher's `.county`/`.adjacent` scopes emit ONE
+    /// query per county (via `countyCode`) instead of one query per
+    /// registration district (12 for DBY). The emission path, params
+    /// plumbing, and cache keying are fully wired and tested; the gate
+    /// exists because the exact `countyid` wire value is UNVERIFIED
+    /// against today's live form (CONNECTOR_AUDIT_2026-07 §1 — the
+    /// ground-truth form payload never arrived). The audit's live-form
+    /// note says the county dropdown's option values are compound
+    /// strings (Chapman code + that county's district IDs, e.g.
+    /// "BDF,66,133,…"); we reconstruct that value statically, but
+    /// whether search.pl accepts a reconstructed ID list — or ignores
+    /// `countyid` entirely, silently widening the query to national —
+    /// needs the one FT-27 live probe session (audit §5.6).
+    ///
+    /// DO NOT flip to true without that probe. Default false = the
+    /// safe pre-FT-01 per-district loop. The `.national` single-query
+    /// path (FT-02) is NOT behind this gate — `districtid=""` is
+    /// proven wire behaviour (Python sources/freebmd.py:152-153).
+    public static let countyQueryEnabled = false
+
     public let districtCode: String?
+    /// FT-01 — the finished FreeBMD `countyid` wire value for a
+    /// county-level query (compound "DBY,406,418,…" — Chapman code
+    /// followed by district IDs; built by
+    /// `RegionConfig.freeBMDCountyID(forChapmanCode:)`). nil = no
+    /// county axis; the query is district-level (`districtCode`) or
+    /// national (both nil). When set, `FreeBMDSource` emits it as the
+    /// `countyid` form field; when nil the field is omitted entirely
+    /// (checkbox-presence semantics — see FT-06).
+    public let countyCode: String?
     public let wildcardSurname: Bool
     public let motherSurname: String?
     public let spouseSurname: String?
 
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
-    public init(districtCode: String? = nil, wildcardSurname: Bool, motherSurname: String? = nil, spouseSurname: String? = nil) {
+    public init(districtCode: String? = nil, countyCode: String? = nil, wildcardSurname: Bool, motherSurname: String? = nil, spouseSurname: String? = nil) {
         self.districtCode = districtCode
+        self.countyCode = countyCode
         self.wildcardSurname = wildcardSurname
         self.motherSurname = motherSurname
         self.spouseSurname = spouseSurname

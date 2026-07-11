@@ -127,6 +127,7 @@ actor QueryCache {
         var spouseSurname = query.spouseSurname ?? ""
         var motherSurname = query.motherSurname ?? ""
         var districtCode = ""
+        var countyCode = ""
         var chapmanCode = ""
         var censusYear = ""
         var birthYearRange = ""
@@ -136,6 +137,10 @@ actor QueryCache {
             if let ss = p.spouseSurname, !ss.isEmpty { spouseSurname = ss }
             if let ms = p.motherSurname, !ms.isEmpty { motherSurname = ms }
             districtCode = p.districtCode ?? ""
+            // FT-01: countyCode changes the outbound `countyid` field —
+            // without it a county-level query and a national query for
+            // the same subject collide on one cache entry.
+            countyCode = p.countyCode ?? ""
         case .freeCen(let p):
             chapmanCode = p.chapmanCode ?? ""
             censusYear = p.censusYear.map(String.init) ?? ""
@@ -175,6 +180,8 @@ actor QueryCache {
             censusYear,
             birthYearRange,
             fagLocation,
+            // FT-01 addition — appended, preserving prior positions.
+            countyCode,
         ]
         return parts.joined(separator: "|")
     }

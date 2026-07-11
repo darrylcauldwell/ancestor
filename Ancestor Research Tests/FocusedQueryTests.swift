@@ -29,6 +29,11 @@ struct FocusedQueryTests {
         #expect(rq.yearFrom == 1879 && rq.yearTo == 1882)
         if case .freeBMD(let params) = rq.sourceParams {
             #expect(params.districtCode == "722")
+            // FT-01: strategist dispatches are surgical by contract —
+            // they must stay district-level and never pick up the
+            // county-level `countyid` axis the scoped fan-out uses.
+            #expect(params.countyCode == nil,
+                    "FocusedQuery must never emit a county-level axis")
         } else {
             Issue.record("expected .freeBMD params, got \(rq.sourceParams)")
         }

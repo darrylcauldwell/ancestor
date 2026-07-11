@@ -201,7 +201,7 @@ actor FreeBMDSource: RecordSource {
             // 1935–2017). Clamping makes the same query return the record.
             let coverageCeiling = Self.coverageUpperBound
             let clampedEnd: Int? = query.yearTo.map { min($0, coverageCeiling) }
-            let baseFields: [String: String] = [
+            var baseFields: [String: String] = [
                 "type": recordType,
                 "surname": surname,
                 "given": Self.firstGivenName(query.givenName) ?? "",
@@ -216,6 +216,16 @@ actor FreeBMDSource: RecordSource {
                 "find.x": "1",
                 "find.y": "1",
             ]
+            // FT-01 — county-level query axis. The dispatcher builds the
+            // compound `countyid` wire value (Chapman code + district IDs,
+            // matching the live form's option-value encoding) and sets it
+            // on the params; we transmit it verbatim. Omitted entirely when
+            // absent — Perl CGI presence semantics make an always-present
+            // empty field risky (the FT-06 lesson), and district-level /
+            // national queries never carried it before.
+            if let countyID = params?.countyCode, !countyID.isEmpty {
+                baseFields["countyid"] = countyID
+            }
 
             let window = try await fetchWindowWithAdaptiveSplit(
                 baseFields: baseFields,
@@ -608,6 +618,11 @@ actor FreeBMDSource: RecordSource {
             if let code = params.districtCode, !code.isEmpty {
                 districtName = FreeBMDDistrictCatalogue.shared.all()
                     .first(where: { $0.code == code })?.name ?? "district \(code)"
+            } else if let countyID = params.countyCode, !countyID.isEmpty {
+                // FT-01 county-level query — the compound wire value's
+                // first component is the Chapman code ("DBY,406,418,…").
+                let chapman = countyID.split(separator: ",").first.map(String.init) ?? countyID
+                districtName = "\(chapman) county"
             }
             if let ss = params.spouseSurname, !ss.isEmpty {
                 spouseSurname = ss

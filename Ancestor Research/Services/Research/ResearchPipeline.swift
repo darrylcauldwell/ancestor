@@ -1738,34 +1738,26 @@ final class ResearchPipeline {
         scope: ResearchScope,
         cache: QueryCache? = nil
     ) async -> [ScoredRecord] {
-        // Build district codes for this scope. Marriage enrichment is
-        // FreeBMD-only — mirrors the FreeBMD widening logic in
-        // SearchDispatcher.buildQueries; see RESEARCH_AXES_SPEC §5.3.
-        let districtCodes: [String]
-        switch scope {
-        case .parish:
-            districtCodes = []
-        case .district, .county, .adjacent:
-            // Subject's home county via the same two-tier lookup the main
-            // fan-out uses (SearchDispatcher.buildQueries) — replaces the
-            // old dispatcher.regionConfig, which was always Derbyshire
-            // regardless of subject. Empty chapman → empty list → honest
-            // no-fan-out degradation.
-            districtCodes = Array(
-                RegionConfig.districts(forChapmanCode: runHomeChapmanCode).values
-            )
-        case .national:
-            let yr = yearFrom...yearTo
-            districtCodes = FreeBMDDistrictCatalogue.shared.covering(years: yr).map { $0.code }
-        }
-        guard !districtCodes.isEmpty else { return [] }
+        // Build geographic axes for this scope. Marriage enrichment is
+        // FreeBMD-only — shares SearchDispatcher.freeBMDGeoAxes with the
+        // main fan-out (FT-01/FT-02) so this flow cannot drift from it;
+        // see RESEARCH_AXES_SPEC §5.3. Under `.national` this is now ONE
+        // districtid="" query instead of the old 632–996-request
+        // year-filtered catalogue loop (FT-02). Empty chapman → empty
+        // axes → honest no-fan-out degradation, as before.
+        let geoAxes = SearchDispatcher.freeBMDGeoAxes(
+            scope: scope,
+            homeChapmanCode: runHomeChapmanCode,
+            countyQueriesEnabled: FreeBMDParams.countyQueryEnabled
+        )
+        guard !geoAxes.isEmpty else { return [] }
 
         // Locate the FreeBMD source instance via the registry.
         guard let freebmd = dispatcher.registry.allSources().first(where: { $0.sourceID == "freebmd" }) else {
             return []
         }
 
-        let queries: [RecordQuery] = districtCodes.map { code in
+        let queries: [RecordQuery] = geoAxes.map { geo in
             RecordQuery(
                 surname: surname,
                 givenName: nil,
@@ -1775,7 +1767,8 @@ final class ResearchPipeline {
                 gender: nil,
                 region: nil,
                 sourceParams: .freeBMD(FreeBMDParams(
-                    districtCode: code,
+                    districtCode: geo.districtCode,
+                    countyCode: geo.countyCode,
                     wildcardSurname: false,
                     motherSurname: nil,
                     spouseSurname: spouseSurname

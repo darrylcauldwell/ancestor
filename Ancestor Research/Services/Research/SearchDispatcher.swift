@@ -210,17 +210,77 @@ struct SearchDispatcher {
     /// Test seam for `RESEARCH_AXES_SPEC` Change 3+5 acceptance tests. Lets a test
     /// inspect the per-source query fan-out for a given scope (and optional
     /// strictness) without going through the async network path.
+    /// `freeBMDCountyQueriesEnabled` overrides the FT-01 gate so both the
+    /// gated county-level emission and the default district loop are testable
+    /// without mutating global state.
     func buildQueriesForTest(
         source: any RecordSource,
         subject: ResearchSubject,
         recordType: RecordType,
         scope: ResearchScope,
-        strictness: SearchStrictness = .strict
+        strictness: SearchStrictness = .strict,
+        freeBMDCountyQueriesEnabled: Bool = FreeBMDParams.countyQueryEnabled
     ) -> [RecordQuery] {
-        let queries = buildQueries(source: source, subject: subject, recordType: recordType, scope: scope)
+        let queries = buildQueries(
+            source: source, subject: subject, recordType: recordType, scope: scope,
+            freeBMDCountyQueriesEnabled: freeBMDCountyQueriesEnabled
+        )
         return Self.applyStrictness(queries, strictness: strictness, source: source)
     }
     #endif
+
+    // MARK: - FreeBMD geographic fan-out (FT-01 / FT-02)
+
+    /// The geographic axes for FreeBMD queries at a given scope. Each
+    /// element becomes one `RecordQuery`; exactly one of the two fields
+    /// is non-nil per element (or both nil for a national query):
+    ///
+    ///   - `.parish`    → zero axes (FreeBMD has no parish endpoint).
+    ///   - `.district`/`.county`/`.adjacent`, gate OFF (default) →
+    ///     the pre-FT-01 per-district loop over the home county
+    ///     (`RegionConfig.districts(forChapmanCode:)` — 12 for DBY).
+    ///     `.adjacent` keeps its honest degradation to home-county-only.
+    ///   - `.district`/`.county`/`.adjacent`, gate ON → one county-level
+    ///     axis per county via the `countyid` form value (FT-01); for
+    ///     `.adjacent` that is home + `RegionConfig.adjacentCounties`,
+    ///     lifting the old degradation. Counties with no known districts
+    ///     resolve to nil and are dropped (parity with the loop's
+    ///     zero-query behaviour).
+    ///   - `.national` → ONE axis with both fields nil — FreeBMDSource
+    ///     emits `districtid=""`, which Python proved is a single
+    ///     all-districts query (FT-02; sources/freebmd.py:152-153).
+    ///     NOT gated: the wire behaviour is proven, and the overflow
+    ///     interstitial on wide result sets is handled by the source's
+    ///     adaptive year-split + truncation envelope (FT-05/FT-23).
+    ///
+    /// Shared by `buildQueries` and `ResearchPipeline.dispatchMarriageQuery`
+    /// so the marriage-enrichment flow's fan-out cannot drift from the
+    /// main pipeline's (its doc comment promises it mirrors us).
+    nonisolated static func freeBMDGeoAxes(
+        scope: ResearchScope,
+        homeChapmanCode: String,
+        countyQueriesEnabled: Bool
+    ) -> [(districtCode: String?, countyCode: String?)] {
+        switch scope {
+        case .parish:
+            return []
+        case .district, .county, .adjacent:
+            if countyQueriesEnabled {
+                var counties = [homeChapmanCode]
+                if scope == .adjacent {
+                    counties += RegionConfig.adjacentCounties(homeChapmanCode)
+                }
+                return counties.compactMap { code in
+                    RegionConfig.freeBMDCountyID(forChapmanCode: code)
+                        .map { (districtCode: String?.none, countyCode: String?.some($0)) }
+                }
+            }
+            return RegionConfig.districts(forChapmanCode: homeChapmanCode)
+                .values.map { (districtCode: String?.some($0), countyCode: String?.none) }
+        case .national:
+            return [(districtCode: nil, countyCode: nil)]
+        }
+    }
 
     /// Apply a non-strict strictness value to a freshly built set of queries.
     ///
@@ -309,40 +369,35 @@ struct SearchDispatcher {
         source: any RecordSource,
         subject: ResearchSubject,
         recordType: RecordType,
-        scope: ResearchScope
+        scope: ResearchScope,
+        freeBMDCountyQueriesEnabled: Bool = FreeBMDParams.countyQueryEnabled
     ) -> [RecordQuery] {
         let yearRange = subject.yearRange(for: recordType)
 
         switch source.sourceID {
         case "freebmd":
-            // Multi-district: one query per configured district.
-            // Nil-surname subjects (ghost mothers) skip FreeBMD.
+            // Geographic fan-out per scope — see `freeBMDGeoAxes` (FT-01 /
+            // FT-02). Nil-surname subjects (ghost mothers) skip FreeBMD.
             //
             // Per RESEARCH_AXES_SPEC §5.3 + §7:
             //   .parish    → zero queries (FreeBMD has no parish endpoint).
             //   .district  → transitional widen to .county (subject lacks
             //                structured location code until prior spec Change 2).
-            //   .county    → RegionConfig.districts(forChapmanCode:) — formerly .local.
-            //   .adjacent  → falls back to .county for FreeBMD: the catalogue
-            //                lacks per-district Chapman affiliation, so we can't
-            //                enumerate adjacent-county districts without that data.
-            //                Honest degradation; logged via spec note.
-            //   .national  → full catalogue, year-filtered.
+            //   .county    → per-district loop (FT-01 gate off) or one
+            //                county-level `countyid` query (gate on).
+            //   .adjacent  → same, plus adjacent counties when gate on.
+            //   .national  → ONE `districtid=""` query (FT-02) — replaces
+            //                the old 632–996-request year-filtered catalogue
+            //                fan-out. Overflow is recovered by the source's
+            //                adaptive year-split; unrecoverable overflow
+            //                surfaces as a truncated envelope, never as a
+            //                silent empty.
             guard subject.surname != nil else { return [] }
-            let districtCodes: [String]
-            switch scope {
-            case .parish:
-                return []
-            case .district, .county, .adjacent:
-                districtCodes = Array(
-                    RegionConfig.districts(forChapmanCode: subject.homeChapmanCode).values
-                )
-            case .national:
-                let entries = FreeBMDDistrictCatalogue.shared.covering(
-                    yearFrom: yearRange.from, yearTo: yearRange.to
-                )
-                districtCodes = entries.map(\.code)
-            }
+            let geoAxes = Self.freeBMDGeoAxes(
+                scope: scope,
+                homeChapmanCode: subject.homeChapmanCode,
+                countyQueriesEnabled: freeBMDCountyQueriesEnabled
+            )
             // FreeBMD's s_surname field is overloaded per record type
             // (see FreeBMDSource): spouse surname for marriages,
             // mother's maiden name for births, unused for deaths.
@@ -397,7 +452,7 @@ struct SearchDispatcher {
             let surnamesToTry = subject.surnamesToProbe(for: recordType)
             return surnamesToTry.flatMap { surnameToTry in
                 spouseSurnamesForBMD.flatMap { spouseSurnameForBMD in
-                    districtCodes.map { code in
+                    geoAxes.map { geo in
                         RecordQuery(
                             surname: surnameToTry,
                             givenName: subject.givenName,
@@ -407,7 +462,8 @@ struct SearchDispatcher {
                             gender: subject.gender,
                             region: subject.region,
                             sourceParams: .freeBMD(FreeBMDParams(
-                                districtCode: code,
+                                districtCode: geo.districtCode,
+                                countyCode: geo.countyCode,
                                 wildcardSurname: false,
                                 motherSurname: motherSurnameForBMD,
                                 spouseSurname: spouseSurnameForBMD
