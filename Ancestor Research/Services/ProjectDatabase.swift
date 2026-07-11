@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import os
 
 /// GRDB database wrapper for a single project.
 /// Each project is one SQLite file in Application Support.
@@ -38,6 +39,14 @@ nonisolated final class ProjectDatabase: Sendable {
 
     /// Run all migrations to bring the schema up to date.
     private func migrate() throws {
+        try Self.makeMigrator().migrate(dbQueue)
+    }
+
+    /// The full migration chain, v1…v31. Static (no instance state) so tests
+    /// can drive the migrator directly — e.g. migrate a scratch DB
+    /// `upTo:` a given version, seed legacy-shaped rows, then complete the
+    /// chain to exercise a data migration in isolation.
+    static func makeMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
 
         migrator.registerMigration("v1_create_tables") { db in
@@ -923,7 +932,52 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
-        try migrator.migrate(dbQueue)
+        // FT-16 follow-up (CONNECTOR_AUDIT_2026-07 §2.3) — purge rows keyed
+        // on the retired hash-based record IDs. FreeREG and Wirksworth
+        // previously built SourceRecord ids from `String.hashValue`
+        // ("freereg_<hash>_<hash>", "wirksworth_<hash>") — SipHash with a
+        // per-process random seed, so the same record got a different id
+        // every launch, and every row keyed on one was orphaned at the next
+        // restart. This migration ships in the same build as the stable-ID
+        // scheme (URL path segment / SHA256 content digest) and runs at
+        // first open of each project DB, so every row whose record id
+        // starts with "freereg_" or "wirksworth_" at migration time was
+        // written under the old scheme and can never match again: simple
+        // prefix deletion is provably correct — no pattern-parsing needed.
+        // Tables covered are the cross-run record-id keys:
+        //   record_rejections.record_id (v2) — rejection lookups;
+        //   evidence_records.source_record_id (v13) — the PK id embeds the
+        //     same id after "|", so deleting via the column clears both;
+        //   scored_records.source_record_id + research_records.id (v2/v4) —
+        //     vestigial since the v13 evidence_records cutover but possibly
+        //     populated in older projects, and still read by the MCP
+        //     get_scored_records join.
+        // Deliberately NOT purged: leads (ids embed record ids as an
+        // idempotency key, but rows are self-contained user-facing task
+        // items — deleting could discard a lead mid-investigation) and
+        // life_events (UUIDs derived from record ids are accepted tree
+        // data, not lookup keys).
+        migrator.registerMigration("v31_purge_hash_based_record_ids") { db in
+            let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "ProjectDatabase")
+            let purges: [(table: String, column: String)] = [
+                ("record_rejections", "record_id"),
+                ("evidence_records", "source_record_id"),
+                ("scored_records", "source_record_id"),
+                ("research_records", "id"),
+            ]
+            for purge in purges {
+                // ESCAPE '\' so the underscore is a literal, not the LIKE
+                // single-character wildcard — "freeregister_x" must survive.
+                try db.execute(sql: """
+                    DELETE FROM \(purge.table)
+                    WHERE \(purge.column) LIKE 'freereg\\_%' ESCAPE '\\'
+                       OR \(purge.column) LIKE 'wirksworth\\_%' ESCAPE '\\'
+                    """)
+                logger.info("v31: purged \(db.changesCount) hash-based-id rows from \(purge.table, privacy: .public)")
+            }
+        }
+
+        return migrator
     }
 
     // MARK: - Snapshot Building
