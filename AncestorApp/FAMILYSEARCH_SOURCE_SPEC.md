@@ -8,6 +8,19 @@
 
 Status: drafting · Author: derived from API/website-backend research, 2026-05-19
 
+> **Amendment (2026-07-11) — official-API pivot. Status: Proposed — awaiting review.**
+> FamilySearch accepted the developer into its Beta Program on 2026-07-10
+> (Innovator Solution Provider, non-production API access). The signed
+> developer agreement's §15 scraping ban makes the §2.1 cookie transport
+> **contractually prohibited**, not merely fragile. §§14–19 (appended)
+> carry the pivot: migration posture (OAuth2+PKCE, loopback redirect),
+> official-API protocol mechanics, licensing posture (pending
+> agreement-wording confirmation), evidence-identity columns, the
+> hint-score rule, and Beta read-leg demo acceptance criteria.
+> Cookie-era content below is retained for the record with superseding
+> notes inline; the search/parse/score design (§§3–8) carries over
+> unchanged. Supersession index at §14.3.
+
 This document specifies what the in-app FamilySearch source plugin will expose,
 how it maps onto the existing pipeline, and which app features it unlocks.
 It is the input to `FamilySearchSource.swift` and related work.
@@ -85,6 +98,13 @@ FamilySearch has two parallel surfaces serving the same data model
 
 ### 2.1 Website backend (cookie-auth, available now)
 
+> **Superseded (2026-07-11, §14):** this transport is now contractually
+> prohibited — the developer agreement's §15 scraping ban covers
+> cookie-authenticated calls to the website backend
+> (`FamilySearchSource.swift:75` still points here today). Retained for
+> the record; do not implement further. Official-API equivalent:
+> `GET /platform/records/personas` (§15.7).
+
 | Endpoint | Method | Purpose |
 |---|---|---|
 | `/service/search/hr/v2/personas` | GET | Historical-records search across all collections |
@@ -95,6 +115,13 @@ each carrying `content.gedcomx.{persons, relationships, sourceDescriptions}`.
 Auth: session cookies (`fssessionid`, `JSESSIONID`, ...).
 
 ### 2.2 Public Platform API (OAuth, available post-App-Store-approval)
+
+> **Amended (2026-07-11, §14):** the gate was never App Store approval —
+> it was FamilySearch partner acceptance, which landed 2026-07-10. This
+> surface is available **now** on Beta (`apibeta.familysearch.org`,
+> §15.1) and is the only permitted transport. Endpoint table below
+> stands; the search endpoint is `GET /platform/records/personas`
+> (§15.7), matching the `/platform/records/...` rows here.
 
 | Endpoint | Method | Purpose |
 |---|---|---|
@@ -125,6 +152,16 @@ the URL prefix (`/service/search/hr/v2/...` → `/platform/...`) change.
 This is the load-bearing reason to invest in coverage work now: every
 hour spent on search-parameter design and response parsing carries over
 unchanged.
+
+> **Amended (2026-07-11, §14):** the bet paid off — partner approval
+> landed and the change is exactly the predicted prefix swap. But the
+> `.cookieSession` case is **removed**, not kept as fallback: the
+> agreement's §15 scraping ban means there is no lawful cookie
+> transport to fall back to. `FamilySearchCredential` collapses to
+> the bearer-token case (OAuth2+PKCE acquisition per §15.2); the
+> `FamilySearchAuth/` WKWebView capture stack
+> (`FamilySearchCookieStore`, `FamilySearchAuthView`,
+> `FamilySearchTestProbe`) is retired.
 
 ### 2.4 Excluded from scope
 
@@ -562,6 +599,15 @@ the start — refetching to backfill is rate-limit-expensive.
 
 ### 5.6 Python plugin lessons audit
 
+> **Amended (2026-07-11, §14):** items 4 (Safari-UA/Referer header
+> spoofing) and 5 (cookie-expiry handling) are moot — both are
+> cookie-transport survival tactics, and UA spoofing against the
+> official API would itself smell like the scraping the agreement
+> bans. Items 1–3 and 6 (fact-URI suffix stripping, household
+> resolution, ARK construction, response edge cases) still stand:
+> they are GEDCOMx-shape lessons and the official API serves the
+> same data model.
+
 The reference implementation (`sources/familysearch.py`, 502 lines) has
 accumulated knowledge worth preserving in the Swift port. Before
 writing FS source code, do an explicit audit pass:
@@ -649,6 +695,12 @@ Cookie-mode equivalent: the website backend has a similar URL pattern
 under `/service/search/...` that requires probing during implementation
 (not documented publicly). Worst case we fall back to scraping the
 public record page HTML.
+
+> **Superseded (2026-07-11, §14):** both the cookie-mode probe and the
+> scrape-the-HTML fallback are prohibited under the developer
+> agreement's §15. The OAuth endpoint above is the only path. Note
+> also that detail-fetch persistence is constrained by the §16
+> licensing posture until the agreement wording is confirmed.
 
 ### 6.2 Record by ARK
 
@@ -1130,6 +1182,17 @@ the §5.8.2 hopes-for-tight-loop becomes realised.
 
 ### 9.1 First-cut scope (one focused session)
 
+> **Amended (2026-07-11, §14):** the transport rows below invert —
+> "Cookie-auth path only (OAuth path stubs in place but not wired)"
+> becomes **OAuth-only; cookie path deleted**, and "OAuth transport
+> (post-App-Store-approval)" leaves the out-of-scope list. The
+> session-start probes run against `apibeta.familysearch.org` with a
+> bearer token (§15.1–§15.2), inside the per-user processing-time
+> budget (§15.3). Persistence lines ("Original + Interpreted both
+> stored", `rawFields["sourceQualifier"]`, per-ARK record cache) are
+> conditional on the §16 licensing confirmation. Everything else
+> stands.
+
 **Goal**: FS records flow into the pipeline like any other source,
 with conservative coverage and zero deferred-feature interference.
 
@@ -1236,6 +1299,14 @@ and diff against the fixture detects silent FS backend drift.
 
 ## 10. Open questions for implementation
 
+> **Amended (2026-07-11, §14):** Q4 (cookie-path ARK lookup) and Q5
+> (cookie-path rate ceiling) are moot — no cookie path exists. Q5's
+> replacement is answered by the documented throttling contract
+> (§15.3); the remaining questions convert to official-API probes on
+> Beta. Q2's collection-filter ambiguity may resolve via the
+> documented `f.*` exact-filter / `c.*` facet parameter categories
+> (§15.7) — confirm live.
+
 These convert directly into the first-session probe sequence (§9.1):
 
 1. **Server-side record-type filter** — does `q.recordType=Birth` actually
@@ -1318,6 +1389,15 @@ whether to advance the ladder level. Only `.deficitQueryReturnedNothing`
 advances.
 
 ### 11.2 Cookie-auth fragility and canary monitoring
+
+> **Superseded (2026-07-11, §14):** the cookie transport this canary
+> guards is gone. The silent-drift concern survives in reduced form —
+> the official API changes on a published cadence instead of without
+> notice: breaking changes activate only on four fixed quarterly dates
+> (Mar 1 / Jun 1 / Sep 1 / Dec 1) via the Pending-Modifications
+> mechanism (§15.6). Replacement practice: newsletter subscription +
+> golden-fixture regression runs around those dates, not a weekly
+> scrape canary. The §9.4 fixtures keep their second job.
 
 §2.1's website-backend endpoint (`/service/search/hr/v2/personas`) is
 undocumented and could change without notice. The Credential abstraction
@@ -1477,3 +1557,496 @@ This spec was synthesised from:
   - `Ancestor Research/Services/Research/RecordSource.swift` — protocol contract
   - `Ancestor Research/Services/Research/RecordTypes.swift` — `RecordType` enum + per-type structs
   - `Ancestor Research/Services/Sources/FreeBMDSource.swift` — reference for rate-limit + circuit-breaker patterns
+
+### 13.1 Amendment sources (2026-07-11)
+
+§§14–19 were synthesised from the R1/R2 FamilySearch research corpus
+(overnight runs 2026-07-10/11, adversarially cross-checked; anything the
+corpus's contradiction audit could not verify is labelled *unverified*
+below) plus the signed developer agreement:
+
+- [Getting Started](https://developers.familysearch.org/main/docs/getting-started) — environment tiers, Beta = production-data snapshot
+- [Authentication](https://developers.familysearch.org/main/docs/authentication) — OAuth endpoints, Realm quirk
+- [OAuth 2.0 for Native Apps](https://developers.familysearch.org/main/docs/oauth-20-for-native-apps) — PKCE mandate, loopback redirect, redirect_uri registration
+- [Throttling](https://developers.familysearch.org/main/docs/throttling) — per-user budget, Retry-After, X-PROCESSING-TIME, test hook
+- [HTTP Status Codes](https://developers.familysearch.org/main/docs/http-status-codes) — 301/410 semantics, Warning header
+- [Caching guide](https://www.familysearch.org/developers/docs/guides/caching) — ETag/If-None-Match/304
+- [API Evolution](https://developers.familysearch.org/main/docs/api-evolution) — Pending Modifications, quarterly dates
+- [Record Persona Search resource](https://www.familysearch.org/en/developers/docs/api/records/Record_Persona_Search_resource) — endpoint, parameter grammar, pagination caps
+- [Persistent Identifiers](https://developers.familysearch.org/main/docs/persistent-identifiers) — ARK permanence scope
+- [Compatibility Checklist](https://developers.familysearch.org/main/docs/compatibility-checklist) — records-display restriction (**paraphrase-only**, page resisted direct fetch)
+- [Read certification](https://www.familysearch.org/en/developers/docs/certification/read) — per-capability certification tiers
+- [App Approval Considerations](https://developers.familysearch.org/main/docs/app-approval-considerations) — Beta ≠ production approval
+- [fs-js-lite source](https://github.com/FamilySearch/fs-js-lite/blob/master/src/FamilySearch.js) — environment hostnames (docs omit them)
+- [gedcomx-familysearch-extensions#3](https://github.com/FamilySearch/gedcomx-familysearch-extensions/issues/3) — undocumented error-body shape
+- Signed FamilySearch developer agreement (§15 scraping ban; not a public URL)
+
+---
+
+## 14. Amendment (2026-07-11) — official-API pivot
+
+**Status: Proposed — awaiting review.**
+
+### 14.1 What happened
+
+1. **2026-07-10 — Beta Program acceptance.** FamilySearch accepted the
+   developer as an **Innovator Solution Provider** with non-production
+   API access. Integration (synthetic sandbox) is auto-granted at
+   signup; Beta is a separately granted tier holding a **snapshot of
+   real production genealogical data** (§15.1) — so genuine research
+   queries against real records can run there
+   ([getting-started](https://developers.familysearch.org/main/docs/getting-started)).
+   OAuth redirect_uri and Realm setup are still pending (§15.2).
+2. **The scraping ban.** The signed developer agreement's §15 prohibits
+   scraping / automated access outside the official API. Consequence:
+   the §2.1 cookie transport — WKWebView-captured session cookies
+   against `/service/search/hr/v2/personas`
+   (`FamilySearchSource.swift:75`, doc comment at lines 8–11) — is
+   **contractually prohibited** the moment the agreement was signed,
+   independent of its technical fragility. It also kills §6.1's
+   scrape-the-record-page fallback and moots §11.2's cookie canary.
+   (Wording is from the signed agreement itself; the public docs corpus
+   does not restate it — treat the clause number as agreement-internal.)
+3. **Beta access is not production approval.** FamilySearch explicitly
+   disclaims that Beta access implies eventual approval
+   ([app-approval-considerations](https://developers.familysearch.org/main/docs/app-approval-considerations)).
+   Production write access has its own multi-stage legal + security
+   review; none of that is this spec's concern.
+
+### 14.2 Migration posture (decisions)
+
+1. **Official API only.** All FS traffic goes to the platform API on
+   the §15.1 environment hosts. The cookie transport is **deleted, not
+   deprecated** — there is no lawful fallback to keep warm. The
+   `FamilySearchAuth/` capture stack (`FamilySearchCookieStore`,
+   `FamilySearchAuthView`, `FamilySearchTestProbe`) is retired;
+   `FamilySearchCredential.cookieSession` (§2.3) is removed.
+2. **OAuth2 Authorization Code + PKCE (S256) — mandatory**, not
+   optional, for native apps per FamilySearch's own guidance
+   ([oauth-20-for-native-apps](https://developers.familysearch.org/main/docs/oauth-20-for-native-apps)).
+3. **Loopback redirect** (`http://127.0.0.1:{port>1024}/path` or
+   `http://[::1]:{port}/path`), which FS recommends over a custom URL
+   scheme for desktop apps specifically. The authorization step must
+   run in the **system default browser** (RFC 8252 pattern) — embedded
+   webviews are not acceptable; the documented exceptions
+   (SFSafariViewController / Custom Tabs) are mobile-only.
+   *Unverified:* no macOS-specific carve-out is documented — the
+   inference that ASWebAuthenticationSession / default-browser handoff
+   is required on macOS is medium-confidence and needs confirming
+   during setup.
+4. **The §2.3 bet paid off.** Auth was specced as a transport detail;
+   §§3–8 (GEDCOMx taxonomy, search axes, multi-persona parsing, trust
+   tiering) carry over unchanged. The endpoint change is the predicted
+   prefix swap: `/service/search/hr/v2/personas` →
+   `GET /platform/records/personas` (§15.7).
+5. **Plugin identity declarations update.** The `RecordSource`
+   conformance keeps `dataLineage` / `trustTier` /
+   `evidenceDirectness` as-is (`RecordSource.swift:29–32`,
+   `FamilySearchSource.swift:29–31` — FS-transcribes-GRO shared-lineage
+   handling per §7.5 unchanged); `tosStatus` (currently "Authenticated;
+   cookie-based until OAuth API access is approved",
+   `FamilySearchSource.swift:32–35`) becomes: *"Official API; OAuth2 +
+   PKCE; Beta (non-production) access under the Innovator Solution
+   Provider agreement — demo scope only."*
+6. **Demo capability, not a feature.** The current agreement tier bans
+   making the solution available to end users. Everything this
+   amendment adds is scoped to a bounded **read-leg demo on Beta**
+   (§19). No sync, no mirror, no shipping surface. The write leg
+   (Family Tree source-attach) is a separate module with its own spec
+   per the R2 architecture decisions — this spec must not grow
+   tree-service scope, and §2.4's exclusion of Tree writes stands.
+
+### 14.3 Supersession index
+
+| Cookie-era content | Status after this amendment |
+|---|---|
+| §2.1 website-backend transport | Prohibited (agreement §15); retained for the record |
+| §2.3 `.cookieSession` credential case | Removed |
+| §5.6 lessons 4–5 (UA spoofing, cookie expiry) | Moot |
+| §6.1 scrape-HTML fallback | Prohibited |
+| §9.1 "cookie-auth path only" first cut | Inverted: OAuth-only |
+| §10 open questions 4–5 | Moot (§15.3 answers the rate question) |
+| §11.2 cookie canary | Replaced by quarterly Pending-Modifications watch (§15.6) |
+| §§3–8 search/parse/score/tiering design | Unchanged — carries over |
+| §5.2 Original+Interpreted persistence, §5.5 qualifiers, §6.6 per-ARK content cache | Conditional on §16 licensing confirmation |
+| §11.1 failure-mode contract | Unchanged (`.requiresReauth` now = invalid/expired OAuth token) |
+
+---
+
+## 15. Protocol mechanics (official API)
+
+Everything in this section lives *inside* `FamilySearchSource` (and its
+HTTP client) — none of it leaks into the pipeline, which continues to
+see plain `SourceRecord`s and the §11.1 failure contract. Confidence
+flags follow the research corpus; items its contradiction audit could
+not verify are marked.
+
+### 15.1 Environments
+
+| Env | API host | Ident host | Data |
+|---|---|---|---|
+| Integration (sandbox) | `api-integ.familysearch.org` | `identint.familysearch.org` | Synthetic test data only; auto-granted at developer signup |
+| Beta | `apibeta.familysearch.org` | `identbeta.familysearch.org` | **Real production snapshot**, up to ~1 year stale; separately granted (we have it as of 2026-07-10) |
+| Production | `api.familysearch.org` | `ident.familysearch.org` | Live; requires full Compatible Solution Program completion |
+
+Hostnames read from the fs-js-lite SDK source — the prose docs omit
+them ([fs-js-lite](https://github.com/FamilySearch/fs-js-lite/blob/master/src/FamilySearch.js)).
+
+**Beta refresh outage:** Beta is refreshed once a year by wholesale
+overwrite from production — last week of November through the first 1–2
+weeks of December — with outages during the window; anything written to
+Beta during the year is wiped
+([getting-started](https://developers.familysearch.org/main/docs/getting-started)).
+Consequences: never hardcode Beta ARKs/IDs in tests; do not schedule
+the §19 demo inside that window; treat Beta record content as up to a
+year behind production when comparing against FreeBMD results.
+
+The environment is a plugin configuration value (Beta now, production
+if certification ever lands) — never a compile-time constant.
+
+### 15.2 OAuth lifecycle
+
+- **Endpoints**: authorize =
+  `https://ident{beta}.familysearch.org/cis-web/oauth2/v3/authorization`,
+  token = `POST …/cis-web/oauth2/v3/token`, per environment row above
+  ([authentication](https://developers.familysearch.org/main/docs/authentication)).
+- **Grant**: Authorization Code + PKCE only. Password/ROPC has been
+  discontinued platform-wide; the Unauthenticated Session grant is
+  deprecated; Client Credentials needs special provisioning and is not
+  generally available — the plugin always operates as the signed-in
+  user ([client-credentials](https://developers.familysearch.org/main/docs/client-credentials-authentication)).
+- **redirect_uri registration — contested; plan conservatively.**
+  One R1 source says all redirect_uris must be **pre-registered by
+  emailing devsupport@familysearch.org** (app key + environment + exact
+  URI, [oauth-20-for-native-apps](https://developers.familysearch.org/main/docs/oauth-20-for-native-apps));
+  another says mismatches are self-service fixable in the console. The
+  contradiction audit flags this unresolved. Assume the email
+  round-trip (worst case) and verify in the partner portal on first
+  login. *(unverified)*
+- **Realm** — opaque, support-ticket-only: the documented failure
+  (`error=invalid_request … Client registration required`) is fixed by
+  devsupport "adding a realm to your app key"; no public doc defines
+  what a Realm gates. Ours is pending. Resolve directly with the Beta
+  Program contact — further research cannot answer it. *(unverified)*
+- **Token lifetimes** — reported 24 h max access token (plus inactivity
+  expiry) and 90-day refresh token, from a single summarized fetch;
+  refresh-token issuance for native apps reportedly requires app-key
+  level enablement by devsupport (sources disagree about an
+  `offline_access`/"private computer" alternative — likely stale docs).
+  Decode a real token's `exp` before hardcoding TTLs anywhere.
+  *(unverified)*
+- **Storage**: bearer + refresh tokens in the Keychain, replacing the
+  cookie store. §11.1's `.requiresReauth` reason maps to
+  invalid/expired-token 401s; the contract is otherwise untouched.
+
+### 15.3 Throttling (replaces the §9.1 "1 req/sec" guess)
+
+([throttling doc](https://developers.familysearch.org/main/docs/throttling) throughout)
+
+- **Per-user, not per-key**: a signed-in user's throttle budget is
+  shared across *every* session and app they are using — the user
+  browsing familysearch.org in Safari can get this app 429'd. Treat
+  429 as possibly external in origin; never interpret it as a bug in
+  our pacing.
+- **Processing-time-based**, not request-count: budget is cumulative
+  server execution time per rolling window (the docs' "18 s per 60 s"
+  figure is an illustrative example, not a published constant;
+  per-endpoint budgets are undisclosed). A request-count limiter
+  cannot predict a 429.
+- **Client obligations**: honour `Retry-After` (seconds) on 429
+  exactly; accumulate `X-PROCESSING-TIME` (ms, present on every
+  response) and self-throttle proactively before the server does it
+  for us. The FreeBMD circuit-breaker pattern (§9.1) is kept but its
+  input signal changes from request count to accumulated processing
+  time.
+- **Test hook**: `GET /platform/throttled?processingTime=60001`
+  deliberately trips a controlled 429 — the only reliable way to
+  exercise the backoff path on demand, and how §19-A5 is demoed.
+- 429 maps to `.inconclusive(reason: .throttled)` per §11.1 — attempts
+  not incremented.
+
+### 15.4 Merged persons, deletions, error bodies
+
+([http-status-codes](https://developers.familysearch.org/main/docs/http-status-codes))
+
+- **301 = merged**: `Location` + `X-Entity-Forwarded-Id` headers point
+  at the surviving entity. Chains are possible — follow with a bounded
+  hop count (propose 5), and **record every hop**: each deprecated ID
+  is appended to the evidence row's identity trail (§17.1) so
+  previously stored links and old bio citations keep resolving.
+- **410 = deleted**: the body is still returned — parse it for
+  tombstone context, mark the stored pointer dead, and never delete
+  the local evidence row (stash-don't-destroy, §17.2).
+- **Error bodies are not trustworthy GEDCOMx**: the `fs:error` /
+  `errors` shape is acknowledged by a FamilySearch engineer as
+  undocumented
+  ([gedcomx-familysearch-extensions#3](https://github.com/FamilySearch/gedcomx-familysearch-extensions/issues/3)).
+  Parse defensively; fall back to HTTP status + the `Warning` header
+  (the documented mechanism for explaining 400s). Never strict-decode
+  an error payload.
+
+### 15.5 Conditional GET / caching
+
+- ETag-based revalidation is documented and working: weak ETags on
+  responses; send `If-None-Match`, get `304 Not Modified`;
+  `Cache-Control` (e.g. `no-transform, max-age=3600`) also present
+  ([caching guide](https://www.familysearch.org/developers/docs/guides/caching)).
+  304s are cheap on the §15.3 budget — revalidate rather than re-fetch.
+- §6.6's taxonomy stands **structurally** (result-set vs record-content
+  split, TTL-by-result-kind, `negative_searches` unification,
+  cache-bypass affordances) but per-ARK **content** caching
+  (`familysearch_record_cache.gedcomx_json`) is conditional on §16:
+  under the conservative licensing reading the cache row holds
+  pointer + licensed summary + ETag, not GEDCOMx content. ETag/304
+  makes the pointer-revalidation variant workable.
+
+### 15.6 Change cadence (replaces the cookie canary)
+
+- No URI versioning — resource paths never change. Breaking
+  ("incompatible") changes ship via **Pending Modifications**: opt in
+  early with the `X-FS-Feature-Tag` request header, then the change
+  activates for everyone on one of **4 fixed quarterly dates — Mar 1 /
+  Jun 1 / Sep 1 / Dec 1** — pre-announced in the developer newsletter
+  ([api-evolution](https://developers.familysearch.org/main/docs/api-evolution)).
+- Practice: subscribe to the newsletter; treat the four dates as
+  calendar risk windows; run the §9.4 golden fixtures against Beta
+  around each date. This is the official-API replacement for §11.2.
+- New resources take ~30 d prototype → ~60 d beta → release before
+  stability (figures from a summarized fetch — re-verify before
+  relying on them; *unverified*). Don't build against a resource
+  younger than that cycle.
+
+### 15.7 Records search endpoint specifics
+
+([Record Persona Search resource](https://www.familysearch.org/en/developers/docs/api/records/Record_Persona_Search_resource))
+
+- Endpoint: `GET /platform/records/personas` (note: *not*
+  `/platform/records/search`; naming shifted during FS's API-reference
+  migration — verify against the live OpenAPI reference once
+  credentials work).
+- Parameter grammar is `category.term.modifier.cardinality`: `q.*`
+  fuzzy terms (the §4.1/§4.2 axes carry over), `f.*` exact filters,
+  `c.*` facets/counts; modifiers include `exact`, `require`,
+  `from`/`to`; numbered cardinality (`q.spouseGivenName.1`). This
+  partially answers §4.3's must/should probe — confirm live.
+- Pagination: `offset` (0–4999) + `count` (1–100), **hard cap 5000
+  retrievable results** — the §6.6 "truncated" result-kind triggers at
+  this cap. Link-header absence is inferred, not confirmed
+  *(unverified)*.
+- Status codes: 200 = results; **204 = no results** (a clean
+  negative — write the `negative_searches` row, do not treat as an
+  error); 400 = malformed (read the `Warning` header); 429 = §15.3.
+
+---
+
+## 16. Licensing posture — PENDING agreement-wording confirmation
+
+**Every rule in this section is a conservative planning posture, not
+confirmed contract fact.** The governing restriction is
+paraphrase-confirmed only: the Compatibility Checklist page resisted
+direct fetch, and the substance — third-party apps lack privileges to
+display FamilySearch historical-record content to end users; users must
+be **redirected to FamilySearch.org to view records**; framed as a
+*legal* data-licensing restriction (record-holding partners), not a
+technical gate — converged across 3+ independent search summaries
+without ever being read verbatim
+([compatibility-checklist](https://developers.familysearch.org/main/docs/compatibility-checklist),
+flagged *unverified* by the contradiction audit). **First action on
+portal access: fetch the actual checklist wording and re-read the
+signed agreement; then confirm, relax, or tighten this section.**
+
+### 16.1 The posture (until wording says otherwise)
+
+Three distinct verbs, three different rules:
+
+| Verb | Rule |
+|---|---|
+| **Read/score** | The plugin parses full search responses in memory and runs the 4-gate scorer over them at query time, exactly as for any source. (If responses to our key turn out to carry only match summaries, not full persona detail — an open question — the gates degrade gracefully to the fields present.) |
+| **Persist** | **Pointer-only**: collection title, FS match confidence (§18), persona/record ARKs, our own scorer verdicts and derived conclusions. No transcription text, no Original/Interpreted field values, no image waypoints, no GEDCOMx blobs into `page_cache` or a per-ARK content cache. |
+| **Display** | Titles + confidence + a **"View on FamilySearch" ARK link-out**. No in-app record viewer for FS content. |
+
+Consequences, all reversible if the wording is more permissive:
+
+1. §5.2's "persist both Original and Interpreted from day one" and
+   §5.5's `rawFields["sourceQualifier"]` capture are **suspended for
+   FS records** (they were justified by re-fetch cost; under
+   pointer-only there is nothing to backfill locally).
+2. **Pointer-only evidence representation.** An FS-sourced
+   `EvidenceRecord` is legitimate with a near-empty content payload:
+   identity (ARKs, §17.1), source description (collection title +
+   collection ARK), scorer verdict + gate outcomes, and the typed
+   conclusions the pipeline derived at query time. The "never throw
+   away a source response" doctrine (`EvidenceRecord.swift:19–26`)
+   is amended for FS to: *never throw away the pointer and whatever
+   we were licensed to keep*. The pointer **is** the persona.
+3. **Evidence Firewall URL-verification carve-out.** The firewall's
+   URL-content-verification practice (and the `page_cache` that backs
+   it) assumes cited content is cacheable. For FS ARKs where content
+   is uncacheable, verification degrades to an **HTTP-level resolution
+   check**: the ARK resolves (200, or a 301 chain ending in 200 —
+   redirects are sanctioned ARK-resolution behaviour, not errors
+   ([persistent-identifiers](https://developers.familysearch.org/main/docs/persistent-identifiers)));
+   404/hard failure marks the pointer questionable; 410 marks it dead
+   (§15.4). A 301 hop feeds the §17.1 identity trail. No content is
+   stored to prove the citation was live — the check result + timestamp
+   is the record.
+4. Re-verification of an FS-scored conclusion requires a live
+   re-fetch — budget it against §15.3 and prefer ETag revalidation
+   (§15.5).
+
+### 16.2 Known unknowns (resolve before first-cut build)
+
+- **Exact restriction scope**: records only? record-derived persona
+  fields (names/dates/places)? citation text? The contradiction audit
+  calls this the single most design-consequential unknown. The stash
+  rules in §17.2 are written to be scope-safe either way.
+- Whether `/platform/records/personas` responses under our key carry
+  full persona detail or match summaries only.
+- Which certification tier gates that endpoint — read certification is
+  **per-capability**, granted independently (general read vs Record
+  Hinting vs Genealogies)
+  ([read certification](https://www.familysearch.org/en/developers/docs/certification/read));
+  confirm which tier our Innovator status maps to before promising the
+  demo query set.
+
+---
+
+## 17. Evidence identity and stash-don't-destroy
+
+### 17.1 ARK/persona columns on `evidence_records` (adopt now)
+
+Decision (R2 information-loss item L3 — flagged high-severity,
+cheap-to-fix): persona↔person linkage currently collapses into the
+`sourceRecordID` string (`EvidenceRecord.swift:33`). Add two nullable
+columns in the next project-DB migration:
+
+```sql
+ALTER TABLE evidence_records ADD COLUMN external_persona_id TEXT;  -- bare 'ark:/61903/1:1:XXXX' path
+ALTER TABLE evidence_records ADD COLUMN external_record_id  TEXT;  -- bare 'ark:/61903/4:1:XXXX' path
+```
+
+Rules:
+
+- **Store the bare `ark:/…` path segment, never the full URL.** FS's
+  permanence commitment covers only `ark:/` through the ID segment —
+  the domain is explicitly *not* guaranteed stable and query-string
+  decorations (access_token, context) are excluded
+  ([persistent-identifiers](https://developers.familysearch.org/main/docs/persistent-identifiers)).
+  Match and dedupe on the path segment. (§5.7's "store the ARK"
+  guidance is hereby narrowed to the path segment.)
+- The typed column makes FS ingestion **idempotent** (same persona seen
+  twice = same row) and is the join key for the §8.3 ARK-deterministic
+  citation matcher — which works under pointer-only licensing too,
+  since it matches on identity, not content.
+- **301 handling**: when a stored ID resolves as merged (§15.4), append
+  the deprecated→survivor mapping to the row's identity trail rather
+  than overwriting — deprecated IDs stay resolvable by design (GEDCOMx
+  `Deprecated` identifier type) and the user's old bio citations will
+  keep using them.
+- **Codify the extracted-conclusion invariant as a test**: *an evidence
+  record references exactly one source.* GEDCOMx §4 imposes exactly
+  this on personas; `EvidenceRecord` already holds it implicitly by
+  construction — make it explicit in the test suite.
+
+Scope note: this is the spec-level item only. The full typed
+external-identifier lifecycle on AncestorKit (`externalIDs`
+deprecation chains — R2 evolution E1) is a schema programme with its
+own spec change number elsewhere. A source spec never drives
+AncestorKit schema.
+
+### 17.2 Stash-don't-destroy (interim rules until E2/E3 land elsewhere)
+
+Two lossy flattenings the parser must not make silently:
+
+- **Name conclusions (L2).** GEDCOMx serves multiple `Name`
+  conclusions per persona (BirthName / MarriedName / Nickname types,
+  multiple NameForms with BCP-47 lang tags). Our model flattens to
+  given/surname + one marriedSurname/nickName — WikiTree ingest
+  already demonstrates the data-loss failure mode. Interim rule:
+  **whatever name data we are licensed to persist (§16.2), persist
+  completely** — variants beyond the flattened projection go verbatim
+  into `rawFields["names.json"]` on the evidence payload. If licensing
+  confirms persona name fields are pointer-only, the rule still binds
+  the display projection: never render a flattened name as if it were
+  the only one FS asserted. Promotion to typed repeatable name forms
+  is evolution E2, specced elsewhere.
+- **Place authority IDs (L8).** FS place references carry a normalized
+  name plus a place ID/ARK. §6.7 already commits
+  `RecordCommon.placeARK: String?` — reaffirmed: **stash now** (same
+  bare-path rule as §17.1), integrate never *in this spec*. Promotion
+  to first-class place-authority records (registration districts,
+  temporal jurisdiction) is evolution E3, riding the gazetteer
+  expansion, specced elsewhere.
+
+The general rule both instances follow: when the official API offers
+structure our model cannot yet hold, the plugin **stashes it losslessly
+where licensing permits and drops it visibly where it doesn't** — it
+never destroys silently.
+
+---
+
+## 18. Hint/match-score rule
+
+FS surfaces proprietary match confidence: Record-Hinting-certified
+apps may read persons, request hints, and show match summaries and
+confidence ratings
+([compatibility-checklist](https://developers.familysearch.org/main/docs/compatibility-checklist)
+via paraphrase, [read certification](https://www.familysearch.org/en/developers/docs/certification/read)).
+The public "3-star hints" description comes from an **undated** FS blog
+post whose currency the contradiction audit could not confirm — the
+hints surface iterates on the quarterly cadence, so do not design
+against the star count or any specific scale. *(unverified)*
+
+**Rule (decision, R2 item L5): an FS hint/match score is a
+lead-ordering signal only.** It may:
+
+- order FS-sourced leads in review lists, and
+- prioritise which candidate gets a detail fetch first within the
+  §15.3 budget.
+
+It must **never**:
+
+- set or influence a `SourceTrustTier` — trust is URL-derived via
+  `SourceTierRegistry` (`SourceTierRegistry.swift:54` — the
+  load-bearing "source trust is URL-derived" invariant),
+- enter any of the 4 gates or the scorer verdict
+  (`fact` / `lead` / `impossible`),
+- count toward convergence — an FS score is FS's opinion about a
+  match, not an independent transcription of anything.
+
+This is the deterministic sandwich applied to a *remote* ML system:
+FS's matcher proposes ordering; our rules decide. Persist the raw
+score in `rawFields["fsMatchScore"]` (permitted under §16.1's
+"confidence" allowance) so lead ordering is reproducible after the
+fact.
+
+---
+
+## 19. Demo read-leg acceptance criteria (Beta)
+
+The bounded deliverable this spec now targets (§14.2.6): a
+demonstrable read leg on Beta, doubling as collateral for FS
+compatibility review. Write-leg criteria belong to the tree-service
+spec, not here.
+
+**Preconditions**: app key with Beta access (have, 2026-07-10);
+redirect_uri registered (§15.2 — contested path, resolve first); Realm
+attached (§15.2 — pending); scheduled **outside** the Nov/Dec Beta
+refresh window (§15.1); licensing wording confirmed or the §16
+conservative posture consciously accepted for the demo.
+
+| # | Criterion | Proves |
+|---|---|---|
+| A1 | OAuth2 Authorization Code + PKCE (S256) completes against `identbeta.familysearch.org` via loopback redirect in the system default browser; tokens land in the Keychain | §15.2 lifecycle |
+| A2 | Relaunch reuses the stored token; an expired/revoked token surfaces `.inconclusive(reason: .requiresReauth)` with a re-auth affordance and does **not** increment hypothesis attempts | §11.1 contract on the new transport |
+| A3 | `GET /platform/records/personas` on `apibeta` for a known eval-corpus subject (e.g. Ernest Cauldwell, b. 1887) parses into one-`SourceRecord`-per-persona (§5.0) with correct §3 RecordType mapping, exercised against the §9.4 fixtures | search + parser carry-over |
+| A4 | The same run persists only the §16-licensed subset (pointer + titles + confidence + our verdicts); `external_persona_id` carries the bare `ark:/` path (§17.1); a zero-result query (204) writes a `negative_searches` row, not an error | licensing posture + identity columns |
+| A5 | `GET /platform/throttled?processingTime=60001` trips a controlled 429; the client honours `Retry-After`, accumulates `X-PROCESSING-TIME`, resumes cleanly, and no hypothesis is marked `.exhausted` (`.throttled` reason, §11.1) | §15.3 throttling |
+| A6 | 301 chain followed via `X-Entity-Forwarded-Id` with each deprecated ID appended to the identity trail; 410 marks the pointer dead without deleting the evidence row (fixture-tested; live if Beta surfaces either) | §15.4 |
+| A7 | A repeat fetch of an unchanged resource sends `If-None-Match` and takes the 304 path | §15.5 |
+| A8 | Where a match score is returned it orders the lead list and appears in **no** gate input, trust tier, or verdict — asserted by a unit test, not by inspection | §18 |
+| A9 | UI shows collection title + confidence + "View on FamilySearch" ARK link-out; no FS record content is rendered or stored in-app | §16 posture |
+
+Pass = all nine green on Beta, captured (screen recording + logs).
+A3/A4 outputs flow through the Evidence Firewall like any source —
+`pending_facts` and `leads` only; nothing here relaxes that.
