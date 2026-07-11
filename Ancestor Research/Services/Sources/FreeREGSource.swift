@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import os
 
@@ -305,7 +306,11 @@ actor FreeREGSource: RecordSource {
             let eventType = type.isEmpty ? recordType.rawValue : type.lowercased()
 
             let common = RecordCommon(
-                id: "freereg_\(name.hashValue)_\(date.hashValue)",
+                id: stableRecordID(
+                    detailURL: detailURL,
+                    name: name, date: date, parish: parish,
+                    county: county, eventType: eventType
+                ),
                 sourceID: "freereg",
                 name: name, surname: surname, givenName: givenName,
                 detailURL: detailURL,
@@ -325,6 +330,41 @@ actor FreeREGSource: RecordSource {
         }
 
         return records
+    }
+
+    /// Stable record ID (connector-audit FT-16). Record IDs are load-bearing
+    /// across app launches — `record_rejections` and `evidence_records.user_status`
+    /// are keyed on them — so they must never be built from `String.hashValue`,
+    /// which is SipHash with a per-process random seed (a different ID every
+    /// launch silently orphans user discard decisions). Same rule as
+    /// FamilySearchSource's persona-ID fallback.
+    ///
+    /// Preference order:
+    /// 1. The server-stable entry ID embedded in the detail URL
+    ///    (`/search_records/<id>` or `/freereg1_csv_entries/<id>`).
+    /// 2. A deterministic SHA256 digest of the normalised record content
+    ///    (`name|date|parish|county|event_type`), truncated to 16 hex chars.
+    nonisolated static func stableRecordID(
+        detailURL: String?,
+        name: String, date: String, parish: String,
+        county: String, eventType: String
+    ) -> String {
+        if let detailURL, let url = URL(string: detailURL) {
+            // lastPathComponent drops any query string; guard against a
+            // degenerate href like "/search_records/?q=…" where the last
+            // path segment is the route name rather than an entry ID.
+            let segment = url.lastPathComponent
+            if !segment.isEmpty, segment != "/",
+               segment != "search_records", segment != "freereg1_csv_entries" {
+                return "freereg_\(segment)"
+            }
+        }
+        let normalised = [name, date, parish, county, eventType]
+            .map { $0.lowercased().trimmingCharacters(in: .whitespaces) }
+            .joined(separator: "|")
+        let digest = SHA256.hash(data: Data(normalised.utf8))
+        let hex = digest.prefix(8).map { String(format: "%02x", $0) }.joined()
+        return "freereg_\(hex)"
     }
 
     nonisolated private static func stripTags(_ html: String) -> String {

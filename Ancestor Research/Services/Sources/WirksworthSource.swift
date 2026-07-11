@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import os
 
@@ -200,7 +201,7 @@ struct WirksworthSource: RecordSource {
             seen.insert(key)
 
             let common = RecordCommon(
-                id: "wirksworth_\(key.hashValue)",
+                id: stableRecordID(pageURL: url, rowKey: key),
                 sourceID: "wirksworth",
                 name: name, surname: surname, givenName: name.components(separatedBy: " ").first,
                 detailURL: url,
@@ -244,7 +245,7 @@ struct WirksworthSource: RecordSource {
                 seen.insert(key)
 
                 let common = RecordCommon(
-                    id: "wirksworth_\(key.hashValue)",
+                    id: stableRecordID(pageURL: url, rowKey: key),
                     sourceID: "wirksworth",
                     name: name, surname: surname, givenName: name.components(separatedBy: " ").first,
                     detailURL: url, rawFields: [:]
@@ -263,6 +264,27 @@ struct WirksworthSource: RecordSource {
     }
 
     // MARK: - Helpers
+
+    /// Stable record ID (connector-audit FT-16). Record IDs are load-bearing
+    /// across app launches — `record_rejections` and `evidence_records.user_status`
+    /// are keyed on them — so they must never be built from `String.hashValue`,
+    /// which is SipHash with a per-process random seed (a different ID every
+    /// launch silently orphans user discard decisions).
+    ///
+    /// Wirksworth is a static site with stable page URLs, so the ID combines
+    /// the pedigree page code (URL filename sans extension, for debuggability)
+    /// with a SHA256 digest of `pageURL|rowKey`, truncated to 16 hex chars.
+    /// Including the page URL in the digest keeps identical rows on two
+    /// different pedigree pages distinct — they are separate evidence pages.
+    nonisolated static func stableRecordID(pageURL: String, rowKey: String) -> String {
+        let digest = SHA256.hash(data: Data("\(pageURL)|\(rowKey)".utf8))
+        let hex = digest.prefix(8).map { String(format: "%02x", $0) }.joined()
+        guard let url = URL(string: pageURL) else { return "wirksworth_\(hex)" }
+        let pageCode = url.deletingPathExtension().lastPathComponent
+        return pageCode.isEmpty || pageCode == "/"
+            ? "wirksworth_\(hex)"
+            : "wirksworth_\(pageCode)_\(hex)"
+    }
 
     nonisolated private static func stripHTML(_ text: String) -> String {
         var result = text
