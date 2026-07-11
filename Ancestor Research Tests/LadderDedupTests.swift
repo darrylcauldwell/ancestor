@@ -79,13 +79,13 @@ struct LadderDedupTests {
     // MARK: - Guard: sources that DO vary by strictness keep distinct tiers
 
     @Test func freeBMDStrictAndLooseRemainDistinctKeys() {
-        // FreeBMD toggles the Phonetic flag on .loose — a genuine wire
+        // FreeBMD adds sndx=on on .loose — a genuine wire
         // difference. Normalization must NOT collapse it, or a phonetic
         // search would be served the exact-match cache entry.
         let strict = QueryCache.cacheKey(sourceID: "freebmd", query: freeBMDQuery(strictness: .strict))
         let loose = QueryCache.cacheKey(sourceID: "freebmd", query: freeBMDQuery(strictness: .loose))
         #expect(strict != loose,
-                "FreeBMD's Phonetic flag differs by strictness — tiers must stay distinct")
+                "FreeBMD's sndx field differs by strictness — tiers must stay distinct")
     }
 
     @Test func cwgcStrictAndLooseRemainDistinctKeys() {

@@ -98,11 +98,15 @@ struct PerSourceStrictnessTests {
         )
         _ = await source.search(query)
         let body = captured.lastFormBody ?? ""
-        #expect(body.contains("Phonetic=true"),
-                "FreeBMD .loose should set Phonetic=true; body was \(body)")
+        #expect(body.contains("sndx=on"),
+                "FreeBMD .loose should set the real soundex field sndx=on; body was \(body)")
     }
 
-    @Test func ac5_3_freeBMDStrictUsesPhoneticFalse() async {
+    @Test func ac5_3_freeBMDStrictOmitsPhonetic() async {
+        // FT-06 (2026-07-11): strict must OMIT the Phonetic field entirely,
+        // not send `Phonetic=false`. search.pl is Perl CGI with checkbox-
+        // presence semantics — a present "false" reads as TRUE and silently
+        // enables soundex. Omitting is correct under both interpretations.
         let captured = CapturingHTTPClient()
         let source = FreeBMDSource(http: captured)
         let query = RecordQuery(
@@ -119,8 +123,8 @@ struct PerSourceStrictnessTests {
         )
         _ = await source.search(query)
         let body = captured.lastFormBody ?? ""
-        #expect(body.contains("Phonetic=false"),
-                "FreeBMD .strict should set Phonetic=false; body was \(body)")
+        #expect(!body.contains("sndx"),
+                "FreeBMD .strict must omit the soundex field entirely; body was \(body)")
     }
 
     @Test func ac5_3_freeBMDVariantFansOutByN_plus_1() {

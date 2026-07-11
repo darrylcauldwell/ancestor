@@ -189,8 +189,20 @@ actor FreeBMDSource: RecordSource {
             // server-side soundex matching. .variant is the dispatcher's
             // tier marker — the surname has already been substituted to a
             // variant before arriving here, so the variant probe itself is
-            // exact-match (Phonetic=false). See RESEARCH_AXES_SPEC §7.
-            let phoneticFlag = query.strictness == .loose ? "true" : "false"
+            // exact-match (no phonetic). See RESEARCH_AXES_SPEC §7.
+            //
+            // FT-06 + probe finding (2026-07-11, FreeBMDPhoneticProbeTests):
+            // the soundex checkbox is `sndx=on` — NOT `Phonetic`. The old
+            // code sent a non-existent `Phonetic` field, so the server
+            // ignored it and soundex NEVER engaged on ANY tier. Harmless on
+            // strict, but the .loose tier's whole purpose is soundex matching
+            // and it was silently doing exact matching (a real recall bug).
+            // Probe: "Cauldwell" DBY 1860–1900 returned an identical 99-row
+            // exact-only set for both the old strict and old loose queries.
+            // Fix: send the real field `sndx=on` when enabling; omit
+            // otherwise (checkbox-presence semantics — a present value would
+            // read as checked, so we must not send it on strict).
+            let enableSoundex = query.strictness == .loose
             // FreeBMD's `given` field does literal/prefix matching against
             // only the first given name in the registered record (the row
             // format is `…;FIRST_GIVEN;…`, multi-given records like
@@ -226,12 +238,15 @@ actor FreeBMDSource: RecordSource {
                 "sq": "1",
                 "eq": "4",
                 "districtid": params?.districtCode ?? "",
-                "Phonetic": phoneticFlag,
                 "db": formTokenDB ?? "",
                 "v": formTokenV ?? "",
                 "find.x": "1",
                 "find.y": "1",
             ]
+            // FT-06: only send the real soundex field `sndx=on` when enabling.
+            if enableSoundex {
+                baseFields["sndx"] = "on"
+            }
             // FT-01 — county-level query axis. The dispatcher builds the
             // compound `countyid` wire value (Chapman code + district IDs,
             // matching the live form's option-value encoding) and sets it
