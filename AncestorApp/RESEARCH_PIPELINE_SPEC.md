@@ -3429,9 +3429,10 @@ observable in eval first).
 
 ### 5.15 `.parentCandidates` — user-seeded hypotheses (Epic 13, new task)
 
-**Status: Accepted 2026-07-11 (Darryl) — buildable per the §5.15.12 slicing plan.** Roadmap Epic 13
-(2026-07-05 agentic-harness discussion). Sliced 0–5 below;
-implementation gated on this entry being signed off.
+**Status: Shipped 2026-07-11 (Epic 13, slices 1–5).** Roadmap Epic 13
+(2026-07-05 agentic-harness discussion). Sliced 0–5 below.
+> **SHIPPED 2026-07-11** — accepted 2026-07-11 (Darryl); all slices landed
+> (a57fd70 slice 1, 6d8ff6b slice 2, 0cff9a7 slices 3–4, slice-5 acceptance tests).
 
 **Why this exists.** Canonical scenario: the user says *"I think
 George Wheeldon's parents might have been called Bob & Sue."* Today
@@ -3807,6 +3808,10 @@ coupling.
 
 #### 5.15.12 Slicing plan
 
+> **All slices shipped 2026-07-11** (slice 1 a57fd70, slice 2 6d8ff6b,
+> slices 3–4 0cff9a7, slice-5 acceptance tests). Plan retained below as
+> the historical record.
+
 Sized **M** end-to-end (roadmap concurs). Order fixed: 1 → 2 → 3 →
 {4, 5}; MCP (slice 3) lands before Workbench (slice 4) per the
 arrival-order doctrine in §5.15.7.
@@ -3843,9 +3848,9 @@ arrival-order doctrine in §5.15.7.
 - Editing a seed in place — dismiss and re-seed instead (identity
   keys make edits ambiguous).
 
-#### 5.15.14 Proposed decisions log
+#### 5.15.14 Decisions log
 
-To be resolved at review; each mirrors the §5.14.13 pattern.
+Accepted 2026-07-11 (commit ab94695); each mirrors the §5.14.13 pattern.
 
 - **E1 — Kind naming: specific `.parentCandidates` + `origin`
   provenance field**, not a generic `.userSeeded` payload case.
@@ -4067,8 +4072,9 @@ when MLX leaves findings on the table at measurable rates against the
 outbound calls is justified. The local-MLX-first sequencing buys time
 to build that evidence; it does not prejudge the eventual answer.
 
-**Validation: unvalidated (component not built).** T8 and T9 are
-both paper-only; the decision is not yet load-bearing.
+**Validation: partly load-bearing.** T9 is paper-only; T8 shipped
+2026-05-26 (§5.4). The Decision-7 (local-MLX-vs-API) posture is now
+partly load-bearing via T8.
 
 ### 7.8 — MLX nondeterminism representation
 
@@ -4080,8 +4086,9 @@ similar deterministic-only gates use the
 **Validation: validated.** Field is present on the shipped
 `ResearchHypothesis` type; `isDeterministicallySupported` helper
 exists and is referenced wherever the gate matters. Default value is
-`false` because T8/T9 haven't shipped yet — but the plumbing is in
-place to flip it when they do.
+`false` because T9 hasn't shipped, and T8's focused-query records are
+deterministic-source records not marked model-assisted (§5.4) — but the
+plumbing is in place to flip it when needed.
 
 ### 7.9 — Cluster-aware scoring (out of V2 scope)
 
@@ -4135,7 +4142,7 @@ T11 [✓ shipped] (type + v26 migration + persistence helpers)
                 ├─→ §5.9 Pipeline incrementality refactor [NOT BUILT]
                 │    ├─→ §5.10 Research button collapse + auto-escalation UX [NOT BUILT]
                 │    └─→ §5.11 Hypothesis investigation as user action [NOT BUILT]
-                │         └─→ T8 (MLX next-search for exhausted-ladder) [NOT BUILT]
+                │         └─→ T8 Level-2 strategist [✓ shipped 2026-05-26]; T8a exhausted-ladder fallback [NOT BUILT — deferred, §5.4]
                 │              └─→ T9 (MLX disambiguation for residual ambiguity) [NOT BUILT]
                 ├─→ T31 (ladder retuning) [NOT BUILT — defined as the harness applied]
                 ├─→ T23 (Sample Tree tour) [NOT BUILT, paper-only UX]
@@ -4143,13 +4150,16 @@ T11 [✓ shipped] (type + v26 migration + persistence helpers)
 ```
 
 **What's shipped (engine foundation):** T11, T12-sibling, T12-parent
-(including the §5.2.1 design pass and the reconciliation step), and
-T7 with the looser one-condition gate. Approximately the first
+(including the §5.2.1 design pass and the reconciliation step),
+T7 with the looser one-condition gate, T8 (Level-2 MLX strategist,
+shipped 2026-05-26, §5.4), and Epic 13 §5.15 (`.parentCandidates`
+user-seeded hypotheses, shipped 2026-07-11). Approximately the first
 12 sessions of the original estimate.
 
 **What's not built:** eval harness, §5.9 incrementality refactor,
-§5.10 Mode→StopPolicy collapse, §5.11 investigation UI, T8/T9 MLX
-work, T23 tour, T31 ladder retuning, §5.12 design passes.
+§5.10 Mode→StopPolicy collapse, §5.11 investigation UI, T9 MLX
+disambiguation (and the deferred T8a hypothesis-level fallback),
+T23 tour, T31 ladder retuning, §5.12 design passes.
 
 Estimated remaining: **~12–16 sessions** to land §5.9, §5.10, §5.11,
 T8, T9, T31, the harness, and the design passes. The estimate is
@@ -4229,7 +4239,8 @@ investigation. The seven existing tasks compose around it:
 
 - **Engine foundation**: T11, T12 (sibling + parent sub-projects).
 - **Deterministic stall-recovery**: T7.
-- **MLX bolt-ons** (gated on eval-harness data): T8, T9.
+- **MLX bolt-ons**: T8 Level-2 strategist [shipped 2026-05-26]; T9
+  disambiguation and the T8a fallback still gated on eval-harness data.
 - **Independent**: T23 (Sample Tree tour), T31 (ladder retuning).
 
 Plus three new task slots from the §5.10–5.11 reframe:

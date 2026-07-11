@@ -1,10 +1,10 @@
 # MODEL_EVOLUTION_SPEC — Closed Four-Item Model Evolution Programme
 
-**Status: Accepted 2026-07-11 (Darryl). ALL FOUR CHANGES (E1-E4) SHIPPED 2026-07-11 — programme COMPLETE.** Changes 1–4 are queued for implementation in the stated order; commits reference `#Change1`…`#Change4` of this spec. Drafted overnight 2026-07-11 from the R2 research corpus.
+**Status: Accepted 2026-07-11 (Darryl). ALL FOUR CHANGES (E1-E4) SHIPPED 2026-07-11 — programme COMPLETE.** All four changes shipped in the stated order E1→E2→E3→E4 (migrations v34–v37); commits reference `#Change1`…`#Change4` of this spec. Drafted overnight 2026-07-11 from the R2 research corpus.
 
 **Governing decision:** ADR-004 — *Model evolution is a closed four-item list* (R3 ADR set, drafted alongside this spec; decision basis in `r2-conclusions.md` §3/§5). **This list is closed: additions require a new decision record, not an amendment to this spec.** Anything pitched as "GEDCOM X alignment" beyond these four items is out of scope by prior decision (ADR-001/ADR-003: our model stays canonical; GEDCOM X is vocabulary, never schema).
 
-**Ordering is load-bearing:** E1 → E2 → E3 → E4. E1 (typed external identifiers) is the prerequisite for *any* FamilySearch person linkage — the FS demo read leg cannot safely cache a single FS PID without a deprecation lifecycle (301 merge-forwarding, §Change 1). E2–E4 are independently valuable and independently shippable, but the execution order stands unless a review reorders it explicitly.
+**Ordering is load-bearing:** E1 → E2 → E3 → E4. E1 (typed external identifiers) is the prerequisite for *any* FamilySearch person linkage — the FS demo read leg cannot safely cache a single FS PID without a deprecation lifecycle (301 merge-forwarding, §Change 1). E2–E4 are independently valuable and independently shippable, and the execution order was honoured — E1→E2→E3→E4 shipped in sequence.
 
 **What this programme is:** four bounded evolutions of the AncestorKit/App domain model, each convicted by our own roadmap (WikiTree ingest, GENUKI gazetteer expansion, publisher symmetry) with FS raising priority rather than creating the need (`r2-conclusions.md` §1.2). None violates an invariant; E4 *strengthens* one (evidence-backed trees).
 
@@ -22,7 +22,7 @@
 
 ---
 
-## Change 1 — E1: typed external-identifier records with deprecation lifecycle (S)
+## Change 1 — E1: typed external-identifier records with deprecation lifecycle (S) — SHIPPED 2026-07-11 (migration v34)
 
 ### Motivation
 
@@ -45,7 +45,7 @@ public struct ExternalIdentifier: Codable, Hashable, Sendable {
 ```
 
 - `Profile` gains `externalIdentifiers: [ExternalIdentifier]`; `externalIDs: [String: String]` becomes a **derived projection** (primary per system) so the ~13 call-site files keep compiling, then call sites migrate opportunistically. `wikiTreeID` (`Profile.swift:108-111`) reads through the projection unchanged.
-- Migration (next `ProjectDatabase` version): new `external_identifiers` JSON column on `profiles`, backfilled from `external_ids` (every existing entry → `kind: .primary`); the old column freezes in place for one release as rollback insurance. *(Review decision: replace-in-column vs. new-column — new column proposed for bisectability.)*
+- Migration (next `ProjectDatabase` version): new `external_identifiers` JSON column on `profiles`, backfilled from `external_ids` (every existing entry → `kind: .primary`); the old column freezes in place for one release as rollback insurance. *(Review decision RESOLVED at ship: the new-column approach was adopted — v34 added `external_identifiers` and left `external_ids` frozen, for bisectability.)*
 - Lookup rule: resolving an identifier follows the `supersededBy` chain to the current primary; chains are append-only.
 
 ### Blast radius
@@ -72,7 +72,7 @@ public struct ExternalIdentifier: Codable, Hashable, Sendable {
 
 ---
 
-## Change 2 — E2: typed repeatable name forms, `displayName` stays the projection (M)
+## Change 2 — E2: typed repeatable name forms, `displayName` stays the projection (M) — SHIPPED 2026-07-11 (migration v35)
 
 ### Motivation
 
@@ -130,7 +130,7 @@ public struct NameForm: Codable, Hashable, Sendable {
 
 ---
 
-## Change 3 — E3: place-authority records — hierarchy + temporal validity (M)
+## Change 3 — E3: place-authority records — hierarchy + temporal validity (M) — SHIPPED 2026-07-11 (migration v36)
 
 ### Motivation
 
@@ -184,7 +184,7 @@ struct GazetteerEntry {
 
 ---
 
-## Change 4 — E4: edge-existence provenance via a `field_sources` `existence` pseudo-field (S)
+## Change 4 — E4: edge-existence provenance via a `field_sources` `existence` pseudo-field (S) — SHIPPED 2026-07-11 (migration v37)
 
 ### Motivation
 
@@ -207,7 +207,7 @@ public enum RelationshipField: String, Codable, Hashable, Sendable {
   1. Pending-relationship accept — FieldSource built from the proposal's `source_url`/`source_title`/`evidence_text` (+ `Citation` where derivable; trust tier stays URL-derived via `SourceTierRegistry`, never asserted).
   2. `ApplyEngine` parent-edge and spouse-edge materialisation (`ApplyEngine.swift:306-330` and the `.parentMarriage`/spouse paths) — FieldSource from the driving evidence record's citation.
   3. Placeholder write-back and lead promotion — same pattern.
-  4. Manual UI / import edges — an `existence` row with the appropriate `SourceOrigin` (`userAuthoritative` / `initialImport`), value `raw` = a short human-readable origin note. *(Review decision: whether manual edges write a row or remain bare; proposed: write it — a uniform invariant is testable, "every edge created after E4 has ≥1 existence row".)*
+  4. Manual UI / import edges — an `existence` row with the appropriate `SourceOrigin` (`userAuthoritative` / `initialImport`), value `raw` = a short human-readable origin note. *(Review decision RESOLVED at ship: edges materialised after E4 write an existence FieldSource via `addRelationshipIfAbsent`; pre-E4 edges stay bare per decision log #4. The uniform invariant holds — "every edge created after E4 has ≥1 existence row".)*
 - Journalling: edge creation already flows through `transactions`; the existence FieldSource carries `created_by_transaction_id` like every other row.
 
 ### Blast radius

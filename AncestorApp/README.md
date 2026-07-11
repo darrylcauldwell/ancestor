@@ -1,24 +1,29 @@
 # AncestorApp/ — document index
 
-One line per document: what it is, whether it's live, and when to read it. Convention: **governing/live docs and as-built phase references stay here; retired or fully-acted-on docs move to `archive/`** with their final status stamped in the header. Updated 2026-07-11.
+One line per document: what it is, whether it's live, and when to read it. Convention: **governing/live docs and as-built phase references stay here; retired or fully-acted-on docs move to `archive/`** with their final status stamped in the header. Updated 2026-07-11 (post the connector-audit + model-evolution + Epic 13 shipping run).
 
 ## Start here
 
 | Doc | Role | Status |
 |---|---|---|
-| `ROADMAP.md` | Routing: phase state + live queues + what's parked | Living |
-| `adr/` | Architecture decision records (6, all Accepted 2026-07-11) | Binding |
+| `ROADMAP.md` | Routing: implementation order + phase state + gates | Living |
+| `adr/` | Architecture decision records (001–006 Accepted; 007 rejected-as-proposed) | Binding |
 
 ## Live work
 
 | Doc | Role | Status |
 |---|---|---|
-| `CONNECTOR_AUDIT_2026-07.md` | Verified connector fix backlog (FT-nn + T1-nn), combined top-5 in §3 | Awaiting triage |
-| `MODEL_EVOLUTION_SPEC.md` | Closed E1→E4 domain-model programme (Changes 1–4) | Accepted; E1 next |
-| `FAMILYSEARCH_SOURCE_SPEC.md` | FS source plugin; §§14–19 = official-API pivot, read-leg acceptance | Blocked on AppKey |
+| `CONNECTOR_AUDIT_2026-07.md` | Connector fix backlog — as-built record of what each connector now does | 55/58 shipped; FT-08/19/21 deferred |
+| `FAMILYSEARCH_SOURCE_SPEC.md` | FS source plugin; §§14–19 = official-API pivot, read-leg acceptance | Blocked on Beta AppKey |
 | `GEDCOMX_CONCEPT_MAPPING.md` | GEDCOM X ↔ our-model boundary contract (mandated by ADR-003) | Maintained per migration |
-| `ENGINE_FOUNDATION_SPEC.md` | Engine robustness; A+B shipped, C+D (#Change5–8) deferred — triage with the audit | Partially shipped |
+| `ENGINE_FOUNDATION_SPEC.md` | Engine robustness; A+B shipped, C+D (#Change5–8) deferred | Partially shipped |
 | `RESEARCH_PIPELINE_SPEC.md` | Governing architectural spec (Part I as-built; Part II remainder T9/T23/T31) | Governing |
+
+## As-built references (shipped programmes)
+
+| Doc | Role |
+|---|---|
+| `MODEL_EVOLUTION_SPEC.md` | Closed E1→E4 domain-model programme — **complete** (v34–v37 migrations, 2026-07-11) |
 
 ## As-built references (shipped phases)
 
