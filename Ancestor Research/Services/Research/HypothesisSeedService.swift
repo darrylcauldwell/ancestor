@@ -86,6 +86,150 @@ nonisolated enum HypothesisSeedService {
         case refused(RefusalReason)
     }
 
+    // MARK: - Intake (phase a MCP / phase b Workbench)
+
+    /// Result of a synchronous seed submission (§5.15.7). `queued`
+    /// carries the seed row id for the caller to poll; `refused` carries
+    /// the structured reason so the UI can explain what went wrong
+    /// without writing anything.
+    enum SubmitResult: Equatable, Sendable {
+        case queued(seedID: String)
+        case refused(RefusalReason)
+    }
+
+    /// The four name hints + optional window bounds a caller asserts.
+    /// Empty-after-trim hints normalise to nil at submission so the
+    /// identityKey stays deterministic and the payload records exactly
+    /// what was claimed (§5.15.1).
+    struct SeedHints: Sendable, Equatable {
+        var fatherGiven: String?
+        var fatherSurname: String?
+        var motherGiven: String?
+        var motherMaidenSurname: String?
+        var marriageWindowStart: Int?
+        var marriageWindowEnd: Int?
+
+        init(
+            fatherGiven: String? = nil,
+            fatherSurname: String? = nil,
+            motherGiven: String? = nil,
+            motherMaidenSurname: String? = nil,
+            marriageWindowStart: Int? = nil,
+            marriageWindowEnd: Int? = nil
+        ) {
+            self.fatherGiven = fatherGiven
+            self.fatherSurname = fatherSurname
+            self.motherGiven = motherGiven
+            self.motherMaidenSurname = motherMaidenSurname
+            self.marriageWindowStart = marriageWindowStart
+            self.marriageWindowEnd = marriageWindowEnd
+        }
+    }
+
+    /// Synchronous seed intake — the single app-side seam the Workbench
+    /// "Add a hunch" form (phase b, §5.15.7) writes through, mirroring
+    /// exactly what the MCP `submit_hypothesis` tool (phase a) does:
+    /// read-only validation per §5.15.2, then INSERT one queued
+    /// `user_hypothesis_seeds` row (nothing else). The watcher's
+    /// `materialiseQueuedSeeds` picks it up and does the actual
+    /// `research_hypotheses` upsert — so validation is NOT duplicated:
+    /// this is intake validation (refuse-with-reason, write-nothing),
+    /// `materialise` re-validates against current tree state at
+    /// materialisation time.
+    ///
+    /// The MCP tool re-implements this by hand only because the
+    /// FieldResearcherMCP package can't import the app target /
+    /// AncestorKit; the two paths share the seeds table and the same
+    /// refusal reason codes.
+    ///
+    /// Writes nothing on refusal (§5.15.2). `requestedBy` distinguishes
+    /// the intake surface in the persisted row (`'workbench'` here,
+    /// `'mcp'` from the tool).
+    static func submitSeed(
+        profileID: String,
+        hints: SeedHints,
+        requestedBy: String,
+        db: ProjectDatabase
+    ) throws -> SubmitResult {
+        let fatherGiven = normalised(hints.fatherGiven)
+        let fatherSurname = normalised(hints.fatherSurname)
+        let motherGiven = normalised(hints.motherGiven)
+        let motherMaidenSurname = normalised(hints.motherMaidenSurname)
+
+        // §5.15.2 rule 1 — at least one of the four name hints non-empty.
+        guard fatherGiven != nil || fatherSurname != nil
+                || motherGiven != nil || motherMaidenSurname != nil else {
+            return .refused(.noNameHints)
+        }
+
+        // §5.15.2 rule 2 — profile must exist (loadProfile excludes
+        // soft-deleted rows).
+        guard let profile = try db.loadProfile(id: profileID) else {
+            return .refused(.profileNotFound)
+        }
+
+        // §5.15.2 rule 3 — derivable marriage window; user bounds win.
+        let birthYearEstimate = profile.birthDate?.earliest ?? profile.birthDate?.latest
+        let lower = hints.marriageWindowStart
+            ?? birthYearEstimate.map { $0 + windowLowerOffset }
+        let upper = hints.marriageWindowEnd
+            ?? birthYearEstimate.map { $0 + windowUpperOffset }
+        guard let lower, let upper else {
+            return .refused(.noSubjectBirthEstimate)
+        }
+        guard lower <= upper else {
+            return .refused(.invalidWindow)
+        }
+
+        // §5.15.2 rule 4 — rejection memory. Resolve the identity key via
+        // the canonical `HypothesisKind.identityKey` (not a hand-copy) so
+        // intake and materialisation agree on collision identity.
+        let kind = HypothesisKind.parentCandidates(
+            fatherGiven: fatherGiven,
+            fatherSurname: fatherSurname,
+            motherGiven: motherGiven,
+            motherMaidenSurname: motherMaidenSurname,
+            marriageWindow: lower...upper
+        )
+        let identityKey = kind.identityKey(subjectProfileID: profileID)
+        let isRejected = try db.dbQueue.read { dbConn in
+            try Int.fetchOne(dbConn, sql: """
+                SELECT user_rejected FROM research_hypotheses WHERE id = ?
+                """, arguments: [identityKey]) ?? 0
+        }
+        if isRejected != 0 {
+            return .refused(.previouslyRejected)
+        }
+
+        // Payload records exactly what the caller asserted — derived
+        // window bounds are NOT persisted (§5.15.1); the watcher
+        // re-derives them at materialisation.
+        let payload = SeedPayload(
+            fatherGiven: fatherGiven,
+            fatherSurname: fatherSurname,
+            motherGiven: motherGiven,
+            motherMaidenSurname: motherMaidenSurname,
+            marriageWindowStart: hints.marriageWindowStart,
+            marriageWindowEnd: hints.marriageWindowEnd
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let payloadJSON = (try? encoder.encode(payload))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+
+        let seedID = "seed_\(UUID().uuidString)"
+        try db.dbQueue.write { dbConn in
+            try dbConn.execute(sql: """
+                INSERT INTO user_hypothesis_seeds
+                (id, profile_id, kind_discriminator, payload, status,
+                 requested_by, created_at)
+                VALUES (?, ?, 'parentCandidates', ?, 'queued', ?, ?)
+                """, arguments: [seedID, profileID, payloadJSON, requestedBy, Date()])
+        }
+        logger.info("Seed \(seedID) queued via \(requestedBy) for profile \(profileID)")
+        return .queued(seedID: seedID)
+    }
+
     // MARK: - Watcher entry point
 
     /// Process every queued seed. Called from the request watcher's poll
@@ -227,6 +371,31 @@ nonisolated enum HypothesisSeedService {
             return try refuse(seed: seed, reason: .previouslyRejected, db: db)
         }
 
+        // §5.15.2 last paragraph — straight-to-`.contradicted` at intake.
+        // If the tree already holds a *confirmed* (field_sources-backed)
+        // parent whose given name conflicts with a hint beyond nickname
+        // equivalence, the seed is *accepted* (not refused) but
+        // materialised directly as `.contradicted` — the user learns
+        // immediately rather than after a wasted run. Reuses the grader's
+        // exact conflict test (`HypothesisEngine.confirmedParentGivenNameConflict`,
+        // §5.15.4 table row 4) so intake and post-run grading agree. Slice 2
+        // deferred this; the snapshot the check needs was not plumbed into
+        // materialisation until now.
+        //
+        // A snapshot-build failure is not a refusal: fall through to the
+        // normal `.inconclusive` path (the post-run grader re-checks the
+        // conflict against the same tree state, so the verdict still lands —
+        // just after a run rather than at intake).
+        let intakeConflict: HypothesisEngine.ConfirmedParentConflict? =
+            (try? db.buildSnapshot()).flatMap { snapshot in
+                HypothesisEngine.confirmedParentGivenNameConflict(
+                    fatherGiven: fatherGiven,
+                    motherGiven: motherGiven,
+                    subjectProfileID: seed.profileID,
+                    snapshot: snapshot
+                )
+            }
+
         // Materialise. Re-seeding identical hints collides on the
         // identityKey and upserts — no duplicate rows (§5.15.2). The
         // upsert preserves created_at, user_rejected, and origin.
@@ -237,17 +406,35 @@ nonisolated enum HypothesisSeedService {
             motherGiven.map { "mother given \"\($0)\"" },
             motherMaidenSurname.map { "mother maiden surname \"\($0)\"" },
         ].compactMap(\.self).joined(separator: ", ")
+
+        let verdict: ResearchHypothesis.Verdict
+        let contradictingEvidence: [String]
+        let reasoning: String
+        if let conflict = intakeConflict {
+            verdict = .contradicted
+            contradictingEvidence = ["edge:parent:\(conflict.parentID)"]
+            reasoning = "User-seeded hunch (via \(seed.requestedBy)): \(hintSummary); "
+                + "marriage window \(lower)–\(upper). Contradicted at intake — hunch says "
+                + "\(conflict.role) given name \"\(conflict.hint)\"; the tree holds a confirmed "
+                + "\(conflict.role) \"\(conflict.confirmed)\" (profile \(conflict.parentID)) — "
+                + "conflict beyond nickname equivalence."
+        } else {
+            verdict = .inconclusive
+            contradictingEvidence = []
+            reasoning = "User-seeded hunch (via \(seed.requestedBy)): \(hintSummary); "
+                + "marriage window \(lower)–\(upper). Not yet probed."
+        }
+
         let hypothesis = ResearchHypothesis(
             id: identityKey,
             subjectProfileID: seed.profileID,
             kind: kind,
             origin: .user,
-            verdict: .inconclusive,
+            verdict: verdict,
             isModelAssisted: false,
             supportingEvidence: [],
-            contradictingEvidence: [],
-            reasoning: "User-seeded hunch (via \(seed.requestedBy)): \(hintSummary); "
-                + "marriage window \(lower)–\(upper). Not yet probed.",
+            contradictingEvidence: contradictingEvidence,
+            reasoning: reasoning,
             createdAt: now,
             lastTestedAt: now,
             attempts: 0,

@@ -11,6 +11,7 @@ struct WorkbenchView: View {
     enum Section: String, CaseIterable, Identifiable {
         case focus = "Focus"
         case hypotheses = "Hypotheses"
+        case hunches = "Hunches"
         case questions = "Questions"
         case notes = "Notes"
         case sessions = "Sessions"
@@ -21,6 +22,7 @@ struct WorkbenchView: View {
             switch self {
             case .focus: return "scope"
             case .hypotheses: return "lightbulb"
+            case .hunches: return "lightbulb.max"
             case .notes: return "note.text"
             case .questions: return "questionmark.bubble"
             case .sessions: return "clock.arrow.circlepath"
@@ -44,6 +46,7 @@ struct WorkbenchView: View {
             switch section {
             case .focus: FocusView()
             case .hypotheses: HypothesesView()
+            case .hunches: UserHunchesView(subjectID: appState.selectedProfileID)
             case .questions: QuestionsView()
             case .notes: NotesView()
             case .sessions: SessionsView()

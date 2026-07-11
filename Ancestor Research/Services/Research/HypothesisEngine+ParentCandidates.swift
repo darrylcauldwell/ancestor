@@ -250,6 +250,26 @@ nonisolated extension HypothesisEngine {
         }
     }
 
+    // MARK: - Ladder ceiling / exhaustion (§5.15.8)
+
+    /// Highest deficit level `.parentCandidates` dispatches — level 1
+    /// (parent-marriage), 2 (MMN linkage), 3 (census household). Level
+    /// ≥ 4 returns `[]` (exhausted). Single source of truth so the UX
+    /// layer's "exhausted hunch" test (§5.15.8) can't drift from the
+    /// ladder in `deficitQueryParentCandidates`.
+    static let parentCandidatesLadderCeiling = 3
+
+    /// A `.parentCandidates` hunch is exhausted (§5.15.8) once every
+    /// ladder level has been dispatched — i.e. the NEXT level
+    /// (`attempts + 1`) would exceed the ceiling and `deficitQuery`
+    /// returns `[]`. State-free: the ceiling is a fixed property of the
+    /// kind, so the UX layer needn't build a `ResearchState` to ask.
+    /// Returns false for non-`.parentCandidates` kinds.
+    static func isParentCandidatesExhausted(_ hypothesis: ResearchHypothesis) -> Bool {
+        guard case .parentCandidates = hypothesis.kind else { return false }
+        return hypothesis.attempts + 1 > parentCandidatesLadderCeiling
+    }
+
     // MARK: - Deficit ladder (§5.15.3)
 
     /// Per-kind expansiveness ladder for `.parentCandidates`:
