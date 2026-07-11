@@ -1,6 +1,6 @@
 # CONNECTOR_AUDIT_2026-07 — Free-Trio Connector Audit Findings
 
-**Status: FT set AND T1 set triaged and ACCEPTED (Darryl, 2026-07-11) — FT-01…FT-29 and T1-01…T1-29 (§6) all approved for implementation; work started same day in top-5 order. §8 critic additions remain UNVERIFIED and unapproved.** Drafted overnight 2026-07-10/11 from the audit envelope. (§§6–8 appended 2026-07-11 after tier-1 verification completed.)
+**Status: 53 of 58 findings SHIPPED 2026-07-11 (see `git log --grep='#FT-\|#T1-'`). Remaining 5 are the deferred tail: FT-06 + FT-27 need the one rationed live probe; FT-08 is a Python-reference data fix (swift-is-what-ships deprioritised); FT-19 (place-scoping) + FT-21 (witness probes) are L-sized capabilities the audit deferred. FT set AND T1 set triaged and ACCEPTED (Darryl, 2026-07-11) — FT-01…FT-29 and T1-01…T1-29 (§6) all approved for implementation; work started same day in top-5 order. §8 critic additions remain UNVERIFIED and unapproved.** Drafted overnight 2026-07-10/11 from the audit envelope. (§§6–8 appended 2026-07-11 after tier-1 verification completed.)
 
 ---
 
