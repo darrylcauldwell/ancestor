@@ -42,7 +42,7 @@ nonisolated final class ProjectDatabase: Sendable {
         try Self.makeMigrator().migrate(dbQueue)
     }
 
-    /// The full migration chain, v1…v34. Static (no instance state) so tests
+    /// The full migration chain, v1…v36. Static (no instance state) so tests
     /// can drive the migrator directly — e.g. migrate a scratch DB
     /// `upTo:` a given version, seed legacy-shaped rows, then complete the
     /// chain to exercise a data migration in isolation.
@@ -1133,6 +1133,38 @@ nonisolated final class ProjectDatabase: Sendable {
                 try db.execute(
                     sql: "UPDATE profiles SET name_forms = ? WHERE id = ?",
                     arguments: [json, row["id"] as String])
+            }
+        }
+
+        // MARK: v36 — place-authority landing slot (MODEL_EVOLUTION_SPEC
+        // §Change3 / ADR-004 E3). E3's substance — the typed place hierarchy
+        // with temporal validity — is DERIVED at runtime from the existing seed
+        // data (the gazetteer + the FreeBMD district catalogue) by
+        // `PlaceAuthorityRegistry`; the *stored* `COUNTY:Place` codes in
+        // `*_location_code` are unchanged and keep resolving to the same
+        // county/district they always did, so **no code migration is needed and
+        // this migration is losslessly additive** (AC3).
+        //
+        // What it adds is the optional, nullable `place_authority_id` column
+        // beside each existing `*_location_code` column, on the three tables
+        // that carry a location code (profiles birth/death, relationships
+        // marriage, life_events). Per the spec this is the future landing slot
+        // for an *external* authority id (FS Place Authority), following the
+        // stash-don't-destroy discipline (L8): the column exists so those ids
+        // have a home when FS arrives, and stays NULL until then. The Profile /
+        // Relationship / LifeEvent Swift shapes are unchanged (still string +
+        // code); nothing reads or writes these columns yet.
+        migrator.registerMigration("v36_place_authority_id") { db in
+            try db.alter(table: "profiles") { t in
+                // Two slots — one per location code the profile carries.
+                t.add(column: "birth_place_authority_id", .text)
+                t.add(column: "death_place_authority_id", .text)
+            }
+            try db.alter(table: "relationships") { t in
+                t.add(column: "marriage_place_authority_id", .text)
+            }
+            try db.alter(table: "life_events") { t in
+                t.add(column: "place_authority_id", .text)
             }
         }
 

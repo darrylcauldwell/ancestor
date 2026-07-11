@@ -1,5 +1,6 @@
 import Foundation
 import os
+import AncestorKit
 
 /// One UK place — town, parish, or county. Used by LocationPicker for typeahead
 /// matching when a user enters a birth/death location, so that "Ashford" can be
@@ -12,6 +13,56 @@ nonisolated struct GazetteerEntry: Codable, Sendable, Hashable, Identifiable {
     let aliases: [String]   // common spelling/format variants
     /// "county" for top-level county entries; nil for towns/parishes within counties.
     let kind: String?
+
+    // MARK: - E3 hierarchy + temporal validity (MODEL_EVOLUTION_SPEC §Change3)
+    //
+    // Additive, all-optional so pre-E3 `uk-places.json` entries (which carry
+    // none of these keys) still decode losslessly — Swift's synthesized Codable
+    // decodes a missing key as nil for an Optional. These give a gazetteer entry
+    // a home in the typed place hierarchy without changing what any existing
+    // `COUNTY:Place` code resolves to; the app-side `PlaceAuthorityRegistry`
+    // derives full `PlaceAuthority` records from these plus the FreeBMD district
+    // catalogue. The GENUKI ~12k-parish import targets this shape directly.
+
+    /// The `id` of this entry's hierarchical parent — a town's county
+    /// ("DBY:Crich" → "DBY"), a parish's registration district. `nil` for a
+    /// top-level county entry or when the seed data doesn't yet carry the link
+    /// (the registry infers a county parent from the id's Chapman prefix).
+    let parentID: String?
+
+    /// Inclusive lower year bound on this entry's jurisdictional validity, or
+    /// `nil` for unbounded (the common case for a stable town/county).
+    let validFrom: Int?
+
+    /// Inclusive upper year bound, or `nil` for unbounded.
+    let validTo: Int?
+
+    /// Memberwise init with defaults for the E3 hierarchy fields, so existing
+    /// call sites that construct a `GazetteerEntry` with only the original
+    /// id/name/county/country/aliases/kind keep compiling (back-compat, same as
+    /// E1's `Profile.init`). Decoding old JSON goes through the synthesized
+    /// `Codable`, which fills the missing optional keys with nil.
+    init(
+        id: String,
+        name: String,
+        county: String,
+        country: String,
+        aliases: [String],
+        kind: String?,
+        parentID: String? = nil,
+        validFrom: Int? = nil,
+        validTo: Int? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.county = county
+        self.country = country
+        self.aliases = aliases
+        self.kind = kind
+        self.parentID = parentID
+        self.validFrom = validFrom
+        self.validTo = validTo
+    }
 
     /// Display string suitable for showing the chosen value back to the user
     /// in a profile field: "Crich, Derbyshire".
@@ -101,5 +152,33 @@ nonisolated final class LocationGazetteer: Sendable {
     /// gazetteer (e.g. a stale code from an older release).
     func entry(forID id: String) -> GazetteerEntry? {
         places.first { $0.id == id }
+    }
+
+    // MARK: - E3 place-authority backing (MODEL_EVOLUTION_SPEC §Change3)
+
+    /// Resolve a stored `birthLocationCode`/`deathLocationCode`
+    /// (`COUNTY:Place` gazetteer id) to its **display county string**, exactly
+    /// as today's `entry(forID:).county` returns it — lossless with the flat
+    /// path (AC3). Crucially this preserves the handful of historical
+    /// cross-boundary entries where the display county disagrees with the id's
+    /// Chapman prefix (e.g. `MDX:Lambeth` displays "Surrey" though it registered
+    /// Middlesex-side; Bristol; Newport IoW). Those are a *feature* of the seed
+    /// data — the place sat in one county but registered in another — and the
+    /// hierarchy's Chapman-coded county node (Middlesex) answers a different
+    /// question (see `chapmanCode(forCode:)`). Falls back to the authority's
+    /// county node only when the flat entry is absent, so a future
+    /// GENUKI-imported code with no flat gazetteer row still resolves through
+    /// the hierarchy. Returns `nil` for a stale code in neither.
+    func countyName(forCode code: String) -> String? {
+        if let county = entry(forID: code)?.county { return county }
+        return PlaceAuthorityRegistry.shared.county(ofID: code)?.name
+    }
+
+    /// The Chapman code a stored `COUNTY:Place` id rolls up to, via the
+    /// authority hierarchy. Equivalent to the existing prefix-split derivation
+    /// (`ResearchSubject.chapmanCodeFromLocationCode`) for every real code, but
+    /// resolved through the typed county node rather than by string slicing.
+    func chapmanCode(forCode code: String) -> String? {
+        PlaceAuthorityRegistry.shared.county(ofID: code)?.id
     }
 }

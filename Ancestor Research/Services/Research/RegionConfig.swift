@@ -1,4 +1,5 @@
 import Foundation
+import AncestorKit
 
 /// Regional configuration for research — district mappings, parish lists, etc.
 /// Loaded from bundled JSON. Different regions provide different mappings
@@ -341,5 +342,37 @@ nonisolated struct RegionConfig: Codable, Sendable {
         case "DBY": return Self.derbyshire
         default:    return nil
         }
+    }
+
+    // MARK: - E3 place-authority backing (MODEL_EVOLUTION_SPEC §Change3)
+
+    /// AC4 — match a `districtHint` string (the free-text hint that lived only
+    /// inside `.subjectIdentity` hypothesis payloads, `ResearchHypothesis.swift`)
+    /// against a first-class registration-district authority entry, optionally
+    /// scoped to the subject's home county and a year. This is the *lookup
+    /// helper* the spec asks for: the hypothesis payload itself is unchanged;
+    /// this just lets code resolve a hint to the district entity, its FreeBMD
+    /// wire code, and — through the hierarchy — its county.
+    ///
+    /// Returns nil for an unrecognised hint. Purely additive: no existing
+    /// district-resolution path is rerouted through it.
+    static func districtAuthority(
+        matchingHint hint: String,
+        chapman: String? = nil,
+        year: Int? = nil
+    ) -> PlaceAuthority? {
+        let all = PlaceAuthorityRegistry.shared.places
+        guard let district = all.district(named: hint, chapman: chapman) else { return nil }
+        if let y = year, !district.valid(in: y) {
+            // The named district exists but wasn't valid in `year` — try a
+            // same-named successor/predecessor district that was.
+            return all.first {
+                $0.kind == .registrationDistrict
+                    && $0.name.lowercased() == district.name.lowercased()
+                    && (chapman == nil || $0.parentID?.uppercased() == chapman!.uppercased())
+                    && $0.valid(in: y)
+            }
+        }
+        return district
     }
 }
