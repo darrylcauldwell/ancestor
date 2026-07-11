@@ -28,7 +28,7 @@ This section reads as the build sequence — top to bottom is the intended order
 5. **Epic 13 — user-seeded hypotheses** — needs its RESEARCH_PIPELINE_SPEC change entry first.
 6. **Kinship primitives** — *proposed for this stage, decision pending:* the May KINSHIP_SPEC plan is Python-first, which the swift-is-what-ships rule has since superseded; if kinship joins the core push it gets respecced Swift-first rather than unparking the old plan.
 
-**Parallel, externally gated:** FamilySearch official-API read leg (`FAMILYSEARCH_SOURCE_SPEC.md` §§14–19) — starts the day the Beta AppKey arrives; E1 should land first.
+**Parallel, externally gated:** FamilySearch official-API work — starts the day the Beta AppKey arrives; E1 should land first. In order: (a) read leg (`FAMILYSEARCH_SOURCE_SPEC.md` §§14–19, acceptance criteria A1–A9); (b) write leg — the FS-specific Tree service + smallest-honest-write compliance demo (ADR-002/ADR-005); its mini-spec is deliberately unwritten until FamilySearch’s demo instructions arrive with the AppKey, so it is specified against their actual requirements rather than guesses.
 
 ### Stage 2 — after the core is solid: polish
 
