@@ -15,21 +15,30 @@
 
 **Declared priority (user, 2026-07-10): core research capability before polish.**
 
-## Live queues, in rough order
+## The road, in order
 
-1. **`CONNECTOR_AUDIT_2026-07.md`** — verified fix backlog (FT + T1), awaiting triage; combined top-5 in its §3.
-2. **`MODEL_EVOLUTION_SPEC.md`** — accepted 2026-07-11; Changes 1–4 (E1→E4) queued; **E1 is next** and is the prerequisite for FS person linkage.
-3. **`FAMILYSEARCH_SOURCE_SPEC.md`** §§14–19 — official-API read leg; **blocked on Beta AppKey arrival**.
-4. **`ENGINE_FOUNDATION_SPEC.md`** Phases C+D (#Change5–8) — deferred; overlaps the audit (see its cross-link note); triage together with queue 1.
-5. **`RESEARCH_PIPELINE_SPEC.md`** Part II remainder — T9, T23, T31 (+ §5.8 harness extensions).
-6. **Epic 13 — user-seeded hypotheses** — queued; needs a RESEARCH_PIPELINE_SPEC change entry before build.
+Nothing below is parked — everything has a place and a gate. A stage starts when its gate opens; the polish stage's gate is the core being declared solid, the release stage's gate is every phase being complete.
 
-## Parked by explicit decision
+### Stage 1 — now: make the core solid (declared priority, 2026-07-10)
 
-- `PROSE_CORPUS_SPEC.md` — polish, after a solid core (user, 2026-07-10)
-- `SOURCE_MEDIA_SPEC.md` — paper-only
-- `KINSHIP_SPEC.md` #Change3–5 (+ #Change9 Swift port) — behind engine foundation
-- Production publish / viewer TestFlight / family invites — behind all-phases-complete
+1. **`CONNECTOR_AUDIT_2026-07.md`** — triage, then fix (combined top-5 in its §3: record-ID integrity, household-target bug, CWGC geography-gate port, truncation-honesty envelope, cache-key completeness).
+2. **`MODEL_EVOLUTION_SPEC.md`** Changes 1–4 (E1→E4) — accepted 2026-07-11; E1 first (prerequisite for FS person linkage).
+3. **`ENGINE_FOUNDATION_SPEC.md`** Phases C+D (#Change5–8) — triage together with the audit (cross-linked; the T1-01 envelope and §5.2 negative cache interact with #Change5/6).
+4. **`RESEARCH_PIPELINE_SPEC.md`** Part II remainder — T9, T23-adjacent harness work, T31 retuning.
+5. **Epic 13 — user-seeded hypotheses** — needs its RESEARCH_PIPELINE_SPEC change entry first.
+6. **Kinship primitives** — *proposed for this stage, decision pending:* the May KINSHIP_SPEC plan is Python-first, which the swift-is-what-ships rule has since superseded; if kinship joins the core push it gets respecced Swift-first rather than unparking the old plan.
+
+**Parallel, externally gated:** FamilySearch official-API read leg (`FAMILYSEARCH_SOURCE_SPEC.md` §§14–19) — starts the day the Beta AppKey arrives; E1 should land first.
+
+### Stage 2 — after the core is solid: polish
+
+- `PROSE_CORPUS_SPEC.md` — bio synthesis / prose corpus ("polish we would do after we have a totally solid core logic system" — user, 2026-07-10)
+- `SOURCE_MEDIA_SPEC.md` — record images / headstone media
+- Epic 12 — sample-tree first-launch tour
+
+### Stage 3 — release (gate: every phase complete — user, 2026-07-10)
+
+First production publish → ASC viewer app records → viewer TestFlight lanes (already written) → family invites → soak items (revocation, unpublish propagation, redaction-as-participant audits).
 
 ## Note on the appendix
 

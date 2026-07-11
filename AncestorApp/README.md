@@ -29,13 +29,13 @@ One line per document: what it is, whether it's live, and when to read it. Conve
 | `published-schema-v1.ckdb` | Hand-authored canonical CloudKit schema (promoted to prod 2026-07-08) |
 | `family-bundle.schema.json` | Offline family-bundle contract (viewer test double) |
 
-## Parked by explicit decision
+## Sequenced later (on the road, gated)
 
-| Doc | Why parked |
-|---|---|
-| `PROSE_CORPUS_SPEC.md` | Polish — after a solid core (user, 2026-07-10) |
-| `SOURCE_MEDIA_SPEC.md` | Paper-only; no code |
-| `KINSHIP_SPEC.md` | #Change3–5 deferred behind engine foundation |
+| Doc | Stage | Gate |
+|---|---|---|
+| `PROSE_CORPUS_SPEC.md` | Polish (Stage 2) | Core declared solid |
+| `SOURCE_MEDIA_SPEC.md` | Polish (Stage 2) | Core declared solid |
+| `KINSHIP_SPEC.md` | Core (Stage 1, proposed) | Decision: respec Swift-first before build |
 
 ## `archive/`
 
