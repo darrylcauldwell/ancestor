@@ -403,6 +403,21 @@ actor MCPHandler {
                     required: []
                 ),
                 tool(
+                    name: "submit_hypothesis",
+                    description: "Seed a user hypothesis (a hunch, e.g. \"I think this person's parents were called Bob & Sue\") for the research engine to test. A hunch is a search directive, never data — it creates no profile, no edge, no field, no citation; it steers targeted probes whose findings face the standard verdict pipeline. Validates synchronously and INSERTs one user_hypothesis_seeds row (the app's watcher materialises it into a research hypothesis with origin=user); returns seed_id, or a structured refusal reason (no_name_hints | profile_not_found | no_subject_birth_estimate | previously_rejected). Hunches accumulate between runs: follow with kick_off_research to test them. Distinct from submit_evidence — family testimony you can cite is evidence, not a hunch.",
+                    properties: [
+                        "profile_id": ["type": "string", "description": "Profile ID the hunch is about (the child whose parents are hinted)"],
+                        "kind": ["type": "string", "description": "Hypothesis kind. Only \"parent_candidates\" is supported."],
+                        "father_given": ["type": "string", "description": "Hinted father's given name (optional; nicknames fine — \"Bob\" matches \"Robert\")"],
+                        "father_surname": ["type": "string", "description": "Hinted father's surname (optional; defaults to the subject's surname at probe time)"],
+                        "mother_given": ["type": "string", "description": "Hinted mother's given name (optional)"],
+                        "mother_maiden_surname": ["type": "string", "description": "Hinted mother's MAIDEN surname (optional)"],
+                        "marriage_window_start": ["type": "integer", "description": "Earliest parents' marriage year (optional; derived as subject birth year − 30 when absent)"],
+                        "marriage_window_end": ["type": "integer", "description": "Latest parents' marriage year (optional; derived as subject birth year + 1 when absent)"],
+                    ],
+                    required: ["profile_id", "kind"]
+                ),
+                tool(
                     name: "get_run_status",
                     description: "Poll the status of a queued research run. Returns status (queued | running | completed | failed), run_id when completed, and error when failed.",
                     properties: [
@@ -499,6 +514,8 @@ actor MCPHandler {
             return try addWorkbenchNote(arguments)
         case "kick_off_research":
             return try kickOffResearch(arguments)
+        case "submit_hypothesis":
+            return try submitHypothesis(arguments)
         case "get_run_status":
             return try getRunStatus(arguments)
         case "get_research_result":
@@ -1488,6 +1505,206 @@ actor MCPHandler {
                 ]
             ]
         ]
+    }
+
+    // MARK: - submit_hypothesis (RESEARCH_PIPELINE_SPEC §5.15, Decision E2)
+
+    /// Seed a user hypothesis. Validates synchronously (read-only checks
+    /// per §5.15.2), INSERTs one `user_hypothesis_seeds` row (v32), and
+    /// returns the seed_id; the app-side watcher materialises the seed
+    /// into a `research_hypotheses` row with `origin = 'user'`.
+    ///
+    /// **Firewall.** Writes `user_hypothesis_seeds` ONLY — orchestration,
+    /// the same tier as `research_run_requests`. Reads: `profiles`
+    /// (existence, birth estimate), `research_hypotheses` (rejection
+    /// check). The evidence-write set (`pending_facts` + `leads`) is
+    /// untouched; a hunch is a search directive, never data.
+    func submitHypothesis(_ args: [String: Any]) throws -> [String: Any] {
+        guard let profileID = args["profile_id"] as? String, !profileID.isEmpty else {
+            throw MCPError.invalidParams("submit_hypothesis requires profile_id")
+        }
+        guard let kind = args["kind"] as? String else {
+            throw MCPError.invalidParams("submit_hypothesis requires kind")
+        }
+        guard kind == "parent_candidates" else {
+            throw MCPError.invalidParams("kind must be \"parent_candidates\" (only supported value this epic)")
+        }
+
+        let fatherGiven = Self.trimmedHint(args["father_given"])
+        let fatherSurname = Self.trimmedHint(args["father_surname"])
+        let motherGiven = Self.trimmedHint(args["mother_given"])
+        let motherMaidenSurname = Self.trimmedHint(args["mother_maiden_surname"])
+        let windowStart = args["marriage_window_start"] as? Int
+        let windowEnd = args["marriage_window_end"] as? Int
+
+        // Read-only lookups for validation (§5.15.2): the profile's
+        // existence + birth-year estimate, done here so the pure
+        // validator stays unit-testable without a live SQLite.
+        let profileRow: (exists: Bool, birthEarliest: Int?, birthLatest: Int?) = try db.read { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT birth_date_earliest, birth_date_latest
+                FROM profiles WHERE id = ? AND is_deleted = 0
+                """, arguments: [profileID]) else {
+                return (false, nil, nil)
+            }
+            return (true, row["birth_date_earliest"], row["birth_date_latest"])
+        }
+
+        let validation = Self.validateHypothesisSeed(
+            profileID: profileID,
+            profileExists: profileRow.exists,
+            birthYearEarliest: profileRow.birthEarliest,
+            birthYearLatest: profileRow.birthLatest,
+            fatherGiven: fatherGiven,
+            fatherSurname: fatherSurname,
+            motherGiven: motherGiven,
+            motherMaidenSurname: motherMaidenSurname,
+            windowStart: windowStart,
+            windowEnd: windowEnd
+        )
+
+        let identityKey: String
+        switch validation {
+        case .refused(let reason):
+            return refuseHypothesisSeed(profileID: profileID, reason: reason)
+        case .valid(let key, _, _):
+            identityKey = key
+        }
+
+        // Rejection memory (§5.15.2): the user dismissed this exact hunch;
+        // re-seeding must be a deliberate un-reject, not a silent revival.
+        let isRejected = try db.read { db in
+            try Int.fetchOne(db, sql: """
+                SELECT user_rejected FROM research_hypotheses WHERE id = ?
+                """, arguments: [identityKey]) ?? 0
+        }
+        if isRejected != 0 {
+            return refuseHypothesisSeed(profileID: profileID, reason: "previously_rejected")
+        }
+
+        // Payload records exactly what the caller asserted — derived
+        // window bounds are NOT persisted (§5.15.1); the watcher
+        // re-derives them at materialisation time.
+        var payload: [String: Any] = [:]
+        if let fatherGiven { payload["father_given"] = fatherGiven }
+        if let fatherSurname { payload["father_surname"] = fatherSurname }
+        if let motherGiven { payload["mother_given"] = motherGiven }
+        if let motherMaidenSurname { payload["mother_maiden_surname"] = motherMaidenSurname }
+        if let windowStart { payload["marriage_window_start"] = windowStart }
+        if let windowEnd { payload["marriage_window_end"] = windowEnd }
+        let payloadJSON = (try? String(
+            data: JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+            encoding: .utf8
+        )) ?? "{}"
+
+        let seedID = "seed_\(UUID().uuidString)"
+        try db.write { db in
+            try db.execute(sql: """
+                INSERT INTO user_hypothesis_seeds
+                (id, profile_id, kind_discriminator, payload, status,
+                 requested_by, created_at)
+                VALUES (?, ?, 'parentCandidates', ?, 'queued', 'mcp', ?)
+                """, arguments: [seedID, profileID, payloadJSON, Date()])
+        }
+
+        let result: [String: Any] = [
+            "status": "queued",
+            "seed_id": seedID,
+            "profile_id": profileID,
+        ]
+        let json = (try? String(data: JSONSerialization.data(withJSONObject: result, options: .prettyPrinted), encoding: .utf8)) ?? "{}"
+        return ["content": [["type": "text", "text": json]]]
+    }
+
+    /// Structured refusal (§5.15.7): reason code + nothing written.
+    private func refuseHypothesisSeed(profileID: String, reason: String) -> [String: Any] {
+        let payload: [String: Any] = [
+            "status": "refused",
+            "profile_id": profileID,
+            "reason": reason,
+        ]
+        let json = (try? String(data: JSONSerialization.data(withJSONObject: payload, options: .prettyPrinted), encoding: .utf8)) ?? "{}"
+        return ["content": [["type": "text", "text": json]]]
+    }
+
+    /// Empty-after-trim hints are not assertions — normalise to nil.
+    static func trimmedHint(_ value: Any?) -> String? {
+        guard let s = (value as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !s.isEmpty else { return nil }
+        return s
+    }
+
+    /// Pure §5.15.2 validation core for `submit_hypothesis` — profile
+    /// facts are pre-fetched by the caller so this is unit-testable
+    /// without a live SQLite (same pattern as `decideDedup`). The
+    /// rejection-memory check needs the resolved identity key, so it
+    /// stays with the caller's SQL.
+    enum HypothesisSeedValidation: Equatable {
+        case refused(reason: String)
+        case valid(identityKey: String, windowStart: Int, windowEnd: Int)
+    }
+
+    static func validateHypothesisSeed(
+        profileID: String,
+        profileExists: Bool,
+        birthYearEarliest: Int?,
+        birthYearLatest: Int?,
+        fatherGiven: String?,
+        fatherSurname: String?,
+        motherGiven: String?,
+        motherMaidenSurname: String?,
+        windowStart: Int?,
+        windowEnd: Int?
+    ) -> HypothesisSeedValidation {
+        // §5.15.2 rule 1 — at least one of the four name hints non-empty.
+        guard fatherGiven != nil || fatherSurname != nil
+                || motherGiven != nil || motherMaidenSurname != nil else {
+            return .refused(reason: "no_name_hints")
+        }
+        // §5.15.2 rule 2 — profile must exist.
+        guard profileExists else {
+            return .refused(reason: "profile_not_found")
+        }
+        // §5.15.2 rule 3 — derivable marriage window. User bounds win
+        // where given; missing bounds default from the birth estimate
+        // (birthYear − 30 … birthYear + 1, mirroring `.parentMarriage`).
+        let birthEstimate = birthYearEarliest ?? birthYearLatest
+        let lower = windowStart ?? birthEstimate.map { $0 - 30 }
+        let upper = windowEnd ?? birthEstimate.map { $0 + 1 }
+        guard let lower, let upper else {
+            return .refused(reason: "no_subject_birth_estimate")
+        }
+        guard lower <= upper else {
+            return .refused(reason: "invalid_window")
+        }
+        return .valid(
+            identityKey: parentCandidatesIdentityKey(
+                profileID: profileID,
+                fatherGiven: fatherGiven, fatherSurname: fatherSurname,
+                motherGiven: motherGiven, motherMaidenSurname: motherMaidenSurname,
+                windowStart: lower, windowEnd: upper
+            ),
+            windowStart: lower,
+            windowEnd: upper
+        )
+    }
+
+    /// Mirror of `HypothesisKind.identityKey` for `.parentCandidates`
+    /// (canonical implementation:
+    /// `AncestorKit/Sources/AncestorKit/Research/ResearchHypothesis.swift`
+    /// — this package doesn't depend on AncestorKit, so keep the two in
+    /// sync by hand). nil hints normalise to "" (§5.15.1).
+    static func parentCandidatesIdentityKey(
+        profileID: String,
+        fatherGiven: String?,
+        fatherSurname: String?,
+        motherGiven: String?,
+        motherMaidenSurname: String?,
+        windowStart: Int,
+        windowEnd: Int
+    ) -> String {
+        "parentCandidates:\(profileID):\(fatherGiven?.uppercased() ?? "")x\(fatherSurname?.uppercased() ?? "")x\(motherGiven?.uppercased() ?? "")x\(motherMaidenSurname?.uppercased() ?? ""):\(windowStart)-\(windowEnd)"
     }
 
     /// Poll the watcher-set status for a queued research request.

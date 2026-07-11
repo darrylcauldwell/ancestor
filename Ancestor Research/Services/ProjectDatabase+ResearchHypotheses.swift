@@ -95,14 +95,17 @@ nonisolated extension ProjectDatabase {
     private static func upsertOne(_ h: ResearchHypothesis, db: Database) throws {
         // SQLite UPSERT preserves created_at via the ON CONFLICT clause —
         // only the mutable fields are overwritten. user_rejected is also
-        // preserved so user-rejection survives a re-run.
+        // preserved so user-rejection survives a re-run. `origin` (v32)
+        // is likewise insert-only: who asserted a hypothesis is fixed at
+        // creation, so a re-grade upsert can never flip a `.user` row
+        // back to 'engine' (§5.15.1).
         try db.execute(sql: """
             INSERT INTO research_hypotheses (
                 id, subject_profile_id, kind_discriminator, kind_payload,
-                verdict, is_model_assisted, supporting_evidence,
+                origin, verdict, is_model_assisted, supporting_evidence,
                 contradicting_evidence, reasoning, created_at,
                 last_tested_at, attempts, history, user_rejected
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 verdict = excluded.verdict,
                 is_model_assisted = excluded.is_model_assisted,
@@ -117,6 +120,7 @@ nonisolated extension ProjectDatabase {
                 h.subjectProfileID,
                 h.kind.discriminator,
                 ProjectDatabase.encodeJSON(h.kind),
+                h.origin.rawValue,
                 h.verdict.rawValue,
                 h.isModelAssisted ? 1 : 0,
                 ProjectDatabase.encodeJSON(h.supportingEvidence),
@@ -154,11 +158,17 @@ nonisolated extension ProjectDatabase {
 
         let isModelAssistedInt: Int = row["is_model_assisted"] ?? 0
         let attempts: Int = row["attempts"] ?? 0
+        // Rows written before v32 have no origin column value in older
+        // snapshots; unknown raw values also degrade to .engine — the
+        // conservative default (engine rows get no §5.15 privileges).
+        let originRaw: String = row["origin"] ?? "engine"
+        let origin = ResearchHypothesis.Origin(rawValue: originRaw) ?? .engine
 
         return ResearchHypothesis(
             id: id,
             subjectProfileID: row["subject_profile_id"],
             kind: kind,
+            origin: origin,
             verdict: verdict,
             isModelAssisted: isModelAssistedInt != 0,
             supportingEvidence: supporting,

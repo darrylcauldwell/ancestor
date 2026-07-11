@@ -1089,6 +1089,7 @@ final class ResearchPipeline {
             id: draft.id,
             subjectProfileID: draft.subjectProfileID,
             kind: draft.kind,
+            origin: draft.origin,
             verdict: gradeResult.verdict,
             isModelAssisted: gradeResult.isModelAssisted,
             supportingEvidence: gradeResult.supportingEvidence,
@@ -1466,6 +1467,7 @@ final class ResearchPipeline {
                 id: draft.id,
                 subjectProfileID: draft.subjectProfileID,
                 kind: draft.kind,
+                origin: draft.origin,
                 verdict: result.verdict,
                 isModelAssisted: result.isModelAssisted,
                 supportingEvidence: result.supportingEvidence,
@@ -1633,6 +1635,7 @@ final class ResearchPipeline {
                 id: h.id,
                 subjectProfileID: h.subjectProfileID,
                 kind: h.kind,
+                origin: h.origin,
                 verdict: result.verdict,
                 isModelAssisted: result.isModelAssisted,
                 supportingEvidence: result.supportingEvidence,
@@ -1700,7 +1703,7 @@ final class ResearchPipeline {
             let b = await brideSide
             return g + b
         case .parentInferred, .subjectIdentity, .clusterIsSubject,
-             .birthYearCandidate,
+             .birthYearCandidate, .parentCandidates,
              .burialAtParish, .secondMarriage:
             // These kinds either have no ladder (parentInferred,
             // subjectIdentity, clusterIsSubject) or aren't yet in

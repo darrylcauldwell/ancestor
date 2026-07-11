@@ -32,6 +32,16 @@ public nonisolated struct ResearchHypothesis: Identifiable, Sendable, Codable, E
         case inconclusive
     }
 
+    /// Who asserted this hypothesis. `.engine` (default) for rows the
+    /// generate switches produce; `.user` for seeded hunches
+    /// (RESEARCH_PIPELINE_SPEC §5.15.1, Decision E1). The engine's
+    /// regeneration cycle never creates, deletes, or reshapes `.user`
+    /// rows — only re-grades them. Only the user dismisses one.
+    public enum Origin: String, Sendable, Codable, CaseIterable, Equatable {
+        case engine
+        case user
+    }
+
     /// One entry in a hypothesis's history. Records when the verdict
     /// changed, whether model input was involved, and a one-line reason
     /// for audit.
@@ -59,6 +69,11 @@ public nonisolated struct ResearchHypothesis: Identifiable, Sendable, Codable, E
 
     /// What's being claimed. Each case carries its own typed payload.
     public let kind: HypothesisKind
+
+    /// Who asserted this hypothesis (§5.15.1). Orthogonal to `kind` so
+    /// every future user-seedable kind reuses it unchanged. Legacy
+    /// persisted rows (pre-v32) decode as `.engine`.
+    public let origin: Origin
 
     /// Latest grading. Always one of supported / contradicted / inconclusive.
     public let verdict: Verdict
@@ -103,10 +118,14 @@ public nonisolated struct ResearchHypothesis: Identifiable, Sendable, Codable, E
 
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
-    public init(id: String, subjectProfileID: String? = nil, kind: HypothesisKind, verdict: Verdict, isModelAssisted: Bool, supportingEvidence: [String], contradictingEvidence: [String], reasoning: String, createdAt: Date, lastTestedAt: Date, attempts: Int, history: [Transition]) {
+    /// `origin` defaults to `.engine` so the pre-§5.15 call sites
+    /// (all engine-generated) stay source-compatible; copy sites that
+    /// rebuild an existing hypothesis must pass the original's origin.
+    public init(id: String, subjectProfileID: String? = nil, kind: HypothesisKind, origin: Origin = .engine, verdict: Verdict, isModelAssisted: Bool, supportingEvidence: [String], contradictingEvidence: [String], reasoning: String, createdAt: Date, lastTestedAt: Date, attempts: Int, history: [Transition]) {
         self.id = id
         self.subjectProfileID = subjectProfileID
         self.kind = kind
+        self.origin = origin
         self.verdict = verdict
         self.isModelAssisted = isModelAssisted
         self.supportingEvidence = supportingEvidence
@@ -116,6 +135,35 @@ public nonisolated struct ResearchHypothesis: Identifiable, Sendable, Codable, E
         self.lastTestedAt = lastTestedAt
         self.attempts = attempts
         self.history = history
+    }
+
+    // MARK: - Codable (backwards-compatible origin)
+
+    private enum CodingKeys: String, CodingKey {
+        case id, subjectProfileID, kind, origin, verdict, isModelAssisted
+        case supportingEvidence, contradictingEvidence, reasoning
+        case createdAt, lastTestedAt, attempts, history
+    }
+
+    /// Custom decoder solely so `origin` decode-defaults to `.engine`:
+    /// JSON encoded before the §5.15 field existed (v26–v31 rows, old
+    /// backups) has no `origin` key and must keep decoding. Encoding
+    /// stays synthesized.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
+        self.subjectProfileID = try c.decodeIfPresent(String.self, forKey: .subjectProfileID)
+        self.kind = try c.decode(HypothesisKind.self, forKey: .kind)
+        self.origin = try c.decodeIfPresent(Origin.self, forKey: .origin) ?? .engine
+        self.verdict = try c.decode(Verdict.self, forKey: .verdict)
+        self.isModelAssisted = try c.decode(Bool.self, forKey: .isModelAssisted)
+        self.supportingEvidence = try c.decode([String].self, forKey: .supportingEvidence)
+        self.contradictingEvidence = try c.decode([String].self, forKey: .contradictingEvidence)
+        self.reasoning = try c.decode(String.self, forKey: .reasoning)
+        self.createdAt = try c.decode(Date.self, forKey: .createdAt)
+        self.lastTestedAt = try c.decode(Date.self, forKey: .lastTestedAt)
+        self.attempts = try c.decode(Int.self, forKey: .attempts)
+        self.history = try c.decode([Transition].self, forKey: .history)
     }
 
 }
@@ -213,6 +261,30 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
     /// range alone needs neither path.
     case birthYearCandidate(profileID: String, year: Int)
 
+    /// "The subject's parents might have been this couple" — the
+    /// user-seeded hunch kind (RESEARCH_PIPELINE_SPEC §5.15, Decision
+    /// E1). A hunch is a search directive, never data: it creates no
+    /// profile, no edge, no field, no citation — it biases WHERE the
+    /// engine looks, never WHAT it concludes. Rows of this kind carry
+    /// `origin == .user`; the engine never generates them itself.
+    ///
+    /// Payload semantics (§5.15.1): hints record **exactly what the
+    /// user asserted** — nothing is defaulted into the payload. At
+    /// least one of the four name hints is non-empty (validated at
+    /// intake). Effective values are resolved at probe time (e.g.
+    /// groom surname = `fatherSurname ?? subject.lastName` under the
+    /// paternal-naming convention) and the resolution is recorded in
+    /// `reasoning`. `marriageWindow` defaults at intake to
+    /// `subjectBirthYear − 30 … subjectBirthYear + 1` (mirrors
+    /// `.parentMarriage` and §5.14.3); the user may narrow it.
+    case parentCandidates(
+        fatherGiven: String?,
+        fatherSurname: String?,
+        motherGiven: String?,
+        motherMaidenSurname: String?,
+        marriageWindow: ClosedRange<Int>
+    )
+
     /// "The subject was buried at this parish in this year window."
     /// Future kind; not in scope for T11/T12 but enumerated to show
     /// the framework absorbs new kinds without architectural change.
@@ -232,6 +304,7 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
         case .subjectSpouseMarriage:  return "subjectSpouseMarriage"
         case .clusterIsSubject:       return "clusterIsSubject"
         case .birthYearCandidate:     return "birthYearCandidate"
+        case .parentCandidates:       return "parentCandidates"
         case .burialAtParish:         return "burialAtParish"
         case .secondMarriage:         return "secondMarriage"
         }
@@ -262,6 +335,10 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
             // `subjectProfileID: nil` with a non-nil payload profileID.
             // Under normal use the two match and `subject == profileID`.
             return "birthYearCandidate:\(profileID):\(year)"
+        case .parentCandidates(let fg, let fs, let mg, let mms, let w):
+            // nil hints normalise to "" (§5.15.1) — same hunch re-seeded
+            // with the same hints collides on this key and upserts.
+            return "parentCandidates:\(subject):\(fg?.uppercased() ?? "")x\(fs?.uppercased() ?? "")x\(mg?.uppercased() ?? "")x\(mms?.uppercased() ?? ""):\(w.lowerBound)-\(w.upperBound)"
         case .burialAtParish(let parish, let window):
             return "burialAtParish:\(subject):\(parish.uppercased()):\(window.lowerBound)-\(window.upperBound)"
         case .secondMarriage(let afterYear):

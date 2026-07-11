@@ -69,6 +69,11 @@ final class RunRequestWatcher {
 
     private func pollOnce() async {
         guard let db = appState.currentDatabase else { return }
+        // §5.15.2 — materialise queued user-hypothesis seeds before the
+        // run dequeue, so a submit_hypothesis → kick_off_research pair
+        // sees the hypothesis row exist before its run dispatches.
+        // Validation and refusal-reason writes live in the service.
+        HypothesisSeedService.materialiseQueuedSeeds(db: db)
         guard let request = dequeueOne(db: db) else { return }
         logger.info("Dispatching research_run_request \(request.id): profile=\(request.profileID ?? "nil") lead=\(request.leadID ?? "nil") mode=\(request.mode) scope=\(request.scope)")
         await execute(request: request, db: db)

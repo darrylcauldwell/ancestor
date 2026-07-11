@@ -977,6 +977,45 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // MARK: v32 — user-seeded hypothesis staging (RESEARCH_PIPELINE_SPEC
+        // §5.15.2, Decision E2). External surfaces never write
+        // `research_hypotheses` directly — that table is engine-owned, and
+        // an external writer racing pipeline upserts is the class of bug
+        // the firewall exists to prevent. Intake instead mirrors the
+        // sanctioned `research_run_requests` orchestration pattern (v24):
+        // the MCP `submit_hypothesis` tool (and later the Workbench form)
+        // INSERTs a seed row; the app-side request watcher validates and
+        // materialises it into one `research_hypotheses` row with
+        // `origin = 'user'`. A seed is a search directive, never data —
+        // it creates no profile, no edge, no field, no citation.
+        //
+        // The `origin` column on research_hypotheses is the orthogonal
+        // provenance field (Decision E1): 'engine' for rows the generate
+        // switches produce, 'user' for seeded hunches. The engine's
+        // regeneration cycle never creates, deletes, or reshapes 'user'
+        // rows — only re-grades them. Pre-v32 rows are all engine-made,
+        // so the DEFAULT backfills them correctly.
+        migrator.registerMigration("v32_user_hypothesis_seeds") { db in
+            try db.create(table: "user_hypothesis_seeds") { t in
+                t.column("id", .text).primaryKey()          // seed_<uuid>
+                t.column("profile_id", .text).notNull()
+                    .references("profiles", onDelete: .cascade)
+                t.column("kind_discriminator", .text).notNull() // 'parentCandidates' only, this epic
+                t.column("payload", .text).notNull()        // JSON name hints + optional window
+                t.column("status", .text).notNull().defaults(to: "queued") // queued | materialised | refused
+                t.column("refusal_reason", .text)
+                t.column("hypothesis_id", .text)            // set on materialisation
+                t.column("requested_by", .text).notNull()   // 'mcp' | 'workbench'
+                t.column("created_at", .datetime).notNull()
+            }
+            try db.create(index: "idx_user_hypothesis_seeds_status",
+                          on: "user_hypothesis_seeds",
+                          columns: ["status"])
+            try db.alter(table: "research_hypotheses") { t in
+                t.add(column: "origin", .text).notNull().defaults(to: "engine")
+            }
+        }
+
         return migrator
     }
 
