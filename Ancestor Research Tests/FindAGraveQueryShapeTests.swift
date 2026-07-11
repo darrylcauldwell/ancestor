@@ -281,4 +281,30 @@ struct FindAGraveQueryShapeTests {
         }
         #expect(!params.includeMaidenName)
     }
+
+    // MARK: - T1-18 — includeNickName emission
+
+    @Test func includeNickNameRidesWithFirstname() {
+        // The scorer knows Jack=John (ScoringRules.nicknameEquivalents)
+        // but without the flag the query can never RETRIEVE the Jack
+        // memorial — match logic downstream, no retrieval upstream.
+        let wire = wireQuery(params: defaultParams())
+        #expect(wire["firstname"] == "Ernest")
+        #expect(wire["includeNickName"] == "true")
+    }
+
+    @Test func noFirstnameOmitsIncludeNickName() {
+        // Checkbox-presence semantics, and the flag is only meaningful
+        // alongside a firstname — a surname-only probe must not emit it.
+        let query = RecordQuery(
+            surname: "Cauldwell", givenName: nil,
+            recordType: .burial,
+            yearFrom: nil, yearTo: nil,
+            gender: .male, region: .englandAndWales,
+            sourceParams: .findAGrave(defaultParams())
+        )
+        let wire = FindAGraveSource.searchRequestParams(query: query, params: defaultParams())
+        #expect(wire["firstname"] == nil)
+        #expect(wire["includeNickName"] == nil)
+    }
 }

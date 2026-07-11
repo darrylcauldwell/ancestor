@@ -241,6 +241,18 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         // FreeBMD's `given` field.
         if let firstGiven = firstGivenName(query.givenName), !firstGiven.isEmpty {
             params["firstname"] = firstGiven
+            // T1-18: match `firstname` against registered nicknames too.
+            // FAG's prefix match runs against the first registered given
+            // name only, so firstname=John can never retrieve a memorial
+            // registered "Jack Smith" — even though the scorer's
+            // equivalence table (ScoringRules.nicknameEquivalents) knows
+            // Jack=John downstream. Ground truth is the live search
+            // form's "Include nickname" checkbox (checkbox-presence
+            // semantics, same provenance as includeMaidenName below).
+            // Broadening-only: extra hits are scored downstream, so a
+            // server-side no-op costs nothing and can never manufacture
+            // a false negative. Only meaningful alongside a firstname.
+            params["includeNickName"] = "true"
         }
         // T1-16: separate subject-side year axes. A burial search keys
         // on the death year when one is known; the birth year rides
@@ -280,6 +292,71 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         guard let raw, !raw.isEmpty else { return nil }
         guard let first = raw.split(whereSeparator: { $0.isWhitespace }).first else { return nil }
         let trimmed = String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    // MARK: - Name derivation (T1-23 response side)
+
+    /// Generational/honorific suffixes that must never be mistaken for a
+    /// surname when a display name is split on whitespace (T1-23):
+    /// "John Smith Jr." previously yielded surname "Jr.". Lower-cased
+    /// comparison set; conservative on purpose — a rare genuine surname
+    /// colliding with this set costs one widened name-gate comparison,
+    /// while a missed suffix hard-fails the gate on a nonsense surname.
+    nonisolated private static let nameSuffixes: Set<String> = [
+        "jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "esq", "esq.",
+    ]
+
+    /// Derive (surname, givenName) for a search-payload record (T1-23
+    /// response side). Prefers the payload's own structured name keys —
+    /// the fixture corpus shows discrete `firstName`/`middleName`/
+    /// `lastName`/`maidenName` fields (e.g. lastName "Brook-Cauldwell",
+    /// maidenName "Rollins") that the old last-token display-name split
+    /// mangled: hyphen-free compound surnames collapsed and FAG's
+    /// maiden-name-in-display-name convention was absorbed into
+    /// givenName. Falls back to `splitDisplayName` when the structured
+    /// keys are absent. `maidenName` itself needs no plumbing here — the
+    /// stringified payload lands in rawFields verbatim, so the name gate
+    /// can consult rawFields["maidenName"] as an alternate surname.
+    /// (Key names pending confirmation against a live payload — audit
+    /// §6.3 T1-23 note — same follow-up pattern as the not-found
+    /// markers in `classifyMemorialDetail`.)
+    nonisolated static func deriveNameFields(
+        record rec: [String: Any],
+        displayName: String
+    ) -> (surname: String?, givenName: String?, ambiguousSplit: Bool) {
+        let lastName = nonEmptyString(rec["lastName"])
+        let firstName = nonEmptyString(rec["firstName"])
+        let middleName = nonEmptyString(rec["middleName"])
+        if lastName != nil || firstName != nil {
+            let given = [firstName, middleName].compactMap { $0 }.joined(separator: " ")
+            return (lastName, given.isEmpty ? nil : given, false)
+        }
+        return splitDisplayName(displayName)
+    }
+
+    /// Last-token display-name split, suffix-aware (T1-23). Trailing
+    /// generational suffixes are stripped before the split so they can
+    /// never become the surname. `ambiguous` is true when 3+ tokens
+    /// remain: middle names, compound surnames, and FAG's maiden-name
+    /// convention are indistinguishable from whitespace alone, so the
+    /// flag is surfaced (rawFields["nameSplitAmbiguous"]) for the name
+    /// gate to widen tolerance rather than hard-fail.
+    nonisolated static func splitDisplayName(
+        _ name: String
+    ) -> (surname: String?, givenName: String?, ambiguousSplit: Bool) {
+        var tokens = name.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        while let last = tokens.last, nameSuffixes.contains(last.lowercased()) {
+            tokens.removeLast()
+        }
+        guard let surname = tokens.last else { return (nil, nil, false) }
+        let given = tokens.dropLast().joined(separator: " ")
+        return (surname, given.isEmpty ? nil : given, tokens.count > 2)
+    }
+
+    nonisolated private static func nonEmptyString(_ value: Any?) -> String? {
+        guard let string = value as? String else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
@@ -451,7 +528,13 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
 
     nonisolated private static func parseRecordArray(_ records: [[String: Any]]) -> [SourceRecord] {
         return records.compactMap { rec -> SourceRecord? in
-            let memorialID = rec["memorialId"] as? Int ?? 0
+            // T1-27: record IDs are the dedup keys everywhere (evidence
+            // rows, rejection lookups, deterministic LifeEvent IDs). The
+            // old `?? 0` fallback collapsed every id-less record to
+            // "findagrave_0" — dedup then reduced them to one survivor
+            // with a broken detailURL. A record we cannot stably
+            // identify is a record we cannot safely keep: skip it.
+            guard let memorialID = memorialID(from: rec) else { return nil }
             let nameForURL = rec["nameForURL"] as? String ?? ""
 
             // Build burial location
@@ -463,21 +546,26 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
             }
 
             let name = rec["titleName"] as? String ?? rec["fullName"] as? String ?? ""
-            let nameParts = name.split(separator: " ")
-            let surname = nameParts.last.map(String.init)
-            let givenName = nameParts.count > 1 ? nameParts.dropLast().joined(separator: " ") : nil
+            // T1-23 (response side): structured name keys beat the
+            // last-token display-name split.
+            let derived = deriveNameFields(record: rec, displayName: name)
 
             let birthDate = rec["birthDate"] as? String
             let deathDate = rec["deathDate"] as? String
+
+            var rawFields = rec.compactMapValues { "\($0)" }
+            if derived.ambiguousSplit {
+                rawFields["nameSplitAmbiguous"] = "true"
+            }
 
             let common = RecordCommon(
                 id: "findagrave_\(memorialID)",
                 sourceID: "findagrave",
                 name: name,
-                surname: surname,
-                givenName: givenName,
+                surname: derived.surname,
+                givenName: derived.givenName,
                 detailURL: "\(baseURL)/memorial/\(memorialID)/\(nameForURL)",
-                rawFields: rec.compactMapValues { "\($0)" }
+                rawFields: rawFields
             )
 
             return .burial(BurialRecord(
@@ -500,6 +588,24 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
                 isVeteran: rec["isVeteran"] as? Bool ?? false
             ))
         }
+    }
+
+    /// Positive memorial identity from a search-payload record (T1-27).
+    /// The API sends an integer; a numeric string is tolerated. Missing,
+    /// non-numeric, and non-positive values all mean "no stable
+    /// identity" — the caller skips the record rather than minting the
+    /// colliding "findagrave_0".
+    nonisolated static func memorialID(from rec: [String: Any]) -> Int? {
+        let parsed: Int?
+        if let intValue = rec["memorialId"] as? Int {
+            parsed = intValue
+        } else if let stringValue = rec["memorialId"] as? String {
+            parsed = Int(stringValue)
+        } else {
+            parsed = nil
+        }
+        guard let parsed, parsed > 0 else { return nil }
+        return parsed
     }
 
     /// Parse memorial detail HTML into a SourceRecord. Returns nil when the
@@ -539,13 +645,23 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
             name = ""
         }
 
-        let nameParts = name.split(separator: " ")
-        let surname = nameParts.last.map(String.init)
-        let givenName = nameParts.count > 1 ? nameParts.dropLast().joined(separator: " ") : nil
+        // T1-23: same suffix-aware split as the search parse — the
+        // <title> name has no structured fields to prefer.
+        let derived = splitDisplayName(name)
+        let surname = derived.surname
+        let givenName = derived.givenName
 
         // Extract fields via itemprop regex
         let birthDate = extractItemprop("birthDate", from: html)
-        let deathDate = extractItemprop("deathDate", from: html)?.replacingOccurrences(of: #"\s*\(aged.*\)"#, with: "", options: .regularExpression)
+        // T1-22 (in-scope slice): the "(aged NN)" suffix is the only
+        // birth-year evidence on many older stones (death date + age,
+        // no birth date). Capture it BEFORE stripping — it lands in
+        // rawFields["aged"] below; promoting it onto BurialRecord and
+        // into the scorer's recordedAge is the RecordTypes/RecordScorer
+        // half of T1-22 (same edit slot as T1-02's military age).
+        let rawDeathDate = extractItemprop("deathDate", from: html)
+        let agedAtDeath = extractAgedValue(from: rawDeathDate)
+        let deathDate = rawDeathDate?.replacingOccurrences(of: #"\s*\(aged.*\)"#, with: "", options: .regularExpression)
         // Birth/death towns from schema.org itemprop blocks. Plumbed
         // through to BurialRecord so the scorer's geography gate can
         // see where the person actually was born/died (often different
@@ -555,6 +671,11 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
 
         // Cemetery
         let cemetery = extractItempropSpan("name", from: html)
+        // T1-19 (in-scope slice): the cemetery's own page URL — Python
+        // parity (findagrave.py:268-270). Enables the CWGC→FAG
+        // cemetery-corroboration join downstream without re-deriving
+        // the cemetery id from free text.
+        let cemeteryURL = extractCemeteryURL(from: html)
 
         // Burial location from address schema
         var locParts: [String] = []
@@ -586,6 +707,29 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         let finalBirthYear = itempropBirthYear ?? textBirthYear
         let finalDeathYear = itempropDeathYear ?? textDeathYear
 
+        var rawFields = [
+            "birthPlace": birthPlace ?? "",
+            "deathPlace": deathPlace ?? "",
+            "plot": plot ?? "",
+            "cemeteryURL": cemeteryURL ?? "",
+        ].filter { !$0.value.isEmpty }
+        if let agedAtDeath {
+            rawFields["aged"] = String(agedAtDeath)
+        }
+        if derived.ambiguousSplit {
+            rawFields["nameSplitAmbiguous"] = "true"
+        }
+        // T1-20: the Family Members block — parent/spouse/sibling/child
+        // links between memorials, volunteer-curated with citable URLs.
+        // Evidence Firewall: these are RECORD FIELDS only. Nothing here
+        // writes relationships; a downstream consumer may propose
+        // lead-tier relationships through the firewall queues, and the
+        // deterministic sandwich decides.
+        let familyLinks = parseFamilyLinks(html)
+        if !familyLinks.isEmpty, let encoded = encodeFamilyLinks(familyLinks) {
+            rawFields["familyLinks"] = encoded
+        }
+
         let common = RecordCommon(
             id: "findagrave_\(memorialID)",
             sourceID: "findagrave",
@@ -593,11 +737,7 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
             surname: surname,
             givenName: givenName,
             detailURL: "\(baseURL)/memorial/\(memorialID)",
-            rawFields: [
-                "birthPlace": birthPlace ?? "",
-                "deathPlace": deathPlace ?? "",
-                "plot": plot ?? "",
-            ].filter { !$0.value.isEmpty }
+            rawFields: rawFields
         )
 
         return .burial(BurialRecord(
@@ -615,6 +755,178 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
             bio: bio,
             isVeteran: false  // not available from detail page
         ))
+    }
+
+    // MARK: - Detail-page field extraction (T1-19 / T1-20 / T1-22)
+
+    /// T1-22 (in-scope slice): the death-date itemprop's "(aged NN)"
+    /// suffix, read before the display-date strip discards it.
+    nonisolated static func extractAgedValue(from rawDeathDate: String?) -> Int? {
+        guard let rawDeathDate else { return nil }
+        let pattern = #"\(aged\s+(\d{1,3})"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+              let match = regex.firstMatch(in: rawDeathDate, range: NSRange(rawDeathDate.startIndex..., in: rawDeathDate)),
+              let range = Range(match.range(at: 1), in: rawDeathDate) else { return nil }
+        return Int(rawDeathDate[range])
+    }
+
+    /// T1-19 (in-scope slice): absolute URL of the memorial's cemetery
+    /// page. Faithful port of the Python pattern
+    /// (findagrave.py:268-270): `<a href="(/cemetery/\d+/[^"]+)"` with
+    /// `itemprop="url"` on the same tag.
+    nonisolated static func extractCemeteryURL(from html: String) -> String? {
+        let pattern = #"<a href="(/cemetery/\d+/[^"]+)"[^>]*itemprop="url""#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+              let range = Range(match.range(at: 1), in: html) else { return nil }
+        return baseURL + String(html[range])
+    }
+
+    // MARK: - Family Members parsing (T1-20)
+
+    /// One entry from a memorial page's Family Members block: a
+    /// volunteer-curated link from this memorial to a relative's
+    /// memorial. Record-field data only — the Evidence Firewall means
+    /// these are never written as relationships by the connector.
+    nonisolated struct FamilyLink: Codable, Sendable, Equatable {
+        /// Normalised group label: parent | spouse | sibling |
+        /// halfSibling | child.
+        let relation: String
+        let name: String
+        let memorialID: Int
+        /// Displayed year span, verbatim (e.g. "1850–1920",
+        /// "unknown–1944"); nil when the block shows no years.
+        let years: String?
+    }
+
+    /// Recognised Family Members group headings → normalised relation.
+    /// Order matters: "Half Siblings" must match before "Siblings".
+    nonisolated private static let familyGroupHeadings: [(pattern: String, relation: String)] = [
+        ("Half[\\s-]?Siblings", "halfSibling"),
+        ("Siblings", "sibling"),
+        ("Parents", "parent"),
+        ("Spouses?", "spouse"),
+        ("Children", "child"),
+    ]
+
+    /// Extract the Family Members block into structured tuples (T1-20).
+    /// Neither the Python reference nor the pre-audit Swift parsed this
+    /// section, so there is no port to copy — the parser keys on FAG's
+    /// structural invariants instead of exact markup: a "Family Members"
+    /// heading, group labels (Parents/Spouse/Siblings/…) as tag text,
+    /// and `/memorial/<id>/…` anchors under each label. Links before
+    /// the first recognised group label are ignored; the scan is
+    /// bounded at the section's structural close so unrelated memorial
+    /// links elsewhere on the page (suggestions, sponsor modules) can't
+    /// bleed in. (Markup pending confirmation against a live capture —
+    /// same follow-up pattern as `classifyMemorialDetail`'s not-found
+    /// markers.)
+    nonisolated static func parseFamilyLinks(_ html: String) -> [FamilyLink] {
+        guard let heading = html.range(of: "Family Members", options: .caseInsensitive) else {
+            return []
+        }
+        let tail = html[heading.upperBound...]
+        // Bound the section: first structural close after the heading,
+        // else a conservative cap — FAG family blocks are far smaller.
+        var sectionEnd = tail.index(tail.startIndex, offsetBy: 30_000, limitedBy: tail.endIndex) ?? tail.endIndex
+        for marker in ["</section>", "</aside>"] {
+            if let close = tail.range(of: marker), close.lowerBound < sectionEnd {
+                sectionEnd = close.lowerBound
+            }
+        }
+        let section = String(tail[..<sectionEnd])
+        let nsSection = section as NSString
+        let fullRange = NSRange(location: 0, length: nsSection.length)
+
+        // Locate group labels as tag text (">Parents<") so prose
+        // mentions can't open a group.
+        var groups: [(location: Int, relation: String)] = []
+        for (pattern, relation) in familyGroupHeadings {
+            guard let regex = try? NSRegularExpression(pattern: ">\\s*(\(pattern))\\s*<", options: .caseInsensitive) else { continue }
+            for match in regex.matches(in: section, range: fullRange) {
+                // First label wins where patterns overlap (Half Siblings
+                // also contains "Siblings" — but ">…<" anchoring plus
+                // ordering means the same text can't match twice at one
+                // location unless the broader pattern already claimed it).
+                if !groups.contains(where: { $0.location == match.range.location }) {
+                    groups.append((match.range.location, relation))
+                }
+            }
+        }
+        guard !groups.isEmpty else { return [] }
+        groups.sort { $0.location < $1.location }
+
+        guard let anchorRegex = try? NSRegularExpression(
+            pattern: #"<a[^>]*href="/memorial/(\d+)/[^"]*"[^>]*>(.*?)</a>"#,
+            options: [.dotMatchesLineSeparators, .caseInsensitive]
+        ) else { return [] }
+
+        var links: [FamilyLink] = []
+        var seen = Set<String>()
+        for match in anchorRegex.matches(in: section, range: fullRange) {
+            // Group = nearest recognised label above the anchor.
+            guard let group = groups.last(where: { $0.location < match.range.location }) else {
+                continue
+            }
+            guard let idRange = Range(match.range(at: 1), in: section),
+                  let bodyRange = Range(match.range(at: 2), in: section),
+                  let memorialID = Int(section[idRange]), memorialID > 0 else {
+                continue
+            }
+            let body = String(section[bodyRange])
+            let (name, years) = familyMemberNameAndYears(fromAnchorBody: body)
+            guard !name.isEmpty else { continue }
+            let key = "\(group.relation)|\(memorialID)"
+            guard seen.insert(key).inserted else { continue }
+            links.append(FamilyLink(relation: group.relation, name: name, memorialID: memorialID, years: years))
+        }
+        return links
+    }
+
+    /// Name + year-span from a family-member anchor's inner HTML.
+    /// Prefers `itemprop="name"`; falls back to tag-stripped text with
+    /// the year span (if any) removed.
+    nonisolated private static func familyMemberNameAndYears(
+        fromAnchorBody body: String
+    ) -> (name: String, years: String?) {
+        // Dash may arrive as a character or an HTML entity — FAG's
+        // server-rendered markup is not consistent about it.
+        let yearsPattern = #"\b((?:\d{4}|unknown)\s*(?:[–—-]|&ndash;|&mdash;|&#8211;|&#8212;)\s*(?:\d{4}|unknown))\b"#
+        var years: String? = nil
+        if let regex = try? NSRegularExpression(pattern: yearsPattern, options: .caseInsensitive),
+           let match = regex.firstMatch(in: body, range: NSRange(body.startIndex..., in: body)),
+           let range = Range(match.range(at: 1), in: body) {
+            years = String(body[range]).replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        }
+
+        var name = extractItemprop("name", from: body) ?? {
+            var text = body.replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)
+            if let years {
+                text = text.replacingOccurrences(of: years, with: " ")
+            }
+            return text
+        }()
+        name = name
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // The fallback text may still carry the span when whitespace
+        // inside it differs from the normalised form — strip any
+        // residual year-span tokens defensively.
+        if let regex = try? NSRegularExpression(pattern: yearsPattern, options: .caseInsensitive) {
+            let nsName = name as NSString
+            name = regex.stringByReplacingMatches(in: name, range: NSRange(location: 0, length: nsName.length), withTemplate: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return (name, years)
+    }
+
+    /// Deterministic JSON serialisation of family links for
+    /// rawFields["familyLinks"] — sorted keys, document order preserved.
+    nonisolated static func encodeFamilyLinks(_ links: [FamilyLink]) -> String? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(links) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     /// Extract birth and death years from free-text memorial inscription or
