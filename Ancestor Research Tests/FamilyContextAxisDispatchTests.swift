@@ -651,7 +651,47 @@ struct FamilyContextAxisDispatchTests {
         guard let source = dispatcher.registry.allSources().first(where: { $0.sourceID == "freebmd" }) else {
             return []
         }
-        return dispatcher.buildQueriesForTest(source: source, subject: subject, recordType: recordType, scope: .county)
+        // Pinned to the district-loop path (gate off): these tests verify
+        // SPOUSE-AXIS arithmetic, whose expected counts are derived from
+        // district codes. The FT-01 county default is covered separately
+        // (freeBMDMarriageFanOutUnderCountyQuery + FreeBMDQueryShapeTests).
+        return dispatcher.buildQueriesForTest(
+            source: source, subject: subject, recordType: recordType,
+            scope: .county, freeBMDCountyQueriesEnabled: false
+        )
+    }
+
+    @MainActor
+    @Test func freeBMDMarriageFanOutUnderCountyQuery() {
+        // FT-01 gate ON: the spouse-surname fan-out must survive the
+        // county-level geo axis — two spouse axes × one county query.
+        let dispatcher = makeDispatcher()
+        let subject = subjectWithInvertedWife(
+            spouseSurname: "Cauldwell",
+            spouseFatherSurname: "Wheeldon",
+            birthYearFrom: 1887,
+            birthYearTo: 1887
+        )
+        guard let source = dispatcher.registry.allSources().first(where: { $0.sourceID == "freebmd" }) else {
+            Issue.record("freebmd not registered"); return
+        }
+        let queries = dispatcher.buildQueriesForTest(
+            source: source, subject: subject, recordType: .marriage, scope: .county
+        )
+        #expect(queries.count == 2, "two spouse axes × one county query; got \(queries.count)")
+        for q in queries {
+            guard case .freeBMD(let params) = q.sourceParams else {
+                Issue.record("expected .freeBMD params"); continue
+            }
+            #expect(params.countyCode == RegionConfig.freeBMDCountyID(forChapmanCode: "DBY"))
+            #expect(params.districtCode == nil)
+        }
+        let spouseSurnames = Set(queries.compactMap { q -> String? in
+            if case .freeBMD(let p) = q.sourceParams { return p.spouseSurname }
+            return nil
+        })
+        #expect(spouseSurnames == Set(["Cauldwell", "Wheeldon"]),
+                "fan-out must probe recorded + maiden spouse surnames; got \(spouseSurnames)")
     }
 
     @MainActor

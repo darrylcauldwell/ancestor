@@ -36,19 +36,17 @@ struct FreeBMDQueryShapeTests {
 
     // MARK: - FT-01 — countyid wire value (RegionConfig.freeBMDCountyID)
 
-    @Test func freeBMDCountyIDBuildsCompoundChapmanPlusDistrictIDs() {
-        let value = RegionConfig.freeBMDCountyID(forChapmanCode: "DBY")
-        #expect(value?.hasPrefix("DBY,") == true,
-                "countyid value must lead with the Chapman code; got \(value ?? "nil")")
-        let parts = (value ?? "").split(separator: ",").map(String.init)
-        // Chapman code + one ID per configured district — the SAME set the
-        // per-district loop dispatches today, collapsed into one value.
-        #expect(parts.count == 1 + RegionConfig.districts(forChapmanCode: "DBY").count)
-        #expect(parts.dropFirst().contains("722"), "Belper's verified code must be present")
-        // Deterministic numeric ordering (stable wire value + cache key).
-        let ids = parts.dropFirst().compactMap { Int($0) }
-        #expect(ids.count == parts.count - 1)
-        #expect(ids == ids.sorted())
+    @Test func freeBMDCountyIDComesFromCapturedLiveFormTable() {
+        // FT-01 — the countyid vocabulary is the live form's own option
+        // values (captured 2026-07-10), NOT the district-select IDs.
+        // The 2026-07-11 probe proved a reconstructed value returns a
+        // valid-but-empty result. Pin the captured DBY value verbatim.
+        #expect(RegionConfig.freeBMDCountyID(forChapmanCode: "DBY")
+                == "DBY,47,77,78,91,113,136,137,149,172,173")
+        #expect(RegionConfig.freeBMDCountyID(forChapmanCode: "dby ")
+                == "DBY,47,77,78,91,113,136,137,149,172,173",
+                "lookup must normalise case/whitespace")
+        #expect(RegionConfig.freeBMDCountyID(forChapmanCode: "ZZZ") == nil)
     }
 
     @Test func freeBMDCountyIDIsCaseInsensitiveOnInput() {
@@ -145,13 +143,32 @@ struct FreeBMDQueryShapeTests {
     // MARK: - FT-01 / FT-02 — dispatcher query emission (buildQueriesForTest)
 
     @MainActor
-    @Test func dispatcherCountyScopeDefaultsToDistrictLoop() {
-        // FT-01 gate defaults OFF — the dispatcher's real (non-overridden)
-        // path must still be the per-district loop with no county axis.
+    @Test func dispatcherCountyScopeDefaultsToCountyQuery() {
+        // FT-01 gate is ON (probe-validated 2026-07-11) — the default
+        // .county path is now ONE county-level query carrying the
+        // captured live-form countyid value.
         let dispatcher = SearchDispatcher(registry: SourceRegistry())
         let queries = dispatcher.buildQueriesForTest(
             source: FreeBMDSource(), subject: Self.makeSubject(),
             recordType: .birth, scope: .county
+        )
+        #expect(queries.count == 1)
+        guard case .freeBMD(let p) = queries.first?.sourceParams else {
+            Issue.record("expected .freeBMD params"); return
+        }
+        #expect(p.countyCode == RegionConfig.freeBMDCountyID(forChapmanCode: "DBY"))
+        #expect(p.districtCode == nil, "county query must not also carry a district")
+    }
+
+    @MainActor
+    @Test func dispatcherCountyScopeWithGateOffUsesDistrictLoop() {
+        // The pre-FT-01 per-district path stays available behind the flag
+        // (surgical fallback if the live form's vocabulary drifts).
+        let dispatcher = SearchDispatcher(registry: SourceRegistry())
+        let queries = dispatcher.buildQueriesForTest(
+            source: FreeBMDSource(), subject: Self.makeSubject(),
+            recordType: .birth, scope: .county,
+            freeBMDCountyQueriesEnabled: false
         )
         #expect(queries.count == RegionConfig.districts(forChapmanCode: "DBY").count)
         for q in queries {

@@ -21,14 +21,21 @@ struct ResearchScopeHierarchyTests {
 
     // MARK: - AC3.2 — dispatcher fan-out + AC3.3 — parish-unsupported sources
 
-    @Test func ac3_2_countyFanOutMatchesDerbyshireDistricts() async {
+    @Test func ac3_2_countyScopeIsOneCountyLevelQuery() async {
+        // FT-01 (2026-07-11): .county scope emits ONE county-level query
+        // carrying the captured live-form countyid value — the per-district
+        // fan-out this test originally pinned survives only behind the
+        // gate-off fallback (covered in FreeBMDQueryShapeTests).
         let dispatcher = makeDispatcher()
         let subject = makeSubject(homeChapmanCode: "DBY")
 
         let queries = buildFreeBMDQueries(dispatcher: dispatcher, subject: subject, scope: .county)
-        let expectedCount = RegionConfig.districts(forChapmanCode: "DBY").count
-        #expect(queries.count == expectedCount)
-        #expect(expectedCount > 0)
+        #expect(queries.count == 1)
+        if case .freeBMD(let p) = queries.first?.sourceParams {
+            #expect(p.countyCode == RegionConfig.freeBMDCountyID(forChapmanCode: "DBY"))
+        } else {
+            Issue.record("expected .freeBMD params")
+        }
     }
 
     @Test func ac3_2_adjacentFanOutForFreeCenIncludesNeighbours() async {

@@ -571,11 +571,11 @@ public nonisolated struct FreeBMDParams: Sendable {
     /// `countyid` entirely, silently widening the query to national —
     /// needs the one FT-27 live probe session (audit §5.6).
     ///
-    /// DO NOT flip to true without that probe. Default false = the
+    /// PROBED LIVE 2026-07-11: captured-table countyid value returned 49 rows across 13 Derbyshire-area districts (incl. cross-border ones — geography gate scores per-row districts, so that is correct behaviour). Gate ON. Default false = the
     /// safe pre-FT-01 per-district loop. The `.national` single-query
     /// path (FT-02) is NOT behind this gate — `districtid=""` is
     /// proven wire behaviour (Python sources/freebmd.py:152-153).
-    public static let countyQueryEnabled = false
+    public static let countyQueryEnabled = true
 
     public let districtCode: String?
     /// FT-01 — the finished FreeBMD `countyid` wire value for a
