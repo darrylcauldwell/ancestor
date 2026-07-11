@@ -79,13 +79,43 @@ actor QueryCache {
         // FreeBMD's spouse-surname / mother-surname / district-code live
         // in sourceParams, FamilySearch's are on the top-level family-
         // context axes. Read whichever is populated.
+        //
+        // FT-24 + T1-21: every wire-affecting sourceParams field must
+        // reach the key — FreeCen's chapman/censusYear/birthYearRange and
+        // FreeREG's chapman change the outbound POST (under .adjacent /
+        // .national scopes distinct county probes used to collide on one
+        // cached county), and FAG's location changes the search URL (the
+        // strategist's location-narrowed probe used to no-op against the
+        // dispatcher's cached result). The switch is deliberately
+        // exhaustive (no `default`) so adding a params case forces a
+        // decision here.
         var spouseSurname = query.spouseSurname ?? ""
         var motherSurname = query.motherSurname ?? ""
         var districtCode = ""
-        if case .freeBMD(let p) = query.sourceParams {
+        var chapmanCode = ""
+        var censusYear = ""
+        var birthYearRange = ""
+        var fagLocation = ""
+        switch query.sourceParams {
+        case .freeBMD(let p):
             if let ss = p.spouseSurname, !ss.isEmpty { spouseSurname = ss }
             if let ms = p.motherSurname, !ms.isEmpty { motherSurname = ms }
             districtCode = p.districtCode ?? ""
+        case .freeCen(let p):
+            chapmanCode = p.chapmanCode ?? ""
+            censusYear = p.censusYear.map(String.init) ?? ""
+            birthYearRange = p.birthYearRange.map { "\($0.lowerBound)-\($0.upperBound)" } ?? ""
+        case .freeREG(let p):
+            // registerType is derived from query.recordType (already keyed);
+            // parish never reaches the wire request.
+            chapmanCode = p.chapmanCode ?? ""
+        case .findAGrave(let p):
+            // yearRangeWidth never reaches the wire request.
+            fagLocation = p.location ?? ""
+        case .cwgc, .probate, .wirksworth, .generic:
+            // CWGC conflict / Probate courtType / Wirksworth parishHint
+            // never reach the wire request.
+            break
         }
         let parts: [String] = [
             sourceID,
@@ -104,6 +134,12 @@ actor QueryCache {
             query.birthPlace ?? "",
             query.deathPlace ?? "",
             query.strictness.rawValue,
+            // FT-24 / T1-21 additions — appended so untouched components
+            // keep their positions (grep-able log format preserved).
+            chapmanCode,
+            censusYear,
+            birthYearRange,
+            fagLocation,
         ]
         return parts.joined(separator: "|")
     }
