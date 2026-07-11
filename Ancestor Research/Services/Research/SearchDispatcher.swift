@@ -482,19 +482,42 @@ struct SearchDispatcher {
                 return year >= from && year <= to
             }
             // Per RESEARCH_AXES_SPEC §5.3 — FreeCen is chapman-coded, not
-            // district-coded, so .district widens to .county. Parish-level
-            // restriction would happen via FreeCenParams.parish, which we
-            // can't populate until prior spec Change 2 ships birthLocationCode.
-            let cenChapmanCodes: [String]
+            // district-coded, so .parish/.district widen to .county.
+            // (FT-13: parish/place scoping via `freecen2_place_ids[]` is a
+            // deferred capability — `FreeCenParams` has no parish field;
+            // the previous comment here pointed at a seam that was never
+            // built.)
+            //
+            // FT-11 — geographic axis by scope:
+            // - `.county` (and narrower): RESIDENCE county
+            //   (`chapman_codes[]`) — the historical behaviour.
+            // - `.adjacent`/`.national`: BIRTH county
+            //   (`birth_chapman_codes[]`) as the primary axis — ONE query
+            //   with no residence filter reaches subjects wherever they
+            //   lived at census time (migrants included), on exactly the
+            //   field the scorer trusts most, instead of ~7 (adjacent) or
+            //   ~90 (national) residence-county queries per census year.
+            //   Falls back to the residence fan-out when the subject has
+            //   no derivable home chapman code (empty = no anchor).
+            let home = subject.homeChapmanCode
+            // Exactly one axis per query: (residence, birthCounty).
+            let cenGeoAxes: [(residence: String?, birth: String?)]
             switch scope {
             case .parish, .district, .county:
-                cenChapmanCodes = [subject.homeChapmanCode]
+                cenGeoAxes = [(home, nil)]
             case .adjacent:
-                cenChapmanCodes = [subject.homeChapmanCode]
-                    + RegionConfig.adjacentCounties(subject.homeChapmanCode)
+                if home.isEmpty {
+                    cenGeoAxes = ([home] + RegionConfig.adjacentCounties(home)).map { ($0, nil) }
+                } else {
+                    cenGeoAxes = [(nil, home)]
+                }
             case .national:
-                let entries: [UKChapmanCode] = UKChapmanCodes.shared.gbAndChannelIslands()
-                cenChapmanCodes = entries.map { $0.code }
+                if home.isEmpty {
+                    let entries: [UKChapmanCode] = UKChapmanCodes.shared.gbAndChannelIslands()
+                    cenGeoAxes = entries.map { ($0.code, nil) }
+                } else {
+                    cenGeoAxes = [(nil, home)]
+                }
             }
             let birthRange = subject.birthYearFrom.flatMap { from in
                 subject.birthYearTo.map { to in from...to }
@@ -502,7 +525,7 @@ struct SearchDispatcher {
             let cenSurnames = subject.surnamesToProbe(for: .census)
             return cenSurnames.flatMap { surnameToTry in
                 censusYears.flatMap { year in
-                    cenChapmanCodes.map { code in
+                    cenGeoAxes.map { geo in
                         RecordQuery(
                             surname: surnameToTry,
                             givenName: subject.givenName,
@@ -512,9 +535,10 @@ struct SearchDispatcher {
                             gender: subject.gender,
                             region: subject.region,
                             sourceParams: .freeCen(FreeCenParams(
-                                chapmanCode: code,
+                                chapmanCode: geo.residence,
                                 censusYear: year,
-                                birthYearRange: birthRange
+                                birthYearRange: birthRange,
+                                birthChapmanCode: geo.birth
                             ))
                         )
                     }

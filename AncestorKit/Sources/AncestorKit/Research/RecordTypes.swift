@@ -604,16 +604,38 @@ public nonisolated struct FreeBMDParams: Sendable {
 }
 
 public nonisolated struct FreeCenParams: Sendable {
+    /// RESIDENCE county filter — where the subject lived at census time
+    /// (FreeCen's `search_query[chapman_codes][]`). nil/empty = no
+    /// residence filter on the wire.
     public let chapmanCode: String?
     public let censusYear: Int?
     public let birthYearRange: ClosedRange<Int>?
+    /// BIRTH county filter (connector-audit FT-11) — FreeCen's
+    /// `search_query[birth_chapman_codes][]`, distinct from the
+    /// residence filter above. The tree-known stable fact is where the
+    /// subject was BORN, not where they lived at census time: a
+    /// DBY-born subject in a Lancashire mill town is invisible to a
+    /// residence-scoped query but reachable in ONE request with
+    /// `birth_chapman_codes=[DBY]` and no residence filter — on
+    /// exactly the field the scorer trusts most (the parsed
+    /// birth_county column) and matching the engine's chapman-anchor
+    /// philosophy. The dispatcher uses this as the primary axis for
+    /// `.adjacent`/`.national` census sweeps, keeping residence codes
+    /// for `.county`. nil/empty = no birth-county filter.
+    ///
+    /// Wire-affecting: MUST join `QueryCache.cacheKey`'s freeCen arm
+    /// (FT-24 contract) — tracked as a coordinator follow-up.
+    public let birthChapmanCode: String?
 
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
-    public init(chapmanCode: String? = nil, censusYear: Int? = nil, birthYearRange: ClosedRange<Int>? = nil) {
+    /// `birthChapmanCode` defaults nil so pre-FT-11 construction sites
+    /// (FocusedQuery, SourceExplorerView) are unchanged.
+    public init(chapmanCode: String? = nil, censusYear: Int? = nil, birthYearRange: ClosedRange<Int>? = nil, birthChapmanCode: String? = nil) {
         self.chapmanCode = chapmanCode
         self.censusYear = censusYear
         self.birthYearRange = birthYearRange
+        self.birthChapmanCode = birthChapmanCode
     }
 
 }

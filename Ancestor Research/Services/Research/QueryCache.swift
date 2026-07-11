@@ -129,6 +129,7 @@ actor QueryCache {
         var districtCode = ""
         var countyCode = ""
         var chapmanCode = ""
+        var birthChapmanCode = ""
         var censusYear = ""
         var birthYearRange = ""
         var fagLocation = ""
@@ -148,6 +149,11 @@ actor QueryCache {
             countyCode = p.countyCode ?? ""
         case .freeCen(let p):
             chapmanCode = p.chapmanCode ?? ""
+            // FT-11: birth-county axis (`birth_chapman_codes[]`) is a
+            // distinct wire field from the residence chapman — an
+            // .adjacent/.national birth-scoped query must not collide
+            // with a residence-scoped one for the same subject.
+            birthChapmanCode = p.birthChapmanCode ?? ""
             censusYear = p.censusYear.map(String.init) ?? ""
             birthYearRange = p.birthYearRange.map { "\($0.lowerBound)-\($0.upperBound)" } ?? ""
         case .freeREG(let p):
@@ -208,6 +214,8 @@ actor QueryCache {
             fagLimit,
             fagYearWidth,
             fagMaiden,
+            // FT-11 addition — appended, preserving prior positions.
+            birthChapmanCode,
         ]
         return parts.joined(separator: "|")
     }

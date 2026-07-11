@@ -8,7 +8,11 @@ import os
 /// Auth: CSRF token from search form
 /// Coverage: ~1500–1900, England & Wales parish registers (baptism, marriage, burial)
 /// Faithfully ported from Python's sources/freereg_search.py
-actor FreeREGSource: RecordSource {
+/// Detail fetching (FT-18): mirrors FreeCen's cap-1 enrichment pattern —
+/// the top search hit's detail page is fetched through the same 1000 ms
+/// pacing and its parent names (baptisms) / extra fields populate the
+/// record. Python reference: freereg_search.py:298-331 fetch_record_detail.
+actor FreeREGSource: RecordSource, DetailFetchingSource {
 
     // MARK: - RecordSource Protocol
 
@@ -49,6 +53,15 @@ actor FreeREGSource: RecordSource {
     nonisolated private static let searchFormURL = "https://www.freereg.org.uk/search_queries/new"
     nonisolated private static let searchPostURL = "https://www.freereg.org.uk/search_queries"
     nonisolated private static let userAgent = "AncestorResearch/1.0 (macOS; genealogy research tool; github.com/darrylcauldwell/ancestor)"
+    /// FT-22 (fetching half) — total-results budget across pagination,
+    /// mirroring `ProbateSource.maxResults` (Python parity:
+    /// probate.py:130 `max_results=500`), plus a defensive page cap:
+    /// FreeREG's per-page size is unverified (audit FT-27), so the page
+    /// cap bounds worst-case volunteer-source load even if pages turn
+    /// out tiny. Every page fetch rides the existing 1000 ms politeness
+    /// pacing. Internal so the paging tests reference the budgets.
+    nonisolated static let maxResults = 500
+    nonisolated static let maxPages = 10
 
     // MARK: - Search
 
@@ -137,13 +150,67 @@ actor FreeREGSource: RecordSource {
             }
 
             let html = String(data: data, encoding: .utf8) ?? ""
-            let records = Self.parseResults(html, recordType: query.recordType)
-            // FT-23: the site's own claimed hit count; FT-22: rows <
-            // claimed total (or a pagination nav with no parsable count)
-            // means this page is a partial answer.
+
+            // FT-26 / FT-20 — page-state triage (Python parity:
+            // freereg_search.py:182-226 checks "error prohibited"
+            // validation banners and "no results" copy before parsing
+            // tables). Only a positively identified results page may
+            // yield records, and only a positively identified
+            // no-results page may yield a clean empty; validation
+            // errors, login walls and layout drift are `.unavailable`,
+            // never a cacheable [].
+            switch Self.classifyResultsPage(html) {
+            case .empty:
+                logger.info("FreeREG: 0 results for \(surname)")
+                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0, strictness: query.strictness))
+                return SourceSearchEnvelope(result: .results([]), outcome: SearchOutcome(resultCount: 0))
+            case .validationError(let reason), .unparseable(let reason):
+                logger.warning("FreeREG page not parseable as results: \(reason)")
+                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: reason, strictness: query.strictness))
+                return SourceSearchEnvelope(.unavailable(reason: reason))
+            case .results:
+                break
+            }
+
+            var records = Self.parseResults(html, recordType: query.recordType)
+            // FT-23: the site's own claimed hit count.
             let totalAvailable = Self.parseResultCount(html)
+
+            // FT-22 (fetching half) — walk the pagination nav through
+            // the existing 1000 ms pacing, bounded by the record budget
+            // and the defensive page cap. Stops on: no next link, a page
+            // yielding no parsable rows, or budget exhaustion.
+            var nextPage = Self.nextPageURL(html)
+            var pagesFetched = 1
+            while let next = nextPage.flatMap(URL.init(string:)),
+                  pagesFetched < Self.maxPages,
+                  records.count < Self.maxResults {
+                // A failed follow-up page must not discard the pages
+                // already in hand — break and let `truncated` say the
+                // answer is partial.
+                guard let pageData = try? await rateLimitedRequest({
+                    try await self.http.get(url: next, headers: [
+                        "User-Agent": Self.userAgent,
+                    ])
+                }), let pageHTML = String(data: pageData, encoding: .utf8) else { break }
+                let pageRecords = Self.parseResults(pageHTML, recordType: query.recordType)
+                guard !pageRecords.isEmpty else { break }
+                records += pageRecords
+                pagesFetched += 1
+                nextPage = Self.nextPageURL(pageHTML)
+            }
+
+            // Honest truncation AFTER paging (FT-22/FT-23): trust the
+            // site's own count when parsed; otherwise an unconsumed
+            // next-link means the budget (or a parse miss) cut the
+            // answer short.
             let truncated = totalAvailable.map { records.count < $0 }
-                ?? Self.hasPaginationNav(html)
+                ?? (nextPage != nil)
+
+            // FT-18 — enrich the top hit with its detail page (parents
+            // for baptisms; extra transcribed fields for all types).
+            records = await enrichWithDetail(records, cap: 1)
+
             logger.info("FreeREG: \(records.count) of \(totalAvailable ?? records.count) results for \(surname)")
             await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count, strictness: query.strictness))
             return SourceSearchEnvelope(
@@ -251,6 +318,76 @@ actor FreeREGSource: RecordSource {
         return scheduledFor
     }
 
+    // MARK: - Detail Fetching (FT-18)
+
+    /// Replace the first `cap` parish records with their detail-enriched
+    /// form. Mirrors FreeCen's cap-1 household pattern
+    /// (`FreeCenSource.enrichWithHousehold` — the volunteer-budget
+    /// rule): records past the cap or without a detail URL pass through
+    /// untouched; detail failures fall back to the un-enriched record.
+    /// Merging preserves the record's identity — same ID, same name —
+    /// so enrichment can never flip evidence keys (the FT-12 lesson).
+    private func enrichWithDetail(_ records: [SourceRecord], cap: Int) async -> [SourceRecord] {
+        var out: [SourceRecord] = []
+        out.reserveCapacity(records.count)
+        var enrichedCount = 0
+        for record in records {
+            guard enrichedCount < cap,
+                  case .parish(let parish) = record,
+                  let urlString = parish.common.detailURL, !urlString.isEmpty,
+                  let url = URL(string: urlString),
+                  parish.fatherName == nil, parish.motherName == nil else {
+                out.append(record)
+                continue
+            }
+            enrichedCount += 1
+            do {
+                let data = try await rateLimitedRequest {
+                    try await self.http.get(url: url, headers: ["User-Agent": Self.userAgent])
+                }
+                let html = String(data: data, encoding: .utf8) ?? ""
+                let fields = Self.parseDetailFields(html)
+                if !fields.isEmpty {
+                    out.append(Self.mergedDetailRecord(base: parish, detailFields: fields))
+                } else {
+                    // Detail page had no extractable pairs (layout
+                    // drift, error page) — keep the search-result row.
+                    out.append(record)
+                }
+            } catch {
+                logger.warning("FreeREG detail enrichment failed: \(error.localizedDescription)")
+                out.append(record)
+            }
+        }
+        return out
+    }
+
+    /// DetailFetchingSource — `recordID` is the detail URL (same
+    /// contract as FreeCenSource.fetchDetail). Builds a standalone
+    /// record from the detail page alone, for callers that don't hold
+    /// the search row; the in-search enrichment path uses
+    /// `mergedDetailRecord` instead so the search row's identity wins.
+    func fetchDetail(recordID: String) async -> SourceQueryResult {
+        guard let url = URL(string: recordID) else {
+            return .unavailable(reason: "Invalid URL: \(recordID)")
+        }
+        do {
+            let data = try await rateLimitedRequest {
+                try await self.http.get(url: url, headers: ["User-Agent": Self.userAgent])
+            }
+            let html = String(data: data, encoding: .utf8) ?? ""
+            let fields = Self.parseDetailFields(html)
+            guard !fields.isEmpty,
+                  let record = Self.detailRecord(fields: fields, recordURL: recordID) else {
+                return .results([])
+            }
+            return .results([record])
+        } catch {
+            logger.warning("FreeREG detail fetch failed: \(error.localizedDescription)")
+            return .unavailable(reason: error.localizedDescription)
+        }
+    }
+
     // MARK: - Parsing (nonisolated static — testable)
 
     /// FT-23 — FreeREG's own claimed hit count. Python parity:
@@ -275,6 +412,60 @@ actor FreeREGSource: RecordSource {
     /// pages exist beyond the one we fetched.
     nonisolated static func hasPaginationNav(_ html: String) -> Bool {
         html.contains(#"class="pagination"#) || html.contains(#"rel="next""#)
+    }
+
+    /// FT-26 / FT-20 — page-state triage, ported from Python
+    /// freereg_search.py:parse_results: Rails validation banners
+    /// ("error prohibited …" / "… prohibited this …"), explicit
+    /// no-results copy, then a results table; login walls and layout
+    /// drift are unparseable. The Swift port had dropped the error
+    /// check entirely — a rejected POST was indistinguishable from a
+    /// genuine no-hit and flowed into negative-evidence reasoning.
+    nonisolated enum PageState: Equatable {
+        case results
+        case empty
+        case validationError(reason: String)
+        case unparseable(reason: String)
+    }
+
+    nonisolated static func classifyResultsPage(_ html: String) -> PageState {
+        guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .unparseable(reason: "Empty response body")
+        }
+        if html.range(of: #"error prohibited|prohibited this"#,
+                      options: [.regularExpression, .caseInsensitive]) != nil {
+            // Surface the first error <li> when the banner carries one
+            // (Python extracts the whole list; one is enough for a reason).
+            var reason = "FreeREG rejected the search (validation error)"
+            let liPattern = #"<ul[^>]*class="[^"]*error[^"]*"[^>]*>.*?<li[^>]*>(.*?)</li>"#
+            if let regex = try? NSRegularExpression(pattern: liPattern, options: [.dotMatchesLineSeparators, .caseInsensitive]),
+               let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let range = Range(match.range(at: 1), in: html) {
+                let detail = stripTags(String(html[range]))
+                if !detail.isEmpty { reason = "FreeREG rejected the search: \(detail)" }
+            }
+            return .validationError(reason: reason)
+        }
+        if html.range(of: #"no results|no records found"#,
+                      options: [.regularExpression, .caseInsensitive]) != nil {
+            return .empty
+        }
+        if let count = parseResultCount(html), count == 0 { return .empty }
+        // A results table needs header cells — the row parser skips
+        // everything until it has seen a <th> header row anyway.
+        if html.contains("<th") { return .results }
+        if html.range(of: #"sign in|log in"#,
+                      options: [.regularExpression, .caseInsensitive]) != nil {
+            return .unparseable(reason: "FreeREG page appears to require login")
+        }
+        return .unparseable(reason: "Could not parse FreeREG results page")
+    }
+
+    /// FT-22 (fetching half) — next-page link. Mechanics shared with
+    /// FreeCen (`FreeCenSource.nextPaginationHref`): the two Rails
+    /// sites emit the same kaminari/will_paginate nav shapes.
+    nonisolated static func nextPageURL(_ html: String) -> String? {
+        FreeCenSource.nextPaginationHref(in: html, base: baseURL)
     }
 
     /// Parse FreeREG search results HTML table.
@@ -335,17 +526,17 @@ actor FreeREGSource: RecordSource {
             }
 
             // Build record
-            let name = row["name"] ?? row["surname"] ?? ""
             let date = row["date"] ?? ""
             let parish = row["parish"] ?? ""
             let county = row["county"] ?? ""
             let type = row["record type"] ?? row["type"] ?? ""
 
-            guard !name.isEmpty else { continue }
-
-            let parts = name.split(separator: " ", maxSplits: 1)
-            let givenName = parts.count > 0 ? String(parts[0]) : nil
-            let surname = parts.count > 1 ? String(parts[1]) : name
+            // FT-17 — resolve name/surname/given from the site's own
+            // columns where present; otherwise last-token-surname.
+            guard let resolved = Self.resolveRowName(row) else { continue }
+            let name = resolved.name
+            let givenName = resolved.givenName
+            let surname = resolved.surname
 
             let eventYear = extractYear(from: date)
             let eventType = type.isEmpty ? recordType.rawValue : type.lowercased()
@@ -375,6 +566,191 @@ actor FreeREGSource: RecordSource {
         }
 
         return records
+    }
+
+    /// FT-17 — resolve (display name, givenName, surname) for a result
+    /// row. Prefers FreeREG's own explicit Surname/Forenames columns
+    /// (Python keeps the site's columns, freereg_search.py:259-261);
+    /// falls back to splitting the combined display name with the LAST
+    /// token as surname — FreeCen's convention — replacing the old
+    /// maxSplits:1 split that pushed every middle name into the
+    /// surname field ("Sarah Jane Kenworthy" → surname "Jane
+    /// Kenworthy"), corrupting the scorer's identity gates.
+    nonisolated static func resolveRowName(_ row: [String: String]) -> (name: String, givenName: String?, surname: String?)? {
+        let explicitSurname = row["surname"].flatMap { $0.isEmpty ? nil : $0 }
+        let explicitGiven = ["forenames", "forename", "first name(s)", "first names", "first name", "given name"]
+            .compactMap { row[$0] }
+            .first { !$0.isEmpty }
+        let display = row["name"].flatMap { $0.isEmpty ? nil : $0 }
+
+        if let explicitSurname {
+            let given: String? = explicitGiven ?? display.flatMap { d in
+                // Combined display alongside an explicit surname column:
+                // given = display minus trailing surname tokens (only
+                // when they match — otherwise don't guess).
+                let tokens = d.split(separator: " ").map(String.init)
+                let surTokens = explicitSurname.split(separator: " ").map(String.init)
+                guard tokens.count > surTokens.count,
+                      tokens.suffix(surTokens.count).map({ $0.lowercased() }) == surTokens.map({ $0.lowercased() })
+                else { return nil }
+                return tokens.dropLast(surTokens.count).joined(separator: " ")
+            }
+            let name = display ?? [given, explicitSurname].compactMap { $0 }.joined(separator: " ")
+            guard !name.isEmpty else { return nil }
+            return (name, given, explicitSurname)
+        }
+
+        guard let display else { return nil }
+        let tokens = display.split(separator: " ")
+        guard let last = tokens.last.map(String.init) else { return nil }
+        let given = tokens.count > 1 ? tokens.dropLast().joined(separator: " ") : nil
+        return (display, given, last)
+    }
+
+    // MARK: - Detail parsing (FT-18, nonisolated static — testable)
+
+    /// Extract the transcribed field pairs from a FreeREG record detail
+    /// page. The pages render as definition lists (`<dt>Key</dt>
+    /// <dd>Value</dd>`) and/or two-cell table rows — Python's
+    /// fetch_record_detail walks exactly these two shapes
+    /// (freereg_search.py:308-321). Keys are normalised to lowercase
+    /// snake_case with apostrophes stripped ("Father's Forename" →
+    /// "fathers_forename").
+    nonisolated static func parseDetailFields(_ html: String) -> [String: String] {
+        var fields: [String: String] = [:]
+        let pairPatterns = [
+            #"<dt[^>]*>(.*?)</dt>\s*<dd[^>]*>(.*?)</dd>"#,
+            #"<tr[^>]*>\s*<t[dh][^>]*>(.*?)</t[dh]>\s*<td[^>]*>(.*?)</td>\s*</tr>"#,
+        ]
+        for pattern in pairPatterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: .dotMatchesLineSeparators) else { continue }
+            for match in regex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+                guard let keyRange = Range(match.range(at: 1), in: html),
+                      let valueRange = Range(match.range(at: 2), in: html) else { continue }
+                let key = normaliseDetailKey(stripTags(String(html[keyRange])))
+                let value = stripTags(String(html[valueRange]))
+                if !key.isEmpty, !value.isEmpty, fields[key] == nil {
+                    fields[key] = value
+                }
+            }
+        }
+        return fields
+    }
+
+    /// "Father's Forename:" → "fathers_forename"
+    nonisolated static func normaliseDetailKey(_ raw: String) -> String {
+        raw.lowercased()
+            .replacingOccurrences(of: "'", with: "")
+            .replacingOccurrences(of: "\u{2019}", with: "")
+            .replacingOccurrences(of: ":", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: "_", options: .regularExpression)
+    }
+
+    /// Assemble a parent name from a detail-field map for `role`
+    /// ("father"/"mother") — single combined field first, then
+    /// forename+surname assembly.
+    nonisolated static func extractParent(_ fields: [String: String], role: String) -> String? {
+        for key in ["\(role)s_name", "\(role)_name", role] {
+            if let value = fields[key], !value.isEmpty { return value }
+        }
+        let forename = fields.first {
+            $0.key.hasPrefix(role) && ($0.key.contains("forename") || $0.key.contains("first_name") || $0.key.contains("given"))
+        }?.value
+        let surname = fields.first {
+            $0.key.hasPrefix(role) && ($0.key.contains("surname") || $0.key.contains("last_name"))
+        }?.value
+        let combined = [forename, surname].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+        return combined.isEmpty ? nil : combined
+    }
+
+    /// Build a standalone record from a detail page alone (the public
+    /// `fetchDetail` path). Best-effort: principal name from the page's
+    /// own Forename/Surname fields; event date/type from the kind-named
+    /// date field; parents via `extractParent`. Nil when no principal
+    /// name could be read — an unidentifiable record is worse than none.
+    nonisolated static func detailRecord(fields: [String: String], recordURL: String) -> SourceRecord? {
+        let surname = fields["surname"] ?? fields["persons_surname"]
+        let given = fields["forename"] ?? fields["forenames"] ?? fields["first_name"]
+        let name = [given, surname].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+        guard !name.isEmpty else { return nil }
+
+        let eventPairs: [(key: String, type: String)] = [
+            ("baptism_date", "baptism"), ("date_of_baptism", "baptism"),
+            ("marriage_date", "marriage"), ("date_of_marriage", "marriage"),
+            ("burial_date", "burial"), ("date_of_burial", "burial"),
+            ("date", ""),
+        ]
+        var date = ""
+        var eventType = ""
+        for pair in eventPairs {
+            if let value = fields[pair.key], !value.isEmpty {
+                date = value
+                eventType = pair.type
+                break
+            }
+        }
+        if eventType.isEmpty {
+            eventType = fields["record_type"]?.lowercased() ?? ""
+        }
+        let parish = fields["parish"] ?? ""
+        let county = fields["county"] ?? ""
+        let common = RecordCommon(
+            id: stableRecordID(
+                detailURL: recordURL,
+                name: name, date: date, parish: parish,
+                county: county, eventType: eventType
+            ),
+            sourceID: "freereg",
+            name: name,
+            surname: surname,
+            givenName: given,
+            detailURL: recordURL,
+            rawFields: fields
+        )
+        return .parish(ParishRecord(
+            common: common,
+            eventType: eventType.isEmpty ? nil : eventType,
+            eventDate: date.isEmpty ? nil : date,
+            eventYear: extractYear(from: date),
+            parish: parish.isEmpty ? nil : parish,
+            county: county.isEmpty ? nil : county,
+            fatherName: extractParent(fields, role: "father"),
+            motherName: extractParent(fields, role: "mother")
+        ))
+    }
+
+    /// Merge a detail-page field map into a search-row record. The ID,
+    /// name and detail URL are the BASE record's — enrichment must
+    /// never flip a record's identity (the FT-12 lesson, and the ID is
+    /// already URL-derived on both paths per FT-16). Detail fields land
+    /// in rawFields (search-row keys win on collision); parents are
+    /// promoted to the typed fatherName/motherName the scorer and
+    /// hypothesis engine read.
+    nonisolated static func mergedDetailRecord(base: ParishRecord, detailFields: [String: String]) -> SourceRecord {
+        var raw = base.common.rawFields
+        for (key, value) in detailFields where raw[key] == nil {
+            raw[key] = value
+        }
+        let common = RecordCommon(
+            id: base.common.id,
+            sourceID: base.common.sourceID,
+            name: base.common.name,
+            surname: base.common.surname,
+            givenName: base.common.givenName,
+            detailURL: base.common.detailURL,
+            rawFields: raw
+        )
+        return .parish(ParishRecord(
+            common: common,
+            eventType: base.eventType,
+            eventDate: base.eventDate,
+            eventYear: base.eventYear,
+            parish: base.parish ?? detailFields["parish"],
+            county: base.county ?? detailFields["county"],
+            fatherName: extractParent(detailFields, role: "father"),
+            motherName: extractParent(detailFields, role: "mother")
+        ))
     }
 
     /// Stable record ID (connector-audit FT-16). Record IDs are load-bearing

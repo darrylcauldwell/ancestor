@@ -58,7 +58,20 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
     nonisolated private static let searchFormURL = URL(string: "\(baseURL)/search_records")!
     nonisolated private static let searchURL = URL(string: "\(baseURL)/search_queries")!
     nonisolated private static let userAgent = "AncestorResearch/1.0 (macOS; genealogy research tool; github.com/darrylcauldwell/ancestor)"
-    nonisolated private static let validYears: Set<Int> = [1841, 1851, 1861, 1871, 1881, 1891, 1901, 1911]
+    /// FreeCen's `record_type` select only has options for the census
+    /// years — enforced by the FT-14 guard in `searchWithOutcome`.
+    /// Internal (not private) so the guard tests can reference the set.
+    nonisolated static let validYears: Set<Int> = [1841, 1851, 1861, 1871, 1881, 1891, 1901, 1911]
+    /// FT-22 (fetching half) — total-results budget across pagination,
+    /// mirroring `ProbateSource.maxResults` (Python parity:
+    /// probate.py:130 `max_results=500`), plus a defensive page cap:
+    /// FreeCen's per-page size is unverified (audit FT-27 — the live
+    /// form payload never arrived), so the page cap bounds worst-case
+    /// volunteer-source load even if pages turn out tiny. Every page
+    /// fetch rides the existing 500 ms politeness pacing. Internal so
+    /// the paging tests reference the budgets instead of hardcoding.
+    nonisolated static let maxResults = 500
+    nonisolated static let maxPages = 10
 
     // MARK: - Search
 
@@ -67,24 +80,54 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
     }
 
     /// Envelope-aware search (connector-audit T1-01; instances FT-22 /
-    /// FT-23). Parses the site's own "We found N Results" hit count and
-    /// flags page-1 truncation (rows < N, or a pagination nav present)
-    /// — multi-page fetching is deferred to the efficiency series.
+    /// FT-23). Parses the site's own "We found N Results" hit count,
+    /// triages the page state (FT-20/FT-26), and walks the pagination
+    /// nav up to a conservative budget (FT-22 fetching half) so a
+    /// multi-page answer is no longer silently truncated to page 1.
     func searchWithOutcome(_ query: RecordQuery) async -> SourceSearchEnvelope {
         guard query.recordType == .census else { return SourceSearchEnvelope(.outsideCoverage(reason: "FreeCen only provides census records")) }
         guard let surname = query.surname, !surname.isEmpty else { return SourceSearchEnvelope(.results([])) }
 
-        // FreeCen is chapman-coded: without a county code the query cannot
-        // be scoped, so degrade honestly instead of guessing a county.
-        let chapmanCode: String
-        if case .freeCen(let p) = query.sourceParams, let code = p.chapmanCode, !code.isEmpty {
-            chapmanCode = code
-        } else {
+        // FreeCen is chapman-coded on two axes (FT-11): residence
+        // (`chapman_codes[]` — where the subject lived at census time)
+        // and birth county (`birth_chapman_codes[]` — where they were
+        // born, the tree-known stable fact). Without at least one axis
+        // the query cannot be scoped, so degrade honestly instead of
+        // guessing a county.
+        var residenceChapman: String?
+        var birthChapman: String?
+        if case .freeCen(let p) = query.sourceParams {
+            if let code = p.chapmanCode, !code.isEmpty { residenceChapman = code }
+            if let code = p.birthChapmanCode, !code.isEmpty { birthChapman = code }
+        }
+        guard residenceChapman != nil || birthChapman != nil else {
             return SourceSearchEnvelope(.outsideCoverage(reason: "No home county (Chapman code) available to scope a FreeCen search"))
         }
-        let year = query.yearFrom  // census year
 
-        let summary = Self.activitySummary(query: query, surname: surname, chapmanCode: chapmanCode, censusYear: year)
+        // FT-14 — resolve the census year: prefer the typed param
+        // (previously write-only), fall back to `query.yearFrom` (the
+        // main dispatcher sets both identically; the strategist's
+        // FocusedQuery path sets only yearFrom). Then guard: FreeCen's
+        // `record_type` select only has options for the census years,
+        // so an off-year (an MLX-suggested "FreeCen 1885") would put a
+        // non-existent option value on the wire — a silent zero or a
+        // Rails validation page. Python guards exactly this ("Invalid
+        // census year", sources/freecen.py:165-166). `.outsideCoverage`
+        // names the valid set and is never cached as a negative.
+        let paramCensusYear: Int? = {
+            if case .freeCen(let p) = query.sourceParams { return p.censusYear }
+            return nil
+        }()
+        let year = paramCensusYear ?? query.yearFrom
+        if let requested = year, !Self.validYears.contains(requested) {
+            let valid = Self.validYears.sorted().map(String.init).joined(separator: ", ")
+            return SourceSearchEnvelope(.outsideCoverage(
+                reason: "\(requested) is not a census year FreeCen holds (valid: \(valid))"
+            ))
+        }
+
+        let scopeLabel = residenceChapman ?? birthChapman.map { "born \($0)" } ?? ""
+        let summary = Self.activitySummary(query: query, surname: surname, chapmanCode: scopeLabel, censusYear: year)
         await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
 
         do {
@@ -120,7 +163,7 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
                 return (String(range.lowerBound), String(range.upperBound))
             }()
 
-            let fields: [String: String] = [
+            var fields: [String: String] = [
                 "utf8": "✓",
                 "authenticity_token": csrfToken ?? "",
                 "search_query[last_name]": surname,
@@ -134,8 +177,17 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
                 "search_query[sex]": sexValue,
                 "search_query[marital_status]": "",
                 "search_query[occupation]": "",
-                "search_query[chapman_codes][]": chapmanCode,
             ]
+            // FT-11 — the two county axes are independent. The residence
+            // filter is OMITTED entirely when scoping by birth county
+            // (an absent Rails array param means "no residence filter"),
+            // letting one request cover every residence county server-side.
+            if let residenceChapman {
+                fields["search_query[chapman_codes][]"] = residenceChapman
+            }
+            if let birthChapman {
+                fields["search_query[birth_chapman_codes][]"] = birthChapman
+            }
 
             let data = try await rateLimitedRequest {
                 try await self.http.postForm(
@@ -154,13 +206,63 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
                 await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "Invalid encoding", strictness: query.strictness))
                 return SourceSearchEnvelope(.unavailable(reason: "Invalid encoding"))
             }
-            let results = Self.parseSearchResults(html, censusYear: year)
-            // FT-23: the site's own claimed hit count; FT-22: rows <
-            // claimed total (or a pagination nav with no parsable count)
-            // means this page is a partial answer.
+
+            // FT-26 / FT-20 — page-state triage. Only a positively
+            // identified results page may yield records, and only a
+            // positively identified no-results page may yield a clean
+            // empty; anything else (validation error, login wall,
+            // layout drift) is `.unavailable`, never a cacheable [].
+            switch Self.classifyResultsPage(html) {
+            case .empty:
+                lastSuccessfulSearch = Date()
+                lastError = nil
+                logger.info("Search returned 0 results for \(surname)")
+                await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0, strictness: query.strictness))
+                return SourceSearchEnvelope(result: .results([]), outcome: SearchOutcome(resultCount: 0))
+            case .unparseable(let reason):
+                lastError = reason
+                logger.warning("FreeCen page not parseable as results: \(reason)")
+                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: reason, strictness: query.strictness))
+                return SourceSearchEnvelope(.unavailable(reason: reason))
+            case .results:
+                break
+            }
+
+            var results = Self.parseSearchResults(html, censusYear: year)
+            // FT-23: the site's own claimed hit count.
             let totalAvailable = Self.parseResultCount(html)
+
+            // FT-22 (fetching half) — walk the pagination nav through the
+            // existing 500 ms pacing, bounded by the record budget and the
+            // defensive page cap. Stops on: no next link, a page that
+            // yields no parsable rows, or budget exhaustion.
+            var nextPage = Self.nextPageURL(html)
+            var pagesFetched = 1
+            while let next = nextPage.flatMap(URL.init(string:)),
+                  pagesFetched < Self.maxPages,
+                  results.count < Self.maxResults {
+                // A failed follow-up page must not discard the pages
+                // already in hand — break and let `truncated` say the
+                // answer is partial.
+                guard let pageData = try? await rateLimitedRequest({
+                    try await self.http.get(url: next, headers: [
+                        "User-Agent": Self.userAgent,
+                        "Cookie": self.sessionCookie ?? "",
+                    ])
+                }), let pageHTML = String(data: pageData, encoding: .utf8) else { break }
+                let pageRecords = Self.parseSearchResults(pageHTML, censusYear: year)
+                guard !pageRecords.isEmpty else { break }
+                results += pageRecords
+                pagesFetched += 1
+                nextPage = Self.nextPageURL(pageHTML)
+            }
+
+            // Honest truncation AFTER paging (FT-22/FT-23): trust the
+            // site's own count when parsed; otherwise an unconsumed
+            // next-link means the budget (or a parse miss) cut the
+            // answer short.
             let truncated = totalAvailable.map { results.count < $0 }
-                ?? Self.hasPaginationNav(html)
+                ?? (nextPage != nil)
             // Enrich the top hit with household composition so the
             // verdict-emitter has parent-surname tokens to intersect.
             // Python's pattern caps at 5 (agent/discover.py:195), but
@@ -351,6 +453,66 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
     /// pages exist beyond the one we fetched.
     nonisolated static func hasPaginationNav(_ html: String) -> Bool {
         html.contains(#"class="pagination"#) || html.contains(#"rel="next""#)
+    }
+
+    /// FT-26 / FT-20 — page-state triage, Python parity with
+    /// sources/freecen.py `_parse_results`: the count marker means a
+    /// results page ("We found 0 Results" is a genuine empty), the
+    /// explicit "No results found" copy is a genuine empty, and
+    /// ANYTHING else — validation error, login wall, maintenance page,
+    /// layout drift — is unparseable and must surface as
+    /// `.unavailable`, never flow into negative-evidence reasoning.
+    nonisolated enum PageState: Equatable {
+        case results
+        case empty
+        case unparseable(reason: String)
+    }
+
+    nonisolated static func classifyResultsPage(_ html: String) -> PageState {
+        if let count = parseResultCount(html) {
+            return count == 0 ? .empty : .results
+        }
+        if html.contains("No results found") { return .empty }
+        // Rails validation banner (same copy family as FreeREG's) —
+        // classified separately only for the reason string.
+        if html.range(of: #"error prohibited|prohibited this"#,
+                      options: [.regularExpression, .caseInsensitive]) != nil {
+            return .unparseable(reason: "FreeCen rejected the search (validation error)")
+        }
+        return .unparseable(reason: "Could not parse FreeCen results page")
+    }
+
+    /// FT-22 (fetching half) — extract the next-page link from a Rails
+    /// pagination nav. Handles kaminari (`rel="next"`, either attribute
+    /// order) and will_paginate (`class="next_page"` — its disabled
+    /// state is a `<span>`, so it never matches an `<a>`). Hrefs are
+    /// HTML-attribute-escaped on the page, so `&amp;` is unescaped.
+    /// Returns an absolute URL, or nil when no next page exists.
+    nonisolated static func nextPageURL(_ html: String) -> String? {
+        nextPaginationHref(in: html, base: baseURL)
+    }
+
+    /// Shared mechanics for `nextPageURL` — also used verbatim by
+    /// FreeREGSource (the two Rails sites emit the same nav shapes;
+    /// duplication follows the existing hasPaginationNav idiom).
+    nonisolated static func nextPaginationHref(in html: String, base: String) -> String? {
+        let patterns = [
+            #"<a\b[^>]*rel="next"[^>]*href="([^"]+)""#,
+            #"<a\b[^>]*href="([^"]+)"[^>]*rel="next""#,
+            #"<a\b[^>]*class="[^"]*next[^"]*"[^>]*href="([^"]+)""#,
+            #"<a\b[^>]*href="([^"]+)"[^>]*class="[^"]*next[^"]*""#,
+        ]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            if let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let range = Range(match.range(at: 1), in: html) {
+                let href = String(html[range]).replacingOccurrences(of: "&amp;", with: "&")
+                if href.hasPrefix("http") { return href }
+                if href.hasPrefix("/") { return base + href }
+                return nil
+            }
+        }
+        return nil
     }
 
     /// Parse FreeCen search results HTML table.

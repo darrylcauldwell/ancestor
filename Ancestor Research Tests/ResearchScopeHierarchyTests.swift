@@ -38,17 +38,68 @@ struct ResearchScopeHierarchyTests {
         }
     }
 
-    @Test func ac3_2_adjacentFanOutForFreeCenIncludesNeighbours() async {
+    @Test func ac3_2_adjacentFreeCenUsesBirthCountyAxisNotResidenceFanOut() async {
+        // FT-11 (2026-07-11): .adjacent no longer fans out across home +
+        // neighbour RESIDENCE codes (the 7× shape this test originally
+        // pinned). One query per census year scopes by BIRTH county
+        // (`birth_chapman_codes[]`) with no residence filter — broader
+        // reach (migrants included) at 1/7th the request cost.
         let dispatcher = makeDispatcher()
         let subject = makeSubject(homeChapmanCode: "DBY")
 
         let queries = buildFreeCenQueries(dispatcher: dispatcher, subject: subject, scope: .adjacent)
-        // FreeCen at .adjacent should fan out across home + adjacent chapman codes,
-        // multiplied by the applicable census years. With DBY having 6 adjacent
-        // counties, expect at least 7× the .county count.
         let countyQueries = buildFreeCenQueries(dispatcher: dispatcher, subject: subject, scope: .county)
-        #expect(queries.count >= countyQueries.count * 7,
-                "adjacent fan-out should multiply county count by 1 (home) + neighbours")
+        #expect(queries.count == countyQueries.count,
+                "adjacent should emit ONE birth-county query per census year, not a residence fan-out")
+        for query in queries {
+            guard case .freeCen(let p) = query.sourceParams else {
+                Issue.record("expected .freeCen params")
+                continue
+            }
+            #expect(p.birthChapmanCode == "DBY", "adjacent scope must carry the birth-county axis")
+            #expect(p.chapmanCode == nil, "adjacent scope must not carry a residence filter")
+        }
+        // .county keeps the residence axis (FT-11: \"keeping residence
+        // codes for .county\").
+        for query in countyQueries {
+            guard case .freeCen(let p) = query.sourceParams else { continue }
+            #expect(p.chapmanCode == "DBY")
+            #expect(p.birthChapmanCode == nil)
+        }
+    }
+
+    @Test func ac3_2_nationalFreeCenUsesBirthCountyAxisWhenHomeKnown() async {
+        // FT-11: .national with a derivable home chapman = ONE
+        // birth-county query per census year (was ~90 residence codes).
+        let dispatcher = makeDispatcher()
+        let subject = makeSubject(homeChapmanCode: "DBY")
+
+        let national = buildFreeCenQueries(dispatcher: dispatcher, subject: subject, scope: .national)
+        let county = buildFreeCenQueries(dispatcher: dispatcher, subject: subject, scope: .county)
+        #expect(national.count == county.count,
+                "national with known birth county should be one query per census year")
+        for query in national {
+            guard case .freeCen(let p) = query.sourceParams else { continue }
+            #expect(p.birthChapmanCode == "DBY")
+            #expect(p.chapmanCode == nil)
+        }
+    }
+
+    @Test func ac3_2_nationalFreeCenFallsBackToResidenceFanOutWithoutHomeChapman() async {
+        // FT-11 fallback: no derivable home county (empty chapman = no
+        // anchor, per the chapman-derivation chain) → the pre-FT-11
+        // national residence fan-out (~90 codes × years) is preserved,
+        // because a birth-county axis cannot be built from nothing.
+        let dispatcher = makeDispatcher()
+        let subject = makeSubject(homeChapmanCode: "")
+
+        let national = buildFreeCenQueries(dispatcher: dispatcher, subject: subject, scope: .national)
+        #expect(national.count > 50, "fallback should fan out across GB residence codes")
+        for query in national.prefix(5) {
+            guard case .freeCen(let p) = query.sourceParams else { continue }
+            #expect(p.birthChapmanCode == nil)
+            #expect(p.chapmanCode?.isEmpty == false)
+        }
     }
 
     @Test func ac3_3_parishScopeReturnsZeroQueriesForFreeBMD() async {
@@ -146,7 +197,7 @@ private extension RecordQuery {
     var queryKey: String {
         var key = "\(recordType)|\(surname ?? "_")|\(givenName ?? "_")|\(yearFrom ?? -1)-\(yearTo ?? -1)"
         if case .freeBMD(let p) = sourceParams { key += "|fbmd:\(p.districtCode)" }
-        if case .freeCen(let p) = sourceParams { key += "|fcen:\(p.chapmanCode):\(p.censusYear)" }
+        if case .freeCen(let p) = sourceParams { key += "|fcen:\(p.chapmanCode):\(p.censusYear):\(p.birthChapmanCode)" }
         if case .freeREG(let p) = sourceParams { key += "|freg:\(p.chapmanCode)" }
         return key
     }
