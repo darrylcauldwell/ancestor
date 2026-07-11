@@ -839,17 +839,50 @@ public nonisolated struct SearchOutcome: Sendable, Equatable {
     /// present, or an unsplittable too-many-results overflow.
     public let truncated: Bool
     public let availability: SearchAvailability
+    /// True when this empty answer was NOT obtained by hitting the wire
+    /// this run — the query was skipped because a PRIOR run recorded it
+    /// as a clean negative and the record is still fresh (connector-audit
+    /// T1-04 / §5.2 persistent negative-search cache). The result is a
+    /// genuine `.ok` zero (broadening the strictness ladder on it is
+    /// correct — known-empty is as empty as freshly-verified-empty), but
+    /// it must NOT be re-persisted as a new negative: it would double-
+    /// count the same absence and refresh a stale `searched_at` without
+    /// re-verifying. `suppressionReason` carries the human-facing
+    /// "skipped — searched \<date\>, empty" string for the activity feed.
+    /// Never set on a live wire answer.
+    public let suppressed: Bool
+    /// Non-nil only when `suppressed` — a short reason string for the
+    /// activity feed / audit trail (e.g. "prior clean negative
+    /// 2026-06-30").
+    public let suppressionReason: String?
 
     public init(
         resultCount: Int,
         totalAvailable: Int? = nil,
         truncated: Bool = false,
-        availability: SearchAvailability = .ok
+        availability: SearchAvailability = .ok,
+        suppressed: Bool = false,
+        suppressionReason: String? = nil
     ) {
         self.resultCount = resultCount
         self.totalAvailable = totalAvailable
         self.truncated = truncated
         self.availability = availability
+        self.suppressed = suppressed
+        self.suppressionReason = suppressionReason
+    }
+
+    /// A synthetic outcome for a query skipped because a prior run
+    /// recorded it as a clean negative (T1-04). Clean `.ok` zero so the
+    /// ladder broadens exactly as it would on a freshly-verified empty,
+    /// flagged `suppressed` so persistence never re-counts it.
+    public static func suppressedNegative(reason: String) -> SearchOutcome {
+        SearchOutcome(
+            resultCount: 0,
+            availability: .ok,
+            suppressed: true,
+            suppressionReason: reason
+        )
     }
 
     /// True when this outcome's record set can be trusted as the source's
@@ -863,8 +896,15 @@ public nonisolated struct SearchOutcome: Sendable, Equatable {
 
     /// True when this outcome is a genuine "searched, found nothing" —
     /// the only shape that may be persisted as negative evidence.
+    ///
+    /// A `suppressed` outcome is deliberately EXCLUDED: it was never
+    /// searched on the wire this run (it IS the replay of an earlier
+    /// negative), so re-persisting it would double-count the absence and
+    /// silently refresh the freshness window without re-verifying the
+    /// source. `NegativeSearchAggregator` relies on this to avoid the
+    /// double-count guard (T1-04 correctness guard (a)).
     public var isCleanNegative: Bool {
-        isConclusive && resultCount == 0
+        isConclusive && resultCount == 0 && !suppressed
     }
 }
 

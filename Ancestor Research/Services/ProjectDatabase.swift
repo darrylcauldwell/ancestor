@@ -1016,6 +1016,46 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // MARK: v33 — persistent negative-search cache reader key
+        // (CONNECTOR_AUDIT_2026-07 §6.1 T1-04 / §5.2). The honesty
+        // envelope (a6e9c6d) made `negative_searches` a genuine WRITER —
+        // one pair-level row per clean-zero (source, recordType). T1-04
+        // adds the READER: before re-firing a query on a re-run, consult
+        // the table and skip queries a prior run proved cleanly empty
+        // within a freshness window. Matching needs the exact WIRE
+        // identity, so negatives are now stored at the per-query grain —
+        // `search_params` holds the `QueryCache.cacheKey` string (the
+        // normalized-params key, matched verbatim on read so write/read
+        // normalization can never drift).
+        //
+        // A partial UNIQUE index on (profile_id, source_id, record_type,
+        // search_params) lets a re-run UPSERT the freshness timestamp
+        // instead of piling up duplicate rows — the `WHERE search_params
+        // IS NOT NULL` clause deliberately excludes NULL-param legacy
+        // rows and keeps the `__whole_tree__` resume-state JSON rows out
+        // of the uniqueness constraint (they share a profile_id/source_id
+        // by convention but carry distinct JSON, and must never be
+        // coalesced with real negatives). Pre-existing duplicate rows
+        // that WOULD violate the new index are collapsed first (keep the
+        // most-recent `searched_at` per key) so the index build can't
+        // fail on legacy data.
+        migrator.registerMigration("v33_negative_search_query_key_index") { db in
+            try db.execute(sql: """
+                DELETE FROM negative_searches
+                WHERE search_params IS NOT NULL
+                  AND rowid NOT IN (
+                    SELECT MAX(rowid) FROM negative_searches
+                    WHERE search_params IS NOT NULL
+                    GROUP BY profile_id, source_id, record_type, search_params
+                  )
+                """)
+            try db.execute(sql: """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_negative_searches_query_key
+                ON negative_searches (profile_id, source_id, record_type, search_params)
+                WHERE search_params IS NOT NULL
+                """)
+        }
+
         return migrator
     }
 
@@ -2320,12 +2360,31 @@ nonisolated extension ProjectDatabase {
     }
 
     /// Record a negative search (source returned no results).
+    ///
+    /// When `params` is non-nil it is the per-query wire identity
+    /// (`QueryCache.cacheKey`) and the write UPSERTs on
+    /// (profile_id, source_id, record_type, search_params) — a re-run of
+    /// the same clean-negative query refreshes `searched_at` in place
+    /// (advancing the T1-04 freshness window) rather than accumulating a
+    /// duplicate row. The `__whole_tree__` resume-state writer and any
+    /// NULL-param legacy callers fall through to a plain INSERT (the
+    /// unique index is partial on `search_params IS NOT NULL`).
     func saveNegativeSearch(profileID: String, sourceID: String, recordType: String, params: String?) throws {
         try dbQueue.write { db in
-            try db.execute(sql: """
-                INSERT INTO negative_searches (profile_id, source_id, record_type, searched_at, search_params)
-                VALUES (?, ?, ?, ?, ?)
-                """, arguments: [profileID, sourceID, recordType, Date(), params])
+            if params != nil {
+                try db.execute(sql: """
+                    INSERT INTO negative_searches (profile_id, source_id, record_type, searched_at, search_params)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT (profile_id, source_id, record_type, search_params)
+                    WHERE search_params IS NOT NULL
+                    DO UPDATE SET searched_at = excluded.searched_at
+                    """, arguments: [profileID, sourceID, recordType, Date(), params])
+            } else {
+                try db.execute(sql: """
+                    INSERT INTO negative_searches (profile_id, source_id, record_type, searched_at, search_params)
+                    VALUES (?, ?, ?, ?, ?)
+                    """, arguments: [profileID, sourceID, recordType, Date(), params])
+            }
         }
     }
 
@@ -2339,6 +2398,33 @@ nonisolated extension ProjectDatabase {
             return rows.map {
                 (sourceID: $0["source_id"] as String,
                  recordType: $0["record_type"] as String,
+                 date: $0["searched_at"] as Date)
+            }
+        }
+    }
+
+    /// Load per-query clean negatives for a profile (connector-audit
+    /// T1-04 reader). Returns the wire-identity `queryKey`
+    /// (`QueryCache.cacheKey`, stored in `search_params`) and the last
+    /// time it was proved cleanly empty, so the cross-run suppressor can
+    /// match a next-run query verbatim and apply its freshness window.
+    /// NULL-param rows (legacy pair-level aggregates, `__whole_tree__`
+    /// resume state) are excluded — only rows carrying a real query key
+    /// can suppress a future dispatch.
+    func loadNegativeSearchKeys(
+        profileID: String
+    ) throws -> [(sourceID: String, recordType: String, queryKey: String, date: Date)] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT source_id, record_type, search_params, searched_at
+                FROM negative_searches
+                WHERE profile_id = ? AND search_params IS NOT NULL
+                ORDER BY searched_at DESC
+                """, arguments: [profileID])
+            return rows.map {
+                (sourceID: $0["source_id"] as String,
+                 recordType: $0["record_type"] as String,
+                 queryKey: $0["search_params"] as String,
                  date: $0["searched_at"] as Date)
             }
         }

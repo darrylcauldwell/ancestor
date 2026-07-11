@@ -84,6 +84,23 @@ nonisolated enum NegativeSearchAggregator {
         let queryCount: Int
     }
 
+    /// One persistable clean-negative WIRE query (connector-audit T1-04).
+    /// Where `Negative` is the pair-level aggregate the run footer/log
+    /// reports, this is the per-query grain the cross-run reader matches
+    /// against: `queryKey` is `QueryCache.cacheKey` — the exact
+    /// normalized-params identity of the outbound request. The reader
+    /// suppresses a next-run query iff its cacheKey equals a stored
+    /// `queryKey` within the freshness window.
+    struct NegativeKey: Equatable {
+        let sourceID: String
+        let recordType: RecordType
+        /// `QueryCache.cacheKey` — the normalized wire identity. Stored in
+        /// `negative_searches.search_params` and matched verbatim on read,
+        /// so write and read normalization are the SAME code path (T1-04
+        /// correctness guard (d): params normalization must match exactly).
+        let queryKey: String
+    }
+
     /// A (source, recordType) pair is a genuine negative iff EVERY
     /// outcome for the pair is a clean negative (availability ok, not
     /// truncated, zero records) AND no scored record from that pair
@@ -91,14 +108,63 @@ nonisolated enum NegativeSearchAggregator {
     /// dispatch outside the main fan-out, so a record in hand always
     /// vetoes). Any error, block, throttle, or truncation in the pair
     /// leaves its emptiness unproven — nothing is recorded.
+    ///
+    /// Suppressed replays (T1-04) are clean `.ok` zeros but
+    /// `isCleanNegative == false` by construction, so a pair made up of
+    /// only-suppressed replays is NOT re-persisted here — it's the same
+    /// absence already on disk.
     static func genuineNegatives(
         outcomes: [SearchOutcomeEntry],
         scoredRecords: [ScoredRecord]
     ) -> [Negative] {
-        struct PairKey: Hashable {
-            let sourceID: String
-            let recordType: RecordType
+        cleanPairs(outcomes: outcomes, scoredRecords: scoredRecords)
+            .map { key, entries in
+                Negative(sourceID: key.sourceID, recordType: key.recordType, queryCount: entries.count)
+            }
+            .sorted { ($0.sourceID, $0.recordType.rawValue) < ($1.sourceID, $1.recordType.rawValue) }
+    }
+
+    /// The per-wire-query keys backing the genuine negatives (T1-04
+    /// persistent-negative cache). Same pair-veto as `genuineNegatives`
+    /// — a queryKey is emitted only when its ENTIRE (source, recordType)
+    /// pair was clean-zero with no record in hand — but at the grain the
+    /// cross-run reader matches. De-duplicated per (pair, queryKey): the
+    /// same wire query may repeat across ladder tiers (loose vs strict
+    /// can be distinct keys; strict/variant may collapse), and each
+    /// distinct key becomes one durable row.
+    static func genuineNegativeKeys(
+        outcomes: [SearchOutcomeEntry],
+        scoredRecords: [ScoredRecord]
+    ) -> [NegativeKey] {
+        var out: [NegativeKey] = []
+        var seen: Set<String> = []
+        for (key, entries) in cleanPairs(outcomes: outcomes, scoredRecords: scoredRecords) {
+            for entry in entries {
+                let dedupKey = "\(key.sourceID)|\(key.recordType.rawValue)|\(entry.queryKey)"
+                guard seen.insert(dedupKey).inserted else { continue }
+                out.append(NegativeKey(
+                    sourceID: key.sourceID,
+                    recordType: key.recordType,
+                    queryKey: entry.queryKey
+                ))
+            }
         }
+        return out.sorted {
+            ($0.sourceID, $0.recordType.rawValue, $0.queryKey)
+                < ($1.sourceID, $1.recordType.rawValue, $1.queryKey)
+        }
+    }
+
+    private struct PairKey: Hashable {
+        let sourceID: String
+        let recordType: RecordType
+    }
+
+    /// Shared clean-pair computation for both aggregators.
+    private static func cleanPairs(
+        outcomes: [SearchOutcomeEntry],
+        scoredRecords: [ScoredRecord]
+    ) -> [(PairKey, [SearchOutcomeEntry])] {
         var grouped: [PairKey: [SearchOutcomeEntry]] = [:]
         for entry in outcomes {
             grouped[PairKey(sourceID: entry.sourceID, recordType: entry.recordType), default: []].append(entry)
@@ -106,15 +172,12 @@ nonisolated enum NegativeSearchAggregator {
         let recordPairs: Set<PairKey> = Set(scoredRecords.map {
             PairKey(sourceID: $0.record.sourceID, recordType: $0.record.recordType)
         })
-        return grouped
-            .filter { key, entries in
-                !recordPairs.contains(key)
-                    && entries.allSatisfy { $0.outcome.isCleanNegative }
-            }
-            .map { key, entries in
-                Negative(sourceID: key.sourceID, recordType: key.recordType, queryCount: entries.count)
-            }
-            .sorted { ($0.sourceID, $0.recordType.rawValue) < ($1.sourceID, $1.recordType.rawValue) }
+        return grouped.compactMap { key, entries in
+            guard !recordPairs.contains(key),
+                  entries.allSatisfy({ $0.outcome.isCleanNegative })
+            else { return nil }
+            return (key, entries)
+        }
     }
 }
 
@@ -124,17 +187,28 @@ nonisolated struct ResearchConfig: Sendable {
     let maxFacts: Int
     let mode: ResearchMode
     let scope: ResearchScope
+    /// Force-refresh escape hatch for the cross-run negative-search cache
+    /// (connector-audit T1-04 guard (c)). When true the pipeline ignores
+    /// stored clean negatives and re-fires every query on the wire. Set
+    /// implicitly for `.verify` (whose whole purpose is to re-check what
+    /// is on the tree), and settable per-run by the user. `.extend`,
+    /// `.discover`, and `.all` default to consulting the cache.
+    let forceRefreshNegatives: Bool
 
     init(
         maxIterations: Int,
         maxFacts: Int,
         mode: ResearchMode,
-        scope: ResearchScope = .county
+        scope: ResearchScope = .county,
+        forceRefreshNegatives: Bool? = nil
     ) {
         self.maxIterations = maxIterations
         self.maxFacts = maxFacts
         self.mode = mode
         self.scope = scope
+        // `.verify` always re-verifies; other modes consult the cache
+        // unless the caller overrides.
+        self.forceRefreshNegatives = forceRefreshNegatives ?? (mode == .verify)
     }
 
     static let verify = ResearchConfig(maxIterations: 2, maxFacts: 20, mode: .verify)
@@ -155,7 +229,10 @@ nonisolated struct ResearchConfig: Sendable {
     }
 
     func with(scope: ResearchScope) -> ResearchConfig {
-        ResearchConfig(maxIterations: maxIterations, maxFacts: maxFacts, mode: mode, scope: scope)
+        ResearchConfig(
+            maxIterations: maxIterations, maxFacts: maxFacts, mode: mode,
+            scope: scope, forceRefreshNegatives: forceRefreshNegatives
+        )
     }
 }
 

@@ -51,6 +51,17 @@ final class ResearchPipeline {
     /// tests, read-only runs) — the user-hunch flow is a no-op.
     let userHypothesisLookup: ((String) -> [ResearchHypothesis])?
 
+    /// Per-profile cross-run negative-search loader (connector-audit
+    /// T1-04). Returns the WIRE queries (`QueryCache.cacheKey`) a prior
+    /// run proved cleanly empty, with the last time each was proved
+    /// empty. `research()` folds these into a `NegativeSearchCache` and
+    /// consults it before dispatching main-loop queries, skipping the
+    /// live request for anything still fresh. Read-only; load failures
+    /// fall through to an empty list (safe direction: go to the wire).
+    /// Nil means no database — the cross-run cache is `.disabled`, so
+    /// every query is dispatched, exactly as before T1-04.
+    let negativeSearchKeyLoader: ((String) -> [(sourceID: String, recordType: String, queryKey: String, date: Date)])?
+
     private let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "Pipeline")
 
     init(
@@ -60,7 +71,8 @@ final class ResearchPipeline {
         childEvidenceMMNLookup: ((String) -> String?)? = nil,
         pendingFactWriter: ((PendingFact) -> Void)? = nil,
         rejectionLookup: ((String) -> Set<String>)? = nil,
-        userHypothesisLookup: ((String) -> [ResearchHypothesis])? = nil
+        userHypothesisLookup: ((String) -> [ResearchHypothesis])? = nil,
+        negativeSearchKeyLoader: ((String) -> [(sourceID: String, recordType: String, queryKey: String, date: Date)])? = nil
     ) {
         self.dispatcher = dispatcher
         self.snapshot = snapshot
@@ -69,6 +81,7 @@ final class ResearchPipeline {
         self.pendingFactWriter = pendingFactWriter
         self.rejectionLookup = rejectionLookup
         self.userHypothesisLookup = userHypothesisLookup
+        self.negativeSearchKeyLoader = negativeSearchKeyLoader
     }
 
     /// Build a `childEvidenceMMNLookup` closure backed by
@@ -133,6 +146,20 @@ final class ResearchPipeline {
         }
     }
 
+    /// Build a cross-run negative-search loader backed by
+    /// `ProjectDatabase.loadNegativeSearchKeys(profileID:)` (T1-04).
+    /// Read-only; load failures fall through to an empty list so a DB
+    /// hiccup degrades to "search everything", never to a wrong
+    /// suppression. Nil when there is no database.
+    static func makeNegativeSearchKeyLoader(
+        database: ProjectDatabase?
+    ) -> ((String) -> [(sourceID: String, recordType: String, queryKey: String, date: Date)])? {
+        guard let database else { return nil }
+        return { profileID in
+            (try? database.loadNegativeSearchKeys(profileID: profileID)) ?? []
+        }
+    }
+
     /// Run the research pipeline for a subject.
     func research(subject: ResearchSubject, config: ResearchConfig) async -> ResearchResult {
         // Stashed for run-scoped helpers (marriage-dispatch district
@@ -147,6 +174,21 @@ final class ResearchPipeline {
         // profile pollution is impossible. Eliminates the 4× redundancy
         // of re-issuing identical district queries in each iteration.
         let queryCache = QueryCache()
+
+        // Cross-run negative-search cache (connector-audit T1-04). Loaded
+        // once per run from `negative_searches`: the WIRE queries a prior
+        // run proved cleanly empty for this profile. Consulted before the
+        // main iteration-loop dispatch so a re-researched subject skips
+        // its proven-empty fan-out (the 30–50% traffic cut the audit
+        // cites). `.verify` mode and the config force-refresh flag yield
+        // a `.disabled` cache so every query re-verifies (guard (c)).
+        // Manual-input / lead subjects (nil profileID) and no-database
+        // runs also get `.disabled` — nothing to suppress against.
+        let negativeCache = NegativeSearchCache.load(
+            profileID: subject.profileID,
+            rows: subject.profileID.flatMap { pid in negativeSearchKeyLoader?(pid) } ?? [],
+            forceRefresh: config.forceRefreshNegatives
+        )
 
         // Pre-iteration phase (RESEARCH_PIPELINE_SPEC §5.14). For thin
         // placeholder subjects (surname only, no given name, ≥1 linked
@@ -204,7 +246,8 @@ final class ResearchPipeline {
                 recordTypes: state.activeRecordTypes,
                 scope: config.scope,
                 mode: state.subject.mode,
-                cache: queryCache
+                cache: queryCache,
+                negativeCache: negativeCache
             )
             state.searchOutcomes.append(contentsOf: dispatchOutcomes)
 

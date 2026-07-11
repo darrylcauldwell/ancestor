@@ -39,7 +39,8 @@ enum ResearchRunService {
             childEvidenceMMNLookup: ResearchPipeline.makeChildEvidenceMMNLookup(database: database),
             pendingFactWriter: ResearchPipeline.makePendingFactWriter(database: database),
             rejectionLookup: ResearchPipeline.makeRejectionLookup(database: database),
-            userHypothesisLookup: ResearchPipeline.makeUserHypothesisLookup(database: database)
+            userHypothesisLookup: ResearchPipeline.makeUserHypothesisLookup(database: database),
+            negativeSearchKeyLoader: ResearchPipeline.makeNegativeSearchKeyLoader(database: database)
         )
         return Built(pipeline: pipeline, sourceInfoMap: map)
     }
@@ -189,24 +190,32 @@ enum ResearchRunService {
             // succeeded — a swallowed SQLite lock error here used to leave
             // research_run_requests pointing at a run row that didn't
             // exist, and MCP get_research_result 404'd on it.
-            // T1-01 piece 5 — persist genuine negatives. Only
-            // (source, recordType) pairs whose every main-loop query
-            // answered cleanly with zero records (and with no record in
-            // hand from any other flow) are recorded; errors, blocks,
-            // throttles, and truncated pages leave no negative. Coexists
+            // T1-01 piece 5 + T1-04 — persist genuine negatives at the
+            // per-WIRE-query grain. Only (source, recordType) pairs whose
+            // every main-loop query answered cleanly with zero records
+            // (and with no record in hand from any other flow) are
+            // recorded; errors, blocks, throttles, and truncated pages
+            // leave no negative. Each distinct clean-negative query is
+            // stored keyed by its `QueryCache.cacheKey` (search_params),
+            // so a later run's cross-run reader
+            // (`NegativeSearchCache`, T1-04) can suppress the identical
+            // re-fire within its freshness window. Suppressed replays
+            // from THIS run carry `isCleanNegative == false` and so are
+            // excluded — the absence is already on disk; only its
+            // `searched_at` is refreshed by the UPSERT above. Coexists
             // with the whole-tree resume-state rows, which live under
-            // profile_id "__whole_tree__".
-            let negatives = NegativeSearchAggregator.genuineNegatives(
+            // profile_id "__whole_tree__" with NULL-shaped JSON params.
+            let negativeKeys = NegativeSearchAggregator.genuineNegativeKeys(
                 outcomes: result.searchOutcomes,
                 scoredRecords: result.allScoredRecords
             )
-            for negative in negatives {
+            for negative in negativeKeys {
                 do {
                     try db.saveNegativeSearch(
                         profileID: profileID,
                         sourceID: negative.sourceID,
                         recordType: negative.recordType.rawValue,
-                        params: #"{"queryCount":\#(negative.queryCount)}"#
+                        params: negative.queryKey
                     )
                 } catch {
                     failures.append(.init(what: "Save negative search", error: error))

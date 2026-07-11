@@ -32,12 +32,22 @@ struct SearchDispatcher {
     /// fan-out as `dispatch`, but also returns one `SearchOutcomeEntry`
     /// per (source, query) so the pipeline can record genuine negatives
     /// and GPS criterion-1 can exclude error/truncated searches.
+    ///
+    /// `negativeCache` (connector-audit T1-04) suppresses live dispatch
+    /// of any query a prior run proved cleanly empty within its freshness
+    /// window: the query is skipped, no HTTP request is made, and a
+    /// `suppressed` clean-empty outcome is recorded in its place. Only the
+    /// MAIN iteration-loop fan-out passes it — strategist/pivot flows
+    /// (`dispatchOne`) never suppress, matching how they're excluded from
+    /// negative-evidence recording. Defaults to `.disabled` so every
+    /// non-main-loop caller behaves exactly as before T1-04.
     func dispatchWithOutcomes(
         subject: ResearchSubject,
         recordTypes: Set<RecordType>,
         scope: ResearchScope = .county,
         mode: ResearchMode = .extend,
-        cache: QueryCache? = nil
+        cache: QueryCache? = nil,
+        negativeCache: NegativeSearchCache = .disabled
     ) async -> (records: [SourceRecord], outcomes: [SearchOutcomeEntry]) {
         let ladder = Self.strictnessLadder(for: mode)
 
@@ -65,7 +75,8 @@ struct SearchDispatcher {
                         scope: scope,
                         ladder: ladder,
                         mode: mode,
-                        cache: cache
+                        cache: cache,
+                        negativeCache: negativeCache
                     )
                 }
             }
@@ -126,7 +137,8 @@ struct SearchDispatcher {
         scope: ResearchScope,
         ladder: [SearchStrictness],
         mode: ResearchMode,
-        cache: QueryCache?
+        cache: QueryCache?,
+        negativeCache: NegativeSearchCache
     ) async -> (records: [SourceRecord], outcomes: [SearchOutcomeEntry]) {
         let baseQueries = buildQueries(source: source, subject: subject, recordType: recordType, scope: scope)
         guard !baseQueries.isEmpty else { return ([], []) }
@@ -145,7 +157,24 @@ struct SearchDispatcher {
                 returning: ([SourceRecord], [SearchOutcomeEntry]).self
             ) { tierGroup in
                 for query in tierQueries {
-                    tierGroup.addTask { [source, query, cache] in
+                    tierGroup.addTask { [source, query, cache, negativeCache] in
+                        let queryKey = QueryCache.cacheKey(sourceID: source.sourceID, query: query)
+                        // T1-04 — cross-run suppression. If a prior run
+                        // proved this exact wire query cleanly empty and
+                        // it's still fresh, skip the live request and
+                        // synthesise the known-empty outcome. No HTTP
+                        // request, no QueryCache write; the ladder still
+                        // sees a conclusive empty and broadens on merit.
+                        if let suppressed = negativeCache.suppression(forQueryKey: queryKey) {
+                            let entry = SearchOutcomeEntry(
+                                sourceID: source.sourceID,
+                                recordType: query.recordType,
+                                strictness: query.strictness,
+                                queryKey: queryKey,
+                                outcome: suppressed
+                            )
+                            return ([], entry)
+                        }
                         let (records, outcome) = await QueryCache.wrappedSearchWithOutcome(
                             source: source, query: query, cache: cache
                         )
@@ -153,7 +182,7 @@ struct SearchDispatcher {
                             sourceID: source.sourceID,
                             recordType: query.recordType,
                             strictness: query.strictness,
-                            queryKey: QueryCache.cacheKey(sourceID: source.sourceID, query: query),
+                            queryKey: queryKey,
                             outcome: outcome
                         )
                         return (records, entry)

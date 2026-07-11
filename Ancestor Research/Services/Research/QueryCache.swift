@@ -106,6 +106,47 @@ actor QueryCache {
         return (records, envelope.outcome)
     }
 
+    /// The strictness value that actually reaches the wire for a given
+    /// source (connector-audit T1-03). Most sources vary their outbound
+    /// request by name-match strictness — FreeBMD toggles Phonetic on
+    /// `.loose`, CWGC drops `Tab=exact` off `.strict`, FreeCen/FreeREG
+    /// flip a soundex flag on `.loose`, FamilySearch changes its surname
+    /// wildcard — so their tiers are genuinely distinct wire requests and
+    /// keep their own strictness in the key.
+    ///
+    /// But Probate, FindAGrave, and Wirksworth read `query.strictness`
+    /// ONLY to label activity-bus events; their outbound request is
+    /// byte-identical across every tier. The strictness ladder still
+    /// walks `.strict` then `.loose` (extend) or `.loose` then `.variant`
+    /// (discover) for them, and without this normalization each tier is a
+    /// distinct cache key → a cache MISS → a duplicate HTTP call for a
+    /// wire-identical request (T1-03: 2 duplicate requests per empty
+    /// strict tier in extend, 3 in all-mode). Collapsing every tier to a
+    /// single canonical value turns the wire-identical re-fire into a
+    /// cache HIT — one request, not N.
+    ///
+    /// Conservative direction: normalize only where the source is PROVEN
+    /// wire-invariant. Any source not listed keeps its exact strictness,
+    /// so a source that DOES branch on the wire can never be collapsed
+    /// into serving one tier's results for another.
+    nonisolated static func normalizedWireStrictness(
+        sourceID: String,
+        strictness: SearchStrictness
+    ) -> SearchStrictness {
+        switch sourceID {
+        case "probate", "findagrave", "wirksworth":
+            // Wire output does not vary by strictness — every tier is the
+            // same request. Canonicalise to `.strict` so all tiers share
+            // one cache entry.
+            return .strict
+        default:
+            // FreeBMD / CWGC / FreeCen / FreeREG / FamilySearch and any
+            // future source: preserve the exact tier — it may change the
+            // wire.
+            return strictness
+        }
+    }
+
     /// Stable wire-determining key. Two queries with identical keys must
     /// produce identical HTTP requests. Field ordering matters for
     /// future-you reading logs: keep it surname-first so a `grep` finds
@@ -198,7 +239,12 @@ actor QueryCache {
             query.yearTo.map(String.init) ?? "",
             query.birthPlace ?? "",
             query.deathPlace ?? "",
-            query.strictness.rawValue,
+            // T1-03 — normalise to the source's EFFECTIVE wire strictness
+            // so wire-invariant sources (Probate/FindAGrave/Wirksworth)
+            // don't get a distinct key per ladder tier and re-fire an
+            // identical request. Sources that vary output by strictness
+            // keep their exact tier (see `normalizedWireStrictness`).
+            normalizedWireStrictness(sourceID: sourceID, strictness: query.strictness).rawValue,
             // FT-24 / T1-21 additions — appended so untouched components
             // keep their positions (grep-able log format preserved).
             chapmanCode,
