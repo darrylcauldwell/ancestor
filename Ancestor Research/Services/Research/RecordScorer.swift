@@ -228,6 +228,30 @@ nonisolated struct RecordScorer {
         }
         let surnameScore = bestSurnameScore
 
+        // T1-06 (score side) — initials-indexed casualties. WWI CWGC rows
+        // frequently have Forename empty and Initials "E V"; `givenName`
+        // is nil and `common.name` collapses to the bare surname, so the
+        // generic fallback below would compare SURNAME vs given name and
+        // hard-fail with a nonsense audit reason ("given name mismatch:
+        // CAULDWELL vs ERNEST"). Compare the parsed initials against the
+        // subject's given/middle initials instead. Extra record initials
+        // beyond the subject's known names don't fail (subject data may
+        // be incomplete); a contradiction on any compared position does.
+        if case .military = record,
+           (record.givenName ?? "").isEmpty,
+           !personGiven.isEmpty {
+            let initials = (record.rawFields["initials"] ?? "")
+                .trimmingCharacters(in: .whitespaces)
+            guard !initials.isEmpty else {
+                return GateResult(gate: .name, outcome: .fail, reason: "no forename or initials in military record to compare")
+            }
+            if initialsConsistent(recordInitials: initials, given: personGiven, middle: personMiddle) {
+                return GateResult(gate: .name, outcome: .pass, reason: String(format: "surname=%.2f, initials %@ consistent with %@", surnameScore, initials, personGiven))
+            }
+            let subjectNames = [personGiven, personMiddle].filter { !$0.isEmpty }.joined(separator: " ")
+            return GateResult(gate: .name, outcome: .fail, reason: "initials mismatch: \(initials) vs \(subjectNames)")
+        }
+
         var givenScore = 0.5
         if !recordGiven.isEmpty && !personGiven.isEmpty {
             // Compare against just the first token of the record's given-name
@@ -292,6 +316,28 @@ nonisolated struct RecordScorer {
                && !sub.hasPrefix(rec) && !rec.hasPrefix(sub) {
                 return false
             }
+        }
+        return true
+    }
+
+    /// T1-06 — compare a military record's initials string ("E V", "E.V.")
+    /// against the subject's given/middle initials. The first initial must
+    /// match the given name's first letter; subsequent record initials are
+    /// compared pairwise against the subject's middle-name initials for as
+    /// long as both sides have content (zip semantics — a record with more
+    /// initials than the subject has known names passes, mirroring
+    /// `middleNameMatches`' incomplete-data tolerance). `given`/`middle`
+    /// arrive uppercased from the call site.
+    private static func initialsConsistent(recordInitials: String, given: String, middle: String) -> Bool {
+        let recordLetters = recordInitials.uppercased()
+            .split(whereSeparator: { !$0.isLetter })
+            .compactMap(\.first)
+        guard let firstRecord = recordLetters.first,
+              let firstSubject = given.first else { return false }
+        if firstRecord != firstSubject { return false }
+        let middleInitials = middle.split(separator: " ").compactMap(\.first)
+        for (rec, sub) in zip(recordLetters.dropFirst(), middleInitials) where rec != sub {
+            return false
         }
         return true
     }
@@ -372,10 +418,17 @@ nonisolated struct RecordScorer {
             let ageAtDeathLow  = recordYear - birthHigh
             // Recorded age comes from different fields per record shape:
             // death records use `age`, probate records use `ageAtDeath`,
-            // burial records typically have no recorded age.
+            // military records use `age` (CWGC's parsed AgeAtDeath —
+            // T1-02: `.military` maps to searchType `.death`, so without
+            // this arm the branch ran with recordedAge always nil and the
+            // gate passed any casualty where [15,100] intersected the
+            // window — two same-name casualties aged 19 and 31 in 1918
+            // both passed despite fully-disambiguating ages). Burial
+            // records typically have no recorded age.
             let recordedAge: Int? = {
                 if case .death(let dr) = record { return dr.age }
                 if case .probate(let pr) = record { return pr.ageAtDeath }
+                if case .military(let mr) = record { return mr.age }
                 return nil
             }()
             if let recordedAge {
@@ -459,19 +512,16 @@ nonisolated struct RecordScorer {
     // MARK: - Gate 3: Geography
 
     private static func checkGeography(record: SourceRecord, subject: ResearchSubject) -> GateResult {
-        // CWGC casualty records carry cemetery + country of death, not
-        // UK residence — they exist *because* civil GRO has no record
-        // for casualties who died abroad. The geography gate has no
-        // useful UK signal to match against; demanding one would
-        // soft-fail every CWGC record as "no location data" and lose
-        // the military_service signal. Pass by class — the date and
-        // name gates still police identity. Same carve-out the verdict
-        // logic applies for CWGC fact-promotion (commit 83706f6).
-        if case .military = record {
-            return GateResult(
-                gate: .geography, outcome: .pass,
-                reason: "CWGC casualty — UK residence not on record by class invariant"
-            )
+        // T1-05 — Python's CWGC geography check, ported from
+        // agent/scorer.py:227-272. The cemetery is wherever the casualty
+        // died (often abroad) and can't be checked against the research
+        // region — but the additional_info next-of-kin line ("Son of X
+        // and Y, of Turnditch, Derby") IS the real geographic signal.
+        // The previous unconditional class-pass let every same-name
+        // casualty nationwide through the gate while the discriminating
+        // line sat parsed and unread.
+        if case .military(let mr) = record {
+            return checkMilitaryGeography(mr, subject: subject)
         }
 
         // Foreign-metadata short-circuit. Scan the two strongest scope
@@ -627,6 +677,128 @@ nonisolated struct RecordScorer {
         }
 
         return GateResult(gate: .geography, outcome: .softFail, reason: "unknown district: \(districtClean)")
+    }
+
+    /// T1-05 — geography gate for CWGC military records, ported faithfully
+    /// from Python `_check_geography`'s war-grave special case
+    /// (agent/scorer.py:236-273):
+    ///
+    ///   * PASS when the next-of-kin line mentions the research county
+    ///     (full name, or its first five chars so "Derby" in CWGC matches
+    ///     "Derbyshire"), a configured district, or the subject's birth
+    ///     town (first comma-segment of the birth location, length > 2).
+    ///   * A non-empty line mentioning none of them is demoted. Python
+    ///     returns "fail" here, and its verdict layer maps a geography
+    ///     fail to LEAD (agent/scorer.py:80-88) — never impossible. Swift's
+    ///     geography `.fail` maps to `.impossible` in focused modes, so the
+    ///     faithful outcome is `.softFail` (→ `.lead`).
+    ///   * The class-pass survives ONLY for records with no
+    ///     additional_info at all (the cemetery genuinely can't be
+    ///     checked — casualties died abroad; same carve-out as commit
+    ///     83706f6). Audit-pinned amendment: Python fell through to its
+    ///     district checks here, which for CWGC always landed "fail";
+    ///     the accepted Swift behaviour keeps the class-pass so a bare
+    ///     row isn't demoted for data CWGC never records.
+    ///
+    /// Geography terms are derived per-subject (RegionConfig districts for
+    /// the home Chapman code, county display name via RegionConfig →
+    /// UKChapmanCodes, birth town from the subject's region) — no
+    /// hardcoded regions. An anchor-less subject (empty chapman, no birth
+    /// location) degrades to the demotion path: the line names somewhere,
+    /// we can't verify it, so it stays a lead for the user.
+    private static func checkMilitaryGeography(_ record: MilitaryRecord, subject: ResearchSubject) -> GateResult {
+        let info = (record.additionalInfo ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !info.isEmpty else {
+            return GateResult(
+                gate: .geography, outcome: .pass,
+                reason: "CWGC casualty — no next-of-kin line; UK residence not on record by class invariant"
+            )
+        }
+
+        let chapman = subject.homeChapmanCode
+            .trimmingCharacters(in: .whitespaces)
+            .uppercased()
+
+        // County name — full form first, then the first-five-chars short
+        // form ("derby" matches "of Turnditch, Derby"). Python parity:
+        // scorer.py:252-258.
+        let county = countyName(forChapman: chapman).lowercased()
+        if !county.isEmpty, info.contains(county) {
+            return GateResult(gate: .geography, outcome: .pass, reason: "CWGC next-of-kin mentions \(county)")
+        }
+        let countyShort = county.count >= 5 ? String(county.prefix(5)) : county
+        if !countyShort.isEmpty, info.contains(countyShort) {
+            return GateResult(gate: .geography, outcome: .pass, reason: "CWGC next-of-kin mentions \(countyShort)")
+        }
+
+        // Configured districts for the home county. Sorted iteration for
+        // deterministic pass reasons across Dictionary ordering.
+        if !chapman.isEmpty {
+            for district in RegionConfig.districts(forChapmanCode: chapman).keys.sorted() {
+                let needle = district.trimmingCharacters(in: .whitespaces).lowercased()
+                if !needle.isEmpty, info.contains(needle) {
+                    return GateResult(gate: .geography, outcome: .pass, reason: "CWGC next-of-kin mentions \(district)")
+                }
+            }
+        }
+
+        // Subject's birth town — the segment before the first comma of
+        // the free-text birth location ("Turnditch, Derbyshire, England"
+        // → "turnditch"). Python parity: scorer.py:264-270.
+        if let birthLocation = birthLocationText(of: subject) {
+            let town = birthLocation
+                .split(separator: ",", maxSplits: 1, omittingEmptySubsequences: true)
+                .first
+                .map { String($0).trimmingCharacters(in: .whitespaces).lowercased() } ?? ""
+            if town.count > 2, info.contains(town) {
+                return GateResult(gate: .geography, outcome: .pass, reason: "CWGC next-of-kin mentions \(town)")
+            }
+        }
+
+        // T1-10 feed — the structured next-of-kin residence through the
+        // parish catalogue. "of 5 Mill St., Turnditch" doesn't name the
+        // county or a district, but Turnditch resolves to a research-area
+        // district exactly the way the census parish check does. Pass-only
+        // enhancement over the Python containment checks.
+        if !chapman.isEmpty,
+           let residence = CWGCNextOfKin.parse(record.additionalInfo ?? "")?.residence {
+            for segment in residence.split(separator: ",") {
+                let place = segment.trimmingCharacters(in: .whitespaces)
+                guard place.count > 2 else { continue }
+                if ScoringRules.isLocalParish(place, forHomeChapman: chapman) {
+                    return GateResult(gate: .geography, outcome: .pass, reason: "CWGC next-of-kin residence \(place) is in a research-area district")
+                }
+            }
+        }
+
+        return GateResult(gate: .geography, outcome: .softFail, reason: "CWGC next-of-kin doesn't mention research area")
+    }
+
+    /// Display name of the subject's home county — the Swift analogue of
+    /// Python's `config.region.county`. Rich per-county RegionConfig first
+    /// (static hand-curated data, no bundle dependency), then the bundled
+    /// UKChapmanCodes catalogue for every other county. Empty when the
+    /// subject has no chapman anchor — callers skip the county checks and
+    /// fall through to district/town matching.
+    private static func countyName(forChapman code: String) -> String {
+        guard !code.isEmpty else { return "" }
+        if let config = RegionConfig.config(forChapmanCode: code) {
+            return config.county
+        }
+        return UKChapmanCodes.shared.codes.first { $0.code == code }?.name ?? ""
+    }
+
+    /// Free-text birth location carried on the subject's region
+    /// (`ResearchSubject.fromProfile` maps `profile.birthLocation` into
+    /// `.county(text)`; manual input does the same).
+    private static func birthLocationText(of subject: ResearchSubject) -> String? {
+        switch subject.region {
+        case .county(let text): return text
+        case .parish(let parish, let county): return "\(parish), \(county)"
+        default: return nil
+        }
     }
 
     /// Recognise locations that are clearly outside the UK so the gate can

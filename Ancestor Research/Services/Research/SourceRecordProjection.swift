@@ -33,7 +33,9 @@ nonisolated extension SourceRecord {
                 description: r.bio,
                 details: .burial(BurialDetails(
                     cemetery: r.cemetery,
-                    plot: nil,
+                    // T1-11 — FindAGrave parses the plot into rawFields;
+                    // don't drop it at the projection layer.
+                    plot: r.common.rawFields["plot"].flatMap(\.nilIfEmptyProjection),
                     graveRef: nil,
                     inscription: r.inscription,
                     isVeteran: r.isVeteran
@@ -59,10 +61,14 @@ nonisolated extension SourceRecord {
                     regiment: r.regiment,
                     unit: r.unit,
                     serviceNumber: r.serviceNumber,
-                    countryOfService: nil,
+                    // T1-11 — CWGC parses country of service and honours
+                    // into rawFields; the schema fields exist, so carry
+                    // them instead of constructing nil with the values
+                    // in hand.
+                    countryOfService: r.common.rawFields["country_of_service"].flatMap(\.nilIfEmptyProjection),
                     cemetery: r.cemetery,
                     graveRef: r.graveRef,
-                    honours: nil
+                    honours: r.common.rawFields["honours"].flatMap(\.nilIfEmptyProjection)
                 ))
             )
 
