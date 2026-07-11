@@ -1,6 +1,6 @@
 # ADR-007 — Kinship primitives join the core push, respecced Swift-first
 
-**Status:** Proposed 2026-07-11 — awaiting review
+**Status:** Rejected as proposed 2026-07-11 (Darryl) — the stated alternative adopted: kinship stays OUT of the core push and moves to a later roadmap stage. Binding residue: the Swift-first respec requirement and the dissolution of #Change9 stand whenever kinship is picked up.
 **Depends on:** the swift-is-what-ships rule (2026-05); the core-capability priority (Darryl, 2026-07-10); ADR-004 (this is NOT a model evolution — it is engine capability, so it needs no ADR-004 exception)
 
 ## Context

@@ -35,7 +35,7 @@ One line per document: what it is, whether it's live, and when to read it. Conve
 |---|---|---|
 | `PROSE_CORPUS_SPEC.md` | Polish (Stage 2) | Core declared solid |
 | `SOURCE_MEDIA_SPEC.md` | Polish (Stage 2) | Core declared solid |
-| `KINSHIP_SPEC.md` | Core (Stage 1, proposed) | Decision: respec Swift-first before build |
+| `KINSHIP_SPEC.md` | Stage 2, first item (decided 2026-07-11) | Core declared solid; Swift-first respec before build |
 
 ## `archive/`
 
