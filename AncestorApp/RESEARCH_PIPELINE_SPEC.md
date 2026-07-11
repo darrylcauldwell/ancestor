@@ -3427,6 +3427,451 @@ pointing to a `.supported` `.subjectSpouseMarriage`. Folded into
 with the test slice, gated on the slice 2 behavioural shift being
 observable in eval first).
 
+### 5.15 `.parentCandidates` — user-seeded hypotheses (Epic 13, new task)
+
+**Status: Proposed — awaiting review (2026-07-11).** Roadmap Epic 13
+(2026-07-05 agentic-harness discussion). Sliced 0–5 below;
+implementation gated on this entry being signed off.
+
+**Why this exists.** Canonical scenario: the user says *"I think
+George Wheeldon's parents might have been called Bob & Sue."* Today
+that hunch has no structured home. Workbench notes hold prose the
+engine never reads; the only executable encoding is tentative
+placeholder parents (§5.15.9), which plants unproven identities in
+the tree to make the engine notice them. This section makes the
+hunch a first-class `ResearchHypothesis` that steers targeted probes
+— parent-marriage index searches, mother's-maiden-name birth axes,
+census household matching — through the standard verdict lifecycle,
+without the hunch itself ever touching the tree.
+
+**Doctrine — a hunch is a search directive, never data.**
+Non-negotiable, and the reason this feature is safe to build:
+
+1. **Invisible to the tree.** A seeded hypothesis creates no
+   profile, no edge, no field, no citation. Nothing reaches the
+   tree until real records survive the 4-gate scorer, clustering,
+   and the normal accept path (Part I §13.2) — identical to
+   engine-generated hypotheses.
+2. **Biases WHERE, never WHAT.** The hunch adds focused queries to
+   the dispatch plan. Scoring, verdicts, clustering, convergence,
+   and auto-promote are untouched. The deterministic sandwich
+   (Part I §3.3) applies without exception; `isModelAssisted:
+   false` on every path in phases (a) and (b).
+3. **Distinct from family testimony.** "Aunt Vera wrote that his
+   parents were Bob & Sue" is *evidence* — a citable source that
+   enters through the review queue with a trust tier. A hunch is
+   *not evidence* and never acquires a tier; it is a question the
+   user wants asked. The two must not share a pipe.
+4. **Refutable, and refutation is remembered.** Standard verdict
+   lifecycle (`.supported` / `.contradicted` / `.inconclusive`)
+   with `attempts` accounting, verdict history, and persisted
+   user-rejection (§4.3). Rejection memory (Part I §18.7) is
+   honoured: a hunch cannot resurrect records the user discarded.
+
+#### 5.15.1 Kind shape (Decision E1)
+
+One **specific typed kind** plus an orthogonal **provenance field**
+— not a generic `.userSeeded` case:
+
+```swift
+case parentCandidates(
+    fatherGiven: String?,
+    fatherSurname: String?,
+    motherGiven: String?,
+    motherMaidenSurname: String?,
+    marriageWindow: ClosedRange<Int>
+)
+
+// discriminator
+case .parentCandidates: return "parentCandidates"
+
+// identityKey (nil hints normalise to "")
+case .parentCandidates(let fg, let fs, let mg, let mms, let w):
+    return "parentCandidates:\(subject):\(fg?.uppercased() ?? "")x\(fs?.uppercased() ?? "")x\(mg?.uppercased() ?? "")x\(mms?.uppercased() ?? ""):\(w.lowerBound)-\(w.upperBound)"
+```
+
+…and one new field on `ResearchHypothesis` (all kinds):
+
+```swift
+/// Who asserted this hypothesis. `.engine` (default) for rows the
+/// generate switches produce; `.user` for seeded hunches. The
+/// engine's regeneration cycle never creates, deletes, or reshapes
+/// `.user` rows — only re-grades them. Only the user dismisses one.
+public enum Origin: String, Sendable, Codable { case engine, user }
+public let origin: Origin
+```
+
+**Why not one generic `.userSeeded(claim: String, axes: [String:
+String])`?** Every property of the shipped framework argues against
+it:
+
+- **Decision 1 (§7.1) is the closed enum.** The three central
+  switches are exhaustive over typed payloads; a generic case would
+  smuggle a fourth, stringly-typed inner dispatch on dictionary
+  contents — runtime parsing where the framework promises
+  compile-time completeness.
+- **`identityKey` needs deterministic composition.** Typed payloads
+  compose keys for free; an open dictionary needs ordering and
+  normalisation rules to avoid duplicate hypotheses for the same
+  hunch.
+- **Graders and deficit ladders are per-shape anyway.** A parent
+  hunch drives marriage/MMN/census probes; a burial hunch would
+  drive parish probes. A generic kind saves nothing — the per-shape
+  logic still has to exist, minus type safety.
+- **Malformed external input must not reach the engine.** A typed
+  payload is constructed in-process after validation (§5.15.2); a
+  bag of strings pushes parsing into the grader.
+
+The genuinely generic aspect — *who asserted it* — factors into
+`origin`, which every future user-seedable kind (burial place,
+second marriage, emigration) reuses unchanged. New hunch shapes
+arrive as new typed kinds via the normal Decision 1 path.
+
+Payload semantics: hints record **exactly what the user asserted** —
+nothing is defaulted into the payload. At least one of the four
+name hints must be non-empty (validated at intake). Effective
+values are resolved at probe time (e.g. groom surname =
+`fatherSurname ?? subject.lastName` under the paternal-naming
+convention) and the resolution is recorded in `reasoning`.
+`marriageWindow` defaults at intake to `subjectBirthYear − 30 …
+subjectBirthYear + 1` (mirrors `.parentMarriage` and §5.14.3); the
+user may narrow it.
+
+#### 5.15.2 Seed intake and validation
+
+External surfaces never write `research_hypotheses` directly — that
+table is engine-owned (generate/grade/upsert switches, §4.2–§4.3),
+and an external writer racing pipeline upserts is the class of bug
+the firewall exists to prevent. Instead, intake mirrors the
+sanctioned `research_run_requests` orchestration pattern (v24,
+`kick_off_research`):
+
+Migration `v32_user_hypothesis_seeds`:
+
+```sql
+CREATE TABLE user_hypothesis_seeds (
+    id TEXT PRIMARY KEY,                -- seed_<uuid>
+    profile_id TEXT NOT NULL,
+    kind_discriminator TEXT NOT NULL,   -- 'parentCandidates' only, this epic
+    payload TEXT NOT NULL,              -- JSON name hints + optional window
+    status TEXT NOT NULL DEFAULT 'queued', -- queued | materialised | refused
+    refusal_reason TEXT,
+    hypothesis_id TEXT,                 -- set on materialisation
+    requested_by TEXT NOT NULL,         -- 'mcp' | 'workbench'
+    created_at DATETIME NOT NULL,
+    FOREIGN KEY (profile_id) REFERENCES profiles(id)
+);
+ALTER TABLE research_hypotheses
+    ADD COLUMN origin TEXT NOT NULL DEFAULT 'engine';
+```
+
+The app-side request watcher (the same one servicing
+`research_run_requests`) materialises queued seeds: constructs the
+typed payload, computes the `identityKey`, and upserts one
+`research_hypotheses` row with `origin = 'user'`, `verdict =
+inconclusive`, `attempts = 0`. Re-seeding identical hints collides
+on `identityKey` and upserts — no duplicates.
+
+**Validation (refuse with a reason, write nothing):**
+
+- all four name hints empty → `no_name_hints`;
+- `profile_id` unknown → `profile_not_found`;
+- no derivable marriage window (subject has no usable birth-year
+  estimate and none supplied) → `no_subject_birth_estimate`;
+- the matching hypothesis row exists with `user_rejected = 1` →
+  `previously_rejected` (the user dismissed this exact hunch;
+  re-seeding must be a deliberate un-reject, not a silent revival).
+
+If the tree already holds a *confirmed* parent whose given name
+conflicts with a hint beyond nickname equivalence, the seed is
+accepted but materialised straight to `.contradicted` (§5.15.4) —
+the user learns immediately rather than after a wasted run.
+
+#### 5.15.3 The probes — per-kind deficit ladder
+
+All probes ride existing machinery; nothing here invents a new
+dispatch path. Storm guards (Part I §11.2) apply unchanged.
+
+- **Level 1 — parent-marriage index probe.** Groom-side FreeBMD
+  marriage query: surname = `fatherSurname ?? subject.lastName`,
+  given-name filter `fatherGiven` expanded through the nickname
+  table (Part I §18.7 — "Bob" matches "Robert"). When
+  `motherMaidenSurname` is known, bride-side query + reference-tuple
+  reunion via `MarriageEnrichmentEngine.match` (Part I §6.2), exactly
+  as `.parentMarriage` level 1. When unknown, groom-side only; the
+  bride's maiden surname is recovered from the post-1912
+  `spouseSurname` column or pre-1912 same-page-couple pairing
+  (Part I §11.5), then her given name is checked against
+  `motherGiven`. Window = payload window; district fan-out per
+  `config.scope`.
+- **Level 2 — MMN linkage probe.** Re-dispatch the *subject's own*
+  birth-index search with the mothers-maiden-name axis set to
+  `motherMaidenSurname ??` (bride maiden recovered at level 1).
+  Rides the Part I §11.4 `.birth` focus shape. This is the probe
+  that turns "the couple existed" into "the couple are the
+  subject's parents."
+- **Level 3 — census household probe.** Census years where the
+  subject is aged 0–15; match households (Part I §18.8) containing
+  the subject as child with head given name ≈ `fatherGiven` and
+  spouse given name ≈ `motherGiven` (nickname-expanded), surname =
+  subject's.
+- **Level ≥ 4 — `nil`; ladder exhausted.** Archive per §5.11.
+
+**T7 gate carve-out (Decision E4).** The two-condition stall gate
+(§7.4) exists to stop the engine burning queries on its own
+speculations. A user directive is not speculation: in the post-loop
+phase, `origin == .user` rows with `attempts == 0` are dispatched at
+level 1 **unconditionally** — the user asked. Subsequent levels ride
+the normal T7 stall gate and the §5.11 "investigate further"
+gesture, both incrementing `attempts` as standard.
+
+#### 5.15.4 Grading (Decision E5 — supported requires linkage)
+
+A unique Bob × Sue marriage proves the *couple* existed — not that
+they are George's parents. `.supported` therefore requires the full
+deterministic linkage chain, not mere couple attestation:
+
+| Evidence state | Verdict |
+|---|---|
+| Marriage match `.unique` for the hinted pair (given names agreeing via nickname equivalence) **AND** subject linkage: subject's birth record carries MMN = the matched bride's maiden surname, OR a census household contains the subject as child of the hinted couple | `.supported` — marriage + linkage record IDs in `supportingEvidence` |
+| Marriage match `.unique` but no linkage evidence yet | `.inconclusive` — reasoning: "couple attested; parental link unproven"; levels 2–3 target the link |
+| Subject's identity-resolved birth record carries an MMN conflicting with a non-nil `motherMaidenSurname` hint | `.contradicted` — reasoning names both values + record ID |
+| Tree already holds a confirmed (field_sources-backed) parent whose given name conflicts with a hint beyond nickname equivalence | `.contradicted` — `contradictingEvidence` cites the edge |
+| No marriage / no linkage found in window | `.inconclusive` — **never** `.contradicted` (asymmetric verdict space, §4.1: the record may sit outside the searched window) |
+
+Grading is a pure function over evidence, per-kind grader in
+`HypothesisEngine+ParentCandidates.swift`. No MLX involvement;
+`isModelAssisted: false` always in phases (a)/(b).
+
+#### 5.15.5 What reaches the tree
+
+Nothing, from the hypothesis itself. Records the probes surface
+flow through the normal machinery: scorer → `.parentInferred` /
+`.parentMarriage` flows → `ProposedRelative` → the standard accept
+path. Pending facts arising from these probes face the **unmodified**
+Part I §14.3 auto-approval gates — this section adds no carve-outs
+(contrast §5.14.5, which needed one; a hunch never does, because a
+hunch asserts nothing). The acceptance test for this is a DB diff:
+seed + probe + grade must produce zero writes to `profiles`,
+`relationships`, `life_events`, or `citations`.
+
+#### 5.15.6 Rejection memory
+
+- `record_rejections` (Part I §18.7) filters probe results before
+  scoring, as everywhere. A hunch cannot resurface the wrong Thomas
+  Land the user already discarded.
+- `user_rejected = 1` on the hypothesis row (§4.3) stops
+  regeneration *and* dispatch: the generate switch skips rejected
+  seeds, and no deficit level is ever dispatched for a rejected
+  row. Intake refuses matching re-seeds (§5.15.2).
+- User discards of individual records during review persist across
+  runs and re-probes, per the existing contract.
+
+#### 5.15.7 Entry surfaces — three phases, in arrival order
+
+**Phase (a) — MCP (Decision E2).** New tool:
+
+```
+submit_hypothesis
+  profile_id                        (required)
+  kind: "parent_candidates"         (required; only value this epic)
+  father_given, father_surname,
+  mother_given, mother_maiden_surname  (each optional; ≥ 1 required)
+  marriage_window_start / _end      (optional; derived when absent)
+→ validates synchronously (read-only checks per §5.15.2),
+  INSERTs one user_hypothesis_seeds row, returns seed_id
+→ refuses with a structured reason code on validation failure
+```
+
+Reads: `profiles` (existence, birth estimate), `research_hypotheses`
+(rejection check). Writes: `user_hypothesis_seeds` **only**. The
+firewall doctrine (Part I §13.1, §14.2) is intact: evidence writes
+remain `pending_facts` + `leads`; a hunch row is orchestration, the
+same tier as `research_run_requests`.
+
+*Why a new tool and not a parameter on `kick_off_research`:*
+seeding ≠ running — hunches accumulate between runs, several can
+target one profile, and a seed's lifecycle (persists, re-grades
+across runs) outlives any single run request. Overloading the run
+queue would smuggle a second lifecycle through a table whose rows
+complete and die. The harness flow stays two calls:
+`submit_hypothesis` → `kick_off_research`. Phase (b) shares the
+seeds table with no MCP involvement.
+
+**Phase (b) — Workbench UI.** "Add a hunch" affordance on the
+profile's research surface: four hint fields + optional window;
+writes the same seeds table (`requested_by = 'workbench'`).
+Hypothesis card in Triage/cluster review shows verdict, history,
+attempts/ladder level, investigate / dismiss actions — the §5.11
+surface, no new card type.
+
+**Phase (c) — natural-language intake (out of scope; pointer
+only).** The local MLX model parses "I think his parents were Bob &
+Sue" into a seed payload. This is input parsing, not verdict work —
+grading stays deterministic — but it is model-assisted intake and
+deserves its own design pass alongside T9's threshold discipline
+(§5.5.1). It consumes the seeds table unchanged.
+
+#### 5.15.8 Refuted and exhausted hunches — UX
+
+The user explicitly asked a question; the answer must not be
+buried:
+
+- `.contradicted` user hypotheses sort to the **top** of the Triage
+  hypothesis list, with reasoning naming the conflicting values
+  ("hunch says mother maiden *Sue …*; birth index MMN says
+  *Jones*") and linking the contradicting records.
+- The research-complete summary includes one line per user
+  hypothesis whose verdict changed this run ("Your hunch about
+  George Wheeldon's parents: contradicted").
+- Exhausted rows (`deficitQuery == nil` at `attempts + 1`) archive
+  under the §5.11 collapsible section — revivable, never deleted.
+- Dismissal flips `user_rejected = 1`; the verdict history
+  (`VerdictTransition` trail) is retained for audit. A tested-and-
+  failed hunch is a research result worth keeping.
+
+#### 5.15.9 The interim path that works today (document, don't build)
+
+Add tentative placeholder parents "Bob Wheeldon" / "Sue Wheeldon" to
+the tree. The familyContext gate and the parent-marriage machinery
+(Part I §6.2, §5.14) exploit them; evidence upgrades or contradicts
+them. This works now with zero code. The feature is still worth
+building over it because:
+
+1. **Placeholder pollution.** Placeholders are real `profiles` rows
+   — visible in the tree, the viewers, and publish snapshots; a
+   wrong one needs manual deletion and drags edges with it.
+2. **No verdict lifecycle.** A placeholder cannot be
+   `.contradicted`; it just sits there looking like a person.
+3. **Refutation isn't first-class.** Deleting a failed placeholder
+   erases the memory that the hunch was tested and failed;
+   `user_rejected` + history keep it, and rejection memory stops it
+   silently returning.
+4. **Partial hints aren't honestly encodable.** "Sue, maiden
+   surname unknown" forced into a "Sue Wheeldon" profile asserts a
+   surname the hunch never claimed. The typed payload holds exactly
+   the claim, no more.
+
+#### 5.15.10 Relationship to T9 (Decision E3 — not folded)
+
+The roadmap floated folding Epic 13 into T9. **Rejected.** T9
+(§5.5) is the MLX free-text disambiguation pass: model-assisted,
+fires only after the rules return `.ambiguous`, paper-only, and
+blocked on the §5.8 harness threshold policy (§5.5.1). Epic 13 is
+deterministic end-to-end once seeded, rides shipped rails (T11
+persistence, T12 switches, T7 deficit dispatch, §5.14 marriage
+machinery), and is independently shippable now. Folding would chain
+a buildable deterministic feature to an unbuilt model feature for
+no shared code. (The roadmap's "hypothesis-driven planning" gloss
+better describes T7/T8 — both shipped.)
+
+The genuine kinship is phase (c) only: parsing free text into a
+typed seed is model work, and whatever T9-adjacent pass eventually
+builds it adopts this section's seeds table and `origin` provenance
+unchanged. That forward-compatibility is deliberate design, not
+coupling.
+
+#### 5.15.11 Acceptance criteria
+
+1. `submit_hypothesis` with valid hints → one `user_hypothesis_seeds`
+   row; after watcher materialisation, exactly one
+   `research_hypotheses` row with `origin = 'user'`, discriminator
+   `parentCandidates`, `verdict = inconclusive`, `attempts = 0`,
+   `isModelAssisted = false`.
+2. Re-submitting identical hints upserts on `identityKey` — no
+   duplicate hypothesis rows.
+3. All-nil hints, unknown `profile_id`, underivable window, or
+   previously-rejected hunch → structured refusal; zero rows
+   written.
+4. The next research run on the subject dispatches the level-1
+   probe regardless of T7's stall conditions; `searchHistory`
+   records it; storm guards still bound total dispatch.
+5. Marriage `.unique` + MMN/census linkage → `.supported` citing
+   both record sets; marriage-only → `.inconclusive` with
+   linkage-unproven reasoning.
+6. MMN conflict (or confirmed-parent given-name conflict) →
+   `.contradicted`, reasoning naming both values.
+7. DB diff across seed + probe + grade shows zero writes to
+   `profiles`, `relationships`, `life_events`, `citations`. Parent
+   proposals reach the tree only via the standard accept path.
+8. Hint "Bob" matches recovered "Robert" via the nickname /
+   `name_equivalences` tables (Part I §18.7).
+9. `record_rejections` filtering applies to probe results;
+   `user_rejected = 1` → no regeneration, no dispatch, intake
+   refusal on re-seed.
+10. Ladder exhaustion (level 4 → `nil`) archives the row per §5.11
+    with `attempts == 3`; verdict history preserved on dismissal.
+11. Pending facts arising from these probes face unmodified
+    Part I §14.3 gates — no new auto-approval carve-out exists in
+    the diff.
+
+#### 5.15.12 Slicing plan
+
+Sized **M** end-to-end (roadmap concurs). Order fixed: 1 → 2 → 3 →
+{4, 5}; MCP (slice 3) lands before Workbench (slice 4) per the
+arrival-order doctrine in §5.15.7.
+
+- **Slice 0 — Spec (this section).** No code. Acceptance: sign-off
+  or amendments.
+- **Slice 1 [S] — Types + migration.** v32 (seeds table + `origin`
+  column); `.parentCandidates` case, discriminator, `identityKey`,
+  Codable round-trip + persistence tests in AncestorKit.
+- **Slice 2 [M] — Engine.** `HypothesisEngine+ParentCandidates.swift`
+  (generator reads seeds; grader per §5.15.4; deficit levels 1–3);
+  clauses in the three central switches; pipeline wiring including
+  the T7 carve-out for `origin == .user` rows and the
+  regeneration exemption.
+- **Slice 3 [S] — MCP.** `submit_hypothesis` tool + synchronous
+  validation + watcher materialisation + refusal reason codes.
+- **Slice 4 [M] — UX.** Workbench "Add a hunch" form; Triage
+  hypothesis card wiring (verdict, history, investigate, dismiss);
+  refuted-hunch prominence; research-summary line.
+- **Slice 5 [S] — End-to-end tests.** Acceptance criteria 1–11,
+  including the DB-diff no-tree-write assertion.
+
+#### 5.15.13 Non-goals / out of scope
+
+- Natural-language hunch parsing (phase c) — pointer only, §5.15.7.
+- A generic free-text `.userSeeded` kind — rejected, §5.15.1.
+- Other hunch shapes (burial place, second marriage, death abroad)
+  — future typed kinds; `origin` and the seeds table already
+  accommodate them.
+- Family-testimony ingestion — evidence, not directive; enters as a
+  citable source through the review queue (doctrine item 3).
+- Any change to §14.3 auto-approval gates.
+- Whole-tree hunch sweeps or batch seeding.
+- Editing a seed in place — dismiss and re-seed instead (identity
+  keys make edits ambiguous).
+
+#### 5.15.14 Proposed decisions log
+
+To be resolved at review; each mirrors the §5.14.13 pattern.
+
+- **E1 — Kind naming: specific `.parentCandidates` + `origin`
+  provenance field**, not a generic `.userSeeded` payload case.
+  Preserves Decision 1's closed enum, typed payloads, and
+  deterministic `identityKey` composition; provenance factors into
+  an orthogonal, reusable field. (§5.15.1)
+- **E2 — MCP shape: new `submit_hypothesis` tool writing a
+  `user_hypothesis_seeds` staging table**, not a `kick_off_research`
+  parameter and not a direct `research_hypotheses` write. Seeding
+  and running are different lifecycles; the engine keeps sole
+  ownership of its table; the firewall's evidence-write set is
+  untouched. (§5.15.2, §5.15.7)
+- **E3 — Not folded into T9.** Deterministic, independently
+  shippable slice on shipped rails; T9 is unbuilt, model-assisted,
+  and threshold-blocked. Phase (c) is the only junction, and it
+  adopts this design unchanged. (§5.15.10)
+- **E4 — T7 stall-gate carve-out.** `origin == .user` rows get one
+  unconditional level-1 dispatch (`attempts == 0`) in the post-loop
+  phase; later levels ride the normal gate. The stall gate guards
+  against engine speculation; a user directive isn't speculation.
+  (§5.15.3)
+- **E5 — `.supported` requires the linkage chain.** Couple
+  attestation alone is `.inconclusive`; supported needs marriage
+  match + subject linkage (MMN or census household). Prevents the
+  hunch's own confirmation bias from inflating verdicts. (§5.15.4)
+
 ---
 
 ## 6. Holistic architecture (post-V2)
