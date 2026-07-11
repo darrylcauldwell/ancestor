@@ -190,6 +190,8 @@ nonisolated enum ImportAsCorrectionsEngine {
         case .deathDate: return profile.deathDate?.original
         case .deathLocation: return profile.deathLocation
         case .bio: return profile.bio
+        // Non-scalar — name-form corrections are not diffed as a single string.
+        case .nameForms: return nil
         }
     }
 }

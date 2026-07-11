@@ -1095,7 +1095,100 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // MARK: v35 — typed repeatable name forms (MODEL_EVOLUTION_SPEC
+        // §Change2 / ADR-004 E2). The flat name columns (first_name, last_name,
+        // married_surname, nick_name, mothers_maiden_name) can hold exactly one
+        // married surname and one nickname, so a twice-married woman, an alias
+        // (WikiTree LastNameOther — silently dropped before E2), a deed-poll
+        // change, or a non-Western structure can't be represented. This adds a
+        // `name_forms` JSON column — an array of typed `NameForm` records
+        // (type/fullText/lang/given/surname/prefix/suffix) — as an ADDITIVE
+        // sidecar. The flat columns stay the canonical search keys, untouched.
+        //
+        // Backfill mirrors E1's row-by-row Swift rule (not a SQL JSON
+        // expression) so the migration and the decode path share one source of
+        // truth. Every existing name survives losslessly: the birth name
+        // (last_name = maiden surname) becomes a `.birth` form and any explicit
+        // married_surname becomes a `.married` form, so a legacy profile's
+        // variants are captured without changing what the flat fields — or
+        // `displayName` — resolve to.
+        migrator.registerMigration("v35_name_forms") { db in
+            try db.alter(table: "profiles") { t in
+                t.add(column: "name_forms", .text).notNull().defaults(to: "[]")
+            }
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, first_name, middle_name, last_name, married_surname, nick_name
+                FROM profiles
+                """)
+            for row in rows {
+                let forms = Self.backfilledNameForms(
+                    firstName: row["first_name"],
+                    middleName: row["middle_name"],
+                    lastName: row["last_name"],
+                    marriedSurname: row["married_surname"],
+                    nickName: row["nick_name"])
+                guard !forms.isEmpty else { continue } // "[]" default already correct
+                let json = (try? JSONEncoder().encode(forms))
+                    .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+                try db.execute(
+                    sql: "UPDATE profiles SET name_forms = ? WHERE id = ?",
+                    arguments: [json, row["id"] as String])
+            }
+        }
+
         return migrator
+    }
+
+    /// Deterministic backfill of `NameForm`s from a legacy profile's flat name
+    /// columns (E2 migration v35). Shared by the migration and available to
+    /// tests so both exercise the exact same rule. A profile with no name parts
+    /// yields `[]`. The birth name (given parts + maiden `lastName`) becomes a
+    /// `.birth` form; an explicit `marriedSurname` distinct from the birth
+    /// surname becomes a `.married` form. `nickName` is intentionally NOT
+    /// duplicated as a form — it stays a flat search key and duplicating it
+    /// would add noise the projection tests would then have to special-case;
+    /// spec AC5 only requires losslessness of *representable* structure, and the
+    /// nickname is fully preserved in its flat column.
+    static func backfilledNameForms(
+        firstName: String?,
+        middleName: String?,
+        lastName: String?,
+        marriedSurname: String?,
+        nickName: String?
+    ) -> [NameForm] {
+        func clean(_ s: String?) -> String? {
+            guard let s else { return nil }
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : t
+        }
+        let given = [clean(firstName), clean(middleName)].compactMap { $0 }.joined(separator: " ")
+        let birthSurname = clean(lastName)
+        var forms: [NameForm] = []
+
+        // Birth form: only when there is at least one name part to record.
+        if !given.isEmpty || birthSurname != nil {
+            let full = [given.isEmpty ? nil : given, birthSurname]
+                .compactMap { $0 }.joined(separator: " ")
+            forms.append(NameForm(
+                type: .birth,
+                fullText: full,
+                given: given.isEmpty ? nil : given,
+                surname: birthSurname))
+        }
+
+        // Married form: only when an explicit married surname exists and differs
+        // from the birth surname (case-insensitive) — otherwise it is redundant.
+        if let married = clean(marriedSurname),
+           married.lowercased() != (birthSurname?.lowercased() ?? "") {
+            let full = [given.isEmpty ? nil : given, married]
+                .compactMap { $0 }.joined(separator: " ")
+            forms.append(NameForm(
+                type: .married,
+                fullText: full,
+                given: given.isEmpty ? nil : given,
+                surname: married))
+        }
+        return forms
     }
 
     // MARK: - Snapshot Building
@@ -1154,6 +1247,18 @@ nonisolated final class ProjectDatabase: Sendable {
             let legacyJSON: String = row["external_ids"] ?? "{}"
             let legacy = (try? JSONDecoder().decode([String: String].self, from: Data(legacyJSON.utf8))) ?? [:]
             return records.mergingLegacyMap(legacy)
+        }()
+
+        // E2 (MODEL_EVOLUTION_SPEC §Change2): typed name forms from the
+        // `name_forms` JSON column. Absent/unparseable (a pre-v35 row that
+        // somehow lacks the column, or a corrupt blob) yields `[]` — the flat
+        // name columns remain the source of truth for such a profile.
+        let nameForms: [NameForm] = {
+            guard let json: String = row["name_forms"],
+                  let data = json.data(using: .utf8),
+                  let decoded = try? JSONDecoder().decode([NameForm].self, from: data)
+            else { return [] }
+            return decoded
         }()
 
         let birthDate = dateFromRow(row, prefix: "birth_date")
@@ -1238,6 +1343,7 @@ nonisolated final class ProjectDatabase: Sendable {
             marriedSurname: row["married_surname"],
             nickName: row["nick_name"],
             mothersMaidenName: row["mothers_maiden_name"],
+            nameForms: nameForms,
             gender: gender,
             attributes: attributes,
             birthDate: birthDate,
@@ -1426,6 +1532,11 @@ nonisolated final class ProjectDatabase: Sendable {
         let externalIdentifiersJSON = (try? JSONEncoder().encode(profile.externalIdentifiers))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
 
+        // E2: typed name forms sidecar (source of truth for name variants; flat
+        // columns stay the canonical search keys). Empty list → "[]".
+        let nameFormsJSON = (try? JSONEncoder().encode(profile.nameForms))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+
         let attributesJSON: String? = profile.attributes.flatMap {
             (try? JSONEncoder().encode($0)).flatMap { String(data: $0, encoding: .utf8) }
         }
@@ -1433,17 +1544,19 @@ nonisolated final class ProjectDatabase: Sendable {
         try db.execute(sql: """
             INSERT INTO profiles (id, external_ids, external_identifiers,
                 first_name, middle_name, last_name, married_surname, nick_name, mothers_maiden_name,
+                name_forms,
                 gender, attributes, is_deleted,
                 birth_date_original, birth_date_earliest, birth_date_latest, birth_date_qualifier,
                 birth_location, birth_location_code,
                 death_date_original, death_date_earliest, death_date_latest, death_date_qualifier,
                 death_location, death_location_code, bio, created_by_transaction_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
                 profile.id, externalIDsJSON, externalIdentifiersJSON,
                 profile.firstName, profile.middleName, profile.lastName,
                 profile.marriedSurname,
                 profile.nickName, profile.mothersMaidenName,
+                nameFormsJSON,
                 profile.gender?.rawValue,
                 attributesJSON, profile.isDeleted,
                 profile.birthDate?.original, profile.birthDate?.earliest, profile.birthDate?.latest,

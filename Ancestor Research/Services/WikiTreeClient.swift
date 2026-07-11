@@ -28,7 +28,11 @@ actor WikiTreeClient {
 
     static let defaultFields = [
         "Id", "Name", "FirstName", "MiddleName", "LastNameAtBirth",
-        "LastNameCurrent", "BirthDate", "BirthDateDecade", "BirthLocation",
+        // E2 (MODEL_EVOLUTION_SPEC §Change2): request `LastNameOther` — the
+        // name-variant field both importers previously dropped — alongside
+        // `LastNameCurrent`, which was already requested but never mapped. Both
+        // now land as typed name forms.
+        "LastNameCurrent", "LastNameOther", "BirthDate", "BirthDateDecade", "BirthLocation",
         "DeathDate", "DeathDateDecade", "DeathLocation",
         "Gender", "IsLiving",
         "Father", "Mother", "Parents", "Spouses", "Children", "Siblings",
@@ -460,11 +464,49 @@ extension WikiTreeClient {
             sources[.deathLocation] = [FieldSource(origin: origin, raw: dl, addedAt: now)]
         }
 
+        // E2 (MODEL_EVOLUTION_SPEC §Change2): capture WikiTree name variants as
+        // typed name forms — the motivating data-loss fix. The flat fields above
+        // are untouched (they stay the search keys); `nameForms` is the additive
+        // sidecar. `LastNameOther` → `.alsoKnownAs`; `LastNameCurrent` →
+        // `.married` when it differs from `LastNameAtBirth` (a same-value current
+        // surname carries no marriage information and is skipped). A `.birth`
+        // form records the maiden name so a legacy vs. ingested profile share the
+        // same baseline. Given parts feed each form's `given` for later matching.
+        let middleName = data["MiddleName"] as? String
+        let lastNameCurrent = data["LastNameCurrent"] as? String
+        let lastNameOther = data["LastNameOther"] as? String
+
+        func trimmedNonEmpty(_ s: String?) -> String? {
+            guard let s else { return nil }
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : t
+        }
+        let givenJoined = [trimmedNonEmpty(firstName), trimmedNonEmpty(middleName)]
+            .compactMap { $0 }.joined(separator: " ")
+        let given = givenJoined.isEmpty ? nil : givenJoined
+        let birthSurname = trimmedNonEmpty(lastName)
+
+        var nameForms: [NameForm] = []
+        if given != nil || birthSurname != nil {
+            let full = [given, birthSurname].compactMap { $0 }.joined(separator: " ")
+            nameForms.append(NameForm(type: .birth, fullText: full, given: given, surname: birthSurname))
+        }
+        if let current = trimmedNonEmpty(lastNameCurrent),
+           current.lowercased() != (birthSurname?.lowercased() ?? "") {
+            let full = [given, current].compactMap { $0 }.joined(separator: " ")
+            nameForms.append(NameForm(type: .married, fullText: full, given: given, surname: current))
+        }
+        if let other = trimmedNonEmpty(lastNameOther) {
+            let full = [given, other].compactMap { $0 }.joined(separator: " ")
+            nameForms.append(NameForm(type: .alsoKnownAs, fullText: full, given: given, surname: other))
+        }
+
         return Profile(
             id: name,
             externalIDs: ["wikitree": name],
             firstName: firstName,
             lastName: lastName,
+            nameForms: nameForms,
             gender: gender,
             attributes: nil,
             birthDate: birthDate,

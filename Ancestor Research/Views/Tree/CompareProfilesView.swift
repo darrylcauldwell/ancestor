@@ -110,7 +110,9 @@ struct CompareProfilesView: View {
         let diffs = differingFields
         ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(ProfileField.allCases, id: \.self) { field in
+                // `.nameForms` is a repeatable non-scalar field with no
+                // single-value cell — exclude it from the scalar compare grid.
+                ForEach(ProfileField.allCases.filter { $0 != .nameForms }, id: \.self) { field in
                     fieldRow(field: field, left: left, right: right, differs: diffs.contains(field))
                     Divider()
                 }
@@ -192,6 +194,7 @@ struct CompareProfilesView: View {
         case .deathDate: return "Death date"
         case .deathLocation: return "Death location"
         case .bio: return "Bio"
+        case .nameForms: return "Name variants"
         }
     }
 

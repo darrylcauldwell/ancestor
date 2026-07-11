@@ -215,6 +215,7 @@ public nonisolated extension CompletenessCheck {
             case .deathDate: "death"
             case .deathLocation: "d.loc"
             case .bio: "bio"
+            case .nameForms: "variants"
             }
         case .hasParents: "parents"
         }

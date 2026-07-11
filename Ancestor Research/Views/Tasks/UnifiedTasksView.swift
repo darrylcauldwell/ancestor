@@ -838,6 +838,7 @@ private struct TaskRow: View {
             case .deathDate: return "death"
             case .deathLocation: return "d.loc"
             case .bio: return "bio"
+            case .nameForms: return "variants"
             }
         case .hasParents: return "parents"
         }

@@ -68,6 +68,19 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
     /// child's profile mirrors how the registry indexed it, even though the
     /// fact is "about" the mother — research workflows look it up here.
     public var mothersMaidenName: String?
+
+    /// Typed, repeatable name forms (MODEL_EVOLUTION_SPEC §Change2 / ADR-004 E2).
+    /// An **additive sidecar** — the flat name fields above stay the canonical
+    /// search keys with unchanged engine semantics, and `displayName` still
+    /// derives from `firstName`/`middleName`/`lastName` only. `nameForms` is the
+    /// lossless landing zone for name variants the flat model cannot express: a
+    /// twice-married woman's second married surname, aliases (WikiTree
+    /// `LastNameOther`, silently dropped before E2), deed-poll changes,
+    /// prefixes/suffixes, non-Western structures. Nothing in the scorer,
+    /// publisher, or viewers reads this — they read the flat fields and the
+    /// materialised `displayName`, so E2's blast radius on those surfaces is
+    /// zero (decision log #2). Default `[]`; pre-E2 profiles decode to `[]`.
+    public var nameForms: [NameForm]
     public var gender: Gender?
     public var attributes: PersonAttributes?   // nil for existing profiles (treated as .default)
 
@@ -96,7 +109,7 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
     /// sites may pass `externalIdentifiers:` directly for typed records
     /// (primary + deprecated + persistent). When both are supplied, the record
     /// list is the base and the legacy map is merged in on top losslessly.
-    public init(id: String, externalIDs: [String: String] = [:], externalIdentifiers: [ExternalIdentifier] = [], firstName: String? = nil, middleName: String? = nil, lastName: String? = nil, marriedSurname: String? = nil, nickName: String? = nil, mothersMaidenName: String? = nil, gender: Gender? = nil, attributes: PersonAttributes? = nil, birthDate: GenealogicalDate? = nil, birthLocation: String? = nil, birthLocationCode: String? = nil, deathDate: GenealogicalDate? = nil, deathLocation: String? = nil, deathLocationCode: String? = nil, bio: String? = nil, isDeleted: Bool, sources: [ProfileField: [FieldSource]], disputes: [ProfileField: FieldDispute]) {
+    public init(id: String, externalIDs: [String: String] = [:], externalIdentifiers: [ExternalIdentifier] = [], firstName: String? = nil, middleName: String? = nil, lastName: String? = nil, marriedSurname: String? = nil, nickName: String? = nil, mothersMaidenName: String? = nil, nameForms: [NameForm] = [], gender: Gender? = nil, attributes: PersonAttributes? = nil, birthDate: GenealogicalDate? = nil, birthLocation: String? = nil, birthLocationCode: String? = nil, deathDate: GenealogicalDate? = nil, deathLocation: String? = nil, deathLocationCode: String? = nil, bio: String? = nil, isDeleted: Bool, sources: [ProfileField: [FieldSource]], disputes: [ProfileField: FieldDispute]) {
         self.id = id
         self.externalIdentifiers = externalIdentifiers.mergingLegacyMap(externalIDs)
         self.firstName = firstName
@@ -105,6 +118,7 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
         self.marriedSurname = marriedSurname
         self.nickName = nickName
         self.mothersMaidenName = mothersMaidenName
+        self.nameForms = nameForms
         self.gender = gender
         self.attributes = attributes
         self.birthDate = birthDate
@@ -150,7 +164,7 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
     /// projection into its own column separately.
     private enum CodingKeys: String, CodingKey {
         case id, externalIdentifiers, externalIDs
-        case firstName, middleName, lastName, marriedSurname, nickName, mothersMaidenName
+        case firstName, middleName, lastName, marriedSurname, nickName, mothersMaidenName, nameForms
         case gender, attributes, birthDate, birthLocation, birthLocationCode
         case deathDate, deathLocation, deathLocationCode, bio, isDeleted, sources, disputes
     }
@@ -167,6 +181,10 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
         self.marriedSurname = try c.decodeIfPresent(String.self, forKey: .marriedSurname)
         self.nickName = try c.decodeIfPresent(String.self, forKey: .nickName)
         self.mothersMaidenName = try c.decodeIfPresent(String.self, forKey: .mothersMaidenName)
+        // E2: absent on pre-E2 blobs → []. The flat fields above are the source
+        // of truth for those profiles; a form list is only present once E2
+        // ingest/edit has populated it.
+        self.nameForms = try c.decodeIfPresent([NameForm].self, forKey: .nameForms) ?? []
         self.gender = try c.decodeIfPresent(Gender.self, forKey: .gender)
         self.attributes = try c.decodeIfPresent(PersonAttributes.self, forKey: .attributes)
         self.birthDate = try c.decodeIfPresent(GenealogicalDate.self, forKey: .birthDate)
@@ -191,6 +209,9 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
         try c.encodeIfPresent(marriedSurname, forKey: .marriedSurname)
         try c.encodeIfPresent(nickName, forKey: .nickName)
         try c.encodeIfPresent(mothersMaidenName, forKey: .mothersMaidenName)
+        // Always emit — empty `[]` for a profile with no variants — so a
+        // round-trip is stable and the key is present for new consumers.
+        try c.encode(nameForms, forKey: .nameForms)
         try c.encodeIfPresent(gender, forKey: .gender)
         try c.encodeIfPresent(attributes, forKey: .attributes)
         try c.encodeIfPresent(birthDate, forKey: .birthDate)

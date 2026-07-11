@@ -225,6 +225,7 @@ nonisolated enum StatisticsCalculator {
         case .deathDate: return profile.deathDate != nil
         case .deathLocation: return !(profile.deathLocation?.isEmpty ?? true)
         case .bio: return !(profile.bio?.isEmpty ?? true)
+        case .nameForms: return !profile.nameForms.isEmpty
         }
     }
 

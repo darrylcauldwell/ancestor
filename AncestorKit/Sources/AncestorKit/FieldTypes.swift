@@ -6,6 +6,15 @@ public nonisolated enum ProfileField: String, Codable, CaseIterable, Hashable, S
     case birthDate, birthLocation
     case deathDate, deathLocation
     case bio
+    /// Typed repeatable name forms (MODEL_EVOLUTION_SPEC §Change2 / E2 AC5).
+    /// Present so `Profile.nameForms` provenance is journalled at a single
+    /// whole-list granularity through `field_sources`/`field_changes`, exactly
+    /// like every other field. It is **not** a scalar string field and **not** a
+    /// completeness target: the string-projection switches return `nil` for it
+    /// (as they already do for date fields), and the completeness engine's
+    /// curated missing-field list never includes it, so no spurious "missing
+    /// name variants" task is generated.
+    case nameForms
 }
 
 /// Type-safe relationship field identifiers.

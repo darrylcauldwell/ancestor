@@ -304,6 +304,7 @@ struct ProfileDetailView: View {
         case .deathDate: return "Death date"
         case .deathLocation: return "Death location"
         case .bio: return "Biography"
+        case .nameForms: return "Name variants"
         }
     }
 
@@ -356,6 +357,10 @@ struct ProfileDetailView: View {
             let trimmed = bio.trimmingCharacters(in: .whitespacesAndNewlines)
             let new: String? = trimmed.isEmpty ? nil : trimmed
             return new != original.bio
+        // This flat-field editor never edits name forms, so it never reports a
+        // change for them; name-form edits will land through their own section.
+        case .nameForms:
+            return false
         }
     }
 

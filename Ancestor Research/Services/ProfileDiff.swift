@@ -42,6 +42,9 @@ nonisolated enum ProfileDiff {
         case .deathDate: return profile.deathDate?.original
         case .deathLocation: return profile.deathLocation
         case .bio: return profile.bio
+        // Non-scalar repeatable field — no single stringified value, so it never
+        // contributes a scalar diff (the compare grid excludes it explicitly).
+        case .nameForms: return nil
         }
     }
 

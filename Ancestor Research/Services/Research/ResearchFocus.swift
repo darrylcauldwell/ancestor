@@ -60,9 +60,10 @@ extension CompletenessCheck {
             case .deathDate, .deathLocation: return .death
             case .marriedSurname:            return .marriages
             case .mothersMaidenName:         return .parents
-            case .firstName, .middleName, .lastName, .nickName, .gender, .bio:
-                // Identity fields aren't engine-researchable. Bio is
-                // deferred behind PROSE_CORPUS Phase B.
+            case .firstName, .middleName, .lastName, .nickName, .gender, .bio, .nameForms:
+                // Identity / variant-storage fields aren't engine-researchable.
+                // Bio is deferred behind PROSE_CORPUS Phase B; name forms are an
+                // E2 sidecar the completeness engine never flags as missing.
                 return nil
             }
         }

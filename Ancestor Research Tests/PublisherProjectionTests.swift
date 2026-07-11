@@ -399,6 +399,35 @@ struct PublisherProjectionTests {
         #expect(!snapshot.completeness(for: "@O@").potentiallyLiving,
                 "publisher reuses the 100-year potentiallyLiving rule — one definition")
     }
+
+    // MARK: - E2 containment: name forms do not perturb published output (§Change2 AC4)
+
+    /// Attaching typed name forms to a profile must not change ANY published
+    /// field — the publisher materialises `displayName`/given/family from the
+    /// flat fields and never reads `nameForms`, so E2's blast radius on the
+    /// publisher/viewer boundary is zero (decision log #2).
+    @Test func nameFormsDoNotChangePublishedPersonOutput() {
+        let plain = george
+        var withForms = george
+        withForms.marriedSurname = "Ashby"
+        withForms.nameForms = [
+            NameForm(type: .birth, fullText: "George Brooks", given: "George", surname: "Brooks"),
+            NameForm(type: .married, fullText: "George Ashby", surname: "Ashby"),
+            NameForm(type: .alsoKnownAs, fullText: "Georgie", surname: "Brooks"),
+        ]
+
+        let a = project(profiles: [plain]).persons[0]
+        let b = project(profiles: [withForms]).persons[0]
+
+        // Every name-bearing published field is byte-identical.
+        #expect(a.displayName == b.displayName)
+        #expect(a.givenName == b.givenName)
+        #expect(a.familyName == b.familyName)
+        #expect(a.isRedacted == b.isRedacted)
+        // Sanity: the published person carries no notion of name forms at all —
+        // the flat-field-derived display name is exactly "George Brooks".
+        #expect(b.displayName == "George Brooks")
+    }
 }
 
 struct PublisherMigrationTests {

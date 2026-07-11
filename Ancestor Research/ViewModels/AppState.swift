@@ -1105,7 +1105,9 @@ final class AppState {
         case .birthLocation: return profile.birthLocation
         case .deathLocation: return profile.deathLocation
         case .bio: return profile.bio
-        case .birthDate, .deathDate: return nil
+        // Non-scalar fields have no single-string projection (like the date
+        // cases below) — callers route name-form edits through their own path.
+        case .birthDate, .deathDate, .nameForms: return nil
         }
     }
 

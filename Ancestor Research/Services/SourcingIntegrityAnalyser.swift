@@ -69,6 +69,8 @@ nonisolated enum SourcingIntegrityAnalyser {
         case .deathDate: return profile.deathDate?.original
         case .deathLocation: return nonEmpty(profile.deathLocation)
         case .bio: return nonEmpty(profile.bio)
+        // Non-scalar — no single displayable value to cite/sourcing-check.
+        case .nameForms: return nil
         }
     }
 

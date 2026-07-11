@@ -145,7 +145,9 @@ struct HypothesisComposerView: View {
             )
             sectionTitle("Field")
             Picker("Field", selection: $field) {
-                ForEach(ProfileField.allCases, id: \.self) { f in
+                // A hypothesis targets a single scalar field value; `.nameForms`
+                // is a repeatable non-scalar field, so it is not offered here.
+                ForEach(ProfileField.allCases.filter { $0 != .nameForms }, id: \.self) { f in
                     Text(f.rawValue).tag(f)
                 }
             }
