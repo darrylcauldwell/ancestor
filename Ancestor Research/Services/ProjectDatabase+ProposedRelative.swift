@@ -35,10 +35,21 @@ nonisolated extension ProjectDatabase {
             divorceDate: nil
         )
 
+        // E4 (§Change4): this parent edge exists because of the record that
+        // implied the parent's surname — the child's birth record, the first
+        // entry in the proposal's evidence. Cite it. If somehow no evidence is
+        // attached (defensive; a ProposedRelative is by construction derived
+        // from a record) the edge is created bare — never fabricate a source.
+        var edgeExistence: [UUID: RelationshipExistenceEvidence] = [:]
+        if let driving = proposal.evidence.first {
+            edgeExistence[parentEdge.id] = .record(driving)
+        }
+
         _ = try addFamily(
             profiles: [ghost],
             relationships: [parentEdge],
-            source: .freebmd
+            source: .freebmd,
+            edgeExistenceEvidence: edgeExistence
         )
 
         return ghostID
@@ -104,9 +115,14 @@ nonisolated extension ProjectDatabase {
         var marriageYear: Int?
         var marriageQuarter: String?
         var marriageDistrict: String?
+        // E4 (§Change4): remember the marriage record that drives this spouse
+        // edge so its existence can cite it. First cited record carrying a year
+        // wins — the same one whose (year, quarter, district) fill the edge.
+        var drivingMarriageRecord: ScoredRecord?
         for evidenceID in parentMarriage.supportingEvidence {
             guard let scored = recordByID[evidenceID],
                   case .marriage(let m) = scored.record else { continue }
+            if drivingMarriageRecord == nil { drivingMarriageRecord = scored }
             if marriageYear == nil { marriageYear = m.marriageYear }
             if marriageQuarter == nil,
                let q = m.quarter, !q.isEmpty { marriageQuarter = q }
@@ -139,7 +155,11 @@ nonisolated extension ProjectDatabase {
             marriageLocation: marriageDistrict,
             divorceDate: nil
         )
-        _ = try addRelationship(edge)
+        // E4 (§Change4): the spouse edge exists because of the parents'
+        // marriage record. Cite it. `drivingMarriageRecord` is guaranteed
+        // non-nil here — we already proved a marriage year came from it above.
+        let existence: RelationshipExistenceEvidence? = drivingMarriageRecord.map { .record($0) }
+        _ = try addRelationship(edge, existenceEvidence: existence)
         return edge.id
     }
 
@@ -212,10 +232,21 @@ nonisolated extension ProjectDatabase {
             divorceDate: nil
         )
 
+        // E4 (§Change4): both parent edges exist because of the sibling's own
+        // birth record — the same record whose mother's-maiden-name matched
+        // the known family. Cite it on both edges. If evidence is somehow
+        // absent, the edges are created bare rather than fabricating a source.
+        var edgeExistence: [UUID: RelationshipExistenceEvidence] = [:]
+        if let driving = proposal.evidence.first {
+            edgeExistence[fatherEdge.id] = .record(driving)
+            edgeExistence[motherEdge.id] = .record(driving)
+        }
+
         _ = try addFamily(
             profiles: [ghost],
             relationships: [fatherEdge, motherEdge],
-            source: .freebmd
+            source: .freebmd,
+            edgeExistenceEvidence: edgeExistence
         )
 
         return ghostID

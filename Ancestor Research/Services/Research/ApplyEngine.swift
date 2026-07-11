@@ -272,6 +272,7 @@ nonisolated struct ApplyEngine {
                 fromExistingProfile: existingID,
                 toSubject: subjectID,
                 role: parentRole(for: proposal.gender),
+                drivingEvidence: proposal.evidence.first,
                 in: snapshot,
                 db: db
             )
@@ -303,10 +304,18 @@ nonisolated struct ApplyEngine {
     /// Add a parent → subject edge using the existing profile, only
     /// when no equivalent edge already exists. Idempotent — repeated
     /// calls do nothing after the first.
+    ///
+    /// `drivingEvidence` (E4 / MODEL_EVOLUTION_SPEC §Change4): the record that
+    /// attests this parent edge — the proposal's first evidence record, the
+    /// child's birth record that implied the parent surname. Passed through to
+    /// `addRelationshipIfAbsent`, which writes the `existence` provenance row
+    /// (and de-dups it on re-run). Nil ⇒ no existence row; forward-only, never
+    /// fabricated.
     private static func ensureParentEdge(
         fromExistingProfile parentID: String,
         toSubject subjectID: String,
         role: ParentRole,
+        drivingEvidence: ScoredRecord?,
         in snapshot: FamilyGraphSnapshot,
         db: ProjectDatabase
     ) throws {
@@ -326,7 +335,9 @@ nonisolated struct ApplyEngine {
             marriageLocation: nil,
             divorceDate: nil
         )
-        _ = try db.addRelationshipIfAbsent(edge)
+        let existence: ProjectDatabase.RelationshipExistenceEvidence? =
+            drivingEvidence.map { .record($0) }
+        _ = try db.addRelationshipIfAbsent(edge, existenceEvidence: existence)
     }
 
     private static func parentRole(for gender: Gender?) -> ParentRole {

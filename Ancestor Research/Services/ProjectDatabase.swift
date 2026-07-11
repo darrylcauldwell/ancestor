@@ -1168,6 +1168,40 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // v37 — E4: edge-existence provenance (MODEL_EVOLUTION_SPEC §Change4).
+        //
+        // Additive capability marker. The `field_sources` table already stores
+        // provenance keyed `(entity_id, entity_kind, field)` and `field` is
+        // TEXT, so an `existence` pseudo-field on `entity_kind = 'relationship'`
+        // needs **no column change** — existence rows are ordinary
+        // field_sources rows. This migration therefore alters nothing and
+        // backfills nothing.
+        //
+        // It is registered deliberately for two reasons:
+        //   1. It is the schema-version fence for E4 — a project opened after
+        //      this migration ran has the existence-provenance capability; one
+        //      that predates it does not, and the version string records that.
+        //   2. Decision log #4 — **forward-only**. This migration must NOT
+        //      synthesise existence rows for the relationships that already
+        //      exist: backfilling provenance never captured would fabricate
+        //      evidence (violates check-before-overwrite / never-fabricate).
+        //      So the body is intentionally empty of writes. Legacy edges stay
+        //      bare; only edges materialised *after* E4 carry an existence row.
+        //
+        // Index the relationship existence lookup so `existenceSources(for:)`
+        // and the idempotency pre-check don't table-scan on large trees. The
+        // existing `idx_field_sources_entity` covers `(entity_id, field)` but
+        // not `entity_kind`; a partial index on relationship rows keeps the
+        // new read path cheap without touching the profile read path.
+        migrator.registerMigration("v37_edge_existence_provenance") { db in
+            try db.create(
+                index: "idx_field_sources_relationship_existence",
+                on: "field_sources",
+                columns: ["entity_id", "field"],
+                condition: Column("entity_kind") == "relationship"
+            )
+        }
+
         return migrator
     }
 
@@ -1827,11 +1861,18 @@ nonisolated extension ProjectDatabase {
     }
 
     /// Add a family group — multiple profiles and relationships in one atomic transaction.
+    ///
+    /// `edgeExistenceEvidence` (E4 / MODEL_EVOLUTION_SPEC §Change4): maps a
+    /// relationship's `id` to the reason that edge exists. Every entry writes
+    /// an `existence` provenance row for that edge inside this same atomic
+    /// transaction. Edges absent from the map get no existence row — forward-
+    /// only means "cite when we have a citation", not "invent one".
     @discardableResult
     func addFamily(
         profiles: [Profile],
         relationships: [Relationship],
-        source: SourceOrigin
+        source: SourceOrigin,
+        edgeExistenceEvidence: [UUID: RelationshipExistenceEvidence] = [:]
     ) throws -> Transaction {
         let now = Date()
         let transaction = Transaction(
@@ -1861,6 +1902,14 @@ nonisolated extension ProjectDatabase {
 
             for rel in relationships {
                 try Self.insertRelationship(rel, transactionID: transaction.id, db: db)
+                if let evidence = edgeExistenceEvidence[rel.id] {
+                    try Self.recordRelationshipExistenceSource(
+                        relationshipID: rel.id.uuidString,
+                        evidence: evidence,
+                        transactionID: transaction.id,
+                        db: db
+                    )
+                }
             }
         }
 
@@ -1868,8 +1917,18 @@ nonisolated extension ProjectDatabase {
     }
 
     /// Add a relationship between two existing profiles.
+    ///
+    /// `existenceEvidence` (E4 / MODEL_EVOLUTION_SPEC §Change4): when the edge
+    /// is being materialised from evidence, pass the driving record (or a
+    /// manual/import origin) and an `existence` provenance row is written in
+    /// the same transaction. Defaults to `nil` — legacy call sites keep working
+    /// unchanged and simply record no existence provenance, which is correct:
+    /// forward-only, only edges created *with* evidence carry it.
     @discardableResult
-    func addRelationship(_ rel: Relationship) throws -> Transaction {
+    func addRelationship(
+        _ rel: Relationship,
+        existenceEvidence: RelationshipExistenceEvidence? = nil
+    ) throws -> Transaction {
         let now = Date()
         let transaction = Transaction(
             id: UUID(),
@@ -1892,6 +1951,15 @@ nonisolated extension ProjectDatabase {
                 ])
 
             try Self.insertRelationship(rel, transactionID: transaction.id, db: db)
+
+            if let existenceEvidence {
+                try Self.recordRelationshipExistenceSource(
+                    relationshipID: rel.id.uuidString,
+                    evidence: existenceEvidence,
+                    transactionID: transaction.id,
+                    db: db
+                )
+            }
         }
 
         return transaction
@@ -1909,18 +1977,29 @@ nonisolated extension ProjectDatabase {
     /// `ProposalDedup` for the profile-level dedup that pairs with
     /// this for the same use case.
     @discardableResult
-    func addRelationshipIfAbsent(_ rel: Relationship) throws -> (id: UUID, inserted: Bool) {
+    func addRelationshipIfAbsent(
+        _ rel: Relationship,
+        existenceEvidence: RelationshipExistenceEvidence? = nil
+    ) throws -> (id: UUID, inserted: Bool) {
         // role is optional; null in DB when unspecified. Match both
         // shapes — same parent edge with unspecified role on one row
         // and `.father` on another shouldn't count as distinct.
         let roleValue: String? = rel.role?.rawValue
         let existingID: UUID? = try dbQueue.read { db in
             let row: Row?
+            // NB: the `relationships` table's columns are `from_id`/`to_id`
+            // (see the v1 CREATE at the top of the migrator); the
+            // `from_profile_id`/`to_profile_id` names belong to
+            // `pending_relationships`. This dedup SELECT previously used the
+            // pending-table names against `relationships`, which throws
+            // "no such column" the instant the read runs — a latent bug with
+            // no prior coverage. Corrected here because E4's AC3 (idempotent
+            // existence rows through this method) requires the dedup to work.
             if let roleValue {
                 row = try Row.fetchOne(db, sql: """
                     SELECT id FROM relationships
-                    WHERE from_profile_id = ?
-                      AND to_profile_id = ?
+                    WHERE from_id = ?
+                      AND to_id = ?
                       AND type = ?
                       AND (role = ? OR role IS NULL)
                     LIMIT 1
@@ -1928,8 +2007,8 @@ nonisolated extension ProjectDatabase {
             } else {
                 row = try Row.fetchOne(db, sql: """
                     SELECT id FROM relationships
-                    WHERE from_profile_id = ?
-                      AND to_profile_id = ?
+                    WHERE from_id = ?
+                      AND to_id = ?
                       AND type = ?
                     LIMIT 1
                     """, arguments: [rel.from, rel.to, rel.type.rawValue])
@@ -1939,9 +2018,26 @@ nonisolated extension ProjectDatabase {
             return UUID(uuidString: raw)
         }
         if let existingID {
+            // Edge already present (a re-run surfaced an already-applied
+            // proposal). E4 AC3 — idempotent: attaching the same driving
+            // record's existence source to the existing edge is a no-op
+            // (the recorder dedups on (edge, origin, raw)). A genuinely new
+            // corroborating record still lands as a second existence row.
+            // This is NOT a backfill of a bare legacy edge — it fires only
+            // when today's accept was handed evidence.
+            if let existenceEvidence {
+                _ = try dbQueue.write { db in
+                    try Self.recordRelationshipExistenceSource(
+                        relationshipID: existingID.uuidString,
+                        evidence: existenceEvidence,
+                        transactionID: nil,
+                        db: db
+                    )
+                }
+            }
             return (existingID, false)
         }
-        try addRelationship(rel)
+        try addRelationship(rel, existenceEvidence: existenceEvidence)
         return (rel.id, true)
     }
 
@@ -2442,6 +2538,203 @@ nonisolated extension ProjectDatabase {
                     citationJSON, quality?.rawValue,
                     profileID, field.rawValue, origin.identifier,
                 ])
+        }
+    }
+
+    // MARK: - Edge-existence provenance (MODEL_EVOLUTION_SPEC §Change4 / E4)
+
+    /// The reason we believe an edge exists, in the two shapes E4's write
+    /// points produce. Callers hand one of these to the edge-creation methods
+    /// (`addRelationship`/`addRelationshipIfAbsent`/`addFamily`) so the
+    /// existence row lands inside the *same* write transaction as the edge —
+    /// carrying `created_by_transaction_id` like every other provenance row.
+    ///
+    /// Forward-only (decision log #4): this is only ever attached when an edge
+    /// is materialised. There is no variant that rewrites a pre-existing edge.
+    nonisolated enum RelationshipExistenceEvidence: Sendable {
+        /// The edge exists because of this scored record (accept / promote /
+        /// enrichment paths). Origin, URL, trust-tier-bearing citation and the
+        /// human-readable "because of this record" note are all derived from
+        /// the record — no tier is asserted.
+        case record(ScoredRecord)
+        /// The edge was created by user action or a third-party import that
+        /// carries no citable record (manual add, GEDCOM/WikiTree import). The
+        /// origin states the tier honestly (`.userAuthoritative` /
+        /// `.initialImport`) and `raw` is a short origin note.
+        case origin(SourceOrigin, note: String)
+    }
+
+    /// Record an existence source for `relationshipID` from a piece of
+    /// `RelationshipExistenceEvidence`, inside the given transaction. Shared by
+    /// the edge-creation write paths.
+    @discardableResult
+    static func recordRelationshipExistenceSource(
+        relationshipID: String,
+        evidence: RelationshipExistenceEvidence,
+        transactionID: UUID?,
+        db: Database
+    ) throws -> Bool {
+        switch evidence {
+        case .record(let scored):
+            return try recordRelationshipExistenceSource(
+                relationshipID: relationshipID,
+                from: scored,
+                transactionID: transactionID,
+                db: db
+            )
+        case .origin(let origin, let note):
+            return try recordRelationshipExistenceSource(
+                relationshipID: relationshipID,
+                origin: origin,
+                raw: note,
+                citation: nil,
+                quality: nil,
+                transactionID: transactionID,
+                db: db
+            )
+        }
+    }
+
+
+    /// The `field` value under which an edge's existence provenance is stored
+    /// in `field_sources`. A relationship (`entity_kind = 'relationship'`) row
+    /// with this field answers "why do we believe this edge exists?" — it
+    /// cites the driving record, exactly as a profile field-source cites the
+    /// record that attests a birth date. Mirrors `RelationshipField.existence`
+    /// from AncestorKit; kept as a string constant here so the SQL write path
+    /// never has to import the enum's rawValue at every call site.
+    static let relationshipExistenceField = RelationshipField.existence.rawValue
+
+    /// Record why a relationship edge exists, citing the driving record.
+    ///
+    /// E4, forward-only (decision log #4): callers invoke this **only when
+    /// materialising a fresh edge from evidence**. It is never called to
+    /// backfill an edge that already existed before E4 — doing so would
+    /// fabricate provenance that was never captured.
+    ///
+    /// Idempotent (AC3): re-running an accept, or `addRelationshipIfAbsent`
+    /// on an edge that already carries the same existence citation, inserts
+    /// no duplicate. Identity of an existence row is `(relationshipID, field
+    /// = "existence", origin, raw)` — the same driving record recorded twice
+    /// is one row; a *different* corroborating record legitimately adds a
+    /// second existence row (edges, like fields, can be multiply attested).
+    ///
+    /// Trust tier stays URL-derived (firewall): the caller passes a `Citation`
+    /// whose `url` was resolved through `SourceTierRegistry`; this method never
+    /// asserts a tier. `origin` is the source identifier (e.g. "freebmd"), or
+    /// a `.userAuthoritative` / `.initialImport` origin for manual/import
+    /// edges whose `raw` is a short human-readable origin note.
+    ///
+    /// - Returns: `true` if a new existence row was inserted, `false` if an
+    ///   identical row already existed (idempotent no-op).
+    @discardableResult
+    static func recordRelationshipExistenceSource(
+        relationshipID: String,
+        origin: SourceOrigin,
+        raw: String,
+        citation: Citation?,
+        quality: EvidenceQuality?,
+        transactionID: UUID?,
+        db: Database
+    ) throws -> Bool {
+        // Idempotency pre-check: same edge + same origin + same raw ⇒ already
+        // recorded. Deliberately keyed on (entity_id, entity_kind, field,
+        // origin, raw) not rowid, so a re-run producing the identical citation
+        // is a no-op while a genuinely new corroborating source still lands.
+        let existing = try Int.fetchOne(db, sql: """
+            SELECT COUNT(*) FROM field_sources
+            WHERE entity_id = ? AND entity_kind = 'relationship'
+                  AND field = ? AND origin = ? AND raw = ?
+            """, arguments: [
+                relationshipID, relationshipExistenceField, origin.identifier, raw,
+            ]) ?? 0
+        if existing > 0 { return false }
+
+        let citationJSON: String? = citation.flatMap { c -> String? in
+            guard !c.isEmpty else { return nil }
+            return encodeJSON(c)
+        }
+        try db.execute(sql: """
+            INSERT INTO field_sources
+                (entity_id, entity_kind, field, origin, raw, added_at,
+                 created_by_transaction_id, citation_json, evidence_quality)
+            VALUES (?, 'relationship', ?, ?, ?, ?, ?, ?, ?)
+            """, arguments: [
+                relationshipID, relationshipExistenceField, origin.identifier,
+                raw, Date(), transactionID?.uuidString,
+                citationJSON, quality?.rawValue,
+            ])
+        return true
+    }
+
+    /// Build the existence-provenance origin/raw/citation from the driving
+    /// `ScoredRecord` and record it for a freshly-materialised edge.
+    ///
+    /// - `origin` is `SourceOrigin(identifier: record.sourceID)` — the trust
+    ///   tier is thereby URL-derived downstream, never asserted here.
+    /// - `citation.url` is `record.detailURL`; `citation.title` is the rendered
+    ///   citation's short form. This is the same URL a field-source cites, so
+    ///   `SourceTierRegistry` resolves the tier identically.
+    /// - `raw` is the rendered short citation — a human-readable "because of
+    ///   this record" string shown in a future "why this edge exists" inspector.
+    @discardableResult
+    static func recordRelationshipExistenceSource(
+        relationshipID: String,
+        from scoredRecord: ScoredRecord,
+        transactionID: UUID?,
+        db: Database
+    ) throws -> Bool {
+        let rendered = CitationRenderer.cite(scoredRecord.record)
+        let citation = Citation(
+            title: rendered.short,
+            url: rendered.url,
+            dateAccessed: rendered.accessedAt
+        )
+        return try recordRelationshipExistenceSource(
+            relationshipID: relationshipID,
+            origin: SourceOrigin(identifier: scoredRecord.record.sourceID),
+            raw: rendered.short,
+            citation: citation,
+            quality: nil,
+            transactionID: transactionID,
+            db: db
+        )
+    }
+
+    /// Read an edge's existence provenance — the record(s) that attest it.
+    ///
+    /// Returns `[]` for any edge created before E4 (forward-only, decision
+    /// log #4): no backfill ever ran, so legacy edges legitimately have no
+    /// existence source and behave exactly as before. A non-empty result is
+    /// the "why this edge exists" evidence, reconstructed as full
+    /// `FieldSource`s (origin + raw + citation + quality) just like profile
+    /// field-sources.
+    func existenceSources(forRelationshipID relationshipID: String) throws -> [FieldSource] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT origin, raw, added_at, citation_json, evidence_quality, fact_confidence
+                FROM field_sources
+                WHERE entity_id = ? AND entity_kind = 'relationship' AND field = ?
+                ORDER BY rowid ASC
+                """, arguments: [relationshipID, Self.relationshipExistenceField])
+            return rows.map { row in
+                let origin = SourceOrigin(identifier: row["origin"])
+                let raw: String = row["raw"]
+                let addedAt: Date = row["added_at"]
+                var citation: Citation?
+                if let json: String = row["citation_json"],
+                   let data = json.data(using: .utf8) {
+                    citation = try? JSONDecoder().decode(Citation.self, from: data)
+                }
+                let quality: EvidenceQuality? = (row["evidence_quality"] as Int?)
+                    .flatMap(EvidenceQuality.init(rawValue:))
+                let confidence: FactConfidence? = (row["fact_confidence"] as Int?)
+                    .flatMap(FactConfidence.init(rawInt:))
+                return FieldSource(
+                    origin: origin, raw: raw, addedAt: addedAt,
+                    citation: citation, quality: quality, confidence: confidence
+                )
+            }
         }
     }
 }

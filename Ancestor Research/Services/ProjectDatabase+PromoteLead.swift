@@ -24,18 +24,31 @@ nonisolated extension ProjectDatabase {
         let ghost = Self.makeGhostProfile(id: ghostID, fromLead: lead)
 
         var relationships: [Relationship] = []
+        var edgeExistence: [UUID: RelationshipExistenceEvidence] = [:]
         let generatorID = lead.profileID
         if !generatorID.isEmpty,
            let edge = Self.relationshipEdge(
                fromLead: lead, ghostID: ghostID, generatorID: generatorID
            ) {
             relationships.append(edge)
+            // E4 (§Change4): this edge exists because the user promoted an
+            // investigated lead. A lead is a research *hint*, not a record
+            // snapshot — it has no citable URL — so provenance is recorded
+            // honestly as an origin note rather than a fabricated citation.
+            // The origin names the lead's own source (`lead.scoredLead`, …)
+            // so its trust tier is derivable, never asserted; `raw` is the
+            // lead's evidence summary ("why this is a lead").
+            edgeExistence[edge.id] = .origin(
+                SourceOrigin(identifier: "lead.\(lead.source.rawValue)"),
+                note: lead.evidence
+            )
         }
 
         _ = try addFamily(
             profiles: [ghost],
             relationships: relationships,
-            source: .freebmd
+            source: .freebmd,
+            edgeExistenceEvidence: edgeExistence
         )
 
         // Persist promotion on the lead itself so the Leads tab reflects

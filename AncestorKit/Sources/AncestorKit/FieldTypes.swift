@@ -20,6 +20,15 @@ public nonisolated enum ProfileField: String, Codable, CaseIterable, Hashable, S
 /// Type-safe relationship field identifiers.
 public nonisolated enum RelationshipField: String, Codable, Hashable, Sendable {
     case marriageDate, marriageLocation, divorceDate, subtype, role
+    /// Provenance for the edge existing *at all* — MODEL_EVOLUTION_SPEC
+    /// §Change4 / E4. Not a value-carrying field: `existence` rows in
+    /// `field_sources` answer "why do we believe this parent/spouse/child
+    /// edge exists?" by citing the driving record. Additive raw value —
+    /// Codable-safe, and decoded only when an existence row is present, so
+    /// legacy edges (which have none) are unaffected. Written **forward-only**
+    /// (decision log #4): edges created before E4 are never backfilled, which
+    /// would fabricate evidence never captured.
+    case existence
 }
 
 /// Union of profile and relationship fields for FieldChange.
