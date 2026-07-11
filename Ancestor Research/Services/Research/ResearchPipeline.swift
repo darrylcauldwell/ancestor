@@ -2155,6 +2155,24 @@ final class ResearchPipeline {
     // Skip records whose memorial id is already present in
     // `existingIDs` (a prior iteration's bridge ran): keeps the FAG
     // 500ms-per-request rate-limit happy.
+    //
+    // Connector-audit T1-17 (§6.3): the bridge previously fetched a
+    // detail page for *every* qualifying FS burial persona in the
+    // batch with no per-iteration cap — unlike FreeCen's cap-1
+    // detail-enrichment pattern and contrary to the volunteer-budget
+    // rule, each fetch being a full WKWebView load at 500 ms spacing
+    // against a `.restricted`, Cloudflare-hardened source. A
+    // common-surname iteration surfacing a dozen FS burial personas
+    // would fire a dozen serial browser loads. The cap bounds the
+    // bridge to `maxFagBridgeFetchesPerIteration` detail fetches per
+    // call (the approved 2–3 kernel; the always-enrich variant was
+    // value-rejected in §7). Records past the cap are still returned
+    // unenriched — the FS persona keeps its place in the cluster, it
+    // just doesn't get an inscription-mined death year this iteration.
+
+    /// Upper bound on FS→FAG detail-bridge fetches per iteration
+    /// (T1-17). Set to the top of the approved 2–3 range.
+    static let maxFagBridgeFetchesPerIteration = 3
 
     private func enrichFagBridge(
         _ records: [SourceRecord],
@@ -2166,6 +2184,7 @@ final class ResearchPipeline {
         }
         var out: [SourceRecord] = []
         out.reserveCapacity(records.count)
+        var fetchCount = 0
         for record in records {
             out.append(record)
             guard case .burial(let burial) = record,
@@ -2178,6 +2197,16 @@ final class ResearchPipeline {
             // iteration. Both the FAG-detail record's id and any other
             // representation of the same memorial would carry this id.
             if existingIDs.contains(detailID) { continue }
+            // T1-17 cap: stop firing bridge fetches once this
+            // iteration's budget is spent. The guard sits *after* the
+            // existingIDs skip so already-enriched memorials don't burn
+            // budget, and *before* the network call so the (N+1)th
+            // qualifying record is never fetched.
+            guard fetchCount < Self.maxFagBridgeFetchesPerIteration else {
+                logger.info("FAG bridge: per-iteration cap (\(Self.maxFagBridgeFetchesPerIteration)) reached — skipping detail fetch for memorial \(memorialID)")
+                continue
+            }
+            fetchCount += 1
             let result = await fagDetail.fetchDetail(recordID: detailID)
             guard case .results(let detail) = result, let enriched = detail.first else {
                 logger.info("FAG bridge: detail fetch returned no result for memorial \(memorialID)")
@@ -2188,6 +2217,17 @@ final class ResearchPipeline {
         }
         return out
     }
+#if DEBUG
+    /// Test seam for T1-17 — `enrichFagBridge` is `private`; the bridge
+    /// cap is verified through this wrapper without widening the real
+    /// method's visibility. DEBUG-only so it never ships.
+    func enrichFagBridgeForTesting(
+        _ records: [SourceRecord],
+        existingIDs: Set<String>
+    ) async -> [SourceRecord] {
+        await enrichFagBridge(records, existingIDs: existingIDs)
+    }
+#endif
 
     // MARK: - Same-page-couple pairing (pre-1912 marriage partner recovery)
 
