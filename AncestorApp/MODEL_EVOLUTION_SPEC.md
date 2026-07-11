@@ -1,6 +1,6 @@
 # MODEL_EVOLUTION_SPEC — Closed Four-Item Model Evolution Programme
 
-**Status: Accepted 2026-07-11 (Darryl). Change 1 (E1) SHIPPED 2026-07-11.** Changes 1–4 are queued for implementation in the stated order; commits reference `#Change1`…`#Change4` of this spec. Drafted overnight 2026-07-11 from the R2 research corpus.
+**Status: Accepted 2026-07-11 (Darryl). Change 1 (E1) + Change 2 (E2) SHIPPED 2026-07-11.** Changes 1–4 are queued for implementation in the stated order; commits reference `#Change1`…`#Change4` of this spec. Drafted overnight 2026-07-11 from the R2 research corpus.
 
 **Governing decision:** ADR-004 — *Model evolution is a closed four-item list* (R3 ADR set, drafted alongside this spec; decision basis in `r2-conclusions.md` §3/§5). **This list is closed: additions require a new decision record, not an amendment to this spec.** Anything pitched as "GEDCOM X alignment" beyond these four items is out of scope by prior decision (ADR-001/ADR-003: our model stays canonical; GEDCOM X is vocabulary, never schema).
 
