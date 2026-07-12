@@ -256,6 +256,7 @@ engaged" or "this hop accepted everything, investigate."
   `AttritionEvent`.
 
 ### #Change5 — Daily-budget awareness
+> **SHIPPED 2026-07-11** (commit 1b1bf48): SourceBudgetState + SourceBudgetTracker; `.budgetExhausted` distinct from `.throttled` (no laddering); FreeBMD dailyLimit 200; quota persisted v39; dispatcher skips paused sources, engine continues.
 
 Today, when FreeBMD's daily quota is exhausted, the source
 circuit-breaker trips and the engine ladders 60s/300s/900s waits,
@@ -288,6 +289,7 @@ quota is exhausted:
   quota (FreeBMD has a documented daily limit; others are observed).
 
 ### #Change6 — Checkpoint/resume hardening
+> **SHIPPED 2026-07-11** (commit 1b1bf48): RunResumeCoordinator reclaims orphaned `running` rows; v40 resume-audit columns; idempotency proven (deterministic UPSERTs, stable lead IDs — resume-twice is a no-op).
 
 Snapshot exists in partial form. For multi-day sustained runs, it
 must survive an overnight pause + process restart end-to-end without
@@ -314,6 +316,7 @@ idempotent — no double-fact-emission, no duplicate lead creation.
   (new).
 
 ### #Change7 — "Stop digging here" expansion bound
+> **SHIPPED 2026-07-11** (commit c1cdad2): ExpansionPolicy/ExpansionBounds (collateral depth ≤2, generational ≤4 defaults); queryable ExpansionBoundReason; gate before promote INSERT on both app + MCP paths; per-project override (v38).
 
 Without bounds, Discovery breadth-firsts into the entire reachable
 tree, burning budget on peripheral 5th cousins while the core tree
@@ -346,6 +349,7 @@ Both are queryable: "why didn't this lead promote?" returns either
 applied to work that's still drifting / duplicating).
 
 ### #Change8 — §14.B.1 defensive hallucination re-check
+> **CORE SHIPPED 2026-07-11** (commit 7160804): HallucinationRecheck (deterministic re-fetch + re-extract, page-cache reuse, conservative bounce to pending_facts) + EvidenceFirewall entry point. **FOLLOW-UP:** the MCP auto-approval wiring is NOT done — the FieldResearcherMCP package can't import the re-check (module boundary: MCP is GRDB-only, no AncestorKit dep). Lifting the ANCESTOR_MCP_AUTO_APPROVE gate needs that cross-module decision first (port the helper into the MCP package OR promote HallucinationRecheck into AncestorKit + add the dep).
 
 Currently, the MCP auto-approval write path refuses by default
 (memory: `feedback_auto_approval_gated_off.md`). Before any
