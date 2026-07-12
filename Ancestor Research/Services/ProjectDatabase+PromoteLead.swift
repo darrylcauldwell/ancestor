@@ -1,4 +1,15 @@
 import Foundation
+import AncestorKit
+
+/// Thrown when a lead is refused promotion because its generator sits
+/// outside the project's Discovery expansion bound (ENGINE_FOUNDATION_SPEC
+/// §Change7). Carries the queryable reason so callers can answer
+/// "why didn't this lead promote?".
+nonisolated struct ExpansionBoundExceeded: Error, Sendable {
+    let leadID: String
+    let reason: ExpansionBoundReason
+    var localizedDescription: String { reason.detail }
+}
 
 /// Promote a Lead to a ghost Profile. Closes the "lead investigation"
 /// loop opened by `startResearch(lead:)` — once the user has reviewed the
@@ -13,13 +24,58 @@ import Foundation
 /// re-promoting is a no-op visible in the Leads tab.
 nonisolated extension ProjectDatabase {
 
+    /// Evaluate the Discovery expansion bound for a lead without mutating
+    /// anything (ENGINE_FOUNDATION_SPEC §Change7). Answers "why didn't —
+    /// or would — this lead promote?" by measuring the lead's *generator*
+    /// (`lead.profileID`, the existing profile the new node attaches to)
+    /// against the project's `ExpansionPolicy`. Seeds are the project's
+    /// home person; with no home person set there is no anchor and the
+    /// bound is not applied (`.noSeedConfigured`, fail-open).
+    ///
+    /// Pure deterministic gate on WHICH leads promote — never touches
+    /// scorer/convergence verdicts. Safe to call from UI to show the
+    /// bound status alongside a lead.
+    func expansionBoundReason(for lead: Lead) throws -> ExpansionBoundReason {
+        let policy = (try? loadProjectMeta())?.effectiveExpansionPolicy ?? .default
+        let seedIDs = try expansionSeedIDs()
+        let snapshot = try buildSnapshot()
+        let bounds = ExpansionBounds(policy: policy, snapshot: snapshot, seedIDs: seedIDs)
+        return bounds.evaluate(generatorID: lead.profileID)
+    }
+
+    /// Proband/seed profile IDs the expansion bound measures distance
+    /// FROM. Currently the project's home person (the anchor). Returns an
+    /// empty array when no home person is set — bounding then no-ops
+    /// (fail-open) since there is no core to measure peripherality against.
+    func expansionSeedIDs() throws -> [String] {
+        guard let home = (try? loadProjectMeta())?.homePersonID, !home.isEmpty else {
+            return []
+        }
+        return [home]
+    }
+
     /// Promote a Lead — creates a ghost Profile from its fields and, when
     /// the lead carries a relationship hint, attaches an edge to the
     /// generating profile so the promoted person appears in the right place
     /// in the tree. Marks `lead.status = .promoted`. Returns the new ghost
     /// Profile ID so the caller can persist evidence under it.
+    ///
+    /// `enforceBound` gates on the §Change7 expansion bound BEFORE the
+    /// INSERT. The autonomous/engine expansion path passes `true` so a run
+    /// stops digging at the periphery; a deliberate user "Promote" action
+    /// passes `false` (the default) — a human override is always honoured,
+    /// but callers can still query `expansionBoundReason(for:)` to show the
+    /// status. When enforced and out of bounds, throws
+    /// `ExpansionBoundExceeded` carrying the queryable reason.
     @discardableResult
-    func promoteLeadToProfile(_ lead: Lead) throws -> String {
+    func promoteLeadToProfile(_ lead: Lead, enforceBound: Bool = false) throws -> String {
+        if enforceBound {
+            let reason = try expansionBoundReason(for: lead)
+            guard reason.permitsPromotion else {
+                throw ExpansionBoundExceeded(leadID: lead.id, reason: reason)
+            }
+        }
+
         let ghostID = UUID().uuidString
         let ghost = Self.makeGhostProfile(id: ghostID, fromLead: lead)
 

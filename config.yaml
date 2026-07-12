@@ -6,6 +6,20 @@
 # Personal settings (seed profile, project name) go in config.local.yaml (gitignored).
 # Credentials go in .env (gitignored).
 
+# Discovery expansion bound (ENGINE_FOUNDATION_SPEC #Change7).
+# Bounds how far from the probands/seeds the research engine is allowed to
+# keep promoting leads, so a run stops burning budget on peripheral 5th
+# cousins while the core tree still has gaps. Pick ONE policy:
+#   generational:<M>  — at most M generations from any seed (parent/child
+#                       hops; spouses share their partner's generation).
+#   collateral:<N>    — at most N collateral hops from any proband; direct
+#                       ancestors/descendants are always in bounds.
+# Overridable per project (persisted on the project itself); the value here
+# is the shared regional default. Omit / leave blank to use the engine
+# default of generational:4.
+expansion:
+  policy: "generational:4"
+
 region:
   county: "Derbyshire"
   chapman_code: "DBY"

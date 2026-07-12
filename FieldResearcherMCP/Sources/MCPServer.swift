@@ -1155,6 +1155,40 @@ actor MCPHandler {
                 )
             }
 
+            // Expansion bound (ENGINE_FOUNDATION_SPEC #Change7): before
+            // INSERT, refuse leads whose generator sits too far from the
+            // probands/seeds so an autonomous run stops burning budget on
+            // peripheral kin while the core tree still has gaps. Pure
+            // deterministic gate on WHICH leads promote — never a scorer
+            // verdict change. Seeds = the project's home person; no home
+            // person ⇒ no anchor ⇒ bound not applied (fail-open).
+            let expansionPolicyRaw: String? = try Row.fetchOne(
+                db, sql: "SELECT expansion_policy FROM project_meta LIMIT 1"
+            )?["expansion_policy"]
+            let homePersonID: String? = try Row.fetchOne(
+                db, sql: "SELECT home_person_id FROM project_meta LIMIT 1"
+            )?["home_person_id"]
+            let seedIDs = [homePersonID].compactMap { $0 }.filter { !$0.isEmpty }
+            let edgeRows = try Row.fetchAll(
+                db, sql: "SELECT from_id, to_id, type FROM relationships"
+            )
+            let edges: [MCPHandler.GraphEdge] = edgeRows.map {
+                MCPHandler.GraphEdge(from: $0["from_id"] ?? "", to: $0["to_id"] ?? "", type: $0["type"] ?? "")
+            }
+            let boundOutcome = MCPHandler.decideExpansionBound(
+                policy: MCPHandler.ExpansionPolicy.parse(expansionPolicyRaw),
+                edges: edges,
+                seedIDs: seedIDs,
+                generatorID: sourceProfileID
+            )
+            guard boundOutcome.permitsPromotion else {
+                return refusePromote(
+                    leadID: leadID,
+                    reason: boundOutcome.code,
+                    detail: boundOutcome.detail
+                )
+            }
+
             // Dedup gate (ENGINE_FOUNDATION_SPEC #Change3): before INSERT,
             // see whether an existing profile already represents this
             // person. Avoids the Jennifer Holmes case from the cross-day
@@ -2833,6 +2867,245 @@ actor MCPHandler {
             }
         }
         return false
+    }
+
+    // MARK: - Expansion bound at promote-time (ENGINE_FOUNDATION_SPEC #Change7)
+
+    /// A single parent/child or spouse edge, as fetched from the
+    /// `relationships` table. Mirrors the columns the SQL BFS needs so the
+    /// bound logic is unit-testable without a live SQLite. `type` is
+    /// "parent" or "spouse"; for a parent edge `from` is the parent and
+    /// `to` is the child (matching the app's convention).
+    struct GraphEdge: Equatable {
+        let from: String
+        let to: String
+        let type: String   // "parent" | "spouse"
+    }
+
+    /// Which bound a project applies. Mirrors AncestorKit's
+    /// `ExpansionPolicy`; the MCP is a standalone package (no AncestorKit
+    /// dependency), so the rule is duplicated deliberately and both sides
+    /// share the `config.yaml` / wire-string contract.
+    enum ExpansionPolicy: Equatable {
+        case collateralDepth(hops: Int)
+        case generationalDistance(generations: Int)
+
+        static let defaultGenerations = 4
+
+        /// Parse the compact wire string ("generational:4" / "collateral:2")
+        /// stored in `project_meta.expansion_policy`. nil (or unrecognised)
+        /// → the engine default.
+        static func parse(_ raw: String?) -> ExpansionPolicy {
+            guard let raw else { return .generationalDistance(generations: defaultGenerations) }
+            let parts = raw.trimmingCharacters(in: .whitespaces).lowercased()
+                .split(separator: ":", maxSplits: 1)
+            guard parts.count == 2, let n = Int(parts[1]), n >= 0 else {
+                return .generationalDistance(generations: defaultGenerations)
+            }
+            switch parts[0] {
+            case "collateral": return .collateralDepth(hops: n)
+            case "generational": return .generationalDistance(generations: n)
+            default: return .generationalDistance(generations: defaultGenerations)
+            }
+        }
+    }
+
+    /// Queryable outcome of the bound check. Codes match AncestorKit's
+    /// `ExpansionBoundReason.code`.
+    enum ExpansionBoundOutcome: Equatable {
+        case withinBounds(measuredDistance: Int)
+        case outsideCollateralBound(limit: Int, measuredDistance: Int)
+        case outsideGenerationalBound(limit: Int, measuredDistance: Int)
+        case noSeedConfigured
+        case generatorUnreachable
+
+        var permitsPromotion: Bool {
+            switch self {
+            case .withinBounds, .noSeedConfigured: return true
+            default: return false
+            }
+        }
+
+        var code: String {
+            switch self {
+            case .withinBounds: return "within_bounds"
+            case .outsideCollateralBound: return "outside_collateral_bound"
+            case .outsideGenerationalBound: return "outside_generational_bound"
+            case .noSeedConfigured: return "no_seed_configured"
+            case .generatorUnreachable: return "generator_unreachable"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .withinBounds(let d):
+                return "Within bounds (measured distance \(d))."
+            case .outsideCollateralBound(let limit, let d):
+                return "Outside collateral bound: generator is \(d) collateral hops from the nearest proband (limit \(limit))."
+            case .outsideGenerationalBound(let limit, let d):
+                return "Outside generational bound: generator is \(d) generations from the nearest seed (limit \(limit))."
+            case .noSeedConfigured:
+                return "No proband/seed configured — expansion bound not applied."
+            case .generatorUnreachable:
+                return "Generator profile is not reachable from any seed — outside the core tree."
+            }
+        }
+    }
+
+    /// Decide whether a `promote_lead` INSERT is within the project's
+    /// expansion bound, given the full edge set, the seed (home-person)
+    /// IDs, and the generator profile the new node attaches to.
+    ///
+    /// Pure — no SQLite. Mirrors `ExpansionBounds.evaluate` in AncestorKit:
+    ///  - generational: 0-1 BFS, parent/child = 1, spouse = 0.
+    ///  - collateral: turn-counting BFS, direct ancestors/descendants of a
+    ///    proband = depth 0; each up→down turn or spouse hop = +1.
+    /// Empty seeds → `.noSeedConfigured` (fail-open). Empty generator or a
+    /// generator not in any edge but with seeds present →
+    /// `.noSeedConfigured` too (no tree anchor to bound against).
+    static func decideExpansionBound(
+        policy: ExpansionPolicy,
+        edges: [GraphEdge],
+        seedIDs: [String],
+        generatorID: String
+    ) -> ExpansionBoundOutcome {
+        guard !seedIDs.isEmpty else { return .noSeedConfigured }
+        guard !generatorID.isEmpty else { return .noSeedConfigured }
+
+        // Promoted node = one hop beyond its generator, so its distance is
+        // generator distance + 1 (mirrors AncestorKit's ExpansionBounds).
+        switch policy {
+        case .generationalDistance(let generations):
+            guard let d = nearestGenerationalDistance(
+                edges: edges, seeds: seedIDs, target: generatorID
+            ) else { return .generatorUnreachable }
+            let promoted = d + 1
+            return promoted <= generations
+                ? .withinBounds(measuredDistance: promoted)
+                : .outsideGenerationalBound(limit: generations, measuredDistance: promoted)
+
+        case .collateralDepth(let hops):
+            guard let d = nearestCollateralDepth(
+                edges: edges, seeds: seedIDs, target: generatorID
+            ) else { return .generatorUnreachable }
+            let promoted = d + 1
+            return promoted <= hops
+                ? .withinBounds(measuredDistance: promoted)
+                : .outsideCollateralBound(limit: hops, measuredDistance: promoted)
+        }
+    }
+
+    // -- generational distance (spouse = 0, parent/child = 1) --
+
+    private static func nearestGenerationalDistance(
+        edges: [GraphEdge], seeds: [String], target: String
+    ) -> Int? {
+        var best: Int?
+        for seed in seeds {
+            if let d = generationalDistance(edges: edges, from: seed, to: target) {
+                best = best.map { min($0, d) } ?? d
+            }
+        }
+        return best
+    }
+
+    private static func generationalDistance(
+        edges: [GraphEdge], from seed: String, to target: String
+    ) -> Int? {
+        var distance: [String: Int] = [seed: 0]
+        var frontier: [(id: String, dist: Int)] = [(seed, 0)]
+        while !frontier.isEmpty {
+            frontier.sort { $0.dist != $1.dist ? $0.dist < $1.dist : $0.id < $1.id }
+            let current = frontier.removeFirst()
+            if current.dist > (distance[current.id] ?? .max) { continue }
+            if current.id == target { return current.dist }
+            for (nID, w) in genNeighbours(edges: edges, of: current.id) {
+                let nd = current.dist + w
+                if nd < (distance[nID] ?? .max) {
+                    distance[nID] = nd
+                    frontier.append((nID, nd))
+                }
+            }
+        }
+        return distance[target]
+    }
+
+    private static func genNeighbours(edges: [GraphEdge], of id: String) -> [(String, Int)] {
+        var out: [(String, Int)] = []
+        for e in edges where e.type == "parent" && e.to == id { out.append((e.from, 1)) }   // parent
+        for e in edges where e.type == "parent" && e.from == id { out.append((e.to, 1)) }    // child
+        for e in edges where e.type == "spouse" && (e.from == id || e.to == id) {
+            out.append((e.from == id ? e.to : e.from, 0))
+        }
+        return out.sorted { $0.0 < $1.0 }
+    }
+
+    // -- collateral depth (turn-counting) --
+
+    private enum WalkDir: Hashable { case start, up, down }
+    private struct WalkState: Hashable { let id: String; let dir: WalkDir }
+
+    private static func nearestCollateralDepth(
+        edges: [GraphEdge], seeds: [String], target: String
+    ) -> Int? {
+        var best: Int?
+        for p in seeds {
+            if let d = collateralDepth(edges: edges, from: p, to: target) {
+                best = best.map { min($0, d) } ?? d
+            }
+        }
+        return best
+    }
+
+    private static func collateralDepth(
+        edges: [GraphEdge], from proband: String, to target: String
+    ) -> Int? {
+        let start = WalkState(id: proband, dir: .start)
+        var cost: [WalkState: Int] = [start: 0]
+        var frontier: [(state: WalkState, cost: Int)] = [(start, 0)]
+        while !frontier.isEmpty {
+            frontier.sort {
+                $0.cost != $1.cost ? $0.cost < $1.cost
+                    : ($0.state.id != $1.state.id ? $0.state.id < $1.state.id
+                        : $0.state.dir.hashValue < $1.state.dir.hashValue)
+            }
+            let cur = frontier.removeFirst()
+            if cur.cost > (cost[cur.state] ?? .max) { continue }
+            if cur.state.id == target { return cur.cost }
+            for (next, turn) in collateralNeighbours(edges: edges, of: cur.state) {
+                let nc = cur.cost + turn
+                if nc < (cost[next] ?? .max) {
+                    cost[next] = nc
+                    frontier.append((next, nc))
+                }
+            }
+        }
+        return cost.filter { $0.key.id == target }.values.min()
+    }
+
+    private static func collateralNeighbours(
+        edges: [GraphEdge], of state: WalkState
+    ) -> [(WalkState, Int)] {
+        var out: [(WalkState, Int)] = []
+        // parents
+        let parents = edges.filter { $0.type == "parent" && $0.to == state.id }
+            .map(\.from).sorted()
+        for p in parents {
+            out.append((WalkState(id: p, dir: .up), state.dir == .down ? 1 : 0))
+        }
+        // children
+        let children = edges.filter { $0.type == "parent" && $0.from == state.id }
+            .map(\.to).sorted()
+        for c in children {
+            out.append((WalkState(id: c, dir: .down), state.dir == .up ? 1 : 0))
+        }
+        // spouses
+        let spouses = edges.filter { $0.type == "spouse" && ($0.from == state.id || $0.to == state.id) }
+            .map { $0.from == state.id ? $0.to : $0.from }.sorted()
+        for s in spouses {
+            out.append((WalkState(id: s, dir: .down), 1))
+        }
+        return out
     }
 
     // MARK: - Dedup at promote-time (ENGINE_FOUNDATION_SPEC #Change3)
