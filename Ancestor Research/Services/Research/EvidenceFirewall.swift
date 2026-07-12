@@ -7,7 +7,8 @@ import CryptoKit
 nonisolated struct EvidenceFirewall {
 
     private static let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "Firewall")
-    private static let maxEvidenceTextLength = 200
+    /// Cap on stored/compared evidence excerpts. Shared with `HallucinationRecheck`.
+    static let maxEvidenceTextLength = 200
 
     // MARK: - Validate a Finding
 
@@ -128,6 +129,30 @@ nonisolated struct EvidenceFirewall {
         }
     }
 
+    // MARK: - §14.B.1 Defensive Hallucination Re-check
+
+    /// Re-verify an auto-approval candidate against its cited source before the
+    /// §14.3 gate is allowed to commit it. This is the firewall's defensive
+    /// second look: it independently re-fetches the page (page-cache first, so a
+    /// page already fetched during the original extraction costs nothing) and
+    /// deterministically re-extracts the specific claim. A confirmed claim is
+    /// approved; anything else bounces back to `pending_facts` with a
+    /// hallucination flag.
+    ///
+    /// The implementation lives in `HallucinationRecheck`; this method is the
+    /// firewall-facing entry point so callers (`PendingFactsProcessor`, the MCP
+    /// approve path) route through the Evidence Firewall as the single home for
+    /// hallucination checks.
+    ///
+    /// - Returns: an audit entry carrying the per-claim decision. Approve only on
+    ///   `.approved`; on `.bounced` leave the fact in `pending_facts`.
+    static func recheckForAutoApproval(
+        finding: PendingFact,
+        pages: any PageProvider
+    ) async -> HallucinationRecheck.AuditEntry {
+        await HallucinationRecheck.recheck(claim: .init(finding: finding), pages: pages)
+    }
+
     // MARK: - Idempotency Key (§13)
 
     /// Generate a deterministic ID for a finding, used for deduplication.
@@ -148,7 +173,9 @@ nonisolated struct EvidenceFirewall {
     }
 
     /// Normalise text for content matching: lowercase, collapse whitespace, strip punctuation.
-    private static func normalise(_ text: String) -> String {
+    /// Shared with `HallucinationRecheck` so the §14.B.1 re-check uses identical
+    /// content-matching semantics to the firewall's original URL verification.
+    static func normalise(_ text: String) -> String {
         text.lowercased()
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
