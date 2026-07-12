@@ -28,10 +28,11 @@ enum ResearchRunService {
         registry: SourceRegistry,
         snapshot: FamilyGraphSnapshot,
         database: ProjectDatabase?,
-        sourceInfoMap: [String: SourceInfo]? = nil
+        sourceInfoMap: [String: SourceInfo]? = nil,
+        budgetTracker: SourceBudgetTracker? = nil
     ) -> Built {
         let map = sourceInfoMap ?? registry.buildSourceInfoMap()
-        let dispatcher = SearchDispatcher(registry: registry)
+        let dispatcher = SearchDispatcher(registry: registry, budgetTracker: budgetTracker)
         let pipeline = ResearchPipeline(
             dispatcher: dispatcher,
             snapshot: snapshot,
@@ -43,6 +44,39 @@ enum ResearchRunService {
             negativeSearchKeyLoader: ResearchPipeline.makeNegativeSearchKeyLoader(database: database)
         )
         return Built(pipeline: pipeline, sourceInfoMap: map)
+    }
+
+    /// Build the per-source daily-budget tracker for a sustained run
+    /// (ENGINE_FOUNDATION #Change5). Policies come from each registered
+    /// source's declared `budgetPolicy`; the current request counts are
+    /// rehydrated from `source_budget_state` so a budget spent before a
+    /// restart is still spent after (§Change6). The persistence sink writes
+    /// every counted request back to the same table. Returns nil when there
+    /// is no database (nothing to persist to / restore from) — callers then
+    /// run without budget tracking, exactly as before this Change.
+    ///
+    /// The tracker is shared across every run in the process (one quota per
+    /// volunteer host, not per subject), so construct it ONCE per open
+    /// project and thread the same instance into each `makePipeline` call.
+    static func makeBudgetTracker(
+        registry: SourceRegistry,
+        database: ProjectDatabase?
+    ) -> SourceBudgetTracker? {
+        guard let database else { return nil }
+        var policies: [String: SourceBudgetPolicy] = [:]
+        for source in registry.allSources() {
+            policies[source.sourceID] = source.budgetPolicy
+        }
+        let restored = (try? database.loadSourceBudgetWindows()) ?? []
+        return SourceBudgetTracker(
+            policies: policies,
+            restoredWindows: restored,
+            persist: { window in
+                // Best-effort persistence; a failed single-row write must not
+                // abort the run. The next counted request re-persists.
+                try? database.saveSourceBudgetWindow(window)
+            }
+        )
     }
 
     // MARK: - Result persistence (Phase 1 slice 6b)

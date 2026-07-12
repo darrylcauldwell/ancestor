@@ -1202,6 +1202,56 @@ nonisolated final class ProjectDatabase: Sendable {
             )
         }
 
+        // ENGINE_FOUNDATION_SPEC §Change7 — per-project Discovery expansion
+        // bound. Stored as a compact wire string ("generational:4" /
+        // "collateral:2"); NULL = engine default. Bounds which leads may
+        // promote so a run stops burning budget on peripheral kin; never a
+        // scorer/verdict change.
+        migrator.registerMigration("v38_project_expansion_policy") { db in
+            try db.alter(table: "project_meta") { t in
+                t.add(column: "expansion_policy", .text)
+            }
+        }
+
+        // ENGINE_FOUNDATION_SPEC §Change5 — per-source daily-budget counters.
+        // One row per source holding the request count within the current
+        // reset window. Persisted here (rather than in memory) so a source's
+        // spent daily budget survives a process restart — the sustained-run
+        // requirement §Change6 depends on. `window_start` anchors the count
+        // to the source's reset boundary; when `now` passes the next reset
+        // the tracker rolls the row to a fresh window with count 0. Not
+        // profile-scoped: a source's quota is global to the volunteer host,
+        // not per-tree, so there is exactly one row per source_id.
+        //
+        // NOTE on numbering: this is v39, not the spec's implied "next after
+        // v37", because a concurrent change (§Change7) claimed v38 for
+        // `project_meta.expansion_policy`. GRDB applies migrations in
+        // registration order and keys them by identifier, so a v39 appended
+        // after v38 is correct and collision-free.
+        migrator.registerMigration("v39_source_budget_state") { db in
+            try db.create(table: "source_budget_state") { t in
+                t.column("source_id", .text).primaryKey()
+                t.column("window_start", .datetime).notNull()
+                t.column("request_count", .integer).notNull().defaults(to: 0)
+                t.column("updated_at", .datetime).notNull()
+            }
+        }
+
+        // ENGINE_FOUNDATION_SPEC §Change6 — checkpoint/resume hardening.
+        // Resume-audit columns on the run-request queue. A request killed
+        // mid-run is left in `running` and orphaned forever today; on the
+        // next launch the watcher RECLAIMS a stale `running` row back to
+        // `queued` so the run resumes. These columns make that observable
+        // (and human-readable when debugging a stuck run): `resume_count`
+        // counts how many times the row was reclaimed, `resumed_at` stamps
+        // the last reclaim. Additive + nullable so no data migration.
+        migrator.registerMigration("v40_run_request_resume_audit") { db in
+            try db.alter(table: "research_run_requests") { t in
+                t.add(column: "resume_count", .integer).notNull().defaults(to: 0)
+                t.add(column: "resumed_at", .datetime)
+            }
+        }
+
         return migrator
     }
 
@@ -1481,12 +1531,13 @@ nonisolated final class ProjectDatabase: Sendable {
             }
 
             try db.execute(sql: """
-                INSERT OR REPLACE INTO project_meta (id, name, source_kind, source_value, created_at, last_refreshed, home_person_id, archived_at, home_chapman_code)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO project_meta (id, name, source_kind, source_value, created_at, last_refreshed, home_person_id, archived_at, home_chapman_code, expansion_policy)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
                     project.id.uuidString, project.name, sourceKind, sourceValue,
                     project.createdAt, project.lastRefreshed, project.homePersonID,
-                    project.archivedAt, project.homeChapmanCode
+                    project.archivedAt, project.homeChapmanCode,
+                    project.expansionPolicy?.wireValue
                 ])
         }
     }
@@ -1504,6 +1555,10 @@ nonisolated final class ProjectDatabase: Sendable {
             default: .wikitree(email: sourceValue)
             }
             let homePersonID: String? = row["home_person_id"]
+            // §Change7 — decode the compact expansion-policy wire string.
+            // NULL / unrecognised → nil (project uses the engine default).
+            let expansionPolicy: ExpansionPolicy? = (row["expansion_policy"] as String?)
+                .flatMap { ExpansionPolicy(wireValue: $0) }
 
             return Project(
                 id: UUID(uuidString: row["id"]) ?? UUID(),
@@ -1513,7 +1568,8 @@ nonisolated final class ProjectDatabase: Sendable {
                 createdAt: row["created_at"],
                 lastRefreshed: row["last_refreshed"],
                 archivedAt: row["archived_at"],
-                homeChapmanCode: row["home_chapman_code"]
+                homeChapmanCode: row["home_chapman_code"],
+                expansionPolicy: expansionPolicy
             )
         }
     }
@@ -2883,6 +2939,45 @@ nonisolated extension ProjectDatabase {
                     VALUES (?, ?, ?, ?, ?)
                     """, arguments: [profileID, sourceID, recordType, Date(), params])
             }
+        }
+    }
+
+    // MARK: - Source budget state (ENGINE_FOUNDATION #Change5)
+
+    /// Load every persisted per-source request window. Used by
+    /// `SourceBudgetTracker` at startup to rehydrate counters so a spent
+    /// daily budget survives a process restart (§Change6 depends on this).
+    /// Returns raw window rows; the tracker applies the roll-forward /
+    /// pause math against a live clock.
+    func loadSourceBudgetWindows() throws -> [SourceBudgetWindow] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT source_id, window_start, request_count
+                FROM source_budget_state
+                """)
+            return rows.map {
+                SourceBudgetWindow(
+                    sourceID: $0["source_id"] as String,
+                    windowStart: $0["window_start"] as Date,
+                    requestCount: $0["request_count"] as Int
+                )
+            }
+        }
+    }
+
+    /// Persist one source's current window. UPSERT on `source_id` — there is
+    /// exactly one row per source (a quota is global to the volunteer host,
+    /// not per-tree). Called on every counted request; cheap single-row write.
+    func saveSourceBudgetWindow(_ window: SourceBudgetWindow) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO source_budget_state (source_id, window_start, request_count, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT (source_id)
+                DO UPDATE SET window_start = excluded.window_start,
+                              request_count = excluded.request_count,
+                              updated_at = excluded.updated_at
+                """, arguments: [window.sourceID, window.windowStart, window.requestCount, Date()])
         }
     }
 

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import AncestorKit
 
 /// What's happening inside the pipeline / sources — surfaced to the UI so the
 /// user sees per-source progress and a live activity feed instead of an opaque
@@ -17,6 +18,14 @@ nonisolated enum ResearchActivityEvent: Sendable {
     /// engaged at the periphery.
     case scorerAttrition(ScorerAttrition)
 
+    /// A source's daily request quota is spent (ENGINE_FOUNDATION
+    /// #Change5). The source is parked until `resumeAt` (its documented
+    /// reset, else UTC midnight); the engine continues with the
+    /// non-paused sources. Distinct from `sourceError(reason: "throttled")`
+    /// — a budget exhaustion is NOT laddered with cool-down retries, it's
+    /// a hard "come back tomorrow".
+    case dailyBudgetExhausted(sourceID: String, resumeAt: Date)
+
     /// Strictness tier this event was issued at. `.strict` for pipeline-stage
     /// events. Activity feed labels broadened tiers ("Cauldwell — phonetic")
     /// so the user can tell when the dispatcher has escalated.
@@ -27,6 +36,7 @@ nonisolated enum ResearchActivityEvent: Sendable {
         case .sourceError(_, _, _, let s):         return s
         case .pipelineStage:                       return .strict
         case .scorerAttrition:                     return .strict
+        case .dailyBudgetExhausted:                return .strict
         }
     }
 
@@ -50,6 +60,11 @@ nonisolated enum ResearchActivityEvent: Sendable {
             return msg
         case .scorerAttrition(let a):
             return "Scorer: \(a.humanSummary)"
+        case .dailyBudgetExhausted(let sourceID, let resumeAt):
+            let fmt = DateFormatter()
+            fmt.dateStyle = .none
+            fmt.timeStyle = .short
+            return "\(sourceID) — daily budget spent, resuming \(fmt.string(from: resumeAt))"
         }
     }
 }

@@ -24,6 +24,14 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
         summary: "Volunteer project — no documented API, no prohibition of programmatic access"
     )
 
+    /// Conservative daily budget (ENGINE_FOUNDATION #Change5). FreeCen is
+    /// volunteer-run with no documented quota; observed behaviour is that
+    /// sustained sweeps get rate-limited. A per-census-year × chapman
+    /// fan-out means one subject can fire many FreeCen requests, so we set
+    /// a conservative ceiling that parks the source until UTC midnight once
+    /// a sustained run has taken more than a normal session's worth.
+    nonisolated let budgetPolicy = SourceBudgetPolicy(dailyLimit: 300, reset: .utcMidnight)
+
     // MARK: - State
 
     private let http: any HTTPClient

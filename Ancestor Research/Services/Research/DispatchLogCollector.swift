@@ -77,6 +77,17 @@ actor DispatchLogCollector {
             break  // not source-scoped, not useful for dispatch analysis
         case .scorerAttrition:
             break  // aggregate stat, separate concern from dispatch log
+        case .dailyBudgetExhausted(let sourceID, let resumeAt):
+            // Source-scoped and diagnostic: it explains why a source stopped
+            // producing results mid-run. Log as an error-kind entry so it
+            // survives the cap (#Change5).
+            collected.append(Entry(
+                sourceID: sourceID,
+                kind: .error,
+                summary: "\(sourceID) daily budget exhausted",
+                resultCount: nil,
+                errorReason: "budget_exhausted; resume \(resumeAt)"
+            ))
         }
     }
 

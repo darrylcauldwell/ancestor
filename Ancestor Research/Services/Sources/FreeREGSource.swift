@@ -30,6 +30,13 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
         summary: "Volunteer transcription project — no API, no explicit prohibition"
     )
 
+    /// Conservative daily budget (ENGINE_FOUNDATION #Change5). FreeREG is
+    /// volunteer-run with no documented quota; treat it like FreeCen — a
+    /// chapman fan-out can multiply requests per subject, so a conservative
+    /// daily ceiling parks the source until UTC midnight once a sustained
+    /// run has exceeded a normal session.
+    nonisolated let budgetPolicy = SourceBudgetPolicy(dailyLimit: 300, reset: .utcMidnight)
+
     // MARK: - State
 
     private let http: any HTTPClient

@@ -30,6 +30,11 @@ struct WirksworthSource: RecordSource {
         level: .community,
         summary: "Volunteer-contributed pedigrees and register transcriptions"
     )
+    /// Conservative daily budget (ENGINE_FOUNDATION #Change5). A tiny
+    /// single-area volunteer dataset — low request volume, but still
+    /// volunteer-hosted, so a generous daily ceiling parks a runaway
+    /// sustained run without ever constraining normal use.
+    nonisolated let budgetPolicy = SourceBudgetPolicy(dailyLimit: 300, reset: .utcMidnight)
     nonisolated let kind: SourceKind = .localPlugin
 
     // MARK: - State

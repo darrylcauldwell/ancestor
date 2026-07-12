@@ -509,6 +509,17 @@ final class ResearchViewModel {
         case .scorerAttrition:
             // Aggregate stat across all sources; feed-only, no per-source state change.
             break
+        case .dailyBudgetExhausted(let sourceID, let resumeAt):
+            // The source's daily quota is spent — surface it on the status
+            // card as a paused/error state so the user sees WHY it stopped
+            // producing results, distinct from a transient failure
+            // (#Change5). Sticky like an error until the run ends.
+            if let idx = sourceStatuses.firstIndex(where: { $0.id == sourceID }) {
+                let fmt = DateFormatter()
+                fmt.timeStyle = .short
+                sourceStatuses[idx].state = .error
+                sourceStatuses[idx].reason = "Daily budget spent — resumes \(fmt.string(from: resumeAt))"
+            }
         }
     }
 

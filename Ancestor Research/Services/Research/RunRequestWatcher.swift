@@ -33,18 +33,68 @@ final class RunRequestWatcher {
 
     private var pollingTask: Task<Void, Never>?
 
+    /// Shared per-source daily-budget tracker for this project's sustained
+    /// run (ENGINE_FOUNDATION #Change5). One quota per volunteer host, not
+    /// per subject, so it is built ONCE (lazily, bound to the current
+    /// database) and reused across every dequeued request. Rebuilt if the
+    /// database identity changes (project switch). Nil until the first run
+    /// sees an open database.
+    private var budgetTracker: SourceBudgetTracker?
+    private var budgetTrackerDBPath: String?
+
+    /// Reclaims run requests orphaned in `running` by a dead process
+    /// (ENGINE_FOUNDATION #Change6). Real clock in production; the resume
+    /// tests drive it with a fixed clock directly against the DB.
+    private let resumeCoordinator = RunResumeCoordinator()
+
     init(appState: AppState, registry: SourceRegistry) {
         self.appState = appState
         self.registry = registry
     }
 
+    /// The budget tracker bound to `db`, building it on first use and reusing
+    /// it thereafter. Rebuilds when the database changes so a project switch
+    /// gets its own restored counters. Keeps the persisted daily count alive
+    /// across the many short-lived pipeline runs a Discovery sweep enqueues.
+    private func budgetTracker(for db: ProjectDatabase) -> SourceBudgetTracker? {
+        if let existing = budgetTracker, budgetTrackerDBPath == db.dbQueue.path {
+            return existing
+        }
+        let tracker = ResearchRunService.makeBudgetTracker(registry: registry, database: db)
+        budgetTracker = tracker
+        budgetTrackerDBPath = db.dbQueue.path
+        return tracker
+    }
+
     /// Begin polling. Cheap to call repeatedly — re-starts the loop. Safe
     /// to call before the database is fully ready; each poll re-checks.
+    ///
+    /// On start we first RECLAIM any run request orphaned in `running` by a
+    /// dead process (ENGINE_FOUNDATION #Change6). A sustained run paused
+    /// overnight — or crashed mid-profile — leaves its in-flight row stuck at
+    /// `running`, which the dequeue never touches; reclaiming it back to
+    /// `queued` lets the run resume from the exact checkpoint. Idempotent:
+    /// re-running the pipeline against an already-partly-processed profile
+    /// UPSERTs the same deterministic evidence / lead rows, so no facts are
+    /// double-emitted and no leads duplicated.
     func start() {
         stop()
+        reclaimOrphanedRuns()
         pollingTask = Task { [weak self] in
             guard let self else { return }
             await self.pollLoop()
+        }
+    }
+
+    /// Reclaim `running` requests orphaned by a prior process back to
+    /// `queued`. No-op when the DB isn't open yet (the first poll re-checks)
+    /// or when nothing is stale.
+    private func reclaimOrphanedRuns() {
+        guard let db = appState.currentDatabase else { return }
+        let reclaimed = resumeCoordinator.reclaimStaleRunning(db: db)
+        if !reclaimed.isEmpty {
+            let ids = reclaimed.map(\.requestID).joined(separator: ", ")
+            logger.info("Resumed \(reclaimed.count) orphaned run request(s) on start: \(ids)")
         }
     }
 
@@ -179,7 +229,8 @@ final class RunRequestWatcher {
         let built = ResearchRunService.makePipeline(
             registry: registry,
             snapshot: appState.snapshot,
-            database: db
+            database: db,
+            budgetTracker: budgetTracker(for: db)
         )
         let sourceInfoMap = built.sourceInfoMap
         let config = ResearchConfig.preset(for: mode).with(scope: scope)

@@ -922,8 +922,20 @@ public nonisolated enum SearchAvailability: Sendable, Equatable {
     /// The source failed to answer (HTTP error, malformed payload, page
     /// outside coverage, validation error). Emptiness is meaningless.
     case error(reason: String)
-    /// The source is rate-limiting us. Emptiness is meaningless.
+    /// The source is rate-limiting us TRANSIENTLY (an HTTP 429 that the
+    /// circuit breaker will clear in seconds-to-minutes). Distinct from
+    /// `budgetExhausted`: a throttle is worth waiting out with a short
+    /// cool-down ladder; a budget exhaustion is not (ENGINE_FOUNDATION
+    /// #Change5). Emptiness is meaningless.
     case throttled
+    /// The source's DAILY quota is spent — it will not answer usefully
+    /// again until `resumeAt` (the source's documented reset, else UTC
+    /// midnight). Unlike `.throttled`, this must NOT trigger the
+    /// 60s/300s/900s circuit-breaker ladder: no amount of short-cool-down
+    /// retrying recovers a spent daily budget, so the engine parks the
+    /// source until `resumeAt` and continues with the others
+    /// (ENGINE_FOUNDATION #Change5). Emptiness is meaningless.
+    case budgetExhausted(resumeAt: Date)
     /// Anti-bot / block page detected (e.g. Find a Grave's Cloudflare
     /// challenge). Emptiness is meaningless.
     case blocked(reason: String)

@@ -18,9 +18,18 @@ public nonisolated struct Project: Codable, Identifiable, Sendable {
     /// Derbyshire default** — `feedback_no_hardcoded_regions`.
     public var homeChapmanCode: String?
 
+    /// Per-project Discovery expansion bound (ENGINE_FOUNDATION_SPEC
+    /// §Change7). nil = use the engine default (`ExpansionPolicy.default`,
+    /// generational distance ≤ 4). Set here to override — the value is
+    /// persisted in `project_meta.expansion_policy` as a compact wire
+    /// string (e.g. `"collateral:2"`). Bounds how far from the probands
+    /// Discovery is allowed to promote leads; never affects scorer
+    /// verdicts.
+    public var expansionPolicy: ExpansionPolicy?
+
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
-    public init(id: UUID, name: String, source: DataSource, homePersonID: String? = nil, createdAt: Date, lastRefreshed: Date? = nil, archivedAt: Date? = nil, homeChapmanCode: String? = nil) {
+    public init(id: UUID, name: String, source: DataSource, homePersonID: String? = nil, createdAt: Date, lastRefreshed: Date? = nil, archivedAt: Date? = nil, homeChapmanCode: String? = nil, expansionPolicy: ExpansionPolicy? = nil) {
         self.id = id
         self.name = name
         self.source = source
@@ -29,6 +38,12 @@ public nonisolated struct Project: Codable, Identifiable, Sendable {
         self.lastRefreshed = lastRefreshed
         self.archivedAt = archivedAt
         self.homeChapmanCode = homeChapmanCode
+        self.expansionPolicy = expansionPolicy
+    }
+
+    /// The effective policy — the project override or the engine default.
+    public var effectiveExpansionPolicy: ExpansionPolicy {
+        expansionPolicy ?? .default
     }
 
 

@@ -1,4 +1,5 @@
 import Foundation
+import AncestorKit
 
 /// Whether a source is broadly applicable or hyper-local.
 ///
@@ -57,6 +58,16 @@ protocol RecordSource: Sendable {
     /// what an acronym actually covers. Defaults to `displayName`.
     nonisolated var descriptiveName: String { get }
 
+    /// This source's known daily request budget (ENGINE_FOUNDATION
+    /// #Change5). Volunteer-run sources enforce a daily ceiling; when it's
+    /// spent, the `SourceBudgetTracker` parks the source until the policy's
+    /// reset (`.pausedUntilTomorrow`) instead of laddering the transient
+    /// circuit breaker. Defaults to `.unlimited` — a source with no known
+    /// ceiling is never budget-paused. Declarative and static: the live
+    /// count-and-pause state lives in the tracker, not the source, so it
+    /// persists across process restarts.
+    nonisolated var budgetPolicy: SourceBudgetPolicy { get }
+
     func search(_ query: RecordQuery) async -> SourceQueryResult
 
     /// Envelope-aware search (connector-audit T1-01). A protocol
@@ -82,6 +93,11 @@ extension RecordSource {
     /// canonical name is an acronym (CWGC, FreeBMD, FreeCen, FreeREG)
     /// override to spell it out for the Settings list.
     nonisolated var descriptiveName: String { displayName }
+
+    /// Default budget: no known daily ceiling. Volunteer-run sources
+    /// override with their documented / observed daily limit
+    /// (ENGINE_FOUNDATION #Change5).
+    nonisolated var budgetPolicy: SourceBudgetPolicy { .unlimited }
 
     /// Whether the source is currently refusing requests due to its
     /// own rate-limit / circuit-breaker state. Default: false.

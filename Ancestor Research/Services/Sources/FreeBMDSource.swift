@@ -42,6 +42,20 @@ actor FreeBMDSource: RecordSource {
         summary: "Volunteer project — no documented API, no prohibition of programmatic access"
     )
 
+    /// FreeBMD's documented daily quota (ENGINE_FOUNDATION #Change5).
+    /// FreeBMD publishes a per-day search allowance for unregistered /
+    /// standard access; empirically we trip its limiter well before a
+    /// full-corpus sweep completes (memory:
+    /// `feedback_volunteer_sources_rate_limits.md` — the day's budget burns
+    /// in ~30 min of hammering). 200 leaves generous headroom for a normal
+    /// user session while capping a runaway sustained run before it walks
+    /// the whole circuit-breaker ladder. When this ceiling is reached the
+    /// tracker parks the source until UTC midnight rather than laddering
+    /// 60s/300s/900s cool-downs into a spent budget. Reset is UTC-midnight:
+    /// FreeBMD's exact reset clock is undocumented, so we take the
+    /// conservative fallback.
+    nonisolated let budgetPolicy = SourceBudgetPolicy(dailyLimit: 200, reset: .utcMidnight)
+
     // MARK: - State
 
     private let http: any HTTPClient

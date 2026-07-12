@@ -8,6 +8,14 @@ import os
 struct SearchDispatcher {
     let registry: SourceRegistry
 
+    /// Per-source daily-budget tracker (ENGINE_FOUNDATION #Change5). When
+    /// present, budget-paused sources are dropped from the dispatch fan-out
+    /// (the engine continues with the rest) and every query that fires counts
+    /// one request against its source's daily quota. Nil in unit tests and
+    /// any path that doesn't care about budgets — behaviour is then exactly
+    /// as before this Change.
+    var budgetTracker: SourceBudgetTracker? = nil
+
     /// Dispatch searches across all enabled sources for the given record types.
     /// `scope` widens fan-out for scope-aware sources (FreeBMD; FreeCen/FreeREG later).
     /// Local plugins (Wirksworth) and inherently-national sources (CWGC, FindAGrave,
@@ -52,14 +60,33 @@ struct SearchDispatcher {
     ) async -> (records: [SourceRecord], outcomes: [SearchOutcomeEntry]) {
         let ladder = Self.strictnessLadder(for: mode)
 
+        // ENGINE_FOUNDATION #Change5 — set of sources whose daily budget is
+        // spent. Computed ONCE up front so the whole fan-out sees a
+        // consistent view, and so a source paused mid-enumeration is skipped
+        // for every record type (not just the one that happened to notice).
+        // Empty when no tracker is wired. Budget-paused ≠ throttled: we skip
+        // the source entirely rather than laddering its circuit breaker.
+        let pausedSourceIDs: Set<String>
+        if let tracker = budgetTracker {
+            var paused: Set<String> = []
+            for source in registry.enabledSources() where await tracker.isPaused(source.sourceID) {
+                paused.insert(source.sourceID)
+            }
+            pausedSourceIDs = paused
+        } else {
+            pausedSourceIDs = []
+        }
+
         // Enumerate (source, recordType) targets. Per-source coverage check
         // stays in this top loop — we don't dispatch tiers to sources that
-        // can't cover the year window at all.
+        // can't cover the year window at all. Budget-paused sources are
+        // dropped here so the engine continues with the non-paused ones.
         var targets: [(any RecordSource, RecordType)] = []
         for recordType in recordTypes {
             let yearRange = subject.yearRange(for: recordType)
             for source in registry.enabledSources(for: recordType, region: subject.region) {
                 guard sourceCovers(source, yearRange: yearRange) else { continue }
+                guard !pausedSourceIDs.contains(source.sourceID) else { continue }
                 targets.append((source, recordType))
             }
         }
@@ -257,12 +284,13 @@ struct SearchDispatcher {
             // Dedupe identical queries within the tier — variant fan-out can
             // produce duplicate (source, fields) tuples when a surname has no
             // variants and `.variant` collapses back to a single .strict query.
+            let budgetTracker = self.budgetTracker
             let (tierRecords, tierOutcomes) = await withTaskGroup(
                 of: (records: [SourceRecord], outcome: SearchOutcomeEntry).self,
                 returning: ([SourceRecord], [SearchOutcomeEntry]).self
             ) { tierGroup in
                 for query in tierQueries {
-                    tierGroup.addTask { [source, query, cache, negativeCache] in
+                    tierGroup.addTask { [source, query, cache, negativeCache, budgetTracker] in
                         let queryKey = QueryCache.cacheKey(sourceID: source.sourceID, query: query)
                         // T1-04 — cross-run suppression. If a prior run
                         // proved this exact wire query cleanly empty and
@@ -270,6 +298,8 @@ struct SearchDispatcher {
                         // synthesise the known-empty outcome. No HTTP
                         // request, no QueryCache write; the ladder still
                         // sees a conclusive empty and broadens on merit.
+                        // A suppressed query makes NO request, so it is not
+                        // counted against the source's daily budget (#Change5).
                         if let suppressed = negativeCache.suppression(forQueryKey: queryKey) {
                             let entry = SearchOutcomeEntry(
                                 sourceID: source.sourceID,
@@ -280,6 +310,12 @@ struct SearchDispatcher {
                             )
                             return ([], entry)
                         }
+                        // Count one request against the source's daily budget
+                        // BEFORE it fires (#Change5). Uncached hits and cached
+                        // hits alike count the same way the volunteer host
+                        // would see them; the tracker persists the new count
+                        // so it survives a restart mid-run.
+                        await budgetTracker?.recordRequest(source.sourceID)
                         let (records, outcome) = await QueryCache.wrappedSearchWithOutcome(
                             source: source, query: query, cache: cache
                         )
