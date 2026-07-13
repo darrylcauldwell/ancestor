@@ -31,11 +31,11 @@ region:
   districts:
     Belper: "722"
     Ashbourne: "418"
-    Bakewell: "420"
-    Chesterfield: "621"
-    Derby: "710"
-    Basford: "676"
-    Worksop: "765"
+    Bakewell: "691"
+    Chesterfield: "1102"
+    Derby: "1016"
+    Basford: "707"
+    Worksop: "630"
     Glossop: "81"
 
   # Which parishes each registration district covers

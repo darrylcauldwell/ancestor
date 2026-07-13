@@ -40,14 +40,19 @@ import urllib.request
 import urllib.parse
 import re
 
-# Common Derbyshire/Nottinghamshire district IDs
+# Common Derbyshire/Nottinghamshire district IDs.
+# FT-08 (2026-07-13): five of these were stale and silently produced zero
+# results; corrected to the values the Swift side verified against the
+# bundled freebmd-districts.json catalogue in 2026-05 (RegionConfig.swift).
+# The Swift app is the product; these constants exist so the parity
+# reference stops masking divergence in compare_twins.py / compare_gaps.py.
 ASHBOURNE = "418"
 BELPER = "722"
-BASFORD = "676"    # covers Loscoe/Heanor area
-BAKEWELL = "420"
-CHESTERFIELD = "621"
-DERBY = "710"
-WORKSOP = "765"
+BASFORD = "707"    # covers Loscoe/Heanor area (was 676)
+BAKEWELL = "691"   # was 420
+CHESTERFIELD = "1102"  # was 621
+DERBY = "1016"     # was 710
+WORKSOP = "630"    # was 765
 
 QUARTER_NAMES = {"1": "Mar", "2": "Jun", "3": "Sep", "4": "Dec"}
 # Reverse: quarter name → number
