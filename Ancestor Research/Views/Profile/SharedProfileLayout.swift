@@ -26,6 +26,15 @@ struct ProfileEditBindings {
     var bio: Binding<String>
 }
 
+/// Identifiable wrapper for presenting `ConflictResolutionView` via
+/// `.sheet(item:)` — one profile field has at most one displayed dispute
+/// (snapshot map invariant), so (profile, field) identifies the sheet.
+struct DisputeSheetItem: Identifiable {
+    let profile: Profile
+    let dispute: FieldDispute
+    var id: String { "\(profile.id):\(dispute.field.rawValue)" }
+}
+
 /// Shared layout shell for a single profile. Renders the header, fields,
 /// relationships, disputes, life events, attachments, and notes blocks. Owns
 /// the sheets for adding / editing those subordinate items (life events,
@@ -55,6 +64,10 @@ struct SharedProfileLayout: View {
     @State private var showingLifeEventEditor: Bool = false
     @State private var editingLifeEvent: LifeEvent?
     @State private var showingAttachmentImporter: Bool = false
+    /// CONFLICT_LAYER_SPEC §4.8.1 — the dispute the user is resolving.
+    /// `.sheet(item:)` with an Identifiable wrapper (never
+    /// `.sheet(isPresented:) + if let` — the EmptyView-rectangle race).
+    @State private var resolvingDispute: DisputeSheetItem?
 
     /// True when the consumer has opted into editing and supplied bindings.
     /// Treating these together avoids a class of "editable but no bindings"
@@ -162,24 +175,42 @@ struct SharedProfileLayout: View {
             relationshipSection("Children", profiles: snapshot.childrenOf(profile.id))
             relationshipSection("Siblings", profiles: snapshot.siblingsOf(profile.id))
 
-            // Disputes
+            // Disputes — live from CONFLICT_LAYER_SPEC Change 1: the apply
+            // path now produces rows, and each open dispute offers the
+            // resolution flow (ConflictResolutionView → AppState.resolveDispute).
             if !profile.disputes.isEmpty {
                 Divider()
                 Text("Disputes")
                     .font(.headline)
                     .foregroundStyle(.orange)
                 ForEach(Array(profile.disputes.values), id: \.field) { dispute in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(dispute.field.rawValue)
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                        Text(dispute.reason.rawValue)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        ForEach(dispute.competingSources, id: \.raw) { source in
-                            Text("  \(source.origin.identifier): \(source.raw)")
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(dispute.field.rawValue)
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                            Text(dispute.reason.rawValue)
                                 .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(.secondary)
+                            ForEach(dispute.competingSources, id: \.raw) { source in
+                                Text("  \(source.origin.identifier): \(source.raw)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        Spacer()
+                        if dispute.resolution == nil {
+                            Button("Resolve…") {
+                                resolvingDispute = DisputeSheetItem(
+                                    profile: profile, dispute: dispute
+                                )
+                            }
+                            .buttonStyle(.glass)
+                            .controlSize(.small)
+                        } else {
+                            Label("Resolved", systemImage: "checkmark.circle")
+                                .font(.caption2)
+                                .foregroundStyle(.green)
                         }
                     }
                 }
@@ -211,6 +242,9 @@ struct SharedProfileLayout: View {
         }
         .sheet(isPresented: $showingAttachmentImporter) {
             AttachmentImportSheet(target: .profile(id: profile.id))
+        }
+        .sheet(item: $resolvingDispute) { item in
+            ConflictResolutionView(profile: item.profile, dispute: item.dispute)
         }
     }
 

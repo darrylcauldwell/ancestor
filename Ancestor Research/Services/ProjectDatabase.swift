@@ -1252,6 +1252,77 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // CONFLICT_LAYER_SPEC §5 — the evidence-conflict layer's single
+        // migration (ships with CL-Change1; Changes 2–6 need no further
+        // migration). `field_disputes` has zero production writers before
+        // this layer (DS-13), so every change here is additive and
+        // risk-free: existing rows are untouched and read back losslessly
+        // with `kind` defaulting to the only shape the v1 machinery ever
+        // modelled ('fieldValue').
+        migrator.registerMigration("v41_conflict_layer") { db in
+            try db.alter(table: "field_disputes") { t in
+                t.add(column: "entity_kind", .text).notNull().defaults(to: "profile")
+                // 'fieldValue' | 'timeline' | 'parentRole' | 'spouseIdentity'
+                t.add(column: "kind", .text).notNull().defaults(to: "fieldValue")
+                // DiscrepancySeverity raw value
+                t.add(column: "severity", .text)
+                // ⟨G6⟩ 'applyEngine' | 'runSweep' | 'consistencySweep'
+                t.add(column: "detected_by", .text)
+                // Non-FieldSource competitors BY REFERENCE: life_event IDs
+                // (F3/T-D), relationship IDs + record refs (F4a/F4b).
+                // Never WitnessKeys (§2.6 — computed, never persisted).
+                t.add(column: "evidence_json", .text)
+                // ⟨G2⟩ JSON [{rung, outcome, detail}] — every ladder rung
+                // evaluated (fired or not), the written proof argument GPS
+                // element 4 requires.
+                t.add(column: "ladder_trace", .text)
+                // ⟨G8⟩ JSON per-value weighing inputs; a display cache
+                // recomputed on every upsert, never identity.
+                t.add(column: "witness_summary", .text)
+                t.add(column: "resolved_at", .datetime)
+            }
+            // C3 upsert identity: at most ONE open dispute per
+            // (entity_id, kind, field). Partial unique index — resolved
+            // rows are history and may accumulate per key (reopen = new
+            // row, §2.8).
+            try db.execute(sql: """
+                CREATE UNIQUE INDEX idx_field_disputes_open
+                ON field_disputes(entity_id, kind, field)
+                WHERE resolution IS NULL
+                """)
+
+            // ⟨G5⟩ rival value-candidates share one candidate_group_id so
+            // the UI can render a single choose-one card (stamped from CL5;
+            // column lands now so CL5 needs no migration).
+            try db.alter(table: "research_hypotheses") { t in
+                t.add(column: "candidate_group_id", .text)
+            }
+            try db.create(
+                index: "idx_research_hypotheses_group",
+                on: "research_hypotheses",
+                columns: ["candidate_group_id"]
+            )
+
+            // CL3 persists run discrepancies (the v1 table has severity
+            // already; it only lacked a run linkage — and any INSERT).
+            try db.alter(table: "research_discrepancies") { t in
+                t.add(column: "run_id", .text)
+            }
+
+            // CL2's sweep bookkeeping. The spec calls these project_meta
+            // "keys"; this project's project_meta is a single-row,
+            // column-shaped table (see v38's expansion_policy), so the two
+            // keys land as nullable columns. NULL until CL2 writes them.
+            try db.alter(table: "project_meta") { t in
+                // High-water mark letting the standing sweep skip an
+                // unchanged project on open.
+                t.add(column: "conflict_sweep_high_water", .datetime)
+                // One-shot backfill flag ('done' when the CL2 backfill has
+                // surfaced latent contradictions in a pre-v41 tree).
+                t.add(column: "v41_conflict_backfill_done", .text)
+            }
+        }
+
         return migrator
     }
 
@@ -1416,16 +1487,29 @@ nonisolated final class ProjectDatabase: Sendable {
             ))
         }
 
-        // Load disputes for this profile
+        // Load disputes for this profile. CONFLICT_LAYER_SPEC §4.8.1:
+        // the snapshot map carries `fieldValue` disputes only — structural
+        // kinds (timeline/parentRole/spouseIdentity) use field keys that
+        // are not ProfileFields and surface through the DisputeStore
+        // queries instead, so the `[ProfileField: FieldDispute]` keys stay
+        // valid (C3 guarantees ≤1 open row per (field, kind)). Ordered by
+        // rowid so the newest row per field wins deterministically (an
+        // open reopen-row shadows its resolved history for display).
         let disputeRows = try Row.fetchAll(db, sql: """
-            SELECT field, reason, competing_sources, detected_at, resolution FROM field_disputes
+            SELECT field, reason, competing_sources, detected_at, resolution,
+                   kind, severity, detected_by
+            FROM field_disputes
             WHERE entity_id = ?
+            ORDER BY rowid ASC
             """, arguments: [id])
 
         var disputes: [ProfileField: FieldDispute] = [:]
         for dRow in disputeRows {
             let fieldStr: String = dRow["field"]
             guard let field = ProfileField(rawValue: fieldStr) else { continue }
+            let kind = (dRow["kind"] as String?)
+                .flatMap { DisputeKind(rawValue: $0) } ?? .fieldValue
+            guard kind == .fieldValue else { continue }
             let reasonStr: String = dRow["reason"]
             guard let reason = DisputeReason(rawValue: reasonStr) else { continue }
             let competingJSON: String = dRow["competing_sources"]
@@ -1435,9 +1519,14 @@ nonisolated final class ProjectDatabase: Sendable {
             let resolution = resolutionJSON.flatMap {
                 try? JSONDecoder().decode(DisputeResolution.self, from: Data($0.utf8))
             }
+            let severity = (dRow["severity"] as String?)
+                .flatMap { DiscrepancySeverity(rawValue: $0) }
+            let detectedBy = (dRow["detected_by"] as String?)
+                .flatMap { DisputeProducer(rawValue: $0) }
             disputes[field] = FieldDispute(
                 field: field, reason: reason, competingSources: competing,
-                detectedAt: detectedAt, resolution: resolution
+                detectedAt: detectedAt, resolution: resolution,
+                kind: kind, severity: severity, detectedBy: detectedBy
             )
         }
 
@@ -1767,6 +1856,27 @@ nonisolated final class ProjectDatabase: Sendable {
                 let entityKind: String = row["entity_kind"]
                 let field: String = row["field"]
                 let oldValue: String? = row["old_value"]
+
+                // CONFLICT_LAYER_SPEC §6 Change 1 AC4 — reverse a dispute
+                // resolution write (journalled by resolveFieldDispute with
+                // entity_id = the dispute rowid). Restoring a nil old
+                // resolution reopens the dispute (resolved_at cleared);
+                // restoring a previous resolution leaves resolved_at as-is.
+                if entityKind == "dispute" {
+                    if field == "resolution", let rowid = Int64(entityID) {
+                        if let oldVal = oldValue {
+                            try db.execute(sql: """
+                                UPDATE field_disputes SET resolution = ? WHERE rowid = ?
+                                """, arguments: [oldVal, rowid])
+                        } else {
+                            try db.execute(sql: """
+                                UPDATE field_disputes SET resolution = NULL, resolved_at = NULL
+                                WHERE rowid = ?
+                                """, arguments: [rowid])
+                        }
+                    }
+                    continue
+                }
 
                 if entityKind == "profile" {
                     // Handle is_deleted as a special case (not a ProfileField)
@@ -3361,14 +3471,39 @@ nonisolated extension ProjectDatabase {
     }
 }
 
-// MARK: - Field disputes (M16.14)
+// MARK: - Field disputes (M16.14 + CONFLICT_LAYER_SPEC §4.3 C3 — DisputeStore)
+
+/// Full-fidelity projection of one `field_disputes` row (post-v41). The
+/// snapshot's `[ProfileField: FieldDispute]` map carries only `fieldValue`
+/// kinds; this row type is the store-level contract that carries every
+/// kind, the ladder trace, and the witness summary — `allDisputes` over it
+/// is the T9 dossier read contract (§4.8.6).
+nonisolated struct DisputeRow: Identifiable, Sendable {
+    let id: Int64
+    let entityID: String
+    let entityKind: String
+    let kind: DisputeKind
+    let field: String
+    let reason: DisputeReason
+    let severity: DiscrepancySeverity?
+    let detectedBy: DisputeProducer?
+    let competingSources: [FieldSource]
+    let evidenceJSON: String?
+    let ladderTrace: String?
+    let witnessSummary: String?
+    let detectedAt: Date
+    let resolution: DisputeResolution?
+    let resolvedAt: Date?
+
+    var isOpen: Bool { resolution == nil }
+}
 
 nonisolated extension ProjectDatabase {
 
-    /// Insert a `FieldDispute` row. Used by tests and (in future) by the
-    /// dispute-detection pass that runs alongside imports. Production import
-    /// paths don't seed disputes today — buildSnapshot will simply find an
-    /// empty `disputes` map for every profile.
+    /// Insert a `FieldDispute` row directly. Predates the conflict layer
+    /// (M16.14) — kept for the snapshot round-trip tests and manual
+    /// seeding. Production detection goes through `upsertDispute`, which
+    /// enforces the one-open-row identity.
     @discardableResult
     func addFieldDispute(profileID: String, dispute: FieldDispute) throws -> Int64 {
         let competingJSON = Self.encodeJSON(dispute.competingSources)
@@ -3376,20 +3511,254 @@ nonisolated extension ProjectDatabase {
         return try dbQueue.write { db in
             try db.execute(sql: """
                 INSERT INTO field_disputes
-                (entity_id, field, reason, competing_sources, detected_at, resolution)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (entity_id, field, reason, competing_sources, detected_at, resolution,
+                 kind, severity, detected_by, resolved_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
                     profileID, dispute.field.rawValue, dispute.reason.rawValue,
                     competingJSON, dispute.detectedAt, resolutionJSON,
+                    dispute.kind.rawValue, dispute.severity?.rawValue,
+                    dispute.detectedBy?.rawValue,
+                    dispute.resolution == nil ? nil : Date(),
                 ])
             return db.lastInsertedRowID
         }
     }
 
+    // MARK: - C3 upsert (idempotent; detection runs repeatedly)
+
+    /// Persist a detected conflict, enforcing the C3 identity: at most ONE
+    /// open dispute per `(entity_id, kind, field)` (unique partial index,
+    /// §5). Behaviour:
+    ///
+    /// - **No matching open row** → insert a new open dispute stamped with
+    ///   `detected_by` ⟨G6⟩, the ladder trace ⟨G2⟩, and the (interim,
+    ///   lineage-based) witness summary ⟨G8⟩.
+    /// - **Matching open row** → a newly-detected competing value *joins*
+    ///   the row's `competing_sources` set (severity floor-ratchets,
+    ///   trace + witness summary recomputed); an identical re-detection is
+    ///   a no-op.
+    /// - **Matching resolved row, no open row** → witness-gated reopen
+    ///   scaffolding (§2.8 ⟨G3⟩): a new row opens ONLY when the incoming
+    ///   conflict asserts a value not already represented among the
+    ///   resolved row's competitors. Until WitnessIdentity ships (CL4)
+    ///   value-novelty stands in for witness-novelty — the conservative
+    ///   direction (§4.1: when independence cannot be proven it is not
+    ///   counted), so an already-weighed value never re-litigates.
+    ///
+    /// `transactionID` (optional) binds the row to the apply transaction
+    /// that surfaced it, so structural/replay undo cascades the dispute
+    /// away with the write that caused it (`created_by_transaction_id`).
+    @discardableResult
+    func upsertDispute(
+        profileID: String,
+        conflict: DetectedConflict,
+        adjudication: DisputeResolver.Adjudication,
+        transactionID: UUID? = nil
+    ) throws -> Int64 {
+        let witnessSummary = Self.interimWitnessSummary(for: conflict.competingSources)
+        let traceJSON = adjudication.traceJSON
+        let resolutionJSON = adjudication.resolution.map { Self.encodeJSON($0) }
+
+        return try dbQueue.write { db in
+            // 1. Join an existing open dispute for the same identity.
+            if let openRow = try Row.fetchOne(db, sql: """
+                SELECT rowid, competing_sources, severity FROM field_disputes
+                WHERE entity_id = ? AND kind = ? AND field = ? AND resolution IS NULL
+                """, arguments: [profileID, conflict.kind.rawValue, conflict.field]) {
+                let rowid: Int64 = openRow["rowid"]
+                let existingJSON: String = openRow["competing_sources"]
+                var existing = (try? JSONDecoder().decode(
+                    [FieldSource].self, from: Data(existingJSON.utf8))) ?? []
+                let known = Set(existing.map { "\($0.origin.identifier)|\($0.raw)" })
+                let newcomers = conflict.competingSources.filter {
+                    !known.contains("\($0.origin.identifier)|\($0.raw)")
+                }
+                let storedSeverity = (openRow["severity"] as String?)
+                    .flatMap { DiscrepancySeverity(rawValue: $0) } ?? .none
+                let mergedSeverity = max(storedSeverity, conflict.severity)
+                guard !newcomers.isEmpty || mergedSeverity != storedSeverity else {
+                    return rowid // identical re-detection — no-op
+                }
+                existing.append(contentsOf: newcomers)
+                try db.execute(sql: """
+                    UPDATE field_disputes
+                    SET competing_sources = ?, severity = ?, ladder_trace = ?,
+                        witness_summary = ?
+                    WHERE rowid = ?
+                    """, arguments: [
+                        Self.encodeJSON(existing), mergedSeverity.rawValue,
+                        traceJSON, Self.interimWitnessSummary(for: existing),
+                        rowid,
+                    ])
+                return rowid
+            }
+
+            // 2. Reopen gate against the most recent resolved row ⟨G3⟩.
+            if let resolvedRow = try Row.fetchOne(db, sql: """
+                SELECT rowid, competing_sources FROM field_disputes
+                WHERE entity_id = ? AND kind = ? AND field = ? AND resolution IS NOT NULL
+                ORDER BY rowid DESC LIMIT 1
+                """, arguments: [profileID, conflict.kind.rawValue, conflict.field]) {
+                let resolvedJSON: String = resolvedRow["competing_sources"]
+                let weighed = (try? JSONDecoder().decode(
+                    [FieldSource].self, from: Data(resolvedJSON.utf8))) ?? []
+                let weighedValues = Set(weighed.map(\.raw))
+                let novel = conflict.competingSources.contains {
+                    !weighedValues.contains($0.raw)
+                }
+                if !novel {
+                    // Every asserted value was already weighed when the
+                    // human (or a future rule) resolved this dispute —
+                    // never re-litigate (§2.8).
+                    return resolvedRow["rowid"] as Int64
+                }
+                // Fall through: a genuinely new value reopens as a NEW row
+                // (the resolved row is history — preserved for undo and
+                // the dossier, §3).
+            }
+
+            // 3. Insert a fresh dispute row.
+            try db.execute(sql: """
+                INSERT INTO field_disputes
+                (entity_id, entity_kind, kind, field, reason, competing_sources,
+                 detected_at, resolution, resolved_at, severity, detected_by,
+                 evidence_json, ladder_trace, witness_summary,
+                 created_by_transaction_id)
+                VALUES (?, 'profile', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    profileID, conflict.kind.rawValue, conflict.field,
+                    conflict.reason.rawValue,
+                    Self.encodeJSON(conflict.competingSources),
+                    Date(),
+                    resolutionJSON,
+                    resolutionJSON == nil ? nil : Date(),
+                    conflict.severity.rawValue,
+                    conflict.detectedBy.rawValue,
+                    conflict.evidenceJSON,
+                    traceJSON,
+                    witnessSummary,
+                    transactionID?.uuidString,
+                ])
+            return db.lastInsertedRowID
+        }
+    }
+
+    /// ⟨G8⟩ interim witness summary — per-value weighing inputs the
+    /// resolution UI renders. Until WitnessIdentity ships (CL4) the
+    /// "witnesses" listed are provenance origins (lineage-level), stated
+    /// here so nobody mistakes the interim for the design. A display
+    /// cache recomputed on every upsert, never identity (§2.6).
+    static func interimWitnessSummary(for sources: [FieldSource]) -> String {
+        struct ValueSummary: Codable {
+            let value: String
+            let witnesses: [String]
+            let bestTier: Int
+        }
+        var byValue: [String: [FieldSource]] = [:]
+        for source in sources { byValue[source.raw, default: []].append(source) }
+        let summaries = byValue.keys.sorted().map { value -> ValueSummary in
+            let group = byValue[value] ?? []
+            let origins = Array(Set(group.map(\.origin.identifier))).sorted()
+            let bestTier = origins
+                .map { ConflictDetector.trustTier(forOriginIdentifier: $0).rawValue }
+                .max() ?? SourceTrustTier.community.rawValue
+            return ValueSummary(value: value, witnesses: origins, bestTier: bestTier)
+        }
+        return (try? JSONEncoder().encode(summaries))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+    }
+
+    // MARK: - C3 surfacing queries
+
+    /// Open disputes for one profile, newest first.
+    func openDisputes(profileID: String) throws -> [DisputeRow] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT rowid, * FROM field_disputes
+                WHERE entity_id = ? AND resolution IS NULL
+                ORDER BY rowid DESC
+                """, arguments: [profileID])
+            return rows.compactMap(Self.disputeRow(from:))
+        }
+    }
+
+    /// Count of open disputes across the whole project (Audit tab badge).
+    func openDisputeCount() throws -> Int {
+        try dbQueue.read { db in
+            try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM field_disputes WHERE resolution IS NULL
+                """) ?? 0
+        }
+    }
+
+    /// Every open dispute in the project, newest first.
+    func allOpenDisputes() throws -> [DisputeRow] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT rowid, * FROM field_disputes
+                WHERE resolution IS NULL
+                ORDER BY rowid DESC
+                """)
+            return rows.compactMap(Self.disputeRow(from:))
+        }
+    }
+
+    /// Open + resolved disputes for one profile — the T9 dossier read
+    /// contract (§4.8.6): each row carries its deterministic reasoning
+    /// inputs (`ladderTrace`, `witnessSummary`) verbatim.
+    func allDisputes(profileID: String) throws -> [DisputeRow] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT rowid, * FROM field_disputes
+                WHERE entity_id = ?
+                ORDER BY rowid DESC
+                """, arguments: [profileID])
+            return rows.compactMap(Self.disputeRow(from:))
+        }
+    }
+
+    private static func disputeRow(from row: Row) -> DisputeRow? {
+        guard let reason = DisputeReason(rawValue: row["reason"] as String? ?? "") else { return nil }
+        let competingJSON: String = row["competing_sources"] ?? "[]"
+        let competing = (try? JSONDecoder().decode(
+            [FieldSource].self, from: Data(competingJSON.utf8))) ?? []
+        let resolution = (row["resolution"] as String?).flatMap {
+            try? JSONDecoder().decode(DisputeResolution.self, from: Data($0.utf8))
+        }
+        return DisputeRow(
+            id: row["rowid"],
+            entityID: row["entity_id"],
+            entityKind: row["entity_kind"] as String? ?? "profile",
+            kind: (row["kind"] as String?).flatMap { DisputeKind(rawValue: $0) } ?? .fieldValue,
+            field: row["field"],
+            reason: reason,
+            severity: (row["severity"] as String?).flatMap { DiscrepancySeverity(rawValue: $0) },
+            detectedBy: (row["detected_by"] as String?).flatMap { DisputeProducer(rawValue: $0) },
+            competingSources: competing,
+            evidenceJSON: row["evidence_json"],
+            ladderTrace: row["ladder_trace"],
+            witnessSummary: row["witness_summary"],
+            detectedAt: row["detected_at"],
+            resolution: resolution,
+            resolvedAt: row["resolved_at"]
+        )
+    }
+
+    // MARK: - Resolution (existing write path, extended for CL1 AC4)
+
     /// Persist a resolution onto the most-recent matching `field_disputes`
     /// row for `(profileID, field)`. Wraps the write in a transaction so
     /// undo can replay the change. Returns the new transaction record so
     /// callers can record session events.
+    ///
+    /// CONFLICT_LAYER_SPEC §6 Change 1 AC4 — pick-a-value resolution is
+    /// end-to-end: an `.accepted(source)` (or rule-`.rule`) resolution also
+    /// updates the **canonical profile field** to the accepted value inside
+    /// the same transaction, journalled through `field_changes` so ONE undo
+    /// restores both the field and the open dispute. The resolution write
+    /// itself is journalled as an `entity_kind = 'dispute'` field change
+    /// that `undoReplay` reverses.
     ///
     /// `resolution == nil` clears any previous decision (used by "Defer"
     /// in the UI when the user opens the dialog, changes their mind, and
@@ -3411,6 +3780,13 @@ nonisolated extension ProjectDatabase {
             changeCount: 1, profileCount: 1
         )
 
+        // The value the human picked, when they picked one.
+        let acceptedSource: FieldSource? = switch resolution {
+        case .accepted(let src): src
+        case .rule(_, let src): src
+        case .manual, .deferred, nil: nil
+        }
+
         try dbQueue.write { db in
             try db.execute(sql: """
                 INSERT INTO transactions
@@ -3424,22 +3800,90 @@ nonisolated extension ProjectDatabase {
                     transaction.changeCount, transaction.profileCount,
                 ])
 
+            guard let target = try Row.fetchOne(db, sql: """
+                SELECT rowid, resolution FROM field_disputes
+                WHERE entity_id = ? AND field = ?
+                ORDER BY rowid DESC LIMIT 1
+                """, arguments: [profileID, field.rawValue]) else { return }
+            let rowid: Int64 = target["rowid"]
+            let oldResolutionJSON: String? = target["resolution"]
+
             let resolutionJSON: String? = resolution.map { Self.encodeJSON($0) }
             try db.execute(sql: """
                 UPDATE field_disputes
-                SET resolution = ?
-                WHERE rowid = (
-                    SELECT rowid FROM field_disputes
-                    WHERE entity_id = ? AND field = ?
-                    ORDER BY rowid DESC LIMIT 1
-                )
+                SET resolution = ?, resolved_at = ?
+                WHERE rowid = ?
                 """, arguments: [
                     resolutionJSON,
-                    profileID, field.rawValue,
+                    resolution == nil ? nil : Date(),
+                    rowid,
                 ])
+
+            // Journal the resolution write so undoReplay can reverse it
+            // (entity_kind 'dispute' arm). new_value is NOT NULL — the
+            // clear-resolution case journals an empty string.
+            try db.execute(sql: """
+                INSERT INTO field_changes (id, transaction_id, entity_id, entity_kind, field, old_value, new_value, source, reason)
+                VALUES (?, ?, ?, 'dispute', 'resolution', ?, ?, 'user', NULL)
+                """, arguments: [
+                    UUID().uuidString, transaction.id.uuidString,
+                    String(rowid),
+                    oldResolutionJSON, resolutionJSON ?? "",
+                ])
+
+            // AC4 — pick-a-value updates the canonical field in the same
+            // transaction (human decided; this is not an engine overwrite,
+            // so the apply-path policies are not consulted).
+            if let accepted = acceptedSource {
+                try self.applyAcceptedDisputeValue(
+                    accepted, field: field, profileID: profileID,
+                    transactionID: transaction.id, db: db
+                )
+            }
         }
 
         return transaction
+    }
+
+    /// Write a dispute's accepted value onto the canonical profile column,
+    /// journalled under the resolve transaction. Skips the write when the
+    /// canonical value already equals the accepted one.
+    private func applyAcceptedDisputeValue(
+        _ accepted: FieldSource,
+        field: ProfileField,
+        profileID: String,
+        transactionID: UUID,
+        db: Database
+    ) throws {
+        switch field {
+        case .birthDate, .deathDate:
+            let prefix = field == .birthDate ? "birth_date" : "death_date"
+            let row = try Row.fetchOne(db, sql: """
+                SELECT \(prefix)_original AS original, \(prefix)_earliest AS earliest,
+                       \(prefix)_latest AS latest, \(prefix)_qualifier AS qualifier
+                FROM profiles WHERE id = ?
+                """, arguments: [profileID])
+            let currentOriginal: String? = row?["original"]
+            guard currentOriginal != accepted.raw else { return }
+            let oldDate: GenealogicalDate? = currentOriginal.map { GenealogicalDate(parsing: $0) }
+            let newDate = GenealogicalDate(parsing: accepted.raw)
+            try updateProfileDateField(
+                profileID: profileID, field: field,
+                oldDate: oldDate, newDate: newDate,
+                source: accepted.origin, transactionID: transactionID, db: db
+            )
+        default:
+            guard let column = Self.profileFieldToColumn(field.rawValue) else { return }
+            let current = try String.fetchOne(db, sql: """
+                SELECT \(column) FROM profiles WHERE id = ?
+                """, arguments: [profileID])
+            guard current != accepted.raw else { return }
+            try updateProfileField(
+                profileID: profileID, field: field,
+                oldValue: current, newValue: accepted.raw,
+                source: accepted.origin, transactionID: transactionID, db: db
+            )
+        }
     }
 }
 

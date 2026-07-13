@@ -1250,6 +1250,17 @@ struct ClusterReviewView: View {
         default: ""
         }
         let subjectName = vm.selectedProfile?.displayName ?? "subject"
+        // CONFLICT_LAYER_SPEC §6 Change 1 AC3 — pre-computed occupied-role
+        // warning ("Subject already has a mother: BOWN"), shared predicate
+        // with the accept-time F4a dispute hook so UI and producer can
+        // never disagree. Shown only while the accept is still offered.
+        let roleWarning: String? = (alreadyLinked || decision != nil)
+            ? nil
+            : ApplyEngine.parentRoleConflictWarning(
+                for: proposal,
+                subjectID: proposal.relationship.subjectID,
+                snapshot: appState.snapshot
+            )
 
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
@@ -1276,6 +1287,11 @@ struct ClusterReviewView: View {
                         Text("· parent of \(subjectName)")
                             .font(AppTypography.cardMeta)
                             .foregroundStyle(.secondary)
+                    }
+                    if let roleWarning {
+                        Label(roleWarning, systemImage: "exclamationmark.triangle.fill")
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.orange)
                     }
                 }
                 Spacer()

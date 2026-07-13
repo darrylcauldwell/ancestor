@@ -35,6 +35,13 @@ extension ProjectDatabase {
     /// That is the pre-existing accept-flow behaviour (the human has just
     /// reviewed this exact value); unifying it with the ApplyEngine
     /// overwrite policy is Phase 1 slice 3+ scope, not this seam move.
+    ///
+    /// CONFLICT_LAYER_SPEC §4.4 T-A (pending-fact producer): because this
+    /// path bypasses the overwrite policy, the F1/F2 incompatibility test
+    /// runs *after* the write — the displaced value (still attested in
+    /// `field_sources` and captured from the canonical column here) opens
+    /// a `fieldValue` dispute when it genuinely conflicts with the value
+    /// the human just accepted. The write itself is untouched.
     func applyAcceptedPendingFact(profileID: String, field: String, value: String) throws {
         // Map finding field to profile column
         let (column, datePrefix): (String?, String) = switch field {
@@ -47,7 +54,14 @@ extension ProjectDatabase {
 
         guard let column else { return } // Narrative-only fields (occupation/address) have no profile column
 
-        try dbQueue.write { writeDB in
+        // Capture the value being displaced before the overwrite — the
+        // conflict check below compares against it.
+        let oldValue: String? = try dbQueue.write { writeDB in
+            let previous = try String.fetchOne(
+                writeDB,
+                sql: "SELECT \(column) FROM profiles WHERE id = ?",
+                arguments: [profileID]
+            )
             try writeDB.execute(
                 sql: "UPDATE profiles SET \(column) = ? WHERE id = ?",
                 arguments: [value, profileID]
@@ -60,7 +74,69 @@ extension ProjectDatabase {
                     arguments: [year, year, profileID]
                 )
             }
+            return previous
         }
+
+        try detectConflictForAcceptedPendingFact(
+            profileID: profileID, field: field, value: value, displaced: oldValue
+        )
+    }
+
+    /// Post-write F1/F2 hook for the pending-facts accept path. Separate
+    /// from the write transaction: `upsertDispute` manages its own write,
+    /// and a detection failure must never roll back a human-accepted fact.
+    private func detectConflictForAcceptedPendingFact(
+        profileID: String, field: String, value: String, displaced: String?
+    ) throws {
+        let profileField: ProfileField? = switch field {
+        case "birthDate", "baptismDate": .birthDate
+        case "deathDate", "burialDate": .deathDate
+        case "birthLocation": .birthLocation
+        case "deathLocation": .deathLocation
+        default: nil
+        }
+        guard let profileField else { return }
+        guard let profile = try loadProfile(id: profileID) else { return }
+
+        // The displaced value joins the attested competitors so the
+        // conflict is visible even when the audit log never journalled it.
+        var attested = profile.sources[profileField] ?? []
+        if let displaced, !displaced.trimmingCharacters(in: .whitespaces).isEmpty,
+           !attested.contains(where: { $0.raw == displaced }) {
+            attested.append(FieldSource(
+                origin: SourceOrigin(identifier: "tree"),
+                raw: displaced,
+                addedAt: Date()
+            ))
+        }
+
+        let origin = SourceOrigin(identifier: "field-researcher")
+        let conflict: DetectedConflict? = switch profileField {
+        case .birthDate, .deathDate:
+            ConflictDetector.dateFieldConflict(
+                field: profileField,
+                existing: displaced.map { GenealogicalDate(parsing: $0) },
+                existingSources: attested,
+                candidate: GenealogicalDate(parsing: value),
+                candidateOrigin: origin,
+                profileID: profileID
+            )
+        default:
+            ConflictDetector.stringFieldConflict(
+                field: profileField,
+                existing: displaced,
+                existingSources: attested,
+                candidate: value,
+                candidateOrigin: origin,
+                profileID: profileID
+            )
+        }
+        guard let conflict else { return }
+        _ = try upsertDispute(
+            profileID: profileID,
+            conflict: conflict,
+            adjudication: DisputeResolver.adjudicate(conflict)
+        )
     }
 
     /// Provenance row for a field written via the pending-facts accept flow.

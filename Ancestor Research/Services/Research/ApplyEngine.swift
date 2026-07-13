@@ -21,6 +21,16 @@ nonisolated struct ApplyEngine {
         let error: any Error
     }
 
+    /// WriteFailure-grade notice for a detected conflict that is NOT a
+    /// persistence failure (CONFLICT_LAYER_SPEC §4.4 T-A). Rides the
+    /// existing failure channel so callers surface it to log + UI without
+    /// a new outcome type — e.g. DS-12's marriage-spouse mismatch, which
+    /// previously vanished in a silent `return`.
+    struct ConflictNotice: Error, LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
     // MARK: - Record-level apply
 
     /// Write an accepted record's data onto the subject profile.
@@ -38,7 +48,11 @@ nonisolated struct ApplyEngine {
         switch scored.record {
         case .birth(let r):
             let dateCandidate = bmdDate(year: r.birthYear, quarter: r.quarter, exact: r.birthDate)
-            applyDateField(.birthDate, existing: profile.birthDate, candidate: dateCandidate, profileID: profile.id, origin: origin, db: db, failures: &failures)
+            applyDateField(
+                .birthDate, existing: profile.birthDate,
+                existingSources: profile.sources[.birthDate] ?? [],
+                candidate: dateCandidate, profileID: profile.id, origin: origin, db: db, failures: &failures
+            )
             applyStringField(
                 .birthLocation, existing: profile.birthLocation,
                 existingSources: profile.sources[.birthLocation] ?? [],
@@ -47,7 +61,11 @@ nonisolated struct ApplyEngine {
             )
         case .death(let r):
             let dateCandidate = bmdDate(year: r.deathYear, quarter: r.quarter, exact: r.deathDate)
-            applyDateField(.deathDate, existing: profile.deathDate, candidate: dateCandidate, profileID: profile.id, origin: origin, db: db, failures: &failures)
+            applyDateField(
+                .deathDate, existing: profile.deathDate,
+                existingSources: profile.sources[.deathDate] ?? [],
+                candidate: dateCandidate, profileID: profile.id, origin: origin, db: db, failures: &failures
+            )
             applyStringField(
                 .deathLocation, existing: profile.deathLocation,
                 existingSources: profile.sources[.deathLocation] ?? [],
@@ -91,7 +109,33 @@ nonisolated struct ApplyEngine {
             guard let other = snapshot.profiles[otherID] else { return false }
             return (other.lastName ?? "").uppercased() == recordSpouseSurname
         }
-        guard let edge = matched else { return }
+        guard let edge = matched else {
+            // CONFLICT_LAYER_SPEC §4.4 T-A / §6 Change 1 AC2 — DS-12. A
+            // marriage record naming a spouse the tree doesn't know used to
+            // silently no-op here: no write, no failure, no trace. The
+            // strongest wrong-person signal a marriage record can carry now
+            // opens an F4b spouseIdentity dispute AND reports on the
+            // outcome channel.
+            let conflict = ConflictDetector.spouseIdentityConflict(
+                marriage: m,
+                recordSpouseSurname: recordSpouseSurname,
+                profileID: profileID,
+                spouseEdges: spouseEdges,
+                snapshot: snapshot,
+                origin: SourceOrigin(identifier: m.common.sourceID)
+            )
+            let adjudication = DisputeResolver.adjudicate(conflict)
+            attempt("Record spouse-identity dispute", into: &failures) {
+                _ = try db.upsertDispute(
+                    profileID: profileID, conflict: conflict, adjudication: adjudication
+                )
+            }
+            failures.append(WriteFailure(
+                what: "Marriage record spouse mismatch",
+                error: ConflictNotice(message: "Marriage record names spouse surname \(recordSpouseSurname), which matches no linked spouse — opened a spouse-identity dispute")
+            ))
+            return
+        }
 
         let dateCandidate = bmdDate(year: m.marriageYear, quarter: m.quarter, exact: m.marriageDate)
         let locationCandidate = m.marriagePlace ?? m.district
@@ -107,6 +151,7 @@ nonisolated struct ApplyEngine {
     private static func applyDateField(
         _ field: ProfileField,
         existing: GenealogicalDate?,
+        existingSources: [FieldSource],
         candidate: GenealogicalDate?,
         profileID: String,
         origin: SourceOrigin,
@@ -119,8 +164,28 @@ nonisolated struct ApplyEngine {
                 _ = try db.editProfile(profileID: profileID, changes: [], dateChanges: [(field, existing, candidate)], source: origin)
             }
         } else {
+            // CONFLICT_LAYER_SPEC §4.4 T-A — F1 runs before the
+            // alternative-fact write. Compatible-but-not-narrower keeps
+            // today's behaviour (alternative fact only); an INCOMPATIBLE
+            // candidate is preserved as data AND as signal (DS-13 part 3):
+            // the same evidence row, plus an open dispute. The write
+            // outcome itself is untouched (Change 1 AC5).
+            let conflict = ConflictDetector.dateFieldConflict(
+                field: field, existing: existing, existingSources: existingSources,
+                candidate: candidate, candidateOrigin: origin, profileID: profileID
+            )
+            var alternativeTx: Transaction?
             attempt("Record alternative \(field) fact", into: &failures) {
-                _ = try db.recordAlternativeFact(profileID: profileID, field: field, rawValue: candidate.original, source: origin)
+                alternativeTx = try db.recordAlternativeFact(profileID: profileID, field: field, rawValue: candidate.original, source: origin)
+            }
+            if let conflict {
+                let adjudication = DisputeResolver.adjudicate(conflict)
+                attempt("Record \(field) dispute", into: &failures) {
+                    _ = try db.upsertDispute(
+                        profileID: profileID, conflict: conflict,
+                        adjudication: adjudication, transactionID: alternativeTx?.id
+                    )
+                }
             }
         }
     }
@@ -141,8 +206,27 @@ nonisolated struct ApplyEngine {
                 _ = try db.editProfile(profileID: profileID, changes: [(field, existing, trimmed)], dateChanges: [], source: origin)
             }
         } else {
+            // CONFLICT_LAYER_SPEC §4.4 T-A — F2 mirror of the date hook:
+            // a normalised-mismatch candidate still lands as an alternative
+            // fact (today's write outcome, AC5) and additionally opens a
+            // fieldValue dispute so the losing value stops being buried in
+            // field_sources (DS-09's surfacing half / DS-13 part 3).
+            let conflict = ConflictDetector.stringFieldConflict(
+                field: field, existing: existing, existingSources: existingSources,
+                candidate: trimmed, candidateOrigin: origin, profileID: profileID
+            )
+            var alternativeTx: Transaction?
             attempt("Record alternative \(field) fact", into: &failures) {
-                _ = try db.recordAlternativeFact(profileID: profileID, field: field, rawValue: trimmed, source: origin)
+                alternativeTx = try db.recordAlternativeFact(profileID: profileID, field: field, rawValue: trimmed, source: origin)
+            }
+            if let conflict {
+                let adjudication = DisputeResolver.adjudicate(conflict)
+                attempt("Record \(field) dispute", into: &failures) {
+                    _ = try db.upsertDispute(
+                        profileID: profileID, conflict: conflict,
+                        adjudication: adjudication, transactionID: alternativeTx?.id
+                    )
+                }
             }
         }
     }
@@ -291,13 +375,98 @@ nonisolated struct ApplyEngine {
                 db: db,
                 failures: &failures
             )
+            openParentRoleDisputeIfOccupied(
+                proposal: proposal, subjectID: subjectID,
+                acceptedParentID: existingID,
+                snapshot: snapshot, db: db, failures: &failures
+            )
             return .linkedExisting(existingID)
         case .noMatch, .multipleMatches:
             // multipleMatches still creates new — CLAUDE.md "When
             // in doubt, split". Audit's duplicateDetection rule
             // surfaces the trio for the user to merge manually.
             _ = try db.acceptProposedRelative(proposal)
+            openParentRoleDisputeIfOccupied(
+                proposal: proposal, subjectID: subjectID,
+                acceptedParentID: nil,
+                snapshot: snapshot, db: db, failures: &failures
+            )
             return .createdNew
+        }
+    }
+
+    // MARK: - F4a — parent-role conflict on accept (CONFLICT_LAYER_SPEC §4.4 T-A)
+
+    /// Pre-computed warning for the accept UI (§6 Change 1 AC3): non-nil
+    /// when accepting this proposal would put a second biological parent
+    /// into an occupied role ("Subject already has a mother: BOWN").
+    /// Shares its predicate with the accept-time dispute hook via
+    /// `ConflictDetector.occupiedBiologicalRole` so UI and producer can
+    /// never disagree. `@MainActor` because dedup is (the same reason the
+    /// accept itself is).
+    @MainActor
+    static func parentRoleConflictWarning(
+        for proposal: ProposedRelative,
+        subjectID: String,
+        snapshot: FamilyGraphSnapshot
+    ) -> String? {
+        let role = parentRole(for: proposal.gender)
+        guard role == .father || role == .mother else { return nil }
+        let acceptedParentID: String? = switch ProposalDedup.decide(
+            query: ProposalDedup.Query(parentProposal: proposal),
+            candidates: Array(snapshot.profiles.values)
+        ) {
+        case .matched(let id): id
+        case .noMatch, .multipleMatches: nil
+        }
+        guard let occupied = ConflictDetector.occupiedBiologicalRole(
+            subjectID: subjectID, role: role,
+            excludingParentID: acceptedParentID, snapshot: snapshot
+        ) else { return nil }
+        return ConflictDetector.parentRoleWarning(role: role, occupant: occupied.occupant)
+    }
+
+    /// The accept proceeds (human decided), but DS-26's two-mothers state
+    /// can no longer exist invisibly: an F4a `parentRole` dispute opens in
+    /// the same breath. Dispute write failures ride the failure channel —
+    /// they never abort the accept.
+    @MainActor
+    private static func openParentRoleDisputeIfOccupied(
+        proposal: ProposedRelative,
+        subjectID: String,
+        acceptedParentID: String?,
+        snapshot: FamilyGraphSnapshot,
+        db: ProjectDatabase,
+        failures: inout [WriteFailure]
+    ) {
+        let role = parentRole(for: proposal.gender)
+        guard role == .father || role == .mother else { return }
+        guard let occupied = ConflictDetector.occupiedBiologicalRole(
+            subjectID: subjectID, role: role,
+            excludingParentID: acceptedParentID, snapshot: snapshot
+        ) else { return }
+
+        let proposedName = [
+            proposal.proposedGivenName?.capitalized,
+            proposal.proposedSurname,
+        ].compactMap { $0 }.joined(separator: " ")
+        let origin = SourceOrigin(
+            identifier: proposal.evidence.first?.record.sourceID ?? "engine.enrichment"
+        )
+        let conflict = ConflictDetector.parentRoleConflict(
+            subjectID: subjectID,
+            role: role,
+            occupant: occupied.occupant,
+            occupantEdge: occupied.edge,
+            proposedParentDescription: proposedName.isEmpty ? "(unnamed)" : proposedName,
+            proposedParentOrigin: origin,
+            evidenceRecordIDs: proposal.evidence.map { $0.record.id }
+        )
+        let adjudication = DisputeResolver.adjudicate(conflict)
+        attempt("Record parent-role dispute", into: &failures) {
+            _ = try db.upsertDispute(
+                profileID: subjectID, conflict: conflict, adjudication: adjudication
+            )
         }
     }
 
