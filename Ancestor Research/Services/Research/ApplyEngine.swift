@@ -186,6 +186,20 @@ nonisolated struct ApplyEngine {
                         adjudication: adjudication, transactionID: alternativeTx?.id
                     )
                 }
+                // CL5 — the programme's first write-behaviour change,
+                // confined to same-span date conflicts (previously silent
+                // first-writer-wins, DS-09). When the R2 quality-dominance
+                // ladder resolves FOR THE CANDIDATE, the higher-quality
+                // value displaces the field; the displaced value stays in
+                // field_sources and the dispute persists as resolved with
+                // its full ladder trace. R3 shields user values upstream.
+                if case .rule(let ruleID, let accepted)? = adjudication.resolution,
+                   accepted.origin.identifier == origin.identifier,
+                   accepted.raw == candidate.original {
+                    attempt("Apply \(field) via \(ruleID) quality dominance", into: &failures) {
+                        _ = try db.editProfile(profileID: profileID, changes: [], dateChanges: [(field, existing, candidate)], source: origin)
+                    }
+                }
             }
         }
     }

@@ -53,6 +53,22 @@ nonisolated struct ConflictDetector {
     /// live plugin declarations so the two can never drift. Unknown
     /// identifiers grade `.community` — the registry's own default
     /// direction for unknown provenance.
+    /// R2a's originality axis ⟨G7⟩ — mirror of the plugin declarations
+    /// (same parity discipline as `trustTier(forOriginIdentifier:)`): CWGC
+    /// and Probate publish from their own registers (primary); the
+    /// volunteer transcription sites transcribe originals directly;
+    /// FindAGrave memorial content is derivative of family knowledge.
+    static func evidenceDirectness(forOriginIdentifier identifier: String) -> EvidenceDirectness {
+        switch identifier {
+        case "cwgc", "probate":
+            return .primary
+        case "freebmd", "freecen", "freereg", "wirksworth", "familysearch":
+            return .directTranscription
+        default:
+            return .derivative
+        }
+    }
+
     static func trustTier(forOriginIdentifier identifier: String) -> SourceTrustTier {
         switch identifier {
         case "freebmd", "freecen", "freereg", "wirksworth", "familysearch":
