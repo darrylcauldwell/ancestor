@@ -47,6 +47,20 @@ struct ContentView: View {
 /// Main app view shown when a project is open.
 struct MainView: View {
     @Environment(AppState.self) private var appState
+
+    private var importCleanseBinding: Binding<ImportCleanseReview?> {
+        Binding(
+            get: { appState.importCleanseReview },
+            set: { if $0 == nil { appState.importCleanseReview = nil } }
+        )
+    }
+
+    private var resumableSessionBinding: Binding<Bool> {
+        Binding(
+            get: { appState.resumableSession != nil },
+            set: { if !$0 { appState.dismissResumableSession() } }
+        )
+    }
     @State private var selectedTab: SidebarTab = {
         // Screenshot mode: jump directly to the requested screen
         if let screen = ScreenshotScreen.fromLaunchArguments() {
@@ -161,6 +175,9 @@ struct MainView: View {
             appState.researchProfileID = nil
             appState.researchConfigProfile = profile
         }
+        .sheet(item: importCleanseBinding) { review in
+            ImportCleanseSheet(review: review)
+        }
         .sheet(item: Binding(
             get: { appState.researchConfigProfile },
             set: {
@@ -242,10 +259,7 @@ struct MainView: View {
         // M8 W4 — surface the welcome-back prompt after openProject sets a
         // resumableSession. Continue activates the focus set and switches
         // the sidebar to the Workbench view.
-        .sheet(isPresented: Binding(
-            get: { appState.resumableSession != nil },
-            set: { if !$0 { appState.dismissResumableSession() } }
-        )) {
+        .sheet(isPresented: resumableSessionBinding) {
             if let resumable = appState.resumableSession {
                 SessionResumeView(session: resumable) {
                     if appState.workbenchHasContent {

@@ -5,6 +5,11 @@ import os
 @MainActor @Observable
 final class AppState {
     private let sweepLogger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "ConflictSweep")
+
+    /// IMPORT_DEDUPE_SPEC — orphan-stub duplicates found by the last import,
+    /// awaiting the user's one-click cleanse decision. nil = nothing to
+    /// review (or already handled).
+    var importCleanseReview: ImportCleanseReview?
     var currentProject: Project?
     var currentDatabase: ProjectDatabase?
 
@@ -279,7 +284,7 @@ final class AppState {
     }
 
     /// Run audit automatically after any snapshot change.
-    private func runPostLoadAudit() {
+    func runPostLoadAudit() {
         guard !snapshot.profiles.isEmpty else {
             auditSummary = nil
             return
@@ -1204,6 +1209,16 @@ final class AppState {
 
         loadingMessage = "Running audit..."
         runPostLoadAudit()
+
+        // IMPORT_DEDUPE_SPEC — flag orphan-stub duplicates left by the
+        // export (Ancestry's merge tool strips a duplicate's family links
+        // but leaves the record). Surfaced for one-click review; empty
+        // stubs are safe to remove (they carry no data), non-empty ones
+        // route to the Compare/merge flow.
+        let stubCandidates = OrphanStubDetector.candidates(in: snapshot)
+        if !stubCandidates.isEmpty {
+            importCleanseReview = ImportCleanseReview(candidates: stubCandidates)
+        }
 
         // Update project metadata with refresh time
         if var project = currentProject {

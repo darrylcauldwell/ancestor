@@ -59,6 +59,7 @@ public nonisolated enum AuditRules {
         BirthBeforeDeathRule(),
         ParentsPerRoleRule(),
         RecordAfterDeathRule(),
+        OrphanStubRule(),
         ParentAgeGapRule(),
         MarriageAgeRule(),
         LifespanRule(),
@@ -908,5 +909,38 @@ public nonisolated struct RecordAfterDeathRule: AuditRuleDefinition {
             severity: defaultSeverity, ruleID: id,
             message: "Death \(deathYear) contradicted by later alive-evidence: \(detail)."
         )]
+    }
+}
+
+
+/// IMPORT_DEDUPE_SPEC Change 1 — surfaces orphan-stub duplicates (a
+/// profile with no relationship edges whose name matches an edge-bearing
+/// profile). Complements `DuplicateDetectionRule`: that rule needs
+/// birth-year overlap to reach 0.7 and misses surname-only stubs entirely
+/// (the Ancestry "Carter" case). Thin wrapper over `OrphanStubDetector`
+/// so the Audit tab and the import-time cleanse can never disagree.
+public nonisolated struct OrphanStubRule: AuditRuleDefinition {
+    public let id = "orphanStub"
+    public let displayName = "Orphan Duplicate Records"
+    public let description = "A profile with no relationships that shares a name with a linked profile — often a duplicate stub left by a GEDCOM export (e.g. Ancestry.com merges)."
+    public let fireCondition = "Zero relationship edges AND name-identical to an edge-bearing profile."
+    public let warningCondition: String? = nil
+    public let workedExample = "A bare 'Carter' with no dates or family, next to the linked Carter who is Betsy Cauldwell's husband."
+    public let defaultSeverity = Severity.warning
+    public init() {}
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        // One row per (this-stub, target) candidate; only report when THIS
+        // profile is the stub (avoids double-reporting from the target side).
+        OrphanStubDetector.candidates(in: snapshot)
+            .filter { $0.stubID == profile.id }
+            .map { candidate in
+                let emptyNote = candidate.stubIsEmpty ? " (empty — safe to remove)" : ""
+                return AuditResult(
+                    profileID: profile.id, profileName: profile.displayName,
+                    severity: defaultSeverity, ruleID: id,
+                    message: "Possible orphan duplicate: \(candidate.matchBasis)\(emptyNote).",
+                    relatedProfileIDs: [candidate.targetID])
+            }
     }
 }
