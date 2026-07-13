@@ -1,6 +1,6 @@
 # CONFLICT_LAYER_SPEC — Evidence-Conflict Layer (GPS Element 4)
 
-**Status: Proposed — awaiting review (drafted 2026-07-13 from the DS audit + three-design competition; detection-first won 9/9/9).** Commits will reference `#CL-Change1`…`#CL-Change6` of this spec.
+**Status: Accepted 2026-07-13 (Darryl). Building in order CL1→CL6.** (Drafted 2026-07-13 from the DS audit + three-design competition; detection-first won 9/9/9.) Commits will reference `#CL-Change1`…`#CL-Change6` of this spec.
 
 **Governing invariant — detection-completeness:** after this layer ships, every pair of accepted (fact-grade) assertions about one subject is in exactly one of three states — (a) *provably compatible* (same witness, or precision refinement), (b) *deterministically resolved* with a recorded rule ID and per-rung trace, or (c) an **open dispute row visible to the user**. There is no fourth state. Silence is a bug.
 

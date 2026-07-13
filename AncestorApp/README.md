@@ -13,7 +13,7 @@ One line per document: what it is, whether it's live, and when to read it. Conve
 
 | Doc | Role | Status |
 |---|---|---|
-| `CONFLICT_LAYER_SPEC.md` | Evidence-conflict layer (GPS element 4): dispute producer, witness identity, resolution ladder | Proposed — awaiting review |
+| `CONFLICT_LAYER_SPEC.md` | Evidence-conflict layer (GPS element 4): dispute producer, witness identity, resolution ladder | Accepted 2026-07-13; building CL1→CL6 |
 | `SANDWICH_AUDIT_2026-07.md` | Adversarial audit of the 4-gate scorer + decision core (DS-01..27) | Awaiting triage |
 | `CONNECTOR_AUDIT_2026-07.md` | Connector fix backlog — as-built record of what each connector now does | 55/58 shipped; FT-08/19/21 deferred |
 | `FAMILYSEARCH_SOURCE_SPEC.md` | FS source plugin; §§14–19 = official-API pivot, read-leg acceptance | Blocked on Beta AppKey |
