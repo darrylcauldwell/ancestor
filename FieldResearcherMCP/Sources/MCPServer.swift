@@ -428,6 +428,21 @@ actor MCPHandler {
                     required: ["project"]
                 ),
                 tool(
+                    name: "list_projects",
+                    description: "List every sibling project in the projects directory: filename (UUID), display name, profile/relationship counts, and file size. Admin/triage aid — e.g. to spot empty or leaked projects before cleanup. Read-only.",
+                    properties: [:],
+                    required: []
+                ),
+                tool(
+                    name: "delete_project",
+                    description: "PERMANENTLY delete a sibling project's sqlite file (and its -wal/-shm sidecars). DESTRUCTIVE and irreversible. Refuses to delete the project the server is currently bound to (switch away first) and refuses path separators. Requires confirm='true' as an explicit second key. Returns the deleted project's name + profile count so the caller can verify what was removed.",
+                    properties: [
+                        "project": ["type": "string", "description": "Target project UUID or filename (sibling only; path separators refused)."],
+                        "confirm": ["type": "string", "description": "Must be exactly 'true' — a deliberate guard against accidental deletion."],
+                    ],
+                    required: ["project", "confirm"]
+                ),
+                tool(
                     name: "submit_hypothesis",
                     description: "Seed a user hypothesis (a hunch, e.g. \"I think this person's parents were called Bob & Sue\") for the research engine to test. A hunch is a search directive, never data — it creates no profile, no edge, no field, no citation; it steers targeted probes whose findings face the standard verdict pipeline. Validates synchronously and INSERTs one user_hypothesis_seeds row (the app's watcher materialises it into a research hypothesis with origin=user); returns seed_id, or a structured refusal reason (no_name_hints | profile_not_found | no_subject_birth_estimate | previously_rejected). Hunches accumulate between runs: follow with kick_off_research to test them. Distinct from submit_evidence — family testimony you can cite is evidence, not a hunch.",
                     properties: [
@@ -539,6 +554,14 @@ actor MCPHandler {
             return try addWorkbenchNote(arguments)
         case "kick_off_research":
             return try kickOffResearch(arguments)
+        case "list_projects":
+            let listResult = try listProjects()
+            let listData = (try? JSONSerialization.data(withJSONObject: listResult, options: [.sortedKeys, .prettyPrinted])) ?? Data()
+            return ["content": [["type": "text", "text": String(data: listData, encoding: .utf8) ?? "[]"]]]
+        case "delete_project":
+            let delResult = try deleteProject(arguments)
+            let delData = (try? JSONSerialization.data(withJSONObject: delResult, options: [.sortedKeys, .prettyPrinted])) ?? Data()
+            return ["content": [["type": "text", "text": String(data: delData, encoding: .utf8) ?? "{}"]]]
         case "switch_project":
             let result = try switchProject(arguments)
             let data = (try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys, .prettyPrinted])) ?? Data()
@@ -1580,6 +1603,81 @@ actor MCPHandler {
     /// never be steered outside the projects directory it was launched
     /// against. Validation is the same as launch; a failed switch leaves
     /// the current binding untouched.
+    /// List sibling projects with name + counts (admin/triage). Read-only;
+    /// opens each DB briefly with foreign keys off (list-only, no writes).
+    func listProjects() throws -> [[String: Any]] {
+        let dir = URL(fileURLWithPath: dbPath).deletingLastPathComponent()
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey]))?
+            .filter { $0.pathExtension == "sqlite" } ?? []
+        var out: [[String: Any]] = []
+        for url in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            var row: [String: Any] = [
+                "file": url.lastPathComponent,
+                "size_bytes": (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0,
+                "is_current": url.path == dbPath,
+            ]
+            if let q = try? DatabaseQueue(path: url.path) {
+                try? q.read { db in
+                    row["name"] = try String.fetchOne(db, sql: "SELECT name FROM project_meta LIMIT 1") ?? "(unnamed)"
+                    row["profiles"] = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM profiles WHERE is_deleted = 0") ?? 0
+                    row["relationships"] = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM relationships") ?? 0
+                }
+            } else {
+                row["name"] = "(unreadable)"
+            }
+            out.append(row)
+        }
+        return out
+    }
+
+    /// Permanently delete a sibling project. Guards: sibling-only (no path
+    /// separators), never the current binding, explicit confirm='true'.
+    func deleteProject(_ args: [String: Any]) throws -> [String: Any] {
+        guard let raw = (args["project"] as? String)?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else {
+            throw MCPError.invalidParams("delete_project requires 'project'")
+        }
+        guard (args["confirm"] as? String) == "true" else {
+            return ["status": "refused", "reason": "not_confirmed", "detail": "Pass confirm='true' to delete — this is irreversible."]
+        }
+        guard !raw.contains("/"), !raw.contains(".."), !raw.contains("\\") else {
+            throw MCPError.invalidParams("'project' must be a bare UUID or filename — path separators are refused")
+        }
+        let filename = raw.hasSuffix(".sqlite") ? raw : raw + ".sqlite"
+        let dir = URL(fileURLWithPath: dbPath).deletingLastPathComponent()
+        let target = dir.appendingPathComponent(filename)
+        guard target.path != dbPath else {
+            return ["status": "refused", "reason": "is_current_project", "detail": "Cannot delete the project the server is bound to — switch_project away first."]
+        }
+        guard FileManager.default.fileExists(atPath: target.path) else {
+            return ["status": "refused", "reason": "project_not_found", "detail": "No sibling project '\(filename)'."]
+        }
+        // Capture identity before deletion so the caller can verify.
+        var name = "(unnamed)"; var profiles = 0
+        if let q = try? DatabaseQueue(path: target.path) {
+            try? q.read { db in
+                name = try String.fetchOne(db, sql: "SELECT name FROM project_meta LIMIT 1") ?? "(unnamed)"
+                profiles = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM profiles") ?? 0
+            }
+        }
+        try FileManager.default.removeItem(at: target)
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent(filename + "-wal"))
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent(filename + "-shm"))
+        return ["status": "deleted", "file": filename, "name": name, "profiles": profiles]
+    }
+
+    /// Sendable projections for cross-actor callers (tests).
+    func listProjectsJSON() throws -> String {
+        let data = (try? JSONSerialization.data(withJSONObject: try listProjects(), options: [.sortedKeys, .prettyPrinted])) ?? Data()
+        return String(data: data, encoding: .utf8) ?? "[]"
+    }
+    func deleteProjectStatus(project: String, confirm: String?) throws -> String {
+        var args: [String: Any] = ["project": project]
+        if let confirm { args["confirm"] = confirm }
+        let r = try deleteProject(args)
+        // Refusals carry a machine reason; success carries status "deleted".
+        return (r["reason"] as? String) ?? (r["status"] as? String) ?? "unknown"
+    }
+
     func switchProject(_ args: [String: Any]) throws -> [String: Any] {
         guard let raw = (args["project"] as? String)?.trimmingCharacters(in: .whitespaces),
               !raw.isEmpty else {
