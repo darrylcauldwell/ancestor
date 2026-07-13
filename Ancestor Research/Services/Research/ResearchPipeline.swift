@@ -1995,7 +1995,7 @@ final class ResearchPipeline {
                 return []
             }
         case .parentInferred, .subjectIdentity, .clusterIsSubject,
-             .birthYearCandidate, .deathYearCandidate,
+             .birthYearCandidate, .deathYearCandidate, .parentIdentityCandidate,
              .burialAtParish, .secondMarriage:
             // These kinds either have no ladder (parentInferred,
             // subjectIdentity, clusterIsSubject) or aren't yet in

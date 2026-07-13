@@ -108,6 +108,20 @@ nonisolated struct ConflictSweep {
                     proposedParentOrigin: SourceOrigin(identifier: "tree"),
                     evidenceRecordIDs: [],
                     detectedBy: .consistencySweep))
+
+                // CL6 ⟨G10⟩⟨G11⟩ — the F4a dispute seeds an engine-origin
+                // identity-candidate group: the incumbent edge enters WITH
+                // its provenance (the tree is a witness too), alongside
+                // each rival occupant. User-seeded .parentCandidates rows
+                // are untouched (distinct kind, distinct identity keys).
+                let candidates = edges.compactMap { edge -> (name: String, provenance: String)? in
+                    guard let parent = snapshot.profiles[edge.from] else { return nil }
+                    return (parent.displayName, "tree edge \(edge.id.uuidString.prefix(8))")
+                }
+                let seeds = HypothesisEngine.seedParentIdentityCandidates(
+                    profileID: profile.id, role: role.rawValue,
+                    candidateNames: candidates)
+                try db.upsertHypotheses(seeds)
             }
 
             // F4b — fact-grade marriage attestations whose record spouse

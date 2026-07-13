@@ -272,6 +272,14 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
     /// verdicts PROPOSE; the human accepts.
     case deathYearCandidate(profileID: String, year: Int)
 
+    /// CL6 ⟨G10⟩ — engine-origin parent-IDENTITY candidate seeded from an
+    /// F4a parentRole dispute: "the subject's biological <role> is this
+    /// person". Distinct from user-seeded `.parentCandidates` (whose
+    /// user-only contract the engine must never break) — regenerates
+    /// freely. The candidate set always includes the tree's incumbent
+    /// edge as a candidate with its own provenance ⟨G11⟩.
+    case parentIdentityCandidate(profileID: String, role: String, candidateName: String)
+
     /// "The subject's parents might have been this couple" — the
     /// user-seeded hunch kind (RESEARCH_PIPELINE_SPEC §5.15, Decision
     /// E1). A hunch is a search directive, never data: it creates no
@@ -316,6 +324,7 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
         case .clusterIsSubject:       return "clusterIsSubject"
         case .birthYearCandidate:     return "birthYearCandidate"
         case .deathYearCandidate:     return "deathYearCandidate"
+        case .parentIdentityCandidate: return "parentIdentityCandidate"
         case .parentCandidates:       return "parentCandidates"
         case .burialAtParish:         return "burialAtParish"
         case .secondMarriage:         return "secondMarriage"
@@ -349,6 +358,8 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
             return "birthYearCandidate:\(profileID):\(year)"
         case .deathYearCandidate(let profileID, let year):
             return "deathYearCandidate:\(profileID):\(year)"
+        case .parentIdentityCandidate(let profileID, let role, let candidateName):
+            return "parentIdentityCandidate:\(profileID):\(role):\(candidateName.uppercased())"
         case .parentCandidates(let fg, let fs, let mg, let mms, let w):
             // nil hints normalise to "" (§5.15.1) — same hunch re-seeded
             // with the same hints collides on this key and upserts.

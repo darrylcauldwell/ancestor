@@ -226,6 +226,12 @@ actor MCPHandler {
             content = try auditOverrides()
         case _ where uri.hasPrefix("ancestor://leads"):
             content = try leadsList(status: extractQuery(uri)["status"])
+        case _ where uri.hasPrefix("ancestor://profile/") && uri.hasSuffix("/disputes"):
+            // CL6 — the dispute ledger as its own resource (the T9 dossier
+            // read contract §4.8.6).
+            let trimmed = uri.dropFirst("ancestor://profile/".count)
+            let id = String(trimmed.dropLast("/disputes".count))
+            content = try disputesResource(profileID: id)
         case _ where uri.hasPrefix("ancestor://profile/"):
             let id = String(uri.dropFirst("ancestor://profile/".count))
             content = try profileDetail(id: id)
@@ -690,6 +696,36 @@ actor MCPHandler {
         }
     }
 
+    /// CL6 — full dispute ledger for one profile (open + resolved), the
+    /// read contract the future dossier renders. Read-only.
+    func disputesResource(profileID: String) throws -> String {
+        try db.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT kind, field, severity, detected_by, competing_sources,
+                       resolution, resolved_at, ladder_trace, witness_summary
+                FROM field_disputes WHERE entity_id = ? ORDER BY rowid
+                """, arguments: [profileID])
+            let payload: [[String: Any]] = rows.map { d in
+                var out: [String: Any] = [
+                    "kind": d["kind"] as String? ?? "fieldValue",
+                    "field": d["field"] as String? ?? "",
+                    "status": (d["resolution"] as String?) == nil ? "open" : "resolved",
+                ]
+                if let v: String = d["severity"] { out["severity"] = v }
+                if let v: String = d["detected_by"] { out["detected_by"] = v }
+                if let v: String = d["competing_sources"] { out["competing_sources"] = v }
+                if let v: String = d["resolution"] { out["resolution"] = v }
+                if let v: String = d["ladder_trace"] { out["ladder_trace"] = v }
+                if let v: String = d["witness_summary"] { out["witness_summary"] = v }
+                return out
+            }
+            let data = (try? JSONSerialization.data(
+                withJSONObject: ["profile_id": profileID, "disputes": payload],
+                options: [.sortedKeys])) ?? Data()
+            return String(data: data, encoding: .utf8) ?? "{}"
+        }
+    }
+
     func profileDetail(id: String) throws -> String {
         try db.read { db in
             guard let row = try Row.fetchOne(db, sql: "SELECT * FROM profiles WHERE id = ?", arguments: [id]) else {
@@ -708,6 +744,28 @@ actor MCPHandler {
             if let v: Int = row["death_date_earliest"] { p["death_year_earliest"] = v }
             if let v: String = row["birth_location"] { p["birth_location"] = v }
             if let v: String = row["gender"] { p["gender"] = v }
+
+            // CONFLICT_LAYER_SPEC CL6 (§4.8.5) — read-only dispute ledger:
+            // open + resolved, with kind/field/severity/reasoning-bearing
+            // columns. Writes stay app-side (Evidence Firewall unchanged).
+            let profileRowID: String = row["id"]
+            let disputeRows = try Row.fetchAll(db, sql: """
+                SELECT kind, field, severity, detected_by, resolution, resolved_at, ladder_trace
+                FROM field_disputes WHERE entity_id = ? ORDER BY rowid
+                """, arguments: [profileRowID])
+            if !disputeRows.isEmpty {
+                p["disputes"] = disputeRows.map { d -> [String: Any] in
+                    var out: [String: Any] = [
+                        "kind": d["kind"] as String? ?? "fieldValue",
+                        "field": d["field"] as String? ?? "",
+                        "status": (d["resolution"] as String?) == nil ? "open" : "resolved",
+                    ]
+                    if let v: String = d["severity"] { out["severity"] = v }
+                    if let v: String = d["detected_by"] { out["detected_by"] = v }
+                    if let v: String = d["ladder_trace"] { out["ladder_trace"] = v }
+                    return out
+                }
+            }
             if let v: String = row["bio"] { p["bio"] = v }
 
             // Relationships
@@ -2654,6 +2712,15 @@ actor MCPHandler {
     /// `approve_pending_fact` and `inspect_approval_decision` — keeps
     /// the rule logic single-rooted so the dry-run can't drift from
     /// the live commit.
+    /// Sendable projection of `evaluateApproval` for cross-actor callers
+    /// (tests): the refusal reason string, or nil when the gate approves.
+    func approvalRefusalReason(pendingFactID: String) throws -> String? {
+        if case .refuse(let reason, _) = try evaluateApproval(pendingFactID: pendingFactID) {
+            return reason
+        }
+        return nil
+    }
+
     func evaluateApproval(pendingFactID: String) throws -> ApprovalDecision {
         try db.read { db in
             guard let row = try Row.fetchOne(db, sql: "SELECT * FROM pending_facts WHERE id = ?", arguments: [pendingFactID]) else {
@@ -2705,6 +2772,30 @@ actor MCPHandler {
                     return .refuse(
                         reason: "field_not_auto_approvable",
                         detail: "Field '\(factKind)' is excluded from auto-approval. Names, gender, and bio are always human-reviewed."
+                    )
+                }
+            }
+
+            // CONFLICT_LAYER_SPEC CL6 (§4.8.5) — an OPEN dispute on the
+            // target profile refuses auto-approval outright: field-level
+            // disputes on the target field, and structural kinds
+            // (timeline/parentRole/spouseIdentity) that field_sources
+            // recomputation cannot see. Human resolves first.
+            // Defensive on pre-v41 databases: no field_disputes table
+            // means no dispute ledger exists to consult — not a failure.
+            let openDisputeRows = (try? Row.fetchAll(db, sql: """
+                SELECT kind, field FROM field_disputes
+                WHERE entity_id = ? AND resolution IS NULL
+                """, arguments: [profileID])) ?? []
+            for row in openDisputeRows {
+                let kind: String = row["kind"] ?? "fieldValue"
+                let field: String = row["field"] ?? ""
+                let blocks = (kind == "fieldValue" && field == factKind)
+                    || kind == "timeline" || kind == "parentRole" || kind == "spouseIdentity"
+                if blocks {
+                    return .refuse(
+                        reason: "open_dispute_on_target",
+                        detail: "Open \(kind) dispute ('\(field)') on this profile — auto-approval refuses until the conflict is resolved by the human."
                     )
                 }
             }

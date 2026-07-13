@@ -108,6 +108,8 @@ nonisolated enum HypothesisEngine {
             return gradeSiblingExists(hypothesis, state: state, snapshot: snapshot)
         case .deathYearCandidate:
             return gradeDeathYearCandidate(hypothesis, state: state, snapshot: snapshot)
+        case .parentIdentityCandidate:
+            return gradeParentIdentityCandidate(hypothesis, state: state, snapshot: snapshot)
         case .parentInferred:
             return gradeParentInferred(hypothesis, state: state, snapshot: snapshot)
         case .parentMarriage:
@@ -246,6 +248,9 @@ nonisolated enum HypothesisEngine {
             return deficitQuerySiblingExists(for: hypothesis, atLevel: level, state: state)
         case .deathYearCandidate:
             return deficitQueryDeathYearCandidate(for: hypothesis, atLevel: level, state: state)
+        case .parentIdentityCandidate:
+            return []   // CL6: linkage evidence arrives via the subject's own
+                        // birth/census probes — no dedicated ladder yet.
         case .parentInferred:
             return deficitQueryParentInferred(for: hypothesis, atLevel: level, state: state)
         case .parentMarriage:
