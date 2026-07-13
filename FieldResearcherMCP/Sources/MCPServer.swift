@@ -540,7 +540,10 @@ actor MCPHandler {
         case "kick_off_research":
             return try kickOffResearch(arguments)
         case "switch_project":
-            return try switchProject(arguments)
+            let result = try switchProject(arguments)
+            let data = (try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys, .prettyPrinted])) ?? Data()
+            let text = String(data: data, encoding: .utf8) ?? "{}"
+            return ["content": [["type": "text", "text": text]]]
         case "submit_hypothesis":
             return try submitHypothesis(arguments)
         case "get_run_status":
