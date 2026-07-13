@@ -1,8 +1,10 @@
 import SwiftUI
+import os
 
 /// Root application state — tracks current project and snapshot.
 @MainActor @Observable
 final class AppState {
+    private let sweepLogger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "ConflictSweep")
     var currentProject: Project?
     var currentDatabase: ProjectDatabase?
 
@@ -371,6 +373,11 @@ final class AppState {
             )
 
             snapshot = try db.buildSnapshot()
+            // CONFLICT_LAYER_SPEC CL2 (T-C trigger): one-shot v41 backfill,
+            // then the standing sweep (high-water-skippable). Both are
+            // idempotent; latent DS-15/DS-26-shaped damage in existing
+            // trees becomes visible on first launch after the migration.
+            runConflictSweep(backfillFirst: true)
             runPostLoadAudit()
             loadWorkbench()
             ensureSession()
@@ -418,6 +425,31 @@ final class AppState {
         }
         isLoading = false
         loadingMessage = nil
+    }
+
+    /// CONFLICT_LAYER_SPEC CL2 — run the standing conflict sweep.
+    /// `force` bypasses the unchanged-project skip (manual scan,
+    /// post-apply batches). Rebuilds the snapshot when disputes changed so
+    /// the profile dispute sections and audit count refresh.
+    func runConflictSweep(force: Bool = false, backfillFirst: Bool = false) {
+        guard let db = currentDatabase else { return }
+        do {
+            var touched = 0
+            if backfillFirst,
+               let backfill = try ConflictSweep.backfillIfNeeded(db: db, snapshot: snapshot) {
+                touched += backfill.disputesTouched
+            }
+            let report = try ConflictSweep.run(db: db, snapshot: snapshot, force: force)
+            touched += report.disputesTouched
+            if touched > 0 {
+                snapshot = try db.buildSnapshot()
+            }
+        } catch {
+            // Sweep failure must never block project work — surfaced as a
+            // log line, not an error sheet. Detection-completeness is
+            // restored on the next successful sweep (idempotent).
+            sweepLogger.error("Conflict sweep failed: \(error.localizedDescription)")
+        }
     }
 
     /// Restore a backup over the current project's SQLite file and re-open
@@ -1163,6 +1195,9 @@ final class AppState {
 
         loadingMessage = "Saving \(parseResult.individualCount) profiles..."
         let transaction = try db.importSnapshot(parseResult.snapshot, source: path)
+        // CONFLICT_LAYER_SPEC CL2 (T-C trigger): post-import sweep —
+        // imported trees surface their latent contradictions immediately.
+        _ = try? ConflictSweep.run(db: db, snapshot: try db.buildSnapshot(), force: true)
 
         loadingMessage = "Building tree..."
         snapshot = try db.buildSnapshot()

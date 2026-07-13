@@ -449,4 +449,107 @@ nonisolated struct ConflictDetector {
             detectedBy: detectedBy
         )
     }
+
+    // MARK: - F3 — timeline: death vs later-alive evidence (DS-15)
+
+    /// F3 — the profile's death is contradicted by alive-evidence dated
+    /// after it. Predicate shared with `RecordAfterDeathRule` via
+    /// `ConflictPredicates.aliveEvidence` (CL2 AC2). Symmetric arm: a
+    /// burial/probate life event's year contradicted by later sightings.
+    /// Order-independent and retroactive — this is the sweep's rule, not
+    /// an apply-order artefact (DS-15's exact gap).
+    static func deathVsLaterAliveConflict(
+        profileID: String,
+        deathDate: GenealogicalDate?,
+        lifeEvents: [LifeEvent],
+        detectedBy: DisputeProducer = .consistencySweep
+    ) -> DetectedConflict? {
+        // Anchor year: deathDate.latest, else the earliest burial/probate
+        // event year (symmetric arm — a burial is death-grade evidence).
+        let anchor: (year: Int, label: String)? = {
+            if let y = deathDate?.latest {
+                return (y, "deathDate '\(deathDate?.original ?? String(y))'")
+            }
+            let burialYears = lifeEvents
+                .filter { $0.type == .burial || $0.type == .probate }
+                .compactMap { e in e.date?.earliest.map { (y: $0, t: e.type.rawValue) } }
+                .sorted { $0.y < $1.y }
+            return burialYears.first.map { ($0.y, "\($0.t) life event \($0.y)") }
+        }()
+        guard let anchor else { return nil }
+
+        let later = ConflictPredicates.aliveEvidence(afterYear: anchor.year, in: lifeEvents)
+        guard !later.isEmpty else { return nil }
+
+        var competing = [FieldSource(
+            origin: SourceOrigin(identifier: "tree"),
+            raw: anchor.label,
+            addedAt: Date()
+        )]
+        for (event, year) in later {
+            competing.append(FieldSource(
+                origin: SourceOrigin(identifier: event.sources.first?.origin.identifier ?? "tree"),
+                raw: "\(event.type.rawValue) \(year)\(event.location.map { " at \($0)" } ?? "")",
+                addedAt: Date()
+            ))
+        }
+        let evidence: [String: [String]] = [
+            "lifeEventIDs": later.map { $0.event.id.uuidString },
+        ]
+        let evidenceJSON = (try? JSONEncoder().encode(evidence))
+            .flatMap { String(data: $0, encoding: .utf8) }
+        let detail = later.map { "\($0.event.type.rawValue) \($0.year)" }
+            .joined(separator: ", ")
+        return DetectedConflict(
+            kind: .timeline,
+            profileID: profileID,
+            field: "death-vs-alive",
+            reason: .valueMismatch,
+            severity: .conflict,
+            competingSources: competing,
+            evidenceJSON: evidenceJSON,
+            reasoning: "F3 timeline conflict: \(anchor.label) is contradicted by later alive-evidence (\(detail)). A person cannot be recorded alive after death (DS-15).",
+            detectedBy: detectedBy
+        )
+    }
+
+    // MARK: - T-D (tree-state arm) — same-enumeration-year impossibility ⟨G13⟩
+
+    /// Two census life events for the SAME census year on one subject.
+    /// One person is enumerated once per year — duplicates are an
+    /// impossibility, never corroboration. Field key carries the year
+    /// (`census-1881`) so each year gets its own ≤1-open-dispute identity.
+    static func sameEnumerationYearConflicts(
+        profileID: String,
+        lifeEvents: [LifeEvent],
+        detectedBy: DisputeProducer = .consistencySweep
+    ) -> [DetectedConflict] {
+        ConflictPredicates.sameYearCensusDuplicates(in: lifeEvents)
+            .sorted { $0.key < $1.key }
+            .map { year, events in
+                let competing = events.map { event in
+                    FieldSource(
+                        origin: SourceOrigin(identifier: event.sources.first?.origin.identifier ?? "tree"),
+                        raw: "census \(year)\(event.location.map { " at \($0)" } ?? "") [\(event.id.uuidString.prefix(8))]",
+                        addedAt: Date()
+                    )
+                }
+                let evidence: [String: [String]] = [
+                    "lifeEventIDs": events.map(\.id.uuidString),
+                ]
+                let evidenceJSON = (try? JSONEncoder().encode(evidence))
+                    .flatMap { String(data: $0, encoding: .utf8) }
+                return DetectedConflict(
+                    kind: .timeline,
+                    profileID: profileID,
+                    field: "census-\(year)",
+                    reason: .valueMismatch,
+                    severity: .conflict,
+                    competingSources: competing,
+                    evidenceJSON: evidenceJSON,
+                    reasoning: "T-D same-enumeration-year impossibility: \(events.count) census events for \(year) on one subject. One person is enumerated once per census year (⟨G13⟩).",
+                    detectedBy: detectedBy
+                )
+            }
+    }
 }

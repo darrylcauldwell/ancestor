@@ -68,6 +68,7 @@ struct SharedProfileLayout: View {
     /// `.sheet(item:)` with an Identifiable wrapper (never
     /// `.sheet(isPresented:) + if let` — the EmptyView-rectangle race).
     @State private var resolvingDispute: DisputeSheetItem?
+    @State private var structuralDisputes: [DisputeRow] = []
 
     /// True when the consumer has opted into editing and supplied bindings.
     /// Treating these together avoids a class of "editable but no bindings"
@@ -216,6 +217,30 @@ struct SharedProfileLayout: View {
                 }
             }
 
+            // Conflicts (CONFLICT_LAYER_SPEC CL2) — structural dispute
+            // kinds (timeline / parentRole / spouseIdentity) whose field
+            // keys deliberately do not parse as ProfileField, so they
+            // never appear in profile.disputes. Loaded live from the
+            // dispute store; refreshed whenever the profile changes.
+            if !structuralDisputes.isEmpty {
+                Divider()
+                Text("Conflicts")
+                    .font(.headline)
+                    .foregroundStyle(.red)
+                ForEach(structuralDisputes) { row in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(row.kind.rawValue) · \(row.field)")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                        ForEach(row.competingSources, id: \.raw) { source in
+                            Text("  \(source.origin.identifier): \(source.raw)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
             // Life Events (M12) — censuses, occupations, residences, baptisms, etc.
             Divider()
             lifeEventsSection
@@ -227,6 +252,10 @@ struct SharedProfileLayout: View {
             // Notes (M8 W1) — surfaces workbench thinking in context
             Divider()
             notesSection
+        }
+        .task(id: profile.id) {
+            structuralDisputes = ((try? appState.currentDatabase?.openDisputes(profileID: profile.id)) ?? [])
+                .filter { $0.kind != .fieldValue }
         }
         .sheet(isPresented: $showingNoteComposer) {
             NoteComposerView(initial: nil, attachedTo: .profile(id: profile.id))

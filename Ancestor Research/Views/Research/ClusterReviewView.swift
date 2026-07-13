@@ -343,6 +343,17 @@ struct ClusterReviewView: View {
                         .padding(.vertical, 3)
                         .glassEffect(.regular, in: .capsule)
                 }
+
+                // CONFLICT_LAYER_SPEC CL2 AC3 — T-D same-year-census split badge.
+                if let reason = cluster.splitReason {
+                    Text("Split: contradiction")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.red)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .glassEffect(.regular, in: .capsule)
+                        .help(reason)
+                }
             }
 
             Divider()

@@ -13,6 +13,10 @@ nonisolated struct LifeCluster: Identifiable, Sendable {
     var lifespanStart: Int
     var lifespanEnd: Int
     var mergeCandidate: String?  // ID of another cluster that might be the same person
+    /// CONFLICT_LAYER_SPEC CL2 T-D ⟨G13⟩ — set when this cluster was split
+    /// off by a contradiction rule (e.g. same-enumeration-year census);
+    /// rendered as a badge in ClusterReviewView.
+    var splitReason: String? = nil
 
     /// The implied birth year from the seed record.
     var impliedBirthYear: Int? {

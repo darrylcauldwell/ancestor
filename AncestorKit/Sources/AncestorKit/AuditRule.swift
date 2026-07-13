@@ -57,6 +57,8 @@ nonisolated extension AuditRuleDefinition {
 public nonisolated enum AuditRules {
     public static let builtIn: [AuditRuleDefinition] = [
         BirthBeforeDeathRule(),
+        ParentsPerRoleRule(),
+        RecordAfterDeathRule(),
         ParentAgeGapRule(),
         MarriageAgeRule(),
         LifespanRule(),
@@ -845,5 +847,66 @@ public nonisolated struct UnlinkedSpouseForFemaleSubjectRule: AuditRuleDefinitio
     public func guidanceMessage(profile: Profile) -> String? {
         let married = (profile.marriedSurname ?? "?").trimmingCharacters(in: .whitespaces)
         return "Link \(profile.displayName)'s spouse so research can find her death/probate records under '\(married)'. Use Add Spouse from the profile, or import the spouse from WikiTree."
+    }
+}
+
+// MARK: - Conflict-layer wrappers (CONFLICT_LAYER_SPEC CL2)
+
+/// F4a as an audit rule — thin wrapper over
+/// `ConflictPredicates.duplicateBiologicalParentEdges` so the audit pass
+/// and the conflict sweep can never disagree (CL2 AC2, DS-26).
+public nonisolated struct ParentsPerRoleRule: AuditRuleDefinition {
+    public let id = "parentsPerRole"
+    public let displayName = "One Biological Parent Per Role"
+    public let description = "A profile must not have two biological fathers or two biological mothers."
+    public let fireCondition = "≥2 biological parent edges with the same role pointing at distinct profiles."
+    public let warningCondition: String? = nil
+    public let workedExample = "Two accepted mother proposals → two biological mother edges → error."
+    public let defaultSeverity = Severity.error
+    public init() {}
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        let duplicates = ConflictPredicates.duplicateBiologicalParentEdges(
+            subjectID: profile.id, relationships: snapshot.relationships)
+        return duplicates.map { role, edges in
+            let names = edges.compactMap { snapshot.profiles[$0.from]?.displayName }
+                .joined(separator: ", ")
+            return AuditResult(
+                profileID: profile.id, profileName: profile.displayName,
+                severity: defaultSeverity, ruleID: id,
+                message: "Two biological \(role.rawValue)s: \(names). One person has one biological \(role.rawValue).",
+                relatedProfileIDs: edges.map(\.from)
+            )
+        }
+    }
+}
+
+/// F3 as an audit rule — thin wrapper over `ConflictPredicates.aliveEvidence`
+/// so the audit pass and the conflict sweep share the death-vs-later-alive
+/// predicate (CL2 AC1/AC2, DS-15). Reads life events from the snapshot;
+/// snapshots built without life events never fire (no false positives).
+public nonisolated struct RecordAfterDeathRule: AuditRuleDefinition {
+    public let id = "recordAfterDeath"
+    public let displayName = "Record After Death"
+    public let description = "Alive-evidence (census, residence, occupation, military, religion) dated after the profile's death."
+    public let fireCondition = "deathDate.latest < year of any alive-evidence life event."
+    public let warningCondition: String? = nil
+    public let workedExample = "Death 1905 but an accepted 1911 census life event → error."
+    public let defaultSeverity = Severity.error
+    public init() {}
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        guard let deathYear = profile.deathDate?.latest else { return [] }
+        let events = snapshot.lifeEvents[profile.id] ?? []
+        let later = ConflictPredicates.aliveEvidence(afterYear: deathYear, in: events)
+        guard !later.isEmpty else { return [] }
+        let detail = later
+            .map { "\($0.event.type.rawValue) \($0.year)" }
+            .joined(separator: ", ")
+        return [AuditResult(
+            profileID: profile.id, profileName: profile.displayName,
+            severity: defaultSeverity, ruleID: id,
+            message: "Death \(deathYear) contradicted by later alive-evidence: \(detail)."
+        )]
     }
 }

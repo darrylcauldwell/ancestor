@@ -32,10 +32,17 @@ public nonisolated struct FamilyGraphSnapshot: Sendable {
     // Pre-computed caches — built once at snapshot creation
     public let completenessCache: [String: ProfileCompleteness]
     public let siblingCache: [String: [String]]
+    /// Life events grouped by profile ID. Optional payload (defaults to
+    /// empty) so lightweight construction sites keep working; the project
+    /// snapshot loader populates it so audit rules (RecordAfterDeathRule)
+    /// and the conflict sweep read the SAME data (CL2 AC2).
+    public let lifeEvents: [String: [LifeEvent]]
 
-    public init(profiles: [String: Profile], relationships: [Relationship]) {
+    public init(profiles: [String: Profile], relationships: [Relationship],
+                lifeEvents: [String: [LifeEvent]] = [:]) {
         self.profiles = profiles
         self.relationships = relationships
+        self.lifeEvents = lifeEvents
         self.siblingCache = Self.buildSiblingCache(profiles: profiles, relationships: relationships)
         self.completenessCache = Self.buildCompletenessCache(
             profiles: profiles,

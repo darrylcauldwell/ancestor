@@ -1412,7 +1412,18 @@ nonisolated final class ProjectDatabase: Sendable {
             let relRows = try Row.fetchAll(db, sql: "SELECT * FROM relationships")
             let relationships = relRows.map { Self.relationshipFromRow($0) }
 
-            return FamilyGraphSnapshot(profiles: profiles, relationships: relationships)
+            // Life events, grouped by profile — carried on the snapshot so
+            // RecordAfterDeathRule and ConflictSweep consume identical data
+            // (CONFLICT_LAYER_SPEC CL2, shared-predicate requirement).
+            let eventRows = try Row.fetchAll(db, sql: "SELECT * FROM life_events")
+            var lifeEvents: [String: [LifeEvent]] = [:]
+            for row in eventRows {
+                guard let event = Self.lifeEventFromRow(row) else { continue }
+                lifeEvents[event.profileID, default: []].append(event)
+            }
+
+            return FamilyGraphSnapshot(profiles: profiles, relationships: relationships,
+                                       lifeEvents: lifeEvents)
         }
     }
 

@@ -5,6 +5,9 @@ struct AuditPlaceholderView: View {
     @Environment(AppState.self) private var appState
     @State private var auditVM = AuditViewModel()
     @AppStorage("disabledAuditRuleIDs") private var disabledRuleIDsData: Data = Data()
+    @State private var openDisputeCount: Int?
+    @State private var showDisputeList = false
+    @State private var openDisputeRows: [DisputeRow] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,6 +21,35 @@ struct AuditPlaceholderView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .disabled(appState.snapshot.profiles.isEmpty)
+
+                // CONFLICT_LAYER_SPEC CL2 — manual sweep trigger ("Scan for
+                // conflicts") + open-dispute count. The count queries the
+                // dispute store live so it reflects sweep results without a
+                // full audit re-run.
+                Button {
+                    appState.runConflictSweep(force: true)
+                    openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
+                } label: {
+                    Label("Scan for Conflicts", systemImage: "exclamationmark.triangle")
+                }
+                .disabled(appState.snapshot.profiles.isEmpty)
+                .onAppear {
+                    openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
+                }
+
+                if let count = openDisputeCount, count > 0 {
+                    Button {
+                        showDisputeList.toggle()
+                        if showDisputeList {
+                            openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
+                        }
+                    } label: {
+                        Text("\(count) open dispute\(count == 1 ? "" : "s")")
+                            .font(.callout)
+                            .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 Spacer()
 
@@ -60,6 +92,42 @@ struct AuditPlaceholderView: View {
             .padding()
 
             Divider()
+
+            // CONFLICT_LAYER_SPEC CL2 AC6 — open-disputes list: severity
+            // desc, rows deep-link to the owning profile's resolution UI.
+            if showDisputeList && !openDisputeRows.isEmpty {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(openDisputeRows.sorted {
+                            ($0.severity ?? .none).rawValue > ($1.severity ?? .none).rawValue
+                        }) { row in
+                            Button {
+                                appState.selectedProfileID = row.entityID
+                            } label: {
+                                HStack(alignment: .top, spacing: 10) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.orange)
+                                        .frame(width: 24)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(appState.snapshot.profiles[row.entityID]?.displayName ?? row.entityID)
+                                            .font(AppTypography.cardTitle)
+                                        Text("\(row.kind.rawValue) · \(row.field)\(row.severity.map { " · \($0.rawValue)" } ?? "")")
+                                            .font(AppTypography.cardMeta)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal)
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+                .frame(maxHeight: 260)
+                Divider()
+            }
 
             // Results
             if auditVM.isRunning {

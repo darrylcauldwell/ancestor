@@ -268,16 +268,17 @@ nonisolated struct ClusteringEngine {
             while i < clusters.count {
                 if let splitResult = findContradiction(in: clusters[i]) {
                     // Keep older records in original cluster, seed new from newer
-                    let (keepRecords, newRecords) = splitResult
+                    let (keepRecords, newRecords, splitReason) = splitResult
                     clusters[i].records = keepRecords
 
                     let newYear = newRecords.compactMap { yearOf($0) }.min() ?? 1850
-                    let newCluster = LifeCluster(
+                    var newCluster = LifeCluster(
                         id: "cluster-\(clusters.count)",
                         records: newRecords,
                         lifespanStart: newYear,
                         lifespanEnd: newYear + 110
                     )
+                    newCluster.splitReason = splitReason
                     // Note: the split cluster is the post-contradiction half.
                     // Pre-Change-5 we stamped confidence=.ambiguous on it; the
                     // new model derives that signal at display time from the
@@ -308,7 +309,7 @@ nonisolated struct ClusteringEngine {
     }
 
     /// Check for contradictions within a cluster. Returns split groups if found.
-    private static func findContradiction(in cluster: LifeCluster) -> (keep: [ScoredRecord], split: [ScoredRecord])? {
+    private static func findContradiction(in cluster: LifeCluster) -> (keep: [ScoredRecord], split: [ScoredRecord], reason: String?)? {
         // Check for multiple birth/baptism records
         let births = cluster.records.filter { record in
             switch record.record {
@@ -322,7 +323,7 @@ nonisolated struct ClusteringEngine {
             let newer = sorted[1]
             // Keep older in this cluster, split newer out
             let keepRecords = cluster.records.filter { $0.id != newer.id }
-            return (keepRecords, [newer])
+            return (keepRecords, [newer], nil)
         }
 
         // Check for multiple death/burial records
@@ -337,7 +338,24 @@ nonisolated struct ClusteringEngine {
             let sorted = deaths.sorted { yearOf($0) ?? 0 < yearOf($1) ?? 0 }
             let newer = sorted[1]
             let keepRecords = cluster.records.filter { $0.id != newer.id }
-            return (keepRecords, [newer])
+            return (keepRecords, [newer], nil)
+        }
+
+        // T-D ⟨G13⟩ (CONFLICT_LAYER_SPEC CL2) — same-enumeration-year
+        // impossibility: two census records with the SAME censusYear in one
+        // cluster cannot be one person (one enumeration per year). Split
+        // the later-scored one out; over-splitting is the safe direction
+        // (when-in-doubt-split). Catches DS-02 household fusion pre-apply.
+        var censusByYear: [Int: [ScoredRecord]] = [:]
+        for record in cluster.records {
+            if case .census(let r) = record.record {
+                censusByYear[r.censusYear, default: []].append(record)
+            }
+        }
+        if let duplicated = censusByYear.first(where: { $0.value.count >= 2 }) {
+            let split = duplicated.value[1]
+            let keepRecords = cluster.records.filter { $0.id != split.id }
+            return (keepRecords, [split], "Same-year census (\(duplicated.key)) — one person is enumerated once per year")
         }
 
         // Check for contradicting census ages (implied birth years >5 apart)
@@ -361,7 +379,7 @@ nonisolated struct ClusteringEngine {
                 let keepRecords = cluster.records.filter { record in
                     !newerRecords.contains { $0.id == record.id }
                 }
-                return (keepRecords, newerRecords)
+                return (keepRecords, newerRecords, nil)
             }
         }
 
@@ -404,7 +422,7 @@ nonisolated struct ClusteringEngine {
             let keepRecords = cluster.records.filter { record in
                 !splitRecords.contains { $0.id == record.id }
             }
-            return (keepRecords, splitRecords)
+            return (keepRecords, splitRecords, nil)
         }
 
         return nil

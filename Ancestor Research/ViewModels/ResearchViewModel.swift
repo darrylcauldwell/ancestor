@@ -759,6 +759,9 @@ final class ResearchViewModel {
         if let snap = persist("Refresh tree snapshot", { try db.buildSnapshot() }) {
             appState.snapshot = snap
         }
+        // CONFLICT_LAYER_SPEC CL2 (T-C trigger): post-apply-batch sweep —
+        // conflicts introduced by this batch surface immediately.
+        appState.runConflictSweep(force: true)
     }
 
     // MARK: - Per-record overrides (Task #35)
