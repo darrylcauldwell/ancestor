@@ -33,6 +33,14 @@ struct AuditPlaceholderView: View {
                     Label("Scan for Conflicts", systemImage: "exclamationmark.triangle")
                 }
                 .disabled(appState.snapshot.profiles.isEmpty)
+
+                Button {
+                    appState.scanForImportDuplicates()
+                } label: {
+                    Label("Find Import Duplicates", systemImage: "person.2.slash")
+                }
+                .disabled(appState.snapshot.profiles.isEmpty)
+                .help("Find orphan duplicate records left by a GEDCOM import (e.g. Ancestry merges)")
                 .onAppear {
                     openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
                 }

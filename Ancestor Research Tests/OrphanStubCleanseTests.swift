@@ -73,6 +73,23 @@ struct OrphanStubCleanseTests {
         #expect(!stubIDs.contains("maryward_linked"))
     }
 
+    @Test func droppedMiddleNameStubIsMatched() throws {
+        // The Dorothy Keyworth case: stub "Dorothy Keyworth" (no middle
+        // name, no data) duplicates the linked "Dorothy Winnifred Keyworth".
+        let db = try makeDB()
+        _ = try db.addProfile(profile("dw_linked", first: "Dorothy Winnifred", last: "Keyworth", birth: "1901"), source: .gedcom)
+        _ = try db.addProfile(profile("dw_child", first: "Ann", last: "Keyworth"), source: .gedcom)
+        _ = try db.addRelationship(Relationship(id: UUID(), from: "dw_linked", to: "dw_child", type: .parent, role: .mother, subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil))
+        _ = try db.addProfile(profile("dorothy_stub", first: "Dorothy", last: "Keyworth"), source: .gedcom)
+        let snapshot = try db.buildSnapshot()
+
+        let candidates = OrphanStubDetector.candidates(in: snapshot)
+        #expect(candidates.contains { $0.stubID == "dorothy_stub" && $0.targetID == "dw_linked" })
+        #expect(OrphanStubDetector.cleansableEmptyStubIDs(in: snapshot).contains("dorothy_stub"))
+        // Conservative: a DIFFERENT primary forename never matches.
+        #expect(OrphanStubDetector.givenNameMatch(stub: "MARGARET DOROTHY", target: "DOROTHY WINNIFRED") == nil)
+    }
+
     @Test func surnameOnlyStubBeatsDuplicateDetectionBlindSpot() throws {
         let db = try makeDB()
         try seedFixture(db)

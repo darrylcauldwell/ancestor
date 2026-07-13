@@ -40,4 +40,19 @@ extension AppState {
     /// Dismiss the review without changes (the stubs stay; they remain
     /// flagged in the Audit tab by OrphanStubRule).
     func dismissImportCleanse() { importCleanseReview = nil }
+
+    /// On-demand orphan-stub scan for an ALREADY-imported tree (the import
+    /// cleanse only runs at import; this re-runs it against the current
+    /// snapshot). Surfaces the same review sheet. Returns whether anything
+    /// was found, so a caller can toast "nothing to clean up".
+    @discardableResult
+    func scanForImportDuplicates() -> Bool {
+        let candidates = OrphanStubDetector.candidates(in: snapshot)
+        guard !candidates.isEmpty else {
+            successMessage = "No orphan duplicate records found."
+            return false
+        }
+        importCleanseReview = ImportCleanseReview(candidates: candidates)
+        return true
+    }
 }

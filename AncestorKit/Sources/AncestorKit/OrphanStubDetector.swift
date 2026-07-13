@@ -48,6 +48,24 @@ public nonisolated enum OrphanStubDetector {
             .joined(separator: " ")
     }
 
+    /// Given-name match for stub detection. Beyond exact equality, accepts
+    /// a dropped middle name: the shorter name's tokens are a subset of the
+    /// longer's AND both share the primary forename ("Dorothy" ⊆ "Dorothy
+    /// Winnifred"). Conservative — the first forename must agree, so
+    /// "Margaret Dorothy" never matches "Dorothy". Returns the reason, or
+    /// nil for no match.
+    public static func givenNameMatch(stub: String, target: String) -> String? {
+        if stub == target { return "identical" }
+        let st = stub.split(separator: " ").map(String.init)
+        let tt = target.split(separator: " ").map(String.init)
+        guard let sf = st.first, let tf = tt.first, sf == tf else { return nil }
+        let ss = Set(st), ts = Set(tt)
+        if ss.isSubset(of: ts) || ts.isSubset(of: ss) {
+            return "same forename, dropped middle name"
+        }
+        return nil
+    }
+
     /// Every (stub, target) candidate pair. A stub may match multiple
     /// targets (the same name across generations) — each is its own
     /// candidate; the detector never guesses which is "right".
@@ -75,8 +93,10 @@ public nonisolated enum OrphanStubDetector {
                     // Surname-only stub (the Carter case) — the exact shape
                     // DuplicateDetectionRule's 0.7 threshold cannot reach.
                     basis = "surname-only stub matches linked profile '\(target.displayName)'"
-                } else if tGiven == stubGiven {
-                    basis = "identical name to linked profile '\(target.displayName)'"
+                } else if let reason = givenNameMatch(stub: stubGiven, target: tGiven) {
+                    basis = reason == "identical"
+                        ? "identical name to linked profile '\(target.displayName)'"
+                        : "\(reason) — matches linked profile '\(target.displayName)'"
                 } else {
                     basis = nil
                 }
