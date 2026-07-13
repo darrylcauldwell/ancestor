@@ -20,7 +20,7 @@ FreeBMD data notes:
   - Mother's maiden name (births) only appears from Sep 1911 onwards.
   - Spouse surname (marriages) only appears from Sep 1912 onwards.
   - Coverage is incomplete — especially for pre-1865 records.
-  - Bakewell district (ID "420") has essentially no coverage before 1941.
+  - Bakewell district (ID "691") has essentially no coverage before 1941.
     Matlock, Darley Dale, Youlgreave, and Snitterton all fall within
     Bakewell registration district. Use Ancestry or GRO certificates instead.
   - start/end must be integers (year only). Passing strings silently
