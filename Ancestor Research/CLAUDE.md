@@ -25,7 +25,7 @@ Each `.sqlite` file is one project (one family tree). The database must exist be
 
 ## Database Schema
 
-29 in-code migrations (v1_create_tables … v29_research_run_result_json) in
+41 in-code migrations (v1_create_tables … v41_conflict_layer) in
 `Services/ProjectDatabase.swift` — that file is the schema's source of truth;
 each migration carries a rationale comment. ~33 tables + 1 FTS5 virtual table
 in four families:
@@ -56,9 +56,9 @@ cd FieldResearcherMCP && swift build
 }
 ```
 
-**Available resources:** `ancestor://tree/summary`, `ancestor://tree/gaps`, `ancestor://profiles`, `ancestor://profile/{id}`
+**Available resources:** `ancestor://tree/summary`, `ancestor://tree/gaps`, `ancestor://profiles`, `ancestor://profile/{id}`, `ancestor://profile/{id}/disputes`
 
-**Available tools (17):** reads — `get_profile`, `search_profiles`, `find_path`, `get_scored_records`, `get_run_status`, `get_research_result`, `inspect_approval_decision`; firewall-gated writes — `submit_evidence`, `submit_narrative_finding`, `submit_lead`, `submit_relationship_proposal`, `add_workbench_note`, `flag_audit_override`, `kick_off_research`; double-gated writes (refuse unless `ANCESTOR_MCP_AUTO_APPROVE=1` AND the deterministic §14.3 gate passes) — `approve_pending_fact`, `promote_lead`, `dismiss_lead`
+**Available tools (17):** reads — `get_profile` (now includes a read-only `disputes` array from the conflict layer), `search_profiles`, `find_path`, `get_scored_records`, `get_run_status`, `get_research_result`, `inspect_approval_decision`; firewall-gated writes — `submit_evidence`, `submit_narrative_finding`, `submit_lead`, `submit_relationship_proposal`, `add_workbench_note`, `flag_audit_override`, `kick_off_research`; double-gated writes (refuse unless `ANCESTOR_MCP_AUTO_APPROVE=1` AND the deterministic §14.3 gate passes; the §14.3 gate additionally refuses when the target field has an open dispute, and the commit path runs the §14.B.1 hallucination re-check) — `approve_pending_fact`, `promote_lead`, `dismiss_lead`
 
 ## Architecture
 
@@ -76,6 +76,7 @@ Views/Research/        — ResearchView, ClusterReviewView, PendingFactsReviewVi
 - **Evidence Firewall**: External findings (MCP `submit_evidence`, MLX-extracted facts) enter through `pending_facts` → hallucination checks → scorer → human review. AI cannot write to profiles directly.
 - **Source trust from URL, not from AI**: SourceTierRegistry maps cited URLs to trust tiers
 - **When in doubt, split**: Clustering prefers over-splitting (user can merge) over over-merging (hard to undo)
+- **Evidence-conflict layer (detection-completeness)**: every evidence disagreement ends in exactly one of three states — compatible, rule-resolved with a recorded trace, or an open dispute; there is no fourth state where a conflict is silently dropped
 
 ## Test Coverage
 

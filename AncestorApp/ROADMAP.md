@@ -1,6 +1,6 @@
 # Roadmap — routing document
 
-**Status:** Living (updated 2026-07-11). This file routes: where each phase stands and which document owns what happens next. Per-spec change lists stay authoritative on design (see `AncestorApp/README.md` for the full document index).
+**Status:** Living (updated 2026-07-13). This file routes: where each phase stands and which document owns what happens next. Per-spec change lists stay authoritative on design (see `AncestorApp/README.md` for the full document index).
 
 ## Phase state
 
@@ -23,8 +23,8 @@ This section reads as the build sequence — top to bottom is the intended order
 
 1. **`CONNECTOR_AUDIT_2026-07.md`** — [✓ shipped] DONE 2026-07-11: 55/58 findings shipped (T1-01..29 and FT-01..29 except three; combined top-5 in its §3 — record-ID integrity, household-target bug, CWGC geography-gate port, truncation-honesty envelope, cache-key completeness — all have shipping commits). Remaining: FT-08 (Python-reference district-ID data fix, swift-is-what-ships deprioritised), FT-19 (place/parish scoping, L), FT-21 (marriage-witness FAN probes, L — deferred until SourceRecord carries a record role).
 2. **`MODEL_EVOLUTION_SPEC.md`** Changes 1–4 (E1→E4) — [✓ shipped] COMPLETE 2026-07-11 (E1 external-ids v34, E2 name-forms v35, E3 place-authority v36, E4 edge-provenance v37).
-3. **`ENGINE_FOUNDATION_SPEC.md`** Phases C+D (#Change5–8) — triage together with the audit (cross-linked; the T1-01 envelope and §5.2 negative cache interact with #Change5/6).
-4. **`CONFLICT_LAYER_SPEC.md`** CL1–CL6 — evidence-conflict layer (GPS element 4): dispute producer, witness identity, resolution ladder, investigation seeding. Accepted 2026-07-13; building. Companion: `SANDWICH_AUDIT_2026-07.md` DS gate repairs awaiting triage.
+3. **`ENGINE_FOUNDATION_SPEC.md`** Phases C+D (#Change5–8) — [✓ shipped] SHIPPED 2026-07-11/13, incl. the #Change8 MCP hallucination-recheck wiring (c2d112d); auto-approval default remains OFF but §14.B.1 is now satisfied, so enabling it is safe.
+4. **`CONFLICT_LAYER_SPEC.md`** CL1–CL6 — evidence-conflict layer (GPS element 4): dispute producer, witness identity, resolution ladder, investigation seeding. [✓ shipped] SHIPPED 2026-07-13 (CL1 fe49524 … CL6 2e432ad). Deliberate UI remainder (tracked in the spec status line): choose-one candidate card, G12 proposed-resolution surface, F4b second-marriage affordance. Companion: `SANDWICH_AUDIT_2026-07.md` — gate repairs awaiting triage (the conflict layer resolved the conflict-evidence cluster).
 5. **`RESEARCH_PIPELINE_SPEC.md`** Part II remainder — T9, T23-adjacent harness work, T31 retuning.
 6. **User-seeded hypotheses (Epic 13)** — user hunches ("his parents might have been Bob & Sue") become research hypotheses that steer targeted probes; a hunch is a search directive, never data — nothing reaches the tree until records survive the gates. Rails (hypothesis framework, deficit probes, accept path) already exist. COMPLETE 2026-07-11 (RESEARCH_PIPELINE_SPEC §5.15): slice 1 .parentCandidates kind + v32 seeds table + submit_hypothesis MCP tool; slice 2 probe ladder + E5 no-self-confirmation grader + rejection memory; slices 3-4 Workbench Add-a-Hunch UI + refuted/exhausted surface.
 
@@ -90,7 +90,7 @@ timing).
 - `74fb0e3` — #Change3 amended to add asymmetric soft match (the empirical Jennifer Holmes case lay outside the original strict rule).
 - `5a4084b` — #Change1 reframed from "raise gate thresholds proportional to density" (which doesn't help when gates skip comparisons) to "cap verdict at .lead for thin subjects" — the surgical move addresses the false-fact failure mode directly.
 
-### Phase C + D — deferred
+### Phase C + D — deferred *(historical: since SHIPPED 2026-07-11/13 — see Stage 1 item 3 above)*
 
 C (#Change5 daily-budget awareness, #Change6 checkpoint hardening, #Change7 "stop digging here") and D (#Change8 §14.B.1 hallucination re-check) are not active. The spec entries remain valid plans; pick them up when:
 

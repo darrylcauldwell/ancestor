@@ -928,8 +928,11 @@ the defensive layer (§14.B.1) was built — the MVP gate validates
 rule compliance, not source-value fidelity, so an AI that asserts a
 value its source URL doesn't actually contain would pass every
 criterion. The write path is therefore disabled at runtime
-(`approve_pending_fact` refuses with `auto_approval_gate_disabled`)
-until §14.B.1 ships. Dev override: set `ANCESTOR_MCP_AUTO_APPROVE=1`
+(`approve_pending_fact` refuses with `auto_approval_gate_disabled`).
+**Update 2026-07-13: §14.B.1 has shipped** (ENGINE_FOUNDATION
+#Change8 core + MCP wiring c2d112d) — the default stays off by
+explicit user choice, no longer by missing safeguards. Dev
+override: set `ANCESTOR_MCP_AUTO_APPROVE=1`
 in the MCP server's environment. `inspect_approval_decision`
 (dry-run, read-only) remains enabled and is the right tool for
 exercising gate logic without committing.
@@ -938,7 +941,7 @@ exercising gate logic without committing.
 work that the spec previously described as part of the same feature
 — including the reversibility contract, the bulk approval tool,
 transaction-kind integration, and the defensive hallucination
-re-checks. None of §14.B is shipped.
+re-checks. §14.B.1 (defensive hallucination re-run) SHIPPED 2026-07-11/13 (ENGINE_FOUNDATION #Change8; MCP wiring c2d112d). §14.B.2/B.3 remain unshipped.
 
 §13 establishes the Evidence Firewall: external proposals (MCP,
 MLX-extracted, future integrations) write to `pending_facts` and
@@ -1034,6 +1037,8 @@ call a human must make.
 Detection: query `field_sources` for the same `(entity_id, field)`
 and check whether any existing `raw` value is meaningfully different
 from the proposed value. The comparator is field-aware:
+
+> **Update 2026-07-13 (CONFLICT_LAYER CL6, 2e432ad):** the §14.3 gate additionally refuses when the target profile carries an OPEN `field_disputes` row — field-level disputes on the target field, and structural kinds (timeline/parentRole/spouseIdentity) that field_sources recomputation cannot see. Refusal reason `open_dispute_on_target`.
 
 - **Dates** — different to the `GenealogicalDate.parsePreview`-
   canonical level (1820 ≠ 1822, but "21 Dec 1820" == "December 21,
@@ -1157,14 +1162,15 @@ row. The richer transaction-row audit (§14.B) is Phase 2.
    checks the `ANCESTOR_MCP_AUTO_APPROVE` env var on every call and
    refuses with `auto_approval_gate_disabled` unless it is set to
    `1`/`true`. Default is unset, so the shipped binary's write path
-   is off out of the box. Lifting this gate is contingent on §14.B.1
-   landing; the gate is a single-line change to flip the default
-   when that work is done.
+   is off out of the box. The §14.B.1 contingency is satisfied
+   (shipped 2026-07-11/13); flipping the default is a single-line
+   change and purely a user decision now.
 
 # §14.B MCP auto-approval — Phase 2 (planned)
 
-**Status: Paper-only.** Everything in this Part B is design, not
-shipped code. The MVP's audit lives on `pending_facts` columns;
+**Status: §14.B.1 shipped 2026-07-11/13 (app core #Change8 + MCP
+mirror c2d112d); §14.B.2/B.3 remain paper-only.** The rest of this
+Part B is design, not shipped code. The MVP's audit lives on `pending_facts` columns;
 reversibility is currently *not* wired through the transactions
 table even though earlier drafts of this spec implied it was.
 

@@ -6,7 +6,7 @@
 > **#Change3–5 deferred (2026-05-25):** Primitives `find_siblings`
 > + `find_children` (#Change1–2) are shipped. The fan-out walker
 > (`discover_kin`), `find_spouses`, and `verify_relationship`
-> (#Change3–5) are deferred until `ENGINE_FOUNDATION_SPEC.md` ships.
+> (#Change3–5) were deferred until `ENGINE_FOUNDATION_SPEC.md` shipped (it has — fully, 2026-07-13); kinship's sequencing is now governed solely by ADR-007: Stage 2, first item after core is declared solid, Swift-first respec before any build.
 > Reason: fan-out walking on a scorer that over-claims for thin
 > profiles propagates noise laterally as well as ancestrally.
 > Foundation first.

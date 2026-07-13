@@ -349,7 +349,7 @@ Both are queryable: "why didn't this lead promote?" returns either
 applied to work that's still drifting / duplicating).
 
 ### #Change8 — §14.B.1 defensive hallucination re-check
-> **CORE SHIPPED 2026-07-11** (commit 7160804): HallucinationRecheck (deterministic re-fetch + re-extract, page-cache reuse, conservative bounce to pending_facts) + EvidenceFirewall entry point. **FOLLOW-UP:** the MCP auto-approval wiring is NOT done — the FieldResearcherMCP package can't import the re-check (module boundary: MCP is GRDB-only, no AncestorKit dep). Lifting the ANCESTOR_MCP_AUTO_APPROVE gate needs that cross-module decision first (port the helper into the MCP package OR promote HallucinationRecheck into AncestorKit + add the dep).
+> **CORE SHIPPED 2026-07-11** (commit 7160804): HallucinationRecheck (deterministic re-fetch + re-extract, page-cache reuse, conservative bounce to pending_facts) + EvidenceFirewall entry point. **WIRING SHIPPED 2026-07-13** (commit c2d112d): the MCP auto-approval wiring is done as a self-contained GRDB-only mirror — `HallucinationRecheck.swift` lives in the FieldResearcherMCP package (no AncestorKit dep), with twin-literal sync-lock tests keeping it aligned with the app-side implementation; on cache miss the re-check bounces conservatively to `pending_facts`. `ANCESTOR_MCP_AUTO_APPROVE` default remains OFF but is now safe to enable — §14.B.1 satisfied.
 
 Currently, the MCP auto-approval write path refuses by default
 (memory: `feedback_auto_approval_gated_off.md`). Before any

@@ -1,6 +1,6 @@
 # AncestorApp/ — document index
 
-One line per document: what it is, whether it's live, and when to read it. Convention: **governing/live docs and as-built phase references stay here; retired or fully-acted-on docs move to `archive/`** with their final status stamped in the header. Updated 2026-07-11 (post the connector-audit + model-evolution + Epic 13 shipping run).
+One line per document: what it is, whether it's live, and when to read it. Convention: **governing/live docs and as-built phase references stay here; retired or fully-acted-on docs move to `archive/`** with their final status stamped in the header. Updated 2026-07-13 (post the conflict-layer CL1–CL6 + engine-foundation C+D shipping run).
 
 ## Start here
 
@@ -13,12 +13,11 @@ One line per document: what it is, whether it's live, and when to read it. Conve
 
 | Doc | Role | Status |
 |---|---|---|
-| `CONFLICT_LAYER_SPEC.md` | Evidence-conflict layer (GPS element 4): dispute producer, witness identity, resolution ladder | Accepted 2026-07-13; building CL1→CL6 |
-| `SANDWICH_AUDIT_2026-07.md` | Adversarial audit of the 4-gate scorer + decision core (DS-01..27) | Awaiting triage |
+| `SANDWICH_AUDIT_2026-07.md` | Adversarial audit of the 4-gate scorer + decision core (DS-01..27) | Gate repairs awaiting triage; conflict-evidence cluster resolved |
 | `CONNECTOR_AUDIT_2026-07.md` | Connector fix backlog — as-built record of what each connector now does | 55/58 shipped; FT-08/19/21 deferred |
 | `FAMILYSEARCH_SOURCE_SPEC.md` | FS source plugin; §§14–19 = official-API pivot, read-leg acceptance | Blocked on Beta AppKey |
 | `GEDCOMX_CONCEPT_MAPPING.md` | GEDCOM X ↔ our-model boundary contract (mandated by ADR-003) | Maintained per migration |
-| `ENGINE_FOUNDATION_SPEC.md` | Engine robustness; A+B shipped, C+D (#Change5–8) deferred | Partially shipped |
+| `ENGINE_FOUNDATION_SPEC.md` | Engine robustness (#Change1–8) | Shipped (A+B 2026-05, C+D 2026-07) |
 | `RESEARCH_PIPELINE_SPEC.md` | Governing architectural spec (Part I as-built; Part II remainder T9/T23/T31) | Governing |
 
 ## As-built references (shipped programmes)
@@ -26,6 +25,7 @@ One line per document: what it is, whether it's live, and when to read it. Conve
 | Doc | Role |
 |---|---|
 | `MODEL_EVOLUTION_SPEC.md` | Closed E1→E4 domain-model programme — **complete** (v34–v37 migrations, 2026-07-11) |
+| `CONFLICT_LAYER_SPEC.md` | Evidence-conflict layer (GPS element 4): dispute producer, witness identity, resolution ladder — **Shipped 2026-07-13 (UI remainder noted in status)** |
 
 ## As-built references (shipped phases)
 
