@@ -1,6 +1,6 @@
 # CONFLICT_LAYER_SPEC — Evidence-Conflict Layer (GPS Element 4)
 
-**Status: Accepted 2026-07-13 (Darryl). Building in order CL1→CL6.** (Drafted 2026-07-13 from the DS audit + three-design competition; detection-first won 9/9/9.) Commits will reference `#CL-Change1`…`#CL-Change6` of this spec.
+**Status: Accepted 2026-07-13 (Darryl). ALL SIX CHANGES SHIPPED 2026-07-13** — CL1 producer core, CL2 standing sweep, CL3 honest reporting, CL4 witness identity, CL5 R2 ladder + death disambiguation, CL6 investigation seeding + MCP surface. **UI remainder (deliberate):** the choose-one candidate CARD (⟨G5⟩ visual half — the atomic contradict-rivals core is shipped and tested), the ⟨G12⟩ proposed-resolution surface on ConflictResolutionView, and the F4b "investigate as second marriage" affordance — all greenfield UI (no existing candidate-accept view exists to extend, even for birth years); tracked for the next UI pass. (Drafted 2026-07-13 from the DS audit + three-design competition; detection-first won 9/9/9.) Commits will reference `#CL-Change1`…`#CL-Change6` of this spec.
 
 **Governing invariant — detection-completeness:** after this layer ships, every pair of accepted (fact-grade) assertions about one subject is in exactly one of three states — (a) *provably compatible* (same witness, or precision refinement), (b) *deterministically resolved* with a recorded rule ID and per-rung trace, or (c) an **open dispute row visible to the user**. There is no fourth state. Silence is a bug.
 
