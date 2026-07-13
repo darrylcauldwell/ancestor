@@ -69,6 +69,8 @@ struct SharedProfileLayout: View {
     /// `.sheet(isPresented:) + if let` — the EmptyView-rectangle race).
     @State private var resolvingDispute: DisputeSheetItem?
     @State private var structuralDisputes: [DisputeRow] = []
+    @State private var candidateGroups: [[ResearchHypothesis]] = []
+    @State private var proposals: [ProfileField: ConflictResolutionActions.ProposedResolution] = [:]
 
     /// True when the consumer has opted into editing and supplied bindings.
     /// Treating these together avoids a class of "editable but no bindings"
@@ -201,6 +203,16 @@ struct SharedProfileLayout: View {
                         }
                         Spacer()
                         if dispute.resolution == nil {
+                            // ⟨G12⟩ — a linked candidate hypothesis has
+                            // resolved the question: PROPOSE, never apply.
+                            if let proposal = proposals[dispute.field] {
+                                Button(proposal.label) {
+                                    acceptProposal(proposal)
+                                }
+                                .buttonStyle(.glassProminent)
+                                .tint(.green)
+                                .controlSize(.small)
+                            }
                             Button("Resolve…") {
                                 resolvingDispute = DisputeSheetItem(
                                     profile: profile, dispute: dispute
@@ -228,15 +240,35 @@ struct SharedProfileLayout: View {
                     .font(.headline)
                     .foregroundStyle(.red)
                 ForEach(structuralDisputes) { row in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(row.kind.rawValue) · \(row.field)")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                        ForEach(row.competingSources, id: \.raw) { source in
-                            Text("  \(source.origin.identifier): \(source.raw)")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(row.kind.rawValue) · \(row.field)")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                            ForEach(row.competingSources, id: \.raw) { source in
+                                Text("  \(source.origin.identifier): \(source.raw)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                        Spacer()
+                        structuralResolveMenu(for: row)
+                    }
+                }
+            }
+
+            // Investigations (CL5/CL6 ⟨G5⟩) — open candidate groups for
+            // this profile, each a single choose-one card.
+            if !candidateGroups.isEmpty {
+                Divider()
+                Text("Investigations")
+                    .font(.headline)
+                    .foregroundStyle(.orange)
+                ForEach(candidateGroups, id: \.first?.id) { group in
+                    CandidateGroupCard(group: group, profile: profile) {
+                        reloadInvestigations()
+                        structuralDisputes = ((try? appState.currentDatabase?.openDisputes(profileID: profile.id)) ?? [])
+                            .filter { $0.kind != .fieldValue }
                     }
                 }
             }
@@ -256,6 +288,7 @@ struct SharedProfileLayout: View {
         .task(id: profile.id) {
             structuralDisputes = ((try? appState.currentDatabase?.openDisputes(profileID: profile.id)) ?? [])
                 .filter { $0.kind != .fieldValue }
+            reloadInvestigations()
         }
         .sheet(isPresented: $showingNoteComposer) {
             NoteComposerView(initial: nil, attachedTo: .profile(id: profile.id))
@@ -925,6 +958,142 @@ struct SharedProfileLayout: View {
         case .wellEvidenced: return "Source marked well evidenced."
         case .standard, .none: return ""
         }
+    }
+
+
+    // MARK: - Conflict-layer UI helpers (CL UI pass)
+
+    private func reloadInvestigations() {
+        guard let db = appState.currentDatabase else { return }
+        let all = (try? db.loadHypotheses(forProfile: profile.id)) ?? []
+        var byGroup: [String: [ResearchHypothesis]] = [:]
+        for h in all where h.candidateGroupID != nil && h.verdict != .contradicted {
+            byGroup[h.candidateGroupID!, default: []].append(h)
+        }
+        candidateGroups = byGroup.values
+            .filter { $0.count >= 2 }
+            .sorted { ($0.first?.candidateGroupID ?? "") < ($1.first?.candidateGroupID ?? "") }
+
+        // ⟨G12⟩ proposals for open date disputes.
+        proposals = [:]
+        for field in [ProfileField.birthDate, .deathDate] {
+            if profile.disputes[field]?.resolution == nil,
+               profile.disputes[field] != nil,
+               let proposal = ConflictResolutionActions.proposedResolution(
+                    for: field, profileID: profile.id, db: db) {
+                proposals[field] = proposal
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func structuralResolveMenu(for row: DisputeRow) -> some View {
+        Menu("Resolve") {
+            switch row.kind {
+            case .parentRole:
+                if let role = ParentRole(rawValue: row.field) {
+                    let occupants = snapshot.relationships
+                        .filter { $0.type == .parent && $0.to == profile.id
+                                  && $0.subtype == .biological && $0.role == role }
+                        .compactMap { snapshot.profiles[$0.from] }
+                    ForEach(occupants, id: \.id) { parent in
+                        Button("Keep \(parent.displayName)") {
+                            try? ConflictResolutionActions.chooseParent(
+                                subjectID: profile.id, role: role,
+                                keepParentID: parent.id,
+                                snapshot: snapshot,
+                                db: appState.currentDatabase!)
+                            refreshAfterResolve()
+                        }
+                    }
+                    Button("Keep both (e.g. adoptive)") {
+                        try? ConflictResolutionActions.keepBothParents(
+                            subjectID: profile.id, role: role,
+                            db: appState.currentDatabase!)
+                        refreshAfterResolve()
+                    }
+                }
+            case .timeline:
+                if row.field == "death-vs-alive" {
+                    Button("Death date is wrong — clear it") {
+                        try? ConflictResolutionActions.clearDeathDate(
+                            profile: profile, db: appState.currentDatabase!)
+                        refreshAfterResolve()
+                    }
+                }
+                ForEach(disputedLifeEvents(for: row), id: \.id) { event in
+                    Button("Discard \(event.type.rawValue) \(event.date?.original ?? "") — not the same person") {
+                        try? ConflictResolutionActions.discardLifeEvent(
+                            event, disputeFieldKey: row.field,
+                            db: appState.currentDatabase!)
+                        refreshAfterResolve()
+                    }
+                }
+            case .spouseIdentity:
+                Button("Dismiss — not the same person") {
+                    try? ConflictResolutionActions.dismissNotSamePerson(
+                        profileID: profile.id, kind: row.kind, fieldKey: row.field,
+                        db: appState.currentDatabase!)
+                    refreshAfterResolve()
+                }
+            case .fieldValue:
+                EmptyView()
+            }
+            Divider()
+            Button("Defer") {
+                try? ConflictResolutionActions.deferDispute(
+                    profileID: profile.id, kind: row.kind, fieldKey: row.field,
+                    db: appState.currentDatabase!)
+                refreshAfterResolve()
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    /// The life events a timeline dispute references (evidence_json
+    /// carries lifeEventIDs by reference — §5).
+    private func disputedLifeEvents(for row: DisputeRow) -> [LifeEvent] {
+        guard let json = row.evidenceJSON,
+              let data = json.data(using: .utf8),
+              let refs = try? JSONDecoder().decode([String: [String]].self, from: data),
+              let ids = refs["lifeEventIDs"] else { return [] }
+        let idSet = Set(ids.compactMap(UUID.init))
+        let events = (try? appState.currentDatabase?.loadLifeEvents(profileID: profile.id)) ?? []
+        return events.filter { idSet.contains($0.id) }
+    }
+
+    /// ⟨G12⟩ accept a proposed resolution: routes through the SAME accept
+    /// flow as the candidate card (write value, resolve dispute,
+    /// contradict rivals) — the proposal itself never wrote anything.
+    private func acceptProposal(_ proposal: ConflictResolutionActions.ProposedResolution) {
+        guard let db = appState.currentDatabase,
+              let hypothesis = try? db.loadHypothesis(id: proposal.hypothesisID) else { return }
+        do {
+            switch hypothesis.kind {
+            case .birthYearCandidate:
+                try ApplyEngine.applyBirthYearCandidate(hypothesis, snapshot: appState.snapshot, db: db)
+                if let groupID = hypothesis.candidateGroupID {
+                    try db.contradictRivals(inCandidateGroup: groupID, acceptedID: hypothesis.id)
+                }
+            case .deathYearCandidate:
+                try ApplyEngine.applyDeathYearCandidate(hypothesis, snapshot: appState.snapshot, db: db)
+            default:
+                return
+            }
+            refreshAfterResolve()
+        } catch {
+            // Surfaced via the card path normally; here we log and leave
+            // the dispute open — never a partial state.
+        }
+    }
+
+    private func refreshAfterResolve() {
+        guard let db = appState.currentDatabase else { return }
+        appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+        structuralDisputes = ((try? db.openDisputes(profileID: profile.id)) ?? [])
+            .filter { $0.kind != .fieldValue }
+        reloadInvestigations()
     }
 
     @ViewBuilder

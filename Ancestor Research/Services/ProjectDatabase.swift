@@ -3823,6 +3823,27 @@ nonisolated extension ProjectDatabase {
     /// "leave it for later" is `.deferred`, which keeps the dispute in
     /// the resolved state but flags it as not-yet-acted-upon.
     @discardableResult
+    /// CL-UI pass — resolve a STRUCTURAL dispute (timeline / parentRole /
+    /// spouseIdentity), whose field keys deliberately do not parse as
+    /// `ProfileField`. Targets the open row for (profile, kind, fieldKey).
+    func resolveStructuralDispute(
+        profileID: String,
+        kind: DisputeKind,
+        fieldKey: String,
+        resolution: DisputeResolution
+    ) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE field_disputes
+                SET resolution = ?, resolved_at = ?
+                WHERE entity_id = ? AND kind = ? AND field = ? AND resolution IS NULL
+                """, arguments: [
+                    Self.encodeJSON(resolution), Date(),
+                    profileID, kind.rawValue, fieldKey,
+                ])
+        }
+    }
+
     func resolveFieldDispute(
         profileID: String,
         field: ProfileField,

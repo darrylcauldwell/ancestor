@@ -9,6 +9,9 @@ struct ConflictResolutionView: View {
 
     @State private var selectedSourceIndex: Int?
     @State private var manualValue = ""
+    /// CL UI pass ⟨G8⟩⟨G2⟩ — the store-level row carrying the weighing
+    /// inputs (witness_summary) and the rule-by-rule ladder trace.
+    @State private var storeRow: DisputeRow?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -16,6 +19,10 @@ struct ConflictResolutionView: View {
             Text("Resolve Dispute")
                 .font(.title2)
                 .fontWeight(.bold)
+                .onAppear {
+                    storeRow = ((try? appState.currentDatabase?.openDisputes(profileID: profile.id)) ?? [])
+                        .first { $0.kind == .fieldValue && $0.field == dispute.field.rawValue }
+                }
 
             Text("\(profile.displayName) — \(dispute.field.rawValue)")
                 .foregroundStyle(.secondary)
@@ -25,6 +32,24 @@ struct ConflictResolutionView: View {
                 .foregroundStyle(.orange)
 
             Divider()
+
+            // ⟨G8⟩ the weighing inputs — the user sees the evidence
+            // arithmetic, not just the verdict.
+            if let summary = storeRow?.witnessSummary, !summary.isEmpty {
+                Text("Evidence weighing: \(summary)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(4)
+            }
+            if let trace = storeRow?.ladderTrace, trace.contains("fired") || trace.contains("not-fired") {
+                DisclosureGroup("Resolution ladder trace") {
+                    Text(trace)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                .font(.caption)
+            }
 
             // Competing sources
             Text("Sources disagree:")
