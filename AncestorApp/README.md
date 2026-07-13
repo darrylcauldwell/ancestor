@@ -15,6 +15,7 @@ One line per document: what it is, whether it's live, and when to read it. Conve
 |---|---|---|
 | `SANDWICH_AUDIT_2026-07.md` | Adversarial audit of the 4-gate scorer + decision core (DS-01..27) | Gate repairs awaiting triage; conflict-evidence cluster resolved |
 | `CONNECTOR_AUDIT_2026-07.md` | Connector fix backlog — as-built record of what each connector now does | 55/58 shipped; FT-08/19/21 deferred |
+| `DOSSIER_SPEC.md` | T9 redesign: investigation dossier + bounded adversarial challenge (selection-not-generation) | Proposed — awaiting review |
 | `FAMILYSEARCH_SOURCE_SPEC.md` | FS source plugin; §§14–19 = official-API pivot, read-leg acceptance | Blocked on Beta AppKey |
 | `GEDCOMX_CONCEPT_MAPPING.md` | GEDCOM X ↔ our-model boundary contract (mandated by ADR-003) | Maintained per migration |
 | `ENGINE_FOUNDATION_SPEC.md` | Engine robustness (#Change1–8) | Shipped (A+B 2026-05, C+D 2026-07) |

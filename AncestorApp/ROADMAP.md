@@ -30,6 +30,8 @@ This section reads as the build sequence — top to bottom is the intended order
 
 **Parallel, externally gated:** FamilySearch official-API work — starts the day the Beta AppKey arrives; E1 should land first. In order: (a) read leg (`FAMILYSEARCH_SOURCE_SPEC.md` §§14–19, acceptance criteria A1–A9); (b) write leg — the FS-specific Tree service + smallest-honest-write compliance demo (ADR-002/ADR-005); its mini-spec is deliberately unwritten until FamilySearch’s demo instructions arrive with the AppKey, so it is specified against their actual requirements rather than guesses.
 
+**Decision-gated (explored 2026-07-13, no commitment):** a user-facing BYO-API-key frontier-model tier (Claude/Gemini/OpenAI) behind the DOSSIER_SPEC provider seam — needs privacy consent UX + living-people redaction on outbound prompts. User's stated position: the higher-value frontier lane is DEV-SIDE (eval-harness judging + build assistance via the MCP, needs no product changes); revisit the user-facing tier only after the §5.8 eval harness proves the judging value.
+
 ### Stage 2 — after the core is solid
 
 - **Kinship primitives** (`KINSHIP_SPEC.md`; disposition in `adr/ADR-007`) — `find_spouses`, `discover_kin`, `verify_relationship`; decided 2026-07-11: out of the core push, first item after it; requires a Swift-first respec before any build (#Change9 wholesale-port plan dissolved).
