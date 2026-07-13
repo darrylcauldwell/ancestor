@@ -623,4 +623,55 @@ nonisolated struct ApplyEngine {
         case notSupported
         case profileMissing(String)
     }
+
+    /// CL5 — accept a `.deathYearCandidate`: clones the birth recipe
+    /// (prefer the attested FieldSource's raw for month detail), then in
+    /// the same user action resolves the linked deathDate dispute
+    /// (`.accepted(chosenSource)`) and marks every group rival
+    /// `.contradicted` ⟨G5⟩. Reached ONLY from the human Accept click —
+    /// hypothesis verdicts propose, they never apply (§2.9).
+    static func applyDeathYearCandidate(
+        _ hypothesis: ResearchHypothesis,
+        snapshot: FamilyGraphSnapshot,
+        db: ProjectDatabase
+    ) throws {
+        guard case .deathYearCandidate(let profileID, let year) = hypothesis.kind else {
+            throw ApplyBirthYearCandidateError.wrongKind
+        }
+        guard hypothesis.isDeterministicallySupported else {
+            throw ApplyBirthYearCandidateError.notSupported
+        }
+        guard let profile = snapshot.profiles[profileID] else {
+            throw ApplyBirthYearCandidateError.profileMissing(profileID)
+        }
+
+        let chosen = (profile.sources[.deathDate] ?? []).first { src in
+            let parsed = GenealogicalDate(parsing: src.raw)
+            guard let e = parsed.earliest, let l = parsed.latest else { return false }
+            return e == l && e == year
+        }
+        let raw = chosen?.raw ?? String(year)
+        let origin = chosen?.origin ?? .engineEnrichment
+        let candidate = GenealogicalDate(parsing: raw)
+
+        _ = try db.editProfile(
+            profileID: profile.id,
+            changes: [],
+            dateChanges: [(.deathDate, profile.deathDate, candidate)],
+            source: origin
+        )
+
+        // Accepting the candidate IS resolving the conflict: the linked
+        // open deathDate dispute (if any) records the user's choice.
+        let accepted = chosen ?? FieldSource(origin: origin, raw: raw, addedAt: Date())
+        _ = try? db.resolveFieldDispute(
+            profileID: profile.id, field: .deathDate,
+            resolution: .accepted(accepted))
+
+        // Choose-one semantics: every rival in the group is contradicted
+        // in the same user action ⟨G5⟩.
+        if let groupID = hypothesis.candidateGroupID {
+            try db.contradictRivals(inCandidateGroup: groupID, acceptedID: hypothesis.id)
+        }
+    }
 }

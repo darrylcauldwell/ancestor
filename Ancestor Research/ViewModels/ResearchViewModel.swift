@@ -1256,6 +1256,33 @@ final class ResearchViewModel {
         }
     }
 
+    /// CL5 — accept a death-year candidate: writes the date, resolves the
+    /// linked dispute, and contradicts the group's rivals in one action.
+    func acceptDeathYearCandidate(
+        _ hypothesis: ResearchHypothesis,
+        into appState: AppState
+    ) {
+        guard let db = appState.currentDatabase else {
+            errorMessage = "No project open"
+            return
+        }
+        do {
+            try ApplyEngine.applyDeathYearCandidate(
+                hypothesis, snapshot: appState.snapshot, db: db
+            )
+            if let snap = persist("Refresh tree snapshot", { try db.buildSnapshot() }) {
+                appState.snapshot = snap
+            }
+        } catch ApplyEngine.ApplyBirthYearCandidateError.notSupported,
+                ApplyEngine.ApplyBirthYearCandidateError.wrongKind {
+            return
+        } catch ApplyEngine.ApplyBirthYearCandidateError.profileMissing(let id) {
+            errorMessage = "Profile \(id) not found in current snapshot"
+        } catch {
+            errorMessage = "Failed to apply death year: \(error.localizedDescription)"
+        }
+    }
+
     /// Reject a sibling proposal: persist the proposal id so it won't reappear
     /// on subsequent research runs for the same subject.
     func rejectSibling(_ proposal: SiblingProposal) {

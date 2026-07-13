@@ -106,6 +106,8 @@ nonisolated enum HypothesisEngine {
         switch hypothesis.kind {
         case .siblingExists:
             return gradeSiblingExists(hypothesis, state: state, snapshot: snapshot)
+        case .deathYearCandidate:
+            return gradeDeathYearCandidate(hypothesis, state: state, snapshot: snapshot)
         case .parentInferred:
             return gradeParentInferred(hypothesis, state: state, snapshot: snapshot)
         case .parentMarriage:
@@ -242,6 +244,8 @@ nonisolated enum HypothesisEngine {
         switch hypothesis.kind {
         case .siblingExists:
             return deficitQuerySiblingExists(for: hypothesis, atLevel: level, state: state)
+        case .deathYearCandidate:
+            return deficitQueryDeathYearCandidate(for: hypothesis, atLevel: level, state: state)
         case .parentInferred:
             return deficitQueryParentInferred(for: hypothesis, atLevel: level, state: state)
         case .parentMarriage:

@@ -69,6 +69,10 @@ public nonisolated struct ResearchHypothesis: Identifiable, Sendable, Codable, E
 
     /// What's being claimed. Each case carries its own typed payload.
     public let kind: HypothesisKind
+    /// CL5 ⟨G5⟩ — rival value-candidates share one group so the UI renders
+    /// a single choose-one card; accepting one contradicts the rest.
+    /// Nil for non-candidate kinds and legacy rows.
+    public var candidateGroupID: String?
 
     /// Who asserted this hypothesis (§5.15.1). Orthogonal to `kind` so
     /// every future user-seedable kind reuses it unchanged. Legacy
@@ -261,6 +265,13 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
     /// range alone needs neither path.
     case birthYearCandidate(profileID: String, year: Int)
 
+    /// CL5 (CONFLICT_LAYER_SPEC §4.7) — the death-year twin of
+    /// `.birthYearCandidate`: emitted when ≥ 2 distinct precise death-year
+    /// values compete (typically from an open deathDate dispute the R2
+    /// ladder correctly refused to decide). Same discipline: hypothesis
+    /// verdicts PROPOSE; the human accepts.
+    case deathYearCandidate(profileID: String, year: Int)
+
     /// "The subject's parents might have been this couple" — the
     /// user-seeded hunch kind (RESEARCH_PIPELINE_SPEC §5.15, Decision
     /// E1). A hunch is a search directive, never data: it creates no
@@ -304,6 +315,7 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
         case .subjectSpouseMarriage:  return "subjectSpouseMarriage"
         case .clusterIsSubject:       return "clusterIsSubject"
         case .birthYearCandidate:     return "birthYearCandidate"
+        case .deathYearCandidate:     return "deathYearCandidate"
         case .parentCandidates:       return "parentCandidates"
         case .burialAtParish:         return "burialAtParish"
         case .secondMarriage:         return "secondMarriage"
@@ -335,6 +347,8 @@ public nonisolated enum HypothesisKind: Sendable, Codable, Equatable, Hashable {
             // `subjectProfileID: nil` with a non-nil payload profileID.
             // Under normal use the two match and `subject == profileID`.
             return "birthYearCandidate:\(profileID):\(year)"
+        case .deathYearCandidate(let profileID, let year):
+            return "deathYearCandidate:\(profileID):\(year)"
         case .parentCandidates(let fg, let fs, let mg, let mms, let w):
             // nil hints normalise to "" (§5.15.1) — same hunch re-seeded
             // with the same hints collides on this key and upserts.

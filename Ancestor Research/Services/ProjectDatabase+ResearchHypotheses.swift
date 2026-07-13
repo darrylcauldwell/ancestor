@@ -104,9 +104,11 @@ nonisolated extension ProjectDatabase {
                 id, subject_profile_id, kind_discriminator, kind_payload,
                 origin, verdict, is_model_assisted, supporting_evidence,
                 contradicting_evidence, reasoning, created_at,
-                last_tested_at, attempts, history, user_rejected
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                last_tested_at, attempts, history, user_rejected,
+                candidate_group_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
+                candidate_group_id = excluded.candidate_group_id,
                 verdict = excluded.verdict,
                 is_model_assisted = excluded.is_model_assisted,
                 supporting_evidence = excluded.supporting_evidence,
@@ -131,6 +133,7 @@ nonisolated extension ProjectDatabase {
                 h.attempts,
                 ProjectDatabase.encodeJSON(h.history),
                 0,
+                h.candidateGroupID,
             ])
     }
 
@@ -164,7 +167,7 @@ nonisolated extension ProjectDatabase {
         let originRaw: String = row["origin"] ?? "engine"
         let origin = ResearchHypothesis.Origin(rawValue: originRaw) ?? .engine
 
-        return ResearchHypothesis(
+        var hypothesis = ResearchHypothesis(
             id: id,
             subjectProfileID: row["subject_profile_id"],
             kind: kind,
@@ -179,5 +182,31 @@ nonisolated extension ProjectDatabase {
             attempts: attempts,
             history: history
         )
+        hypothesis.candidateGroupID = row["candidate_group_id"]
+        return hypothesis
+    }
+
+    /// CL5 ⟨G5⟩ — every hypothesis sharing a choose-one candidate group.
+    func hypotheses(inCandidateGroup groupID: String) throws -> [ResearchHypothesis] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT * FROM research_hypotheses WHERE candidate_group_id = ?
+                """, arguments: [groupID])
+            return rows.compactMap(Self.researchHypothesisFromRow)
+        }
+    }
+
+    /// CL5 ⟨G5⟩ — atomically mark every OTHER member of a candidate group
+    /// `.contradicted` (one transaction with the acceptance; the UI never
+    /// shows two Accept buttons, and the ledger never shows two survivors).
+    func contradictRivals(inCandidateGroup groupID: String, acceptedID: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE research_hypotheses
+                SET verdict = 'contradicted',
+                    reasoning = 'Rival candidate accepted by the user (choose-one group).'
+                WHERE candidate_group_id = ? AND id != ?
+                """, arguments: [groupID, acceptedID])
+        }
     }
 }

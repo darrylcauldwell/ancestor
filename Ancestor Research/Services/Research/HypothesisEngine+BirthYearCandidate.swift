@@ -89,11 +89,13 @@ nonisolated extension HypothesisEngine {
         guard years.count >= 2 else { return [] }
 
         let now = Date()
+        // CL5 ⟨G5⟩ retrofit: rivals share one choose-one group.
+        let groupID = "birthYear:\(subjectProfileID)"
         return years.sorted().map { year in
             let kind = HypothesisKind.birthYearCandidate(
                 profileID: subjectProfileID, year: year
             )
-            return ResearchHypothesis(
+            var hypothesis = ResearchHypothesis(
                 id: kind.identityKey(subjectProfileID: subjectProfileID),
                 subjectProfileID: subjectProfileID,
                 kind: kind,
@@ -107,6 +109,8 @@ nonisolated extension HypothesisEngine {
                 attempts: 0,
                 history: []
             )
+            hypothesis.candidateGroupID = groupID
+            return hypothesis
         }
     }
 
