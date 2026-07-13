@@ -149,3 +149,59 @@ extension SourceRegistry {
         return map
     }
 }
+
+
+// MARK: - Value-group scoring (CONFLICT_LAYER_SPEC CL3, DS-20/DS-24)
+
+nonisolated extension ConvergenceEngine {
+
+    /// One asserted value and the convergence its OWN records earn.
+    struct ValueGroup: Sendable {
+        let key: String              // "birth:1881", "death:1905", "marriage:?"
+        let records: [SourceRecord]
+        let level: ConvergenceLevel
+    }
+
+    /// Partition records by the VALUE they assert, then score each group
+    /// independently — contradicting values can no longer pool into one
+    /// inflated convergence level (DS-24: birth 1881 + census-implied 1895
+    /// previously counted as mutual corroboration).
+    ///
+    /// Interim note (§4.5, stated per spec): group scoring still uses
+    /// lineage counting; witness-counted convergence arrives with CL4.
+    static func scoreValueGroups(
+        records: [SourceRecord],
+        sourceInfoMap: [String: SourceInfo]
+    ) -> [ValueGroup] {
+        var groups: [String: [SourceRecord]] = [:]
+        for record in records {
+            groups[valueKey(for: record), default: []].append(record)
+        }
+        return groups
+            .map { key, members in
+                ValueGroup(key: key, records: members,
+                           level: score(records: members, sourceInfoMap: sourceInfoMap))
+            }
+            .sorted { $0.key < $1.key }
+    }
+
+    /// Deterministic value key: event shape + the year the record asserts
+    /// for that shape. Census records assert an IMPLIED BIRTH year — the
+    /// exact channel DS-24 showed pooling against contradicting birth
+    /// records. Unknown years form their own per-shape bucket.
+    static func valueKey(for record: SourceRecord) -> String {
+        switch record {
+        case .birth(let r):    return "birth:\(r.birthYear.map(String.init) ?? "?")"
+        case .census(let r):   return "birth:\(r.birthYear.map(String.init) ?? "?")"
+        case .death(let r):    return "death:\(r.deathYear.map(String.init) ?? "?")"
+        case .burial(let r):   return "death:\(r.deathYear.map(String.init) ?? "?")"
+        case .marriage(let r): return "marriage:\(r.marriageYear.map(String.init) ?? "?")"
+        case .parish(let r):
+            let kind = (r.eventType ?? "parish").lowercased()
+            let shape = kind == "baptism" ? "birth" : kind
+            return "\(shape):\(r.eventYear.map(String.init) ?? "?")"
+        default:
+            return "other:\(record.id)"
+        }
+    }
+}

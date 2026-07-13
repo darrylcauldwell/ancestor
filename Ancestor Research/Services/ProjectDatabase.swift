@@ -3507,6 +3507,17 @@ nonisolated struct DisputeRow: Identifiable, Sendable {
     let resolvedAt: Date?
 
     var isOpen: Bool { resolution == nil }
+
+    /// Short label naming HOW a resolved dispute was settled — cited in
+    /// GPS criterion 4's met-with-evidence reason string (CL3 ⟨G2⟩).
+    var resolutionRuleLabel: String? {
+        switch resolution {
+        case .rule(let id, _): return id
+        case .accepted:        return "user choice"
+        case .manual:          return "manual note"
+        case .deferred, .none: return nil
+        }
+    }
 }
 
 nonisolated extension ProjectDatabase {
@@ -3726,6 +3737,41 @@ nonisolated extension ProjectDatabase {
                 ORDER BY rowid DESC
                 """, arguments: [profileID])
             return rows.compactMap(Self.disputeRow(from:))
+        }
+    }
+
+    /// CL3 T-B — persist a run's discrepancies (the v1 table never had an
+    /// INSERT; DS-13). Stamped with the owning run so the eval envelope
+    /// and dossier can trace a discrepancy to the run that found it.
+    func insertRunDiscrepancies(
+        profileID: String,
+        runID: String,
+        discrepancies: [ResearchDiscrepancy]
+    ) throws {
+        guard !discrepancies.isEmpty else { return }
+        try dbQueue.write { db in
+            for d in discrepancies {
+                try db.execute(sql: """
+                    INSERT INTO research_discrepancies
+                      (profile_id, field, existing_value, source_value,
+                       source_id, severity, reasoning, detected_at, run_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [
+                        profileID, d.field, d.existingValue, d.sourceValue,
+                        d.sourceID, d.severity.rawValue, d.reasoning,
+                        Date(), runID,
+                    ])
+            }
+        }
+    }
+
+    /// Discrepancies persisted for one run (CL3 acceptance surface).
+    func runDiscrepancies(runID: String) throws -> [(field: String, severity: String)] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT field, severity FROM research_discrepancies WHERE run_id = ?
+                """, arguments: [runID])
+            return rows.map { ($0["field"], $0["severity"]) }
         }
     }
 

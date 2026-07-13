@@ -590,7 +590,21 @@ final class RunRequestWatcher {
             return row
         }
 
+        // CL3 T-B — run discrepancies included in the envelope so the MCP
+        // result JSON carries what the tree and the sources disagree on.
+        let discrepancyRows: [[String: Any]] = result.discrepancies.map { d in
+            [
+                "field": d.field,
+                "existing_value": d.existingValue,
+                "source_value": d.sourceValue,
+                "source": d.sourceID,
+                "severity": d.severity.rawValue,
+                "reasoning": d.reasoning,
+            ]
+        }
+
         let payload: [String: Any] = [
+            "discrepancies":           discrepancyRows,
             "supported_hypotheses":    supported,
             "contradicted_hypotheses": contradicted,
             "inconclusive_hypotheses": inconclusive,

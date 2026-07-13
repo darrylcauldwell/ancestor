@@ -5,6 +5,16 @@ import SwiftUI
 struct ClusterReviewView: View {
     @Bindable var vm: ResearchViewModel
     let result: ResearchResult
+
+    /// CL3 — run discrepancies ≥ .conflict raised by records in this
+    /// cluster ("conflicts with tree"): the badge and the will-open-N
+    /// disputes hint both read this count.
+    private func conflictDiscrepancyCount(for cluster: LifeCluster) -> Int {
+        let clusterSourceIDs = Set(cluster.records.map(\.record.common.sourceID))
+        return result.discrepancies
+            .filter { $0.severity >= .conflict && clusterSourceIDs.contains($0.sourceID) }
+            .count
+    }
     @Environment(AppState.self) private var appState
 
     var body: some View {
@@ -344,6 +354,18 @@ struct ClusterReviewView: View {
                         .glassEffect(.regular, in: .capsule)
                 }
 
+                // CL3 — records in this cluster contradict the tree at
+                // conflict grade (run-time discrepancy signal).
+                if conflictDiscrepancyCount(for: cluster) > 0 {
+                    Text("Conflicts with tree")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.red)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .glassEffect(.regular, in: .capsule)
+                        .help("Applying will open a dispute for each conflict-grade disagreement with the tree")
+                }
+
                 // CONFLICT_LAYER_SPEC CL2 AC3 — T-D same-year-census split badge.
                 if let reason = cluster.splitReason {
                     Text("Split: contradiction")
@@ -444,9 +466,15 @@ struct ClusterReviewView: View {
                             }
                         }.count
                         let total = cluster.records.count
-                        let buttonLabel = applyCount == total
+                        // CL3 — applying a cluster whose records conflict
+                        // with the tree opens disputes; say so up front.
+                        let disputeCount = conflictDiscrepancyCount(for: cluster)
+                        let disputeSuffix = disputeCount > 0
+                            ? " — will open \(disputeCount) dispute\(disputeCount == 1 ? "" : "s")"
+                            : ""
+                        let buttonLabel = (applyCount == total
                             ? "Apply \(applyCount)"
-                            : "Apply \(applyCount) of \(total)"
+                            : "Apply \(applyCount) of \(total)") + disputeSuffix
                         Button(buttonLabel) { vm.applyCluster(cluster, into: appState) }
                             .buttonStyle(.glassProminent)
                             .tint(.green)

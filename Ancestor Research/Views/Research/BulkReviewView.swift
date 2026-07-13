@@ -7,6 +7,8 @@ struct BulkReviewView: View {
     @Environment(AppState.self) private var appState
     let results: [String: ResearchResult]  // profileID → result
     @State private var filterTier: FrictionTier?
+    /// CL3 — subject-level open-dispute signal feeding the .conflict tier.
+    @State private var openDisputeCount = 0
     @State private var processedCount = 0
 
     var body: some View {
@@ -97,12 +99,15 @@ struct BulkReviewView: View {
         //   confirmation  — single-record cluster (sourcing is uncorroborated;
         //                    asking the user to double-check is friction-light)
         //   refinement    — otherwise (multi-record, has facts, no conflicts)
-        let hasImpossible = cluster.records.contains { $0.verdict == .impossible }
-        if hasImpossible { return .conflict }
-        let hasFacts = cluster.records.contains { $0.verdict == .fact }
-        if !hasFacts { return .correction }
-        if cluster.records.count <= 1 { return .confirmation }
-        return .refinement
+        FrictionTier.route(
+            hasImpossible: cluster.records.contains { $0.verdict == .impossible },
+            hasFacts: cluster.records.contains { $0.verdict == .fact },
+            recordCount: cluster.records.count,
+            // CL3 (DS-14): the .conflict tier keys off the same predicate
+            // as GPS criterion 4 — an open dispute on the subject makes
+            // every finding here conflict-grade friction.
+            hasConflictSignal: openDisputeCount > 0
+        )
     }
 
     // MARK: - Card
@@ -131,6 +136,12 @@ struct BulkReviewView: View {
             }
             .buttonStyle(.glass)
             .controlSize(.small)
+        }
+        .task {
+            // CL3 — open-dispute signal (same predicate family as GPS
+            // criterion 4). BulkReview is a whole-tree surface, so the
+            // signal is the project-wide open count.
+            openDisputeCount = (try? appState.currentDatabase?.openDisputeCount()) ?? 0
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
@@ -182,6 +193,20 @@ nonisolated enum ReviewFriction: Int, CaseIterable, Sendable {
 }
 
 nonisolated enum FrictionTier: String, CaseIterable, Sendable {
+
+    /// CL3 (DS-14) — pure routing, extracted so the .conflict tier's
+    /// reachability is testable. Conflict wins over everything; the rest
+    /// preserves the pre-CL3 mapping.
+    static func route(
+        hasImpossible: Bool, hasFacts: Bool,
+        recordCount: Int, hasConflictSignal: Bool
+    ) -> FrictionTier {
+        if hasImpossible || hasConflictSignal { return .conflict }
+        if !hasFacts { return .correction }
+        if recordCount <= 1 { return .confirmation }
+        return .refinement
+    }
+
     case conflict = "Conflict"
     case correction = "Correction"
     case confirmation = "Confirmation"

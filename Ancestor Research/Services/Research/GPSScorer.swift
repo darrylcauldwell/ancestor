@@ -50,13 +50,19 @@ nonisolated struct GPSScorer {
         result: ResearchResult?,
         sourceInfoMap: [String: SourceInfo],
         searchedSourceCount: Int,
-        totalSourceCount: Int
+        totalSourceCount: Int,
+        openDisputes: [DisputeRow] = [],
+        resolvedDisputes: [DisputeRow] = [],
+        inconclusiveValueCandidateCount: Int = 0
     ) -> GPSScore {
         let criteria = [
             criterion1ExhaustiveSearch(result: result, searched: searchedSourceCount, total: totalSourceCount),
             criterion2Citations(result: result),
             criterion3Analysis(result: result, sourceInfoMap: sourceInfoMap),
-            criterion4ConflictResolution(result: result),
+            criterion4ConflictResolution(
+                result: result, openDisputes: openDisputes,
+                resolvedDisputes: resolvedDisputes,
+                inconclusiveValueCandidateCount: inconclusiveValueCandidateCount),
             criterion5SoundConclusion(result: result),
         ]
         return GPSScore(criteria: criteria)
@@ -131,7 +137,12 @@ nonisolated struct GPSScorer {
 
     // MARK: - Criterion 3: Analysis and Correlation
 
-    /// Met if we have at least 2 corroborating facts from independent sources.
+    /// CL3 (DS-20/DS-24): correlation is scored PER ASSERTED VALUE via
+    /// `ConvergenceEngine.scoreValueGroups` — contradicting values for one
+    /// field can no longer pool into a single inflated level. Met when at
+    /// least one value group reaches `.possible`; the reason string always
+    /// reports per-value levels so a split vote is visible.
+    /// (Interim lineage counting per §4.5; witness counting lands CL4.)
     private static func criterion3Analysis(
         result: ResearchResult?, sourceInfoMap: [String: SourceInfo]
     ) -> GPSCriterion {
@@ -139,42 +150,91 @@ nonisolated struct GPSScorer {
             return GPSCriterion(criterion: .analysisCorrelation, met: false, reason: "No facts to analyse")
         }
         let factRecords = result.confirmedFacts.map(\.record)
-        let convergence = ConvergenceEngine.score(records: factRecords, sourceInfoMap: sourceInfoMap)
-        let met = convergence >= .possible
+        let groups = ConvergenceEngine.scoreValueGroups(
+            records: factRecords, sourceInfoMap: sourceInfoMap)
+        let best = groups.map(\.level).max() ?? .uncorroborated
+        let met = best >= .possible
+        let perValue = groups
+            .map { "\($0.key) at \($0.level.rawValue)" }
+            .joined(separator: "; ")
         return GPSCriterion(
             criterion: .analysisCorrelation,
             met: met,
             reason: met
-                ? "Evidence corroborated at \(convergence.rawValue) level"
-                : "Insufficient corroboration (\(convergence.rawValue))"
+                ? "Per-value corroboration: \(perValue)"
+                : "Insufficient corroboration (best \(best.rawValue)): \(perValue)"
         )
     }
 
     // MARK: - Criterion 4: Resolution of Conflicting Evidence
 
-    /// Met if no unresolved conflicts exist, OR if there are no conflicts at all.
-    private static func criterion4ConflictResolution(result: ResearchResult?) -> GPSCriterion {
+    /// CL3 rewrite (§4.8.3, DS-07/DS-14/DS-22): GPS element 4 can now
+    /// actually fire. Met requires ALL of:
+    ///   1. no open dispute rows on the subject,
+    ///   2. no rival confirmed clusters (≥2 clusters at confirmed quality
+    ///      asserting different implied birth years — the John 1840/41 pair),
+    ///   3. no inconclusive value-candidate hypotheses,
+    ///   4. no run discrepancy graded ≥ .conflict.
+    /// Resolved disputes count TOWARD met with their evidence cited —
+    /// "resolution of conflicting evidence" means documented resolution,
+    /// not absence of conflict (⟨G2⟩ met-with-evidence framing).
+    private static func criterion4ConflictResolution(
+        result: ResearchResult?,
+        openDisputes: [DisputeRow],
+        resolvedDisputes: [DisputeRow],
+        inconclusiveValueCandidateCount: Int
+    ) -> GPSCriterion {
         guard let result else {
             return GPSCriterion(criterion: .conflictResolution, met: false, reason: "Not yet researched")
         }
-        // RESEARCH_CONFIDENCE_SPEC §4 — "ambiguous" was the pre-Change-5 tier
-        // for clusters with internal contradictions. The new model surfaces
-        // the same signal as "any .impossible record present in the cluster"
-        // (mirrors BulkReviewView.frictionTier).
-        let ambiguous = result.clusters.filter { cluster in
-            cluster.records.contains { $0.verdict == .impossible }
+
+        var unmet: [String] = []
+
+        if !openDisputes.isEmpty {
+            let fields = openDisputes.map { "\($0.kind.rawValue)/\($0.field)" }
+                .joined(separator: ", ")
+            unmet.append("\(openDisputes.count) unresolved conflict\(openDisputes.count == 1 ? "" : "s"): \(fields)")
         }
-        if ambiguous.isEmpty {
+
+        // Rival confirmed clusters: ≥2 at confirmed quality with disjoint
+        // identity anchors (differing implied birth years).
+        let confirmed = result.clusters.filter { $0.matchQuality == .confirmed }
+        let anchors = Set(confirmed.compactMap(\.impliedBirthYear))
+        if confirmed.count >= 2 && anchors.count >= 2 {
+            let years = anchors.sorted().map(String.init).joined(separator: " vs ")
+            unmet.append("\(confirmed.count) rival confirmed clusters (implied births \(years))")
+        }
+
+        if inconclusiveValueCandidateCount > 0 {
+            unmet.append("\(inconclusiveValueCandidateCount) value-candidate hypothes\(inconclusiveValueCandidateCount == 1 ? "is" : "es") still inconclusive")
+        }
+
+        let conflicting = result.discrepancies.filter { $0.severity >= .conflict }
+        if !conflicting.isEmpty {
+            unmet.append("\(conflicting.count) run discrepanc\(conflicting.count == 1 ? "y" : "ies") at conflict grade")
+        }
+
+        if !unmet.isEmpty {
             return GPSCriterion(
-                criterion: .conflictResolution,
-                met: true,
-                reason: result.clusters.isEmpty ? "No evidence to conflict" : "No conflicting evidence found"
+                criterion: .conflictResolution, met: false,
+                reason: unmet.joined(separator: "; ")
+            )
+        }
+
+        // Met — with evidence when conflicts were RESOLVED rather than
+        // merely absent.
+        if !resolvedDisputes.isEmpty {
+            let cited = resolvedDisputes
+                .map { "\($0.field)\($0.resolutionRuleLabel.map { rule in " by \(rule)" } ?? "")" }
+                .joined(separator: ", ")
+            return GPSCriterion(
+                criterion: .conflictResolution, met: true,
+                reason: "\(resolvedDisputes.count) conflict\(resolvedDisputes.count == 1 ? "" : "s") resolved: \(cited)"
             )
         }
         return GPSCriterion(
-            criterion: .conflictResolution,
-            met: false,
-            reason: "\(ambiguous.count) cluster\(ambiguous.count == 1 ? "" : "s") with unresolved contradictions"
+            criterion: .conflictResolution, met: true,
+            reason: result.clusters.isEmpty ? "No evidence to conflict" : "No conflicting evidence found"
         )
     }
 

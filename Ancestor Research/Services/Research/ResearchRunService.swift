@@ -261,11 +261,23 @@ enum ResearchRunService {
             // errored / were blocked / returned truncated pages no longer
             // count toward "reasonably exhaustive search".
             let searchedSources = GPSScorer.searchedSourceIDs(for: result)
+            // CL3 — criterion 4 reads the dispute ledger + value-candidate
+            // hypotheses; loaded best-effort (a read failure degrades to
+            // the no-context defaults, never blocks the run save).
+            let disputeRows: [DisputeRow] =
+                (try? db.allDisputes(profileID: profileID)) ?? []
+            let hypotheses = (try? db.loadHypotheses(forProfile: profileID)) ?? []
+            let inconclusiveCandidates = hypotheses
+                .filter { $0.kind.discriminator == "birthYearCandidate" && $0.verdict == .inconclusive }
+                .count
             let gps = GPSScorer.score(
                 result: result,
                 sourceInfoMap: sourceInfoMap,
                 searchedSourceCount: searchedSources.count,
-                totalSourceCount: registry.allSources().count
+                totalSourceCount: registry.allSources().count,
+                openDisputes: disputeRows.filter(\.isOpen),
+                resolvedDisputes: disputeRows.filter { !$0.isOpen },
+                inconclusiveValueCandidateCount: inconclusiveCandidates
             )
             do {
                 try db.saveResearchRun(
@@ -281,6 +293,23 @@ enum ResearchRunService {
                     resultJSON: options.resultJSON ?? ""
                 )
                 savedRunID = runID
+                // CL3 T-B — run discrepancies stop dead-ending: persist
+                // with run linkage, and grade-≥-conflict rows (already
+                // fact-grade by detectDiscrepancies' filter) also open a
+                // dispute so the conflict is signal, not just data.
+                do {
+                    try db.insertRunDiscrepancies(
+                        profileID: profileID, runID: runID.uuidString,
+                        discrepancies: result.discrepancies)
+                    for d in result.discrepancies where d.severity >= .conflict {
+                        let conflict = Self.disputeConflict(for: d, profileID: profileID)
+                        _ = try db.upsertDispute(
+                            profileID: profileID, conflict: conflict,
+                            adjudication: DisputeResolver.adjudicate(conflict))
+                    }
+                } catch {
+                    failures.append(.init(what: "Persist run discrepancies", error: error))
+                }
             } catch {
                 failures.append(.init(what: "Save research run", error: error))
             }
@@ -309,6 +338,34 @@ enum ResearchRunService {
         }
 
         return PersistOutcome(runID: savedRunID, finalisedLead: finalisedLead, failures: failures)
+    }
+
+    /// CL3 T-B — a ≥ .conflict run discrepancy expressed as a dispute-
+    /// producing conflict (`detected_by='runSweep'`). Field keys map onto
+    /// the apply-path identities so the run-time and apply-time producers
+    /// join the same open dispute rather than opening rivals.
+    nonisolated static func disputeConflict(
+        for d: ResearchDiscrepancy, profileID: String
+    ) -> DetectedConflict {
+        let fieldKey: String = switch d.field {
+        case "birthYear": ProfileField.birthDate.rawValue
+        case "deathYear": ProfileField.deathDate.rawValue
+        default: d.field
+        }
+        return DetectedConflict(
+            kind: .fieldValue,
+            profileID: profileID,
+            field: fieldKey,
+            reason: .valueMismatch,
+            severity: d.severity,
+            competingSources: [
+                FieldSource(origin: SourceOrigin(identifier: "tree"), raw: d.existingValue, addedAt: Date()),
+                FieldSource(origin: SourceOrigin(identifier: d.sourceID), raw: d.sourceValue, addedAt: Date()),
+            ],
+            evidenceJSON: nil,
+            reasoning: "Run discrepancy (\(d.field)): tree says '\(d.existingValue)', \(d.sourceID) says '\(d.sourceValue)'. \(d.reasoning)",
+            detectedBy: .runSweep
+        )
     }
 
     private static let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "RunService")
