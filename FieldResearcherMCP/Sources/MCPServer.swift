@@ -34,30 +34,36 @@ struct MCPServer {
 
 /// Handles MCP JSON-RPC messages over stdio.
 actor MCPHandler {
-    let db: DatabaseQueue
+    private(set) var db: DatabaseQueue
 
-    /// The project DB path (argv[1]). Retained so the §14.B.1 hallucination
-    /// re-check can derive the app's page-cache directory from it.
-    let dbPath: String
+    /// The project DB path (argv[1], or the last successful
+    /// `switch_project`). Retained so the §14.B.1 hallucination re-check
+    /// can derive the app's page-cache directory from it.
+    private(set) var dbPath: String
 
     /// Supported schema version range (§12).
     static let supportedSchemaVersions = 3...5
 
-    init(dbPath: String) throws {
-        self.dbPath = dbPath
+    /// Open + validate a project database (shared by init and
+    /// `switch_project` so a switch can never land on a database the
+    /// server would have refused at launch).
+    static func openValidatedDatabase(at path: String) throws -> DatabaseQueue {
         var config = Configuration()
         config.foreignKeysEnabled = true
         config.readonly = false
-        self.db = try DatabaseQueue(path: dbPath, configuration: config)
-
-        // Schema version check
-        try db.read { db in
-            // Check for v3 (leads) and v5 (field_researcher) tables
+        let queue = try DatabaseQueue(path: path, configuration: config)
+        try queue.read { db in
             let tables = try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type='table'")
             if !tables.contains("leads") {
                 throw MCPError.invalidParams("Database schema too old (no leads table). Update the app first.")
             }
         }
+        return queue
+    }
+
+    init(dbPath: String) throws {
+        self.dbPath = dbPath
+        self.db = try Self.openValidatedDatabase(at: dbPath)
     }
 
     func run() async {
@@ -414,6 +420,14 @@ actor MCPHandler {
                     required: []
                 ),
                 tool(
+                    name: "switch_project",
+                    description: "Rebind this server to a SIBLING project database (same projects directory it was launched from) without a restart. Pass the project UUID or sqlite filename. Validates the target exactly as launch does (schema check) before swapping; on failure the current binding is untouched. Returns the old and new project names + paths. Solves the argv-bound single-project limitation for multi-project research sessions.",
+                    properties: [
+                        "project": ["type": "string", "description": "Target project UUID (with or without .sqlite) or bare filename within the current projects directory. Path separators are refused."],
+                    ],
+                    required: ["project"]
+                ),
+                tool(
                     name: "submit_hypothesis",
                     description: "Seed a user hypothesis (a hunch, e.g. \"I think this person's parents were called Bob & Sue\") for the research engine to test. A hunch is a search directive, never data — it creates no profile, no edge, no field, no citation; it steers targeted probes whose findings face the standard verdict pipeline. Validates synchronously and INSERTs one user_hypothesis_seeds row (the app's watcher materialises it into a research hypothesis with origin=user); returns seed_id, or a structured refusal reason (no_name_hints | profile_not_found | no_subject_birth_estimate | previously_rejected). Hunches accumulate between runs: follow with kick_off_research to test them. Distinct from submit_evidence — family testimony you can cite is evidence, not a hunch.",
                     properties: [
@@ -525,6 +539,8 @@ actor MCPHandler {
             return try addWorkbenchNote(arguments)
         case "kick_off_research":
             return try kickOffResearch(arguments)
+        case "switch_project":
+            return try switchProject(arguments)
         case "submit_hypothesis":
             return try submitHypothesis(arguments)
         case "get_run_status":
@@ -1554,6 +1570,62 @@ actor MCPHandler {
     /// Enqueue a research run. Mutually-exclusive `profile_id` / `lead_id`.
     /// The app's watcher dequeues, fires the pipeline, and updates the
     /// row's status; the caller polls `get_run_status` for completion.
+    /// Rebind to a sibling project DB (runtime project switch — the
+    /// long-noted argv-binding gap). Sibling-only by construction: the
+    /// target resolves within the CURRENT dbPath's parent directory, and
+    /// any path separator in the argument is refused, so the server can
+    /// never be steered outside the projects directory it was launched
+    /// against. Validation is the same as launch; a failed switch leaves
+    /// the current binding untouched.
+    func switchProject(_ args: [String: Any]) throws -> [String: Any] {
+        guard let raw = (args["project"] as? String)?.trimmingCharacters(in: .whitespaces),
+              !raw.isEmpty else {
+            throw MCPError.invalidParams("switch_project requires 'project' (UUID or filename)")
+        }
+        guard !raw.contains("/"), !raw.contains(".."), !raw.contains("\\") else {
+            throw MCPError.invalidParams("'project' must be a bare UUID or filename — path separators are refused")
+        }
+        let filename = raw.hasSuffix(".sqlite") ? raw : raw + ".sqlite"
+        let dir = URL(fileURLWithPath: dbPath).deletingLastPathComponent()
+        let target = dir.appendingPathComponent(filename)
+        guard FileManager.default.fileExists(atPath: target.path) else {
+            return [
+                "status": "refused",
+                "reason": "project_not_found",
+                "detail": "No sibling project '\(filename)' in \(dir.path)",
+            ]
+        }
+        guard target.path != dbPath else {
+            return ["status": "no_op", "detail": "Already bound to \(filename)"]
+        }
+
+        func projectName(in queue: DatabaseQueue) -> String {
+            (try? queue.read { db in
+                try String.fetchOne(db, sql: "SELECT name FROM project_meta LIMIT 1")
+            }).flatMap { $0 } ?? "(unnamed)"
+        }
+
+        let oldName = projectName(in: db)
+        let oldPath = dbPath
+        // Validate BEFORE swapping — a bad target must not unbind us.
+        let newQueue = try Self.openValidatedDatabase(at: target.path)
+        db = newQueue
+        dbPath = target.path
+        return [
+            "status": "switched",
+            "from": ["name": oldName, "path": oldPath],
+            "to": ["name": projectName(in: newQueue), "path": target.path],
+        ]
+    }
+
+    /// Sendable projection of `switchProject` for cross-actor callers
+    /// (tests): status + destination project name.
+    func switchProjectStatus(project: String) throws -> (status: String, toName: String?) {
+        let result = try switchProject(["project": project])
+        let to = result["to"] as? [String: String]
+        return (result["status"] as? String ?? "unknown", to?["name"])
+    }
+
     func kickOffResearch(_ args: [String: Any]) throws -> [String: Any] {
         let profileID = (args["profile_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let leadID = (args["lead_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
