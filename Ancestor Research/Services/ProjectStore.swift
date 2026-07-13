@@ -9,6 +9,18 @@ nonisolated struct ProjectStore {
         category: "ProjectStore"
     )
     static let projectsDirectory: URL = {
+        // Test redirect: when `ANCESTOR_PROJECTS_DIR` is set, projects live
+        // there instead of the real Application Support container. Tests
+        // that spin up real projects (BackupServiceTests, ProjectArchiveTests,
+        // GEDZipTests) point this at a temp dir so a hard test-process crash
+        // — which skips their `defer` cleanup — leaks into an OS-managed
+        // temp directory, never the user's real project list.
+        if let override = ProcessInfo.processInfo.environment["ANCESTOR_PROJECTS_DIR"],
+           !override.isEmpty {
+            let dir = URL(fileURLWithPath: override, isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return dir
+        }
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = appSupport.appendingPathComponent("AncestorResearch/projects")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
