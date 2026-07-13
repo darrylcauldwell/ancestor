@@ -98,7 +98,8 @@ nonisolated struct ConvergenceEngine {
         return SourcingStrength(
             sourceCount: records.count,
             independentLineageCount: lineageSet.count,
-            topTrustTier: topTier
+            topTrustTier: topTier,
+            independentWitnessCount: WitnessIdentity.independentWitnessCount(of: records)
         )
     }
 
@@ -179,8 +180,14 @@ nonisolated extension ConvergenceEngine {
         }
         return groups
             .map { key, members in
-                ValueGroup(key: key, records: members,
-                           level: score(records: members, sourceInfoMap: sourceInfoMap))
+                // CL4 (DS-03): convergence counts WITNESSES, not
+                // transcriptions — collapse each witness family to one
+                // representative before lineage arithmetic, so FreeBMD +
+                // FamilySearch + FindAGrave copies of one GRO line earn
+                // single-source strength.
+                let representatives = WitnessIdentity.witnessRepresentatives(of: members)
+                return ValueGroup(key: key, records: members,
+                                  level: score(records: representatives, sourceInfoMap: sourceInfoMap))
             }
             .sorted { $0.key < $1.key }
     }

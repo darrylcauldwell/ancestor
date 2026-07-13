@@ -59,13 +59,20 @@ public nonisolated struct SourcingStrength: Sendable, Codable, Equatable {
     public let sourceCount: Int
     public let independentLineageCount: Int
     public let topTrustTier: SourceTrustTier
+    /// CL4 (DS-03): the number of INDEPENDENT WITNESSES — underlying
+    /// original register entries — among the records. Three transcriptions
+    /// of one GRO line count 1 here even when they count 2+ lineages.
+    /// Optional-decoded (0 legacy default) so persisted payloads round-trip.
+    public var independentWitnessCount: Int = 0
 
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
-    public init(sourceCount: Int, independentLineageCount: Int, topTrustTier: SourceTrustTier) {
+    public init(sourceCount: Int, independentLineageCount: Int, topTrustTier: SourceTrustTier,
+                independentWitnessCount: Int = 0) {
         self.sourceCount = sourceCount
         self.independentLineageCount = independentLineageCount
         self.topTrustTier = topTrustTier
+        self.independentWitnessCount = independentWitnessCount
     }
 
 

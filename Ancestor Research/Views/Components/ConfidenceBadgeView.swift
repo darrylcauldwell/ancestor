@@ -109,7 +109,11 @@ struct ConfidenceBadgeView: View {
         let primary = s.topTrustTier == .primary
         let primarySuffix = primary ? " · primary record" : ""
 
-        switch (s.sourceCount, s.independentLineageCount) {
+        // CL4 AC6 — witness count (independent register entries), not
+        // lineage count: transcription copies no longer read as
+        // cross-referencing. Zero means legacy/unavailable — fall back.
+        let witnesses = s.independentWitnessCount > 0 ? s.independentWitnessCount : s.independentLineageCount
+        switch (s.sourceCount, witnesses) {
         case (0, _):
             return "No sources"
         case (1, _):
@@ -123,7 +127,8 @@ struct ConfidenceBadgeView: View {
 
     private var sourcingTooltip: String {
         let s = confidence.sourcing
-        return "\(s.sourceCount) records contribute, from \(s.independentLineageCount) independent lineages. Cross-referenced means at least 2 lineages agree."
+        let witnesses = s.independentWitnessCount > 0 ? s.independentWitnessCount : s.independentLineageCount
+        return "\(s.sourceCount) records contribute, from \(witnesses) independent witnesses (underlying register entries). Cross-referenced means at least 2 witnesses agree."
     }
 
     // MARK: - Inference depth (tertiary, conditional)

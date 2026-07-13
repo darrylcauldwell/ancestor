@@ -69,13 +69,39 @@ nonisolated struct DisputeResolver {
             detail: "no user-authoritative attestation among competitors"
         ))
 
-        // R0 — same-witness reduction. Needs WitnessIdentity (C1), which
-        // ships in CL4; honestly inert until then.
-        trace.append(RungEvaluation(
-            rung: "R0",
-            outcome: "inert",
-            detail: "witness identity ships in CL4 — same-witness reduction not evaluated"
-        ))
+        // R0 — same-witness reduction (CL4, live). A conflict whose every
+        // competitor reduces to ONE witness is transcription variance:
+        // when exactly one competing attestation carries a strictly higher
+        // trust tier, that transcription wins — recorded, never silent.
+        if conflict.sameWitness {
+            let ranked = conflict.competingSources
+                .map { (source: $0, tier: ConflictDetector.trustTier(forOriginIdentifier: $0.origin.identifier)) }
+                .sorted { $0.tier > $1.tier }
+            if let best = ranked.first, ranked.count >= 2, best.tier > ranked[1].tier {
+                trace.append(RungEvaluation(
+                    rung: "R0",
+                    outcome: "fired",
+                    detail: "same-witness transcription variance — '\(best.source.origin.identifier)' (\(best.tier.rawValue)) outranks the other transcription(s); higher-quality transcription accepted"
+                ))
+                for (rung, note) in [("R1", "resolved at R0"), ("R2", "resolved at R0")] {
+                    trace.append(RungEvaluation(rung: rung, outcome: "not-evaluated", detail: note))
+                }
+                return Adjudication(
+                    resolution: .rule(id: "R0", accepted: best.source),
+                    trace: trace)
+            }
+            trace.append(RungEvaluation(
+                rung: "R0",
+                outcome: "not-fired",
+                detail: "same-witness variance but no transcription strictly outranks the others — stays open for the human"
+            ))
+        } else {
+            trace.append(RungEvaluation(
+                rung: "R0",
+                outcome: "not-fired",
+                detail: "competitors span more than one witness — genuine evidential conflict, not transcription variance"
+            ))
+        }
 
         // R1 — precision subsumption. A strictly-contained value never
         // opens a dispute at all: F1 filters containment as refinement at

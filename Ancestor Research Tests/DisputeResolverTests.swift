@@ -83,8 +83,10 @@ struct DisputeResolverTests {
         let rungs = adjudication.trace.map(\.rung)
         #expect(rungs == ["R3", "R0", "R1", "R2"])
         #expect(adjudication.trace.first { $0.rung == "R1" }?.outcome == "not-fired")
-        #expect(adjudication.trace.first { $0.rung == "R0" }?.outcome == "inert")
-        #expect(adjudication.trace.first { $0.rung == "R0" }?.detail.contains("CL4") == true)
+        // CL4: R0 is live — for a cross-witness conflict (this fixture)
+        // it evaluates and does not fire (genuine evidential conflict).
+        #expect(adjudication.trace.first { $0.rung == "R0" }?.outcome == "not-fired")
+        #expect(adjudication.trace.first { $0.rung == "R0" }?.detail.contains("witness") == true)
         #expect(adjudication.trace.first { $0.rung == "R2" }?.outcome == "inert")
         #expect(adjudication.trace.first { $0.rung == "R2" }?.detail.contains("CL5") == true)
     }

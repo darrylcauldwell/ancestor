@@ -26,6 +26,10 @@ nonisolated struct DetectedConflict: Sendable {
     let evidenceJSON: String?
     let reasoning: String
     let detectedBy: DisputeProducer
+    /// CL4 F5 — true when every competing attestation reduces to ONE
+    /// witness (transcription variance, not evidential conflict): R0 may
+    /// auto-resolve by transcription quality.
+    var sameWitness: Bool = false
 }
 
 /// CONFLICT_LAYER_SPEC §4.2 — C2, the producer's brain. Pure, nonisolated,
@@ -551,5 +555,51 @@ nonisolated struct ConflictDetector {
                     detectedBy: detectedBy
                 )
             }
+    }
+
+    // MARK: - F5 — same-witness transcription disagreement (CL4)
+
+    /// Two fact-grade records reduce to ONE WitnessKey yet assert
+    /// different values: a transcription disagreement, graded low and
+    /// R0-resolvable — never evidential conflict (§4.2 F5).
+    static func sameWitnessDisagreements(
+        profileID: String,
+        records: [SourceRecord],
+        detectedBy: DisputeProducer = .consistencySweep
+    ) -> [DetectedConflict] {
+        var conflicts: [DetectedConflict] = []
+        var seenPairs = Set<String>()
+        for i in records.indices {
+            for j in records.indices where j > i {
+                let a = records[i], b = records[j]
+                let ka = WitnessIdentity.key(for: a), kb = WitnessIdentity.key(for: b)
+                guard WitnessIdentity.sameWitness(ka, kb) else { continue }
+                let va = ConvergenceEngine.valueKey(for: a)
+                let vb = ConvergenceEngine.valueKey(for: b)
+                guard va != vb else { continue }
+                let pairKey = [a.id, b.id].sorted().joined(separator: "|")
+                guard seenPairs.insert(pairKey).inserted else { continue }
+                let fieldKey = "witness-\(ka.eventShape)-\(ka.year.map(String.init) ?? "?")"
+                conflicts.append(DetectedConflict(
+                    kind: .fieldValue,
+                    profileID: profileID,
+                    field: fieldKey,
+                    reason: .valueMismatch,
+                    severity: .note,
+                    competingSources: [
+                        FieldSource(origin: SourceOrigin(identifier: a.common.sourceID),
+                                    raw: "\(va) [\(a.id)]", addedAt: Date()),
+                        FieldSource(origin: SourceOrigin(identifier: b.common.sourceID),
+                                    raw: "\(vb) [\(b.id)]", addedAt: Date()),
+                    ],
+                    evidenceJSON: (try? JSONEncoder().encode(["recordIDs": [a.id, b.id]]))
+                        .flatMap { String(data: $0, encoding: .utf8) },
+                    reasoning: "F5 same-witness disagreement: two transcriptions of one register entry (\(ka.eventShape) \(ka.year.map(String.init) ?? "?")) assert \(va) vs \(vb) — transcription variance, not corroboration.",
+                    detectedBy: detectedBy,
+                    sameWitness: true
+                ))
+            }
+        }
+        return conflicts
     }
 }

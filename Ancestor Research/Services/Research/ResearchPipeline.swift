@@ -2412,6 +2412,23 @@ final class ResearchPipeline {
     // MARK: - Discrepancy Detection
 
     /// Detect discrepancies between new records and the existing tree.
+    /// CL4 — the severity table's convergence-upgrade path (latent since
+    /// v1) is finally fed: a discrepant value corroborated by MULTIPLE
+    /// INDEPENDENT WITNESSES upgrades severity (.conflict → .correction),
+    /// while transcription copies of one register line stay single-source.
+    private func valueConvergence(
+        of record: ScoredRecord,
+        among scored: [ScoredRecord],
+        sourceInfoMap: [String: SourceInfo]
+    ) -> ConvergenceLevel {
+        let key = ConvergenceEngine.valueKey(for: record.record)
+        let sameValue = scored
+            .filter { $0.verdict == .fact && ConvergenceEngine.valueKey(for: $0.record) == key }
+            .map(\.record)
+        let representatives = WitnessIdentity.witnessRepresentatives(of: sameValue)
+        return ConvergenceEngine.score(records: representatives, sourceInfoMap: sourceInfoMap)
+    }
+
     private func detectDiscrepancies(scored: [ScoredRecord], subject: ResearchSubject) -> [ResearchDiscrepancy] {
         var discrepancies: [ResearchDiscrepancy] = []
 
@@ -2424,7 +2441,7 @@ final class ResearchPipeline {
                     let delta = abs(existingYear - recordYear)
                     let severity = DiscrepancySeverityTable.severity(
                         sourceTier: sourceInfo?.trustTier ?? .community,
-                        absDelta: delta, convergence: .singleSource
+                        absDelta: delta, convergence: valueConvergence(of: record, among: scored, sourceInfoMap: sourceInfoMap)
                     )
                     discrepancies.append(ResearchDiscrepancy(
                         field: "birthYear", existingValue: String(existingYear),
@@ -2439,7 +2456,7 @@ final class ResearchPipeline {
                     let delta = abs(existingYear - recordYear)
                     let severity = DiscrepancySeverityTable.severity(
                         sourceTier: sourceInfo?.trustTier ?? .community,
-                        absDelta: delta, convergence: .singleSource
+                        absDelta: delta, convergence: valueConvergence(of: record, among: scored, sourceInfoMap: sourceInfoMap)
                     )
                     discrepancies.append(ResearchDiscrepancy(
                         field: "deathYear", existingValue: String(existingYear),

@@ -117,6 +117,14 @@ nonisolated struct ConflictSweep {
                 $0.type == .spouse && ($0.from == profile.id || $0.to == profile.id)
             }
             let evidence = try db.loadEvidenceForProfile(profile.id)
+
+            // F5 (CL4) — same-witness transcription disagreements among
+            // fact-grade evidence records.
+            let factRecords = evidence.filter { $0.verdict == .fact }.map(\.record)
+            conflicts.append(contentsOf: ConflictDetector.sameWitnessDisagreements(
+                profileID: profile.id, records: factRecords,
+                detectedBy: .consistencySweep))
+
             for row in evidence where row.verdict == .fact {
                 guard case .marriage(let m) = row.record else { continue }
                 let raw = (m.spouseName ?? "").trimmingCharacters(in: .whitespaces)
