@@ -36,10 +36,15 @@ struct MCPServer {
 actor MCPHandler {
     let db: DatabaseQueue
 
+    /// The project DB path (argv[1]). Retained so the §14.B.1 hallucination
+    /// re-check can derive the app's page-cache directory from it.
+    let dbPath: String
+
     /// Supported schema version range (§12).
     static let supportedSchemaVersions = 3...5
 
     init(dbPath: String) throws {
+        self.dbPath = dbPath
         var config = Configuration()
         config.foreignKeysEnabled = true
         config.readonly = false
@@ -116,7 +121,7 @@ actor MCPHandler {
         case "tools/list":
             return toolsList()
         case "tools/call":
-            return try callTool(params: params)
+            return try await callTool(params: params)
 
         // Prompts
         case "prompts/list":
@@ -449,7 +454,7 @@ actor MCPHandler {
                 // says unambiguous; ambiguous facts still go to human review.
                 tool(
                     name: "approve_pending_fact",
-                    description: "Approve a pending fact via the deterministic gate. Commits to the profile + field_sources only if the fact passes every criterion (trust tier, convergence with existing sources, no would-be dispute, field is in the auto-approvable set). Refuses with a reason code otherwise; the fact stays pending for human review. NOTE: disabled by default pending §14.B.1 defensive hallucination re-check — set ANCESTOR_MCP_AUTO_APPROVE=1 in the server's environment to enable. Use inspect_approval_decision to test gate logic without the env override.",
+                    description: "Approve a pending fact via the deterministic gate. Commits to the profile + field_sources only if the fact passes every criterion (trust tier, convergence with existing sources, no would-be dispute, field is in the auto-approvable set) AND the §14.B.1 defensive hallucination re-check confirms the claimed value/evidence actually appears on the cited page. Refuses with a reason code otherwise; the fact stays pending for human review. NOTE: still disabled by default — set ANCESTOR_MCP_AUTO_APPROVE=1 in the server's environment to enable; the §14.B.1 re-check then runs before commit. Use inspect_approval_decision to test gate logic without the env override.",
                     properties: [
                         "pending_fact_id": ["type": "string", "description": "The pending_facts row ID to evaluate and commit."],
                     ],
@@ -465,7 +470,7 @@ actor MCPHandler {
                 ),
                 tool(
                     name: "promote_lead",
-                    description: "Promote a lead to a real profile + relationship edge. Creates a new profiles row from the lead's name/birth/death/relationship fields and a relationships row connecting it to the lead's source profile. Restricted to father/mother/spouse (unambiguous gender + edge direction); child/sibling refuse with reason. Disabled by default pending §14.B.1 — set ANCESTOR_MCP_AUTO_APPROVE=1 to enable. Marks the lead as resolved on success.",
+                    description: "Promote a lead to a real profile + relationship edge. Creates a new profiles row from the lead's name/birth/death/relationship fields and a relationships row connecting it to the lead's source profile. Restricted to father/mother/spouse (unambiguous gender + edge direction); child/sibling refuse with reason. Gated by the expansion-bound (#Change7) and promote-time dedup (#Change3) checks. Still disabled by default — set ANCESTOR_MCP_AUTO_APPROVE=1 to enable. Marks the lead as resolved on success.",
                     properties: [
                         "lead_id": ["type": "string", "description": "The leads row id to promote."],
                     ],
@@ -475,7 +480,7 @@ actor MCPHandler {
         ]
     }
 
-    func callTool(params: [String: Any]) throws -> [String: Any] {
+    func callTool(params: [String: Any]) async throws -> [String: Any] {
         guard let name = params["name"] as? String,
               let arguments = params["arguments"] as? [String: Any] else {
             throw MCPError.invalidParams("missing name or arguments")
@@ -523,7 +528,7 @@ actor MCPHandler {
         case "get_scored_records":
             return try getScoredRecords(arguments)
         case "approve_pending_fact":
-            return try approvePendingFact(arguments)
+            return try await approvePendingFact(arguments)
         case "inspect_approval_decision":
             return try inspectApprovalDecision(arguments)
         case "promote_lead":
@@ -2470,20 +2475,75 @@ actor MCPHandler {
         "findagrave.com", "www.findagrave.com",
     ]
 
-    /// Runtime gate for the auto-approval write path. Default off.
-    /// The MVP gate (trust tier + convergence + dispute + field-set)
+    /// Runtime gate for the auto-approval write path. Default off — and
+    /// this change does NOT alter that default (§14.B.1 is an ADDITIONAL
+    /// gate, not a reason to enable auto-approval).
+    /// The §14.3 gate (trust tier + convergence + dispute + field-set)
     /// catches rule violations but not fabrications — an AI that
     /// asserts a value its source URL doesn't actually contain would
-    /// pass every criterion. §14.B.1 (defensive hallucination
-    /// re-check) closes that hole by re-fetching the URL at gate
-    /// time. Until §14.B.1 ships, auto-approval is off by default.
-    /// Set `ANCESTOR_MCP_AUTO_APPROVE=1` to enable for dev work.
+    /// pass every criterion. The §14.B.1 defensive hallucination re-check
+    /// (`runHallucinationRecheck`) now closes that hole: when auto-approve
+    /// is enabled AND the §14.3 gate passes, the commit path re-fetches
+    /// the cited page (page-cache first) and confirms the claim before
+    /// committing. Set `ANCESTOR_MCP_AUTO_APPROVE=1` to enable for dev work.
     static func isAutoApprovalEnabled() -> Bool {
         let v = ProcessInfo.processInfo.environment["ANCESTOR_MCP_AUTO_APPROVE"]
         return v == "1" || v?.lowercased() == "true"
     }
 
-    func approvePendingFact(_ args: [String: Any]) throws -> [String: Any] {
+    /// §14.B.1 defensive hallucination re-check for one pending fact.
+    ///
+    /// Reads the pending fact's cited URL + claimed value + evidence excerpt
+    /// from the `pending_facts` row, then runs the deterministic
+    /// `MCPHallucinationRecheck` against the app's on-disk page-cache. Injectable
+    /// `pages` for tests; production derives the app's page-cache dir from the
+    /// project DB path (BOUNCES on cache-miss — see `CachingPageProvider`).
+    func runHallucinationRecheck(
+        pendingFactID: String,
+        pages: (any PageProvider)? = nil
+    ) async throws -> MCPHallucinationRecheck.AuditEntry {
+        let claim: MCPHallucinationRecheck.Claim = try await db.read { db in
+            let row = try Row.fetchOne(db, sql: "SELECT * FROM pending_facts WHERE id = ?", arguments: [pendingFactID])
+            return MCPHallucinationRecheck.Claim(
+                profileID: row?["profile_id"] ?? "",
+                field: row?["fact_kind"] ?? "",
+                value: row?["value_json"] ?? "",
+                sourceURL: row?["source_url"] ?? "",
+                evidenceText: row?["evidence_text"] ?? ""
+            )
+        }
+
+        let provider: any PageProvider
+        if let pages {
+            provider = pages
+        } else if let cacheDir = CachingPageProvider.cacheDirectory(forProjectDBPath: dbPath) {
+            provider = CachingPageProvider(cacheDirectory: cacheDir)
+        } else {
+            // No derivable cache dir → conservative bounce (empty provider,
+            // always a cache-miss). Can't verify → don't auto-approve.
+            provider = CachingPageProvider(cacheDirectory: URL(fileURLWithPath: "/nonexistent"))
+        }
+
+        return await MCPHallucinationRecheck.recheck(claim: claim, pages: provider)
+    }
+
+    /// The inner JSON payload string of a tool response
+    /// (`content[0].text`). `Sendable`, so it can cross the actor boundary —
+    /// used by the run loop's stdout path and by tests that assert on the
+    /// response without pulling the non-Sendable `[String: Any]` across.
+    static func toolResponseText(_ response: [String: Any]) -> String {
+        guard let content = response["content"] as? [[String: Any]],
+              let text = content.first?["text"] as? String else { return "{}" }
+        return text
+    }
+
+    /// Convenience for the run loop / tests: run `approve_pending_fact` and
+    /// return its inner JSON payload string (`Sendable`).
+    func approvePendingFactResponseText(_ args: [String: Any]) async throws -> String {
+        Self.toolResponseText(try await approvePendingFact(args))
+    }
+
+    func approvePendingFact(_ args: [String: Any]) async throws -> [String: Any] {
         guard let pendingFactID = args["pending_fact_id"] as? String else {
             throw MCPError.invalidParams("approve_pending_fact requires pending_fact_id")
         }
@@ -2492,7 +2552,7 @@ actor MCPHandler {
             let payload: [String: Any] = [
                 "status": "refused",
                 "reason": "auto_approval_gate_disabled",
-                "detail": "Auto-approval is disabled by default pending §14.B.1 (defensive hallucination re-check). The MVP gate validates rule compliance, not source-value fidelity, so an AI hallucination would currently pass. Set ANCESTOR_MCP_AUTO_APPROVE=1 in the environment to override for dev work.",
+                "detail": "Auto-approval is disabled by default. When enabled, commit is double-gated: the deterministic §14.3 gate (rule compliance) AND the §14.B.1 defensive hallucination re-check (re-fetches the cited page and confirms the claimed value/evidence actually appears — source-value fidelity). Set ANCESTOR_MCP_AUTO_APPROVE=1 in the environment to override for dev work.",
                 "pending_fact_id": pendingFactID,
                 "still_pending": true,
             ]
@@ -2513,11 +2573,34 @@ actor MCPHandler {
             let json = (try? String(data: JSONSerialization.data(withJSONObject: payload, options: .prettyPrinted), encoding: .utf8)) ?? "{}"
             return ["content": [["type": "text", "text": json]]]
         case .approve(let criteria):
+            // §14.B.1 defensive hallucination re-check — the ADDITIONAL gate.
+            // Runs only here: auto-approve is already enabled AND the §14.3
+            // deterministic gate has passed. Independently re-fetches the cited
+            // page (page-cache first) and confirms the specific claim actually
+            // appears before allowing the commit. On .bounced the fact is NOT
+            // committed and stays pending for human review.
+            let recheck = try await runHallucinationRecheck(pendingFactID: pendingFactID)
+            if case .bounced(let flag) = recheck.decision {
+                let payload: [String: Any] = [
+                    "status": "refused",
+                    "reason": "hallucination_recheck_failed",
+                    "detail": "§14.B.1 re-check bounced (\(flag.rawValue)): the claimed value/evidence could not be independently confirmed on the cited page. Fact left in pending_facts for human review.",
+                    "pending_fact_id": pendingFactID,
+                    "hallucination_flag": flag.rawValue,
+                    "served_from_cache": recheck.servedFromCache,
+                    "still_pending": true,
+                ]
+                let json = (try? String(data: JSONSerialization.data(withJSONObject: payload, options: .prettyPrinted), encoding: .utf8)) ?? "{}"
+                return ["content": [["type": "text", "text": json]]]
+            }
+
             let committed = try commitPendingFact(pendingFactID: pendingFactID, criteria: criteria)
             var payload: [String: Any] = [
                 "status": "approved",
                 "pending_fact_id": pendingFactID,
                 "criteria_met": criteria,
+                "hallucination_recheck": "approved",
+                "recheck_served_from_cache": recheck.servedFromCache,
             ]
             payload["profile_id"] = committed.profileID
             payload["field"] = committed.field
