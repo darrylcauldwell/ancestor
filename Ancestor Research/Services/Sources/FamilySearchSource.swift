@@ -154,7 +154,11 @@ actor FamilySearchSource: RecordSource, AuthenticatingSource {
         var components = URLComponents(url: searchURL, resolvingAgainstBaseURL: false)!
         var items: [URLQueryItem] = [
             URLQueryItem(name: "q.surname", value: surnameValue),
-            URLQueryItem(name: "count", value: "20"),
+            // 100 is the documented hard max for this endpoint's pagination
+            // (FAMILYSEARCH_SOURCE_SPEC.md §15.7) — was 20, which silently
+            // truncated broad queries to FamilySearch's first page of
+            // server-ranked relevance.
+            URLQueryItem(name: "count", value: "100"),
             URLQueryItem(name: "offset", value: "0"),
             URLQueryItem(name: "m.defaultFacets", value: "on"),
         ]
@@ -515,7 +519,7 @@ extension FamilySearchSource {
         // census record gets `.census`; their christening date (if also
         // surfaced) doesn't override.
         let primaryFact = pickPrimaryFact(facts: persona.facts ?? [], queryHint: queryRecordType)
-        let recordRecordType = primaryFact.map { recordType(forGedcomxFact: $0.type ?? "") } ?? queryRecordType
+        let recordRecordType = primaryFact.map { recordType(forGedcomxFact: $0.type ?? "", queryHint: queryRecordType) } ?? queryRecordType
 
         // Collect every fact as a rawFields entry — even when the typed
         // record struct doesn't surface it. Preserves the long-tail
@@ -744,7 +748,7 @@ extension FamilySearchSource {
             switch queryHint {
             case .birth: return ["Birth", "BirthRegistration"]
             case .baptism, .christening: return ["Baptism", "Christening", "AdultChristening"]
-            case .death: return ["Death", "DeathRegistration"]
+            case .death: return ["Death", "DeathRegistration", "Funeral"]
             case .burial: return ["Burial", "Cremation"]
             case .marriage: return ["Marriage", "MarriageBanns", "MarriageRegistration"]
             case .census: return ["Census", "Residence"]
@@ -765,23 +769,26 @@ extension FamilySearchSource {
 
     /// Map a GEDCOMx fact-type URI to a RecordType case. Default to the
     /// query's record type when unmapped — the parser's outer loop has
-    /// already established the broad axis.
-    nonisolated private static func recordType(forGedcomxFact uri: String) -> RecordType {
+    /// already established the broad axis. (Previously defaulted to
+    /// `.parish` unconditionally, which silently reclassified any
+    /// unrecognized fact type — e.g. "Funeral" on the "United Kingdom,
+    /// Funeral Notices" collection — away from the record type the
+    /// query was actually searching for, dropping it out of that
+    /// type's scoring/hypothesis path entirely.)
+    nonisolated private static func recordType(forGedcomxFact uri: String, queryHint: RecordType) -> RecordType {
         let suffix = uri.split(separator: "/").last.map(String.init) ?? ""
         switch suffix {
         case "Birth", "BirthRegistration": return .birth
         case "Baptism": return .baptism
         case "Christening", "AdultChristening": return .christening
-        case "Death", "DeathRegistration": return .death
+        case "Death", "DeathRegistration", "Funeral": return .death
         case "Burial", "Cremation": return .burial
         case "Marriage", "MarriageBanns", "MarriageRegistration": return .marriage
         case "Census", "Residence": return .census
         case "Probate", "Will": return .probate
         case "MilitaryService", "MilitaryDischarge", "MilitaryDraftRegistration",
              "MilitaryInduction", "MilitaryAward": return .military
-        default: return .parish // safest catch-all for the long tail of
-                                // parish-register-ish facts that the
-                                // first cut doesn't model individually
+        default: return queryHint
         }
     }
 

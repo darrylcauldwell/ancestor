@@ -284,4 +284,73 @@ struct FamilySearchSourceTests {
         let records = try FamilySearchSource.parseSearchResponse(data: data, query: query(strictness: .strict))
         #expect(records.count == 2)
     }
+
+    // MARK: - Fact-type mapping (Funeral Notices gap)
+
+    private func envelope(factType: String, date: String) -> Data {
+        let json = """
+        {
+          "entries": [{
+            "content": {
+              "gedcomx": {
+                "persons": [{
+                  "id": "p0",
+                  "names": [{
+                    "nameForms": [{
+                      "fullText": "Kenneth Howard Cauldwell",
+                      "parts": [
+                        {"type": "http://gedcomx.org/Given", "value": "Kenneth Howard"},
+                        {"type": "http://gedcomx.org/Surname", "value": "Cauldwell"}
+                      ]
+                    }]
+                  }],
+                  "facts": [{
+                    "type": "\(factType)",
+                    "date": {"original": "\(date)", "formal": "+\(date)"},
+                    "place": {"original": "Derbyshire, England"}
+                  }]
+                }],
+                "sourceDescriptions": [{
+                  "about": "ark:/61903/coll-funeral-notices",
+                  "titles": [{"value": "United Kingdom, Funeral Notices, 1914-2023"}]
+                }]
+              }
+            }
+          }]
+        }
+        """
+        return Data(json.utf8)
+    }
+
+    @Test func funeralFactTypeMapsToDeathRecordNotParish() throws {
+        // The live gap: FamilySearch's "United Kingdom, Funeral Notices"
+        // collection uses a "Funeral" fact type, which isn't Death or
+        // DeathRegistration. Before the fix this fell through to the
+        // `.parish` catch-all and dropped out of death-date scoring
+        // entirely — reproducing the Kenneth Howard Cauldwell record
+        // that never surfaced in a real run.
+        let data = envelope(factType: "http://gedcomx.org/Funeral", date: "2007")
+        let records = try FamilySearchSource.parseSearchResponse(data: data, query: query(strictness: .strict))
+        #expect(records.count == 1)
+        guard case .death(let r) = records.first else {
+            Issue.record("Expected .death, got \(String(describing: records.first))")
+            return
+        }
+        #expect(r.deathYear == 2007)
+    }
+
+    @Test func unrecognizedFactTypeFallsBackToQueryRecordTypeNotParish() throws {
+        // General form of the fix: ANY fact type FamilySearch hasn't
+        // explicitly modelled should fall back to the query's own record
+        // type (the axis the dispatcher already established), not a
+        // hardcoded `.parish` that silently reclassifies the record.
+        let data = envelope(factType: "http://gedcomx.org/SomeFutureFactType", date: "1999")
+        let records = try FamilySearchSource.parseSearchResponse(data: data, query: query(strictness: .strict))
+        #expect(records.count == 1)
+        guard case .death(let r) = records.first else {
+            Issue.record("Expected .death fallback, got \(String(describing: records.first))")
+            return
+        }
+        #expect(r.deathYear == 1999)
+    }
 }
