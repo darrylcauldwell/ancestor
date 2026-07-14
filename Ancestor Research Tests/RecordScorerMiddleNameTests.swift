@@ -540,3 +540,128 @@ struct RecordScorerProbateTests {
         #expect(result.verdict == .fact)
     }
 }
+
+// MARK: - Exact-birth-date name rescue
+
+/// Tests for `RecordScorer.checkName`'s birth-date rescue: a death record
+/// indexed under a middle-name variant (given first-token mismatch) is accepted
+/// when it shares an EXACT birth date with the subject and its tokens subset the
+/// subject's names. Anchored to George Eric Vaughn Cauldwell (b.19 Jul 1915),
+/// whose 1986 Derbyshire death FamilySearch indexes as "Vaughan Eric Cauldwell"
+/// — a record the strict first-token name gate rejected until this rescue.
+struct RecordScorerBirthDateRescueTests {
+
+    private func georgeSubject(birthDateOriginal: String? = "19 Jul 1915") -> ResearchSubject {
+        var s = ResearchSubject(
+            surname: "Cauldwell",
+            givenName: "George Eric Vaughn",
+            middleName: nil,
+            birthYearFrom: 1915,
+            birthYearTo: 1915,
+            gender: .male,
+            region: .englandAndWales,
+            mode: .extend
+        )
+        s.birthDateOriginal = birthDateOriginal
+        return s
+    }
+
+    /// FamilySearch-shape death record: the birth date rides `rawFields`
+    /// (`fact.Birth.date`) exactly as `FamilySearchSource` stores it.
+    private func deathRecord(given: String, surname: String = "Cauldwell",
+                             birthDateRaw: String?, deathYear: Int = 1986) -> SourceRecord {
+        var raw: [String: String] = ["fact.DeathRegistration.date": String(deathYear)]
+        if let b = birthDateRaw { raw["fact.Birth.date"] = b }
+        return .death(DeathRecord(
+            common: RecordCommon(
+                id: "fs-\(given)-\(deathYear)",
+                sourceID: "familysearch",
+                name: "\(given) \(surname)",
+                surname: surname,
+                givenName: given,
+                detailURL: nil,
+                rawFields: raw
+            ),
+            deathYear: deathYear, deathDate: nil, deathPlace: "Derbyshire, England",
+            age: nil, quarter: nil, district: nil, volume: nil, page: nil, spouseSurname: nil
+        ))
+    }
+
+    private func nameFails(_ result: ScoredRecord, _ note: String) {
+        guard let g = result.gates.first(where: { $0.gate == .name }) else {
+            Issue.record("expected a name gate result"); return
+        }
+        #expect(g.outcome == .fail, "\(note); reason=\(g.reason)")
+    }
+    private func namePasses(_ result: ScoredRecord, _ note: String) {
+        guard let g = result.gates.first(where: { $0.gate == .name }) else {
+            Issue.record("expected a name gate result"); return
+        }
+        #expect(g.outcome == .pass, "\(note); reason=\(g.reason)")
+    }
+
+    @Test func middleNameVariantRescuedByExactBirthDate() {
+        // "Vaughan Eric" vs subject "George Eric Vaughn" — first tokens differ,
+        // but exact DOB (19 Jul 1915) + token subset rescues. The real George.
+        let result = RecordScorer.classify(
+            record: deathRecord(given: "Vaughan Eric", birthDateRaw: "19 Jul 1915"),
+            subject: georgeSubject(),
+            searchType: .death
+        )
+        namePasses(result, "exact-DOB middle-name variant should pass")
+    }
+
+    @Test func formalBirthDateAlsoRescues() {
+        // GEDCOM X formal record date vs free-text subject date — both parse
+        // to 1915-07-19 and match.
+        let result = RecordScorer.classify(
+            record: deathRecord(given: "Vaughan Eric", birthDateRaw: "+1915-07-19"),
+            subject: georgeSubject(birthDateOriginal: "19 July 1915"),
+            searchType: .death
+        )
+        namePasses(result, "formal record date should still match free-text subject date")
+    }
+
+    @Test func differentBirthDateIsNotRescued() {
+        // Same names, but the record's birth date is one day off — not the same
+        // person, no rescue.
+        let result = RecordScorer.classify(
+            record: deathRecord(given: "Vaughan Eric", birthDateRaw: "20 Jul 1915"),
+            subject: georgeSubject(),
+            searchType: .death
+        )
+        nameFails(result, "a one-day DOB difference must not rescue")
+    }
+
+    @Test func unrelatedGivenNameNotRescuedDespiteExactDOB() {
+        // Exact DOB but a given name with NO token overlap ("John") must not
+        // rescue — could be a different same-surname person or a data error.
+        let result = RecordScorer.classify(
+            record: deathRecord(given: "John", birthDateRaw: "19 Jul 1915"),
+            subject: georgeSubject(),
+            searchType: .death
+        )
+        nameFails(result, "unrelated given name must not rescue even on exact DOB")
+    }
+
+    @Test func yearOnlySubjectCannotRescue() {
+        // Subject lacks a full birth date → no exact-DOB signal → no rescue,
+        // even for a token-subset name.
+        let result = RecordScorer.classify(
+            record: deathRecord(given: "Vaughan Eric", birthDateRaw: "19 Jul 1915"),
+            subject: georgeSubject(birthDateOriginal: nil),
+            searchType: .death
+        )
+        nameFails(result, "year-only subject has no exact-DOB signal to rescue with")
+    }
+
+    @Test func recordWithoutBirthDateCannotRescue() {
+        // No birth fact on the record → nothing to corroborate → no rescue.
+        let result = RecordScorer.classify(
+            record: deathRecord(given: "Vaughan Eric", birthDateRaw: nil),
+            subject: georgeSubject(),
+            searchType: .death
+        )
+        nameFails(result, "record without a birth fact cannot be rescued")
+    }
+}

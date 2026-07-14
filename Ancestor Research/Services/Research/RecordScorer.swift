@@ -261,6 +261,24 @@ nonisolated struct RecordScorer {
             let recordFirstGiven = recordGiven.split(separator: " ").first.map(String.init) ?? recordGiven
             givenScore = ScoringRules.nameSimilarity(recordFirstGiven, personGiven)
             if givenScore < 0.7 {
+                // Rescue a first-token mismatch when the record shares an EXACT
+                // birth date (day+month+year) with the subject AND its given
+                // tokens are a plausible subset of the subject's full given
+                // name — the same person indexed under a middle name they went
+                // by. Real case: George Eric Vaughn Cauldwell (b.19 Jul 1915),
+                // whose 1986 Derbyshire death FamilySearch indexes as "Vaughan
+                // Eric Cauldwell". Same surname + exact DOB + a name that
+                // reorders/subsets the subject's is the same person; the guards
+                // (exact DOB, per-token resemblance) keep it from matching a
+                // differently-named relative who merely shares the surname.
+                if exactBirthDateRescuesGivenName(
+                    record: record, recordGiven: recordGiven,
+                    subjectFullGiven: personGivenRaw, subject: subject
+                ) {
+                    return GateResult(gate: .name, outcome: .pass, reason: String(
+                        format: "surname=%.2f, given '%@' rescued by exact birth-date match",
+                        surnameScore, recordGiven))
+                }
                 return GateResult(gate: .name, outcome: .fail, reason: "given name mismatch: \(recordGiven) vs \(personGiven)")
             }
         } else if recordGiven.isEmpty {
@@ -340,6 +358,117 @@ nonisolated struct RecordScorer {
             return false
         }
         return true
+    }
+
+    /// True when a given-name first-token mismatch should be rescued: the record
+    /// shares an EXACT birth date (day+month+year) with the subject AND every
+    /// multi-letter token of the record's given name resembles a token of the
+    /// subject's full given name (the person indexed under a middle name they
+    /// went by). See the call site in `checkName` for rationale.
+    private static func exactBirthDateRescuesGivenName(
+        record: SourceRecord, recordGiven: String,
+        subjectFullGiven: String, subject: ResearchSubject
+    ) -> Bool {
+        // (1) Exact birth-date match. Both sides must carry a full calendar
+        //     date — a year-only subject or record can't produce the strong
+        //     DOB identity signal, so we decline rather than guess.
+        guard let subjectDOB = fullCalendarDate(subject.birthDateOriginal) else { return false }
+        let recordDOBRaw: String? = {
+            let keys = record.rawFields.keys
+            // Prefer the unambiguous formal date across any Birth-shape fact
+            // (Birth, BirthRegistration, …); fall back to the original text.
+            if let k = keys.first(where: { $0.hasPrefix("fact.Birth") && $0.hasSuffix(".date.formal") }) {
+                return record.rawFields[k]
+            }
+            if let k = keys.first(where: { $0.hasPrefix("fact.Birth") && $0.hasSuffix(".date") }) {
+                return record.rawFields[k]
+            }
+            return nil
+        }()
+        guard let recordDOB = fullCalendarDate(recordDOBRaw), recordDOB == subjectDOB else { return false }
+
+        // (2) Per-token name-resemblance guard — the record's given name must be
+        //     a plausible subset/reordering of the subject's. Skip bare initials;
+        //     every full token must resemble a subject token. Blocks rescuing a
+        //     differently-named same-surname relative who merely shares a DOB
+        //     (a twin) — vanishingly rare, but the guard makes the rule provably
+        //     safe.
+        let subjectTokens = subjectFullGiven.split(separator: " ").map(String.init).filter { !$0.isEmpty }
+        let recordTokens = recordGiven.split(separator: " ").map(String.init).filter { $0.count > 1 }
+        guard !recordTokens.isEmpty, !subjectTokens.isEmpty else { return false }
+        for rt in recordTokens {
+            if !subjectTokens.contains(where: { tokenResembles(rt, $0) }) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// A record given-name token resembles a subject token — exact, or a close
+    /// transcription variant (shared first letter, edit-distance ratio ≥ 0.8).
+    /// `ScoringRules.nameSimilarity` is too coarse here — it returns 0 for
+    /// VAUGHAN vs VAUGHN (different lengths) — so use a normalised edit distance,
+    /// which is what makes George's "VAUGHAN" resemble his "VAUGHN".
+    private static func tokenResembles(_ a: String, _ b: String) -> Bool {
+        if a == b { return true }
+        guard a.first == b.first else { return false }
+        let maxLen = max(a.count, b.count)
+        guard maxLen > 0 else { return false }
+        return 1.0 - Double(levenshtein(a, b)) / Double(maxLen) >= 0.8
+    }
+
+    private static func levenshtein(_ a: String, _ b: String) -> Int {
+        let x = Array(a), y = Array(b)
+        if x.isEmpty { return y.count }
+        if y.isEmpty { return x.count }
+        var prev = Array(0...y.count)
+        var curr = [Int](repeating: 0, count: y.count + 1)
+        for i in 1...x.count {
+            curr[0] = i
+            for j in 1...y.count {
+                let cost = x[i - 1] == y[j - 1] ? 0 : 1
+                curr[j] = Swift.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+            }
+            swap(&prev, &curr)
+        }
+        return prev[y.count]
+    }
+
+    /// Parse a birth-date string to (year, month, day) when it carries a full
+    /// calendar date; nil for year-only or unparseable input. Handles GEDCOM X
+    /// formal dates ("+1915-07-19") and free text ("19 Jul 1915", "13 July 1917").
+    static func fullCalendarDate(_ raw: String?) -> (year: Int, month: Int, day: Int)? {
+        guard let s = raw?.trimmingCharacters(in: .whitespaces), !s.isEmpty else { return nil }
+        // Formal: [+]YYYY-MM-DD (GEDCOM X). Leading "-" is BC and unsupported.
+        if let r = s.range(of: #"^[+-]?\d{4}-\d{2}-\d{2}"#, options: .regularExpression) {
+            let body = s[r].hasPrefix("+") ? String(s[r].dropFirst()) : String(s[r])
+            let parts = body.split(separator: "-").map(String.init)
+            if parts.count == 3, let y = Int(parts[0]), let mo = Int(parts[1]), let d = Int(parts[2]),
+               (1...12).contains(mo), (1...31).contains(d) {
+                return (y, mo, d)
+            }
+        }
+        // Free text: <day> <month-name> <year> in any order.
+        var day: Int?, month: Int?, year: Int?
+        for token in s.split(whereSeparator: { $0 == " " || $0 == "," }).map(String.init) {
+            if let n = Int(token) {
+                if n >= 1000 { year = n }
+                else if (1...31).contains(n) && day == nil { day = n }
+            } else if let mo = monthNumber(token) {
+                month = mo
+            }
+        }
+        if let d = day, let mo = month, let y = year { return (y, mo, d) }
+        return nil
+    }
+
+    private static func monthNumber(_ token: String) -> Int? {
+        let key = String(token.lowercased().prefix(3))
+        let months: [String: Int] = [
+            "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+            "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12
+        ]
+        return months[key]
     }
 
     // MARK: - Gate 2: Date
