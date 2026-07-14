@@ -87,6 +87,13 @@ final class AppState {
     /// `researchProfileID` already on this state object.
     var requestOpenProfileDetail: String?
 
+    /// Cross-view request: switch the sidebar to this tab. Set by deep
+    /// surfaces that can't reach ContentView's local selection state —
+    /// today the profile panel's pending-facts badge (tap → Triage).
+    /// ContentView observes via `.onChange` and clears the request.
+    /// Sibling pattern to `requestOpenProfileDetail`.
+    var requestSidebarTab: SidebarTab?
+
     var isLoading = false
     var loadingMessage: String?
     var errorMessage: String?

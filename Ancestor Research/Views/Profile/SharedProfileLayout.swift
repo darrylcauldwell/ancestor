@@ -868,20 +868,27 @@ struct SharedProfileLayout: View {
     private var pendingFactsBadge: some View {
         let count = pendingFactCount
         if count > 0 {
-            HStack(spacing: 4) {
-                Image(systemName: "tray.full.fill")
-                    .font(.system(size: 9, weight: .semibold))
-                Text("\(count) pending")
-                    .font(.caption2.weight(.semibold))
+            Button {
+                // Hand the user to Triage via the cross-view request —
+                // ContentView owns the sidebar selection and consumes this.
+                appState.requestSidebarTab = .triage
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "tray.full.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text("\(count) pending")
+                        .font(.caption2.weight(.semibold))
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.orange.opacity(0.18))
+                .foregroundStyle(.orange)
+                .clipShape(.capsule)
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Color.orange.opacity(0.18))
-            .foregroundStyle(.orange)
-            .clipShape(.capsule)
-            .help("Evidence proposals awaiting human review for this profile. Open Triage to accept or discard them.")
+            .buttonStyle(.plain)
+            .help("Evidence proposals awaiting human review for this profile. Click to review in Triage.")
             .accessibilityLabel("\(count) pending facts")
-            .accessibilityHint("Evidence proposals awaiting human review")
+            .accessibilityHint("Opens Triage to review evidence proposals")
         }
     }
 

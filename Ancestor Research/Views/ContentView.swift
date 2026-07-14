@@ -175,6 +175,14 @@ struct MainView: View {
             appState.researchProfileID = nil
             appState.researchConfigProfile = profile
         }
+        .onChange(of: appState.requestSidebarTab) { _, requested in
+            // Cross-view tab navigation — e.g. the profile panel's
+            // pending-facts badge hands the user to Triage. One-shot:
+            // consume and clear.
+            guard let requested else { return }
+            appState.requestSidebarTab = nil
+            selectedTab = requested
+        }
         .sheet(item: importCleanseBinding) { review in
             ImportCleanseSheet(review: review)
         }
