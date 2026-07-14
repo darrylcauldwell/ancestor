@@ -111,7 +111,7 @@ final class PendingFactsProcessor {
             let homeChapmanCode = (try? db.loadProjectMeta())?
                 .resolvedHomeChapmanCode ?? ""
             let subject = ResearchSubject.fromProfile(profile, snapshot: snapshot, mode: .extend, homeChapmanCode: homeChapmanCode)
-            let sourceRecord = buildSourceRecord(from: finding, tierEntry: tierEntry)
+            let sourceRecord = Self.syntheticRecord(from: finding, profile: profile)
 
             if let sourceRecord {
                 let scored = RecordScorer.classify(
@@ -147,10 +147,24 @@ final class PendingFactsProcessor {
 
     // MARK: - Helpers
 
-    private func buildSourceRecord(from finding: PendingFact, tierEntry: SourceTierEntry) -> SourceRecord? {
+    /// Build the synthetic SourceRecord used to RE-SCORE a pending fact.
+    ///
+    /// The record carries the PROFILE's own name: a pending fact is by
+    /// construction a claim about this profile — identity was established
+    /// upstream (by the deterministic pipeline for `research-run` bridged
+    /// facts; by the firewall's checks for MCP submissions) — so the
+    /// re-score exists for date/plausibility gating, not re-identification.
+    /// The old nameless record could never pass the name gate, and in
+    /// `.extend` mode a name-gate fail hard-classifies `.impossible` — which
+    /// silently auto-rejected every date-carrying pending fact at Triage
+    /// load (Kenneth's 2007 deathDate card: "4-gate scorer: impossible").
+    /// Static + nonisolated for hermetic testing.
+    nonisolated static func syntheticRecord(from finding: PendingFact, profile: Profile) -> SourceRecord? {
         let common = RecordCommon(
             id: finding.id, sourceID: "field-researcher",
-            name: nil, surname: nil, givenName: nil,
+            name: nil,
+            surname: profile.lastName,
+            givenName: profile.firstName,
             detailURL: finding.sourceURL, rawFields: [
                 "evidence_text": String(finding.evidenceText.prefix(200)),
                 "source_title": finding.sourceTitle,

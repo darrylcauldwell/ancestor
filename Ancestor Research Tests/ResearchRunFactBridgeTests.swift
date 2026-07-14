@@ -156,6 +156,48 @@ struct EvidenceFirewallFSArkTests {
         #expect(reason.contains("pointer-only"))
     }
 
+    @Test func syntheticRecordCarriesProfileNameAndSurvivesScorer() {
+        // The Triage re-score builds a synthetic record from the pending
+        // fact. It must carry the PROFILE's name — the fact is a claim about
+        // this profile, identity was established upstream — because a
+        // nameless record can never pass the name gate, and in .extend mode
+        // a name-gate fail classifies .impossible, auto-rejecting every
+        // date-carrying card at load (Kenneth's 2007 deathDate regression).
+        let profile = Profile(
+            id: "@KENNETH@", externalIDs: [:],
+            firstName: "Kenneth Howard", lastName: "Cauldwell",
+            gender: .male, attributes: nil,
+            birthDate: GenealogicalDate(parsing: "13 July 1917"),
+            birthLocation: "Loscoe, Derbyshire, England",
+            deathDate: nil, deathLocation: nil, bio: nil,
+            isDeleted: false, sources: [:], disputes: [:]
+        )
+        let finding = PendingFact(
+            id: "pf-1", profileID: profile.id,
+            field: "deathDate", value: "25 Oct 2007",
+            sourceURL: "https://www.familysearch.org/ark:/61903/1:1:p_301639472418",
+            sourceTitle: "United Kingdom, Funeral Notices, 1914-2023",
+            evidenceText: "Kenneth Howard Cauldwell, 2007",
+            reasoning: "bridged", confidence: "high",
+            agentID: "research-run", submittedAt: Date(),
+            verificationStatus: .pending
+        )
+        guard let record = PendingFactsProcessor.syntheticRecord(from: finding, profile: profile) else {
+            Issue.record("expected a synthetic death record"); return
+        }
+        #expect(record.surname == "Cauldwell")
+        #expect(record.givenName == "Kenneth Howard")
+
+        let subject = ResearchSubject(
+            surname: "Cauldwell", givenName: "Kenneth Howard",
+            birthYearFrom: 1917, birthYearTo: 1917,
+            gender: .male, region: .englandAndWales, mode: .extend
+        )
+        let scored = RecordScorer.classify(record: record, subject: subject, searchType: .death)
+        #expect(scored.verdict != .impossible,
+                "synthetic re-score must not hard-reject its own profile's fact; gates=\(scored.gates.map { "\($0.gate.rawValue):\($0.outcome)" })")
+    }
+
     @Test func arkPredicateScopedToFamilySearchArkPaths() {
         // Hermetic predicate coverage — no network.
         #expect(EvidenceFirewall.isFamilySearchArk(url: "https://www.familysearch.org/ark:/61903/1:1:p_1"))
