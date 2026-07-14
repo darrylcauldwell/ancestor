@@ -475,7 +475,7 @@ actor MCPHandler {
                 ),
                 tool(
                     name: "get_scored_records",
-                    description: "Return the per-record verdict and 4-gate breakdown (name / date / geography / family) for records the pipeline scored for a profile. Useful when get_profile's aggregate counts aren't enough — e.g. \"which gate held this marriage back from .fact?\". Joins scored_records with research_records so the salient identifying fields (year, district, vol/page, surname, plus marriage-specific partnerSurnameFromSamePage) come back alongside the gates.",
+                    description: "Return the per-record verdict and identifying fields for records the pipeline scored for a profile, read from evidence_records. Useful when get_profile's aggregate counts aren't enough — e.g. \"which of these marriages landed as .fact vs .lead?\". Surfaces the salient identifying fields (year, district, vol/page, surname, plus marriage-specific partnerSurnameFromSamePage) alongside the verdict and citation. Note: evidence_records carries no per-gate breakdown, so which of the four gates held a record back is not available here.",
                     properties: [
                         "profile_id": ["type": "string", "description": "Profile ID to look up scored records for"],
                         "record_type": ["type": "string", "description": "Optional filter: birth | death | marriage | census | burial | military | probate | parish | pedigree"],
@@ -2050,15 +2050,19 @@ actor MCPHandler {
         return ["content": [["type": "text", "text": text]]]
     }
 
-    /// Per-record verdict + 4-gate breakdown for everything the scorer
-    /// touched on a profile. The aggregate counts on `get_profile` /
-    /// `research_runs` tell you "458 scored → 0 facts" but never which
-    /// gate held a specific record back; this surfaces that.
+    /// Per-record verdict + identifying fields for everything the scorer
+    /// touched on a profile, read from `evidence_records`. The aggregate
+    /// counts on `get_profile` / `research_runs` tell you "458 scored → 0
+    /// facts" but never which specific records landed where; this surfaces
+    /// each record's verdict and citation.
     ///
-    /// Joins `scored_records` to `research_records` so the caller gets
-    /// the salient identifying fields back in one round-trip. For
-    /// marriages, the `marriage` block surfaces `partnerSurnameFromSamePage`
-    /// alongside vol/page so same-page-couple debugging is trivial.
+    /// Reads `evidence_records` — the live per-profile archive the app
+    /// writes after each run. The salient identifying fields come out of
+    /// the stored `record_json`; for marriages the `marriage` block surfaces
+    /// `partnerSurnameFromSamePage` alongside vol/page so same-page-couple
+    /// debugging is trivial. NOTE: `evidence_records` carries no per-gate
+    /// columns, so the 4-gate (name / date / geography / family) breakdown
+    /// is not available here.
     ///
     /// `record_type` and `verdict` are optional server-side filters; the
     /// limit clamps to [1, 500] (default 50). Rows return newest-first.
@@ -2072,30 +2076,28 @@ actor MCPHandler {
 
         let json: String = try db.read { db in
             var sql = """
-                SELECT sr.id AS scored_id,
-                       sr.verdict AS verdict,
-                       sr.gate_name, sr.gate_date, sr.gate_geography, sr.gate_family,
-                       sr.summary AS summary,
-                       sr.scored_at AS scored_at,
-                       rr.record_type AS record_type,
-                       rr.source_id AS source_id,
-                       rr.raw_json AS raw_json,
-                       rr.citation_short AS citation_short,
-                       rr.citation_url AS citation_url
-                FROM scored_records sr
-                LEFT JOIN research_records rr ON rr.id = sr.source_record_id
-                WHERE sr.profile_id = ?
+                SELECT id,
+                       source_id,
+                       source_record_id,
+                       record_type,
+                       verdict,
+                       record_json,
+                       citation_full,
+                       citation_url,
+                       scored_at
+                FROM evidence_records
+                WHERE profile_id = ?
                 """
             var arguments: [DatabaseValueConvertible] = [profileID]
             if let t = typeFilter {
-                sql += " AND rr.record_type = ?"
+                sql += " AND record_type = ?"
                 arguments.append(t)
             }
             if let v = verdictFilter {
-                sql += " AND sr.verdict = ?"
+                sql += " AND verdict = ?"
                 arguments.append(v)
             }
-            sql += " ORDER BY sr.scored_at DESC LIMIT ?"
+            sql += " ORDER BY scored_at DESC LIMIT ?"
             arguments.append(limit)
 
             let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(arguments))
@@ -2105,33 +2107,28 @@ actor MCPHandler {
         return ["content": [["type": "text", "text": json]]]
     }
 
-    /// Build the JSON payload for one scored_records ⋈ research_records row.
-    /// Defensive: research_records row can be missing (legacy data); the
-    /// gate / verdict fields still come through.
+    /// Build the JSON payload for one `evidence_records` row. `evidence_records`
+    /// has no per-gate columns (that breakdown only ever lived on the
+    /// never-written `scored_records` table), so this surfaces the record's
+    /// verdict, identity, and citation — not a gate breakdown.
     private static func scoredRecordPayload(row: Row) -> [String: Any] {
         var payload: [String: Any] = [
-            "scored_record_id": row["scored_id"] as String? ?? "",
+            "evidence_record_id": row["id"] as String? ?? "",
             "verdict": row["verdict"] as String? ?? "",
-            "summary": row["summary"] as String? ?? "",
-            "gates": [
-                "name": row["gate_name"] as String? ?? "skip",
-                "date": row["gate_date"] as String? ?? "skip",
-                "geography": row["gate_geography"] as String? ?? "skip",
-                "family": row["gate_family"] as String? ?? "skip",
-            ],
         ]
         if let scoredAt: Date = row["scored_at"] {
             payload["scored_at"] = ISO8601DateFormatter().string(from: scoredAt)
         }
         if let t: String = row["record_type"] { payload["record_type"] = t }
         if let s: String = row["source_id"] { payload["source_id"] = s }
-        if let c: String = row["citation_short"], !c.isEmpty { payload["citation_short"] = c }
+        if let sr: String = row["source_record_id"] { payload["source_record_id"] = sr }
+        if let c: String = row["citation_full"], !c.isEmpty { payload["citation_full"] = c }
         if let u: String = row["citation_url"], !u.isEmpty { payload["citation_url"] = u }
 
-        // Parse the raw SourceRecord JSON to surface the salient identifying
+        // Parse the stored SourceRecord JSON to surface the salient identifying
         // fields. The on-disk shape is Swift's default Codable for the
         // SourceRecord enum: `{ "marriage": { "common": {...}, "marriageYear": 1911, ... } }`.
-        if let rawJSON: String = row["raw_json"],
+        if let rawJSON: String = row["record_json"],
            let data = rawJSON.data(using: .utf8),
            let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             // Common fields (any record type)
@@ -2772,6 +2769,12 @@ actor MCPHandler {
     /// return its inner JSON payload string (`Sendable`).
     func approvePendingFactResponseText(_ args: [String: Any]) async throws -> String {
         Self.toolResponseText(try await approvePendingFact(args))
+    }
+
+    /// Convenience for tests: run `get_scored_records` and return its inner
+    /// JSON payload string (`Sendable`).
+    func getScoredRecordsResponseText(_ args: [String: Any]) throws -> String {
+        Self.toolResponseText(try getScoredRecords(args))
     }
 
     func approvePendingFact(_ args: [String: Any]) async throws -> [String: Any] {
