@@ -54,8 +54,8 @@ and testable before that lands; Change 5's live verification and all of Change 8
 
 ## Changes
 
-**Status (2026-07-14):** Changes 1–4, 6, 7 SHIPPED and gated (full suite green,
-2544 tests). Change 5 (transport swap) + Change 8 (beta probes/acceptance) gated on
+**Status (2026-07-14):** Changes 1–4, 6, 7, 9 SHIPPED and gated (full suite green,
+2552 tests). Change 5 (transport swap) + Change 8 (beta probes/acceptance) gated on
 FamilySearch registering the redirect URI + confirming the records-search grant.
 Commits: 1 `a1d946d` · 2 `178dd49` · 3 `e77fa6a` · 4 `a1e745f` · 6 `8e417be` · 7 `3fbc92e`.
 
@@ -131,6 +131,29 @@ Capture the §9.4 twelve golden-fixture archetypes into
 (§16 first action) and confirm/adjust the persistence posture. Run the §19 A1–A9 acceptance
 checklist end-to-end on the eval-corpus subject (Ernest Cauldwell b. 1887), incl. the A8
 match-score sandwich test.
+
+### Change 9 — Gate FS place axes by record type (S) — SHIPPED
+**Root cause (surfaced by live verification, not the audit's guess of record-type-filter /
+pagination):** `SearchDispatcher` populated *every* place axis on *every* FS record-type query,
+so a `.death`/`.burial` search also carried `q.birthLikePlace` + `q.residenceLikePlace` — axes
+that describe **census** personas. FamilySearch then ranked census records above the real death
+record and buried it below the single fetched page (no pagination on the interim cookie path).
+**Fix:** gate each place axis to its own record type — `birthPlace`→birth-shape,
+`deathPlace`→death-shape (with a soft home-region fallback when the death place is unknown, since
+people usually die near home — a re-rank, never a hard filter), `residencePlace`→census,
+`marriagePlace`→marriage; `anyPlace` (soft country) and the person axes (spouse/parents) stay
+broad. `SearchDispatcher` "case familysearch:" block only; new tests in
+`FamilyContextAxisDispatchTests` (`familySearchPlaceAxesAreGatedByRecordType` +
+death-place-fallback pair). **Verified live:** Kenneth Howard Cauldwell (b.1917) — 6 prior runs
+all `facts:0`/`inconclusive`; after the fix `identity:supported`, death axis 490→216 results, and
+his **2007 death landed confirmed** with FS `ark:/61903/1:1:p_301639472418`. Full suite green
+(2552 tests; only the known MultiWindow flake, isolation-cleared).
+**Recovery is partial** (measured on a 3-profile sample, 1 recovered): the fix recovers
+well-anchored profiles whose death is indexed in FS; it does not help deaths that aren't indexed
+(George-class) or thin/common-name profiles with no birth year (Ethel-class → 100-yr window,
+unconfirmable). Those point to separate follow-ups: (a) infer a birth-year window from the
+marriage/spouse edge; (b) revisit strict middle-name gating that may reject a death indexed
+without middle names.
 
 ## Order
 

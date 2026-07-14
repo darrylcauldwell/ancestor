@@ -977,7 +977,44 @@ struct SearchDispatcher {
             let context = subject.familyContext
             let fsSurnames = subject.surnamesToProbe(for: recordType)
             return fsSurnames.map { surnameToTry in
-                RecordQuery(
+                // Match each place axis to the record type it belongs to.
+                // Sending every place axis on every query biases FamilySearch's
+                // relevance ranking toward the WRONG record kind: a death search
+                // that also carries q.birthLikePlace + q.residenceLikePlace ranks
+                // CENSUS personas (which have birth places and residences) above
+                // the real death record (a funeral notice / obituary has
+                // neither), burying it off the single fetched page. So gate:
+                //   • birthPlace     → birth-shape axes only
+                //   • deathPlace     → death-shape axes only (fall back to the
+                //     home region when the death place is unknown — people
+                //     usually die near home; a soft `q.deathLikePlace` re-rank,
+                //     never a hard filter, so it can't drop a non-local death)
+                //   • residencePlace → census only
+                //   • marriagePlace  → marriage only
+                // `anyPlace` (soft country) and the person axes (spouse /
+                // parents) still apply across axes. All tree-derived — the
+                // no-hardcoded-regions invariant holds. (#Change6 residence
+                // scoping is preserved, now correctly census-only.)
+                let homeCounty: String? = subject.region.flatMap { region in
+                    if case .county(let name) = region { return name }
+                    return nil
+                }
+                let fsBirthPlace: String?
+                switch recordType {
+                case .birth, .baptism, .christening: fsBirthPlace = homeCounty
+                default: fsBirthPlace = nil
+                }
+                let fsDeathPlace: String?
+                switch recordType {
+                case .death, .burial:
+                    if let dl = subject.deathLocation, !dl.isEmpty { fsDeathPlace = dl }
+                    else { fsDeathPlace = homeCounty }
+                default:
+                    fsDeathPlace = nil
+                }
+                let fsResidencePlace: String? = (recordType == .census) ? homeCounty : nil
+                let fsMarriagePlace: String? = (recordType == .marriage) ? context?.marriageLocation : nil
+                return RecordQuery(
                     surname: surnameToTry,
                     givenName: subject.givenName,
                     recordType: recordType,
@@ -986,21 +1023,10 @@ struct SearchDispatcher {
                     gender: subject.gender,
                     region: subject.region,
                     sourceParams: .generic,
-                    birthPlace: subject.region.flatMap { region in
-                        if case .county(let name) = region { return name }
-                        return nil
-                    },
-                    deathPlace: subject.deathLocation,
-                    // #Change6 — residence scoped to the tree-derived home
-                    // county (the best residence proxy we have; a person
-                    // typically resided in their birth county), and marriage
-                    // place from the spouse edge. Both are tree-derived, not
-                    // hardcoded (no-hardcoded-regions invariant).
-                    residencePlace: subject.region.flatMap { region in
-                        if case .county(let name) = region { return name }
-                        return nil
-                    },
-                    marriagePlace: context?.marriageLocation,
+                    birthPlace: fsBirthPlace,
+                    deathPlace: fsDeathPlace,
+                    residencePlace: fsResidencePlace,
+                    marriagePlace: fsMarriagePlace,
                     // Soft country axis to thin the tail of same-surname
                     // records from other countries — derived from the
                     // subject's tree place data (the country tail of the

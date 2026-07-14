@@ -709,6 +709,121 @@ struct FamilyContextAxisDispatchTests {
                 "fan-out must probe recorded + maiden spouse surnames; got \(spouseSurnames)")
     }
 
+    /// Kenneth-class: birth county known (Derbyshire via Loscoe), death place
+    /// unknown, no death-year window.
+    private func subjectDerbyshireNoDeathPlace() -> ResearchSubject {
+        ResearchSubject(
+            profileID: nil,
+            surname: "Cauldwell",
+            givenName: "Kenneth Howard",
+            birthYearFrom: 1917,
+            birthYearTo: 1917,
+            deathYearFrom: nil,
+            deathYearTo: nil,
+            gender: .male,
+            region: .county("Derbyshire"),
+            mode: .extend,
+            familyContext: FamilyContext(
+                spouseName: nil,
+                spouseSurname: nil,
+                spouseGivenName: nil,
+                spouseFatherSurname: nil,
+                childNames: [],
+                fatherName: nil,
+                fatherSurname: nil,
+                fatherGivenName: nil,
+                motherName: nil,
+                motherSurname: nil,
+                motherGivenName: nil
+            ),
+            homeChapmanCode: "DBY"
+        )
+    }
+
+    @MainActor
+    @Test func familySearchDeathAxisFallsBackToHomeRegionWhenDeathPlaceUnknown() {
+        // With death place AND death year both unknown, the FS death/burial
+        // query would otherwise carry no place or date axis and degenerate to
+        // "any same-named persona" — FS fills the fetched page with census,
+        // burying the real funeral notice. The home county (Derbyshire, from
+        // the birth location) is a soft `q.deathLikePlace` re-rank so local
+        // deaths surface. Non-death axes must NOT be biased toward it.
+        let dispatcher = makeDispatcher()
+        let subject = subjectDerbyshireNoDeathPlace()
+        guard let fs = dispatcher.registry.allSources().first(where: { $0.sourceID == "familysearch" }) else {
+            Issue.record("familysearch not registered"); return
+        }
+        let deathQueries = dispatcher.buildQueriesForTest(
+            source: fs, subject: subject, recordType: .death, scope: .county
+        )
+        #expect(!deathQueries.isEmpty)
+        #expect(deathQueries.allSatisfy { $0.deathPlace == "Derbyshire" },
+                "death axis must fall back deathPlace to home county; got \(deathQueries.map { $0.deathPlace ?? "nil" })")
+
+        let burialQueries = dispatcher.buildQueriesForTest(
+            source: fs, subject: subject, recordType: .burial, scope: .county
+        )
+        #expect(burialQueries.allSatisfy { $0.deathPlace == "Derbyshire" },
+                "burial axis must also fall back; got \(burialQueries.map { $0.deathPlace ?? "nil" })")
+
+        let birthQueries = dispatcher.buildQueriesForTest(
+            source: fs, subject: subject, recordType: .birth, scope: .county
+        )
+        #expect(birthQueries.allSatisfy { $0.deathPlace == nil },
+                "birth axis must not be biased toward the death county; got \(birthQueries.map { $0.deathPlace ?? "nil" })")
+    }
+
+    @MainActor
+    @Test func familySearchDeathAxisPrefersKnownDeathPlaceOverRegionFallback() {
+        // A known death location wins over the region fallback.
+        let dispatcher = makeDispatcher()
+        var subject = subjectDerbyshireNoDeathPlace()
+        subject.deathLocation = "Heanor, Derbyshire, England"
+        guard let fs = dispatcher.registry.allSources().first(where: { $0.sourceID == "familysearch" }) else {
+            Issue.record("familysearch not registered"); return
+        }
+        let deathQueries = dispatcher.buildQueriesForTest(
+            source: fs, subject: subject, recordType: .death, scope: .county
+        )
+        #expect(deathQueries.allSatisfy { $0.deathPlace == "Heanor, Derbyshire, England" },
+                "known death place must win; got \(deathQueries.map { $0.deathPlace ?? "nil" })")
+    }
+
+    @MainActor
+    @Test func familySearchPlaceAxesAreGatedByRecordType() {
+        // Each place axis rides only its own record type. A death search must
+        // NOT carry birthPlace/residencePlace — those describe census personas
+        // and, sent on a death query, rank census above the real death record
+        // (this is what buried Kenneth's 2007 funeral notice). anyPlace (soft
+        // country) and the person axes still apply broadly.
+        let dispatcher = makeDispatcher()
+        let subject = subjectDerbyshireNoDeathPlace()
+        guard let fs = dispatcher.registry.allSources().first(where: { $0.sourceID == "familysearch" }) else {
+            Issue.record("familysearch not registered"); return
+        }
+        func first(_ rt: RecordType) -> RecordQuery? {
+            dispatcher.buildQueriesForTest(source: fs, subject: subject, recordType: rt, scope: .county).first
+        }
+        // Death: deathPlace present (home-region fallback); birth/residence absent.
+        if let d = first(.death) {
+            #expect(d.deathPlace == "Derbyshire")
+            #expect(d.birthPlace == nil, "death search must not carry birthPlace; got \(d.birthPlace ?? "nil")")
+            #expect(d.residencePlace == nil, "death search must not carry residencePlace; got \(d.residencePlace ?? "nil")")
+        } else { Issue.record("no death query produced") }
+        // Birth: birthPlace present; death/residence absent.
+        if let b = first(.birth) {
+            #expect(b.birthPlace == "Derbyshire")
+            #expect(b.deathPlace == nil, "birth search must not carry deathPlace; got \(b.deathPlace ?? "nil")")
+            #expect(b.residencePlace == nil)
+        } else { Issue.record("no birth query produced") }
+        // Census: residencePlace present; birth/death absent.
+        if let c = first(.census) {
+            #expect(c.residencePlace == "Derbyshire")
+            #expect(c.birthPlace == nil, "census search must not carry birthPlace; got \(c.birthPlace ?? "nil")")
+            #expect(c.deathPlace == nil, "census search must not carry deathPlace; got \(c.deathPlace ?? "nil")")
+        } else { Issue.record("no census query produced") }
+    }
+
     @MainActor
     private func findAGraveQueries(
         dispatcher: SearchDispatcher,
