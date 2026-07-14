@@ -109,6 +109,52 @@ nonisolated struct NegativeSearchPersistenceTests {
         #expect(p1.first?.queryKey == "k1")
     }
 
+    // MARK: - v42 result-kind outcome columns (FAMILYSEARCH_READ_LEG_PLAN #Change3)
+
+    @Test func v42AppendsToTheMigrationChain() throws {
+        let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
+        let dbQueue = try DatabaseQueue(path: path)
+        try ProjectDatabase.makeMigrator().migrate(dbQueue)
+        let applied = try dbQueue.read { db in
+            try ProjectDatabase.makeMigrator().appliedIdentifiers(db)
+        }
+        #expect(applied.contains("v42_negative_search_outcome"))
+        #expect(applied.contains("v41_conflict_layer"))
+    }
+
+    @Test func onlyZeroKindRowsMaySuppress() throws {
+        // T1-04 correctness guard (a), moved into the reader: a truncated
+        // or positive row must never suppress a future re-search. NULL
+        // (legacy pre-v42 rows) counts as 'zero' — the writer only ever
+        // produced clean zeros before v42.
+        let db = try makeDB()
+        try db.saveNegativeSearch(profileID: "p1", sourceID: "familysearch", recordType: "death",
+                                  params: "clean-key", resultKind: "zero", hitCount: 0)
+        try db.saveNegativeSearch(profileID: "p1", sourceID: "familysearch", recordType: "birth",
+                                  params: "legacy-key")  // NULL kind = legacy zero
+        try db.saveNegativeSearch(profileID: "p1", sourceID: "familysearch", recordType: "census",
+                                  params: "truncated-key", resultKind: "truncated", hitCount: 2_318_797)
+        try db.saveNegativeSearch(profileID: "p1", sourceID: "familysearch", recordType: "marriage",
+                                  params: "positive-key", resultKind: "positive", hitCount: 12)
+        let keys = Set(try db.loadNegativeSearchKeys(profileID: "p1").map(\.queryKey))
+        #expect(keys == ["clean-key", "legacy-key"])
+    }
+
+    @Test func upsertRefreshesResultKindAndHitCount() throws {
+        // A key first recorded truncated then re-searched to a clean zero
+        // must update in place — stale kind/count would either suppress
+        // wrongly or block suppression forever.
+        let db = try makeDB()
+        try db.saveNegativeSearch(profileID: "p1", sourceID: "familysearch", recordType: "death",
+                                  params: "k", resultKind: "truncated", hitCount: 500)
+        #expect(try db.loadNegativeSearchKeys(profileID: "p1").isEmpty)
+        try db.saveNegativeSearch(profileID: "p1", sourceID: "familysearch", recordType: "death",
+                                  params: "k", resultKind: "zero", hitCount: 0)
+        let rows = try db.loadNegativeSearchKeys(profileID: "p1")
+        #expect(rows.count == 1)
+        #expect(rows.first?.queryKey == "k")
+    }
+
     @Test func wholeTreeResumeStateCoexistsWithPerQueryNegatives() throws {
         // The resume-state hack lives under profile_id "__whole_tree__"
         // with JSON params and must not be disturbed by, or leak into,

@@ -249,7 +249,9 @@ enum ResearchRunService {
                         profileID: profileID,
                         sourceID: negative.sourceID,
                         recordType: negative.recordType.rawValue,
-                        params: negative.queryKey
+                        params: negative.queryKey,
+                        resultKind: "zero",
+                        hitCount: 0
                     )
                 } catch {
                     failures.append(.init(what: "Save negative search", error: error))

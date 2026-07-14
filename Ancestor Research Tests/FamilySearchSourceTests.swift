@@ -478,4 +478,52 @@ struct FamilySearchSourceTests {
         #expect(r.deathYear == nil)
         #expect(r.deathDate == nil)
     }
+
+    // MARK: - Change 3: honesty envelope (total capture + truncation rule)
+
+    @Test func parserSurfacesEnvelopeTotalAndEntryCount() throws {
+        // The endpoint's top-level "results" is the server's claimed total
+        // hit count — decoded since first cut but discarded until Change 3.
+        let json = """
+        {
+          "results": 2318797,
+          "entries": [{
+            "content": {
+              "gedcomx": {
+                "persons": [{
+                  "id": "p0",
+                  "names": [{"nameForms": [{
+                    "fullText": "Kenneth Cauldwell",
+                    "parts": [
+                      {"type": "http://gedcomx.org/Given", "value": "Kenneth"},
+                      {"type": "http://gedcomx.org/Surname", "value": "Cauldwell"}
+                    ]}]}],
+                  "facts": [{"type": "http://gedcomx.org/Death",
+                             "date": {"original": "2007", "formal": "+2007"}}]
+                }],
+                "sourceDescriptions": [{"about": "ark:/61903/c", "titles": [{"value": "T"}]}]
+              }
+            }
+          }]
+        }
+        """
+        let parsed = try FamilySearchSource.parseSearchResponseWithTotal(
+            data: Data(json.utf8), query: query(strictness: .strict))
+        #expect(parsed.totalAvailable == 2_318_797)
+        #expect(parsed.entryCount == 1)
+        #expect(parsed.records.count == 1)
+    }
+
+    @Test func truncationRule() {
+        // Server claims more hits than the page carries → truncated.
+        #expect(FamilySearchSource.isTruncated(entryCount: 100, totalAvailable: 2_318_797))
+        #expect(FamilySearchSource.isTruncated(entryCount: 20, totalAvailable: 21))
+        // Total accounted for on this page → complete.
+        #expect(!FamilySearchSource.isTruncated(entryCount: 80, totalAvailable: 80))
+        #expect(!FamilySearchSource.isTruncated(entryCount: 0, totalAvailable: 0))
+        // No claimed total: a full page is a suspected partial; a short
+        // page is complete.
+        #expect(FamilySearchSource.isTruncated(entryCount: FamilySearchSource.pageSize, totalAvailable: nil))
+        #expect(!FamilySearchSource.isTruncated(entryCount: 3, totalAvailable: nil))
+    }
 }

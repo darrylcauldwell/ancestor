@@ -74,6 +74,10 @@ actor FamilySearchSource: RecordSource, AuthenticatingSource {
 
     nonisolated private static let searchURL = URL(string: "https://www.familysearch.org/service/search/hr/v2/personas")!
     nonisolated private static let arkBase = "https://www.familysearch.org/ark:/61903/1:1:"
+    /// Documented hard max per page for this endpoint family
+    /// (FAMILYSEARCH_SOURCE_SPEC §15.7: count 1–100). Shared by the URL
+    /// builder and the truncation rule.
+    nonisolated static let pageSize = 100
     /// Safari UA mirrors what the Python plugin sends — FamilySearch rejects
     /// default URLSession UAs as bot traffic.
     nonisolated private static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3.1 Safari/605.1.15"
@@ -81,19 +85,31 @@ actor FamilySearchSource: RecordSource, AuthenticatingSource {
     // MARK: - Search
 
     func search(_ query: RecordQuery) async -> SourceQueryResult {
+        await searchWithOutcome(query).result
+    }
+
+    /// Envelope-aware search (connector-audit T1-01;
+    /// FAMILYSEARCH_READ_LEG_PLAN #Change3). Surfaces the response's own
+    /// total-hit count (top-level `results`) as `totalAvailable` and flags
+    /// page-1 truncation — previously a 100-record page of a
+    /// multi-thousand-hit query read as a conclusive, complete answer in
+    /// GPS accounting and ladder decisions. Deliberately NO pagination
+    /// loop here: that lands with the OAuth transport (#Change5) so the
+    /// interim cookie path gains no new request volume.
+    func searchWithOutcome(_ query: RecordQuery) async -> SourceSearchEnvelope {
         guard recordTypes.contains(query.recordType) else {
-            return .outsideCoverage(reason: "FamilySearch does not surface \(query.recordType.rawValue) records via this plugin")
+            return SourceSearchEnvelope(.outsideCoverage(reason: "FamilySearch does not surface \(query.recordType.rawValue) records via this plugin"))
         }
         guard let surname = query.surname, !surname.isEmpty else {
-            return .results([])
+            return SourceSearchEnvelope(.results([]))
         }
 
         guard let cookieHeader = await FamilySearchCookieStore.shared.cookieHeader() else {
-            return .requiresAuth(message: "Sign in to FamilySearch in Settings to enable this source")
+            return SourceSearchEnvelope(.requiresAuth(message: "Sign in to FamilySearch in Settings to enable this source"))
         }
 
         if giveUpRequests {
-            return .unavailable(reason: "FamilySearch throttle exhausted; giving up for this process")
+            return SourceSearchEnvelope(.unavailable(reason: "FamilySearch throttle exhausted; giving up for this process"))
         }
         await awaitCircuitClosed()
         await throttleIfNeeded()
@@ -105,21 +121,32 @@ actor FamilySearchSource: RecordSource, AuthenticatingSource {
 
         do {
             let data = try await fetch(url: url, cookieHeader: cookieHeader)
-            let records = try Self.parseSearchResponse(data: data, query: query)
+            let parsed = try Self.parseSearchResponseWithTotal(data: data, query: query)
             lastSuccessfulSearch = Date()
             lastError = nil
             recordSuccess()
-            logger.info("\(summary, privacy: .public) → \(records.count) records")
-            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: records.count, strictness: query.strictness))
-            return .results(records)
+            let truncated = Self.isTruncated(entryCount: parsed.entryCount, totalAvailable: parsed.totalAvailable)
+            logger.info("\(summary, privacy: .public) → \(parsed.records.count) records (total \(parsed.totalAvailable.map(String.init) ?? "?", privacy: .public)\(truncated ? ", truncated" : ""))")
+            await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: parsed.records.count, strictness: query.strictness))
+            return SourceSearchEnvelope(
+                result: .results(parsed.records),
+                outcome: SearchOutcome(
+                    resultCount: parsed.records.count,
+                    totalAvailable: parsed.totalAvailable,
+                    truncated: truncated
+                )
+            )
         } catch is CancellationError {
-            return .unavailable(reason: "cancelled")
+            return SourceSearchEnvelope(.unavailable(reason: "cancelled"))
         } catch let httpError as HTTPError where httpError.isThrottled {
             recordThrottle()
             lastError = "HTTP 429 (throttled)"
             logger.warning("Search throttled — advancing circuit breaker")
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "throttled", strictness: query.strictness))
-            return .unavailable(reason: "throttled")
+            return SourceSearchEnvelope(
+                result: .unavailable(reason: "throttled"),
+                outcome: SearchOutcome(resultCount: 0, availability: .throttled)
+            )
         } catch HTTPError.unauthorized {
             // Cookie expired or invalidated — distinct from "never had cookies",
             // and the UI should distinguish so the user knows to re-auth rather
@@ -128,13 +155,22 @@ actor FamilySearchSource: RecordSource, AuthenticatingSource {
             lastError = "session expired"
             logger.warning("Search failed: session expired")
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "session expired", strictness: query.strictness))
-            return .requiresAuth(message: "FamilySearch session expired — re-authenticate in Settings")
+            return SourceSearchEnvelope(.requiresAuth(message: "FamilySearch session expired — re-authenticate in Settings"))
         } catch {
             lastError = error.localizedDescription
             logger.warning("Search failed: \(error.localizedDescription)")
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
-            return .unavailable(reason: error.localizedDescription)
+            return SourceSearchEnvelope(.unavailable(reason: error.localizedDescription))
         }
+    }
+
+    /// A page is truncated when the server claims more hits than the page
+    /// carries, or when a full page arrives without a claimed total (a
+    /// full page is a suspected partial — the endpoint caps `count` at
+    /// `pageSize`). Pure and static for testability.
+    nonisolated static func isTruncated(entryCount: Int, totalAvailable: Int?) -> Bool {
+        if let total = totalAvailable { return total > entryCount }
+        return entryCount >= pageSize
     }
 
     // MARK: - URL construction
@@ -154,11 +190,11 @@ actor FamilySearchSource: RecordSource, AuthenticatingSource {
         var components = URLComponents(url: searchURL, resolvingAgainstBaseURL: false)!
         var items: [URLQueryItem] = [
             URLQueryItem(name: "q.surname", value: surnameValue),
-            // 100 is the documented hard max for this endpoint's pagination
-            // (FAMILYSEARCH_SOURCE_SPEC.md §15.7) — was 20, which silently
-            // truncated broad queries to FamilySearch's first page of
-            // server-ranked relevance.
-            URLQueryItem(name: "count", value: "100"),
+            // pageSize (100) is the documented hard max for this endpoint's
+            // pagination (FAMILYSEARCH_SOURCE_SPEC.md §15.7) — was 20, which
+            // silently truncated broad queries to FamilySearch's first page
+            // of server-ranked relevance.
+            URLQueryItem(name: "count", value: String(pageSize)),
             URLQueryItem(name: "offset", value: "0"),
             URLQueryItem(name: "m.defaultFacets", value: "on"),
         ]
@@ -333,6 +369,18 @@ extension FamilySearchSource {
     /// `persons[]` produces one candidate SourceRecord; relationships[]
     /// is used to tag household-role context on each.
     nonisolated static func parseSearchResponse(data: Data, query: RecordQuery) throws -> [SourceRecord] {
+        try parseSearchResponseWithTotal(data: data, query: query).records
+    }
+
+    /// Full parse including the envelope's own accounting: `totalAvailable`
+    /// is the top-level `results` integer (the server's claimed total hit
+    /// count — decoded since first cut but previously discarded), and
+    /// `entryCount` is the number of entries actually carried on this page.
+    /// Both feed the #Change3 honesty envelope; `records` is the per-persona
+    /// expansion after the client-side surname guard.
+    nonisolated static func parseSearchResponseWithTotal(
+        data: Data, query: RecordQuery
+    ) throws -> (records: [SourceRecord], totalAvailable: Int?, entryCount: Int) {
         let envelope = try JSONDecoder().decode(SearchEnvelope.self, from: data)
         // Acceptable surnames for this query. At .strict and .variant the set
         // contains only the dispatcher-supplied surname. At .loose it is
@@ -384,7 +432,7 @@ extension FamilySearchSource {
                 out.append(record)
             }
         }
-        return out
+        return (out, envelope.results, (envelope.entries ?? []).count)
     }
 
     /// Extract a Find a Grave memorial id from a FAG-collection persona's

@@ -1323,6 +1323,24 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // MARK: v42 — negative-search outcome columns
+        // (FAMILYSEARCH_READ_LEG_PLAN #Change3 / FS spec §6.6). Until now
+        // the table could only say "searched, empty"; these columns let a
+        // row distinguish HOW the search concluded so a truncated page-1
+        // answer can never masquerade as verified absence.
+        migrator.registerMigration("v42_negative_search_outcome") { db in
+            try db.alter(table: "negative_searches") { t in
+                // 'zero' | 'sparse' | 'positive' | 'truncated' (§6.6).
+                // NULL = legacy row written before v42 — by writer
+                // construction those were only ever clean zeros, so
+                // readers treat NULL as 'zero'.
+                t.add(column: "result_kind", .text)
+                // 0 for zero; N for positive/sparse; the source's claimed
+                // would-be total for truncated.
+                t.add(column: "hit_count", .integer)
+            }
+        }
+
         return migrator
     }
 
@@ -3044,21 +3062,31 @@ nonisolated extension ProjectDatabase {
     /// duplicate row. The `__whole_tree__` resume-state writer and any
     /// NULL-param legacy callers fall through to a plain INSERT (the
     /// unique index is partial on `search_params IS NOT NULL`).
-    func saveNegativeSearch(profileID: String, sourceID: String, recordType: String, params: String?) throws {
+    /// `resultKind`/`hitCount` (v42, spec §6.6): how the search concluded —
+    /// 'zero' | 'sparse' | 'positive' | 'truncated' plus the claimed hit
+    /// count. The genuine-negative writer stamps 'zero'/0; NULL means a
+    /// legacy pre-v42 row (readers treat as 'zero') or a non-search reuse
+    /// of the table (whole-tree resume state).
+    func saveNegativeSearch(
+        profileID: String, sourceID: String, recordType: String, params: String?,
+        resultKind: String? = nil, hitCount: Int? = nil
+    ) throws {
         try dbQueue.write { db in
             if params != nil {
                 try db.execute(sql: """
-                    INSERT INTO negative_searches (profile_id, source_id, record_type, searched_at, search_params)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO negative_searches (profile_id, source_id, record_type, searched_at, search_params, result_kind, hit_count)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (profile_id, source_id, record_type, search_params)
                     WHERE search_params IS NOT NULL
-                    DO UPDATE SET searched_at = excluded.searched_at
-                    """, arguments: [profileID, sourceID, recordType, Date(), params])
+                    DO UPDATE SET searched_at = excluded.searched_at,
+                                  result_kind = excluded.result_kind,
+                                  hit_count = excluded.hit_count
+                    """, arguments: [profileID, sourceID, recordType, Date(), params, resultKind, hitCount])
             } else {
                 try db.execute(sql: """
-                    INSERT INTO negative_searches (profile_id, source_id, record_type, searched_at, search_params)
-                    VALUES (?, ?, ?, ?, ?)
-                    """, arguments: [profileID, sourceID, recordType, Date(), params])
+                    INSERT INTO negative_searches (profile_id, source_id, record_type, searched_at, search_params, result_kind, hit_count)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [profileID, sourceID, recordType, Date(), params, resultKind, hitCount])
             }
         }
     }
@@ -3125,6 +3153,13 @@ nonisolated extension ProjectDatabase {
     /// NULL-param rows (legacy pair-level aggregates, `__whole_tree__`
     /// resume state) are excluded — only rows carrying a real query key
     /// can suppress a future dispatch.
+    ///
+    /// v42 guard: only clean-zero rows may suppress. `result_kind` NULL
+    /// means a legacy pre-v42 row, which the writer only ever produced
+    /// for clean zeros — treated as 'zero'. Any future writer that
+    /// persists truncated/positive kinds is automatically excluded here,
+    /// so a partial answer can never suppress a re-search (T1-04
+    /// correctness guard (a), moved into the reader).
     func loadNegativeSearchKeys(
         profileID: String
     ) throws -> [(sourceID: String, recordType: String, queryKey: String, date: Date)] {
@@ -3133,6 +3168,7 @@ nonisolated extension ProjectDatabase {
                 SELECT source_id, record_type, search_params, searched_at
                 FROM negative_searches
                 WHERE profile_id = ? AND search_params IS NOT NULL
+                  AND (result_kind IS NULL OR result_kind = 'zero')
                 ORDER BY searched_at DESC
                 """, arguments: [profileID])
             return rows.map {
