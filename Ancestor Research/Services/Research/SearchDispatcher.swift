@@ -991,10 +991,32 @@ struct SearchDispatcher {
                 //     never a hard filter, so it can't drop a non-local death)
                 //   • residencePlace → census only
                 //   • marriagePlace  → marriage only
-                // `anyPlace` (soft country) and the person axes (spouse /
-                // parents) still apply across axes. All tree-derived — the
-                // no-hardcoded-regions invariant holds. (#Change6 residence
-                // scoping is preserved, now correctly census-only.)
+                // `anyPlace` (soft country) still applies across axes. All
+                // tree-derived — the no-hardcoded-regions invariant holds.
+                // (#Change6 residence scoping is preserved, now correctly
+                // census-only.)
+                //
+                // FAMILY axes are gated by the same principle: an axis rides
+                // only the record kinds that CARRY it. UK civil death / burial /
+                // probate records are parent-less (the GRO death index has
+                // name, age, district — no parents), so father/mother axes on
+                // a death-shape query boost parent-carrying personas
+                // (christenings, censuses) and bury the actual death
+                // registration below the single fetched page. Proven live on
+                // George Eric Vaughn Cauldwell's 1986 DeathRegistration: an
+                // axis-isolation probe ranked it #1 without parent axes and
+                // ABSENT from the top-100 with them. Post-1837 civil marriage
+                // indexes are parent-less too. So:
+                //   • parents (father/mother) → birth-shape, parish
+                //     (christenings name parents) and census (household)
+                //   • spouse → marriage, census, and death-shape (funeral
+                //     notices, probate widows, FAG memorials genuinely carry
+                //     spouses — Kenneth's confirmed 2007 funeral notice
+                //     surfaced WITH the spouse axis on); never birth-shape /
+                //     parish (a christening persona has no spouse)
+                // This mirrors the FreeBMD dispatcher rules ("death queries
+                // carry no mother/spouse surname"), which encode the same
+                // record-content reality for the same underlying GRO indexes.
                 let homeCounty: String? = subject.region.flatMap { region in
                     if case .county(let name) = region { return name }
                     return nil
@@ -1014,6 +1036,16 @@ struct SearchDispatcher {
                 }
                 let fsResidencePlace: String? = (recordType == .census) ? homeCounty : nil
                 let fsMarriagePlace: String? = (recordType == .marriage) ? context?.marriageLocation : nil
+                let parentAxesApply: Bool
+                switch recordType {
+                case .birth, .baptism, .christening, .parish, .census: parentAxesApply = true
+                default: parentAxesApply = false
+                }
+                let spouseAxesApply: Bool
+                switch recordType {
+                case .marriage, .census, .death, .burial, .probate: spouseAxesApply = true
+                default: spouseAxesApply = false
+                }
                 return RecordQuery(
                     surname: surnameToTry,
                     givenName: subject.givenName,
@@ -1033,12 +1065,12 @@ struct SearchDispatcher {
                     // home place string, or the explicit UK-nation region),
                     // never a hardcoded region.
                     anyPlace: Self.homeCountry(from: subject.region),
-                    spouseSurname: context?.spouseSurname,
-                    spouseGivenName: context?.spouseGivenName,
-                    fatherSurname: context?.fatherSurname,
-                    fatherGivenName: context?.fatherGivenName,
-                    motherSurname: context?.motherSurname,
-                    motherGivenName: context?.motherGivenName
+                    spouseSurname: spouseAxesApply ? context?.spouseSurname : nil,
+                    spouseGivenName: spouseAxesApply ? context?.spouseGivenName : nil,
+                    fatherSurname: parentAxesApply ? context?.fatherSurname : nil,
+                    fatherGivenName: parentAxesApply ? context?.fatherGivenName : nil,
+                    motherSurname: parentAxesApply ? context?.motherSurname : nil,
+                    motherGivenName: parentAxesApply ? context?.motherGivenName : nil
                 )
             }
 

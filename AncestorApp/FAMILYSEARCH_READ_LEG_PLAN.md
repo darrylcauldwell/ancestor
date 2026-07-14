@@ -54,8 +54,8 @@ and testable before that lands; Change 5's live verification and all of Change 8
 
 ## Changes
 
-**Status (2026-07-14):** Changes 1–4, 6, 7, 9 SHIPPED and gated (full suite green,
-2552 tests). Change 5 (transport swap) + Change 8 (beta probes/acceptance) gated on
+**Status (2026-07-14):** Changes 1–4, 6, 7, 9, 10, 11 SHIPPED and gated (full suite green,
+2559 tests). Change 5 (transport swap) + Change 8 (beta probes/acceptance) gated on
 FamilySearch registering the redirect URI + confirming the records-search grant.
 Commits: 1 `a1d946d` · 2 `178dd49` · 3 `e77fa6a` · 4 `a1e745f` · 6 `8e417be` · 7 `3fbc92e`.
 
@@ -153,7 +153,38 @@ well-anchored profiles whose death is indexed in FS; it does not help deaths tha
 (George-class) or thin/common-name profiles with no birth year (Ethel-class → 100-yr window,
 unconfirmable). Those point to separate follow-ups: (a) infer a birth-year window from the
 marriage/spouse edge; (b) revisit strict middle-name gating that may reject a death indexed
-without middle names.
+without middle names. *(Both George-class follow-ups landed as Changes 10–11; (a) remains open.)*
+
+### Change 10 — Gate FS family axes by record type (S) — SHIPPED
+Same principle as Change 9 extended to the FAMILY axes: an axis rides only the record kinds
+that carry it. UK civil death/burial/probate records are parent-less (the GRO death index has
+name, age, district — no parents), so `q.fatherSurname`/`q.motherSurname` etc. on a death-shape
+query boost parent-carrying personas (christenings, censuses) and bury the actual death
+registration below the single fetched page. **Proven by direct axis-isolation probe** (cookie,
+outside the app) on George Eric Vaughn Cauldwell's 1986 DeathRegistration: **#1 hit without
+parent axes; ABSENT from the top-100 with them** — place axes and `anyPlace` exonerated.
+Gating: parents → birth-shape/parish/census only; spouse → marriage/census/death-shape only
+(funeral notices, probate widows, FAG memorials genuinely carry spouses — Kenneth's Change 9
+funeral notice surfaced WITH spouse on), never birth-shape/parish. Mirrors the FreeBMD
+dispatcher rules that already encode this record-content reality. Test:
+`familySearchFamilyAxesAreGatedByRecordType`. Live effect: George's death axis 8 → 197 results.
+
+### Change 11 — Exact-birth-date rescue for given-name variants (S) — SHIPPED
+Scorer (name gate): FS indexes some records under a middle-name variant — George's 1986 death
+is filed as **"Vaughan Eric Cauldwell"** (drops "George", Vaughn→Vaughan) — and the first-token
+given-name comparison hard-failed it despite the record carrying his exact birth date. New rule:
+a given-name first-token mismatch is rescued iff (a) surname passed, (b) the record shares an
+**exact day+month+year birth date** with the subject (`subject.birthDateOriginal` vs the
+persona's `rawFields["fact.Birth*.date(.formal)"]` — FS captures every persona fact into
+rawFields), and (c) every multi-letter record given-token resembles a subject token (shared
+first letter + normalised Levenshtein ≥ 0.8 — `nameSimilarity` is too coarse: it scores
+VAUGHAN/VAUGHN 0.0). Guards proven by tests: one-day-off DOB, unrelated given name, year-only
+subject, and birth-fact-less record all stay rejected; George William/Harold still fail
+middle-name checks. Tests: `RecordScorerBirthDateRescueTests` (6).
+**Live verification (run D3CC64D0, 2026-07-14): George's 1986 death LANDED as a confirmed
+hypothesis** with citation `ark:/61903/1:1:p_100845597241`; the engine immediately re-probed
+with the discovered 1984–1988 death window (self-narrowing), and wrong-year candidates began
+failing "outside subject's known death window 1986–1986".
 
 ## Order
 

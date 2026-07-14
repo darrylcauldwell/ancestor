@@ -789,6 +789,88 @@ struct FamilyContextAxisDispatchTests {
                 "known death place must win; got \(deathQueries.map { $0.deathPlace ?? "nil" })")
     }
 
+    /// George-class: full family context (spouse + parents) so the family-axis
+    /// gating matrix is observable per record type.
+    private func subjectWithFullFSContext() -> ResearchSubject {
+        ResearchSubject(
+            profileID: nil,
+            surname: "Cauldwell",
+            givenName: "George Eric Vaughn",
+            birthYearFrom: 1915,
+            birthYearTo: 1915,
+            deathYearFrom: nil,
+            deathYearTo: nil,
+            gender: .male,
+            region: .county("Derbyshire"),
+            mode: .extend,
+            familyContext: FamilyContext(
+                spouseName: "Kathleen Wheeldon",
+                spouseSurname: "Wheeldon",
+                spouseGivenName: "Kathleen",
+                spouseFatherSurname: nil,
+                childNames: [],
+                fatherName: "Ernest Cauldwell",
+                fatherSurname: "Cauldwell",
+                fatherGivenName: "Ernest",
+                motherName: "Mary Ward",
+                motherSurname: "Ward",
+                motherGivenName: "Mary"
+            ),
+            homeChapmanCode: "DBY"
+        )
+    }
+
+    @MainActor
+    @Test func familySearchFamilyAxesAreGatedByRecordType() {
+        // Family axes ride only the record kinds that carry them. UK civil
+        // death/burial/probate records are parent-less — parent axes on a
+        // death query boost christenings/censuses and bury the actual death
+        // registration (George Eric Vaughn Cauldwell's 1986 DeathRegistration:
+        // #1 without parent axes, ABSENT from the top-100 with them). Spouse
+        // rides marriage/census/death-shape; never birth-shape or parish.
+        let dispatcher = makeDispatcher()
+        let subject = subjectWithFullFSContext()
+        guard let fs = dispatcher.registry.allSources().first(where: { $0.sourceID == "familysearch" }) else {
+            Issue.record("familysearch not registered"); return
+        }
+        func first(_ rt: RecordType) -> RecordQuery? {
+            dispatcher.buildQueriesForTest(source: fs, subject: subject, recordType: rt, scope: .county).first
+        }
+        // Death: spouse yes, parents no.
+        if let d = first(.death) {
+            #expect(d.spouseSurname == "Wheeldon")
+            #expect(d.fatherSurname == nil, "death query must not carry parent axes; got \(d.fatherSurname ?? "nil")")
+            #expect(d.motherSurname == nil)
+        } else { Issue.record("no death query produced") }
+        // Probate: same death-shape gating.
+        if let p = first(.probate) {
+            #expect(p.spouseSurname == "Wheeldon")
+            #expect(p.fatherSurname == nil)
+            #expect(p.motherSurname == nil)
+        } else { Issue.record("no probate query produced") }
+        // Birth: parents yes, spouse no.
+        if let b = first(.birth) {
+            #expect(b.fatherSurname == "Cauldwell")
+            #expect(b.motherSurname == "Ward")
+            #expect(b.spouseSurname == nil, "birth query must not carry spouse axes; got \(b.spouseSurname ?? "nil")")
+        } else { Issue.record("no birth query produced") }
+        // Census: both (household carries parents and spouse).
+        if let c = first(.census) {
+            #expect(c.fatherSurname == "Cauldwell")
+            #expect(c.spouseSurname == "Wheeldon")
+        } else { Issue.record("no census query produced") }
+        // Marriage: spouse yes, parents no (civil marriage indexes are parent-less).
+        if let m = first(.marriage) {
+            #expect(m.spouseSurname == "Wheeldon")
+            #expect(m.fatherSurname == nil)
+        } else { Issue.record("no marriage query produced") }
+        // Parish (christening-shape): parents yes, spouse no.
+        if let pa = first(.parish) {
+            #expect(pa.fatherSurname == "Cauldwell")
+            #expect(pa.spouseSurname == nil)
+        } else { Issue.record("no parish query produced") }
+    }
+
     @MainActor
     @Test func familySearchPlaceAxesAreGatedByRecordType() {
         // Each place axis rides only its own record type. A death search must
