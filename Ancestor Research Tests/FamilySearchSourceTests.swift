@@ -429,4 +429,53 @@ struct FamilySearchSourceTests {
         #expect(records.first?.common.rawFields["unmappedFactType"] == nil)
     }
 
+    // MARK: - Change 2: burial/cremation dates with FAG carve-out
+
+    @Test func datedBurialRecordCarriesDeathYear() throws {
+        let data = envelope(
+            factType: "http://gedcomx.org/Burial", date: "1901",
+            collection: "England Deaths and Burials, 1538-1991")
+        let records = try FamilySearchSource.parseSearchResponse(
+            data: data, query: query(strictness: .strict, recordType: .burial))
+        guard case .burial(let r) = records.first else {
+            Issue.record("Expected .burial, got \(String(describing: records.first))")
+            return
+        }
+        #expect(r.deathYear == 1901)
+        #expect(r.deathDate == "1901")
+        #expect(r.memorialID == nil)
+    }
+
+    @Test func cremationFactMapsToBurialWithYear() throws {
+        let data = envelope(
+            factType: "http://gedcomx.org/Cremation", date: "1955",
+            collection: "England, Cremation Indexes, 1885-2005")
+        let records = try FamilySearchSource.parseSearchResponse(
+            data: data, query: query(strictness: .strict, recordType: .burial))
+        guard case .burial(let r) = records.first else {
+            Issue.record("Expected .burial, got \(String(describing: records.first))")
+            return
+        }
+        #expect(r.deathYear == 1955)
+    }
+
+    @Test func fagCollectionBurialKeepsNilDatesForBridge() throws {
+        // The FS→FindAGrave bridge fires on `deathYear == nil` +
+        // memorialID — a FAG-collection burial must keep its nils even
+        // when the search response carries a date, or inscription mining
+        // permanently stops for bridge records.
+        let data = envelope(
+            factType: "http://gedcomx.org/Burial", date: "1944",
+            collection: "Find A Grave Index",
+            extRecordID: "271612558")
+        let records = try FamilySearchSource.parseSearchResponse(
+            data: data, query: query(strictness: .strict, recordType: .burial))
+        guard case .burial(let r) = records.first else {
+            Issue.record("Expected .burial, got \(String(describing: records.first))")
+            return
+        }
+        #expect(r.memorialID == 271612558)
+        #expect(r.deathYear == nil)
+        #expect(r.deathDate == nil)
+    }
 }

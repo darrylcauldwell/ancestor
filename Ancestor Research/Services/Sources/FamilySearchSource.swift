@@ -644,9 +644,19 @@ extension FamilySearchSource {
                 collectionTitle: collectionTitle,
                 rawFields: rawFields
             )
+            // FAG-collection burials keep nil dates: the FS search response
+            // doesn't carry them, and the enrichFagBridge guard
+            // (`burial.deathYear == nil`) is what schedules the memorial-page
+            // fetch that does. Every other burial/cremation record (parish
+            // burial registers, cremation indexes) carries the event date in
+            // its primary fact — surface it as the death year so the scorer's
+            // date gate can evaluate it (±2yr burial tolerance) instead of
+            // auto-failing on "insufficient date information".
+            let isFagBridge = memorialID != nil
             return .burial(BurialRecord(
                 common: common,
-                deathDate: nil, deathYear: nil,
+                deathDate: isFagBridge ? nil : date,
+                deathYear: isFagBridge ? nil : year,
                 birthDate: nil, birthYear: nil,
                 // FamilySearch's burial-collection records don't carry
                 // birth/death-town separate from the cemetery location.

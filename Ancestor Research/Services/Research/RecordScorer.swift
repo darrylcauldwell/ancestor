@@ -990,7 +990,8 @@ nonisolated struct RecordScorer {
         case .military(let r):
             return "\(r.common.name ?? "?"), \(r.rank ?? "") \(r.regiment ?? ""), died \(r.dateOfDeath ?? "?")"
         case .burial(let r):
-            return "\(r.common.name ?? "?"), \(r.cemetery ?? "")"
+            let yearStr = r.deathYear.map { ", d.\($0)" } ?? ""
+            return "\(r.common.name ?? "?"), \(r.cemetery ?? r.burialLocation ?? "")\(yearStr)"
         case .probate(let r):
             return "\(r.common.name ?? "?"), \(r.grantType ?? "probate") \(r.probateDate ?? "")"
         case .parish(let r):
