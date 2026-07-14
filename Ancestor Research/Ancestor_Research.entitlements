@@ -18,5 +18,9 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- Loopback listener for the FamilySearch OAuth redirect
+	     (127.0.0.1:49877, FAMILYSEARCH_READ_LEG_PLAN #Change4). -->
+	<key>com.apple.security.network.server</key>
+	<true/>
 </dict>
 </plist>
