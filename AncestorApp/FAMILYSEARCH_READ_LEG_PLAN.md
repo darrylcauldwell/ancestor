@@ -54,7 +54,12 @@ and testable before that lands; Change 5's live verification and all of Change 8
 
 ## Changes
 
-### Change 1 — Fact-type map expansion (S, transport-agnostic)
+**Status (2026-07-14):** Changes 1–4, 6, 7 SHIPPED and gated (full suite green,
+2544 tests). Change 5 (transport swap) + Change 8 (beta probes/acceptance) gated on
+FamilySearch registering the redirect URI + confirming the records-search grant.
+Commits: 1 `a1d946d` · 2 `178dd49` · 3 `e77fa6a` · 4 `a1e745f` · 6 `8e417be` · 7 `3fbc92e`.
+
+### Change 1 — Fact-type map expansion (S, transport-agnostic) — SHIPPED `a1d946d`
 `recordType(forGedcomxFact:queryHint:)` and `pickPrimaryFact`'s hinted-types sets are a
 **mirrored pair — update in the same commit**:
 `BirthNotice → .birth`; `Blessing → .baptism`; `MarriageLicense`/`MarriageContract`/
@@ -62,14 +67,14 @@ and testable before that lands; Change 5's live verification and all of Change 8
 record `rawFields["unmappedFactType"] = suffix` (observability for second-cut enum decisions).
 Fixture tests per new mapping. Update `GEDCOMX_CONCEPT_MAPPING.md` in the same commit (ADR-003).
 
-### Change 2 — Burial/cremation dates (S, transport-agnostic)
+### Change 2 — Burial/cremation dates (S, transport-agnostic) — SHIPPED `178dd49`
 Populate `deathDate`/`deathYear` on FS burial records from the primary fact **except** when
 `extractFindAGraveMemorialID` returned non-nil (bridge carve-out keeps nils). Update
 `RecordScorer.summarise`'s burial line to show the year. Tests: dated burial passes the date
 gate; FAG-collection burial keeps nil and still triggers the bridge guard. Expected drift:
 FS burials become fact/impossible-capable; cluster shapes may shift on re-runs (over-split-safe).
 
-### Change 3 — Honesty envelope + result-kind persistence (M, transport-agnostic)
+### Change 3 — Honesty envelope + result-kind persistence (M, transport-agnostic) — SHIPPED `e77fa6a`
 `FamilySearchSource` overrides `searchWithOutcome` (joining the 5 sources that already do):
 `totalAvailable` from the envelope's top-level `results` int (decoded today, discarded),
 `truncated = entries == count && total > count`. **No pagination loop in this change.**
@@ -80,7 +85,7 @@ refresh both; writer stamps `result_kind='zero', hit_count=0` for genuine negati
 Closes the live GPS honesty gap: a 100-record page-1 of a 2M-hit query no longer reads as
 conclusive.
 
-### Change 4 — OAuth foundation: `FamilySearchOAuthService` (M)
+### Change 4 — OAuth foundation: `FamilySearchOAuthService` (M) — SHIPPED `a1e745f`
 Authorization-code + PKCE (S256), system default browser, loopback listener on
 `127.0.0.1:49877/familysearch-auth`; token exchange at
 `identbeta.familysearch.org/cis-web/oauth2/v3/token`; access + refresh tokens in Keychain (new
@@ -90,7 +95,7 @@ Add `com.apple.security.network.server` entitlement. Settings UI: OAuth sign-in 
 Unit tests: PKCE verifier/challenge vectors, auth-URL construction, token-response parse,
 Keychain roundtrip, refresh flow. Live end-to-end blocked on FS registering the redirect URI.
 
-### Change 5 — Transport swap + pagination (M, gated on Change 4)
+### Change 5 — Transport swap + pagination (M) — GATED on FS redirect-URI registration
 When a valid OAuth token exists, `FamilySearchSource` targets
 `https://apibeta.familysearch.org/platform/records/personas` with `Authorization: Bearer`; same
 q.* params; **204 = clean negative** (zero-kind row, not an error); 429 honours `Retry-After`
@@ -102,14 +107,14 @@ until the beta transport is verified live, then the cookie stack (`FamilySearchC
 `FamilySearchAuthView`, `FamilySearchTestProbe`, Settings section) is retired in a dedicated
 removal commit.
 
-### Change 6 — Query axes: residence + marriage place (S)
+### Change 6 — Query axes: residence + marriage place (S) — SHIPPED `8e417be`
 `RecordQuery.residencePlace` + `.marriagePlace` (Python-confirmed params
 `q.residenceLikePlace`, `q.marriageLikePlace`). One axis touches exactly five places: init,
 **both** `with()` copiers, `QueryCache.cacheKey` (appended at end; accept the one-time
 cross-run negative-key invalidation), FS URL emission, dispatcher population (residence from
 tree/census context, marriage from FamilyContext — no-hardcoded-regions invariant).
 
-### Change 7 — Data-model first-cut commits (S–M)
+### Change 7 — Data-model first-cut commits (S–M) — SHIPPED `3fbc92e`
 Per §12.4 + §17.1: `RecordCommon.placeARK`/`collectionCompleteness`/`volatilityScore`
 (nullable; completeness promoted from today's rawFields capture, others populated when their
 endpoints arrive); migration `v43_evidence_external_ids`: `evidence_records.external_persona_id`
@@ -118,7 +123,7 @@ evidence ingestion — the idempotency key and the citation matcher's determinis
 `.userConcluded` SourceTrustTier sub-band deferred to its own change when §7.2 attribution
 parsing lands (scorer-visible enum change; needs its own gate).
 
-### Change 8 — Beta probes, fixtures, acceptance (gated on FS registration)
+### Change 8 — Beta probes, fixtures, acceptance — GATED on FS registration
 §9.1 probes against apibeta with bearer token (recordType filter-vs-rerank; collection-filter
 param name; `~` exact suffix; principal semantics; attribution shape; completeness presence).
 Capture the §9.4 twelve golden-fixture archetypes into
