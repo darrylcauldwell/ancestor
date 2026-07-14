@@ -60,6 +60,8 @@ struct FamilySearchSourceTests {
             strictness: .strict,
             birthPlace: "Loscoe, Derbyshire",
             deathPlace: "Chesterfield, Derbyshire",
+            residencePlace: "Belper, Derbyshire",
+            marriagePlace: "Belper, Derbyshire",
             spouseSurname: "Wheeldon",
             spouseGivenName: "Kathleen",
             fatherSurname: "Cauldwell",
@@ -72,6 +74,8 @@ struct FamilySearchSourceTests {
         let byName = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value) })
         #expect(byName["q.birthLikePlace"] == "Loscoe, Derbyshire")
         #expect(byName["q.deathLikePlace"] == "Chesterfield, Derbyshire")
+        #expect(byName["q.residenceLikePlace"] == "Belper, Derbyshire")
+        #expect(byName["q.marriageLikePlace"] == "Belper, Derbyshire")
         #expect(byName["q.spouseSurname"] == "Wheeldon")
         #expect(byName["q.spouseGivenName"] == "Kathleen")
         #expect(byName["q.fatherSurname"] == "Cauldwell")
@@ -99,6 +103,8 @@ struct FamilySearchSourceTests {
         let names = Set(items.map(\.name))
         #expect(!names.contains("q.birthLikePlace"))
         #expect(!names.contains("q.deathLikePlace"))
+        #expect(!names.contains("q.residenceLikePlace"))
+        #expect(!names.contains("q.marriageLikePlace"))
         #expect(!names.contains("q.spouseSurname"))
         #expect(!names.contains("q.spouseGivenName"))
         #expect(!names.contains("q.fatherSurname"))

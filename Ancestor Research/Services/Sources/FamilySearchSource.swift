@@ -239,6 +239,15 @@ actor FamilySearchSource: RecordSource, AuthenticatingSource {
         if let p = query.deathPlace, !p.isEmpty {
             items.append(URLQueryItem(name: "q.deathLikePlace", value: p))
         }
+        // #Change6 — residence (census scoping) and marriage place. The
+        // Python plugin confirmed both param names live
+        // (sources/familysearch.py: q.residenceLikePlace / q.marriageLikePlace).
+        if let p = query.residencePlace, !p.isEmpty {
+            items.append(URLQueryItem(name: "q.residenceLikePlace", value: p))
+        }
+        if let p = query.marriagePlace, !p.isEmpty {
+            items.append(URLQueryItem(name: "q.marriageLikePlace", value: p))
+        }
         if let s = query.spouseSurname, !s.isEmpty {
             items.append(URLQueryItem(name: "q.spouseSurname", value: s))
         }

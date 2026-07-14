@@ -482,6 +482,12 @@ public nonisolated struct RecordQuery: Sendable {
     // subject" (e.g. parents not on the tree).
     public let birthPlace: String?
     public let deathPlace: String?
+    /// Residence place (census scoping) and marriage place — FS's
+    /// `q.residenceLikePlace` / `q.marriageLikePlace`
+    /// (FAMILYSEARCH_READ_LEG_PLAN #Change6). Optional like the other
+    /// family-context axes; nil skips the parameter.
+    public let residencePlace: String?
+    public let marriagePlace: String?
     public let spouseSurname: String?
     public let spouseGivenName: String?
     public let fatherSurname: String?
@@ -504,6 +510,8 @@ public nonisolated struct RecordQuery: Sendable {
         strictness: SearchStrictness = .strict,
         birthPlace: String? = nil,
         deathPlace: String? = nil,
+        residencePlace: String? = nil,
+        marriagePlace: String? = nil,
         spouseSurname: String? = nil,
         spouseGivenName: String? = nil,
         fatherSurname: String? = nil,
@@ -522,6 +530,8 @@ public nonisolated struct RecordQuery: Sendable {
         self.strictness = strictness
         self.birthPlace = birthPlace
         self.deathPlace = deathPlace
+        self.residencePlace = residencePlace
+        self.marriagePlace = marriagePlace
         self.spouseSurname = spouseSurname
         self.spouseGivenName = spouseGivenName
         self.fatherSurname = fatherSurname
@@ -532,12 +542,16 @@ public nonisolated struct RecordQuery: Sendable {
 
     /// Builder helpers for the dispatcher's strictness ladder (Change 5).
     /// All other fields preserved. See RESEARCH_AXES_SPEC §7.
+    /// NOTE: every axis must be threaded through BOTH copiers, or the
+    /// strictness ladder silently drops it before the wire (blast-radius
+    /// audit Q3 trap).
     public func with(strictness: SearchStrictness) -> RecordQuery {
         RecordQuery(
             surname: surname, givenName: givenName, recordType: recordType,
             yearFrom: yearFrom, yearTo: yearTo, gender: gender, region: region,
             sourceParams: sourceParams, strictness: strictness,
             birthPlace: birthPlace, deathPlace: deathPlace,
+            residencePlace: residencePlace, marriagePlace: marriagePlace,
             spouseSurname: spouseSurname, spouseGivenName: spouseGivenName,
             fatherSurname: fatherSurname, fatherGivenName: fatherGivenName,
             motherSurname: motherSurname, motherGivenName: motherGivenName
@@ -550,6 +564,7 @@ public nonisolated struct RecordQuery: Sendable {
             yearFrom: yearFrom, yearTo: yearTo, gender: gender, region: region,
             sourceParams: sourceParams, strictness: strictness,
             birthPlace: birthPlace, deathPlace: deathPlace,
+            residencePlace: residencePlace, marriagePlace: marriagePlace,
             spouseSurname: spouseSurname, spouseGivenName: spouseGivenName,
             fatherSurname: fatherSurname, fatherGivenName: fatherGivenName,
             motherSurname: motherSurname, motherGivenName: motherGivenName

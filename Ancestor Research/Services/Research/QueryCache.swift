@@ -301,6 +301,15 @@ actor QueryCache {
             birthChapmanCode,
             // FT-03 addition — appended, preserving prior positions.
             freeBMDVolPage,
+            // #Change6 additions — appended, preserving prior positions.
+            // Wire-affecting for FamilySearch (q.residenceLikePlace /
+            // q.marriageLikePlace), so they must reach the key or a
+            // place-narrowed query would collide with the unnarrowed one.
+            // One-time cost: this changes every key's shape, so historical
+            // negative_searches keys stop matching once (they age out of
+            // the freshness window) — same accepted cost as prior additions.
+            query.residencePlace ?? "",
+            query.marriagePlace ?? "",
         ]
         return parts.joined(separator: "|")
     }

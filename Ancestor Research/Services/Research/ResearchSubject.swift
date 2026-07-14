@@ -195,6 +195,41 @@ nonisolated struct FamilyContext: Sendable {
     let motherName: String?
     let motherSurname: String?
     let motherGivenName: String?
+    /// Marriage place recorded on the subject's spouse relationship, when
+    /// present on the tree. Feeds FS's `q.marriageLikePlace` (#Change6).
+    /// nil when there's no spouse edge or the edge carries no location.
+    let marriageLocation: String?
+
+    /// Custom init so `marriageLocation` (#Change6) can default to nil —
+    /// keeps every existing call site (incl. tests) compiling without
+    /// threading the new axis through each one.
+    init(
+        spouseName: String?,
+        spouseSurname: String?,
+        spouseGivenName: String?,
+        spouseFatherSurname: String?,
+        childNames: [String],
+        fatherName: String?,
+        fatherSurname: String?,
+        fatherGivenName: String?,
+        motherName: String?,
+        motherSurname: String?,
+        motherGivenName: String?,
+        marriageLocation: String? = nil
+    ) {
+        self.spouseName = spouseName
+        self.spouseSurname = spouseSurname
+        self.spouseGivenName = spouseGivenName
+        self.spouseFatherSurname = spouseFatherSurname
+        self.childNames = childNames
+        self.fatherName = fatherName
+        self.fatherSurname = fatherSurname
+        self.fatherGivenName = fatherGivenName
+        self.motherName = motherName
+        self.motherSurname = motherSurname
+        self.motherGivenName = motherGivenName
+        self.marriageLocation = marriageLocation
+    }
 }
 
 nonisolated extension ResearchSubject {
@@ -448,6 +483,19 @@ nonisolated extension ResearchSubject {
             return spouseParents.first(where: { $0.gender == .male })?.lastName
         }()
 
+        // Marriage place from the subject's spouse edge (#Change6). Read in
+        // either edge direction; blank/whitespace treated as absent.
+        let marriageLocation: String? = {
+            guard let spouseID = spouses.first?.id else { return nil }
+            let edge = snapshot.relationships.first {
+                $0.type == .spouse &&
+                (($0.from == profile.id && $0.to == spouseID) ||
+                 ($0.from == spouseID && $0.to == profile.id))
+            }
+            let loc = edge?.marriageLocation?.trimmingCharacters(in: .whitespaces)
+            return (loc?.isEmpty == false) ? loc : nil
+        }()
+
         let context = FamilyContext(
             spouseName: spouses.first?.displayName,
             spouseSurname: spouses.first?.lastName,
@@ -463,7 +511,8 @@ nonisolated extension ResearchSubject {
             // birth-index entry on the subject itself — common for early
             // generations where mother's identity is partial.
             motherSurname: mother?.lastName ?? profile.mothersMaidenName,
-            motherGivenName: mother?.firstName
+            motherGivenName: mother?.firstName,
+            marriageLocation: marriageLocation
         )
 
         // Birth window — hard date wins when present. When absent (common

@@ -582,7 +582,8 @@ final class ResearchPipeline {
                         fatherGivenName: ctx.fatherGivenName,
                         motherName: ctx.motherName,
                         motherSurname: ctx.motherSurname,
-                        motherGivenName: ctx.motherGivenName
+                        motherGivenName: ctx.motherGivenName,
+                        marriageLocation: ctx.marriageLocation
                     )
                     pivotSubject.familyContext = ctx
                 }

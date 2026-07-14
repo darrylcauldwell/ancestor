@@ -960,6 +960,16 @@ struct SearchDispatcher {
                         return nil
                     },
                     deathPlace: subject.deathLocation,
+                    // #Change6 — residence scoped to the tree-derived home
+                    // county (the best residence proxy we have; a person
+                    // typically resided in their birth county), and marriage
+                    // place from the spouse edge. Both are tree-derived, not
+                    // hardcoded (no-hardcoded-regions invariant).
+                    residencePlace: subject.region.flatMap { region in
+                        if case .county(let name) = region { return name }
+                        return nil
+                    },
+                    marriagePlace: context?.marriageLocation,
                     spouseSurname: context?.spouseSurname,
                     spouseGivenName: context?.spouseGivenName,
                     fatherSurname: context?.fatherSurname,

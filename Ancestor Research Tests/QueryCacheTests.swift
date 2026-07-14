@@ -160,6 +160,34 @@ struct QueryCacheTests {
                 "expected 1 hit / 1 miss / 1 entry; got \(stats)")
     }
 
+    // MARK: - #Change6 — residence/marriage place are wire-affecting (FS)
+
+    private func fsQuery(residencePlace: String? = nil, marriagePlace: String? = nil) -> RecordQuery {
+        RecordQuery(
+            surname: "Cauldwell", givenName: "Ernest", recordType: .census,
+            yearFrom: nil, yearTo: nil, gender: .male, region: nil,
+            sourceParams: .generic, strictness: .strict,
+            residencePlace: residencePlace, marriagePlace: marriagePlace)
+    }
+
+    @Test func residencePlaceProducesDistinctKeys() {
+        let belper = QueryCache.cacheKey(sourceID: "familysearch", query: fsQuery(residencePlace: "Belper"))
+        let derby = QueryCache.cacheKey(sourceID: "familysearch", query: fsQuery(residencePlace: "Derby"))
+        #expect(belper != derby,
+                "a residence-place-narrowed FS query must not be served the unnarrowed cached results")
+    }
+
+    @Test func residenceAndMarriageNilAreDistinctFromPopulated() {
+        let none = QueryCache.cacheKey(sourceID: "familysearch", query: fsQuery())
+        let res = QueryCache.cacheKey(sourceID: "familysearch", query: fsQuery(residencePlace: "Belper"))
+        let mar = QueryCache.cacheKey(sourceID: "familysearch", query: fsQuery(marriagePlace: "Belper"))
+        #expect(none != res)
+        #expect(none != mar)
+        // Residence and marriage are separate axes — same value in each must
+        // still key differently (they emit different wire params).
+        #expect(res != mar)
+    }
+
     // MARK: - Regression — pre-existing key components unchanged
 
     @Test func freeBMDDistrictCodeStillProducesDistinctKeys() {
