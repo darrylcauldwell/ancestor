@@ -62,6 +62,7 @@ struct FamilySearchSourceTests {
             deathPlace: "Chesterfield, Derbyshire",
             residencePlace: "Belper, Derbyshire",
             marriagePlace: "Belper, Derbyshire",
+            anyPlace: "England",
             spouseSurname: "Wheeldon",
             spouseGivenName: "Kathleen",
             fatherSurname: "Cauldwell",
@@ -76,6 +77,7 @@ struct FamilySearchSourceTests {
         #expect(byName["q.deathLikePlace"] == "Chesterfield, Derbyshire")
         #expect(byName["q.residenceLikePlace"] == "Belper, Derbyshire")
         #expect(byName["q.marriageLikePlace"] == "Belper, Derbyshire")
+        #expect(byName["q.anyPlace"] == "England")
         #expect(byName["q.spouseSurname"] == "Wheeldon")
         #expect(byName["q.spouseGivenName"] == "Kathleen")
         #expect(byName["q.fatherSurname"] == "Cauldwell")
@@ -105,12 +107,54 @@ struct FamilySearchSourceTests {
         #expect(!names.contains("q.deathLikePlace"))
         #expect(!names.contains("q.residenceLikePlace"))
         #expect(!names.contains("q.marriageLikePlace"))
+        #expect(!names.contains("q.anyPlace"))
         #expect(!names.contains("q.spouseSurname"))
         #expect(!names.contains("q.spouseGivenName"))
         #expect(!names.contains("q.fatherSurname"))
         #expect(!names.contains("q.fatherGivenName"))
         #expect(!names.contains("q.motherSurname"))
         #expect(!names.contains("q.motherGivenName"))
+    }
+
+    // MARK: - Death-date axis (funeral/obituary persona recovery)
+
+    @Test func wideDeathWindowOmitsDeathDateAxis() {
+        // A birth-derived guess (ResearchSubject.yearRange returns
+        // birth+15..birth+95 when no death year is known) spans ~80 years.
+        // FamilySearch does not match a "Funeral Notices" persona against the
+        // deathLike date axis, so pinning q.deathLikeDate would silently drop
+        // real funeral/obituary records server-side — omit the axis entirely.
+        let q = RecordQuery(
+            surname: "Cauldwell", givenName: "Ernest",
+            recordType: .death,
+            yearFrom: 1902, yearTo: 1982,
+            gender: .male, region: nil,
+            sourceParams: .generic,
+            strictness: .strict
+        )
+        let url = FamilySearchSource.buildSearchURL(query: q, surname: "Cauldwell")
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let names = Set(items.map(\.name))
+        #expect(!names.contains("q.deathLikeDate.from"))
+        #expect(!names.contains("q.deathLikeDate.to"))
+    }
+
+    @Test func narrowDeathWindowKeepsDeathDateAxis() {
+        // A known death year gives a ~4-year span (yearRange's ±2). That is a
+        // real death year — pin q.deathLikeDate as before.
+        let q = RecordQuery(
+            surname: "Cauldwell", givenName: "Ernest",
+            recordType: .death,
+            yearFrom: 1965, yearTo: 1969,
+            gender: .male, region: nil,
+            sourceParams: .generic,
+            strictness: .strict
+        )
+        let url = FamilySearchSource.buildSearchURL(query: q, surname: "Cauldwell")
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let byName = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value) })
+        #expect(byName["q.deathLikeDate.from"] == "1965")
+        #expect(byName["q.deathLikeDate.to"] == "1969")
     }
 
     @Test func givenNameStaysPhonetic() {

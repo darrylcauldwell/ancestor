@@ -162,12 +162,22 @@ struct QueryCacheTests {
 
     // MARK: - #Change6 — residence/marriage place are wire-affecting (FS)
 
-    private func fsQuery(residencePlace: String? = nil, marriagePlace: String? = nil) -> RecordQuery {
+    private func fsQuery(residencePlace: String? = nil, marriagePlace: String? = nil,
+                         anyPlace: String? = nil) -> RecordQuery {
         RecordQuery(
             surname: "Cauldwell", givenName: "Ernest", recordType: .census,
             yearFrom: nil, yearTo: nil, gender: .male, region: nil,
             sourceParams: .generic, strictness: .strict,
-            residencePlace: residencePlace, marriagePlace: marriagePlace)
+            residencePlace: residencePlace, marriagePlace: marriagePlace,
+            anyPlace: anyPlace)
+    }
+
+    @Test func anyPlaceProducesDistinctKeys() {
+        let none = QueryCache.cacheKey(sourceID: "familysearch", query: fsQuery())
+        let england = QueryCache.cacheKey(sourceID: "familysearch", query: fsQuery(anyPlace: "England"))
+        let scotland = QueryCache.cacheKey(sourceID: "familysearch", query: fsQuery(anyPlace: "Scotland"))
+        #expect(none != england)
+        #expect(england != scotland)
     }
 
     @Test func residencePlaceProducesDistinctKeys() {

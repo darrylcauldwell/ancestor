@@ -82,6 +82,14 @@ actor FamilySearchSource: RecordSource, AuthenticatingSource {
     /// default URLSession UAs as bot traffic.
     nonisolated private static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3.1 Safari/605.1.15"
 
+    /// Above this span (years) a death/burial window is a birth-derived guess
+    /// (`ResearchSubject.yearRange` returns birth+15..birth+95 when no death
+    /// year is known) rather than a known death year (~4-year span from ±2).
+    /// A wide guess must not pin `q.deathLikeDate`, or FamilySearch excludes
+    /// Funeral-Notices personas — which carry a Funeral fact, not a Death fact,
+    /// and so never match the deathLike date axis — server-side.
+    nonisolated static let deathDateWindowThreshold = 15
+
     // MARK: - Search
 
     func search(_ query: RecordQuery) async -> SourceQueryResult {
@@ -213,8 +221,18 @@ actor FamilySearchSource: RecordSource, AuthenticatingSource {
                 items.append(URLQueryItem(name: "q.birthLikeDate.from", value: String(from)))
                 items.append(URLQueryItem(name: "q.birthLikeDate.to", value: String(to)))
             case .death, .burial:
-                items.append(URLQueryItem(name: "q.deathLikeDate.from", value: String(from)))
-                items.append(URLQueryItem(name: "q.deathLikeDate.to", value: String(to)))
+                // Only pin q.deathLikeDate for a narrow (known-death-year)
+                // window. When the window is a wide birth-derived guess
+                // (span > deathDateWindowThreshold), omit the death-date axis
+                // entirely: FamilySearch does not match a "Funeral Notices"
+                // persona (a Funeral fact, not a Death fact) against the
+                // deathLike axis, so a hard window silently excludes real
+                // funeral/obituary records server-side. Mirrors the dispatcher's
+                // FindAGrave rule ("no real death window → no death filter").
+                if to - from <= deathDateWindowThreshold {
+                    items.append(URLQueryItem(name: "q.deathLikeDate.from", value: String(from)))
+                    items.append(URLQueryItem(name: "q.deathLikeDate.to", value: String(to)))
+                }
             case .marriage:
                 items.append(URLQueryItem(name: "q.marriageLikeDate.from", value: String(from)))
                 items.append(URLQueryItem(name: "q.marriageLikeDate.to", value: String(to)))
@@ -247,6 +265,13 @@ actor FamilySearchSource: RecordSource, AuthenticatingSource {
         }
         if let p = query.marriagePlace, !p.isEmpty {
             items.append(URLQueryItem(name: "q.marriageLikePlace", value: p))
+        }
+        // Soft country/region axis to bias ranking toward the subject's home
+        // nation and thin the tail of same-surname records from other
+        // countries. Re-rank only — never a hard filter — so it can't drop the
+        // true local record.
+        if let p = query.anyPlace, !p.isEmpty {
+            items.append(URLQueryItem(name: "q.anyPlace", value: p))
         }
         if let s = query.spouseSurname, !s.isEmpty {
             items.append(URLQueryItem(name: "q.spouseSurname", value: s))

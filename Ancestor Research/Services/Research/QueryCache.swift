@@ -310,6 +310,9 @@ actor QueryCache {
             // the freshness window) — same accepted cost as prior additions.
             query.residencePlace ?? "",
             query.marriagePlace ?? "",
+            // #Change6-followup — soft country axis (FS q.anyPlace). Appended,
+            // preserving prior positions; wire-affecting for FamilySearch.
+            query.anyPlace ?? "",
         ]
         return parts.joined(separator: "|")
     }

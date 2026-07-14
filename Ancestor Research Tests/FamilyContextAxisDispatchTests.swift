@@ -9,6 +9,21 @@ import Foundation
 @MainActor
 struct FamilyContextAxisDispatchTests {
 
+    // MARK: - #Change6-followup — homeCountry derivation for FS q.anyPlace
+
+    @Test func homeCountryDerivesFromTreePlaceData() {
+        // Country tail of a place string — tree-derived, no hardcoded region.
+        #expect(SearchDispatcher.homeCountry(from: .county("Loscoe, Derbyshire, England")) == "England")
+        #expect(SearchDispatcher.homeCountry(from: .parish("Duffield", county: "Belper, Derbyshire, Scotland")) == "Scotland")
+        // Explicit UK-nation regions map to their nation.
+        #expect(SearchDispatcher.homeCountry(from: .englandAndWales) == "England")
+        #expect(SearchDispatcher.homeCountry(from: .scotland) == "Scotland")
+        #expect(SearchDispatcher.homeCountry(from: .ireland) == "Ireland")
+        // No derivable country → nil (never a hardcoded fallback).
+        #expect(SearchDispatcher.homeCountry(from: .commonwealthMilitary) == nil)
+        #expect(SearchDispatcher.homeCountry(from: nil) == nil)
+    }
+
     // MARK: - FreeBMD MMN dispatcher gating
 
     @Test func freeBMDBirthPost1912PopulatesMotherSurnameFromContext() {

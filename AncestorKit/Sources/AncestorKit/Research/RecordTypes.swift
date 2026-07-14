@@ -512,6 +512,12 @@ public nonisolated struct RecordQuery: Sendable {
     /// family-context axes; nil skips the parameter.
     public let residencePlace: String?
     public let marriagePlace: String?
+    /// Soft country/region scoping — FS's `q.anyPlace`. A tree-derived home
+    /// country (e.g. "England") that biases ranking toward the subject's
+    /// nation to thin the long tail of same-surname records from other
+    /// countries. Re-rank-only (fuzzy q.* axis), so it can never drop the
+    /// true local record. nil skips the parameter.
+    public let anyPlace: String?
     public let spouseSurname: String?
     public let spouseGivenName: String?
     public let fatherSurname: String?
@@ -536,6 +542,7 @@ public nonisolated struct RecordQuery: Sendable {
         deathPlace: String? = nil,
         residencePlace: String? = nil,
         marriagePlace: String? = nil,
+        anyPlace: String? = nil,
         spouseSurname: String? = nil,
         spouseGivenName: String? = nil,
         fatherSurname: String? = nil,
@@ -556,6 +563,7 @@ public nonisolated struct RecordQuery: Sendable {
         self.deathPlace = deathPlace
         self.residencePlace = residencePlace
         self.marriagePlace = marriagePlace
+        self.anyPlace = anyPlace
         self.spouseSurname = spouseSurname
         self.spouseGivenName = spouseGivenName
         self.fatherSurname = fatherSurname
@@ -576,6 +584,7 @@ public nonisolated struct RecordQuery: Sendable {
             sourceParams: sourceParams, strictness: strictness,
             birthPlace: birthPlace, deathPlace: deathPlace,
             residencePlace: residencePlace, marriagePlace: marriagePlace,
+            anyPlace: anyPlace,
             spouseSurname: spouseSurname, spouseGivenName: spouseGivenName,
             fatherSurname: fatherSurname, fatherGivenName: fatherGivenName,
             motherSurname: motherSurname, motherGivenName: motherGivenName
@@ -589,6 +598,7 @@ public nonisolated struct RecordQuery: Sendable {
             sourceParams: sourceParams, strictness: strictness,
             birthPlace: birthPlace, deathPlace: deathPlace,
             residencePlace: residencePlace, marriagePlace: marriagePlace,
+            anyPlace: anyPlace,
             spouseSurname: spouseSurname, spouseGivenName: spouseGivenName,
             fatherSurname: fatherSurname, fatherGivenName: fatherGivenName,
             motherSurname: motherSurname, motherGivenName: motherGivenName

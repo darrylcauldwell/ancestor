@@ -129,13 +129,18 @@ struct SourceBudgetStateTests {
         )
         await t1.recordRequest("freebmd")
         await t1.recordRequest("freebmd")
-        // let the detached persist tasks flush
-        try? await Task.sleep(for: .milliseconds(50))
         #expect(!(await t1.isPaused("freebmd")))  // 2 of 3
 
         // "Process 2": rehydrate from the persisted windows. The count must
-        // survive — one more request tips it over.
-        let restored = await store.all()
+        // survive — one more request tips it over. Poll for the detached
+        // persist tasks to flush: a fixed sleep races under full-suite
+        // executor load (the persist closure fires a fire-and-forget Task).
+        var restored: [SourceBudgetWindow] = []
+        for _ in 0..<200 {
+            restored = await store.all()
+            if restored.first?.requestCount == 2 { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         #expect(restored.first?.requestCount == 2)
         let t2 = SourceBudgetTracker(policies: policies, restoredWindows: restored, now: { clock })
         #expect(!(await t2.isPaused("freebmd")))

@@ -71,6 +71,19 @@ struct SearchDispatcher {
             var paused: Set<String> = []
             for source in registry.enabledSources() where await tracker.isPaused(source.sourceID) {
                 paused.insert(source.sourceID)
+                // Make the skip VISIBLE. A source paused *before* this run
+                // began (budget spent on a prior run/day) never fires a
+                // request, so `recordRequest`'s once-per-window
+                // `.dailyBudgetExhausted` never emits for it — it would
+                // otherwise vanish from the dispatch fan-out with no trace,
+                // reading as an inexplicable coverage gap (e.g. FreeBMD, 200/
+                // day, silently absent). Re-publish the event here so the drop
+                // lands in the `_dispatch_log` (DispatchLogCollector logs it as
+                // an error-kind entry carrying the resume time).
+                let resumeAt = await tracker.resumeAt(for: source.sourceID) ?? Date()
+                await ResearchActivityBus.shared.publish(
+                    .dailyBudgetExhausted(sourceID: source.sourceID, resumeAt: resumeAt)
+                )
             }
             pausedSourceIDs = paused
         } else {
@@ -396,6 +409,24 @@ struct SearchDispatcher {
     }
 
     // MARK: - Query Building
+
+    /// Derive a soft home-country string for FS's `q.anyPlace` from the
+    /// subject's tree region — the country tail of a place string
+    /// ("Loscoe, Derbyshire, England" → "England"), or the explicit
+    /// UK-nation region. nil when no country is derivable (never hardcoded).
+    static func homeCountry(from region: Region?) -> String? {
+        switch region {
+        case .englandAndWales: return "England"
+        case .scotland: return "Scotland"
+        case .ireland: return "Ireland"
+        case .county(let name), .parish(_, county: let name):
+            let tail = name.split(separator: ",").last
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            return (tail?.isEmpty == false) ? tail : nil
+        case .commonwealthMilitary, nil:
+            return nil
+        }
+    }
 
     private func sourceCovers(_ source: any RecordSource, yearRange: (from: Int?, to: Int?)) -> Bool {
         guard let coverage = source.coverageYearRange else { return true }
@@ -970,6 +1001,12 @@ struct SearchDispatcher {
                         return nil
                     },
                     marriagePlace: context?.marriageLocation,
+                    // Soft country axis to thin the tail of same-surname
+                    // records from other countries — derived from the
+                    // subject's tree place data (the country tail of the
+                    // home place string, or the explicit UK-nation region),
+                    // never a hardcoded region.
+                    anyPlace: Self.homeCountry(from: subject.region),
                     spouseSurname: context?.spouseSurname,
                     spouseGivenName: context?.spouseGivenName,
                     fatherSurname: context?.fatherSurname,
