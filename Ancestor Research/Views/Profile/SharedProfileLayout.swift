@@ -869,8 +869,12 @@ struct SharedProfileLayout: View {
         let count = pendingFactCount
         if count > 0 {
             Button {
-                // Hand the user to Triage via the cross-view request —
-                // ContentView owns the sidebar selection and consumes this.
+                // Hand the user to THIS profile's review cards on Triage.
+                // Both requests are needed: ContentView consumes the tab
+                // switch; ResearchView consumes the pending-review target
+                // (otherwise the user lands on the profile selector, whose
+                // prominent "Research All" button is a hazardous mis-click).
+                appState.requestPendingReviewProfileID = profile.id
                 appState.requestSidebarTab = .triage
             } label: {
                 HStack(spacing: 4) {

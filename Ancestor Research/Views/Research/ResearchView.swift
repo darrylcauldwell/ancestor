@@ -36,6 +36,21 @@ struct ResearchView: View {
         // Research-trigger onChange handlers live on ContentView so they fire
         // regardless of which tab is currently visible — letting the profile-
         // detail sheet kick off a run without forcing a tab switch.
+        //
+        // Pending-review deep link (profile panel's pending badge): consume
+        // on change AND on appear — the request is usually raised while this
+        // tab isn't instantiated yet, so `.onChange` alone would miss it.
+        .onChange(of: appState.requestPendingReviewProfileID) { _, _ in
+            consumePendingReviewRequest()
+        }
+        .onAppear { consumePendingReviewRequest() }
+    }
+
+    private func consumePendingReviewRequest() {
+        guard let requested = appState.requestPendingReviewProfileID else { return }
+        appState.requestPendingReviewProfileID = nil
+        pendingReviewProfileID = requested
+        showPendingReview = true
     }
 
     private var navigationTitle: String {
@@ -65,18 +80,35 @@ struct ResearchView: View {
                 Spacer()
 
                 Button("Research All") {
-                    Task {
-                        await wholeTreeVM.start(
-                            snapshot: appState.snapshot,
-                            registry: registry,
-                            database: appState.currentDatabase
-                        )
-                    }
+                    // Confirmation-gated: a whole-tree run is hours long and
+                    // consumes daily source budgets (FreeBMD especially) —
+                    // it must never start from a single accidental click.
+                    // (Live incident 2026-07-14: the button sits where the
+                    // pending-review screen's "Refresh" renders, and a user
+                    // expecting review kicked off a 212-profile run.)
+                    showResearchAllConfirmation = true
                 }
                 .buttonStyle(.glassProminent)
                 .controlSize(.small)
                 .disabled(appState.snapshot.profiles.isEmpty)
                 .help("Run research across every profile in the tree (long-running).")
+                .confirmationDialog(
+                    "Research all \(appState.snapshot.profiles.count) profiles?",
+                    isPresented: $showResearchAllConfirmation
+                ) {
+                    Button("Start Whole-Tree Research") {
+                        Task {
+                            await wholeTreeVM.start(
+                                snapshot: appState.snapshot,
+                                registry: registry,
+                                database: appState.currentDatabase
+                            )
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This runs for a long time and consumes daily source budgets (FreeBMD allows one careful pass per day). You can cancel mid-run.")
+                }
             }
             .padding(.horizontal)
             .padding(.top)
@@ -220,4 +252,8 @@ struct ResearchView: View {
 
     @State private var showPendingReview = false
     @State private var pendingReviewProfileID: String?
+
+    // MARK: - Research All confirmation
+
+    @State private var showResearchAllConfirmation = false
 }

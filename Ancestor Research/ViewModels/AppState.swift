@@ -94,6 +94,15 @@ final class AppState {
     /// Sibling pattern to `requestOpenProfileDetail`.
     var requestSidebarTab: SidebarTab?
 
+    /// Cross-view request: open the pending-facts review screen for this
+    /// profile on the Triage tab. Set together with `requestSidebarTab`
+    /// by the profile panel's pending badge so the user lands on the
+    /// profile's review cards — not Triage's default profile selector
+    /// (whose prominent "Research All" button is a hazardous
+    /// mis-click when the user expected review). `ResearchView`
+    /// consumes via `.onChange` + `.onAppear` and clears the request.
+    var requestPendingReviewProfileID: String?
+
     var isLoading = false
     var loadingMessage: String?
     var errorMessage: String?
