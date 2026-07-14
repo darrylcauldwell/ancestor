@@ -6,10 +6,11 @@ import Foundation
 /// modifier per spec §4.3 and the client-side surname guard in the parser.
 struct FamilySearchSourceTests {
 
-    private func query(strictness: SearchStrictness, surname: String = "Cauldwell") -> RecordQuery {
+    private func query(strictness: SearchStrictness, surname: String = "Cauldwell",
+                       recordType: RecordType = .death) -> RecordQuery {
         RecordQuery(
             surname: surname, givenName: "Ernest",
-            recordType: .death,
+            recordType: recordType,
             yearFrom: 1919, yearTo: 2017,
             gender: .male, region: nil,
             sourceParams: .generic,
@@ -285,9 +286,21 @@ struct FamilySearchSourceTests {
         #expect(records.count == 2)
     }
 
-    // MARK: - Fact-type mapping (Funeral Notices gap)
+    // MARK: - Fact-type mapping (Funeral Notices gap + Change 1/2 expansion)
 
-    private func envelope(factType: String, date: String) -> Data {
+    private func envelope(
+        factType: String, date: String,
+        collection: String = "United Kingdom, Funeral Notices, 1914-2023",
+        extRecordID: String? = nil
+    ) -> Data {
+        let fieldsJSON = extRecordID.map {
+            """
+            ,"fields": [{
+              "type": "http://gedcomx.org/ExtRecordId",
+              "values": [{"type": "http://gedcomx.org/Original", "text": "\($0)"}]
+            }]
+            """
+        } ?? ""
         let json = """
         {
           "entries": [{
@@ -308,11 +321,11 @@ struct FamilySearchSourceTests {
                     "type": "\(factType)",
                     "date": {"original": "\(date)", "formal": "+\(date)"},
                     "place": {"original": "Derbyshire, England"}
-                  }]
+                  }]\(fieldsJSON)
                 }],
                 "sourceDescriptions": [{
-                  "about": "ark:/61903/coll-funeral-notices",
-                  "titles": [{"value": "United Kingdom, Funeral Notices, 1914-2023"}]
+                  "about": "ark:/61903/coll-fixture",
+                  "titles": [{"value": "\(collection)"}]
                 }]
               }
             }
@@ -353,4 +366,67 @@ struct FamilySearchSourceTests {
         }
         #expect(r.deathYear == 1999)
     }
+
+    // MARK: - Change 1: expanded fact-type map (FAMILYSEARCH_READ_LEG_PLAN)
+
+    @Test func birthNoticeFactMapsToBirthRecord() throws {
+        let data = envelope(factType: "http://gedcomx.org/BirthNotice", date: "1901")
+        let records = try FamilySearchSource.parseSearchResponse(
+            data: data, query: query(strictness: .strict, recordType: .birth))
+        guard case .birth(let r) = records.first else {
+            Issue.record("Expected .birth, got \(String(describing: records.first))")
+            return
+        }
+        #expect(r.birthYear == 1901)
+    }
+
+    @Test func blessingFactMapsToBaptismShapedParishRecord() throws {
+        // Blessing (LDS, weeks after birth) joins the baptism bucket; the
+        // builder emits baptism-typed records as ParishRecord with
+        // eventType "baptism" so convergence/writeback treat them as
+        // birth-shaped evidence.
+        let data = envelope(factType: "http://gedcomx.org/Blessing", date: "1880")
+        let records = try FamilySearchSource.parseSearchResponse(
+            data: data, query: query(strictness: .strict, recordType: .baptism))
+        guard case .parish(let r) = records.first else {
+            Issue.record("Expected .parish (baptism-shaped), got \(String(describing: records.first))")
+            return
+        }
+        #expect(r.eventType == "baptism")
+        #expect(r.eventYear == 1880)
+    }
+
+    @Test func marriageLicenseFactMapsToMarriageRecord() throws {
+        let data = envelope(factType: "http://gedcomx.org/MarriageLicense", date: "1912")
+        let records = try FamilySearchSource.parseSearchResponse(
+            data: data, query: query(strictness: .strict, recordType: .marriage))
+        guard case .marriage(let r) = records.first else {
+            Issue.record("Expected .marriage, got \(String(describing: records.first))")
+            return
+        }
+        #expect(r.marriageYear == 1912)
+    }
+
+    @Test func divorceFactFallsBackToHintAndStampsUnmappedMarker() throws {
+        // Decision log: the divorce family never maps to .marriage (a
+        // divorce year must not become marriage evidence). It falls back
+        // to the query hint AND stamps rawFields["unmappedFactType"] so
+        // second-cut enum decisions are data-driven.
+        let data = envelope(factType: "http://gedcomx.org/Divorce", date: "1930")
+        let records = try FamilySearchSource.parseSearchResponse(
+            data: data, query: query(strictness: .strict, recordType: .death))
+        guard case .death(let r) = records.first else {
+            Issue.record("Expected .death hint fallback, got \(String(describing: records.first))")
+            return
+        }
+        #expect(r.common.rawFields["unmappedFactType"] == "Divorce")
+    }
+
+    @Test func mappedFactTypeDoesNotStampUnmappedMarker() throws {
+        let data = envelope(factType: "http://gedcomx.org/Funeral", date: "2007")
+        let records = try FamilySearchSource.parseSearchResponse(
+            data: data, query: query(strictness: .strict))
+        #expect(records.first?.common.rawFields["unmappedFactType"] == nil)
+    }
+
 }

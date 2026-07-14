@@ -519,7 +519,8 @@ extension FamilySearchSource {
         // census record gets `.census`; their christening date (if also
         // surfaced) doesn't override.
         let primaryFact = pickPrimaryFact(facts: persona.facts ?? [], queryHint: queryRecordType)
-        let recordRecordType = primaryFact.map { recordType(forGedcomxFact: $0.type ?? "", queryHint: queryRecordType) } ?? queryRecordType
+        let mappedFactType = primaryFact.flatMap { recordType(forGedcomxFact: $0.type ?? "") }
+        let recordRecordType = mappedFactType ?? queryRecordType
 
         // Collect every fact as a rawFields entry — even when the typed
         // record struct doesn't surface it. Preserves the long-tail
@@ -564,6 +565,14 @@ extension FamilySearchSource {
         rawFields["collection.title"] = collectionTitle
         if !collectionARK.isEmpty { rawFields["collection.ark"] = collectionARK }
         if let c = collectionCompleteness { rawFields["collection.completeness"] = String(c) }
+        // Observability for the defer-enum-sprawl rule (spec §9.1): when the
+        // primary fact's type isn't in the explicit map and we fell back to
+        // the query hint, record the suffix so second-cut RecordType decisions
+        // are driven by observed data, not guesswork.
+        if mappedFactType == nil,
+           let suffix = primaryFact?.type?.split(separator: "/").last.map(String.init) {
+            rawFields["unmappedFactType"] = suffix
+        }
         if let role = householdRole { rawFields["household.role"] = role }
         rawFields["primary"] = personaIndex == 0 ? "true" : "false"
         if let principal = persona.principal, principal { rawFields["principal"] = "true" }
@@ -746,11 +755,13 @@ extension FamilySearchSource {
     nonisolated private static func pickPrimaryFact(facts: [GxFact], queryHint: RecordType) -> GxFact? {
         let hintedTypes: Set<String> = {
             switch queryHint {
-            case .birth: return ["Birth", "BirthRegistration"]
-            case .baptism, .christening: return ["Baptism", "Christening", "AdultChristening"]
+            case .birth: return ["Birth", "BirthRegistration", "BirthNotice"]
+            case .baptism, .christening: return ["Baptism", "Christening", "AdultChristening", "Blessing"]
             case .death: return ["Death", "DeathRegistration", "Funeral"]
             case .burial: return ["Burial", "Cremation"]
-            case .marriage: return ["Marriage", "MarriageBanns", "MarriageRegistration"]
+            case .marriage: return ["Marriage", "MarriageBanns", "MarriageRegistration",
+                                    "MarriageLicense", "MarriageContract", "MarriageNotice",
+                                    "CommonLawMarriage"]
             case .census: return ["Census", "Residence"]
             case .probate: return ["Probate", "Will"]
             case .military: return ["MilitaryService", "MilitaryDischarge", "MilitaryDraftRegistration", "MilitaryInduction", "MilitaryAward"]
@@ -767,28 +778,42 @@ extension FamilySearchSource {
         return facts.first
     }
 
-    /// Map a GEDCOMx fact-type URI to a RecordType case. Default to the
-    /// query's record type when unmapped — the parser's outer loop has
-    /// already established the broad axis. (Previously defaulted to
-    /// `.parish` unconditionally, which silently reclassified any
-    /// unrecognized fact type — e.g. "Funeral" on the "United Kingdom,
-    /// Funeral Notices" collection — away from the record type the
-    /// query was actually searching for, dropping it out of that
-    /// type's scoring/hypothesis path entirely.)
-    nonisolated private static func recordType(forGedcomxFact uri: String, queryHint: RecordType) -> RecordType {
+    /// Map a GEDCOMx fact-type URI to a RecordType case, or nil when the
+    /// suffix isn't explicitly modelled — callers fall back to the query's
+    /// record type (the parser's outer loop already established the broad
+    /// axis) and stamp `rawFields["unmappedFactType"]` for observability.
+    /// This function and `pickPrimaryFact`'s hinted-types sets are a
+    /// MIRRORED PAIR — update both in the same commit (FAMILYSEARCH_READ_LEG_PLAN
+    /// Change 1).
+    ///
+    /// Deliberately unmapped (see the build plan's decision log):
+    /// - Funeral → .death, diverging from spec §3.1's `.burial` row: a
+    ///   funeral notice dates death to within days and must stay eligible
+    ///   to write .deathDate via ApplyEngine (.burial never writes profile
+    ///   date fields).
+    /// - The divorce family (Divorce/DivorceFiling/Annulment/Engagement/
+    ///   Separation) never maps to .marriage: a divorce year flowing into
+    ///   the spouse-edge marriage fill and "marriage:<year>" convergence
+    ///   pooling would assert a wrong marriage date.
+    /// - Obituary is not promoted cross-hint (publication can trail death
+    ///   across a year boundary against the .death ±1 tolerance); under a
+    ///   .death query it already classifies .death via the hint fallback.
+    nonisolated private static func recordType(forGedcomxFact uri: String) -> RecordType? {
         let suffix = uri.split(separator: "/").last.map(String.init) ?? ""
         switch suffix {
-        case "Birth", "BirthRegistration": return .birth
-        case "Baptism": return .baptism
+        case "Birth", "BirthRegistration", "BirthNotice": return .birth
+        case "Baptism", "Blessing": return .baptism
         case "Christening", "AdultChristening": return .christening
         case "Death", "DeathRegistration", "Funeral": return .death
         case "Burial", "Cremation": return .burial
-        case "Marriage", "MarriageBanns", "MarriageRegistration": return .marriage
+        case "Marriage", "MarriageBanns", "MarriageRegistration",
+             "MarriageLicense", "MarriageContract", "MarriageNotice",
+             "CommonLawMarriage": return .marriage
         case "Census", "Residence": return .census
         case "Probate", "Will": return .probate
         case "MilitaryService", "MilitaryDischarge", "MilitaryDraftRegistration",
              "MilitaryInduction", "MilitaryAward": return .military
-        default: return queryHint
+        default: return nil
         }
     }
 
