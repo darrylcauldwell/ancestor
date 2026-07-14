@@ -18,7 +18,13 @@ struct DisputeResolutionEndToEndTests {
 
     /// Profile with canonical deathDate 1901 + a real apply-produced
     /// dispute against Dec 1900 (the DS-13 scenario, produced by the
-    /// actual T-A hook rather than hand-seeded rows).
+    /// actual T-A hook rather than hand-seeded rows). The incumbent is a
+    /// freebmd transcription — SAME CLASS as the conflicting freebmd
+    /// record — so CL5's R2 ladder can't rank them and the dispute stays
+    /// OPEN for the human-resolution flow these tests exercise. (A
+    /// cross-class incumbent would DS-09-displace on apply; that path is
+    /// covered by DisputeResolverTests / GPSConflictReportingTests. The R3
+    /// user-value shield is covered by conflictAgainstUserManualValue... .)
     private func seedConflictedProfile(_ db: ProjectDatabase) throws -> Profile {
         let profile = Profile(
             id: "p1", externalIDs: [:],
@@ -27,7 +33,7 @@ struct DisputeResolutionEndToEndTests {
             birthDate: nil, birthLocation: nil,
             deathDate: GenealogicalDate(parsing: "1901"), deathLocation: nil,
             bio: nil, isDeleted: false,
-            sources: [.deathDate: [FieldSource(origin: .gedcom, raw: "1901", addedAt: Date())]],
+            sources: [.deathDate: [FieldSource(origin: .freebmd, raw: "1901", addedAt: Date())]],
             disputes: [:]
         )
         _ = try db.addProfile(profile, source: .gedcom)

@@ -174,7 +174,11 @@ struct ConflictSweepTests {
     @Test func sweepSurfacesAttestedDateDisjointFromCanonical() throws {
         let db = try makeDB()
         let p = profile("p1", deathDate: GenealogicalDate(parsing: "1901"))
-        _ = try db.addProfile(p, source: .gedcom)
+        // Canonical provenance is freebmd — SAME CLASS as the disjoint
+        // freebmd attestation below — so CL5's R2 ladder can't rank them
+        // and the sweep surfaces an OPEN dispute (two GRO transcriptions of
+        // different quarters). A cross-class pair would DS-09-resolve.
+        _ = try db.addProfile(p, source: .freebmd)
         // A second, disjoint attestation recorded as an alternative fact —
         // the first-writer-wins residue the sweep must surface (DS-08).
         try db.dbQueue.write { sql in

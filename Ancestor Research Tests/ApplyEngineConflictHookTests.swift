@@ -81,8 +81,13 @@ struct ApplyEngineConflictHookTests {
 
     @Test func secondSameSpanConflictingDeathDateOpensExactlyOneDispute() throws {
         let db = try makeDB()
-        let gedcomSource = FieldSource(origin: .gedcom, raw: "1901", addedAt: Date())
-        let profile = makeProfile(deathDateRaw: "1901", deathSources: [gedcomSource])
+        // Same-class incumbent (freebmd, like scoredDeath) so CL5's R2
+        // ladder can't rank the rivals: the conflict genuinely stays OPEN
+        // rather than DS-09-displacing, which is the dispute-mechanics state
+        // this test exercises. (DS-09 cross-class displacement is covered by
+        // DisputeResolverTests.r2aOriginalityDominanceResolvesDateConflict.)
+        let incumbentSource = FieldSource(origin: .freebmd, raw: "1901", addedAt: Date())
+        let profile = makeProfile(deathDateRaw: "1901", deathSources: [incumbentSource])
         _ = try db.addProfile(profile, source: .gedcom)
         let snapshot = try db.buildSnapshot()
 
@@ -119,7 +124,7 @@ struct ApplyEngineConflictHookTests {
         let db = try makeDB()
         let profile = makeProfile(
             deathDateRaw: "1901",
-            deathSources: [FieldSource(origin: .gedcom, raw: "1901", addedAt: Date())]
+            deathSources: [FieldSource(origin: .freebmd, raw: "1901", addedAt: Date())]  // same-class: dispute stays open under DS-09
         )
         _ = try db.addProfile(profile, source: .gedcom)
         let snapshot = try db.buildSnapshot()
@@ -138,7 +143,7 @@ struct ApplyEngineConflictHookTests {
         let db = try makeDB()
         let profile = makeProfile(
             deathDateRaw: "1901",
-            deathSources: [FieldSource(origin: .gedcom, raw: "1901", addedAt: Date())]
+            deathSources: [FieldSource(origin: .freebmd, raw: "1901", addedAt: Date())]  // same-class: dispute stays open under DS-09
         )
         _ = try db.addProfile(profile, source: .gedcom)
         let snapshot = try db.buildSnapshot()
