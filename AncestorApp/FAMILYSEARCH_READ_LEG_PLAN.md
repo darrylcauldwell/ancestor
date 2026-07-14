@@ -54,8 +54,8 @@ and testable before that lands; Change 5's live verification and all of Change 8
 
 ## Changes
 
-**Status (2026-07-14):** Changes 1–4, 6, 7, 9, 10, 11 SHIPPED and gated (full suite green,
-2559 tests). Change 5 (transport swap) + Change 8 (beta probes/acceptance) gated on
+**Status (2026-07-14):** Changes 1–4, 6, 7, 9, 10, 11, 12 SHIPPED and gated (full suite green,
+2567 tests). Change 5 (transport swap) + Change 8 (beta probes/acceptance) gated on
 FamilySearch registering the redirect URI + confirming the records-search grant.
 Commits: 1 `a1d946d` · 2 `178dd49` · 3 `e77fa6a` · 4 `a1e745f` · 6 `8e417be` · 7 `3fbc92e`.
 
@@ -185,6 +185,28 @@ middle-name checks. Tests: `RecordScorerBirthDateRescueTests` (6).
 hypothesis** with citation `ark:/61903/1:1:p_100845597241`; the engine immediately re-probed
 with the discovered 1984–1988 death window (self-narrowing), and wrong-year candidates began
 failing "outside subject's known death window 1986–1986".
+
+### Change 12 — Bridge watcher-run confirmed facts to pending review (M) — SHIPPED
+UX gap found by Darryl going to approve the Change 9/11 deaths: **watcher (MCP) runs had no
+reviewable surface** — the UI-initiated flow reviews confirmed facts live in cluster review
+(`ResearchViewModel.applyCluster` → ApplyEngine), but that state is session-only, and the
+watcher persisted evidence + envelope without bridging facts anywhere a human could act
+(Triage empty, tree panel still "Missing deathDate"). Fix, with in-repo precedent
+(BirthYearConsensusDetector + SubjectSpouseMarriage already route pipeline write-backs through
+`pending_facts`): new `ResearchRunFactBridge` — after `persistResult`, each `.fact`-verdict
+record that `wouldApply` and targets an EMPTY profile field (check-before-overwrite: unattended
+runs never queue overwrites) emits a PendingFact (birth/death date+location; in-run dedup per
+field+value; idempotent INSERT OR IGNORE on the firewall key; agentID `research-run`; FS ark
+citation + gate reasoning on the card). Facts then surface in **Triage** (batch workflow) and
+via the profile panel's existing orange **pending badge** (per-profile, previously always
+hidden because nothing wrote the queue). Two adjacent fixes: (a) `EvidenceFirewall.verifyURL`
+FS-ark carve-out — arks are licence-walled, an unauthenticated fetch can never content-match,
+so verification was auto-rejecting every FS-cited fact at Triage load; now classified
+restricted/pointer-only per §16.1(3), no fetch, no cache (`isFamilySearchArk` predicate,
+hermetic tests); (b) stale Triage empty-state copy (referenced the removed Field Researcher).
+Tests: `ResearchRunFactBridgeTests` (6) + `EvidenceFirewallFSArkTests` (2). Suite 2567 green
+(known MultiWindow flake tripped once and isolation-cleared twice; mechanism identified — the
+test lists the REAL projects dir while the live app writes to it).
 
 ## Order
 

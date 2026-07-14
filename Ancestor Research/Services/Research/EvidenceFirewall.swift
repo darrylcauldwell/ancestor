@@ -82,6 +82,16 @@ nonisolated struct EvidenceFirewall {
 
     // MARK: - URL Verification (Rule 2)
 
+    /// True for FamilySearch ark record URLs (any familysearch.org host,
+    /// path containing `ark:/`) — the class of URL whose content is
+    /// licence-walled and must never be fetched or cached (spec §16.1(3)).
+    /// Pure predicate, extracted for hermetic testing.
+    nonisolated static func isFamilySearchArk(url: String) -> Bool {
+        guard let host = URL(string: url)?.host?.lowercased() else { return false }
+        guard host == "familysearch.org" || host.hasSuffix(".familysearch.org") else { return false }
+        return url.contains("ark:/")
+    }
+
     /// Verify a source URL: fetch the page, check evidence_text appears in content,
     /// cache the page for provenance. Returns cached page data or nil if verification fails.
     static func verifyURL(
@@ -90,6 +100,17 @@ nonisolated struct EvidenceFirewall {
     ) async -> URLVerificationResult {
         guard let requestURL = URL(string: url) else {
             return .failed("invalid URL format")
+        }
+
+        // FamilySearch ark URLs — record content is licence-walled behind
+        // sign-in, so an unauthenticated fetch returns a shell page that can
+        // never contain the evidence text; content verification would
+        // auto-reject every legitimate FS-cited fact. Per
+        // FAMILYSEARCH_SOURCE_SPEC §16.1(3), FS verification degrades to
+        // pointer classification: treat as restricted, never fetch or cache
+        // ark content (the pointer-only compliance posture).
+        if isFamilySearchArk(url: url) {
+            return .restricted("FamilySearch ark — record content is licence-walled; pointer-only (spec §16)")
         }
 
         // Check if restricted source

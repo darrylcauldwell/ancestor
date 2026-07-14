@@ -268,6 +268,27 @@ final class RunRequestWatcher {
             db: db
         )
 
+        // Bridge confirmed facts to the pending-facts review queue. The
+        // UI-initiated flow reviews facts live in cluster review
+        // (ResearchViewModel.applyCluster); watcher runs have no user
+        // present, so without this a confirmed death landed nowhere a
+        // human could approve it (Triage empty, tree panel still showing
+        // "Missing deathDate"). Empty-field targets only; idempotent via
+        // INSERT OR IGNORE on the firewall key.
+        if let bridgeProfileID = profileIDForPersistence,
+           let bridgeProfile = appState.snapshot.profiles[bridgeProfileID] {
+            let bridged = ResearchRunFactBridge.pendingFacts(
+                from: result.confirmedFacts, profile: bridgeProfile, runID: runID
+            )
+            for fact in bridged {
+                do { try db.savePendingFact(fact) }
+                catch { logger.warning("Pending-fact bridge write failed: \(error.localizedDescription)") }
+            }
+            if !bridged.isEmpty {
+                logger.info("Bridged \(bridged.count) confirmed fact(s) to pending review for \(bridgeProfileID)")
+            }
+        }
+
         // Auto-accept of strongly-supported proposed relatives. Physically
         // absent from release builds via `#if AUTOMATION_AUTO_ACCEPT` — the
         // gating is a build flag, not a runtime check, so a release binary

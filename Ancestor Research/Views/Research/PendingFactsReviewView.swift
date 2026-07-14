@@ -67,7 +67,7 @@ struct PendingFactsReviewView: View {
                 ContentUnavailableView {
                     Label("No Pending Findings", systemImage: "tray")
                 } description: {
-                    Text("Run the Field Researcher to discover evidence from unstructured sources.")
+                    Text("Research-run discoveries and MCP evidence submissions that need review will appear here.")
                 }
             } else {
                 let shownFindings = visibleFindings
