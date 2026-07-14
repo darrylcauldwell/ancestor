@@ -28,8 +28,8 @@ struct CWGCSource: RecordSource {
     nonisolated let trustTier: SourceTrustTier = .primary
     nonisolated let evidenceDirectness: EvidenceDirectness = .primary
     nonisolated let tosStatus = SourceToSStatus(
-        level: .open,
-        summary: "Public CSV export endpoint — official government records"
+        level: .restricted,
+        summary: "Terms ban scrapers/automated access (compliance review 2026-07) — casualty CSV export used at low volume; permission request pending, ADR-008"
     )
 
     // MARK: - State

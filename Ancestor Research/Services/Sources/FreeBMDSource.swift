@@ -38,22 +38,23 @@ actor FreeBMDSource: RecordSource {
     nonisolated let trustTier: SourceTrustTier = .transcription
     nonisolated let evidenceDirectness: EvidenceDirectness = .directTranscription
     nonisolated let tosStatus = SourceToSStatus(
-        level: .community,
-        summary: "Volunteer project — no documented API, no prohibition of programmatic access"
+        level: .restricted,
+        summary: "Terms forbid programmatic search (\"front end programs… strictly forbidden\") — permission request to Free UK Genealogy pending, ADR-008"
     )
 
-    /// FreeBMD's documented daily quota (ENGINE_FOUNDATION #Change5).
-    /// FreeBMD publishes a per-day search allowance for unregistered /
-    /// standard access; empirically we trip its limiter well before a
-    /// full-corpus sweep completes (memory:
-    /// `feedback_volunteer_sources_rate_limits.md` — the day's budget burns
-    /// in ~30 min of hammering). 200 leaves generous headroom for a normal
-    /// user session while capping a runaway sustained run before it walks
-    /// the whole circuit-breaker ladder. When this ceiling is reached the
-    /// tracker parks the source until UTC midnight rather than laddering
-    /// 60s/300s/900s cool-downs into a spent budget. Reset is UTC-midnight:
-    /// FreeBMD's exact reset clock is undocumented, so we take the
-    /// conservative fallback.
+    /// Self-imposed politeness cap — NOT a documented quota (compliance
+    /// review 2026-07, SOURCE_ACCESS_COMPLIANCE_2026-07.md). FreeBMD
+    /// publishes NO per-day search allowance; a prior version of this
+    /// comment claimed a "documented daily quota", which was false. What
+    /// IS documented (freebmd.org.uk/terms.html) is that programmatic
+    /// search is forbidden outright — access posture is governed by
+    /// ADR-008 (ask-first; permission request to Free UK Genealogy
+    /// pending). Empirically the server's limiter trips well before a
+    /// full-corpus sweep (memory: `feedback_volunteer_sources_rate_limits.md`
+    /// — the day's budget burns in ~30 min of hammering); 200/day is our
+    /// conservative floor so a runaway run parks until UTC midnight
+    /// instead of laddering the 60s/300s/900s breaker. Reset clock is
+    /// likewise undocumented — UTC-midnight is the conservative fallback.
     nonisolated let budgetPolicy = SourceBudgetPolicy(dailyLimit: 200, reset: .utcMidnight)
 
     // MARK: - State

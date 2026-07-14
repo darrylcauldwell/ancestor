@@ -26,8 +26,8 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
     nonisolated let trustTier: SourceTrustTier = .transcription
     nonisolated let evidenceDirectness: EvidenceDirectness = .directTranscription
     nonisolated let tosStatus = SourceToSStatus(
-        level: .community,
-        summary: "Volunteer transcription project — no API, no explicit prohibition"
+        level: .restricted,
+        summary: "Terms forbid programmatic search (\"front end programs… strictly forbidden\") — permission request to Free UK Genealogy pending, ADR-008"
     )
 
     /// Conservative daily budget (ENGINE_FOUNDATION #Change5). FreeREG is

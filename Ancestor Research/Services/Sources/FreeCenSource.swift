@@ -20,8 +20,8 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
     nonisolated let trustTier: SourceTrustTier = .transcription
     nonisolated let evidenceDirectness: EvidenceDirectness = .directTranscription
     nonisolated let tosStatus = SourceToSStatus(
-        level: .community,
-        summary: "Volunteer project — no documented API, no prohibition of programmatic access"
+        level: .restricted,
+        summary: "Terms forbid programmatic search (\"front end programs… strictly forbidden\") — permission request to Free UK Genealogy pending, ADR-008"
     )
 
     /// Conservative daily budget (ENGINE_FOUNDATION #Change5). FreeCen is

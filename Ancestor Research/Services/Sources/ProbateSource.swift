@@ -38,8 +38,8 @@ struct ProbateSource: RecordSource {
     nonisolated let trustTier: SourceTrustTier = .primary
     nonisolated let evidenceDirectness: EvidenceDirectness = .primary
     nonisolated let tosStatus = SourceToSStatus(
-        level: .open,
-        summary: "Public Nuxeo JSON API — official government records"
+        level: .community,
+        summary: "Official government service; terms silent on programmatic access; undocumented backend JSON endpoint (compliance review 2026-07)"
     )
 
     // MARK: - State
