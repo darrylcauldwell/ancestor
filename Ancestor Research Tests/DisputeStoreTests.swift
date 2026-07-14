@@ -26,6 +26,13 @@ struct DisputeStoreTests {
         _ = try db.addProfile(profile, source: .gedcom)
     }
 
+    /// Both competitors are same-class transcriptions (freebmd + the
+    /// candidate origin, default freebmd) so the CL5 R2 quality-dominance
+    /// ladder cannot rank them and the dispute correctly STAYS OPEN for the
+    /// human — exactly the state these storage-mechanics tests exercise. (A
+    /// tree-vs-single-source conflict would auto-resolve under CL5's R2a;
+    /// that resolution path is covered by DisputeResolverTests /
+    /// GPSConflictReportingTests.)
     private func deathConflict(
         candidateRaw: String = "Dec 1900",
         candidateOrigin: SourceOrigin = .freebmd,
@@ -38,7 +45,7 @@ struct DisputeStoreTests {
             reason: .noOverlap,
             severity: severity,
             competingSources: [
-                FieldSource(origin: .gedcom, raw: "1901", addedAt: Date(timeIntervalSince1970: 0)),
+                FieldSource(origin: .freebmd, raw: "1901", addedAt: Date(timeIntervalSince1970: 0)),
                 FieldSource(origin: candidateOrigin, raw: candidateRaw, addedAt: Date(timeIntervalSince1970: 0)),
             ],
             evidenceJSON: nil,
@@ -73,12 +80,16 @@ struct DisputeStoreTests {
         #expect(row.resolution == nil)
         #expect(row.resolvedAt == nil)
         #expect(row.competingSources.count == 2)
-        // ⟨G2⟩ ladder trace persisted with every rung.
+        // ⟨G2⟩ ladder trace persisted with every rung. CL5 expands R2 into
+        // the R2a/R2b/R2c sub-rungs; a same-class conflict walks all three
+        // without any firing, leaving the dispute open.
         let trace = try JSONDecoder().decode(
             [DisputeResolver.RungEvaluation].self,
             from: Data((row.ladderTrace ?? "[]").utf8)
         )
-        #expect(trace.map(\.rung) == ["R3", "R0", "R1", "R2"])
+        #expect(Array(trace.map(\.rung).prefix(3)) == ["R3", "R0", "R1"])
+        #expect(trace.contains { $0.rung == "R2a" })
+        #expect(trace.allSatisfy { $0.outcome != "fired" })
         // ⟨G8⟩ interim witness summary present.
         #expect(row.witnessSummary?.contains("1901") == true)
         #expect(row.witnessSummary?.contains("Dec 1900") == true)

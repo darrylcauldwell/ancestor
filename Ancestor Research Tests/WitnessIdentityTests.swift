@@ -112,9 +112,13 @@ struct WitnessIdentityTests {
         #expect(adjudication.trace.contains { $0.rung == "R0" && $0.outcome == "not-fired" })
     }
 
-    @Test func crossWitnessConflictNeverFiresR0() {
-        // Genuine evidential conflict (two different witnesses) must never
-        // be silently reduced to transcription variance.
+    @Test func crossWitnessConflictAbstainsAtR0ThenResolvesOnOriginality() {
+        // R0 must never silently reduce a genuine cross-witness conflict to
+        // transcription variance — that invariant still holds (R0 abstains).
+        // CL5: the R2 quality-dominance ladder then resolves on ORIGINALITY,
+        // where cwgc (.primary) strictly outranks freebmd
+        // (.directTranscription). Per the accepted CL5 posture, quality
+        // dominance may resolve even cross-witness date conflicts.
         let conflict = DetectedConflict(
             kind: .fieldValue, profileID: "p1", field: "deathDate",
             reason: .noOverlap, severity: .conflict,
@@ -124,8 +128,15 @@ struct WitnessIdentityTests {
             ],
             evidenceJSON: nil, reasoning: "test", detectedBy: .applyEngine)
         let adjudication = DisputeResolver.adjudicate(conflict)
-        #expect(adjudication.resolution == nil)
+        // R0 correctly abstains (cross-witness, not same-witness variance).
         #expect(adjudication.trace.contains { $0.rung == "R0" && $0.outcome == "not-fired" })
+        // R2a resolves on originality.
+        guard case .rule(let ruleID, let accepted)? = adjudication.resolution else {
+            Issue.record("Expected R2a resolution, got \(String(describing: adjudication.resolution))")
+            return
+        }
+        #expect(ruleID == "R2a")
+        #expect(accepted.origin.identifier == "cwgc")
     }
 
     // MARK: - AC4: witness-gated reopen semantics
@@ -140,19 +151,25 @@ struct WitnessIdentityTests {
             bio: nil, isDeleted: false, sources: [:], disputes: [:])
         _ = try db.addProfile(profile, source: .gedcom)
 
-        func conflict(_ value: String, origin: String) -> DetectedConflict {
+        // Same-class competitors (both freebmd transcriptions) so CL5's R2
+        // ladder can't rank them and the dispute STAYS OPEN — the state this
+        // reopen-mechanics test needs. (A cross-class conflict would
+        // auto-resolve; that path is covered above and in
+        // DisputeResolverTests.) The incumbent is a freebmd transcription of
+        // 1901; each candidate a freebmd transcription of a rival year.
+        func conflict(_ value: String) -> DetectedConflict {
             DetectedConflict(
                 kind: .fieldValue, profileID: "p1", field: "deathDate",
                 reason: .noOverlap, severity: .conflict,
                 competingSources: [
-                    FieldSource(origin: SourceOrigin(identifier: "tree"), raw: "1901", addedAt: Date()),
-                    FieldSource(origin: SourceOrigin(identifier: origin), raw: value, addedAt: Date()),
+                    FieldSource(origin: SourceOrigin(identifier: "freebmd"), raw: "1901", addedAt: Date()),
+                    FieldSource(origin: SourceOrigin(identifier: "freebmd"), raw: value, addedAt: Date()),
                 ],
                 evidenceJSON: nil, reasoning: "test", detectedBy: .applyEngine)
         }
 
         // Open, then resolve.
-        let first = conflict("1907", origin: "freebmd")
+        let first = conflict("1907")
         let rowid = try db.upsertDispute(
             profileID: "p1", conflict: first,
             adjudication: DisputeResolver.adjudicate(first))
@@ -163,14 +180,14 @@ struct WitnessIdentityTests {
 
         // Another transcription asserting the ALREADY-WEIGHED value: no
         // reopen (the witness was adjudicated; a copy adds nothing).
-        let copy = conflict("1907", origin: "familysearch")
+        let copy = conflict("1907")
         _ = try db.upsertDispute(
             profileID: "p1", conflict: copy,
             adjudication: DisputeResolver.adjudicate(copy))
         #expect(try db.openDisputes(profileID: "p1").isEmpty)
 
         // A genuinely NEW conflicting value reopens as a NEW row.
-        let novel = conflict("1912", origin: "probate")
+        let novel = conflict("1912")
         let newRowid = try db.upsertDispute(
             profileID: "p1", conflict: novel,
             adjudication: DisputeResolver.adjudicate(novel))
