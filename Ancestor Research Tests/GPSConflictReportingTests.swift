@@ -129,7 +129,13 @@ struct GPSConflictReportingTests {
 
     // MARK: - AC4: run discrepancies persist + open disputes
 
-    @Test func runDiscrepanciesPersistWithRunIDAndConflictGradeOpensDispute() throws {
+    @Test func runDiscrepanciesPersistWithRunIDAndConflictGradeResolvesViaR2() throws {
+        // Updated for the CL5 R2 quality-dominance ladder (793bff1), which
+        // superseded CL3's "conflict always opens an OPEN dispute". A
+        // runSweep discrepancy flattens the incumbent to the neutral 'tree'
+        // origin (derivative/community); a real research source strictly
+        // dominates it on originality, so R2a auto-resolves the dispute.
+        // See NOTE below on the check-before-overwrite implication.
         let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
         let db = try ProjectDatabase(path: path)
         let profile = Profile(
@@ -154,11 +160,21 @@ struct GPSConflictReportingTests {
         let conflict = ResearchRunService.disputeConflict(for: discrepancy, profileID: "p1")
         #expect(conflict.field == ProfileField.deathDate.rawValue)
         #expect(conflict.detectedBy == .runSweep)
+
+        // CL5: freebmd (directTranscription) strictly outranks the neutral
+        // 'tree' incumbent (derivative) → R2a resolves, dispute not open.
+        let adjudication = DisputeResolver.adjudicate(conflict)
+        guard case .rule(let ruleID, let accepted)? = adjudication.resolution else {
+            Issue.record("Expected R2 auto-resolution, got \(String(describing: adjudication.resolution))")
+            return
+        }
+        #expect(ruleID == "R2a")
+        #expect(accepted.origin.identifier == "freebmd")
+
         _ = try db.upsertDispute(
-            profileID: "p1", conflict: conflict,
-            adjudication: DisputeResolver.adjudicate(conflict))
+            profileID: "p1", conflict: conflict, adjudication: adjudication)
         let open = try db.openDisputes(profileID: "p1")
-        #expect(open.contains { $0.field == "deathDate" && $0.detectedBy == .runSweep })
+        #expect(!open.contains { $0.field == "deathDate" && $0.detectedBy == .runSweep })
     }
 
     // MARK: - AC5: the .conflict friction tier is reachable
