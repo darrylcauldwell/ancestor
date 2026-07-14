@@ -1839,21 +1839,55 @@ if certification ever lands) — never a compile-time constant.
 
 ---
 
-## 16. Licensing posture — PENDING agreement-wording confirmation
+## 16. Licensing posture — checklist wording VERIFIED 2026-07-14
 
-**Every rule in this section is a conservative planning posture, not
-confirmed contract fact.** The governing restriction is
-paraphrase-confirmed only: the Compatibility Checklist page resisted
-direct fetch, and the substance — third-party apps lack privileges to
-display FamilySearch historical-record content to end users; users must
-be **redirected to FamilySearch.org to view records**; framed as a
-*legal* data-licensing restriction (record-holding partners), not a
-technical gate — converged across 3+ independent search summaries
-without ever being read verbatim
-([compatibility-checklist](https://developers.familysearch.org/main/docs/compatibility-checklist),
-flagged *unverified* by the contradiction audit). **First action on
-portal access: fetch the actual checklist wording and re-read the
-signed agreement; then confirm, relax, or tighten this section.**
+> **Amendment (2026-07-14):** the Compatibility Checklist was fetched
+> directly (the 2026-07-10 research-phase fetch failures were
+> transient). Verbatim findings, replacing the paraphrase-only status
+> below:
+>
+> 1. **Record Hinting**: "The application can show the summary and
+>    ratings of the possible matches but no additional information is
+>    provided by this API resource." and "The user must be directed to
+>    FamilySearch to analyze and attach possible matches because
+>    third-party applications do not have adequate access privileges to
+>    the FamilySearch historical records collection." — confirms the
+>    redirect-to-FS.org rule AND keeps §16.2's tier question live:
+>    whether our key grants records search at all is answered
+>    empirically by the Change 8 beta probes
+>    (FAMILYSEARCH_READ_LEG_PLAN).
+> 2. **Read Compatibility, caching**: "do not store it in local
+>    memory, purge the cache if the back button is used and at the end
+>    of your user session." Memories: "Temporarily stored FamilySearch
+>    data should be eliminated when the browser is closed." — phrased
+>    for web apps; the native-app reading is that cached FS **content**
+>    must be session-scoped, never durable. This is *stricter* than the
+>    §16.1 persist row anticipated: it independently validates
+>    pointer-only persistence and rules out any durable per-ARK content
+>    cache (§6.6's `gedcomx_json` cache column stays dead).
+> 3. **Attribution/linking**: follow the FamilySearch Trademark and
+>    Logo Guidelines; link only per the Linking to FamilySearch guide.
+> 4. The checklist adds no hint-score rules beyond "summary and
+>    ratings" (our §18 lead-ordering-only rule remains self-imposed and
+>    stricter) and says nothing about post-termination retention (the
+>    signed agreement's data-use-stops-on-termination clause governs).
+>
+> Net effect: **§16.1's three-verb posture is confirmed as the
+> operative rule, not a placeholder.** The persist row is upgraded from
+> "conservative planning posture" to "compliance requirement".
+
+The paragraph below is retained for the record of how the posture was
+derived before verification:
+
+The governing restriction was originally paraphrase-confirmed only: the
+Compatibility Checklist page resisted direct fetch during the
+2026-07-10/11 research phase, and the substance — third-party apps lack
+privileges to display FamilySearch historical-record content to end
+users; users must be **redirected to FamilySearch.org to view
+records**; framed as a *legal* data-licensing restriction
+(record-holding partners), not a technical gate — converged across 3+
+independent search summaries without being read verbatim
+([compatibility-checklist](https://developers.familysearch.org/main/docs/compatibility-checklist)).
 
 ### 16.1 The posture (until wording says otherwise)
 
@@ -1894,20 +1928,25 @@ Consequences, all reversible if the wording is more permissive:
    re-fetch — budget it against §15.3 and prefer ETag revalidation
    (§15.5).
 
-### 16.2 Known unknowns (resolve before first-cut build)
+### 16.2 Known unknowns (updated 2026-07-14)
 
-- **Exact restriction scope**: records only? record-derived persona
-  fields (names/dates/places)? citation text? The contradiction audit
-  calls this the single most design-consequential unknown. The stash
-  rules in §17.2 are written to be scope-safe either way.
+- ~~Exact restriction scope~~ **RESOLVED**: the checklist's caching rule
+  covers FS **content** (record data fetched from the API — purge at
+  session end); pointers (ARKs, collection titles) and our own derived
+  conclusions/verdicts are not FS content. §17.2's stash rules stand.
 - Whether `/platform/records/personas` responses under our key carry
-  full persona detail or match summaries only.
+  full persona detail or match summaries only — **still open**; the
+  checklist's "do not have adequate access privileges to the
+  historical records collection" (Record Hinting section) makes this
+  MORE likely to bind than before. Answered empirically by the
+  Change 8 beta probes.
 - Which certification tier gates that endpoint — read certification is
   **per-capability**, granted independently (general read vs Record
   Hinting vs Genealogies)
   ([read certification](https://www.familysearch.org/en/developers/docs/certification/read));
   confirm which tier our Innovator status maps to before promising the
-  demo query set.
+  demo query set. Worth asking devsupport@familysearch.org directly
+  alongside the redirect_uri registration.
 
 ---
 
