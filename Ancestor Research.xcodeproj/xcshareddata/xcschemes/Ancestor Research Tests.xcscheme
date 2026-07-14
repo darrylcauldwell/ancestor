@@ -14,9 +14,18 @@
       shouldUseLaunchSchemeArgsEnv = "YES"
       shouldAutocreateTestPlan = "YES">
       <Testables>
+         <!-- parallelizable = "NO": test-EXECUTION parallelism is disabled
+              (build parallelism stays on via parallelizeBuildables above).
+              A crashing parallel test-runner worker was dragging thousands
+              of unrelated tests down as 0.000s instant-fails, masking real
+              failures — it hid a red gate for a full day after the CL5
+              ship. The full suite runs serially in ~32s, so parallel
+              execution bought nothing worth that unreliability. If a
+              future speedup is wanted, fix the root cause first (the
+              AncestorKit duplicate-class linkage warning) and re-enable. -->
          <TestableReference
             skipped = "NO"
-            parallelizable = "YES">
+            parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "3E8157182F9BA27400D37FC5"
