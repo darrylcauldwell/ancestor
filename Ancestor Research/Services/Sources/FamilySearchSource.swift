@@ -640,6 +640,14 @@ extension FamilySearchSource {
         // a different id on every launch and break cross-run dedup.
         let recordID = persona.id ?? "fs-\(collectionARK)-\(personaIndex)"
         let detailURL = persona.id.map { "\(arkBase)\($0)" }
+        // #Change7 — promote the two secondary-metadata values FS already
+        // gives us to first-class RecordCommon fields: collection coverage
+        // completeness (§7.4) and the primary fact's place-authority ARK,
+        // stored as the bare `ark:/…` path segment only (§17.1).
+        let primaryPlaceARK: String? = primaryFact?.place?.normalized?.first?.description.flatMap { raw in
+            guard let r = raw.range(of: "ark:/") else { return nil }
+            return String(raw[r.lowerBound...])
+        }
         let common = RecordCommon(
             id: recordID,
             sourceID: "familysearch",
@@ -647,7 +655,9 @@ extension FamilySearchSource {
             surname: surname,
             givenName: givenName,
             detailURL: detailURL,
-            rawFields: rawFields
+            rawFields: rawFields,
+            placeARK: primaryPlaceARK,
+            collectionCompleteness: collectionCompleteness
         )
 
         // Extract date/place fields into typed record struct fields

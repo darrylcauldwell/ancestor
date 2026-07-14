@@ -20,9 +20,30 @@ public nonisolated struct RecordCommon: Codable, Sendable {
     public let detailURL: String?
     public let rawFields: [String: String]
 
+    // MARK: Secondary-metadata columns (FAMILYSEARCH_READ_LEG_PLAN #Change7,
+    // FAMILYSEARCH_SOURCE_SPEC §12.4). Data-model commits landing NOW so
+    // second-cut endpoint work needs no schema migration; each stays nil
+    // until the endpoint that fills it is wired. Optional + synthesized
+    // Codable = old JSON without these keys decodes to nil (additive-safe).
+
+    /// Bare place-authority ARK path segment for the record's event place
+    /// (§6.7, §17.1 — never the full URL). Populated when a normalized
+    /// place ARK is present; place-authority integration is later (E3).
+    public let placeARK: String?
+    /// Collection coverage completeness 0…1 (§7.4), when the source reports
+    /// it. Promoted to first-class from rawFields on FS records; the
+    /// scorer's negative-evidence weighting consumes it later.
+    public let collectionCompleteness: Double?
+    /// Contested-attribution signal from a record's change history (§7.3),
+    /// e.g. many edits by many contributors. Column now; the change-history
+    /// endpoint that populates it is second-cut.
+    public let volatilityScore: Double?
+
     /// Public memberwise init — synthesized inits are internal
-    /// outside the package, so cross-module construction needs this.
-    public init(id: String, sourceID: String, name: String? = nil, surname: String? = nil, givenName: String? = nil, detailURL: String? = nil, rawFields: [String: String]) {
+    /// outside the package, so cross-module construction needs this. The
+    /// #Change7 columns default to nil so existing construction sites are
+    /// untouched.
+    public init(id: String, sourceID: String, name: String? = nil, surname: String? = nil, givenName: String? = nil, detailURL: String? = nil, rawFields: [String: String], placeARK: String? = nil, collectionCompleteness: Double? = nil, volatilityScore: Double? = nil) {
         self.id = id
         self.sourceID = sourceID
         self.name = name
@@ -30,6 +51,9 @@ public nonisolated struct RecordCommon: Codable, Sendable {
         self.givenName = givenName
         self.detailURL = detailURL
         self.rawFields = rawFields
+        self.placeARK = placeARK
+        self.collectionCompleteness = collectionCompleteness
+        self.volatilityScore = volatilityScore
     }
 
 }

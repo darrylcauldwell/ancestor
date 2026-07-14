@@ -1341,6 +1341,23 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // MARK: v43 — evidence external ARK identity columns
+        // (FAMILYSEARCH_READ_LEG_PLAN #Change7 / FS spec §17.1). Bare
+        // `ark:/61903/…` PATH SEGMENTS only, never full URLs (the FS
+        // permanence guarantee excludes domain + query decorations). These
+        // are the idempotency key for FS evidence ingestion and the
+        // ARK-deterministic join for the citation matcher (which works
+        // under the §16 pointer-only licensing posture — it matches
+        // identity, not content). Nullable; populated when the FS OAuth
+        // ingestion path lands (#Change5/#Change8) — data-model commits
+        // early, endpoint integration later (§12.4).
+        migrator.registerMigration("v43_evidence_external_ids") { db in
+            try db.alter(table: "evidence_records") { t in
+                t.add(column: "external_persona_id", .text)  // ark:/61903/1:1:XXXX
+                t.add(column: "external_record_id", .text)   // ark:/61903/4:1:XXXX
+            }
+        }
+
         return migrator
     }
 
