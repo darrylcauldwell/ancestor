@@ -207,6 +207,14 @@ hermetic tests); (b) stale Triage empty-state copy (referenced the removed Field
 Tests: `ResearchRunFactBridgeTests` (6) + `EvidenceFirewallFSArkTests` (2). Suite 2567 green
 (known MultiWindow flake tripped once and isolation-cleared twice; mechanism identified — the
 test lists the REAL projects dir while the live app writes to it).
+**First-use follow-ups (same day, found by Darryl exercising the surface):** (a) badge tap did
+nothing → `AppState.requestSidebarTab` cross-view nav (`dfbf9ba`); (b) Triage's re-score
+auto-rejected every date-carrying card — the synthetic record was built NAMELESS, failing the
+name gate → `.impossible` in extend mode; it now carries the profile's own name (re-score =
+date/plausibility, not re-identification; `4266c97`); (c) badge now deep-links to the
+profile's review cards AND "Research All" is confirmation-gated — Triage's default selector
+renders that button where the review screen's "Refresh" sits, and a mis-click launched a
+212-profile whole-tree run (`87bd7d0`).
 
 ## Order
 
