@@ -177,17 +177,29 @@ public enum TreeCanvasRenderer {
             )
         }
 
-        // Name
+        // Name — scaled to fit the node width so long names (e.g.
+        // "George Eric Vaughn Cauldwell") don't overflow into the neighbouring
+        // node. Canvas text is drawn at its intrinsic size with no width
+        // constraint, so we measure it and shrink to fit, clamped to a readable
+        // floor; the node-rect clip is a hard safety net at that floor. Short
+        // names measure under the available width, so the scale clamps to 1.0
+        // and they render exactly as before.
         let name = profile.displayName
         if scale > 0.4 {
             let nameText = Text(name)
                 .font(theme.name)
                 .foregroundStyle(dimmed ? .tertiary : .primary)
-            context.draw(
-                context.resolve(nameText),
-                at: CGPoint(x: rect.midX, y: rect.midY - 12),
-                anchor: .center
-            )
+            let resolvedName = context.resolve(nameText)
+            let naturalWidth = resolvedName.measure(
+                in: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            ).width
+            let nameScale = max(min(1.0, (rect.width - 24) / max(naturalWidth, 1)), 0.6)
+            context.drawLayer { layer in
+                layer.clip(to: Path(roundedRect: rect, cornerRadius: cornerRadius))
+                layer.translateBy(x: rect.midX, y: rect.midY - 12)
+                layer.scaleBy(x: nameScale, y: nameScale)
+                layer.draw(resolvedName, at: .zero, anchor: .center)
+            }
 
             // Birth/death years with living-person handling
             var dateStr = ""
@@ -223,15 +235,21 @@ public enum TreeCanvasRenderer {
                 )
             }
         } else {
-            // Low zoom: name only
+            // Low zoom: name only — same fit-to-width treatment.
             let nameText = Text(name)
                 .font(theme.nameSmall)
                 .foregroundStyle(dimmed ? .quaternary : .secondary)
-            context.draw(
-                context.resolve(nameText),
-                at: CGPoint(x: rect.midX, y: rect.midY),
-                anchor: .center
-            )
+            let resolvedName = context.resolve(nameText)
+            let naturalWidth = resolvedName.measure(
+                in: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            ).width
+            let nameScale = max(min(1.0, (rect.width - 24) / max(naturalWidth, 1)), 0.6)
+            context.drawLayer { layer in
+                layer.clip(to: Path(roundedRect: rect, cornerRadius: cornerRadius))
+                layer.translateBy(x: rect.midX, y: rect.midY)
+                layer.scaleBy(x: nameScale, y: nameScale)
+                layer.draw(resolvedName, at: .zero, anchor: .center)
+            }
         }
 
         // Completeness badge — researcher UI; viewer shells pass false
