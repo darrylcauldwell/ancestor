@@ -21,6 +21,19 @@ struct ResearchView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let reviewID = pendingReviewProfileID, showPendingReview {
+                // Exit affordance lives HERE: PendingFactsReviewView has
+                // none of its own, and an empty pending list left the user
+                // trapped (owner report 2026-07-15).
+                HStack {
+                    Spacer()
+                    Button("Done") {
+                        showPendingReview = false
+                        pendingReviewProfileID = nil
+                    }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.small)
+                }
+                .padding([.horizontal, .top])
                 PendingFactsReviewView(profileID: reviewID)
             } else if showBulkReview {
                 // CAMPAIGN_REVIEW_SPEC Change 6 — DB-backed campaign review.
@@ -157,11 +170,11 @@ struct ResearchView: View {
             .padding(.bottom, 8)
             Divider()
 
-            // Profile list — sorted least-complete first so the user can see
-            // at a glance which profiles still need attention. The per-row
-            // "Research" button has been removed: research is started from
-            // the profile popover in the Tree tab so the depth/scope picker
-            // sheet appears with smart defaults for each subject.
+            // Profile list — the research launcher: real people ranked
+            // least-complete first, placeholder stubs demoted. Per-row
+            // "Research" opens the config sheet with smart defaults
+            // (reinstated 2026-07-15 — review lives in Research Findings,
+            // so this page's one job is starting research).
             let profiles = filteredProfiles
             if profiles.isEmpty {
                 ContentUnavailableView {
@@ -252,14 +265,25 @@ struct ResearchView: View {
                 .font(AppTypography.cardMeta)
                 .foregroundStyle(comp.score == comp.maximum ? .green : .orange)
 
-            // Review pending facts from a previous run. The Research entry
-            // point lives on the Tree tab; this tab surfaces the *triage* action.
-            Button("Review") {
-                pendingReviewProfileID = profile.id
-                showPendingReview = true
+            // This list is the RESEARCH launcher (owner direction
+            // 2026-07-15: review lives in Research Findings; this page is
+            // "profiles with gaps that need research"). Review appears
+            // only when the profile actually has pending items — an
+            // always-on Review button led into an empty view.
+            if let pending = pendingCounts[profile.id], pending > 0 {
+                Button("Review") {
+                    pendingReviewProfileID = profile.id
+                    showPendingReview = true
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+            }
+            Button("Research") {
+                appState.researchConfigProfile = profile
             }
             .buttonStyle(.glassProminent)
             .controlSize(.small)
+            .help("Open the research sheet for this profile with smart defaults.")
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
