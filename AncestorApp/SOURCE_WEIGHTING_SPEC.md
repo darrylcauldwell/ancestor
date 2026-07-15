@@ -96,6 +96,18 @@ sequences it, it does not shrink it).
    national) — staging runs silently *within* the chosen Scope, escalating stages only up to
    its bound. Build-time copy tweak only: the Scope/Depth descriptions mention that
    FamilySearch fires only when the free sources come up empty.
-3. Wirksworth/local-corpus placement — Stage 1 alongside FreeREG, or a pre-stage (it is the
-   cheapest, most local source)? *Default if unanswered at build time: Stage 1 alongside
-   FreeREG.*
+3. ~~Wirksworth placement?~~ **MOOT — DECIDED 2026-07-15 (Darryl): "Wirksworth was a source
+   added for point in time which we can remove."** Retirement becomes **Change 0** of this
+   spec's build (below); staging designs for the national free sources + FS only.
+
+## Change 0 — retire the Wirksworth source (prerequisite)
+
+Remove the live source: delete `WirksworthSource` + its tests, deregister in
+`SourceBootstrap`, sweep dispatcher/lead-filter/region special-cases (~20 files reference
+it — several are the region-specific carve-outs `feedback_no_hardcoded_regions` has been
+pushing against, which is part of the point). **Keep for historical citations:** the
+`SourceTierRegistry` wirksworth.org.uk URL→tier mapping and the GEDCOM exporter's
+`wirksworth` source-metadata case — evidence rows and applied citations from past runs
+remain valid and must keep resolving trust tier + export metadata. Python `sources/`
+reference implementation untouched. Also closes the outstanding ADR-008 terms-review item
+for wirksworth.org.uk (site was TLS-unreachable for terms fetch; removal moots it).
