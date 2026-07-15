@@ -221,15 +221,14 @@ struct PerSourceStrictnessTests {
     }
 
     // MARK: - AC5.4 — strict-only sources produce identical bytes across all
-    // strictness values. We sample two of the three (Probate, FindAGrave) at
-    // the dispatcher level — Wirksworth's source-side coverage check is
-    // location-dependent so we just assert no extra fan-out happened.
+    // strictness values, sampled at the dispatcher level. (Wirksworth was
+    // in this list until SOURCE_WEIGHTING Change 0 retired the plugin.)
 
     @Test func ac5_4_strictOnlySourcesDoNotFanOutAndIgnoreStrictnessOnTheWire() {
         let registry = SourceRegistry()
         bootstrapSources(registry: registry)
 
-        for sourceID in ["probate", "wirksworth", "findagrave"] {
+        for sourceID in ["probate", "findagrave"] {
             guard let src = registry.allSources().first(where: { $0.sourceID == sourceID }) else {
                 Issue.record("Source \(sourceID) not in registry")
                 continue

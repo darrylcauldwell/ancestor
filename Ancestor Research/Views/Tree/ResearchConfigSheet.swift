@@ -210,7 +210,7 @@ struct ResearchConfigSheet: View {
 
     private var scopeDescription: String {
         switch scope {
-        case .parish:   "Home parish only. Limited to FreeREG / FreeCen / Wirksworth (parish-supporting sources)."
+        case .parish:   "Home parish only. Limited to parish-supporting sources (FreeREG, FreeCen)."
         case .district: "Home registration district. Today falls through to county scope until structured location codes ship."
         case .county:   "Home county's registration districts — the current local-scope behaviour."
         case .adjacent: "Home county plus counties bordering it (single hop). Useful for ancestors near a county border."

@@ -10,10 +10,12 @@ final class SourceRegistry {
     @AppStorage("disabledSourceIDs") private var disabledSourceIDsRaw: String = ""
 
     // Local plugins are opt-IN (default disabled). Explicit enable persists here.
-    // Default contains "wirksworth" so the previously-bundled local plugin remains
+    // Default is empty — the last bundled local plugin (Wirksworth) was
     // available to existing trees without the user having to re-enable it.
     @ObservationIgnored
-    @AppStorage("enabledLocalPluginIDs") private var enabledLocalPluginIDsRaw: String = "wirksworth"
+    // retired by SOURCE_WEIGHTING Change 0. Users' persisted values are
+    // harmless: an enabled ID with no registered source is simply inert.
+    @AppStorage("enabledLocalPluginIDs") private var enabledLocalPluginIDsRaw: String = ""
 
     private var disabledSourceIDs: Set<String> {
         get { Set(disabledSourceIDsRaw.split(separator: ",").map(String.init)) }

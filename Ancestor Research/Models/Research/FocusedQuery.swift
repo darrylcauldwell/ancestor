@@ -111,8 +111,6 @@ nonisolated struct FocusedQuery: Sendable {
                 return .cwgc(CWGCParams(conflict: nil))
             case "probate":
                 return .probate(ProbateParams(courtType: nil))
-            case "wirksworth":
-                return .wirksworth(WirksworthParams(parishHint: district))
             default:
                 return .generic
             }

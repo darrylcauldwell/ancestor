@@ -64,7 +64,6 @@ struct ScopeContractTests {
         if case .inherentlyNational = ProbateSource().scopeHandling {} else {
             Issue.record("Probate must declare .inherentlyNational")
         }
-        #expect(WirksworthSource().scopeHandling == .localCorpus)
     }
 
     @Test func familySearchDeclaresScopeInvarianceUntilChange4() async {
@@ -148,7 +147,6 @@ struct ScopeContractTests {
             (CWGCSource(), .death),
             (FindAGraveSource(), .burial),
             (ProbateSource(), .probate),
-            (WirksworthSource(), .parish),
             (FamilySearchSource(), .death),
         ]
         for (source, recordType) in cases {

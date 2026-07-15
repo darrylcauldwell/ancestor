@@ -256,7 +256,7 @@ actor QueryCache {
             fagLimit = String(p.limit)
             fagYearWidth = String(p.yearRangeWidth)
             fagMaiden = p.includeMaidenName ? "maiden" : ""
-        case .cwgc, .probate, .wirksworth, .generic:
+        case .cwgc, .probate, .generic:
             // CWGC conflict / Probate courtType / Wirksworth parishHint
             // never reach the wire request.
             break

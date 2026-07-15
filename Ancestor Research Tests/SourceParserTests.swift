@@ -78,31 +78,6 @@ struct SourceParserTests {
 
     // MARK: - Wirksworth Pedigree Parsing
 
-    @Test func wirksworthParsesStructuredPedigree() {
-        let html = """
-        <PRE>
-        1 John Cauldwell bpt (15/7/1707) m (1730) Mary Smith d 1780
-        2 Thomas Cauldwell b 1732 m Elizabeth Jones
-        </PRE>
-        """
-        let records = WirksworthSource.parseStructuredPedigree(html, surname: "Cauldwell", url: "http://test")
-        #expect(records.count == 2)
-
-        if case .pedigree(let r) = records.first {
-            #expect(r.birthYear == 1707)
-            #expect(r.generation == 1)
-        }
-    }
-
-    @Test func wirksworthParsesNarrativePedigree() {
-        let html = "Nathaniel Caldwell born 1815 in Wirksworth was a lead miner."
-        let records = WirksworthSource.parseNarrativePedigree(html, surname: "Caldwell", url: "http://test")
-        #expect(records.count == 1)
-        if case .pedigree(let r) = records.first {
-            #expect(r.birthYear == 1815)
-        }
-    }
-
     // MARK: - FreeREG HTML Parsing
 
     @Test func freeregParsesTableResults() {

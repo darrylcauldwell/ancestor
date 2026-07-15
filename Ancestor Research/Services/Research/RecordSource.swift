@@ -6,7 +6,7 @@ import AncestorKit
 /// - `general`: bundled with the core app, useful to any UK researcher.
 ///   Default-enabled. May expose a local/national scope axis.
 /// - `localPlugin`: niche source covering a small geographic area or
-///   narrow record type (e.g. Wirksworth Genealogy Project). Default-disabled.
+///   narrow record type (e.g. a single-locality genealogy site). Default-disabled.
 ///   Users opt in only when their tree intersects the source's area.
 ///   Always-local by definition — the scope axis does not apply.
 ///

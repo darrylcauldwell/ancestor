@@ -160,7 +160,11 @@ struct ConflictDetectorTests {
         #expect(ConflictDetector.trustTier(forOriginIdentifier: "freebmd") == FreeBMDSource().trustTier)
         #expect(ConflictDetector.trustTier(forOriginIdentifier: "freecen") == FreeCenSource().trustTier)
         #expect(ConflictDetector.trustTier(forOriginIdentifier: "freereg") == FreeREGSource().trustTier)
-        #expect(ConflictDetector.trustTier(forOriginIdentifier: "wirksworth") == WirksworthSource().trustTier)
+        // wirksworth: the PLUGIN is retired (SOURCE_WEIGHTING Change 0) but
+        // persisted evidence keeps the origin id — the read-time tier
+        // mapping must survive, pinned against the value the plugin
+        // declared (.transcription).
+        #expect(ConflictDetector.trustTier(forOriginIdentifier: "wirksworth") == .transcription)
         #expect(ConflictDetector.trustTier(forOriginIdentifier: "familysearch") == FamilySearchSource().trustTier)
         #expect(ConflictDetector.trustTier(forOriginIdentifier: "cwgc") == CWGCSource().trustTier)
         #expect(ConflictDetector.trustTier(forOriginIdentifier: "probate") == ProbateSource().trustTier)

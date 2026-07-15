@@ -614,7 +614,10 @@ public nonisolated enum SourceQueryParams: Sendable {
     case findAGrave(FindAGraveParams)
     case cwgc(CWGCParams)
     case probate(ProbateParams)
-    case wirksworth(WirksworthParams)
+    // `.wirksworth(WirksworthParams)` removed — SOURCE_WEIGHTING Change 0
+    // retired the Wirksworth structured-source plugin (persisted evidence
+    // with sourceID "wirksworth" remains valid; read-time classifiers keep
+    // handling the ID).
     case freeREG(FreeREGParams)
     case generic
 }
@@ -863,17 +866,6 @@ public nonisolated struct ProbateParams: Sendable {
     /// outside the package, so cross-module construction needs this.
     public init(courtType: String? = nil) {
         self.courtType = courtType
-    }
-
-}
-
-public nonisolated struct WirksworthParams: Sendable {
-    public let parishHint: String?      // Specific parish within Wirksworth area
-
-    /// Public memberwise init — synthesized inits are internal
-    /// outside the package, so cross-module construction needs this.
-    public init(parishHint: String? = nil) {
-        self.parishHint = parishHint
     }
 
 }

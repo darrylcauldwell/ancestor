@@ -9,7 +9,6 @@ func bootstrapSources(registry: SourceRegistry) {
     registry.register(CWGCSource())
     registry.register(FindAGraveSource())
     registry.register(ProbateSource())
-    registry.register(WirksworthSource())
 
     // Tier 2: CSRF token (session per search batch)
     registry.register(FreeBMDSource())

@@ -18,8 +18,9 @@ struct SearchDispatcher {
 
     /// Dispatch searches across all enabled sources for the given record types.
     /// `scope` widens fan-out for scope-aware sources (FreeBMD; FreeCen/FreeREG later).
-    /// Local plugins (Wirksworth) and inherently-national sources (CWGC, FindAGrave,
-    /// Probate) ignore scope.
+    /// Sources declaring `.inherentlyNational` / `.anchorPinned` /
+    /// `.localCorpus` scope handling ignore scope (CWGC, FindAGrave,
+    /// Probate) — see `ScopeHandling`.
     ///
     /// `mode` is the wedge for the strictness ladder (RESEARCH_AXES_SPEC §3.1 /
     /// Change 6). This Change passes `.strict` to every source unconditionally;
@@ -672,7 +673,7 @@ struct SearchDispatcher {
     ///   each query is fanned out to N+1 queries — the original plus one per
     ///   surname variant from `SurnameVariants.shared`. CWGC falls back to
     ///   `.loose` (it has no useful variant axis distinct from server-side
-    ///   soundex). Sources with no variant axis (Probate, Wirksworth, FindAGrave)
+    ///   soundex). Sources with no variant axis (Probate, FindAGrave)
     ///   fall back to `.strict`. See RESEARCH_AXES_SPEC §7.
     static func applyStrictness(
         _ queries: [RecordQuery],
@@ -736,7 +737,7 @@ struct SearchDispatcher {
                 // No useful variant axis distinct from server soundex per §7.
                 return queries.map { $0.with(strictness: .loose) }
             default:
-                // Strict-only sources (Probate, Wirksworth, FindAGrave).
+                // Strict-only sources (Probate, FindAGrave).
                 // Stamp the requested tier so activity-bus events reflect
                 // dispatcher intent; the source's wire behaviour is unchanged
                 // regardless of strictness because they don't branch on it.
@@ -1216,9 +1217,9 @@ struct SearchDispatcher {
                 return []
             }
             // Generic single query for declared inherently-national /
-            // anchor-pinned / local-corpus sources (Probate, Wirksworth,
-            // and future DECLARED sources). Fan-out to married surname
-            // when applicable — critical for Probate (UK Calendar files
+            // anchor-pinned / local-corpus sources (Probate, and future
+            // DECLARED sources). Fan-out to married surname when
+            // applicable — critical for Probate (UK Calendar files
             // married women under married surname).
             let genericSurnames = subject.surnamesToProbe(for: recordType)
             return genericSurnames.map { surnameToTry in

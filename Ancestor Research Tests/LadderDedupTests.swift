@@ -42,12 +42,6 @@ struct LadderDedupTests {
                 "FindAGrave ignores strictness on the wire — its tiers must share one cache key")
     }
 
-    @Test func wirksworthStrictAndLooseShareOneCacheKey() {
-        let strict = QueryCache.cacheKey(sourceID: "wirksworth", query: wirksworthQuery(strictness: .strict))
-        let loose = QueryCache.cacheKey(sourceID: "wirksworth", query: wirksworthQuery(strictness: .loose))
-        #expect(strict == loose)
-    }
-
     // MARK: - The proof: .strict then .loose = ONE HTTP call (Probate)
 
     @Test func probateLadderReFireIsCacheHitNotSecondRequest() async {
@@ -132,14 +126,6 @@ struct LadderDedupTests {
             yearFrom: 1914, yearTo: 1918, gender: .male, region: .englandAndWales,
             sourceParams: .findAGrave(FindAGraveParams(yearRangeWidth: 5, location: "Belper")),
             strictness: strictness
-        )
-    }
-
-    private func wirksworthQuery(strictness: SearchStrictness) -> RecordQuery {
-        RecordQuery(
-            surname: "Cauldwell", givenName: "Ernest", recordType: .parish,
-            yearFrom: 1850, yearTo: 1900, gender: .male, region: .englandAndWales,
-            sourceParams: .wirksworth(WirksworthParams()), strictness: strictness
         )
     }
 

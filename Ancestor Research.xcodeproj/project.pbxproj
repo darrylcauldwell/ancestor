@@ -46,29 +46,21 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3E0467A930000CF4004648DB /* Ancestor-Viewer-TV */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "Ancestor-Viewer-TV";
 			sourceTree = "<group>";
 		};
 		3E2FD79A2F9B89F200491FEB /* Ancestor Research */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "Ancestor Research";
 			sourceTree = "<group>";
 		};
 		3E81571A2F9BA27400D37FC5 /* Ancestor Research Tests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "Ancestor Research Tests";
 			sourceTree = "<group>";
 		};
 		ACVI170000000000000000AB /* Ancestor-Viewer-iOS */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "Ancestor-Viewer-iOS";
 			sourceTree = "<group>";
 		};

@@ -476,7 +476,7 @@ Be concrete, terse, and honest about uncertainty. Never invent facts that aren't
 
         Return JSON ONLY:
         {
-          "source": "freebmd|freecen|cwgc|findagrave|freereg|probate|wirksworth",
+          "source": "freebmd|freecen|cwgc|findagrave|freereg|probate",
           "record_type": "birth|death|marriage|census|burial|probate|parish",
           "surname": "string (required)",
           "given": "string or null",
