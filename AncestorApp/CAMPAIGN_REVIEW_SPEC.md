@@ -1,6 +1,8 @@
 # Campaign Review — persistent evidence chain + DB-backed bulk review
 
-**Status: Active** · 2026-07-15
+**Status: ALL SIX CHANGES SHIPPED 2026-07-15** — commits: 1 `5e3172e` · 2+3 `02aa57b` ·
+4+5 `9dafa80` · 6 `d1edcd7`. Suite 2588 green at close. Remaining: real-data verification
+against the 2026-07-14/15 overnight campaign DB (rebuild + open Review Campaign).
 **Owner decision (Darryl):** "we should be looking to persistently store the evidence chain
 and not only do in memory… fold show convergence level + open-conflict state per finding
 into the BulkReviewView design."
