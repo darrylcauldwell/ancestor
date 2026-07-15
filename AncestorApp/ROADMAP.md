@@ -78,6 +78,16 @@ This section reads as the build sequence — top to bottom is the intended order
   same-foreign-county credit derived from the district registry (no hardcoded regions).
   Gate: ClusteringEngine tests incl. a Northumberland-namesake fixture; SANDWICH_AUDIT
   cross-check that wider lifespans can't push unrelated records over the 0.4 attach threshold.
+- **Query-side given-name variants** (surfaced 2026-07-15, Harry Marshall: possibly
+  registered HENRY — the nickname table scores returned records, but outbound queries carry
+  the subject's stored given name only, so a Henry-registered death is invisible to every
+  source). Design: the strictness ladder's `.variant` tier (and/or a dedicated tier) fans
+  the given name across `ScoringRules.nicknameEquivalents` + shared-canonical siblings —
+  Harry→Henry, Elsie→Elizabeth — bounded like surname variants are; per-source query cost
+  audited (FreeBMD given-name param exists; budget impact = ×variants). Evidence for need:
+  Harry's 2026-07-15 run cross-referenced every Derbyshire Harry-Marshall death and found NO
+  young-adult 1962–64 death — either lore compression (the rejected Jun 1963 age-64 3A/256)
+  or a HENRY registration no run can currently see.
 - **Life events feed research axes** (surfaced 2026-07-15, Elsie Twyford: user added a
   Youlgreave Residence life event and reasonably expected research to use it — LifeEvents
   are currently research-inert; only profile birth/death location fields reach
