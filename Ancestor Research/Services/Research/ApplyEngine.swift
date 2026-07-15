@@ -45,32 +45,46 @@ nonisolated struct ApplyEngine {
     ) -> [WriteFailure] {
         var failures: [WriteFailure] = []
         let origin = SourceOrigin(identifier: scored.record.sourceID)
+        // Sourcing-gate fix (2026-07-15): every applied field carries the
+        // record's citation on its FieldSource — same renderer the review
+        // UI and exports use, so the text matches everywhere.
+        let rendered = CitationRenderer.cite(scored.record)
+        let citation = Citation(
+            title: rendered.short,
+            url: rendered.url,
+            dateAccessed: rendered.accessedAt,
+            notes: rendered.full
+        )
         switch scored.record {
         case .birth(let r):
             let dateCandidate = bmdDate(year: r.birthYear, quarter: r.quarter, exact: r.birthDate)
             applyDateField(
                 .birthDate, existing: profile.birthDate,
                 existingSources: profile.sources[.birthDate] ?? [],
-                candidate: dateCandidate, profileID: profile.id, origin: origin, db: db, failures: &failures
+                candidate: dateCandidate, profileID: profile.id, origin: origin, db: db,
+                citation: citation, failures: &failures
             )
             applyStringField(
                 .birthLocation, existing: profile.birthLocation,
                 existingSources: profile.sources[.birthLocation] ?? [],
                 candidate: r.birthPlace ?? r.district,
-                profileID: profile.id, origin: origin, db: db, failures: &failures
+                profileID: profile.id, origin: origin, db: db,
+                citation: citation, failures: &failures
             )
         case .death(let r):
             let dateCandidate = bmdDate(year: r.deathYear, quarter: r.quarter, exact: r.deathDate)
             applyDateField(
                 .deathDate, existing: profile.deathDate,
                 existingSources: profile.sources[.deathDate] ?? [],
-                candidate: dateCandidate, profileID: profile.id, origin: origin, db: db, failures: &failures
+                candidate: dateCandidate, profileID: profile.id, origin: origin, db: db,
+                citation: citation, failures: &failures
             )
             applyStringField(
                 .deathLocation, existing: profile.deathLocation,
                 existingSources: profile.sources[.deathLocation] ?? [],
                 candidate: r.deathPlace ?? r.district,
-                profileID: profile.id, origin: origin, db: db, failures: &failures
+                profileID: profile.id, origin: origin, db: db,
+                citation: citation, failures: &failures
             )
         case .marriage(let m):
             applyMarriageToSubjectSpouseEdge(m, profileID: profile.id, snapshot: snapshot, db: db, failures: &failures)
@@ -156,6 +170,7 @@ nonisolated struct ApplyEngine {
         profileID: String,
         origin: SourceOrigin,
         db: ProjectDatabase,
+        citation: Citation? = nil,
         failures: inout [WriteFailure]
     ) {
         guard let candidate else { return }
@@ -202,6 +217,11 @@ nonisolated struct ApplyEngine {
                 }
             }
         }
+        if let citation {
+            attempt("Attach \(field) citation", into: &failures) {
+                try db.attachFieldSourceCitation(profileID: profileID, field: field, origin: origin, citation: citation)
+            }
+        }
     }
 
     private static func applyStringField(
@@ -212,6 +232,7 @@ nonisolated struct ApplyEngine {
         profileID: String,
         origin: SourceOrigin,
         db: ProjectDatabase,
+        citation: Citation? = nil,
         failures: inout [WriteFailure]
     ) {
         guard let trimmed = candidate?.trimmingCharacters(in: .whitespaces), !trimmed.isEmpty else { return }
@@ -241,6 +262,11 @@ nonisolated struct ApplyEngine {
                         adjudication: adjudication, transactionID: alternativeTx?.id
                     )
                 }
+            }
+        }
+        if let citation {
+            attempt("Attach \(field) citation", into: &failures) {
+                try db.attachFieldSourceCitation(profileID: profileID, field: field, origin: origin, citation: citation)
             }
         }
     }

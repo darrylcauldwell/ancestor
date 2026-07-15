@@ -3130,6 +3130,30 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// Attach a citation to the NEWEST uncited field_sources row for
+    /// (profile, field, origin) — the row an ApplyEngine write branch just
+    /// produced (fill-write, alternative fact, or CL5 displacement all
+    /// insert one). Sourcing-gate fix 2026-07-15: research applies carried
+    /// origin only, so `FieldSource.citation` stayed nil forever — the
+    /// Sourcing tab's visibility gate could never fire from research and
+    /// per-field citations were missing despite living in evidence_records.
+    func attachFieldSourceCitation(
+        profileID: String, field: ProfileField, origin: SourceOrigin, citation: Citation
+    ) throws {
+        let json = String(data: try JSONEncoder().encode(citation), encoding: .utf8)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE field_sources SET citation_json = ?
+                WHERE rowid = (
+                    SELECT rowid FROM field_sources
+                    WHERE entity_id = ? AND entity_kind = 'profile'
+                      AND field = ? AND origin = ? AND citation_json IS NULL
+                    ORDER BY rowid DESC LIMIT 1
+                )
+                """, arguments: [json, profileID, field.rawValue, origin.identifier])
+        }
+    }
+
     /// Save a name equivalence learned during review.
     func saveNameEquivalence(nameA: String, nameB: String) throws {
         let a = nameA.uppercased()
