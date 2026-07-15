@@ -227,6 +227,13 @@ nonisolated struct ScoringRules {
 
         // Nickname equivalents
         if nicknameEquivalents[a] == b || nicknameEquivalents[b] == a { return 0.85 }
+        // Two diminutives of one formal name match each other too
+        // (BETTY ~ ELSIE via ELIZABETH, WILLIE ~ BILL via WILLIAM) — the
+        // flat pair table can't express transitivity, the shared
+        // canonical can.
+        if let canonicalA = nicknameEquivalents[a],
+           let canonicalB = nicknameEquivalents[b],
+           canonicalA == canonicalB { return 0.85 }
 
         // Single character difference (typo/transcription)
         if a.count == b.count {
@@ -253,6 +260,10 @@ nonisolated struct ScoringRules {
         "WILLIE": "WILLIAM",
         "NELLIE": "ELLEN",
         "LIZZIE": "ELIZABETH",
+        // Elsie began as an Elizabeth/Elspeth diminutive before becoming a
+        // standalone name (owner case 2026-07-15: Elsie Twyford, known as
+        // Betty — either could be the registered form).
+        "ELSIE": "ELIZABETH",
         "FLORRIE": "FLORENCE", "FLORENCE": "FLORRIE",
     ]
 
