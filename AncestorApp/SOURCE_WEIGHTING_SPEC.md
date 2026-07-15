@@ -79,6 +79,29 @@ FS. A future per-run toggle ("FS: always / on-miss / never") is an open question
    2026-07-14/15 campaign profile set).
 4. Searched-surface reporting distinguishes answered / negative / stage-skipped per source.
 
+## Companion change — one research action (PROPOSED 2026-07-15, Darryl's direction)
+
+"Does it matter whether we uncover things which verify, extend, discover — I think simply we
+would have one kind of research: it contacts all sources looking for records for that person
+with the associated data it has." Mechanical audit agrees: the Depth modes only pre-declare
+(a) where the strictness ladder starts/stops (verify `[strict]`, extend `[strict,loose]`,
+discover `[loose,variant]`) and (b) stopping policy (verify's early-stop; All's extra
+iterations + fact cap). Query richness is already profile-data-driven in every mode.
+
+Design: **retire the Depth picker.** One adaptive run per subject:
+- **Strictness**: always start `.strict`, escalate `.loose` → `.variant` only on miss (the
+  on-miss pattern this spec already uses for source stages). Rich profiles never escalate;
+  ghosts escalate all the way — deterministic from results, not from a user guess.
+- **Stop**: gap-driven — stop when the profile's open gaps (the sheet's "Gaps research could
+  fill" analysis) are answered or the existing stable-point detection fires. Verify's
+  early-stop generalises to "nothing left to ask"; All's kitchen-sink becomes the default,
+  bounded by budgets + stable-point + the staged dispatch above.
+- **Kept**: Scope (user-owned geographic knowledge); focused runs (record-type focus, e.g.
+  "Research birth"); prose-extraction opt-in (cost gate, shown whenever a corpus matches);
+  `ResearchMode` stays internally + on the MCP `kick_off_research` surface for
+  compatibility (explicit mode = override; absent = adaptive).
+- Sheet becomes: subject → Scope → prose toggle → gaps → Run.
+
 ## Non-goals
 
 Source trust tiers (unchanged, URL-derived); per-source scoring weights in the 4-gate scorer
