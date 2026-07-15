@@ -167,14 +167,23 @@ struct BulkReviewView: View {
             // per-profile review screen absorbs that; a flat cross-profile
             // list drowns in it (live finding: 2,558 correction rows,
             // mostly single-record Annies).
+            // Adjudicated records (applied/kept or discarded) no longer
+            // need review — route and count on the LIVE remainder so the
+            // list shrinks as the user works it. The drill-down still
+            // shows adjudicated records dimmed in place (live-run parity).
+            let adjudicated = (try? db.adjudicatedEvidenceRecordIDs(
+                profileID: entry.profileID)) ?? []
+
             var leadOnlyClusters = 0
             var leadOnlyRecords = 0
             for cluster in result.clusters {
-                let hasFacts = cluster.records.contains { $0.verdict == .fact }
+                let live = cluster.records.filter { !adjudicated.contains($0.record.id) }
+                if live.isEmpty { continue }  // fully adjudicated
+                let hasFacts = live.contains { $0.verdict == .fact }
                 let tier = FrictionTier.route(
-                    hasImpossible: cluster.records.contains { $0.verdict == .impossible },
+                    hasImpossible: live.contains { $0.verdict == .impossible },
                     hasFacts: hasFacts,
-                    recordCount: cluster.records.count,
+                    recordCount: live.count,
                     // A profile-level open dispute only escalates clusters
                     // that ASSERT facts — lead-only clusters have no stake
                     // in a field dispute and must stay in the rollup.
@@ -182,16 +191,16 @@ struct BulkReviewView: View {
                 )
                 if tier == .correction {
                     leadOnlyClusters += 1
-                    leadOnlyRecords += cluster.records.count
+                    leadOnlyRecords += live.count
                     continue
                 }
-                let recordNoun = cluster.records.count == 1 ? "record" : "records"
+                let recordNoun = live.count == 1 ? "record" : "records"
                 newFindings.append(CampaignFinding(
                     id: "\(entry.profileID)|\(cluster.id)",
                     profileID: entry.profileID,
                     profileName: profile.displayName,
                     tier: tier,
-                    summary: "\(cluster.displayName) — \(cluster.records.count) \(recordNoun)",
+                    summary: "\(cluster.displayName) — \(live.count) \(recordNoun)",
                     convergence: CampaignReviewService.convergenceLevel(for: cluster, persisted: persisted),
                     openDisputeCount: openDisputeCount,
                     cluster: cluster,

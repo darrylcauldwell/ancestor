@@ -3098,6 +3098,25 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// Record ids the user has already ADJUDICATED — applied/kept
+    /// (`saved_as_lead`) or discarded — plus legacy `record_rejections`.
+    /// The campaign review surface drops these from its needs-review
+    /// counts; NULL / `unreviewed` rows stay live. Distinct from
+    /// `loadRejections`, which the pipeline uses to suppress re-proposal
+    /// and therefore must NOT include kept records.
+    func adjudicatedEvidenceRecordIDs(profileID: String) throws -> Set<String> {
+        try dbQueue.read { db in
+            let legacy = try Row.fetchAll(db, sql: """
+                SELECT record_id FROM record_rejections WHERE profile_id = ?
+                """, arguments: [profileID]).map { $0["record_id"] as String }
+            let modern = try String.fetchAll(db, sql: """
+                SELECT source_record_id FROM evidence_records
+                WHERE profile_id = ? AND user_status IN ('discarded', 'saved_as_lead')
+                """, arguments: [profileID])
+            return Set(legacy).union(modern)
+        }
+    }
+
     /// Save a name equivalence learned during review.
     func saveNameEquivalence(nameA: String, nameB: String) throws {
         let a = nameA.uppercased()

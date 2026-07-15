@@ -112,6 +112,28 @@ struct CampaignReviewServiceTests {
             profileID: "@EMPTY@", db: db, snapshot: snapshot(with: profile)) == nil)
     }
 
+    @Test func adjudicatedIDsUnionKeptDiscardedAndLegacyRejections() throws {
+        // Campaign review drops adjudicated records from its needs-review
+        // counts: applied/kept (saved_as_lead) + discarded + legacy
+        // record_rejections rows. Unreviewed (NULL or explicit) stay live.
+        let db = try makeTempDB()
+        for id in ["kept", "gone", "live", "reset"] {
+            try db.saveEvidence(profileID: "@G@", scored: birthScored(id: id, year: 1877),
+                                citationFull: nil, citationURL: nil)
+        }
+        try db.updateEvidenceUserStatus(profileID: "@G@", sourceRecordIDs: ["kept"], status: .savedAsLead)
+        try db.updateEvidenceUserStatus(profileID: "@G@", sourceRecordIDs: ["gone"], status: .discarded)
+        try db.updateEvidenceUserStatus(profileID: "@G@", sourceRecordIDs: ["reset"], status: .unreviewed)
+        try db.saveRejection(profileID: "@G@", recordID: "ghost-parent-1")
+
+        let adjudicated = try db.adjudicatedEvidenceRecordIDs(profileID: "@G@")
+        #expect(adjudicated == ["kept", "gone", "ghost-parent-1"])
+        // The pipeline's re-proposal suppression must NOT treat kept
+        // records as rejected.
+        let rejections = try db.loadRejections(profileID: "@G@")
+        #expect(rejections.contains("gone") && !rejections.contains("kept"))
+    }
+
     @Test func campaignEntriesGroupRequestsAndCountFailures() throws {
         let db = try makeTempDB()
         let base = Date()
