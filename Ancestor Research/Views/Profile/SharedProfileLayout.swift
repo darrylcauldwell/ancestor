@@ -1119,7 +1119,7 @@ struct SharedProfileLayout: View {
                         Text(relative.displayName)
                             .font(.callout)
                         if let year = relative.birthDate?.bestYear {
-                            Text("b. \(year)")
+                            Text("b. \(String(year))")
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
                         }
@@ -1154,7 +1154,7 @@ struct SharedProfileLayout: View {
                                 Text(spouse.displayName)
                                     .font(.callout)
                                 if let year = spouse.birthDate?.bestYear {
-                                    Text("b. \(year)")
+                                    Text("b. \(String(year))")
                                         .font(.caption2)
                                         .foregroundStyle(.tertiary)
                                 }

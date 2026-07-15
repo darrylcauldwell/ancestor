@@ -179,7 +179,7 @@ struct ProfilePopoverView: View {
                             Text(relative.displayName)
                                 .font(AppTypography.popoverValue)
                             if let year = relative.birthDate?.bestYear {
-                                Text("b. \(year)")
+                                Text("b. \(String(year))")
                                     .font(AppTypography.badge)
                                     .foregroundStyle(.tertiary)
                             }

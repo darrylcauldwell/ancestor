@@ -311,7 +311,7 @@ struct CompareTargetPicker: View {
                                 Text(profile.displayName)
                                     .font(AppTypography.cardBody)
                                 if let year = profile.birthDate?.bestYear {
-                                    Text("b. \(year)")
+                                    Text("b. \(String(year))")
                                         .font(AppTypography.cardMeta)
                                         .foregroundStyle(.tertiary)
                                 }

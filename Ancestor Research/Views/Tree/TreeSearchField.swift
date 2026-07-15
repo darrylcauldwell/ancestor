@@ -55,7 +55,7 @@ struct TreeSearchField: View {
                                         .font(.callout)
                                     Spacer()
                                     if let year = match.profile.birthDate?.bestYear {
-                                        Text("b. \(year)")
+                                        Text("b. \(String(year))")
                                             .font(.caption2)
                                             .foregroundStyle(.tertiary)
                                     }

@@ -25,7 +25,7 @@ struct TreePlaceholderView: View {
                         Text(profile.displayName)
                             .font(.headline)
                         if let year = profile.birthDate?.bestYear {
-                            Text("b. \(year)")
+                            Text("b. \(String(year))")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
