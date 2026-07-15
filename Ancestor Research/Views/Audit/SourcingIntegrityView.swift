@@ -22,6 +22,13 @@ struct SourcingIntegrityView: View {
 
     @State private var searchText = ""
 
+    // SOURCE_WEIGHTING Change 8 — evidence-chain verdicts, loaded from
+    // persisted state (evidence_convergence + open disputes +
+    // negative_searches). Citation-presence sections above stay; this
+    // section answers the deeper question: how well is each fact PROVEN?
+    @State private var chainReports: [ProfileSourcingReport] = []
+    @State private var chainExpanded = true
+
     private var report: SourcingIntegrityReport {
         SourcingIntegrityAnalyser.analyse(snapshot: appState.snapshot)
     }
@@ -47,6 +54,7 @@ struct SourcingIntegrityView: View {
                 } else {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 12) {
+                            evidenceVerdictsSection
                             section(
                                 title: "Unsourced",
                                 description: "No source recorded for this field.",
@@ -78,10 +86,124 @@ struct SourcingIntegrityView: View {
             }
         }
         .navigationTitle("Sourcing")
+        .task(id: appState.snapshot.profiles.count) {
+            guard let db = appState.currentDatabase else { return }
+            chainReports = SourcingReportService.treeReports(
+                snapshot: appState.snapshot, db: db)
+        }
         .sheet(isPresented: $showEditSheet) {
             if let id = editProfileID {
                 EditPersonView(profileID: id)
             }
+        }
+    }
+
+    // MARK: - Evidence verdicts (Change 8)
+
+    private var chainAttention: [ProfileSourcingReport] {
+        chainReports.filter { $0.attentionCount > 0 }
+    }
+
+    @ViewBuilder
+    private var evidenceVerdictsSection: some View {
+        let attention = chainAttention
+        let corroboratedTotal = chainReports.reduce(0) { $0 + $1.corroboratedCount }
+        let contradictedTotal = chainReports.reduce(0) { $0 + $1.contradictedCount }
+        let uncorroboratedTotal = chainReports.reduce(0) { $0 + $1.uncorroboratedCount }
+
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: chainExpanded ? "chevron.down" : "chevron.right")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                Image(systemName: "link.badge.plus")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                Text("Evidence verdicts")
+                    .font(AppTypography.cardTitle)
+                Text("\(corroboratedTotal) corroborated · \(uncorroboratedTotal) uncorroborated · \(contradictedTotal) contradicted")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { chainExpanded.toggle() }
+
+            if !chainExpanded {
+                Text("How well each fact is PROVEN by the evidence chain — corroboration levels, open contradictions, and whether unproven facts were ever searched. Expand for the profiles needing attention.")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.tertiary)
+            }
+            if chainExpanded {
+                if attention.isEmpty {
+                    Text(chainReports.isEmpty
+                         ? "No populated identity fields yet."
+                         : "Every populated fact is corroborated or cited — nothing needs attention.")
+                        .font(AppTypography.cardBody)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(attention.prefix(40)) { profileReport in
+                        chainRow(profileReport)
+                    }
+                    if attention.count > 40 {
+                        Text("…and \(attention.count - 40) more profiles — work the list from the top.")
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+    }
+
+    private func chainRow(_ profileReport: ProfileSourcingReport) -> some View {
+        HStack(spacing: 8) {
+            Text(profileReport.displayName)
+                .font(AppTypography.cardBody)
+            ForEach(profileReport.rows) { row in
+                verdictChip(row)
+            }
+            Spacer()
+            Button("Open") {
+                editProfileID = profileReport.profileID
+                showEditSheet = true
+            }
+            .buttonStyle(.glass)
+            .controlSize(.mini)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func verdictChip(_ row: FieldSourcingRow) -> some View {
+        let (label, color): (String, Color) = {
+            switch row.verdict {
+            case .contradicted(let n):
+                return ("\(fieldLabel(row.field)): \(n) open dispute\(n == 1 ? "" : "s")", .red)
+            case .corroborated(_, let witnesses):
+                return ("\(fieldLabel(row.field)): \(witnesses) independent", .green)
+            case .cited:
+                return ("\(fieldLabel(row.field)): cited", .blue)
+            case .uncorroborated(let searched):
+                return ("\(fieldLabel(row.field)): \(searched ? "searched, unproven" : "never searched")", .orange)
+            }
+        }()
+        return Text(label)
+            .font(AppTypography.badge)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.15))
+            .foregroundStyle(color)
+            .clipShape(.capsule)
+    }
+
+    private func fieldLabel(_ field: ProfileField) -> String {
+        switch field {
+        case .birthDate: "birth"
+        case .birthLocation: "b. place"
+        case .deathDate: "death"
+        case .deathLocation: "d. place"
+        default: field.rawValue
         }
     }
 
