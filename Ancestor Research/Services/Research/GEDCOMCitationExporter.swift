@@ -89,6 +89,11 @@ nonisolated struct GEDCOMCitationExporter {
                     "Various volunteer transcribers",
                     "FreeREG, https://www.freereg.org.uk",
                     "https://www.freereg.org.uk")
+        case "familysearch":
+            return ("FamilySearch, database with images",
+                    "",
+                    "FamilySearch International, https://www.familysearch.org",
+                    "https://www.familysearch.org")
         default:
             return (sourceID, "", "", "")
         }

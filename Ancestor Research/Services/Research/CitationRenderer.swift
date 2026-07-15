@@ -21,6 +21,13 @@ nonisolated struct CitationRenderer {
 
     /// Render a citation for a source record.
     static func cite(_ record: SourceRecord, accessedAt: Date = Date()) -> RenderedCitation {
+        // FamilySearch feeds every record type, but the per-type templates
+        // below cite each type's ORIGINAL provider (FreeBMD/GRO, FreeCen,
+        // Find a Grave, CWGC…). A citation must name the repository the
+        // record actually came from — dispatch on source before type.
+        if record.sourceID == "familysearch" {
+            return citeFamilySearch(record, accessedAt: accessedAt)
+        }
         switch record {
         case .birth(let r):
             return citeBMDRecord(
@@ -55,6 +62,56 @@ nonisolated struct CitationRenderer {
             return citeParish(r, accessedAt: accessedAt)
         case .pedigree(let r):
             return citePedigree(r, accessedAt: accessedAt)
+        }
+    }
+
+    // MARK: - FamilySearch (any record type)
+
+    /// FS records carry their collection identity in rawFields — cite that
+    /// plus the ark, never another provider's template.
+    private static func citeFamilySearch(_ record: SourceRecord, accessedAt: Date) -> RenderedCitation {
+        let common = record.common
+        let name = common.name
+            ?? [common.givenName, common.surname].compactMap { $0 }.joined(separator: " ")
+        let year = eventYear(of: record).map(String.init)
+        let ark = common.rawFields["ark"] ?? common.detailURL
+
+        // FS sourceTitles often read: Entry for John Ayre, "England,
+        // Northumberland, Parish Registers, 1538-1950" — the quoted
+        // segment is the collection proper.
+        var collection = common.rawFields["collection.title"]
+        if let raw = collection,
+           let q1 = raw.firstIndex(of: "\""), let q2 = raw.lastIndex(of: "\""), q1 < q2 {
+            collection = String(raw[raw.index(after: q1)..<q2])
+        }
+
+        var full = collection.map { "\"\($0),\" " } ?? ""
+        full += "FamilySearch (\(ark ?? "https://www.familysearch.org")), \(name)"
+        if let year { full += ", \(year)" }
+        full += "; accessed \(formatDate(accessedAt))."
+
+        let short = "FamilySearch: \(name)" + (year.map { ", \($0)" } ?? "")
+
+        return RenderedCitation(
+            full: full, short: short,
+            url: ark,
+            accessedAt: accessedAt,
+            sourceID: common.sourceID
+        )
+    }
+
+    /// The record's own event year — the date a citation should carry.
+    private static func eventYear(of record: SourceRecord) -> Int? {
+        switch record {
+        case .birth(let r): r.birthYear
+        case .death(let r): r.deathYear
+        case .marriage(let r): r.marriageYear
+        case .census(let r): r.censusYear
+        case .burial(let r): r.deathYear ?? r.birthYear
+        case .military(let r): r.deathYear
+        case .probate(let r): r.deathYear
+        case .parish(let r): r.eventYear
+        case .pedigree(let r): r.birthYear ?? r.deathYear
         }
     }
 
