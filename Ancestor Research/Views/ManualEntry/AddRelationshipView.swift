@@ -252,6 +252,12 @@ struct AddRelationshipView: View {
         case .parent:
             // target IS A PARENT OF anchor
             appState.addRelationship(parentEdge(parent: targetID, child: anchorID, subtype: subtype))
+            // Establishing a real parent retires the blank placeholder the
+            // sibling shortcut left behind (and carries the siblings onto
+            // this parent) rather than stacking a 3rd/4th parent.
+            appState.reconcilePlaceholderParent(
+                childID: anchorID, realParentID: targetID,
+                role: parentRole(forParentID: targetID))
         case .child:
             // anchor IS A PARENT OF target
             let role = roleOfAnchorAsParent

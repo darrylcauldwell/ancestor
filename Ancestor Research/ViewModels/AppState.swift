@@ -2009,6 +2009,46 @@ final class AppState {
         }
     }
 
+    /// When a REAL parent is established for a child, retire the blank
+    /// placeholder the sibling shortcut created — replacing it, and carrying
+    /// every sibling that shared it onto the real parent — instead of letting
+    /// the two pile up (owner report 2026-07-15: research-found parents
+    /// stacked behind blank placeholders, hiding the real ones on the canvas
+    /// and leaving 4-parent tangles). Call AFTER the real parent edge to
+    /// `childID` has been added. No-op when the child has no placeholder
+    /// parent. Replaces ONE placeholder per call (role-matched, else any), so
+    /// establishing a father then a mother cleanly retires both blanks.
+    func reconcilePlaceholderParent(childID: String, realParentID: String, role: ParentRole) {
+        // Capture everything up front — each mutation rebuilds the snapshot.
+        let placeholders = snapshot.parentsOf(childID).filter {
+            $0.attributes?.nameStatus == .placeholder
+        }
+        guard !placeholders.isEmpty else { return }
+
+        func placeholderRole(_ pid: String) -> ParentRole? {
+            snapshot.relationships.first {
+                $0.type == .parent && $0.from == pid && $0.to == childID
+            }?.role
+        }
+        let victim = placeholders.first { placeholderRole($0.id) == role } ?? placeholders[0]
+
+        // Every child that shared this blank parent moves onto the real one.
+        let sharedChildIDs = snapshot.childrenOf(victim.id).map(\.id)
+        let victimEdgeIDs = snapshot.relationships
+            .filter { $0.type == .parent && $0.from == victim.id }
+            .map(\.id)
+        let alreadyRealChildren = Set(snapshot.childrenOf(realParentID).map(\.id))
+
+        for cid in sharedChildIDs where !alreadyRealChildren.contains(cid) {
+            addRelationship(Relationship(
+                id: UUID(), from: realParentID, to: cid,
+                type: .parent, role: role, subtype: .biological,
+                marriageDate: nil, marriageLocation: nil, divorceDate: nil))
+        }
+        for eid in victimEdgeIDs { removeRelationship(id: eid) }
+        softDeleteProfile(id: victim.id)
+    }
+
     /// Remove a relationship.
     func removeRelationship(id: UUID) {
         guard let db = currentDatabase else { return }

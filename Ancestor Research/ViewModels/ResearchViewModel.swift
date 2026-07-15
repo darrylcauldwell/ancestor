@@ -1038,6 +1038,20 @@ final class ResearchViewModel {
             }
             proposedRelativeDecisions[proposal.id] = .accepted
 
+            // Retire the blank placeholder parent the sibling shortcut left
+            // on the subject, replacing it with this real parent and moving
+            // any shared siblings across — instead of stacking a 3rd/4th
+            // parent behind hidden blanks (owner report 2026-07-15).
+            if let newParent = appState.snapshot.parentsOf(subjectID).first(where: { p in
+                p.gender == proposal.gender &&
+                (p.lastName ?? "").caseInsensitiveCompare(proposal.proposedSurname ?? "") == .orderedSame
+            }) {
+                let role: ParentRole = proposal.gender == .female
+                    ? .mother : (proposal.gender == .male ? .father : .unspecified)
+                appState.reconcilePlaceholderParent(
+                    childID: subjectID, realParentID: newParent.id, role: role)
+            }
+
             // Slice 11 — when both parents are now linked AND a supported
             // .parentMarriage hypothesis exists for the pair, materialise
             // the spouse edge with marriage date/location from the cited
