@@ -114,7 +114,7 @@ struct ResearchView: View {
 
                 Spacer()
 
-                Button("Review Campaign") {
+                Button("Review Findings") {
                     showBulkReview = true
                 }
                 .buttonStyle(.glass)
@@ -329,5 +329,8 @@ struct ResearchView: View {
 
     // MARK: - Campaign review (CAMPAIGN_REVIEW_SPEC Change 6)
 
-    @State private var showBulkReview = false
+    /// Triage LANDS on the review queue — the actionable findings ARE
+    /// the triage surface (owner direction 2026-07-15); the profile
+    /// selector list is the secondary view, reached via Done.
+    @State private var showBulkReview = true
 }

@@ -23,6 +23,10 @@ struct BulkReviewView: View {
 
     @State private var isLoading = true
     @State private var windowStart: Date = .distantPast
+    /// When true, the watermark window is ignored for THIS visit — the
+    /// user asked to see already-reviewed history. Never clears the
+    /// stored watermark.
+    @State private var showAllHistory = false
     @State private var findings: [CampaignFinding] = []
     @State private var campaignLeads: [CampaignLeadRow] = []
     @State private var failedEntries: [CampaignReviewService.CampaignEntry] = []
@@ -35,13 +39,23 @@ struct BulkReviewView: View {
             header
             Divider()
             if isLoading {
-                ProgressView("Reconstructing campaign findings…")
+                ProgressView("Reconstructing research findings…")
                     .frame(maxHeight: .infinity)
             } else if findings.isEmpty && campaignLeads.isEmpty && failedEntries.isEmpty {
                 ContentUnavailableView {
                     Label("All Clear", systemImage: "checkmark.circle")
                 } description: {
-                    Text("No campaign findings since \(windowStart.formatted(date: .abbreviated, time: .shortened)).")
+                    Text(showAllHistory
+                        ? "No research findings at all — run research to generate some."
+                        : "Nothing new since you marked findings reviewed (\(windowStart.formatted(date: .abbreviated, time: .shortened))).")
+                } actions: {
+                    if !showAllHistory {
+                        Button("Show earlier findings") {
+                            showAllHistory = true
+                            Task { await load() }
+                        }
+                        .buttonStyle(.glassProminent)
+                    }
                 }
             } else {
                 ScrollView {
@@ -69,7 +83,7 @@ struct BulkReviewView: View {
     private var header: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Campaign Review")
+                Text("Research Findings")
                     .font(AppTypography.popoverTitle)
                 Text("Findings since \(windowStart.formatted(date: .abbreviated, time: .shortened))")
                     .font(AppTypography.cardMeta)
@@ -115,7 +129,7 @@ struct BulkReviewView: View {
             }
             .buttonStyle(.glass)
             .controlSize(.small)
-            .help("Sets the review watermark to now — the next Campaign Review starts from this point.")
+            .help("Sets the review watermark to now — Research Findings starts from this point next time.")
 
             Button("Done") { onDone() }
                 .buttonStyle(.glassProminent)
@@ -142,8 +156,10 @@ struct BulkReviewView: View {
         // Window: the persisted watermark, else the last 7 days — wide
         // enough to cover an overnight campaign without sweeping all of
         // history on first open.
-        windowStart = (try? db.campaignReviewHighWater()).flatMap { $0 }
-            ?? Date().addingTimeInterval(-7 * 24 * 3600)
+        windowStart = showAllHistory
+            ? .distantPast
+            : (try? db.campaignReviewHighWater()).flatMap { $0 }
+                ?? Date().addingTimeInterval(-7 * 24 * 3600)
 
         let entries = CampaignReviewService.campaignEntries(since: windowStart, db: db)
         failedEntries = entries.filter { $0.failed > 0 && $0.completed == 0 }
@@ -315,7 +331,7 @@ struct BulkReviewView: View {
 
     private var leadsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("New leads this campaign")
+            Text("New leads from research")
                 .font(AppTypography.cardTitle)
                 .padding(.top, 8)
             ForEach(campaignLeads) { row in
@@ -346,7 +362,7 @@ struct BulkReviewView: View {
 
     private var failuresSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Campaign skipped / failed")
+            Text("Research skipped / failed")
                 .font(AppTypography.cardTitle)
                 .padding(.top, 8)
             ForEach(failedEntries) { entry in
