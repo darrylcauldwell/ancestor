@@ -72,6 +72,21 @@ and it ships behind the ADR-008 resolution like all Free UK Genealogy traffic. A
 parish-scope run emits FreeCEN queries carrying place scoping; county-scope queries are
 byte-identical to today's.
 
+## Scope audit findings (2026-07-15) — build inputs
+
+`SCOPE_AUDIT_2026-07.md` (adversarially-verified, 20 confirmed findings) established that
+the Scope picker currently controls only the free trio: FamilySearch NEVER reads scope
+(broken — global reach, all five levels byte-identical; the remote-namesake mechanism),
+FindAGrave is county-pinned at every level, empty-anchor subjects silently zero the free
+trio below national, FreeREG's parish param is dead, and the dispatcher's `default:` branch
+makes scope-ignore the inheritance for any future source. Additional acceptance criteria for
+this spec's build: (5) every source has a test pinning its per-scope query shape; (6) an
+anchor-less subject at a bounded scope produces a VISIBLE skip record per source, not
+silence; (7) Stage-4 FS queries participate in scope (hard place params where the FS API
+supports them; at minimum adjacency-aware soft axes + explicit scope-invariance disclosure);
+(8) the `default:` dispatcher branch refuses unregistered scope behaviour (new sources must
+declare scope handling explicitly).
+
 ## Interactions audited before build
 
 - **Convergence/witness collapse (DS-03)** — staging FS after a FreeBMD hit does not lose
