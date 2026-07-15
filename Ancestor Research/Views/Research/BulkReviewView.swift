@@ -160,22 +160,55 @@ struct BulkReviewView: View {
             // Per-profile conflict scope (NOT the old project-wide count).
             let openDisputeCount = (try? db.openDisputes(profileID: entry.profileID).count) ?? 0
 
+            // Itemize the evidence-backed tiers; ROLL UP lead-only
+            // (correction-tier) clusters into one row per profile. A
+            // haystack profile (no identity anchor) legitimately carries
+            // hundreds of non-co-clustering candidate records — a run's
+            // per-profile review screen absorbs that; a flat cross-profile
+            // list drowns in it (live finding: 2,558 correction rows,
+            // mostly single-record Annies).
+            var leadOnlyClusters = 0
+            var leadOnlyRecords = 0
             for cluster in result.clusters {
+                let hasFacts = cluster.records.contains { $0.verdict == .fact }
                 let tier = FrictionTier.route(
                     hasImpossible: cluster.records.contains { $0.verdict == .impossible },
-                    hasFacts: cluster.records.contains { $0.verdict == .fact },
+                    hasFacts: hasFacts,
                     recordCount: cluster.records.count,
-                    hasConflictSignal: openDisputeCount > 0
+                    // A profile-level open dispute only escalates clusters
+                    // that ASSERT facts — lead-only clusters have no stake
+                    // in a field dispute and must stay in the rollup.
+                    hasConflictSignal: openDisputeCount > 0 && hasFacts
                 )
+                if tier == .correction {
+                    leadOnlyClusters += 1
+                    leadOnlyRecords += cluster.records.count
+                    continue
+                }
+                let recordNoun = cluster.records.count == 1 ? "record" : "records"
                 newFindings.append(CampaignFinding(
                     id: "\(entry.profileID)|\(cluster.id)",
                     profileID: entry.profileID,
                     profileName: profile.displayName,
                     tier: tier,
-                    summary: "\(cluster.displayName) — \(cluster.records.count) records",
+                    summary: "\(cluster.displayName) — \(cluster.records.count) \(recordNoun)",
                     convergence: CampaignReviewService.convergenceLevel(for: cluster, persisted: persisted),
                     openDisputeCount: openDisputeCount,
                     cluster: cluster,
+                    profile: profile,
+                    result: result
+                ))
+            }
+            if leadOnlyClusters > 0 {
+                newFindings.append(CampaignFinding(
+                    id: "\(entry.profileID)|lead-only-rollup",
+                    profileID: entry.profileID,
+                    profileName: profile.displayName,
+                    tier: .correction,
+                    summary: "\(leadOnlyClusters) candidate clusters (\(leadOnlyRecords) lead-grade records, no confirmed identity) — review in profile",
+                    convergence: nil,
+                    openDisputeCount: openDisputeCount,
+                    cluster: nil,
                     profile: profile,
                     result: result
                 ))
@@ -333,10 +366,11 @@ struct BulkReviewView: View {
         // the VM per profile and reuse the canonical apply path.
         let confirmations = findings.filter { $0.tier == .confirmation }
         for finding in confirmations {
+            guard let cluster = finding.cluster else { continue }
             vm.appDatabase = appState.currentDatabase
             vm.selectedProfile = finding.profile
             vm.currentResult = finding.result
-            vm.applyCluster(finding.cluster, into: appState)
+            vm.applyCluster(cluster, into: appState)
             processedCount += 1
         }
         findings.removeAll { finding in confirmations.contains { $0.id == finding.id } }
@@ -412,7 +446,9 @@ private struct CampaignFinding: Identifiable {
     let summary: String
     let convergence: ConvergenceLevel?
     let openDisputeCount: Int
-    let cluster: LifeCluster
+    /// nil for the per-profile lead-only rollup row — drill-down reviews
+    /// the whole profile; only itemized findings carry a specific cluster.
+    let cluster: LifeCluster?
     let profile: Profile
     let result: ResearchResult
 }
