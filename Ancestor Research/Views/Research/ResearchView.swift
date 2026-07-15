@@ -187,11 +187,25 @@ struct ResearchView: View {
     private func profileRow(_ profile: Profile) -> some View {
         let comp = appState.snapshot.completeness(for: profile.id)
 
+        let isStub = Self.isPlaceholderStub(profile)
+        let name = profile.displayName.trimmingCharacters(in: .whitespaces)
+        let title = (name.isEmpty || name == "?") ? "(unnamed placeholder)" : name
+
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(profile.displayName)
+                    Text(title)
                         .font(AppTypography.cardTitle)
+                    if isStub {
+                        Text("placeholder")
+                            .font(AppTypography.badge)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.15))
+                            .clipShape(.capsule)
+                            .foregroundStyle(.secondary)
+                            .help("Created to hold a relationship (e.g. a mother's maiden name from a birth index). Research can recover the given name and dates.")
+                    }
                     if let year = profile.birthDate?.bestYear {
                         Text("b. \(String(year))")
                             .font(AppTypography.cardMeta)
@@ -203,7 +217,11 @@ struct ResearchView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                if !comp.missing.isEmpty {
+                if isStub {
+                    Text("Holds a relationship — created from record evidence. Research it to recover the given name and dates.")
+                        .font(AppTypography.cardBody)
+                        .foregroundStyle(.secondary)
+                } else if !comp.missing.isEmpty {
                     Text("Missing: \(comp.missing.map(\.shortLabel).joined(separator: ", "))")
                         .font(AppTypography.cardBody)
                         .foregroundStyle(.secondary)
@@ -255,17 +273,33 @@ struct ResearchView: View {
             }
             .sorted { a, b in
                 // Needs-review first: profiles with pending facts outrank
-                // everything (most-pending first) so the triage work is at
-                // the top of the list, then the existing least-complete-first
-                // ordering for the rest.
+                // everything (most-pending first). Then REAL people before
+                // placeholder stubs — a surname-only mother materialised
+                // from a GRO maiden-name field is connective tissue, not
+                // the next research subject; ranking stubs above named
+                // ancestors made the list read as broken (owner feedback
+                // 2026-07-15). Then least-complete-first, then name.
                 let pa = pendingCounts[a.id] ?? 0
                 let pb = pendingCounts[b.id] ?? 0
                 if pa != pb { return pa > pb }
+                let stubA = Self.isPlaceholderStub(a)
+                let stubB = Self.isPlaceholderStub(b)
+                if stubA != stubB { return !stubA }
                 let ca = appState.snapshot.completeness(for: a.id)
                 let cb = appState.snapshot.completeness(for: b.id)
                 if ca.score != cb.score { return ca.score < cb.score }
                 return a.displayName < b.displayName
             }
+    }
+
+    /// A structural placeholder: no given name and no dates — typically a
+    /// surname-only parent/spouse stub materialised from record evidence
+    /// (mother's maiden name on a GRO index, a marriage partner surname),
+    /// or a fully unnamed relationship holder.
+    private static func isPlaceholderStub(_ profile: Profile) -> Bool {
+        let noGivenName = (profile.firstName ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+            || profile.firstName == "?"
+        return noGivenName && profile.birthDate == nil && profile.deathDate == nil
     }
 
     // MARK: - Whole-Tree Progress
