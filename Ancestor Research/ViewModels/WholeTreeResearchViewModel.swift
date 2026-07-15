@@ -93,11 +93,12 @@ final class WholeTreeResearchViewModel {
             let subject = ResearchSubject.fromProfile(profile, snapshot: snapshot, mode: .extend, homeChapmanCode: homeChapmanCode)
             let config = ResearchConfig.extend
 
-            let pipeline = ResearchRunService.makePipeline(
+            let built = ResearchRunService.makePipeline(
                 registry: registry,
                 snapshot: snapshot,
                 database: database
-            ).pipeline
+            )
+            let pipeline = built.pipeline
 
             let result = await pipeline.research(subject: subject, config: config)
             currentResult = result
@@ -111,12 +112,26 @@ final class WholeTreeResearchViewModel {
                 consecutiveNoFacts = 0
             }
 
-            // Create leads from this profile's research
+            // CAMPAIGN_REVIEW_SPEC Change 4 — whole-tree runs persist through
+            // the SAME single path as UI and watcher runs. Previously this
+            // loop called the pipeline directly and persisted nothing but
+            // unfiltered scored-record leads: no evidence rows, no run
+            // record, no hypotheses, no discrepancies — an overnight
+            // "Research All" campaign left nothing reviewable on disk, and
+            // its ClusterReviewView hand-off applied against evidence rows
+            // that were never saved. persist() also creates the
+            // LeadFilter-gated leads, replacing the direct LeadStore path.
             if let db = database {
-                let leadStore = LeadStore(db: db)
-                for scored in result.leads {
-                    _ = try? await leadStore.createFromScoredRecord(scored, profileID: profile.id)
-                }
+                _ = await ResearchRunService.persist(
+                    result: result,
+                    mode: .extend,
+                    sourceInfoMap: built.sourceInfoMap,
+                    registry: registry,
+                    snapshot: snapshot,
+                    profileID: profile.id,
+                    leadToFinalise: nil,
+                    db: db
+                )
             }
 
             profilesCompleted += 1

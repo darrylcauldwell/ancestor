@@ -352,10 +352,17 @@ nonisolated struct ClusteringEngine {
                 censusByYear[r.censusYear, default: []].append(record)
             }
         }
-        if let duplicated = censusByYear.first(where: { $0.value.count >= 2 }) {
-            let split = duplicated.value[1]
+        // Deterministic year selection (CAMPAIGN_REVIEW_SPEC Change 5):
+        // Dictionary.first(where:) iterates in hash-seed order, so when TWO
+        // census years each held duplicates, which year split first — and
+        // therefore cluster ids and append order — varied per process. A DB
+        // re-cluster must reproduce the run's clusters, so pick the lowest
+        // duplicated year.
+        if let year = censusByYear.filter({ $0.value.count >= 2 }).keys.min(),
+           let duplicates = censusByYear[year] {
+            let split = duplicates[1]
             let keepRecords = cluster.records.filter { $0.id != split.id }
-            return (keepRecords, [split], "Same-year census (\(duplicated.key)) — one person is enumerated once per year")
+            return (keepRecords, [split], "Same-year census (\(year)) — one person is enumerated once per year")
         }
 
         // Check for contradicting census ages (implied birth years >5 apart)

@@ -3985,6 +3985,73 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// Full-fidelity discrepancies for a profile's MOST RECENT run —
+    /// reconstruction input for ResearchResult.discrepancies
+    /// (CAMPAIGN_REVIEW_SPEC Change 5; the tuple loader below is
+    /// insufficient — the CL3 badge needs sourceID + severity + values).
+    func latestRunDiscrepancies(profileID: String) throws -> [ResearchDiscrepancy] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT field, existing_value, source_value, source_id, severity, reasoning
+                FROM research_discrepancies
+                WHERE profile_id = ? AND run_id = (
+                    SELECT run_id FROM research_discrepancies
+                    WHERE profile_id = ? ORDER BY detected_at DESC LIMIT 1
+                )
+                """, arguments: [profileID, profileID])
+            return rows.compactMap { row -> ResearchDiscrepancy? in
+                guard let severity = DiscrepancySeverity(rawValue: row["severity"] as String)
+                else { return nil }
+                return ResearchDiscrepancy(
+                    field: row["field"] as String,
+                    existingValue: (row["existing_value"] as String?) ?? "",
+                    sourceValue: (row["source_value"] as String?) ?? "",
+                    sourceID: (row["source_id"] as String?) ?? "",
+                    severity: severity,
+                    reasoning: (row["reasoning"] as String?) ?? ""
+                )
+            }
+        }
+    }
+
+    /// One campaign-ledger row from research_run_requests — the only
+    /// durable record of WHAT a campaign attempted (incl. failures/skips).
+    nonisolated struct RunRequestRow: Sendable {
+        let id: String
+        let profileID: String?
+        let leadID: String?
+        let status: String            // queued | running | completed | failed
+        let runID: String?
+        let error: String?
+        let createdAt: Date
+        let completedAt: Date?
+    }
+
+    /// Campaign window enumeration: every request created since `since`,
+    /// newest first (CAMPAIGN_REVIEW_SPEC Change 5).
+    func loadRunRequests(since: Date) throws -> [RunRequestRow] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, profile_id, lead_id, status, run_id, error, created_at, completed_at
+                FROM research_run_requests
+                WHERE created_at >= ?
+                ORDER BY created_at DESC
+                """, arguments: [since])
+            return rows.map { row in
+                RunRequestRow(
+                    id: row["id"] as String,
+                    profileID: row["profile_id"] as String?,
+                    leadID: row["lead_id"] as String?,
+                    status: row["status"] as String,
+                    runID: row["run_id"] as String?,
+                    error: row["error"] as String?,
+                    createdAt: row["created_at"] as Date,
+                    completedAt: row["completed_at"] as Date?
+                )
+            }
+        }
+    }
+
     /// Discrepancies persisted for one run (CL3 acceptance surface).
     func runDiscrepancies(runID: String) throws -> [(field: String, severity: String)] {
         try dbQueue.read { db in
