@@ -29,10 +29,13 @@ This section reads as the build sequence — top to bottom is the intended order
 6. **User-seeded hypotheses (Epic 13)** — user hunches ("his parents might have been Bob & Sue") become research hypotheses that steer targeted probes; a hunch is a search directive, never data — nothing reaches the tree until records survive the gates. Rails (hypothesis framework, deficit probes, accept path) already exist. COMPLETE 2026-07-11 (RESEARCH_PIPELINE_SPEC §5.15): slice 1 .parentCandidates kind + v32 seeds table + submit_hypothesis MCP tool; slice 2 probe ladder + E5 no-self-confirmation grader + rejection memory; slices 3-4 Workbench Add-a-Hunch UI + refuted/exhausted surface.
 
 7. **SOURCE_WEIGHTING live verification** — Changes 0–5, 7, 8 shipped 2026-07-15 (spec
-   status line has commits); pending: FS session re-auth, Harry Marshall re-run
-   (anchor-less + National default), one anchored run (stages + FS skip), one
-   Kenneth-class run (ladder → FS), Sourcing tab appears on first new apply,
-   dispatch-log query-count comparison vs the 2026-07-14/15 campaign.
+   status line has commits); pending: set project Home county = Derbyshire (new Settings
+   picker, `675a2fa`), FS session re-auth, enter Elsie Twyford's known facts (Youlgrave,
+   sisters) via the profile editor then re-run her (anchored + married-name burial hunt —
+   the strategist already composed 'Elsie Marshall burial 2009–2013 spouse=Marshall' and
+   was blocked only by the expired session), one anchored run (stages + FS skip), one
+   Kenneth-class run (ladder → FS), Sourcing tab appears on first new apply, dispatch-log
+   query-count comparison vs the 2026-07-14/15 campaign. Harry stays parked per Stage 2.
 8. **2026-07-15 defect dossier** (from the overnight campaign; was scratchpad-only):
    (a) CWGC connector Cookiebot HTTP-500 + silent give-up — acceptance: find Robert
    Cauldwell at Lijssenthoek (family-verified ground truth); (b) FieldResearcherMCP stale
