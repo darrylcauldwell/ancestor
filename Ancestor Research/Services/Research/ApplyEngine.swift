@@ -88,11 +88,49 @@ nonisolated struct ApplyEngine {
             )
         case .marriage(let m):
             applyMarriageToSubjectSpouseEdge(m, profileID: profile.id, snapshot: snapshot, db: db, failures: &failures)
-        case .pedigree, .census, .burial, .military, .probate, .parish:
-            // Non-BMD types fall through to the LifeEvent projection path in the caller.
+        case .census(let r):
+            // EVIDENCE_ABSORPTION_SPEC Change 1 — a census volunteers the
+            // subject's birthplace off-agenda. It used to fall through with
+            // the rest, so the nugget only ever lived inside the census
+            // LifeEvent's details, never reaching the birthLocation field
+            // that anchors the subject's own record searches. Route it
+            // through the same directional string-overwrite policy as
+            // `.birth`: fills an empty field, upgrades a lower-tier value,
+            // never clobbers a precise existing one, and opens a dispute on
+            // an incompatible clash.
+            applyStringField(
+                .birthLocation, existing: profile.birthLocation,
+                existingSources: profile.sources[.birthLocation] ?? [],
+                candidate: censusBirthLocation(r),
+                profileID: profile.id, origin: origin, db: db,
+                citation: citation, failures: &failures
+            )
+        case .pedigree, .burial, .military, .probate, .parish:
+            // Remaining non-BMD types fall through to the LifeEvent
+            // projection path in the caller (later spec slices route their
+            // own nuggets: probate address → residence, etc.).
             break
         }
         return failures
+    }
+
+    /// EVIDENCE_ABSORPTION_SPEC Change 1 — the birthplace a census carries,
+    /// composed into an *anchor-able* string. A bare parish ("Alport") does
+    /// not derive a Chapman anchor (it isn't a registration district), but
+    /// "Alport, Derbyshire" does via `deriveHomeChapmanCode`'s county
+    /// extraction — the difference between a subject stranded on anchorless
+    /// National search and one whose own records score Confirmed. So when the
+    /// census gives a separate birth county, append it unless the place string
+    /// already names it. Returns nil when the census has no birthplace at all.
+    static func censusBirthLocation(_ r: CensusRecord) -> String? {
+        let place = r.birthPlace?.trimmingCharacters(in: .whitespaces)
+        let county = r.birthCounty?.trimmingCharacters(in: .whitespaces)
+        guard let place, !place.isEmpty else {
+            return (county?.isEmpty == false) ? county : nil
+        }
+        guard let county, !county.isEmpty,
+              !place.localizedCaseInsensitiveContains(county) else { return place }
+        return "\(place), \(county)"
     }
 
     /// Apply a subject-side marriage record to the spouse edge between this
