@@ -476,7 +476,10 @@ final class ResearchViewModel {
         switch event {
         case .sourceQueryStarted(let sourceID, _, _):
             inFlightQueryCounts[sourceID, default: 0] += 1
-            if let idx = sourceStatuses.firstIndex(where: { $0.id == sourceID }) {
+            if let idx = sourceStatuses.firstIndex(where: { $0.id == sourceID }),
+               sourceStatuses[idx].state != .error {
+                // .error is sticky: a later query starting (next record
+                // type / strictness tier / stage) must not wipe it.
                 sourceStatuses[idx].state = .searching
                 sourceStatuses[idx].reason = nil
             }
@@ -507,7 +510,8 @@ final class ResearchViewModel {
             // Informational, not a failure — the source card shows the
             // dedicated .skipped state with the reason, distinct from
             // .error (SOURCE_WEIGHTING Change 2).
-            if let idx = sourceStatuses.firstIndex(where: { $0.id == sourceID }) {
+            if let idx = sourceStatuses.firstIndex(where: { $0.id == sourceID }),
+               sourceStatuses[idx].state != .error {
                 sourceStatuses[idx].state = .skipped
                 sourceStatuses[idx].reason = reason
             }
@@ -690,7 +694,11 @@ final class ResearchViewModel {
         for i in sourceStatuses.indices {
             let count = sourceCounts[sourceStatuses[i].id] ?? 0
             sourceStatuses[i].resultCount = count
-            if sourceStatuses[i].state != .skipped {
+            // Errors are sticky through settling too — a source that
+            // failed (e.g. FamilySearch session expired) must never end
+            // the run wearing a green tick with "no results" (live find:
+            // Harry Marshall run, 2026-07-15).
+            if sourceStatuses[i].state != .skipped && sourceStatuses[i].state != .error {
                 sourceStatuses[i].state = .complete
                 if count == 0 {
                     sourceStatuses[i].reason = "no results"
