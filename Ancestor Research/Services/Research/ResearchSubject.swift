@@ -639,10 +639,26 @@ nonisolated extension ResearchSubject {
             return code
         }
         if let name = profile.birthLocation?.trimmingCharacters(in: .whitespaces),
-           !name.isEmpty,
-           let code = FreeBMDDistrictCatalogue.shared
-            .district(named: name)?.chapmanCode {
-            return code
+           !name.isEmpty {
+            // Exact registration-district match (e.g. "Bakewell").
+            if let code = FreeBMDDistrictCatalogue.shared
+                .district(named: name)?.chapmanCode {
+                return code
+            }
+            // Extract the COUNTY from a freeform "Parish, County[, Country]"
+            // string. A village like "Ashford in the Water" is not a
+            // registration district, so the district match above misses it —
+            // but the county component ("Derbyshire") still yields the anchor
+            // (owner report 2026-07-15: a valid "…, Derbyshire" birthplace
+            // still defaulted the subject to anchor-less National). County is
+            // usually the last-but-one component, so scan from the end.
+            let components = name.split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            for component in components.reversed() {
+                if let code = UKChapmanCodes.shared.chapmanCode(forCountyName: component) {
+                    return code
+                }
+            }
         }
         return projectFallback
     }

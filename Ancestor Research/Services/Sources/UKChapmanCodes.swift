@@ -50,6 +50,16 @@ nonisolated final class UKChapmanCodes: Sendable {
     /// All Chapman codes in the catalogue.
     func all() -> [UKChapmanCode] { codes }
 
+    /// The Chapman code for a county NAME, case-insensitively ("Derbyshire"
+    /// → "DBY"). Used to extract the research anchor from a freeform birth
+    /// location like "Ashford in the Water, Derbyshire" whose parish is not
+    /// a registration district. Returns nil for an unknown name.
+    func chapmanCode(forCountyName name: String) -> String? {
+        let needle = name.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !needle.isEmpty else { return nil }
+        return codes.first { $0.name.lowercased() == needle }?.code
+    }
+
     /// England and Wales only — the coverage of FreeBMD and most of FreeREG.
     func englandAndWales() -> [UKChapmanCode] {
         codes.filter { $0.country == "England" || $0.country == "Wales" }
