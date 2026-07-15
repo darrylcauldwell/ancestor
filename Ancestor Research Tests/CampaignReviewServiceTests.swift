@@ -164,6 +164,107 @@ struct CampaignReviewServiceTests {
     }
 }
 
+/// Prior-session discards are ground truth for cluster-level actions.
+/// `recordDecisions` is session-scoped, so both cluster accept paths must
+/// consult persisted `user_status` — the Discarded-bin contract: a binned
+/// record can never be resurrected (applied, LifeEvent-projected, or
+/// flipped to saved_as_lead) by Apply / Save-as-lead in a later session.
+@MainActor
+struct ClusterApplyDiscardIntegrityTests {
+
+    private func makeTempDB() throws -> ProjectDatabase {
+        let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
+        return try ProjectDatabase(path: path)
+    }
+
+    private func birthScored(id: String, year: Int) -> ScoredRecord {
+        let record = SourceRecord.birth(BirthRecord(
+            common: RecordCommon(id: id, sourceID: "freebmd", name: "George Keyworth",
+                                 surname: "Keyworth", givenName: "George",
+                                 detailURL: nil, rawFields: [:]),
+            birthYear: year, birthDate: String(year), birthPlace: nil,
+            quarter: "Q2", district: "Worksop", volume: "7b", page: "3",
+            mothersMaidenName: nil
+        ))
+        return ScoredRecord(id: record.id, record: record, verdict: .fact,
+                            gates: [], summary: "George Keyworth b.\(year)")
+    }
+
+    /// Fresh-session VM + AppState over a DB holding one live and one
+    /// previously-discarded fact record, clustered together.
+    private func makeHarness() throws -> (ProjectDatabase, AppState, ResearchViewModel, LifeCluster) {
+        let db = try makeTempDB()
+        let profile = Profile(
+            id: "@G@", externalIDs: [:],
+            firstName: "George", lastName: "Keyworth", gender: .male,
+            attributes: nil, birthDate: nil, birthLocation: nil,
+            deathDate: nil, deathLocation: nil,
+            bio: nil, isDeleted: false, sources: [:], disputes: [:]
+        )
+        _ = try db.addProfile(profile, source: .gedcom)
+        let live = birthScored(id: "b-live", year: 1877)
+        let binned = birthScored(id: "b-binned", year: 1999)
+        for scored in [live, binned] {
+            try db.saveEvidence(profileID: "@G@", scored: scored,
+                                citationFull: nil, citationURL: nil)
+        }
+        // "Previous session": persisted status only, no recordDecisions.
+        try db.updateEvidenceUserStatus(profileID: "@G@", sourceRecordIDs: ["b-binned"], status: .discarded)
+        try db.saveRejection(profileID: "@G@", recordID: "b-binned")
+
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = try db.buildSnapshot()
+        let vm = ResearchViewModel()
+        vm.appDatabase = db
+        vm.selectedProfile = appState.snapshot.profiles["@G@"]
+        let cluster = LifeCluster(id: "cluster-0", records: [live, binned],
+                                  lifespanStart: 1870, lifespanEnd: 2000)
+        return (db, appState, vm, cluster)
+    }
+
+    private func statusByID(_ db: ProjectDatabase) throws -> [String: UserReviewStatus?] {
+        Dictionary(uniqueKeysWithValues:
+            try db.loadEvidenceForProfile("@G@").map { ($0.sourceRecordID, $0.userStatus) })
+    }
+
+    @Test func applyClusterNeverResurrectsPriorSessionDiscard() throws {
+        let (db, appState, vm, cluster) = try makeHarness()
+        vm.applyCluster(cluster, into: appState)
+
+        let status = try statusByID(db)
+        #expect(status["b-live"] == .savedAsLead)
+        #expect(status["b-binned"] == .discarded,
+                "cluster Apply must not flip a prior discard to saved_as_lead")
+        // The discarded record's data must not land on the profile.
+        let after = try #require(appState.snapshot.profiles["@G@"])
+        #expect(after.birthDate?.bestYear == 1877)
+    }
+
+    @Test func acceptClusterKeepsPriorDiscardStatus() throws {
+        let (db, _, vm, cluster) = try makeHarness()
+        vm.acceptCluster(cluster)
+
+        let status = try statusByID(db)
+        #expect(status["b-live"] == .savedAsLead)
+        #expect(status["b-binned"] == .discarded,
+                "Save-as-lead must not flip a prior discard to saved_as_lead")
+    }
+
+    @Test func resetClearsBothDiscardChannels() throws {
+        // Restore-from-bin contract: discard writes user_status AND a
+        // record_rejections row; reset must clear both or the record stays
+        // suppressed in future runs and re-enters the bin on next open.
+        let (db, _, vm, cluster) = try makeHarness()
+        let binned = try #require(cluster.records.first { $0.id == "b-binned" })
+        vm.resetRecordDecision(binned)
+
+        let status = try statusByID(db)
+        #expect(status["b-binned"] == .unreviewed)
+        #expect(!(try db.loadRejections(profileID: "@G@").contains("b-binned")))
+    }
+}
+
 /// CAMPAIGN_REVIEW_SPEC Change 6 — per-finding badge data.
 @MainActor
 struct CampaignReviewBadgeTests {

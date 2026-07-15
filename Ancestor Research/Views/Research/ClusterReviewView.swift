@@ -24,7 +24,7 @@ struct ClusterReviewView: View {
                 .padding()
             Divider()
 
-            if result.clusters.isEmpty && rejectedRecords.isEmpty {
+            if visibleClusters.isEmpty && rejectedRecords.isEmpty && discardedRecords.isEmpty {
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         if let banner = subjectSpouseMarriageBannerState {
@@ -55,7 +55,7 @@ struct ClusterReviewView: View {
                             proposedSiblingsSection
                         }
 
-                        ForEach(result.clusters) { cluster in
+                        ForEach(visibleClusters) { cluster in
                             clusterCard(cluster)
                         }
 
@@ -66,6 +66,15 @@ struct ClusterReviewView: View {
                         // final arbiter, not the algorithm.
                         if !rejectedRecords.isEmpty {
                             rejectedRecordsSection
+                        }
+
+                        // Records the user ruled out — moved OUT of their
+                        // clusters into this collapsed bin so the haystack
+                        // reads clean, and recoverable from here: Restore
+                        // returns one discarded in error (mirrors the
+                        // scorer-rejected section's pattern).
+                        if !discardedRecords.isEmpty {
+                            discardedRecordsSection
                         }
 
                         // Discoveries
@@ -92,6 +101,7 @@ struct ClusterReviewView: View {
         .sheet(item: $compareResult) { result in
             compareCandidatesSheet(result)
         }
+        .task(id: vm.selectedProfile?.id) { loadPersistedDiscards() }
     }
 
     @ViewBuilder
@@ -312,6 +322,7 @@ struct ClusterReviewView: View {
 
     private func clusterCard(_ cluster: LifeCluster) -> some View {
         let decision = vm.clusterDecisions[cluster.id]
+        let liveRecords = cluster.records.filter { !isDiscarded($0) }
 
         return VStack(alignment: .leading, spacing: 10) {
             // Header
@@ -337,7 +348,7 @@ struct ClusterReviewView: View {
                                 .font(AppTypography.cardMeta)
                                 .foregroundStyle(.secondary)
                         }
-                        Text("\(cluster.records.count) records")
+                        Text("\(liveRecords.count) record\(liveRecords.count == 1 ? "" : "s")")
                             .font(AppTypography.cardMeta)
                             .foregroundStyle(.secondary)
                     }
@@ -381,7 +392,7 @@ struct ClusterReviewView: View {
             Divider()
 
             // Records
-            ForEach(cluster.records, id: \.id) { scored in
+            ForEach(liveRecords, id: \.id) { scored in
                 recordRow(scored)
             }
 
@@ -458,14 +469,14 @@ struct ClusterReviewView: View {
                         // count the button looks like it'll write everything,
                         // which the user can't trust on a mixed-quality
                         // cluster.
-                        let applyCount = cluster.records.filter { rec in
+                        let applyCount = liveRecords.filter { rec in
                             switch vm.recordDecisions[rec.id] {
                             case .accepted: return true
                             case .rejected: return false
                             default:        return RecordScorer.wouldApply(rec)
                             }
                         }.count
-                        let total = cluster.records.count
+                        let total = liveRecords.count
                         // CL3 — applying a cluster whose records conflict
                         // with the tree opens disputes; say so up front.
                         let disputeCount = conflictDiscrepancyCount(for: cluster)
@@ -992,6 +1003,109 @@ struct ClusterReviewView: View {
         }
         .padding(14)
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
+    }
+
+    // MARK: - Discarded bin
+
+    /// Persisted `user_status = 'discarded'` ids (plus legacy rejections),
+    /// loaded once per profile. Session discards live in
+    /// `vm.recordDecisions`; this set carries the PRIOR sessions' rulings
+    /// so reopening a profile still shows them binned, not live.
+    @State private var persistedDiscardedIDs: Set<String> = []
+    @State private var discardedExpanded: Bool = false
+
+    private func loadPersistedDiscards() {
+        guard let db = vm.appDatabase, let profileID = vm.selectedProfile?.id else { return }
+        persistedDiscardedIDs = (try? db.loadRejections(profileID: profileID)) ?? []
+    }
+
+    /// Session decision wins (an explicit accept this session overrides an
+    /// old discard); otherwise the persisted status decides.
+    private func isDiscarded(_ scored: ScoredRecord) -> Bool {
+        switch vm.recordDecisions[scored.id] {
+        case .accepted: return false
+        case .rejected: return true
+        default: return persistedDiscardedIDs.contains(scored.record.id)
+        }
+    }
+
+    private var discardedRecords: [ScoredRecord] {
+        result.allScoredRecords.filter(isDiscarded)
+    }
+
+    /// Clusters with at least one live (non-discarded) record — a cluster
+    /// the user fully ruled out disappears; its records sit in the bin.
+    private var visibleClusters: [LifeCluster] {
+        result.clusters.filter { cluster in
+            cluster.records.contains { !isDiscarded($0) }
+        }
+    }
+
+    @ViewBuilder
+    private var discardedRecordsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: discardedExpanded ? "chevron.down" : "chevron.right")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                Image(systemName: "trash")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                Text("Discarded")
+                    .font(AppTypography.cardTitle)
+                Text("\(discardedRecords.count)")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .glassEffect(.regular, in: .capsule)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { discardedExpanded.toggle() }
+            if !discardedExpanded {
+                Text("Records you ruled out — hidden from the clusters above and never re-proposed by future runs. Expand to restore one discarded in error.")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.tertiary)
+            }
+            if discardedExpanded {
+                ForEach(discardedRecords, id: \.id) { scored in
+                    discardedRow(scored)
+                }
+            }
+        }
+        .padding(14)
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+    }
+
+    private func discardedRow(_ scored: ScoredRecord) -> some View {
+        HStack(spacing: 8) {
+            Text(recordTypeLabel(for: scored.record))
+                .font(AppTypography.badge.weight(.semibold))
+                .textCase(.uppercase)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(recordTypeTint(for: scored.record).opacity(0.18))
+                .clipShape(.capsule)
+                .foregroundStyle(recordTypeTint(for: scored.record))
+            Text(scored.summary)
+                .font(AppTypography.cardBody)
+                .lineLimit(2)
+            Spacer()
+            Text(scored.record.sourceID.uppercased())
+                .font(AppTypography.sourceBadge)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .glassEffect(.regular, in: .capsule)
+            Button("Restore") {
+                vm.resetRecordDecision(scored)
+                persistedDiscardedIDs.remove(scored.record.id)
+            }
+            .buttonStyle(.glass)
+            .controlSize(.mini)
+            .help("Return this record to its cluster and let future runs re-propose it.")
+        }
+        .padding(.vertical, 2)
     }
 
     /// Compact row for a single scorer-rejected record. Reuses

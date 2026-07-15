@@ -3098,6 +3098,19 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// Remove a rejection so a restored record is genuinely live again —
+    /// `saveRejection` and `user_status = 'discarded'` are written together
+    /// on discard, so a restore must clear both or `loadRejections` keeps
+    /// suppressing the record in future runs.
+    func deleteRejection(profileID: String, recordID: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                DELETE FROM record_rejections
+                WHERE profile_id = ? AND record_id = ?
+                """, arguments: [profileID, recordID])
+        }
+    }
+
     /// Record ids the user has already ADJUDICATED — applied/kept
     /// (`saved_as_lead`) or discarded — plus legacy `record_rejections`.
     /// The campaign review surface drops these from its needs-review

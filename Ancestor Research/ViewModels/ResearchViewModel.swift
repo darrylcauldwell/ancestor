@@ -709,11 +709,31 @@ final class ResearchViewModel {
     func acceptCluster(_ cluster: LifeCluster) {
         clusterDecisions[cluster.id] = .accepted
         guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
-        let ids = cluster.records.map(\.record.id)
+        let kept = recordsAfterDiscardVeto(cluster, profileID: profileID, db: db)
+        let ids = kept.map(\.record.id)
         persist("Save evidence status") { try db.updateEvidenceUserStatus(profileID: profileID, sourceRecordIDs: ids, status: .savedAsLead) }
-        for scored in cluster.records {
+        for scored in kept {
             if let event = scored.record.projectToLifeEvent(profileID: profileID) {
                 persist("Save life event") { try db.addLifeEventIfAbsent(event) }
+            }
+        }
+    }
+
+    /// Prior-session adjudications are ground truth — `recordDecisions` is
+    /// session-scoped, so a record discarded in an EARLIER session has no
+    /// entry there. Both cluster-level accept paths filter through this so
+    /// a discard is never resurrected (applied, projected to a LifeEvent,
+    /// or flipped to saved_as_lead) by a later cluster action. An explicit
+    /// accept THIS session wins — the user actively overrode the discard.
+    private func recordsAfterDiscardVeto(
+        _ cluster: LifeCluster, profileID: String, db: ProjectDatabase
+    ) -> [ScoredRecord] {
+        let priorDiscards = (try? db.loadRejections(profileID: profileID)) ?? []
+        return cluster.records.filter { scored in
+            switch recordDecisions[scored.id] {
+            case .accepted: return true
+            case .rejected: return false
+            default: return !priorDiscards.contains(scored.record.id)
             }
         }
     }
@@ -731,20 +751,15 @@ final class ResearchViewModel {
     func applyCluster(_ cluster: LifeCluster, into appState: AppState) {
         clusterDecisions[cluster.id] = .accepted
         guard let db = appState.currentDatabase, let profile = selectedProfile else { return }
-        let ids = cluster.records.map(\.record.id)
-        persist("Save evidence status") { try db.updateEvidenceUserStatus(profileID: profile.id, sourceRecordIDs: ids, status: .savedAsLead) }
+        let kept = recordsAfterDiscardVeto(cluster, profileID: profile.id, db: db)
+        persist("Save evidence status") { try db.updateEvidenceUserStatus(profileID: profile.id, sourceRecordIDs: kept.map(\.record.id), status: .savedAsLead) }
 
-        for scored in cluster.records {
-            // Per-record overrides win over gate predicate.
-            //  • Explicitly accepted → force apply
-            //  • Explicitly rejected → skip
-            //  • Otherwise            → fall back to `wouldApply` gate
-            switch recordDecisions[scored.id] {
-            case .accepted:
-                break                              // force apply below
-            case .rejected:
-                continue                           // user said no
-            default:
+        for scored in kept {
+            // Per-record overrides win over gate predicate: explicitly
+            // accepted → force apply; otherwise the `wouldApply` gate
+            // decides. Session-rejected and prior-session-discarded
+            // records were already removed by the veto above.
+            if recordDecisions[scored.id] != .accepted {
                 guard RecordScorer.wouldApply(scored) else { continue }
             }
 
@@ -819,6 +834,11 @@ final class ResearchViewModel {
                 sourceRecordIDs: [scored.record.id],
                 status: .unreviewed
             )
+        }
+        // Discard writes user_status AND a record_rejections row — clear
+        // both, or the restored record stays suppressed in future runs.
+        persist("Clear rejection") {
+            try db.deleteRejection(profileID: profileID, recordID: scored.record.id)
         }
     }
 
