@@ -807,12 +807,19 @@ extension FamilySearchSource {
                 return ["Birth", "BirthRegistration", "Christening", "Baptism"].contains(typeName)
             }
             let censusBirthPlace = birthFact?.place?.original
+            let censusAge = extractAge(rawFields: rawFields)
+            // Age-derived fallback (2026-07-15): a persona with age but no
+            // usable birth fact previously carried birthYear nil, so the
+            // date gate could only soft-signal — age 68 on a 1950 census
+            // IS a birth year (~1882), and deriving it lets the gate rule
+            // impossibility against the subject's known window.
             let censusBirthYear = birthFact?.date?.formal.flatMap(Self.yearFromFormal)
                 ?? birthFact?.date?.original.flatMap(Self.yearFromOriginal)
+                ?? year.flatMap { y in censusAge.map { y - $0 } }
             return .census(CensusRecord(
                 common: common,
                 censusYear: year ?? 0,
-                age: extractAge(rawFields: rawFields),
+                age: censusAge,
                 birthYear: censusBirthYear,
                 birthPlace: censusBirthPlace,
                 birthCounty: nil,

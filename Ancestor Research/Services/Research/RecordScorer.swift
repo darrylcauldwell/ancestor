@@ -947,12 +947,14 @@ nonisolated struct RecordScorer {
 
     nonisolated private static func isObviouslyForeign(_ text: String) -> Bool {
         // Pad with separators so short tokens only match as whole words
-        // (avoids "usa" matching "kusano"). Cheap given the modest token list.
-        let lower = " " + text.lowercased()
-            .replacingOccurrences(of: ",", with: " ")
-            .replacingOccurrences(of: ".", with: " ")
-            .replacingOccurrences(of: "/", with: " ")
-            + " "
+        // (avoids "usa" matching "kusano"). EVERY non-alphanumeric becomes
+        // a separator: the earlier comma/period/slash-only list let
+        // quote-wrapped collection titles ('… "United States, Census,
+        // 1950"') hide the country token behind a boundary character and
+        // a US census cluster reached Confirmed (live find 2026-07-15).
+        let lower = " " + String(text.lowercased().map { ch in
+            (ch.isLetter || ch.isNumber) ? ch : " "
+        }) + " "
         for token in foreignCountryTokens {
             if lower.contains(" \(token) ") { return true }
         }
