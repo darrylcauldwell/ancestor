@@ -79,7 +79,8 @@ FS. A future per-run toggle ("FS: always / on-miss / never") is an open question
    2026-07-14/15 campaign profile set).
 4. Searched-surface reporting distinguishes answered / negative / stage-skipped per source.
 
-## Companion change — one research action (PROPOSED 2026-07-15, Darryl's direction)
+## Companion sketch — one research action (UNDER DISCUSSION 2026-07-15 — a question
+Darryl raised for debate, NOT a decision; do not build from this section)
 
 "Does it matter whether we uncover things which verify, extend, discover — I think simply we
 would have one kind of research: it contacts all sources looking for records for that person
