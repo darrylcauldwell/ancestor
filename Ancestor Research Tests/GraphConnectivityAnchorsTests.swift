@@ -26,9 +26,12 @@ struct GraphConnectivityAnchorsTests {
         )
     }
 
-    @Test func suggestConnectionAnchorsReturnsTwoProfilesFromLargestComponents() {
-        // Two components: {p1, p2, p3} (size 3) and {p4, p5} (size 2).
-        let profiles = ["p1", "p2", "p3", "p4", "p5"].map(makeProfile)
+    @Test func suggestConnectionAnchorsLeadsWithTheOrphan() {
+        // Owner design 2026-07-15: the connect flow anchors on the ORPHAN
+        // (smallest component — the person just added and lost), with a
+        // main-tree member as the reference. Three components: {p1,p2,p3}
+        // (size 3), {p4,p5} (size 2), {p6} (the orphan).
+        let profiles = ["p1", "p2", "p3", "p4", "p5", "p6"].map(makeProfile)
         let dict = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
         let rels = [
             parentEdge("p1", "p2"),
@@ -39,15 +42,11 @@ struct GraphConnectivityAnchorsTests {
 
         let anchors = GraphConnectivity.suggestConnectionAnchors(snapshot: snapshot)
         #expect(anchors != nil)
-        guard let (a, b) = anchors else { return }
+        guard let (orphan, mainMember) = anchors else { return }
 
-        // Anchors must come from different components.
-        let comp1: Set<String> = ["p1", "p2", "p3"]
-        let comp2: Set<String> = ["p4", "p5"]
-        let aInPrimary = comp1.contains(a)
-        let bInSecondary = comp2.contains(b)
-        #expect(aInPrimary)
-        #expect(bInSecondary)
+        #expect(orphan == "p6", "anchor must be the smallest component's member; got \(orphan)")
+        #expect(["p1", "p2", "p3"].contains(mainMember),
+                "reference must come from the largest component; got \(mainMember)")
     }
 
     @Test func suggestConnectionAnchorsReturnsNilWhenSingleComponent() {

@@ -940,9 +940,11 @@ struct TreeGraphView: View {
             .padding()
 
             // Disconnected banner — only when the graph has multiple components
-            // and the user hasn't dismissed it. M16.12 — "Connect them?" opens
-            // AddRelationship pre-populated with a profile from the largest
-            // component as the anchor; the user picks the target.
+            // and the user hasn't dismissed it. M16.12 / 2026-07-15 owner
+            // design: "Connect them?" opens AddRelationship anchored on the
+            // ORPHAN (smallest component) — the person just added and lost —
+            // and the user picks who they connect to; the anchor itself is
+            // changeable in-sheet.
             let componentCount = GraphConnectivity.connectedComponents(appState.snapshot).count
             if componentCount > 1, !dismissedDisconnectedBanner {
                 let suggestion = GraphConnectivity.suggestConnectionAnchors(snapshot: appState.snapshot)

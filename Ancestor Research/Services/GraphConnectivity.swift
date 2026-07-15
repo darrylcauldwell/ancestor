@@ -40,21 +40,18 @@ nonisolated enum GraphConnectivity {
         connectedComponents(snapshot).count > 1
     }
 
-    /// M16.12 — pick representative profile IDs from the two largest
-    /// connected components. The DisconnectedBanner's "Connect them?" button
-    /// uses these as the suggested anchor pair when launching
-    /// `AddRelationshipView`. Returns `nil` for trees with a single
-    /// component (or none).
-    ///
-    /// `connectedComponents()` already returns components in descending
-    /// size order with deterministic tie-breaking, so picking
-    /// `.first` of each component yields a stable, reproducible suggestion.
+    /// M16.12, reshaped 2026-07-15 (owner design): the "Connect them?"
+    /// flow leads with the ORPHAN — the person the user just added and
+    /// lost — not a random member of the main tree. Returns
+    /// (orphan, mainTreeMember): the first member of the SMALLEST
+    /// component as the suggested anchor, and a largest-component member
+    /// for reference. The sheet's anchor is user-changeable regardless.
     static func suggestConnectionAnchors(snapshot: FamilyGraphSnapshot) -> (String, String)? {
         let components = connectedComponents(snapshot)
         guard components.count >= 2,
-              let primary = components[0].first,
-              let secondary = components[1].first else { return nil }
-        return (primary, secondary)
+              let orphan = components.last?.first,
+              let mainMember = components[0].first else { return nil }
+        return (orphan, mainMember)
     }
 
     // MARK: - Union-find helpers

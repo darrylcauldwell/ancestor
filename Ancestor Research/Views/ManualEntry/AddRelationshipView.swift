@@ -15,8 +15,15 @@ struct AddRelationshipView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
-    /// The profile we're adding a relationship from.
-    let anchorID: String
+    /// The profile we're adding a relationship from. Pre-filled from the
+    /// caller (tree selection / connect-banner orphan) but ALWAYS visible
+    /// and changeable in the sheet — an invisible selection-derived anchor
+    /// nearly welded two unrelated families (owner report 2026-07-15).
+    @State private var anchorID: String
+
+    init(anchorID: String) {
+        self._anchorID = State(initialValue: anchorID)
+    }
 
     @State private var kind: Kind = .parent
     @State private var targetID: String?
@@ -67,6 +74,7 @@ struct AddRelationshipView: View {
                     if kind == .spouse {
                         marriageSection
                     }
+                    edgeDescription
                 }
                 .padding(20)
             }
@@ -78,21 +86,42 @@ struct AddRelationshipView: View {
 
     // MARK: - Sections
 
-    @ViewBuilder
     private var anchorSummary: some View {
-        if let anchor = appState.snapshot.profiles[anchorID] {
-            HStack(spacing: 6) {
-                Image(systemName: "person.fill")
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-                Text("Anchor:")
-                    .font(AppTypography.cardMeta).foregroundStyle(.secondary)
-                Text(anchor.displayName)
-                    .font(AppTypography.cardBody.weight(.medium))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .glassEffect(.regular, in: .capsule)
+        VStack(alignment: .leading, spacing: 6) {
+            sectionTitle("This person")
+            ProfilePickerField(
+                label: "Anchor",
+                snapshot: appState.snapshot,
+                selectedID: Binding(
+                    get: { anchorID },
+                    set: { if let id = $0 { anchorID = id } }
+                )
+            )
+        }
+    }
+
+    /// Plain-English statement of the edge Add will create — the reader's
+    /// last defence against an anchor they didn't intend.
+    @ViewBuilder
+    private var edgeDescription: some View {
+        if let anchor = appState.snapshot.profiles[anchorID],
+           let targetID, let target = appState.snapshot.profiles[targetID] {
+            let sentence: String = {
+                switch kind {
+                case .parent:
+                    return "\(target.displayName) will be recorded as a parent of \(anchor.displayName)."
+                case .child:
+                    return "\(target.displayName) will be recorded as a child of \(anchor.displayName)."
+                case .spouse:
+                    return "\(anchor.displayName) and \(target.displayName) will be recorded as spouses."
+                case .sibling:
+                    return "\(target.displayName) will share \(anchor.displayName)'s parents."
+                }
+            }()
+            Text(sentence)
+                .font(AppTypography.cardMeta.weight(.medium))
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
