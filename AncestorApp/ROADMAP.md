@@ -78,6 +78,17 @@ This section reads as the build sequence — top to bottom is the intended order
   same-foreign-county credit derived from the district registry (no hardcoded regions).
   Gate: ClusteringEngine tests incl. a Northumberland-namesake fixture; SANDWICH_AUDIT
   cross-check that wider lifespans can't push unrelated records over the 0.4 attach threshold.
+- **Life events feed research axes** (surfaced 2026-07-15, Elsie Twyford: user added a
+  Youlgreave Residence life event and reasonably expected research to use it — LifeEvents
+  are currently research-inert; only profile birth/death location fields reach
+  `ResearchSubject`). Design: fold typed LifeEvents into subject construction — residence
+  events → FreeCEN residence axis + FS `q.residencePlace` (windowed by the event's dates),
+  burial events → burial/death place axes; place strings run through the same county
+  derivation as profile fields. Doctrine unchanged: user-entered events are R3-authoritative
+  data, and axes are soft targeting, not filters. Companion nit: the place gazetteer
+  (uk-places.json, 261 entries) has no village-level coverage — freeform fallback works,
+  but village → county derivation only fires when the user appends ', Derbyshire'; consider
+  parish-level gazetteer data (RegionConfig parishes exist for DBY already).
 - **Coal-mining accident databases as a source** (proposed by Darryl 2026-07-15, Harry
   Marshall case). Primary candidate: Coalmining History Resource Centre (cmhrc.co.uk, Ian
   Winstanley) — 164k+ UK mining accident/death records 1700–2000, name/date/colliery/
