@@ -1,6 +1,6 @@
 # Source Weighting — staged dispatch, free-sources-first
 
-**Status: PROPOSED 2026-07-15 — awaiting owner acceptance.** Direction set by Darryl during
+**Status: ACCEPTED 2026-07-15 (Darryl: "accepted let build") — building in change order.** Direction set by Darryl during
 Barbara Ayre triage: "the free UK sources offer us capability to provide localised search to
 parish, district and then region then national… the weighting for our app should be from the
 known free sources."
