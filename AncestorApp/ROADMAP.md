@@ -28,6 +28,20 @@ This section reads as the build sequence — top to bottom is the intended order
 5. **`RESEARCH_PIPELINE_SPEC.md`** Part II remainder — T9, T23-adjacent harness work, T31 retuning.
 6. **User-seeded hypotheses (Epic 13)** — user hunches ("his parents might have been Bob & Sue") become research hypotheses that steer targeted probes; a hunch is a search directive, never data — nothing reaches the tree until records survive the gates. Rails (hypothesis framework, deficit probes, accept path) already exist. COMPLETE 2026-07-11 (RESEARCH_PIPELINE_SPEC §5.15): slice 1 .parentCandidates kind + v32 seeds table + submit_hypothesis MCP tool; slice 2 probe ladder + E5 no-self-confirmation grader + rejection memory; slices 3-4 Workbench Add-a-Hunch UI + refuted/exhausted surface.
 
+7. **SOURCE_WEIGHTING live verification** — Changes 0–5, 7, 8 shipped 2026-07-15 (spec
+   status line has commits); pending: FS session re-auth, Harry Marshall re-run
+   (anchor-less + National default), one anchored run (stages + FS skip), one
+   Kenneth-class run (ladder → FS), Sourcing tab appears on first new apply,
+   dispatch-log query-count comparison vs the 2026-07-14/15 campaign.
+8. **2026-07-15 defect dossier** (from the overnight campaign; was scratchpad-only):
+   (a) CWGC connector Cookiebot HTTP-500 + silent give-up — acceptance: find Robert
+   Cauldwell at Lijssenthoek (family-verified ground truth); (b) FieldResearcherMCP stale
+   `get_run_status` reads; (c) leads lack IDs over MCP (blocks lead-investigation runs);
+   (d) FS junk-persona lead gate (census 1970/83/84/91 personas; same family as the
+   John-Ayre-entry-as-Barbara's-death mispackaging); (e) FS self-narrowing follow-up
+   pacing; (f) housekeeping — bulk-dismiss George's ~29 junk leads + Kenneth's 4;
+   Ian-listed-as-Kenneth's-father import inversion.
+
 **Parallel, externally gated:** FamilySearch official-API work — starts the day the Beta AppKey arrives; E1 should land first. In order: (a) read leg (`FAMILYSEARCH_SOURCE_SPEC.md` §§14–19, acceptance criteria A1–A9); (b) write leg — the FS-specific Tree service + smallest-honest-write compliance demo (ADR-002/ADR-005); its mini-spec is deliberately unwritten until FamilySearch’s demo instructions arrive with the AppKey, so it is specified against their actual requirements rather than guesses.
 
 **Decision-gated (explored 2026-07-13, no commitment):** a user-facing BYO-API-key frontier-model tier (Claude/Gemini/OpenAI) behind the DOSSIER_SPEC provider seam — needs privacy consent UX + living-people redaction on outbound prompts. All explored benefits remain live candidates — prose-fact extraction from wills/newspapers (feeding the firewall + §14.B.1 re-check), a tier-2 adversarial challenger, whole-tree research direction, better narration. Dev-side judging + build assistance (via the MCP; no product changes needed) struck the user as the biggest win and is the natural first mover — the §5.8 eval harness is its concrete embodiment. The user-facing BYO tier is undecided, awaiting the privacy-consent design; nothing is discarded.
@@ -46,7 +60,10 @@ This section reads as the build sequence — top to bottom is the intended order
   hunches. Deterministic fallback: a structured form (event kind + window + place) works
   with no model loaded. Gate: extraction never writes tree data (firewall posture
   unchanged); a Harry-class fixture proving the child-birth-anchored death window reaches
-  the dispatcher's year axes.
+  the dispatcher's year axes. **Harry Marshall research is PARKED until this ships (owner
+  decision 2026-07-15): he is the circle-back acceptance case** — his knowledge (died young,
+  mining accident, electrician, shortly after daughter Margaret's birth) enters as the first
+  real free-text hunch. Related: coal-mining accident databases entry in Stage 2.
 - **Clustering over-split repair** (surfaced 2026-07-15, Barbara Ayre triage: a consistent
   Northumberland namesake shattered into per-record singleton clusters). Two engine defects,
   both fixes must preserve the over-split-not-over-merge invariant and need their own mini-spec
