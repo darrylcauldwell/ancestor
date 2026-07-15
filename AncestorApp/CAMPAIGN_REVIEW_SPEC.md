@@ -1,8 +1,11 @@
 # Campaign Review — persistent evidence chain + DB-backed bulk review
 
 **Status: ALL SIX CHANGES SHIPPED 2026-07-15** — commits: 1 `5e3172e` · 2+3 `02aa57b` ·
-4+5 `9dafa80` · 6 `d1edcd7`. Suite 2588 green at close. Remaining: real-data verification
-against the 2026-07-14/15 overnight campaign DB (rebuild + open Review Campaign).
+4+5 `9dafa80` · 6 `d1edcd7`. Suite 2588 green at close. First real-data pass (2026-07-15)
+surfaced a granularity flood — 2,558 Correction rows from haystack profiles' lead-only
+clusters — fixed in `8ce1514`: lead-only clusters roll up to one row per profile (drill-down
+= the per-profile review); evidence-backed tiers stay itemized; profile-level disputes no
+longer escalate fact-less clusters. Remaining: Darryl re-verifies the rolled-up view.
 **Owner decision (Darryl):** "we should be looking to persistently store the evidence chain
 and not only do in memory… fold show convergence level + open-conflict state per finding
 into the BulkReviewView design."
