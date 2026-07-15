@@ -49,6 +49,32 @@ struct SettingsPlaceholderView: View {
                     LabeledContent("Profiles", value: "\(appState.snapshot.profiles.count)")
                     LabeledContent("Relationships", value: "\(appState.snapshot.relationships.count)")
 
+                    // The final fallback of the home-county derivation
+                    // chain (profile birth location code → birth location →
+                    // THIS). Existed on the model since the chapman-default
+                    // removal but had no UI — every location-less subject
+                    // in a project without it is anchor-less, skipping the
+                    // whole chapman-scoped source trio (owner frustration
+                    // 2026-07-15: Elsie Twyford, known-Youlgrave family,
+                    // shallow anchor-less profile).
+                    Picker("Home county", selection: Binding(
+                        get: { appState.currentProject?.homeChapmanCode ?? "" },
+                        set: { newCode in
+                            guard var project = appState.currentProject else { return }
+                            project.homeChapmanCode = newCode.isEmpty ? nil : newCode
+                            appState.currentProject = project
+                            try? appState.currentDatabase?.saveProjectMeta(project)
+                        }
+                    )) {
+                        Text("None — derive per profile").tag("")
+                        ForEach(UKChapmanCodes.shared.gbAndChannelIslands(), id: \.code) { entry in
+                            Text("\(entry.name) (\(entry.code))").tag(entry.code)
+                        }
+                    }
+                    Text("Used as the research anchor for any profile whose own birth location can't provide one. Profiles with locations keep deriving their own county.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
                     if let summary = appState.auditSummary {
                         LabeledContent("Audit") {
                             HStack(spacing: 8) {
