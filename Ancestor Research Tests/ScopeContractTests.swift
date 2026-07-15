@@ -66,13 +66,59 @@ struct ScopeContractTests {
         }
     }
 
-    @Test func familySearchDeclaresScopeInvarianceUntilChange4() async {
-        // FS is the audit's broken-severity finding: global reach, scope
-        // never read. The DECLARATION makes that visible; Change 4 flips it
-        // to .scoped and replaces this pin.
-        if case .inherentlyNational = FamilySearchSource().scopeHandling {} else {
-            Issue.record("FamilySearch declares .inherentlyNational until Change 4 makes it scope-aware")
+    @Test func familySearchDeclaresScoped() async {
+        // Change 4 — scope steers FS's place-axis level.
+        #expect(FamilySearchSource().scopeHandling == .scoped)
+    }
+
+    @Test func familySearchScopeSteersAxisLevel() {
+        let dispatcher = makeDispatcher()
+        // Region derives from the subject; give it a county so the
+        // bounded-scope axes have a value to carry.
+        let subject = ResearchSubject(
+            profileID: nil, surname: "Cauldwell", givenName: "Robert",
+            birthYearFrom: 1880, birthYearTo: 1880,
+            deathYearFrom: nil, deathYearTo: nil,
+            gender: .male, region: .county("Derbyshire"), mode: .extend,
+            familyContext: nil, homeChapmanCode: "DBY")
+        let source = FamilySearchSource()
+
+        // Bounded scopes share county-level axes (adjacent is the
+        // disclosed residual — single-value fuzzy axes cannot fan out).
+        let county = keys(source, .birth, .county, dispatcher: dispatcher, subject: subject)
+        for scope in [ResearchScope.parish, .district, .adjacent] {
+            #expect(keys(source, .birth, scope, dispatcher: dispatcher, subject: subject) == county)
         }
+        // National drops the county axis — remote true records must not
+        // be rank-demoted below the single fetched page.
+        let national = keys(source, .birth, .national, dispatcher: dispatcher, subject: subject)
+        #expect(national != county, "national must not carry the county place axis")
+        // A KNOWN death place is evidence, not scoping — it rides at
+        // every scope including national.
+        let deathSubject = ResearchSubject(
+            profileID: nil, surname: "Cauldwell", givenName: "Robert",
+            birthYearFrom: 1880, birthYearTo: 1880,
+            deathYearFrom: 1950, deathYearTo: 1960,
+            gender: .male, region: .county("Derbyshire"),
+            deathLocation: "Glasgow, Scotland", mode: .extend,
+            familyContext: nil, homeChapmanCode: "DBY")
+        let deathNational = dispatcher.buildQueriesForTest(
+            source: source, subject: deathSubject, recordType: .death, scope: .national)
+        #expect(deathNational.allSatisfy { $0.deathPlace == "Glasgow, Scotland" })
+    }
+
+    @Test func familySearchNeverScopeSkips() {
+        // FS is .scoped via axis-level steering but needs no chapman
+        // anchor — an anchor-less subject at a bounded scope still
+        // searches FS (it is the wide net, not a chapman fan-out).
+        let anchorless = ResearchSubject(
+            profileID: nil, surname: "Cauldwell", givenName: "Robert",
+            birthYearFrom: 1880, birthYearTo: 1880,
+            deathYearFrom: nil, deathYearTo: nil,
+            gender: .male, region: nil, mode: .extend,
+            familyContext: nil, homeChapmanCode: "")
+        #expect(SearchDispatcher.scopeSkipReason(
+            source: FamilySearchSource(), subject: anchorless, scope: .county) == nil)
     }
 
     // MARK: - Scoped sources: per-scope shapes (audit verdict table)
@@ -147,7 +193,6 @@ struct ScopeContractTests {
             (CWGCSource(), .death),
             (FindAGraveSource(), .burial),
             (ProbateSource(), .probate),
-            (FamilySearchSource(), .death),
         ]
         for (source, recordType) in cases {
             let baseline = keys(source, recordType, .parish, dispatcher: dispatcher, subject: subject)

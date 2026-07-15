@@ -280,6 +280,11 @@ struct SearchDispatcher {
         source: any RecordSource, subject: ResearchSubject, scope: ResearchScope
     ) -> String? {
         guard source.scopeHandling == .scoped else { return nil }
+        // Only the chapman-code fan-out trio needs a home-county anchor.
+        // FamilySearch is .scoped via place-axis LEVEL steering (Change 4)
+        // and works anchor-less at every scope — its axes derive from
+        // place strings with a country fallback.
+        guard ["freebmd", "freecen", "freereg"].contains(source.sourceID) else { return nil }
         if source.sourceID == "freebmd" && scope == .parish {
             return "FreeBMD has no parish endpoint — parish scope deliberately searches nothing here"
         }
@@ -1085,20 +1090,32 @@ struct SearchDispatcher {
                     if case .county(let name) = region { return name }
                     return nil
                 }
+                // SOURCE_WEIGHTING Change 4 — scope steers the axis LEVEL.
+                // FS place params are single-value fuzzy matches (documented:
+                // "records within three jurisdiction levels"), so adjacency
+                // cannot fan the axis; the honest mapping is county-level
+                // axes at bounded scopes and NO county axis at .national —
+                // a county soft-axis at national scope re-ranks remote true
+                // records below the single fetched page, a de-facto filter
+                // the user's scope choice rejected (SCOPE_AUDIT finding 1).
+                // `anyPlace` (country) still applies at every scope; known
+                // event places (deathLocation, marriageLocation) are real
+                // evidence and ride at every scope too.
+                let scopedCounty: String? = scope == .national ? nil : homeCounty
                 let fsBirthPlace: String?
                 switch recordType {
-                case .birth, .baptism, .christening: fsBirthPlace = homeCounty
+                case .birth, .baptism, .christening: fsBirthPlace = scopedCounty
                 default: fsBirthPlace = nil
                 }
                 let fsDeathPlace: String?
                 switch recordType {
                 case .death, .burial:
                     if let dl = subject.deathLocation, !dl.isEmpty { fsDeathPlace = dl }
-                    else { fsDeathPlace = homeCounty }
+                    else { fsDeathPlace = scopedCounty }
                 default:
                     fsDeathPlace = nil
                 }
-                let fsResidencePlace: String? = (recordType == .census) ? homeCounty : nil
+                let fsResidencePlace: String? = (recordType == .census) ? scopedCounty : nil
                 let fsMarriagePlace: String? = (recordType == .marriage) ? context?.marriageLocation : nil
                 let parentAxesApply: Bool
                 switch recordType {

@@ -19,8 +19,15 @@ actor FamilySearchSource: RecordSource, AuthenticatingSource {
     // MARK: - RecordSource protocol
 
     nonisolated let sourceID = "familysearch"
-    nonisolated let scopeHandling: ScopeHandling = .inherentlyNational(
-        reason: "Global collections; queries carry profile-derived soft place re-ranks only — scope participation lands with SOURCE_WEIGHTING Change 4")
+    // SOURCE_WEIGHTING Change 4 — scope steers the place-axis LEVEL
+    // (county-level soft axes at bounded scopes; country-level at
+    // national, so remote true records aren't rank-demoted below the
+    // single fetched page). FS place params are documented single-value
+    // fuzzy matches ("records within three jurisdiction levels", Tree
+    // Person Search resource, fetched 2026-07-15) — no multi-county OR
+    // exists, so .adjacent is a disclosed residual equal to .county
+    // (pinned in ScopeContractTests).
+    nonisolated let scopeHandling: ScopeHandling = .scoped
     nonisolated let displayName = "FamilySearch"
     nonisolated let recordTypes: Set<RecordType> = [
         .birth, .death, .marriage, .census, .burial,
