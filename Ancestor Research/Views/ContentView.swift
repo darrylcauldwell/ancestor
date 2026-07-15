@@ -112,8 +112,10 @@ struct MainView: View {
                 )
             case .sourcing:
                 SourcingIntegrityView()
+            case .research:
+                ResearchView(researchVM: researchVM, role: .research)
             case .triage:
-                ResearchView(researchVM: researchVM)
+                ResearchView(researchVM: researchVM, role: .triage)
             case .workbench:
                 WorkbenchView()
             case .settings:
@@ -442,10 +444,13 @@ nonisolated enum SidebarTab: String, CaseIterable {
     case tree = "Tree"
     case tasks = "Tasks"
     case sourcing = "Sourcing"
-    /// Triage: review cluster matches / leads from a research run, accept or
-    /// defer them. Research itself is now triggered profile-contextually from
-    /// the tree popover — this tab is where the results land for the user to
-    /// act on, not where runs are kicked off.
+    /// Research: the launcher — profiles ranked by gaps, per-row Research
+    /// buttons, Research All. Owner direction 2026-07-15: research and
+    /// triage are different jobs, so they are different tabs.
+    case research = "Research"
+    /// Triage: the Research Findings queue — review what research found
+    /// (clusters, leads, conflicts), accept or discard. Nothing is kicked
+    /// off from here.
     case triage = "Triage"
     case workbench = "Workbench"
     case settings = "Settings"

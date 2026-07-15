@@ -19,7 +19,9 @@ struct BulkReviewView: View {
     @Environment(AppState.self) private var appState
     @Bindable var vm: ResearchViewModel
     let onOpenProfileReview: (Profile, ResearchResult) -> Void
-    let onDone: () -> Void
+    /// Nil when the queue IS the tab's resting state (Triage) — there is
+    /// nowhere to go 'back' to, so no Done button renders.
+    let onDone: (() -> Void)?
 
     @State private var isLoading = true
     @State private var windowStart: Date = .distantPast
@@ -125,15 +127,22 @@ struct BulkReviewView: View {
 
             Button("Mark reviewed") {
                 try? appState.currentDatabase?.setCampaignReviewHighWater(Date())
-                onDone()
+                if let onDone {
+                    onDone()
+                } else {
+                    showAllHistory = false
+                    Task { await load() }
+                }
             }
             .buttonStyle(.glass)
             .controlSize(.small)
             .help("Sets the review watermark to now — Research Findings starts from this point next time.")
 
-            Button("Done") { onDone() }
-                .buttonStyle(.glassProminent)
-                .controlSize(.small)
+            if let onDone {
+                Button("Done") { onDone() }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.small)
+            }
         }
         .padding()
     }

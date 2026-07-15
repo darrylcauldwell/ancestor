@@ -16,6 +16,14 @@ struct ResearchView: View {
     /// this view binds to it for display.
     @Bindable var researchVM: ResearchViewModel
     @State private var wholeTreeVM = WholeTreeResearchViewModel()
+    /// Which sidebar tab this instance serves (owner direction
+    /// 2026-07-15): .triage renders the Research Findings queue as its
+    /// resting state; .research renders the launcher (profiles ranked by
+    /// gaps). Higher-priority states (pending review, live run, cluster
+    /// review) render in both.
+    enum Role { case triage, research }
+    var role: Role = .triage
+
     @State private var profileSearchText = ""
 
     var body: some View {
@@ -35,31 +43,25 @@ struct ResearchView: View {
                 }
                 .padding([.horizontal, .top])
                 PendingFactsReviewView(profileID: reviewID)
-            } else if showBulkReview {
-                // CAMPAIGN_REVIEW_SPEC Change 6 — DB-backed campaign review.
-                // Drill-down hydrates the VM quartet (currentResult +
-                // selectedProfile + appDatabase; appState.currentDatabase is
-                // already live) so the existing ClusterReviewView apply path
-                // works against reconstructed results.
-                BulkReviewView(
-                    vm: researchVM,
-                    onOpenProfileReview: { profile, result in
-                        researchVM.appDatabase = appState.currentDatabase
-                        researchVM.selectedProfile = profile
-                        researchVM.currentResult = result
-                        showBulkReview = false
-                    },
-                    onDone: {
-                        showBulkReview = false
-                        reloadPendingCounts()
-                    }
-                )
             } else if wholeTreeVM.isRunning {
                 wholeTreeProgress
             } else if researchVM.isResearching {
                 ResearchProgressView(vm: researchVM)
             } else if let result = researchVM.currentResult {
                 ClusterReviewView(vm: researchVM, result: result)
+            } else if role == .triage {
+                // Triage's resting state IS the queue. Drill-down sets the
+                // VM quartet, so the currentResult branch above renders the
+                // per-profile review; vm.reset() lands back here.
+                BulkReviewView(
+                    vm: researchVM,
+                    onOpenProfileReview: { profile, result in
+                        researchVM.appDatabase = appState.currentDatabase
+                        researchVM.selectedProfile = profile
+                        researchVM.currentResult = result
+                    },
+                    onDone: nil
+                )
             } else {
                 profileSelector
             }
@@ -108,7 +110,7 @@ struct ResearchView: View {
         if researchVM.currentResult != nil {
             return "Review: \(researchVM.selectedProfile?.displayName ?? "")"
         }
-        return "Triage"
+        return role == .triage ? "Triage" : "Research"
     }
 
     // MARK: - Profile Selector
@@ -127,9 +129,6 @@ struct ResearchView: View {
 
                 Spacer()
 
-                Button("Review Findings") {
-                    showBulkReview = true
-                }
                 .buttonStyle(.glass)
                 .controlSize(.small)
                 .help("Review everything recent research runs found — clusters, leads, conflicts — reconstructed from the database.")
@@ -387,8 +386,4 @@ struct ResearchView: View {
 
     // MARK: - Campaign review (CAMPAIGN_REVIEW_SPEC Change 6)
 
-    /// Triage LANDS on the review queue — the actionable findings ARE
-    /// the triage surface (owner direction 2026-07-15); the profile
-    /// selector list is the secondary view, reached via Done.
-    @State private var showBulkReview = true
 }

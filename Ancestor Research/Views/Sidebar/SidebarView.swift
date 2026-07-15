@@ -13,7 +13,7 @@ struct SidebarView: View {
     private var visibleTabs: [SidebarTab] {
         SidebarTab.allCases.filter { tab in
             switch tab {
-            case .tree, .triage, .settings:
+            case .tree, .research, .triage, .settings:
                 return true
             case .tasks:
                 return appState.tasksTabVisible
@@ -76,6 +76,7 @@ nonisolated extension SidebarTab {
         case .tree: "person.3"
         case .tasks: "checklist"
         case .sourcing: "checkmark.seal"
+        case .research: "magnifyingglass"
         case .triage: "checklist.checked"
         case .workbench: "rectangle.grid.2x2"
         case .settings: "gear"
