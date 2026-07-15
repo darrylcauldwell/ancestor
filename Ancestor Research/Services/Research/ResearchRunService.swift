@@ -137,7 +137,15 @@ enum ResearchRunService {
         var savedRunID: UUID? = nil
 
         if let profileID {
-            // Evidence rows + citations.
+            // Run id generated up front so evidence rows carry their run
+            // linkage (CAMPAIGN_REVIEW_SPEC Change 2) — the same id the
+            // research_runs row is saved under below.
+            let runID = UUID()
+
+            // Evidence rows + citations — persisted with the FULL scorer
+            // output (gates + summary) and the run's enrichment tag so a DB
+            // reconstruction can rebuild the exact ScoredRecords and apply
+            // the same clustering exclusion the run did.
             var saved = 0
             for scored in result.allScoredRecords {
                 let citation = CitationRenderer.cite(scored.record)
@@ -146,7 +154,9 @@ enum ResearchRunService {
                         profileID: profileID,
                         scored: scored,
                         citationFull: citation.full,
-                        citationURL: citation.url
+                        citationURL: citation.url,
+                        isEnrichment: result.enrichmentRecordIDs.contains(scored.record.id),
+                        runID: runID.uuidString
                     )
                     saved += 1
                 } catch {
@@ -154,6 +164,26 @@ enum ResearchRunService {
                 }
             }
             logger.info("Persisted \(saved)/\(result.allScoredRecords.count) evidence records for \(profileID)")
+
+            // CAMPAIGN_REVIEW_SPEC Change 3 — persist the evidence chain's
+            // convergence per asserted fact value. Upsert per
+            // (profile, value_key): the level upgrades as independent
+            // lineages accumulate across runs; a level DROP (registry/tier
+            // changes) is recorded rather than suppressed — the table is an
+            // audit trail of the chain's current strength, not a ratchet.
+            // Fact-verdict records only (leads must not inflate the chain,
+            // DS-24), witness-collapsed inside scoreValueGroups (DS-03).
+            let factRecords = result.confirmedFacts.map(\.record)
+            if !factRecords.isEmpty {
+                let groups = ConvergenceEngine.scoreValueGroups(
+                    records: factRecords, sourceInfoMap: sourceInfoMap
+                )
+                do {
+                    try db.upsertEvidenceConvergence(profileID: profileID, groups: groups)
+                } catch {
+                    failures.append(.init(what: "Persist evidence convergence", error: error))
+                }
+            }
 
             // T12-sibling Phase 1: persist pipeline-generated hypotheses
             // alongside evidence. Upsert preserves created_at and the
@@ -258,7 +288,6 @@ enum ResearchRunService {
                 }
             }
 
-            let runID = UUID()
             // T1-01 / FT-23 — outcome-aware accounting: sources that only
             // errored / were blocked / returned truncated pages no longer
             // count toward "reasonably exhaustive search".

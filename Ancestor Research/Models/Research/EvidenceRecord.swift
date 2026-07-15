@@ -43,6 +43,55 @@ nonisolated struct EvidenceRecord: Sendable, Identifiable {
     /// columns get overwritten on conflict).
     let userStatus: UserReviewStatus
 
+    // CAMPAIGN_REVIEW_SPEC Change 2 — the persisted evidence chain carries
+    // the FULL scorer output, so a DB reconstruction is a complete
+    // ScoredRecord, not a gates-less shadow. Legacy (pre-v44) rows decode
+    // as gates=[] / summary="" / isEnrichment=false.
+
+    /// Per-gate outcomes the scorer assigned (name/date/geography/family).
+    let gates: [GateResult]
+    /// Scorer's one-line summary of the record.
+    let summary: String
+    /// True when the run tagged this record as hypothesis-enrichment
+    /// (parents' marriages, sibling probes) — excluded from candidate-life
+    /// clustering, mirrored here so a re-cluster over persisted evidence
+    /// applies the same exclusion.
+    let isEnrichment: Bool
+    /// research_runs.id of the run that last scored this row.
+    let lastRunID: String?
+
+    init(
+        id: String, profileID: String, sourceID: String, sourceRecordID: String,
+        recordType: RecordType, verdict: RecordVerdict, record: SourceRecord,
+        citationFull: String?, citationURL: String?, scoredAt: Date,
+        userStatus: UserReviewStatus,
+        gates: [GateResult] = [], summary: String = "",
+        isEnrichment: Bool = false, lastRunID: String? = nil
+    ) {
+        self.id = id
+        self.profileID = profileID
+        self.sourceID = sourceID
+        self.sourceRecordID = sourceRecordID
+        self.recordType = recordType
+        self.verdict = verdict
+        self.record = record
+        self.citationFull = citationFull
+        self.citationURL = citationURL
+        self.scoredAt = scoredAt
+        self.userStatus = userStatus
+        self.gates = gates
+        self.summary = summary
+        self.isEnrichment = isEnrichment
+        self.lastRunID = lastRunID
+    }
+
+    /// Reconstruct the scorer's view of this row — the input shape
+    /// ClusteringEngine and the review surfaces consume.
+    var asScoredRecord: ScoredRecord {
+        ScoredRecord(id: sourceRecordID, record: record, verdict: verdict,
+                     gates: gates, summary: summary)
+    }
+
     static func compositeID(profileID: String, sourceRecordID: String) -> String {
         "\(profileID)|\(sourceRecordID)"
     }

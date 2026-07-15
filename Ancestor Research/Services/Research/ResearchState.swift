@@ -282,6 +282,13 @@ nonisolated struct ResearchResult: Sendable {
     let identityVerdict: String?
     let spouseVerdict: String?
 
+    /// Record ids the run tagged as hypothesis-enrichment (excluded from
+    /// candidate-life clustering). Threaded from `state.enrichmentRecordIDs`
+    /// so persistence can flag the rows and a DB re-cluster can apply the
+    /// same exclusion (CAMPAIGN_REVIEW_SPEC Change 2; the set was previously
+    /// memory-only and lost at persist).
+    let enrichmentRecordIDs: Set<String>
+
     /// Per-gate attrition summary across `allScoredRecords` for this
     /// run. Populated on the final result; nil on intermediate
     /// per-iteration snapshots (ENGINE_FOUNDATION_SPEC #Change4).
@@ -307,7 +314,8 @@ nonisolated struct ResearchResult: Sendable {
         identityVerdict: String? = nil,
         spouseVerdict: String? = nil,
         attrition: ScorerAttrition? = nil,
-        consensusProposalCount: Int = 0
+        consensusProposalCount: Int = 0,
+        enrichmentRecordIDs: Set<String> = []
     ) {
         self.confirmedFacts = confirmedFacts
         self.leads = leads
@@ -323,6 +331,7 @@ nonisolated struct ResearchResult: Sendable {
         self.spouseVerdict = spouseVerdict
         self.attrition = attrition
         self.consensusProposalCount = consensusProposalCount
+        self.enrichmentRecordIDs = enrichmentRecordIDs
     }
 
     static let empty = ResearchResult(

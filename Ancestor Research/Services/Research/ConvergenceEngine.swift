@@ -161,6 +161,10 @@ nonisolated extension ConvergenceEngine {
         let key: String              // "birth:1881", "death:1905", "marriage:?"
         let records: [SourceRecord]
         let level: ConvergenceLevel
+        /// Codable sourcing detail persisted alongside the level
+        /// (evidence_convergence.sourcing_json, CAMPAIGN_REVIEW_SPEC
+        /// Change 3) — the audit-trail form of "how strong is this chain".
+        let sourcing: SourcingStrength
     }
 
     /// Partition records by the VALUE they assert, then score each group
@@ -187,7 +191,8 @@ nonisolated extension ConvergenceEngine {
                 // single-source strength.
                 let representatives = WitnessIdentity.witnessRepresentatives(of: members)
                 return ValueGroup(key: key, records: members,
-                                  level: score(records: representatives, sourceInfoMap: sourceInfoMap))
+                                  level: score(records: representatives, sourceInfoMap: sourceInfoMap),
+                                  sourcing: sourcingStrength(records: members, sourceInfoMap: sourceInfoMap))
             }
             .sorted { $0.key < $1.key }
     }

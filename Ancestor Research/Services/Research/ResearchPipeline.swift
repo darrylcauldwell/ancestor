@@ -886,7 +886,8 @@ final class ResearchPipeline {
             identityVerdict: identity,
             spouseVerdict: spouse,
             attrition: attrition,
-            consensusProposalCount: state.consensusProposalCount
+            consensusProposalCount: state.consensusProposalCount,
+            enrichmentRecordIDs: state.enrichmentRecordIDs
         )
     }
 

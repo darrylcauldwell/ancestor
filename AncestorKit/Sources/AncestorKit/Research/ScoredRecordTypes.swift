@@ -1,7 +1,10 @@
 import Foundation
 
 /// Scored result — a source record classified through 4 gates.
-public nonisolated struct ScoredRecord: Identifiable, Sendable {
+/// Codable so the FULL scorer output persists to `evidence_records`
+/// (gates_json + summary columns, CAMPAIGN_REVIEW_SPEC Change 2) — the
+/// evidence chain is stored, not recomputed-only.
+public nonisolated struct ScoredRecord: Identifiable, Sendable, Codable {
     public let id: String
     public let record: SourceRecord
     public let verdict: RecordVerdict
@@ -24,7 +27,7 @@ public nonisolated enum RecordVerdict: String, Codable, Sendable {
     case fact, lead, impossible
 }
 
-public nonisolated struct GateResult: Sendable {
+public nonisolated struct GateResult: Sendable, Codable {
     public let gate: ScoringGate
     public let outcome: GateOutcome
     public let reason: String

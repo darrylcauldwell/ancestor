@@ -1358,6 +1358,46 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // MARK: v44 — Full scorer output on evidence rows
+        // CAMPAIGN_REVIEW_SPEC Change 2. evidence_records previously kept
+        // only record_json + verdict — ScoredRecord.gates and .summary were
+        // discarded at persist, so DB-reconstructed records lost gate chips,
+        // rejected-reasons, and the known-spouse apply bypass; and the
+        // in-memory enrichment exclusion (state.enrichmentRecordIDs) was
+        // unrepresentable, so any re-cluster over persisted evidence
+        // fabricated orphan clusters from parents'-marriage records.
+        // All nullable/defaulted — legacy rows decode as gates=[] summary="".
+        migrator.registerMigration("v44_evidence_scorer_fidelity") { db in
+            try db.alter(table: "evidence_records") { t in
+                t.add(column: "gates_json", .text)
+                t.add(column: "summary", .text)
+                t.add(column: "is_enrichment", .integer).notNull().defaults(to: 0)
+                t.add(column: "last_run_id", .text)
+            }
+        }
+
+        // MARK: v45 — Persisted evidence-chain convergence
+        // CAMPAIGN_REVIEW_SPEC Change 3. One row per (profile, asserted
+        // fact value): the ConvergenceLevel + Codable SourcingStrength the
+        // chain has earned, upserted at every run-persist so the level
+        // upgrades as independent lineages accumulate — the durable answer
+        // to "multiple sources corroborate a fact: is the bigger evidence
+        // chain recorded?". WitnessKeys are never persisted (⟨G9⟩) — only
+        // the scored outcome and the contributing record ids.
+        migrator.registerMigration("v45_evidence_convergence") { db in
+            try db.create(table: "evidence_convergence") { t in
+                t.column("profile_id", .text).notNull()
+                t.column("value_key", .text).notNull()
+                t.column("level", .text).notNull()
+                t.column("sourcing_json", .text).notNull()
+                t.column("record_ids_json", .text).notNull()
+                t.column("updated_at", .datetime).notNull()
+                t.primaryKey(["profile_id", "value_key"])
+            }
+            try db.create(index: "idx_evidence_convergence_profile",
+                          on: "evidence_convergence", columns: ["profile_id"])
+        }
+
         return migrator
     }
 
@@ -3209,14 +3249,21 @@ nonisolated extension ProjectDatabase {
     /// `INSERT … ON CONFLICT DO UPDATE` excludes `user_status` from the SET
     /// clause; on first insert the column's default value (`'unreviewed'`)
     /// applies.
-    func saveEvidence(profileID: String, scored: ScoredRecord, citationFull: String?, citationURL: String?) throws {
+    func saveEvidence(profileID: String, scored: ScoredRecord, citationFull: String?, citationURL: String?,
+                      isEnrichment: Bool = false, runID: String? = nil) throws {
         let compositeID = EvidenceRecord.compositeID(profileID: profileID, sourceRecordID: scored.record.id)
         let recordJSON = Self.encodeJSON(scored.record)
+        // CAMPAIGN_REVIEW_SPEC Change 2 — the FULL scorer output persists:
+        // gates + summary make the row a complete ScoredRecord; the
+        // enrichment flag preserves the run's cluster-input exclusion; the
+        // run id links the row to the run that last scored it.
+        let gatesJSON = Self.encodeJSON(scored.gates)
         try dbQueue.write { db in
             try db.execute(sql: """
                 INSERT INTO evidence_records
-                (id, profile_id, source_id, source_record_id, record_type, verdict, record_json, citation_full, citation_url, scored_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, profile_id, source_id, source_record_id, record_type, verdict, record_json, citation_full, citation_url, scored_at,
+                 gates_json, summary, is_enrichment, last_run_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     source_id = excluded.source_id,
                     source_record_id = excluded.source_record_id,
@@ -3225,7 +3272,11 @@ nonisolated extension ProjectDatabase {
                     record_json = excluded.record_json,
                     citation_full = excluded.citation_full,
                     citation_url = excluded.citation_url,
-                    scored_at = excluded.scored_at
+                    scored_at = excluded.scored_at,
+                    gates_json = excluded.gates_json,
+                    summary = excluded.summary,
+                    is_enrichment = excluded.is_enrichment,
+                    last_run_id = excluded.last_run_id
                 """, arguments: [
                     compositeID,
                     profileID,
@@ -3237,6 +3288,10 @@ nonisolated extension ProjectDatabase {
                     citationFull,
                     citationURL,
                     Date(),
+                    gatesJSON,
+                    scored.summary,
+                    isEnrichment ? 1 : 0,
+                    runID,
                 ])
         }
     }
@@ -3245,7 +3300,8 @@ nonisolated extension ProjectDatabase {
     func loadEvidenceForProfile(_ profileID: String) throws -> [EvidenceRecord] {
         try dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT id, profile_id, source_id, source_record_id, record_type, verdict, record_json, citation_full, citation_url, scored_at, user_status
+                SELECT id, profile_id, source_id, source_record_id, record_type, verdict, record_json, citation_full, citation_url, scored_at, user_status,
+                       gates_json, summary, is_enrichment, last_run_id
                 FROM evidence_records
                 WHERE profile_id = ?
                 ORDER BY scored_at DESC
@@ -3262,6 +3318,12 @@ nonisolated extension ProjectDatabase {
                 // behind a parsing failure.
                 let userStatus = (row["user_status"] as String?)
                     .flatMap(UserReviewStatus.init(rawValue:)) ?? .unreviewed
+                // Pre-v44 rows have no persisted gates/summary — decode
+                // leniently to the pre-Change-2 reconstruction shape
+                // (empty gates, empty summary) rather than dropping data.
+                let gates: [GateResult] = (row["gates_json"] as String?)
+                    .flatMap { $0.data(using: .utf8) }
+                    .flatMap { try? JSONDecoder().decode([GateResult].self, from: $0) } ?? []
                 return EvidenceRecord(
                     id: row["id"] as String,
                     profileID: row["profile_id"] as String,
@@ -3273,7 +3335,11 @@ nonisolated extension ProjectDatabase {
                     citationFull: row["citation_full"] as String?,
                     citationURL: row["citation_url"] as String?,
                     scoredAt: row["scored_at"] as Date,
-                    userStatus: userStatus
+                    userStatus: userStatus,
+                    gates: gates,
+                    summary: (row["summary"] as String?) ?? "",
+                    isEnrichment: ((row["is_enrichment"] as Int?) ?? 0) != 0,
+                    lastRunID: row["last_run_id"] as String?
                 )
             }
         }
@@ -3283,6 +3349,78 @@ nonisolated extension ProjectDatabase {
     func evidenceCountForProfile(_ profileID: String) throws -> Int {
         try dbQueue.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM evidence_records WHERE profile_id = ?", arguments: [profileID]) ?? 0
+        }
+    }
+
+    // MARK: - Evidence convergence (CAMPAIGN_REVIEW_SPEC Change 3)
+
+    /// Upsert the persisted convergence rows for a profile — one per
+    /// asserted fact value. Called at run-persist; the stored level is the
+    /// chain's CURRENT strength (it rises as independent lineages accumulate
+    /// across runs and may legitimately fall on registry re-audits).
+    func upsertEvidenceConvergence(
+        profileID: String,
+        groups: [ConvergenceEngine.ValueGroup]
+    ) throws {
+        guard !groups.isEmpty else { return }
+        try dbQueue.write { db in
+            for group in groups {
+                try db.execute(sql: """
+                    INSERT INTO evidence_convergence
+                    (profile_id, value_key, level, sourcing_json, record_ids_json, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(profile_id, value_key) DO UPDATE SET
+                        level = excluded.level,
+                        sourcing_json = excluded.sourcing_json,
+                        record_ids_json = excluded.record_ids_json,
+                        updated_at = excluded.updated_at
+                    """, arguments: [
+                        profileID,
+                        group.key,
+                        group.level.rawValue,
+                        Self.encodeJSON(group.sourcing),
+                        Self.encodeJSON(group.records.map(\.id)),
+                        Date(),
+                    ])
+            }
+        }
+    }
+
+    /// One persisted convergence entry — the durable "how strong is this
+    /// fact's evidence chain" record the review surfaces read.
+    nonisolated struct EvidenceConvergenceRow: Sendable {
+        let profileID: String
+        let valueKey: String              // "death:1986", "birth:1877", …
+        let level: ConvergenceLevel
+        let sourcing: SourcingStrength
+        let recordIDs: [String]
+        let updatedAt: Date
+    }
+
+    /// Load a profile's persisted convergence rows, strongest first.
+    func loadEvidenceConvergence(profileID: String) throws -> [EvidenceConvergenceRow] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT profile_id, value_key, level, sourcing_json, record_ids_json, updated_at
+                FROM evidence_convergence WHERE profile_id = ?
+                """, arguments: [profileID])
+            return rows.compactMap { row -> EvidenceConvergenceRow? in
+                guard let level = ConvergenceLevel(rawValue: row["level"] as String),
+                      let sourcingData = (row["sourcing_json"] as String).data(using: .utf8),
+                      let sourcing = try? JSONDecoder().decode(SourcingStrength.self, from: sourcingData)
+                else { return nil }
+                let ids = (row["record_ids_json"] as String).data(using: .utf8)
+                    .flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+                return EvidenceConvergenceRow(
+                    profileID: row["profile_id"] as String,
+                    valueKey: row["value_key"] as String,
+                    level: level,
+                    sourcing: sourcing,
+                    recordIDs: ids,
+                    updatedAt: row["updated_at"] as Date
+                )
+            }
+            .sorted { $0.level > $1.level }
         }
     }
 
