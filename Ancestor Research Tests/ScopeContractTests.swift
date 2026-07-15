@@ -321,6 +321,60 @@ struct ScopeSkipVisibilityTests {
     }
 }
 
+/// SOURCE_WEIGHTING_SPEC Change 5 (stage model) — the ladder is bounded by
+/// the user's scope, stage membership derives from declared ScopeHandling,
+/// and a staged dispatch fires only that stage's sources.
+@MainActor
+struct DispatchStagingTests {
+
+    @Test func ladderIsBoundedByUserScope() {
+        #expect(DispatchStage.ladder(for: .parish) == [.localFree, .familySearch])
+        #expect(DispatchStage.ladder(for: .district) == [.localFree, .familySearch])
+        #expect(DispatchStage.ladder(for: .county) == [.localFree, .familySearch])
+        #expect(DispatchStage.ladder(for: .adjacent) == [.localFree, .adjacentFree, .familySearch])
+        #expect(DispatchStage.ladder(for: .national) ==
+                [.localFree, .adjacentFree, .nationalFree, .familySearch])
+    }
+
+    @Test func effectiveScopeNeverExceedsTheUserBound() {
+        #expect(DispatchStage.localFree.effectiveScope(userScope: .parish) == .parish)
+        #expect(DispatchStage.localFree.effectiveScope(userScope: .national) == .county)
+        #expect(DispatchStage.adjacentFree.effectiveScope(userScope: .national) == .adjacent)
+        #expect(DispatchStage.familySearch.effectiveScope(userScope: .county) == .county)
+        #expect(DispatchStage.familySearch.effectiveScope(userScope: .national) == .national)
+    }
+
+    @Test func stageMembershipDerivesFromDeclarations() {
+        #expect(DispatchStage.localFree.includes(FreeBMDSource()))
+        #expect(DispatchStage.localFree.includes(CWGCSource()),
+                "scope-invariant free specialists fire in the first stage")
+        #expect(!DispatchStage.localFree.includes(FamilySearchSource()))
+        #expect(DispatchStage.adjacentFree.includes(FreeREGSource()))
+        #expect(!DispatchStage.adjacentFree.includes(ProbateSource()),
+                "widening stages are the chapman trio only")
+        #expect(!DispatchStage.nationalFree.includes(FamilySearchSource()))
+        #expect(DispatchStage.familySearch.includes(FamilySearchSource()))
+        #expect(!DispatchStage.familySearch.includes(FreeBMDSource()))
+    }
+
+    @Test func stagedDispatchExcludesNonStageSources() async {
+        // Only FreeBMD registered; at the FS stage it is not a target —
+        // nothing fires, nothing touches the wire.
+        let registry = SourceRegistry()
+        registry.register(FreeBMDSource())
+        let dispatcher = SearchDispatcher(registry: registry)
+        let subject = ResearchSubject(
+            profileID: nil, surname: "Cauldwell", givenName: "Robert",
+            birthYearFrom: 1880, birthYearTo: 1880,
+            deathYearFrom: nil, deathYearTo: nil,
+            gender: .male, region: nil, mode: .extend,
+            familyContext: nil, homeChapmanCode: "DBY")
+        let (records, outcomes) = await dispatcher.dispatchWithOutcomes(
+            subject: subject, recordTypes: [.birth], scope: .national, stage: .familySearch)
+        #expect(records.isEmpty && outcomes.isEmpty)
+    }
+}
+
 /// Test double: declares `.scoped` but the dispatcher has no branch for it.
 private struct ScopedImpostorSource: RecordSource {
     nonisolated let sourceID = "scoped-impostor"

@@ -51,15 +51,23 @@ struct SearchDispatcher {
     /// (`dispatchOne`) never suppress, matching how they're excluded from
     /// negative-evidence recording. Defaults to `.disabled` so every
     /// non-main-loop caller behaves exactly as before T1-04.
+    /// `stage` (SOURCE_WEIGHTING Change 5): when set, the fan-out is
+    /// filtered to that stage's sources at the stage's effective scope
+    /// (bounded by the caller's `scope`), and FT-04's county→national
+    /// self-escalation is disabled — the stage ladder owns geographic
+    /// widening. Nil = legacy flat fan-out (strategist/one-off paths and
+    /// every pre-staging caller are byte-identical).
     func dispatchWithOutcomes(
         subject: ResearchSubject,
         recordTypes: Set<RecordType>,
         scope: ResearchScope = .county,
         mode: ResearchMode = .extend,
         cache: QueryCache? = nil,
-        negativeCache: NegativeSearchCache = .disabled
+        negativeCache: NegativeSearchCache = .disabled,
+        stage: DispatchStage? = nil
     ) async -> (records: [SourceRecord], outcomes: [SearchOutcomeEntry]) {
         let ladder = Self.strictnessLadder(for: mode)
+        let dispatchScope = stage.map { $0.effectiveScope(userScope: scope) } ?? scope
 
         // ENGINE_FOUNDATION #Change5 — set of sources whose daily budget is
         // spent. Computed ONCE up front so the whole fan-out sees a
@@ -101,6 +109,7 @@ struct SearchDispatcher {
             for source in registry.enabledSources(for: recordType, region: subject.region) {
                 guard sourceCovers(source, yearRange: yearRange) else { continue }
                 guard !pausedSourceIDs.contains(source.sourceID) else { continue }
+                if let stage, !stage.includes(source) { continue }
                 targets.append((source, recordType))
             }
         }
@@ -120,7 +129,7 @@ struct SearchDispatcher {
         // identically now dispatch once, regardless of a source's declared
         // `recordTypes`.
         targets = dedupeWireIdenticalTargets(targets) { source, recordType in
-            self.buildQueries(source: source, subject: subject, recordType: recordType, scope: scope)
+            self.buildQueries(source: source, subject: subject, recordType: recordType, scope: dispatchScope)
                 .map { QueryCache.cacheKey(sourceID: source.sourceID, query: $0) }
         }
 
@@ -133,11 +142,12 @@ struct SearchDispatcher {
                         source: source,
                         subject: subject,
                         recordType: recordType,
-                        scope: scope,
+                        scope: dispatchScope,
                         ladder: ladder,
                         mode: mode,
                         cache: cache,
-                        negativeCache: negativeCache
+                        negativeCache: negativeCache,
+                        allowScopeEscalation: stage == nil
                     )
                 }
             }
@@ -199,7 +209,8 @@ struct SearchDispatcher {
         ladder: [SearchStrictness],
         mode: ResearchMode,
         cache: QueryCache?,
-        negativeCache: NegativeSearchCache
+        negativeCache: NegativeSearchCache,
+        allowScopeEscalation: Bool = true
     ) async -> (records: [SourceRecord], outcomes: [SearchOutcomeEntry]) {
         var (accumulated, outcomes) = await walkLadder(
             source: source, subject: subject, recordType: recordType,
@@ -227,7 +238,11 @@ struct SearchDispatcher {
         // "searched county AND nationally, found nothing". The escalation
         // outcomes are appended, so searchHistory records it as a
         // distinct step.
-        if Self.shouldEscalateScope(source: source, scope: scope, mode: mode,
+        // Under staged dispatch (Change 5) the stage ladder owns
+        // geographic widening — FT-04's self-escalation would duplicate
+        // the national stage.
+        if allowScopeEscalation,
+           Self.shouldEscalateScope(source: source, scope: scope, mode: mode,
                                     records: accumulated, outcomes: outcomes) {
             let (nationalRecords, nationalOutcomes) = await walkLadder(
                 source: source, subject: subject, recordType: recordType,
