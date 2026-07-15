@@ -503,6 +503,14 @@ final class ResearchViewModel {
                 sourceStatuses[idx].state = .error
                 sourceStatuses[idx].reason = reason
             }
+        case .sourceSkipped(let sourceID, let reason):
+            // Informational, not a failure — the source card shows the
+            // dedicated .skipped state with the reason, distinct from
+            // .error (SOURCE_WEIGHTING Change 2).
+            if let idx = sourceStatuses.firstIndex(where: { $0.id == sourceID }) {
+                sourceStatuses[idx].state = .skipped
+                sourceStatuses[idx].reason = reason
+            }
         case .pipelineStage:
             // Pipeline stages don't bind to a single source; only the feed shows them.
             break

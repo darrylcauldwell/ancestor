@@ -269,6 +269,23 @@ struct SearchDispatcher {
         return outcomes.allSatisfy { $0.outcome.isConclusive && $0.outcome.resultCount == 0 }
     }
 
+    /// SOURCE_WEIGHTING Change 2 — why a `.scoped` source builds NO
+    /// queries for this (subject, scope), when that is knowable up front.
+    /// Nil means "build normally". Pure and static so the skip contract
+    /// is testable without a live dispatcher.
+    nonisolated static func scopeSkipReason(
+        source: any RecordSource, subject: ResearchSubject, scope: ResearchScope
+    ) -> String? {
+        guard source.scopeHandling == .scoped else { return nil }
+        if source.sourceID == "freebmd" && scope == .parish {
+            return "FreeBMD has no parish endpoint — parish scope deliberately searches nothing here"
+        }
+        if subject.homeChapmanCode.isEmpty && scope != .national {
+            return "no home county (Chapman code) to anchor \(String(describing: scope)) scope — widen to National or set the subject's county"
+        }
+        return nil
+    }
+
     /// Walk the strictness ladder for one source at ONE scope. For
     /// non-`.all` modes, stops at the first tier that returns non-empty
     /// results; broadens past an empty tier only when its emptiness is
@@ -286,7 +303,28 @@ struct SearchDispatcher {
         negativeCache: NegativeSearchCache
     ) async -> (records: [SourceRecord], outcomes: [SearchOutcomeEntry]) {
         let baseQueries = buildQueries(source: source, subject: subject, recordType: recordType, scope: scope)
-        guard !baseQueries.isEmpty else { return ([], []) }
+        guard !baseQueries.isEmpty else {
+            // SOURCE_WEIGHTING Change 2 — a scoped source that builds zero
+            // queries is a SKIP, not silence. Record one synthetic outcome
+            // (and a feed event) so the searched-surface distinguishes
+            // "skipped: reason" from "never searched" and "searched,
+            // empty". Non-scoped sources with no queries (e.g. CWGC
+            // ineligible subject) stay silent as before — their emptiness
+            // is an eligibility rule, not a scope decision.
+            if let reason = Self.scopeSkipReason(source: source, subject: subject, scope: scope) {
+                await ResearchActivityBus.shared.publish(
+                    .sourceSkipped(sourceID: source.sourceID, reason: reason)
+                )
+                return ([], [SearchOutcomeEntry(
+                    sourceID: source.sourceID,
+                    recordType: recordType,
+                    strictness: ladder.first ?? .strict,
+                    queryKey: "scope-skip|\(source.sourceID)|\(recordType.rawValue)|\(String(describing: scope))",
+                    outcome: .scopeSkip(reason: reason)
+                )])
+            }
+            return ([], [])
+        }
 
         var accumulated: [SourceRecord] = []
         var outcomes: [SearchOutcomeEntry] = []
@@ -846,8 +884,8 @@ struct SearchDispatcher {
             //   FreeCenSource's guard rejects as `.outsideCoverage` — the
             //   contract-correct outcome (an anchor-less subject cannot
             //   honour a bounded scope; widening would exceed the user's
-            //   bound), reached wastefully. SOURCE_WEIGHTING_SPEC's
-            //   FreeCEN change short-circuits this at the dispatcher.
+            //   bound). Change 2 short-circuits it in this branch: zero
+            //   axes, and walkLadder records the visible scope-skip.
             let home = subject.homeChapmanCode
             // Exactly one axis per query. residenceCodes carries a BATCH
             // (FT-25/FT-28) — a single code stays a one-element array, so
@@ -857,13 +895,18 @@ struct SearchDispatcher {
             let cenGeoAxes: [(residenceCodes: [String], birth: String?)]
             switch scope {
             case .parish, .district, .county:
-                cenGeoAxes = [([home], nil)]
+                // Change 2 — an anchor-less subject has no residence code
+                // to scope by: build nothing; walkLadder records the
+                // visible scope-skip.
+                cenGeoAxes = home.isEmpty ? [] : [([home], nil)]
             case .adjacent:
                 if home.isEmpty {
-                    // FT-28 — batch the residence fan-out into conservative
-                    // groups when enabled; otherwise one code per query.
-                    let codes = [home] + RegionConfig.adjacentCounties(home)
-                    cenGeoAxes = Self.freeCenResidenceGroups(codes).map { ($0, nil) }
+                    // Change 2 — the old "fallback residence fan-out" here
+                    // built [""] + neighbours("") = one dead empty-code
+                    // query the source refused as outsideCoverage.
+                    // Adjacent-of-nothing is unanswerable: build nothing;
+                    // walkLadder records the visible scope-skip.
+                    cenGeoAxes = []
                 } else {
                     cenGeoAxes = [([], home)]
                 }
@@ -931,7 +974,12 @@ struct SearchDispatcher {
             // query. A single-code group is passed as the scalar
             // `chapmanCode` (byte-identical wire + cache key to pre-FT-25);
             // a multi-code group becomes the `chapmanCodes` batch.
-            let regCodeGroups = Self.freeREGChapmanGroups(regChapmanCodes)
+            // Change 2 — drop empty codes (anchor-less subject): a [""]
+            // axis was a dead query the source refused as outsideCoverage.
+            // Zero usable codes → zero queries → walkLadder records the
+            // visible scope-skip.
+            let usableRegCodes = regChapmanCodes.filter { !$0.isEmpty }
+            let regCodeGroups = Self.freeREGChapmanGroups(usableRegCodes)
             // FreeREG splits by register type; recordType drives this on the source side.
             let regSurnames = subject.surnamesToProbe(for: recordType)
             return regSurnames.flatMap { surnameToTry in

@@ -176,6 +176,107 @@ struct ScopeContractTests {
     }
 }
 
+/// SOURCE_WEIGHTING_SPEC Change 2 — visible skips. An anchor-less subject
+/// at a bounded scope (or FreeBMD at parish) must produce ZERO dead queries
+/// and ONE synthetic `.skipped` outcome per (source, recordType) — never
+/// silence, never an error, never a persistable negative.
+@MainActor
+struct ScopeSkipVisibilityTests {
+
+    private func makeDispatcher(sources: [any RecordSource]) -> SearchDispatcher {
+        let registry = SourceRegistry()
+        for source in sources { registry.register(source) }
+        return SearchDispatcher(registry: registry)
+    }
+
+    private func makeSubject(homeChapmanCode: String) -> ResearchSubject {
+        ResearchSubject(
+            profileID: nil, surname: "Cauldwell", givenName: "Robert",
+            birthYearFrom: 1880, birthYearTo: 1880,
+            deathYearFrom: nil, deathYearTo: nil,
+            gender: .male, region: nil, mode: .extend,
+            familyContext: nil, homeChapmanCode: homeChapmanCode
+        )
+    }
+
+    @Test func skipOutcomeIsNeitherConclusiveNorPersistableNegative() {
+        let outcome = SearchOutcome.scopeSkip(reason: "no anchor")
+        #expect(!outcome.isConclusive)
+        #expect(!outcome.isCleanNegative)
+        let entry = SearchOutcomeEntry(
+            sourceID: "freebmd", recordType: .birth, strictness: .strict,
+            queryKey: "scope-skip|freebmd|birth|county", outcome: outcome)
+        #expect(NegativeSearchAggregator.genuineNegatives(outcomes: [entry], scoredRecords: []).isEmpty,
+                "a skip must never persist as negative evidence")
+    }
+
+    @Test func skipReasonsFollowTheContract() {
+        let anchored = makeSubject(homeChapmanCode: "DBY")
+        let anchorless = makeSubject(homeChapmanCode: "")
+        // FreeBMD parish: deliberate no-endpoint skip, even when anchored.
+        #expect(SearchDispatcher.scopeSkipReason(source: FreeBMDSource(), subject: anchored, scope: .parish) != nil)
+        // Anchor-less at bounded scopes → skip; national never skips.
+        for source in [FreeBMDSource() as any RecordSource, FreeCenSource(), FreeREGSource()] {
+            #expect(SearchDispatcher.scopeSkipReason(source: source, subject: anchorless, scope: .county) != nil,
+                    "\(source.sourceID) must skip an anchor-less subject at county scope")
+            #expect(SearchDispatcher.scopeSkipReason(source: source, subject: anchorless, scope: .adjacent) != nil)
+            #expect(SearchDispatcher.scopeSkipReason(source: source, subject: anchorless, scope: .national) == nil,
+                    "national scope needs no anchor")
+        }
+        // Anchored subjects at workable scopes never skip.
+        #expect(SearchDispatcher.scopeSkipReason(source: FreeBMDSource(), subject: anchored, scope: .county) == nil)
+        // Non-scoped sources are never scope-skipped.
+        #expect(SearchDispatcher.scopeSkipReason(source: CWGCSource(), subject: anchorless, scope: .county) == nil)
+    }
+
+    @Test func anchorlessSubjectBuildsZeroDeadQueriesBelowNational() {
+        let dispatcher = makeDispatcher(sources: [FreeBMDSource(), FreeCenSource(), FreeREGSource()])
+        let anchorless = makeSubject(homeChapmanCode: "")
+        let cases: [(any RecordSource, RecordType)] = [
+            (FreeBMDSource(), .birth), (FreeCenSource(), .census), (FreeREGSource(), .parish),
+        ]
+        for (source, recordType) in cases {
+            for scope in [ResearchScope.parish, .district, .county, .adjacent] {
+                let queries = dispatcher.buildQueriesForTest(
+                    source: source, subject: anchorless, recordType: recordType, scope: scope)
+                #expect(queries.isEmpty,
+                        "\(source.sourceID) at \(scope) with no anchor built \(queries.count) dead queries")
+            }
+            // National still fans out for census/parish sweeps; FreeBMD
+            // national is its one all-districts query.
+            let national = dispatcher.buildQueriesForTest(
+                source: source, subject: anchorless, recordType: recordType, scope: .national)
+            #expect(!national.isEmpty, "\(source.sourceID) national must still work without an anchor")
+        }
+    }
+
+    @Test func dispatchEmitsVisibleSkipEntriesWithoutTouchingTheWire() async {
+        // Registry contains ONLY FreeBMD; parish scope → zero queries →
+        // one skip entry, no HTTP possible (nothing was built to send).
+        let dispatcher = makeDispatcher(sources: [FreeBMDSource()])
+        let anchored = makeSubject(homeChapmanCode: "DBY")
+        let (records, outcomes) = await dispatcher.dispatchWithOutcomes(
+            subject: anchored, recordTypes: [.birth], scope: .parish)
+        #expect(records.isEmpty)
+        let skips = outcomes.filter {
+            if case .skipped = $0.outcome.availability { return true } else { return false }
+        }
+        #expect(skips.count == 1, "expected exactly one visible skip entry, got \(outcomes.count) outcomes")
+        #expect(skips.first?.sourceID == "freebmd")
+    }
+
+    @Test func skipNeverTriggersScopeEscalation() {
+        let entry = SearchOutcomeEntry(
+            sourceID: "freebmd", recordType: .birth, strictness: .strict,
+            queryKey: "scope-skip|freebmd|birth|county",
+            outcome: .scopeSkip(reason: "no anchor"))
+        #expect(!SearchDispatcher.shouldEscalateScope(
+            source: FreeBMDSource(), scope: .county, mode: .extend,
+            records: [], outcomes: [entry]),
+            "a skip is not a conclusive clean-empty — FT-04 must not fire national from it")
+    }
+}
+
 /// Test double: declares `.scoped` but the dispatcher has no branch for it.
 private struct ScopedImpostorSource: RecordSource {
     nonisolated let sourceID = "scoped-impostor"

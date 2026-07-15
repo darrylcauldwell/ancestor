@@ -77,6 +77,17 @@ actor DispatchLogCollector {
             break  // not source-scoped, not useful for dispatch analysis
         case .scorerAttrition:
             break  // aggregate stat, separate concern from dispatch log
+        case .sourceSkipped(let sourceID, let reason):
+            // Source-scoped and diagnostic — explains a coverage gap
+            // (SOURCE_WEIGHTING Change 2). Error-kind so it survives the
+            // cap, like budget exhaustion.
+            collected.append(Entry(
+                sourceID: sourceID,
+                kind: .error,
+                summary: "\(sourceID) skipped",
+                resultCount: nil,
+                errorReason: "scope_skip; \(reason)"
+            ))
         case .dailyBudgetExhausted(let sourceID, let resumeAt):
             // Source-scoped and diagnostic: it explains why a source stopped
             // producing results mid-run. Log as an error-kind entry so it

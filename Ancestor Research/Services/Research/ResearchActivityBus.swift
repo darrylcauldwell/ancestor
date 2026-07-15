@@ -26,6 +26,12 @@ nonisolated enum ResearchActivityEvent: Sendable {
     /// a hard "come back tomorrow".
     case dailyBudgetExhausted(sourceID: String, resumeAt: Date)
 
+    /// The dispatcher skipped a scoped source entirely for this run's
+    /// (subject, scope) — e.g. anchor-less subject at a bounded scope
+    /// (SOURCE_WEIGHTING Change 2). Informational, not an error: explains
+    /// a coverage gap that would otherwise read as "source never ran".
+    case sourceSkipped(sourceID: String, reason: String)
+
     /// Strictness tier this event was issued at. `.strict` for pipeline-stage
     /// events. Activity feed labels broadened tiers ("Cauldwell — phonetic")
     /// so the user can tell when the dispatcher has escalated.
@@ -37,6 +43,7 @@ nonisolated enum ResearchActivityEvent: Sendable {
         case .pipelineStage:                       return .strict
         case .scorerAttrition:                     return .strict
         case .dailyBudgetExhausted:                return .strict
+        case .sourceSkipped:                       return .strict
         }
     }
 
@@ -65,6 +72,8 @@ nonisolated enum ResearchActivityEvent: Sendable {
             fmt.dateStyle = .none
             fmt.timeStyle = .short
             return "\(sourceID) — daily budget spent, resuming \(fmt.string(from: resumeAt))"
+        case .sourceSkipped(let sourceID, let reason):
+            return "\(sourceID) — skipped: \(reason)"
         }
     }
 }

@@ -990,6 +990,13 @@ public nonisolated enum SearchAvailability: Sendable, Equatable {
     case blocked(reason: String)
     /// The source needs credentials it doesn't have. Emptiness is meaningless.
     case requiresAuth
+    /// The DISPATCHER decided not to search this (source, scope) at all —
+    /// e.g. an anchor-less subject at a geographically bounded scope, or a
+    /// source with no endpoint at this granularity (SOURCE_WEIGHTING
+    /// Change 2). Nothing failed and nothing was searched: not conclusive,
+    /// never a negative. The reason is the honesty copy for the
+    /// searched-surface.
+    case skipped(reason: String)
 }
 
 /// Per-(source, query) search outcome — the honesty envelope.
@@ -1058,6 +1065,15 @@ public nonisolated struct SearchOutcome: Sendable, Equatable {
             suppressed: true,
             suppressionReason: reason
         )
+    }
+
+    /// A synthetic outcome for a (source, scope) pairing the dispatcher
+    /// skipped BEFORE building any queries (SOURCE_WEIGHTING Change 2).
+    /// Availability `.skipped` keeps it out of GPS criterion 1
+    /// (`isConclusive == false`), out of negative persistence
+    /// (`isCleanNegative == false`), and out of ladder broadening.
+    public static func scopeSkip(reason: String) -> SearchOutcome {
+        SearchOutcome(resultCount: 0, availability: .skipped(reason: reason))
     }
 
     /// True when this outcome's record set can be trusted as the source's
