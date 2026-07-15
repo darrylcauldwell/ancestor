@@ -35,6 +35,18 @@ This section reads as the build sequence — top to bottom is the intended order
 ### Stage 2 — after the core is solid
 
 - **Kinship primitives** (`KINSHIP_SPEC.md`; disposition in `adr/ADR-007`) — `find_spouses`, `discover_kin`, `verify_relationship`; decided 2026-07-11: out of the core push, first item after it; requires a Swift-first respec before any build (#Change9 wholesale-port plan dissolved).
+- **Free-text hunches → targeted probes (§5.15 extension)** (surfaced 2026-07-15, Harry
+  Marshall: "died in a mining accident as an electrician not long after daughter Margaret
+  was born" — textbook death-circumstances knowledge with no way in; Add-a-Hunch speaks
+  parents only). Design: a free-text hunch field on Add-a-Hunch; the LOCAL MLX model
+  extracts STRUCTURED directives (death window relative to a named child's birth,
+  place/occupation discriminators, event kind) into `user_hypothesis_seeds` through the
+  existing doctrine — a hunch is a search directive, never data; extraction output is
+  staged, human-visible, and drives probes via the same watcher/materialise path as parent
+  hunches. Deterministic fallback: a structured form (event kind + window + place) works
+  with no model loaded. Gate: extraction never writes tree data (firewall posture
+  unchanged); a Harry-class fixture proving the child-birth-anchored death window reaches
+  the dispatcher's year axes.
 - **Clustering over-split repair** (surfaced 2026-07-15, Barbara Ayre triage: a consistent
   Northumberland namesake shattered into per-record singleton clusters). Two engine defects,
   both fixes must preserve the over-split-not-over-merge invariant and need their own mini-spec
