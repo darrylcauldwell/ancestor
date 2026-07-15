@@ -5,7 +5,11 @@
 surfaced a granularity flood — 2,558 Correction rows from haystack profiles' lead-only
 clusters — fixed in `8ce1514`: lead-only clusters roll up to one row per profile (drill-down
 = the per-profile review); evidence-backed tiers stay itemized; profile-level disputes no
-longer escalate fact-less clusters. Remaining: Darryl re-verifies the rolled-up view.
+longer escalate fact-less clusters. Verified live (Barbara Ayre d.1981 death+burial applied
+from the reconstructed review). Follow-ups from that session: `9f6a925` campaign counts
+shrink as records are adjudicated (saved_as_lead/discarded drop out); `12fe068` Discarded
+bin with Restore in ClusterReviewView + fix for three prior-session-discard resurrection
+bugs (applyCluster/acceptCluster status clobber, incomplete reset).
 **Owner decision (Darryl):** "we should be looking to persistently store the evidence chain
 and not only do in memory… fold show convergence level + open-conflict state per finding
 into the BulkReviewView design."
