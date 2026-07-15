@@ -72,10 +72,13 @@ open disputes via the conflict layer). Absorbed fields then feed the Sourcing re
 
 ## Changes
 
-**Change 1 — census birthplace → birth-location (S).** When a census/other record carries a
-birthplace and the profile's birth location is empty (or vaguer), propose it as the
-birth-location update. Unblocks Abraham (Alport), closes the anchor loop: discovered
-birthplace becomes the anchor that promotes the subject's own records to Confirmed.
+**Change 1 — census birthplace → birth-location (S). SHIPPED 2026-07-15 (`40b106b`).**
+`ApplyEngine.applyFactToSubject` now handles `.census` instead of falling through: the
+birthplace routes to `birthLocation` through the existing directional string-overwrite policy
+(fills empty, upgrades lower-tier, never clobbers precise, disputes on clash), county-composed
+by `censusBirthLocation` so a bare "Alport" becomes the anchor-able "Alport, Derbyshire".
+Closes the anchor loop: the discovered birthplace becomes the anchor that promotes the
+subject's own records from anchorless National to Confirmed. Unblocks Abraham (Alport).
 
 **Change 2 — census occupation → `.occupation` event; address → `.residence` event (M).**
 Darryl's "nuggets" point. A census fans out into typed occupation/residence events (dated to
