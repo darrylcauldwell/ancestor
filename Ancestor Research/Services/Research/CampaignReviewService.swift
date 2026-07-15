@@ -97,6 +97,29 @@ enum CampaignReviewService {
         )
     }
 
+    // MARK: - Convergence badge matching
+
+    /// The strongest PERSISTED convergence level among the fact values this
+    /// cluster asserts — the per-finding badge datum (CAMPAIGN_REVIEW_SPEC
+    /// Change 6). Matches the cluster's fact-verdict records' value keys
+    /// (ConvergenceEngine.valueKey) against the profile's persisted
+    /// evidence_convergence rows. nil when the cluster asserts no
+    /// fact-verdict value or nothing persisted matches.
+    nonisolated static func convergenceLevel(
+        for cluster: LifeCluster,
+        persisted: [ProjectDatabase.EvidenceConvergenceRow]
+    ) -> ConvergenceLevel? {
+        let clusterKeys = Set(
+            cluster.records
+                .filter { $0.verdict == .fact }
+                .map { ConvergenceEngine.valueKey(for: $0.record) }
+        )
+        return persisted
+            .filter { clusterKeys.contains($0.valueKey) }
+            .map(\.level)
+            .max()
+    }
+
     // MARK: - Campaign enumeration
 
     /// One profile's campaign outcome — what a run window attempted.

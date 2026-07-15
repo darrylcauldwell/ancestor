@@ -1,123 +1,205 @@
 import SwiftUI
 
-/// Bulk review UI for whole-tree research results.
-/// Sorts findings by friction tier: conflicts first, then corrections,
-/// then confirmations, then refinements. Allows batch operations.
+/// DB-backed bulk review of campaign findings (CAMPAIGN_REVIEW_SPEC
+/// Change 6). Rebuilt from the unwired prototype: fed by
+/// `CampaignReviewService` reconstruction over PERSISTED state (an overnight
+/// watcher campaign, a whole-tree run, any past runs) instead of an
+/// in-memory `[String: ResearchResult]` nothing ever constructed.
+///
+/// Per finding: friction tier (kept, tested `FrictionTier.route` seam),
+/// the PERSISTED convergence level of the fact values the cluster asserts,
+/// and the profile's open-dispute state — scoped per profile via
+/// `openDisputes(profileID:)`, not the old project-wide count that flipped
+/// every finding to .conflict at once. Campaign-window leads appear as their
+/// own reviewable section (Promote/Dismiss — trustworthy after Change 1).
+/// The Review drill-down hydrates the existing per-profile ClusterReviewView
+/// through the owner-supplied callback (the VM quartet is set by
+/// ResearchView, which owns the VM).
 struct BulkReviewView: View {
     @Environment(AppState.self) private var appState
-    let results: [String: ResearchResult]  // profileID → result
+    @Bindable var vm: ResearchViewModel
+    let onOpenProfileReview: (Profile, ResearchResult) -> Void
+    let onDone: () -> Void
+
+    @State private var isLoading = true
+    @State private var windowStart: Date = .distantPast
+    @State private var findings: [CampaignFinding] = []
+    @State private var campaignLeads: [CampaignLeadRow] = []
+    @State private var failedEntries: [CampaignReviewService.CampaignEntry] = []
     @State private var filterTier: FrictionTier?
-    /// CL3 — subject-level open-dispute signal feeding the .conflict tier.
-    @State private var openDisputeCount = 0
     @State private var processedCount = 0
+    @State private var showAcceptAllConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
-            // Summary bar
-            HStack(spacing: 16) {
-                Text("Bulk Review")
-                    .font(AppTypography.popoverTitle)
-
-                Spacer()
-
-                ForEach(FrictionTier.allCases, id: \.self) { tier in
-                    let count = findings(for: tier).count
-                    if count > 0 {
-                        frictionBadge(tier, count: count)
-                    }
-                }
-
-                Text("\(processedCount) processed")
-                    .font(AppTypography.cardMeta)
-                    .foregroundStyle(.secondary)
-            }
-            .padding()
+            header
             Divider()
-
-            // Findings list sorted by friction
-            let items = sortedFindings
-            if items.isEmpty {
+            if isLoading {
+                ProgressView("Reconstructing campaign findings…")
+                    .frame(maxHeight: .infinity)
+            } else if findings.isEmpty && campaignLeads.isEmpty && failedEntries.isEmpty {
                 ContentUnavailableView {
                     Label("All Clear", systemImage: "checkmark.circle")
                 } description: {
-                    Text("No findings to review.")
+                    Text("No campaign findings since \(windowStart.formatted(date: .abbreviated, time: .shortened)).")
                 }
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(items, id: \.id) { finding in
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        let visible = visibleFindings
+                        ForEach(visible) { finding in
                             findingCard(finding)
+                        }
+                        if !campaignLeads.isEmpty && filterTier == nil {
+                            leadsSection
+                        }
+                        if !failedEntries.isEmpty && filterTier == nil {
+                            failuresSection
                         }
                     }
                     .padding()
                 }
             }
         }
+        .task { await load() }
     }
 
-    // MARK: - Friction Sorting
+    // MARK: - Header
 
-    private var sortedFindings: [BulkFinding] {
-        var all: [BulkFinding] = []
+    private var header: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Campaign Review")
+                    .font(AppTypography.popoverTitle)
+                Text("Findings since \(windowStart.formatted(date: .abbreviated, time: .shortened))")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+            }
 
-        for (profileID, result) in results {
-            let profile = appState.snapshot.profiles[profileID]
-            let profileName = profile?.displayName ?? profileID
+            Spacer()
+
+            ForEach(FrictionTier.allCases, id: \.self) { tier in
+                let count = findings.filter { $0.tier == tier }.count
+                if count > 0 {
+                    frictionBadge(tier, count: count)
+                }
+            }
+
+            if processedCount > 0 {
+                Text("\(processedCount) processed")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+            }
+
+            let confirmations = findings.filter { $0.tier == .confirmation }
+            if !confirmations.isEmpty {
+                Button("Accept \(confirmations.count) confirmations") {
+                    showAcceptAllConfirmation = true
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                .confirmationDialog(
+                    "Apply \(confirmations.count) single-record confirmed clusters?",
+                    isPresented: $showAcceptAllConfirmation
+                ) {
+                    Button("Apply all") { acceptAllConfirmations() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Each writes its record's facts to the profile with citations (fill-empty-fields overwrite policy). Conflicts and corrections stay for individual review.")
+                }
+            }
+
+            Button("Mark reviewed") {
+                try? appState.currentDatabase?.setCampaignReviewHighWater(Date())
+                onDone()
+            }
+            .buttonStyle(.glass)
+            .controlSize(.small)
+            .help("Sets the review watermark to now — the next Campaign Review starts from this point.")
+
+            Button("Done") { onDone() }
+                .buttonStyle(.glassProminent)
+                .controlSize(.small)
+        }
+        .padding()
+    }
+
+    // MARK: - Loading
+
+    private var visibleFindings: [CampaignFinding] {
+        let base = filterTier.map { tier in findings.filter { $0.tier == tier } } ?? findings
+        return base.sorted {
+            if $0.tier.sortOrder != $1.tier.sortOrder { return $0.tier.sortOrder < $1.tier.sortOrder }
+            return $0.profileName < $1.profileName
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        defer { isLoading = false }
+        guard let db = appState.currentDatabase else { return }
+
+        // Window: the persisted watermark, else the last 7 days — wide
+        // enough to cover an overnight campaign without sweeping all of
+        // history on first open.
+        windowStart = (try? db.campaignReviewHighWater()).flatMap { $0 }
+            ?? Date().addingTimeInterval(-7 * 24 * 3600)
+
+        let entries = CampaignReviewService.campaignEntries(since: windowStart, db: db)
+        failedEntries = entries.filter { $0.failed > 0 && $0.completed == 0 }
+
+        var newFindings: [CampaignFinding] = []
+        var newLeads: [CampaignLeadRow] = []
+
+        for entry in entries {
+            guard let profile = appState.snapshot.profiles[entry.profileID] else { continue }
+            guard let result = CampaignReviewService.reconstructResult(
+                profileID: entry.profileID, db: db, snapshot: appState.snapshot) else { continue }
+
+            let persisted = (try? db.loadEvidenceConvergence(profileID: entry.profileID)) ?? []
+            // Per-profile conflict scope (NOT the old project-wide count).
+            let openDisputeCount = (try? db.openDisputes(profileID: entry.profileID).count) ?? 0
 
             for cluster in result.clusters {
-                let tier = frictionTier(for: cluster)
-                if let filter = filterTier, tier != filter { continue }
-
-                all.append(BulkFinding(
-                    id: cluster.id,
-                    profileID: profileID,
-                    profileName: profileName,
+                let tier = FrictionTier.route(
+                    hasImpossible: cluster.records.contains { $0.verdict == .impossible },
+                    hasFacts: cluster.records.contains { $0.verdict == .fact },
+                    recordCount: cluster.records.count,
+                    hasConflictSignal: openDisputeCount > 0
+                )
+                newFindings.append(CampaignFinding(
+                    id: "\(entry.profileID)|\(cluster.id)",
+                    profileID: entry.profileID,
+                    profileName: profile.displayName,
                     tier: tier,
-                    summary: "\(cluster.displayName) — \(cluster.records.count) records, \(tier.rawValue)",
-                    cluster: cluster
+                    summary: "\(cluster.displayName) — \(cluster.records.count) records",
+                    convergence: CampaignReviewService.convergenceLevel(for: cluster, persisted: persisted),
+                    openDisputeCount: openDisputeCount,
+                    cluster: cluster,
+                    profile: profile,
+                    result: result
                 ))
             }
+
+            let leads = ((try? db.loadLeads(profileID: entry.profileID)) ?? [])
+                .filter { $0.createdAt >= windowStart && ($0.status == .new || $0.status == .investigated) }
+            newLeads.append(contentsOf: leads.map {
+                CampaignLeadRow(lead: $0, profileName: profile.displayName)
+            })
         }
 
-        // Sort: conflicts first, then corrections, confirmations, refinements
-        return all.sorted { $0.tier.sortOrder < $1.tier.sortOrder }
+        findings = newFindings
+        campaignLeads = newLeads
     }
 
-    private func findings(for tier: FrictionTier) -> [BulkFinding] {
-        sortedFindings.filter { $0.tier == tier }
-    }
+    // MARK: - Finding card
 
-    private func frictionTier(for cluster: LifeCluster) -> FrictionTier {
-        // RESEARCH_CONFIDENCE_SPEC §4 — routing now reads off the three-axis
-        // signals directly rather than the legacy ClusterConfidence enum.
-        // The mapping preserves the prior intent:
-        //   conflict      — at least one .impossible verdict in the cluster
-        //                    (records that fail name/date hard checks signal
-        //                     contradictions or wrong-person hits)
-        //   correction    — no .fact records at all (cluster is just leads;
-        //                    the user needs to verify or supply data)
-        //   confirmation  — single-record cluster (sourcing is uncorroborated;
-        //                    asking the user to double-check is friction-light)
-        //   refinement    — otherwise (multi-record, has facts, no conflicts)
-        FrictionTier.route(
-            hasImpossible: cluster.records.contains { $0.verdict == .impossible },
-            hasFacts: cluster.records.contains { $0.verdict == .fact },
-            recordCount: cluster.records.count,
-            // CL3 (DS-14): the .conflict tier keys off the same predicate
-            // as GPS criterion 4 — an open dispute on the subject makes
-            // every finding here conflict-grade friction.
-            hasConflictSignal: openDisputeCount > 0
-        )
-    }
-
-    // MARK: - Card
-
-    private func findingCard(_ finding: BulkFinding) -> some View {
+    private func findingCard(_ finding: CampaignFinding) -> some View {
         HStack(spacing: 10) {
             frictionIcon(finding.tier)
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack {
+                HStack(spacing: 6) {
                     Text(finding.profileName)
                         .font(AppTypography.cardTitle)
                     Text(finding.tier.rawValue)
@@ -131,21 +213,161 @@ struct BulkReviewView: View {
 
             Spacer()
 
-            Button("Review") {
-                appState.researchProfileID = finding.profileID
+            // Persisted evidence-chain strength for the values this cluster
+            // asserts (Change 3's table, surfaced).
+            if let convergence = finding.convergence {
+                convergenceBadge(convergence)
             }
-            .buttonStyle(.glass)
+
+            // Per-profile open-conflict state — the finding's profile has
+            // unresolved disputes the CL ladder couldn't rule on.
+            if finding.openDisputeCount > 0 {
+                HStack(spacing: 3) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text("\(finding.openDisputeCount) open")
+                        .font(.caption2.weight(.semibold))
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.red.opacity(0.15))
+                .foregroundStyle(.red)
+                .clipShape(.capsule)
+                .help("Open disputes on this profile — resolve in the per-profile review.")
+            }
+
+            Button("Review") {
+                processedCount += 1
+                onOpenProfileReview(finding.profile, finding.result)
+            }
+            .buttonStyle(.glassProminent)
             .controlSize(.small)
-        }
-        .task {
-            // CL3 — open-dispute signal (same predicate family as GPS
-            // criterion 4). BulkReview is a whole-tree surface, so the
-            // signal is the project-wide open count.
-            openDisputeCount = (try? appState.currentDatabase?.openDisputeCount()) ?? 0
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
     }
+
+    private func convergenceBadge(_ level: ConvergenceLevel) -> some View {
+        let (label, color): (String, Color) = switch level {
+        case .confirmed:      ("3+ independent", .green)
+        case .probable:       ("2 independent", .green)
+        case .possible:       ("2 sources", .blue)
+        case .singleSource:   ("single source", .secondary)
+        case .uncorroborated: ("uncorroborated", .secondary)
+        }
+        return HStack(spacing: 3) {
+            Image(systemName: "link")
+                .font(.system(size: 9, weight: .semibold))
+            Text(label)
+                .font(.caption2.weight(.semibold))
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(color.opacity(0.15))
+        .foregroundStyle(color)
+        .clipShape(.capsule)
+        .help("Persisted evidence-chain strength for this cluster's confirmed values.")
+    }
+
+    // MARK: - Leads section
+
+    private var leadsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("New leads this campaign")
+                .font(AppTypography.cardTitle)
+                .padding(.top, 8)
+            ForEach(campaignLeads) { row in
+                HStack(spacing: 10) {
+                    Image(systemName: "signpost.right")
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(row.lead.name)  ·  for \(row.profileName)")
+                            .font(AppTypography.cardBody)
+                        Text(row.lead.evidence)
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    Spacer()
+                    Button("Promote") { promote(row) }
+                        .buttonStyle(.glass)
+                        .controlSize(.small)
+                    Button("Dismiss") { dismiss(row) }
+                        .buttonStyle(.glass)
+                        .controlSize(.small)
+                }
+                .padding(10)
+                .glassEffect(.regular, in: .rect(cornerRadius: 10))
+            }
+        }
+    }
+
+    private var failuresSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Campaign skipped / failed")
+                .font(AppTypography.cardTitle)
+                .padding(.top, 8)
+            ForEach(failedEntries) { entry in
+                HStack(spacing: 10) {
+                    Image(systemName: "xmark.octagon")
+                        .foregroundStyle(.red)
+                    Text(appState.snapshot.profiles[entry.profileID]?.displayName ?? entry.profileID)
+                        .font(AppTypography.cardBody)
+                    Text(entry.lastError ?? "failed")
+                        .font(AppTypography.cardMeta)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                }
+                .padding(10)
+                .glassEffect(.regular, in: .rect(cornerRadius: 10))
+            }
+        }
+    }
+
+    // MARK: - Actions
+
+    private func acceptAllConfirmations() {
+        // Confirmation tier = single-record clusters whose record is a
+        // sandwich .fact — the friction model's batch-review grade. Hydrate
+        // the VM per profile and reuse the canonical apply path.
+        let confirmations = findings.filter { $0.tier == .confirmation }
+        for finding in confirmations {
+            vm.appDatabase = appState.currentDatabase
+            vm.selectedProfile = finding.profile
+            vm.currentResult = finding.result
+            vm.applyCluster(finding.cluster, into: appState)
+            processedCount += 1
+        }
+        findings.removeAll { finding in confirmations.contains { $0.id == finding.id } }
+        vm.reset()
+    }
+
+    private func promote(_ row: CampaignLeadRow) {
+        guard let db = appState.currentDatabase else { return }
+        guard (try? db.promoteLeadToProfile(row.lead)) != nil else { return }
+        if let snap = try? db.buildSnapshot() { appState.snapshot = snap }
+        campaignLeads.removeAll { $0.id == row.id }
+        processedCount += 1
+    }
+
+    private func dismiss(_ row: CampaignLeadRow) {
+        guard let db = appState.currentDatabase else { return }
+        let dismissed = Lead(
+            id: row.lead.id, profileID: row.lead.profileID,
+            name: row.lead.name, surname: row.lead.surname, givenName: row.lead.givenName,
+            birthYear: row.lead.birthYear, deathYear: row.lead.deathYear,
+            relationship: row.lead.relationship, source: row.lead.source,
+            status: .dismissed, evidence: row.lead.evidence,
+            createdAt: row.lead.createdAt, investigatedAt: row.lead.investigatedAt,
+            resolvedAt: Date(), resolution: .dismissed
+        )
+        try? db.upsertLead(dismissed)
+        campaignLeads.removeAll { $0.id == row.id }
+        processedCount += 1
+    }
+
+    // MARK: - Badges
 
     private func frictionBadge(_ tier: FrictionTier, count: Int) -> some View {
         HStack(spacing: 4) {
@@ -178,6 +400,27 @@ struct BulkReviewView: View {
                 .foregroundStyle(.green)
         }
     }
+}
+
+// MARK: - Row types
+
+private struct CampaignFinding: Identifiable {
+    let id: String
+    let profileID: String
+    let profileName: String
+    let tier: FrictionTier
+    let summary: String
+    let convergence: ConvergenceLevel?
+    let openDisputeCount: Int
+    let cluster: LifeCluster
+    let profile: Profile
+    let result: ResearchResult
+}
+
+private struct CampaignLeadRow: Identifiable {
+    var id: String { lead.id }
+    let lead: Lead
+    let profileName: String
 }
 
 // MARK: - Types
@@ -239,13 +482,4 @@ nonisolated enum FrictionTier: String, CaseIterable, Sendable {
         case .refinement: .autoStage
         }
     }
-}
-
-private struct BulkFinding {
-    let id: String
-    let profileID: String
-    let profileName: String
-    let tier: FrictionTier
-    let summary: String
-    let cluster: LifeCluster
 }

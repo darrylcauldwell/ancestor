@@ -142,6 +142,66 @@ struct CampaignReviewServiceTests {
     }
 }
 
+/// CAMPAIGN_REVIEW_SPEC Change 6 — per-finding badge data.
+@MainActor
+struct CampaignReviewBadgeTests {
+
+    private func makeTempDB() throws -> ProjectDatabase {
+        let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
+        return try ProjectDatabase(path: path)
+    }
+
+    @Test func watermarkRoundTrips() throws {
+        let db = try makeTempDB()
+        // Seed the single project_meta row (real projects always have one;
+        // the watermark setter is an UPDATE on it).
+        try db.saveProjectMeta(Project(
+            id: UUID(), name: "Test", source: .manual,
+            homePersonID: nil, createdAt: Date(), lastRefreshed: nil))
+        #expect(try db.campaignReviewHighWater() == nil)
+        let mark = Date(timeIntervalSince1970: 1_780_000_000)
+        try db.setCampaignReviewHighWater(mark)
+        let loaded = try #require(try db.campaignReviewHighWater())
+        #expect(abs(loaded.timeIntervalSince(mark)) < 1)
+    }
+
+    @Test func convergenceBadgeMatchesClusterFactValuesOnly() throws {
+        // A cluster asserting death:1986 via a FACT record matches the
+        // persisted death:1986 chain; lead-verdict assertions don't.
+        let factDeath = SourceRecord.death(DeathRecord(
+            common: RecordCommon(id: "d1", sourceID: "freebmd", name: nil,
+                                 surname: "K", givenName: "G", detailURL: nil, rawFields: [:]),
+            deathYear: 1986, deathDate: nil, deathPlace: nil, age: nil,
+            quarter: nil, district: nil, volume: nil, page: nil, spouseSurname: nil))
+        let leadDeath = SourceRecord.death(DeathRecord(
+            common: RecordCommon(id: "d2", sourceID: "freebmd", name: nil,
+                                 surname: "K", givenName: "G", detailURL: nil, rawFields: [:]),
+            deathYear: 1992, deathDate: nil, deathPlace: nil, age: nil,
+            quarter: nil, district: nil, volume: nil, page: nil, spouseSurname: nil))
+        var cluster = LifeCluster(id: "cluster-0", records: [
+            ScoredRecord(id: "d1", record: factDeath, verdict: .fact, gates: [], summary: ""),
+            ScoredRecord(id: "d2", record: leadDeath, verdict: .lead, gates: [], summary: ""),
+        ], lifespanStart: 1900, lifespanEnd: 2000)
+
+        let sourcing = SourcingStrength(sourceCount: 3, independentLineageCount: 3,
+                                        topTrustTier: .primary, independentWitnessCount: 3)
+        let rows = [
+            ProjectDatabase.EvidenceConvergenceRow(
+                profileID: "@P@", valueKey: "death:1986", level: .confirmed,
+                sourcing: sourcing, recordIDs: ["d1"], updatedAt: Date()),
+            ProjectDatabase.EvidenceConvergenceRow(
+                profileID: "@P@", valueKey: "death:1992", level: .probable,
+                sourcing: sourcing, recordIDs: ["d2"], updatedAt: Date()),
+        ]
+        #expect(CampaignReviewService.convergenceLevel(for: cluster, persisted: rows) == .confirmed,
+                "only FACT-verdict assertions badge; the lead's 1992 chain must not")
+
+        // No fact records → no badge.
+        cluster.records = [ScoredRecord(id: "d2", record: leadDeath, verdict: .lead, gates: [], summary: "")]
+        #expect(CampaignReviewService.convergenceLevel(for: cluster, persisted: rows) == nil)
+    }
+}
+
 /// CAMPAIGN_REVIEW_SPEC Change 5 — the census-split year selection is now
 /// deterministic (was Dictionary.first(where:) hash order).
 struct ClusteringDeterminismTests {

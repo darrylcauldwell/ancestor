@@ -22,6 +22,25 @@ struct ResearchView: View {
         VStack(spacing: 0) {
             if let reviewID = pendingReviewProfileID, showPendingReview {
                 PendingFactsReviewView(profileID: reviewID)
+            } else if showBulkReview {
+                // CAMPAIGN_REVIEW_SPEC Change 6 — DB-backed campaign review.
+                // Drill-down hydrates the VM quartet (currentResult +
+                // selectedProfile + appDatabase; appState.currentDatabase is
+                // already live) so the existing ClusterReviewView apply path
+                // works against reconstructed results.
+                BulkReviewView(
+                    vm: researchVM,
+                    onOpenProfileReview: { profile, result in
+                        researchVM.appDatabase = appState.currentDatabase
+                        researchVM.selectedProfile = profile
+                        researchVM.currentResult = result
+                        showBulkReview = false
+                    },
+                    onDone: {
+                        showBulkReview = false
+                        reloadPendingCounts()
+                    }
+                )
             } else if wholeTreeVM.isRunning {
                 wholeTreeProgress
             } else if researchVM.isResearching {
@@ -94,6 +113,13 @@ struct ResearchView: View {
                     .frame(width: 250)
 
                 Spacer()
+
+                Button("Review Campaign") {
+                    showBulkReview = true
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                .help("Review everything recent research runs found — clusters, leads, conflicts — reconstructed from the database.")
 
                 Button("Research All") {
                     // Confirmation-gated: a whole-tree run is hours long and
@@ -300,4 +326,8 @@ struct ResearchView: View {
     // MARK: - Pending-review counts (Triage selector badges + sort)
 
     @State private var pendingCounts: [String: Int] = [:]
+
+    // MARK: - Campaign review (CAMPAIGN_REVIEW_SPEC Change 6)
+
+    @State private var showBulkReview = false
 }

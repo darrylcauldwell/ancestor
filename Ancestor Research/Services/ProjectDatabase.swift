@@ -1398,6 +1398,16 @@ nonisolated final class ProjectDatabase: Sendable {
                           on: "evidence_convergence", columns: ["profile_id"])
         }
 
+        // MARK: v46 — Campaign-review watermark
+        // CAMPAIGN_REVIEW_SPEC Change 6. "Reviewed up to" high-water mark for
+        // the bulk campaign-review surface — same pattern as
+        // conflict_sweep_high_water (v41).
+        migrator.registerMigration("v46_campaign_review_high_water") { db in
+            try db.alter(table: "project_meta") { t in
+                t.add(column: "campaign_review_high_water", .datetime)
+            }
+        }
+
         return migrator
     }
 
@@ -4049,6 +4059,21 @@ nonisolated extension ProjectDatabase {
                     completedAt: row["completed_at"] as Date?
                 )
             }
+        }
+    }
+
+    /// Campaign-review watermark — "findings reviewed up to". Mirrors
+    /// conflictSweepHighWater (CAMPAIGN_REVIEW_SPEC Change 6).
+    func campaignReviewHighWater() throws -> Date? {
+        try dbQueue.read { db in
+            try Date.fetchOne(db, sql: "SELECT campaign_review_high_water FROM project_meta LIMIT 1")
+        }
+    }
+
+    func setCampaignReviewHighWater(_ date: Date) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE project_meta SET campaign_review_high_water = ?",
+                           arguments: [date])
         }
     }
 
