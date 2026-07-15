@@ -56,6 +56,55 @@ way it records negative searches today (a stage that never fired is not a covere
 still bounds every stage; a national-scope run still stages free-before-FS but does not skip
 FS. A future per-run toggle ("FS: always / on-miss / never") is an open question below.
 
+## Implementation order (each change gated by full `xcodebuild test`)
+
+**Change 1 — Scope contract + per-source pins (M). FIRST: the regression net.**
+Every `RecordSource` declares its scope handling explicitly (e.g. `scopeHandling:`
+`.scoped` / `.inherentlyNational(reason:)` / `.localCorpus`); the dispatcher's `default:`
+branch stops silently inheriting scope-ignore — undeclared sources refuse at registration.
+One test per source pinning the exact per-scope query shape (the audit's verdict table
+becomes the fixture: FreeBMD 0/county/1/9/1, FreeREG 1/1/1/8/56 for DBY, FS current
+invariance pinned-as-is until Change 4, etc.). Resolves the ResearchScope-header vs
+dispatcher-header doc contradiction in code. [Audit findings 5, 6, 8]
+
+**Change 2 — Visible skips (S/M).** Anchor-less subject at a bounded scope → the dispatcher
+short-circuits (no dead queries) and records a per-source SKIP outcome; searched-surface
+reporting distinguishes answered / negative / skipped (also required by Change 5's miss
+test). Removes FreeCEN's degenerate adjacent fallback. [Finding 3]
+
+**Change 3 — Free-trio defects (S).** FreeREG umbrella-code expansion (YKS → ridings, like
+FreeBMD/FreeCEN); delete dead params (FreeREG `parish`/`registerType`, Wirksworth params go
+with Change 0) or implement from published docs — removal is the default. [Findings 4, 7]
+
+**Change 0 — Retire Wirksworth (S/M).** Independent; slot anywhere before Change 5 (fewer
+sources to stage). Details below.
+
+**Change 4 — FamilySearch scope participation (M).** The FS branch reads scope: place axes
+become adjacency-aware, hard place params where the FS search API supports them (verify
+against published FS search docs, not probing), and the residual invariance is disclosed in
+the searched-surface. Prerequisite for an honest Stage 4. [Findings 1, 2]
+
+**Change 5 — Staged dispatch (L). The core.** Stages 1–4 (local free → adjacent free →
+national free → FS on-miss), miss test per record type, stage progress on the activity bus,
+skipped-stage semantics in the negative cache. Gate additionally: the campaign-fixture
+comparison (acceptance 1–3) and the Kenneth/George no-regression check.
+
+**Change 6 — FreeCEN place scoping (FT-13) (M).** Behind ADR-008 resolution; published-docs
+first. Details below.
+
+**Change 7 — One research action (M/L).** Adaptive strictness ladder, gap-driven stop, Depth
+picker removed, sheet simplified. Companion section below.
+
+**Change 8 — Sourcing report (M).** Per-field corroborated/unsourced/contradicted view from
+persisted state; feeds the publisher `convergenceByProfile` slot. Companion section below.
+
+Order rationale: pin current behaviour before touching it (1), give staging the visibility
+primitives it needs (2), clear the small defects while the files are open (3, 0), make FS
+scope-honest before it becomes the final stage (4), then the restructuring (5), then the
+capability and UX changes that ride on the new dispatcher (6–8). ADR-008 gates only Change 6
+(new free-source query capability); everything else either reduces free-source traffic or
+doesn't change wire shapes.
+
 ## Change — FreeCEN place scoping (FT-13 folded in; owner decision 2026-07-15)
 
 FreeCEN currently widens `.parish`/`.district` scope to `.county` because `FreeCenParams`
