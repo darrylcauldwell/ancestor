@@ -70,7 +70,12 @@ struct ResearchProgressSheet: View {
                     .buttonStyle(.glass)
                     .keyboardShortcut(".", modifiers: .command)
                 }
-                Button(vm.isResearching ? "Close" : "Done") { onDismiss() }
+                // The dismiss hands off to Triage where the run's review
+                // renders immediately — say so (owner request 2026-07-15:
+                // 'Done' read as a dead end and sent the user hunting).
+                Button(vm.isResearching
+                       ? "Close"
+                       : (vm.currentResult != nil ? "Review results" : "Done")) { onDismiss() }
                     .buttonStyle(.glassProminent)
                     .keyboardShortcut(.defaultAction)
             }
