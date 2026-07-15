@@ -332,7 +332,10 @@ enum ResearchRunService {
                 resolvedAt: lead.resolvedAt, resolution: lead.resolution
             )
             do {
-                try db.saveLead(updated)
+                // upsertLead — saveLead (INSERT OR IGNORE) never lands this
+                // flip for a lead already in the DB, which is every lead
+                // reaching this path (CAMPAIGN_REVIEW_SPEC Change 1).
+                try db.upsertLead(updated)
                 finalisedLead = updated
             } catch {
                 failures.append(.init(what: "Update lead status", error: error))

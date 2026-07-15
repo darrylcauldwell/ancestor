@@ -1432,9 +1432,14 @@ actor MCPHandler {
             let resolutionString = wasMatched
                 ? "matched_existing_\(targetProfileID)"
                 : "promoted_to_\(targetProfileID)"
+            // 'promoted' — must be a LeadStatus rawValue. The previous
+            // 'resolved' was not one, so the in-app loaders' status guard
+            // silently DROPPED every MCP-promoted lead from every surface
+            // (CAMPAIGN_REVIEW_SPEC Change 1). The dedup audit detail
+            // (matched_existing_/promoted_to_) stays in `resolution`.
             try db.execute(sql: """
                 UPDATE leads
-                SET status = 'resolved', resolved_at = ?, resolution = ?
+                SET status = 'promoted', resolved_at = ?, resolution = ?
                 WHERE id = ?
                 """, arguments: [now, resolutionString, leadID])
 

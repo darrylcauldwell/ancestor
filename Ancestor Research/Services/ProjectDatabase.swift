@@ -3507,12 +3507,22 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// Decode a persisted lead status, mapping the legacy MCP value
+    /// 'resolved' (written by promote_lead before CAMPAIGN_REVIEW_SPEC
+    /// Change 1) to `.promoted` instead of dropping the row — those leads
+    /// were silently invisible to every in-app surface.
+    nonisolated static func leadStatus(fromRaw raw: String) -> LeadStatus? {
+        if let status = LeadStatus(rawValue: raw) { return status }
+        if raw == "resolved" { return .promoted }
+        return nil
+    }
+
     func loadLeads() throws -> [Lead] {
         try dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: "SELECT * FROM leads ORDER BY created_at DESC")
             return rows.compactMap { row -> Lead? in
                 guard let source = LeadSource(rawValue: row["source"] as String),
-                      let status = LeadStatus(rawValue: row["status"] as String) else { return nil }
+                      let status = Self.leadStatus(fromRaw: row["status"] as String) else { return nil }
                 return Lead(
                     id: row["id"],
                     profileID: row["profile_id"],
@@ -3539,7 +3549,7 @@ nonisolated extension ProjectDatabase {
             let rows = try Row.fetchAll(db, sql: "SELECT * FROM leads WHERE profile_id = ? ORDER BY created_at DESC", arguments: [profileID])
             return rows.compactMap { row -> Lead? in
                 guard let source = LeadSource(rawValue: row["source"] as String),
-                      let status = LeadStatus(rawValue: row["status"] as String) else { return nil }
+                      let status = Self.leadStatus(fromRaw: row["status"] as String) else { return nil }
                 return Lead(
                     id: row["id"], profileID: row["profile_id"],
                     name: row["name"], surname: row["surname"], givenName: row["given_name"],

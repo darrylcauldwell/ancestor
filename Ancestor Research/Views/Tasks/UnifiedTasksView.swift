@@ -813,7 +813,10 @@ private struct TaskRow: View {
             investigatedAt: lead.investigatedAt,
             resolvedAt: Date(), resolution: .dismissed
         )
-        try? db.saveLead(dismissed)
+        // upsertLead, not saveLead — saveLead is INSERT OR IGNORE and the
+        // dismissal silently no-ops for existing rows (CAMPAIGN_REVIEW_SPEC
+        // Change 1): the lead reappeared as .new on the next reload.
+        try? db.upsertLead(dismissed)
         onLeadChanged()
     }
 

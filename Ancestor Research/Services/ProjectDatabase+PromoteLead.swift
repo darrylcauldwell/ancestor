@@ -109,6 +109,10 @@ nonisolated extension ProjectDatabase {
 
         // Persist promotion on the lead itself so the Leads tab reflects
         // the resolution and the same lead doesn't reappear in the queue.
+        // MUST be upsertLead: saveLead is INSERT OR IGNORE, which silently
+        // no-ops for a row that already exists — i.e. every lead reaching
+        // this path — so the status flip never landed (CAMPAIGN_REVIEW_SPEC
+        // Change 1).
         let promoted = Lead(
             id: lead.id, profileID: lead.profileID,
             name: lead.name, surname: lead.surname, givenName: lead.givenName,
@@ -120,7 +124,7 @@ nonisolated extension ProjectDatabase {
             resolvedAt: Date(),
             resolution: .promoted
         )
-        try saveLead(promoted)
+        try upsertLead(promoted)
 
         return ghostID
     }
