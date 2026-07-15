@@ -198,7 +198,8 @@ struct MainView: View {
             ResearchConfigSheet(
                 profile: profile,
                 snapshot: appState.snapshot,
-                focus: appState.researchConfigFocus
+                focus: appState.researchConfigFocus,
+                projectHomeChapmanCode: appState.currentProject?.resolvedHomeChapmanCode ?? ""
             ) { request in
                 appState.researchConfigProfile = nil
                 appState.researchConfigFocus = nil

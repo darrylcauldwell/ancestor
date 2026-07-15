@@ -13,6 +13,16 @@ struct ResearchConfigSheet: View {
     /// …" button. The mode default flips to `.discover` when focus is
     /// non-nil. See RESEARCH_PIPELINE_SPEC §11.4.
     let focus: ResearchFocus?
+    /// Project-level home-county fallback (the last step of the
+    /// derivation chain) — needed to tell whether this subject has ANY
+    /// derivable anchor.
+    let projectHomeChapmanCode: String
+    /// True when no home county is derivable: a geographic bound relative
+    /// to a nonexistent anchor is meaningless, so the sheet defaults to
+    /// National (owner decision 2026-07-15: "I would have assumed
+    /// national") and says why. An explicitly narrowed run still gets the
+    /// visible per-source skips.
+    let isAnchorless: Bool
     let onRun: (ResearchRequest) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -27,18 +37,27 @@ struct ResearchConfigSheet: View {
         profile: Profile,
         snapshot: FamilyGraphSnapshot,
         focus: ResearchFocus? = nil,
+        projectHomeChapmanCode: String = "",
         onRun: @escaping (ResearchRequest) -> Void
     ) {
         self.profile = profile
         self.snapshot = snapshot
         self.focus = focus
+        self.projectHomeChapmanCode = projectHomeChapmanCode
         self.onRun = onRun
-        // The legacy shape-based mode heuristic survives ONLY as the
-        // scope seed: sparse/focused subjects default wider.
-        let seedMode: ResearchMode = focus == nil
-            ? Self.defaultMode(for: profile, snapshot: snapshot)
-            : .discover
-        self._scope = State(initialValue: Self.defaultScope(for: seedMode))
+        let anchorless = ResearchSubject.deriveHomeChapmanCode(
+            from: profile, projectFallback: projectHomeChapmanCode).isEmpty
+        self.isAnchorless = anchorless
+        if anchorless {
+            self._scope = State(initialValue: .national)
+        } else {
+            // The legacy shape-based mode heuristic survives ONLY as the
+            // scope seed: sparse/focused subjects default wider.
+            let seedMode: ResearchMode = focus == nil
+                ? Self.defaultMode(for: profile, snapshot: snapshot)
+                : .discover
+            self._scope = State(initialValue: Self.defaultScope(for: seedMode))
+        }
     }
 
     var body: some View {
@@ -77,6 +96,12 @@ struct ResearchConfigSheet: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if isAnchorless {
+                    Text("No home county could be derived for this profile, so the default is National — the only scope that lets county-anchored sources (FreeBMD, FreeCen, FreeREG) search at all. Narrower scopes will skip them, visibly.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             // Prose-extraction opt-in — available on every adaptive run.
