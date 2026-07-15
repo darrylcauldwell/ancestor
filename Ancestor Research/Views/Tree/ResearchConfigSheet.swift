@@ -73,6 +73,7 @@ struct ResearchConfigSheet: View {
                 Text(modeDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
@@ -94,6 +95,7 @@ struct ResearchConfigSheet: View {
                 Text(scopeDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
@@ -107,7 +109,7 @@ struct ResearchConfigSheet: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Prose extraction (AI)")
                                 .font(.subheadline)
-                            Text("Run Qwen 14B over local-history corpora. ~20 min, useful when the subject's location matches a registered corpus.")
+                            Text("Run the local reasoning model over local-history corpora. Adds roughly 20 minutes; useful when the subject's location matches a registered corpus.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
