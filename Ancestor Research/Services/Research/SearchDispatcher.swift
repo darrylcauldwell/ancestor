@@ -839,8 +839,15 @@ struct SearchDispatcher {
             //   lived at census time (migrants included), on exactly the
             //   field the scorer trusts most, instead of ~7 (adjacent) or
             //   ~90 (national) residence-county queries per census year.
-            //   Falls back to the residence fan-out when the subject has
-            //   no derivable home chapman code (empty = no anchor).
+            //   With no derivable home chapman code (empty = no anchor):
+            //   at `.national` the fallback residence sweep is real (~90
+            //   GB codes); at `.adjacent` (and narrower scopes) the
+            //   "fallback" degenerates to a single empty-code query that
+            //   FreeCenSource's guard rejects as `.outsideCoverage` — the
+            //   contract-correct outcome (an anchor-less subject cannot
+            //   honour a bounded scope; widening would exceed the user's
+            //   bound), reached wastefully. SOURCE_WEIGHTING_SPEC's
+            //   FreeCEN change short-circuits this at the dispatcher.
             let home = subject.homeChapmanCode
             // Exactly one axis per query. residenceCodes carries a BATCH
             // (FT-25/FT-28) — a single code stays a one-element array, so
