@@ -5,11 +5,16 @@ Shipped: Change 1 `b99ce47` (scope contract + pins) · Change 2 `72de503` (visib
 Change 3 `07914e4` (FreeREG umbrella + dead params) · Change 0 `63259a9` (Wirksworth
 retired) · Change 4 `d07a0c5` (FS scope participation — axis-level steering per published
 single-value fuzzy place params; national drops the county axis) · Change 5 `88d526a` +
-`(this commit)` (staged dispatch: DispatchStage ladder + dispatcher stage filter; pipeline
-walks the ladder with a verdict-aware miss test; FS on-miss with visible stage-skip
-disclosure). Remaining: Change 5 live verification (acceptance 1–3: campaign-fixture query
-comparison, Barbara-class noise gone, Kenneth/George-class still resolve) · Change 6 (FT-13,
-gated on ADR-008) · Changes 7–8 (one research action; sourcing report). Direction set by Darryl during
+`1931d59` (staged dispatch: ladder + stage filter; pipeline walks it with a verdict-aware
+miss test; FS on-miss with visible stage-skip disclosure) · Change 7 `cd78eea` (one adaptive
+research action; Depth picker retired; sheet = subject → Scope → prose → gaps → cost line →
+Run) · Change 8 `7d3bf10` (Sourcing report: per-field contradicted/corroborated/cited/
+uncorroborated(searched:) verdicts in the Sourcing tab). Companion fixes shipped same day:
+`9136aed` sticky source-card errors, `83e38fe` research applies attach citations (Sourcing
+tab gate now earnable by research), Triage/Research tab split `d7e2f32`.
+**Remaining: Change 5/7 LIVE verification (acceptance 1–4 + campaign-fixture query
+comparison) · Change 6 (FT-13 FreeCEN place scoping — gated on ADR-008 resolution) ·
+publisher convergenceByProfile feed (Phase 3 follow-up).** Direction set by Darryl during
 Barbara Ayre triage: "the free UK sources offer us capability to provide localised search to
 parish, district and then region then national… the weighting for our app should be from the
 known free sources."
