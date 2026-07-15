@@ -35,6 +35,17 @@ This section reads as the build sequence — top to bottom is the intended order
 ### Stage 2 — after the core is solid
 
 - **Kinship primitives** (`KINSHIP_SPEC.md`; disposition in `adr/ADR-007`) — `find_spouses`, `discover_kin`, `verify_relationship`; decided 2026-07-11: out of the core push, first item after it; requires a Swift-first respec before any build (#Change9 wholesale-port plan dissolved).
+- **Clustering over-split repair** (surfaced 2026-07-15, Barbara Ayre triage: a consistent
+  Northumberland namesake shattered into per-record singleton clusters). Two engine defects,
+  both fixes must preserve the over-split-not-over-merge invariant and need their own mini-spec
+  + tests (assignment-threshold interactions make this core surgery, not a patch):
+  (a) non-birth singleton clusters get lifespan `(year−80, year+5)` — genealogically wrong for
+  marriage/census seeds, whose subject plausibly lives decades past the record; make the
+  forward bound record-type-aware. (b) `locationConsistency` scores districts only relative to
+  the SUBJECT's home county, so two records in the same *foreign* county score 0.0 — grant
+  same-foreign-county credit derived from the district registry (no hardcoded regions).
+  Gate: ClusteringEngine tests incl. a Northumberland-namesake fixture; SANDWICH_AUDIT
+  cross-check that wider lifespans can't push unrelated records over the 0.4 attach threshold.
 - `PROSE_CORPUS_SPEC.md` — bio synthesis / prose corpus ("polish we would do after we have a totally solid core logic system" — user, 2026-07-10)
 - `SOURCE_MEDIA_SPEC.md` — record images / headstone media
 - Epic 12 — sample-tree first-launch tour
