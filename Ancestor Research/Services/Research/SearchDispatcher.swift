@@ -242,8 +242,10 @@ struct SearchDispatcher {
 
     /// FT-04 — the escalation predicate. County→national escalation fires
     /// only for FreeBMD (the sole source with a district-vs-national scope
-    /// distinction — CWGC/FAG/Probate are inherently national; FreeCen/
-    /// FreeREG already have their own broad-scope birth-county axis), only
+    /// distinction — CWGC/FAG/Probate are inherently national; FreeCen's
+    /// broad scopes ride its birth-county axis; FreeREG's scopes are a
+    /// register-county fan-out with no broad-reach axis, so escalation
+    /// would just re-run its national sweep), only
     /// from a `.county`/`.adjacent` starting scope, and only on a genuine
     /// conclusive clean-empty. `.all` mode is excluded: it runs the full
     /// ladder by contract, not as a reaction to emptiness, and a
@@ -963,8 +965,16 @@ struct SearchDispatcher {
             case .parish, .district, .county:
                 regChapmanCodes = [subject.homeChapmanCode]
             case .adjacent:
-                regChapmanCodes = [subject.homeChapmanCode]
-                    + RegionConfig.adjacentCounties(subject.homeChapmanCode)
+                // Change 3 — expand umbrella codes (YKS → WRY/NRY/ERY)
+                // exactly as FreeBMD does, then dedupe preserving order:
+                // the adjacency list can name both YKS and WRY, and an
+                // unexpanded umbrella is a code FreeREG's form doesn't
+                // tag (SCOPE_AUDIT finding 7).
+                var seenReg: Set<String> = []
+                regChapmanCodes = ([subject.homeChapmanCode]
+                    + RegionConfig.adjacentCounties(subject.homeChapmanCode))
+                    .flatMap { RegionConfig.expandUmbrellaChapmanCode($0) }
+                    .filter { seenReg.insert($0).inserted }
             case .national:
                 let entries: [UKChapmanCode] = UKChapmanCodes.shared.englandAndWales()
                 regChapmanCodes = entries.map { $0.code }
@@ -995,8 +1005,6 @@ struct SearchDispatcher {
                         gender: subject.gender,
                         region: subject.region,
                         sourceParams: .freeREG(FreeREGParams(
-                            registerType: nil,
-                            parish: nil,
                             chapmanCode: single,
                             chapmanCodes: batch
                         ))

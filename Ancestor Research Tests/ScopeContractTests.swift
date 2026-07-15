@@ -128,10 +128,11 @@ struct ScopeContractTests {
         let county = keys(source, .parish, .county, dispatcher: dispatcher, subject: subject)
         #expect(parish == county)
         #expect(county.count == 1)
-        // adjacent → home + 7 DBY neighbours, umbrella codes NOT expanded
-        // (audit finding 7 — Change 3 expands them and updates this pin)
+        // adjacent → home + neighbours, umbrella-expanded + deduped like
+        // FreeBMD (Change 3): DBY + 7 neighbours with YKS → WRY/NRY/ERY
+        // and WRY deduped → 9
         let adjacent = keys(source, .parish, .adjacent, dispatcher: dispatcher, subject: subject)
-        #expect(adjacent.count == 8, "home + 7 neighbours (YKS verbatim, unexpanded) → 8; got \(adjacent.count)")
+        #expect(adjacent.count == 9, "umbrella-expanded adjacency → 9; got \(adjacent.count)")
         // national → full England & Wales fan-out, strictly wider
         let national = keys(source, .parish, .national, dispatcher: dispatcher, subject: subject)
         #expect(national.count > adjacent.count)

@@ -95,11 +95,13 @@ nonisolated struct FocusedQuery: Sendable {
                     birthYearRange: nil
                 ))
             case "freereg":
-                return .freeREG(FreeREGParams(
-                    registerType: nil,
-                    parish: district,
-                    chapmanCode: chapman
-                ))
+                // Change 3 — the old `parish: district` narrowing was a
+                // silent no-op (FreeREGParams.parish never reached the
+                // wire and is now removed). The chapman code is FreeREG's
+                // only geographic axis; a strategist parish hint narrows
+                // nothing until a parish axis is verified from published
+                // docs.
+                return .freeREG(FreeREGParams(chapmanCode: chapman))
             case "findagrave":
                 return .findAGrave(FindAGraveParams(
                     yearRangeWidth: 5,

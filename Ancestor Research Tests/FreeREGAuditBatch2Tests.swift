@@ -115,7 +115,7 @@ private nonisolated enum FRFixtures {
             surname: "Kenworthy", givenName: "Sarah",
             recordType: .baptism,
             yearFrom: 1845, yearTo: 1855, gender: .female, region: nil,
-            sourceParams: .freeREG(FreeREGParams(registerType: nil, parish: nil, chapmanCode: "DBY")),
+            sourceParams: .freeREG(FreeREGParams(chapmanCode: "DBY")),
             strictness: .strict
         )
     }

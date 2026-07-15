@@ -233,8 +233,9 @@ actor QueryCache {
             censusYear = p.censusYear.map(String.init) ?? ""
             birthYearRange = p.birthYearRange.map { "\($0.lowerBound)-\($0.upperBound)" } ?? ""
         case .freeREG(let p):
-            // registerType is derived from query.recordType (already keyed);
-            // parish never reaches the wire request.
+            // register type is derived from query.recordType (already
+            // keyed); the dead registerType/parish params were removed by
+            // SOURCE_WEIGHTING Change 3.
             // FT-25/FT-28: same batched-set keying as FreeCen's residence
             // axis — a batched multi-county query is a distinct wire request.
             chapmanCode = Self.residenceChapmanKeyComponent(single: p.chapmanCode, batch: p.chapmanCodes)

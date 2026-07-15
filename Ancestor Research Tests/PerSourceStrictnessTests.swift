@@ -163,7 +163,7 @@ struct PerSourceStrictnessTests {
             surname: "Cauldwell", givenName: nil,
             recordType: .baptism,
             yearFrom: 1880, yearTo: 1880, gender: .male, region: nil,
-            sourceParams: .freeREG(FreeREGParams(registerType: nil, parish: nil, chapmanCode: "DBY")),
+            sourceParams: .freeREG(FreeREGParams(chapmanCode: "DBY")),
             strictness: .loose
         )
         _ = await source.search(query)
@@ -179,7 +179,7 @@ struct PerSourceStrictnessTests {
             surname: "Cauldwell", givenName: nil,
             recordType: .baptism,
             yearFrom: 1880, yearTo: 1880, gender: .male, region: nil,
-            sourceParams: .freeREG(FreeREGParams(registerType: nil, parish: nil, chapmanCode: "DBY")),
+            sourceParams: .freeREG(FreeREGParams(chapmanCode: "DBY")),
             strictness: .strict
         )
         _ = await source.search(query)

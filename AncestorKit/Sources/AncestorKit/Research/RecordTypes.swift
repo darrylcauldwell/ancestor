@@ -898,8 +898,11 @@ public nonisolated struct FreeREGParams: Sendable {
     /// 500-result / 10-page pagination budget.
     public static let batchGroupSize = 10
 
-    public let registerType: String?    // "ba" (baptism), "ma" (marriage), "bu" (burial)
-    public let parish: String?
+    // `registerType` and `parish` were removed by SOURCE_WEIGHTING
+    // Change 3 (SCOPE_AUDIT finding 4): neither ever reached the wire —
+    // register type is derived from `query.recordType` source-side, and
+    // the search form has no parish axis wired. Dead params invite the
+    // strategist to "narrow" into a silent no-op.
     public let chapmanCode: String?
     /// FT-25 — a BATCH of chapman codes carried in one request via
     /// repeated `search_query[chapman_codes][]` keys. Supersedes the
@@ -912,9 +915,7 @@ public nonisolated struct FreeREGParams: Sendable {
     /// outside the package, so cross-module construction needs this.
     /// `chapmanCodes` defaults nil so pre-FT-25 construction sites are
     /// unchanged.
-    public init(registerType: String? = nil, parish: String? = nil, chapmanCode: String? = nil, chapmanCodes: [String]? = nil) {
-        self.registerType = registerType
-        self.parish = parish
+    public init(chapmanCode: String? = nil, chapmanCodes: [String]? = nil) {
         self.chapmanCode = chapmanCode
         self.chapmanCodes = chapmanCodes
     }
