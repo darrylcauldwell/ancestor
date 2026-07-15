@@ -58,8 +58,11 @@ nonisolated struct ResearchRequest: Sendable {
 /// Ordered widening:
 ///   parish < district < county < adjacent < national
 ///
-/// - `parish`: subject's home parish only. Parish-unsupported sources
-///   (FreeBMD, CWGC, Probate, FindAGrave) return zero queries.
+/// - `parish`: subject's home parish only. FreeBMD (no parish endpoint)
+///   deliberately returns zero queries; sources declaring
+///   `.inherentlyNational` / `.anchorPinned` / `.localCorpus` scope
+///   handling ignore the picker by declaration — see `ScopeHandling`
+///   (SOURCE_WEIGHTING Change 1) and SCOPE_AUDIT_2026-07.md.
 /// - `district`: subject's home registration district. Sources without a
 ///   district axis (FreeREG, FreeCen) widen to `.county` for that source only.
 /// - `county`: all districts in the subject's home county. The old `.local`.

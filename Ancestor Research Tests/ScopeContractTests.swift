@@ -1,0 +1,192 @@
+import Testing
+import Foundation
+@testable import Ancestor_Research
+
+/// SOURCE_WEIGHTING_SPEC Change 1 — the scope contract.
+///
+/// SCOPE_AUDIT_2026-07 established that the Scope picker's behaviour was
+/// undeclared and untested for five of eight sources. These pins freeze the
+/// audited per-scope query shapes so nothing drifts silently while the
+/// staged-dispatch build (Changes 2–5) restructures this surface. Where a
+/// later Change deliberately alters a shape (FS in Change 4, FreeREG
+/// umbrella expansion in Change 3), the pin here is updated IN that change —
+/// that is the point: shape changes must be visible in a diff.
+@MainActor
+struct ScopeContractTests {
+
+    private let allScopes: [ResearchScope] = [.parish, .district, .county, .adjacent, .national]
+
+    private func makeDispatcher() -> SearchDispatcher {
+        let registry = SourceRegistry()
+        bootstrapSources(registry: registry)
+        return SearchDispatcher(registry: registry)
+    }
+
+    private func makeSubject(homeChapmanCode: String = "DBY") -> ResearchSubject {
+        ResearchSubject(
+            profileID: nil,
+            surname: "Cauldwell",
+            givenName: "Robert",
+            birthYearFrom: 1880,
+            birthYearTo: 1880,
+            deathYearFrom: nil,
+            deathYearTo: nil,
+            gender: .male,
+            region: nil,
+            mode: .extend,
+            familyContext: nil,
+            homeChapmanCode: homeChapmanCode
+        )
+    }
+
+    /// Wire-identity fingerprint of a (source, recordType, scope) query set.
+    private func keys(
+        _ source: any RecordSource, _ recordType: RecordType, _ scope: ResearchScope,
+        dispatcher: SearchDispatcher, subject: ResearchSubject
+    ) -> Set<String> {
+        Set(dispatcher.buildQueriesForTest(
+            source: source, subject: subject, recordType: recordType, scope: scope
+        ).map { QueryCache.cacheKey(sourceID: source.sourceID, query: $0) })
+    }
+
+    // MARK: - Declarations match the audit
+
+    @Test func everySourceDeclaresItsAuditedScopeHandling() {
+        #expect(FreeBMDSource().scopeHandling == .scoped)
+        #expect(FreeCenSource().scopeHandling == .scoped)
+        #expect(FreeREGSource().scopeHandling == .scoped)
+        if case .inherentlyNational = CWGCSource().scopeHandling {} else {
+            Issue.record("CWGC must declare .inherentlyNational")
+        }
+        if case .anchorPinned = FindAGraveSource().scopeHandling {} else {
+            Issue.record("FindAGrave must declare .anchorPinned — its county pin never lifts")
+        }
+        if case .inherentlyNational = ProbateSource().scopeHandling {} else {
+            Issue.record("Probate must declare .inherentlyNational")
+        }
+        #expect(WirksworthSource().scopeHandling == .localCorpus)
+    }
+
+    @Test func familySearchDeclaresScopeInvarianceUntilChange4() async {
+        // FS is the audit's broken-severity finding: global reach, scope
+        // never read. The DECLARATION makes that visible; Change 4 flips it
+        // to .scoped and replaces this pin.
+        if case .inherentlyNational = FamilySearchSource().scopeHandling {} else {
+            Issue.record("FamilySearch declares .inherentlyNational until Change 4 makes it scope-aware")
+        }
+    }
+
+    // MARK: - Scoped sources: per-scope shapes (audit verdict table)
+
+    @Test func freeBMDPerScopeShape() {
+        let dispatcher = makeDispatcher()
+        let subject = makeSubject()
+        let source = FreeBMDSource()
+
+        // parish → deliberate zero queries (no parish endpoint)
+        #expect(keys(source, .birth, .parish, dispatcher: dispatcher, subject: subject).isEmpty)
+        // district → transitional widen: byte-identical to county
+        let district = keys(source, .birth, .district, dispatcher: dispatcher, subject: subject)
+        let county = keys(source, .birth, .county, dispatcher: dispatcher, subject: subject)
+        #expect(district == county)
+        // county → exactly one county-level query (FT-01 gate ON default)
+        #expect(county.count == 1)
+        // adjacent → home + neighbours, umbrella-expanded + deduped: 9 for DBY
+        let adjacent = keys(source, .birth, .adjacent, dispatcher: dispatcher, subject: subject)
+        #expect(adjacent.count == 9, "DBY + 7 neighbours with YKS→WRY/NRY/ERY expansion, deduped → 9; got \(adjacent.count)")
+        #expect(adjacent.isSuperset(of: county), "adjacent must include the county query")
+        // national → exactly one all-districts query
+        #expect(keys(source, .birth, .national, dispatcher: dispatcher, subject: subject).count == 1)
+    }
+
+    @Test func freeCenWideningAndAxisSwapShape() {
+        let dispatcher = makeDispatcher()
+        let subject = makeSubject()
+        let source = FreeCenSource()
+
+        // parish/district widen to county — byte-identical query sets
+        let parish = keys(source, .census, .parish, dispatcher: dispatcher, subject: subject)
+        let district = keys(source, .census, .district, dispatcher: dispatcher, subject: subject)
+        let county = keys(source, .census, .county, dispatcher: dispatcher, subject: subject)
+        #expect(parish == county && district == county)
+        #expect(!county.isEmpty)
+        // FT-11 axis swap: adjacent ≡ national for a home-known subject
+        // (one birth-county query per census year, no residence filter)
+        let adjacent = keys(source, .census, .adjacent, dispatcher: dispatcher, subject: subject)
+        let national = keys(source, .census, .national, dispatcher: dispatcher, subject: subject)
+        #expect(adjacent == national)
+        #expect(adjacent != county, "adjacent swaps to the birth axis — not the county residence shape")
+    }
+
+    @Test func freeREGPerScopeFanOut() {
+        let dispatcher = makeDispatcher()
+        let subject = makeSubject()
+        let source = FreeREGSource()
+
+        // parish/district/county → single home-chapman query set
+        let parish = keys(source, .parish, .parish, dispatcher: dispatcher, subject: subject)
+        let county = keys(source, .parish, .county, dispatcher: dispatcher, subject: subject)
+        #expect(parish == county)
+        #expect(county.count == 1)
+        // adjacent → home + 7 DBY neighbours, umbrella codes NOT expanded
+        // (audit finding 7 — Change 3 expands them and updates this pin)
+        let adjacent = keys(source, .parish, .adjacent, dispatcher: dispatcher, subject: subject)
+        #expect(adjacent.count == 8, "home + 7 neighbours (YKS verbatim, unexpanded) → 8; got \(adjacent.count)")
+        // national → full England & Wales fan-out, strictly wider
+        let national = keys(source, .parish, .national, dispatcher: dispatcher, subject: subject)
+        #expect(national.count > adjacent.count)
+        #expect(national.count == 56, "englandAndWales() chapman codes → 56 per audit; got \(national.count)")
+    }
+
+    // MARK: - Scope-invariant sources: invariance pinned at every level
+
+    @Test func declaredScopeInvariantSourcesAreInvariantAtEveryLevel() {
+        let dispatcher = makeDispatcher()
+        let subject = makeSubject()
+        let cases: [(any RecordSource, RecordType)] = [
+            (CWGCSource(), .death),
+            (FindAGraveSource(), .burial),
+            (ProbateSource(), .probate),
+            (WirksworthSource(), .parish),
+            (FamilySearchSource(), .death),
+        ]
+        for (source, recordType) in cases {
+            let baseline = keys(source, recordType, .parish, dispatcher: dispatcher, subject: subject)
+            #expect(!baseline.isEmpty, "\(source.sourceID) should build queries at parish scope (it ignores scope)")
+            for scope in allScopes {
+                let set = keys(source, recordType, scope, dispatcher: dispatcher, subject: subject)
+                #expect(set == baseline,
+                        "\(source.sourceID) is declared scope-invariant; \(scope) diverged from parish")
+            }
+        }
+    }
+
+    // MARK: - The generic branch refuses undeclared scoped sources
+
+    @Test func scopedSourceWithoutDedicatedBranchIsRefused() {
+        let dispatcher = makeDispatcher()
+        let subject = makeSubject()
+        // A source that CLAIMS .scoped but has no scope-aware branch in
+        // buildQueries must get zero queries (loud log), never silently
+        // inherit the generic unscoped shape.
+        let impostor = ScopedImpostorSource()
+        let built = dispatcher.buildQueriesForTest(
+            source: impostor, subject: subject, recordType: .probate, scope: .county)
+        #expect(built.isEmpty, "generic branch must refuse a .scoped source, got \(built.count) queries")
+    }
+}
+
+/// Test double: declares `.scoped` but the dispatcher has no branch for it.
+private struct ScopedImpostorSource: RecordSource {
+    nonisolated let sourceID = "scoped-impostor"
+    nonisolated let scopeHandling: ScopeHandling = .scoped
+    nonisolated let displayName = "Scoped Impostor"
+    nonisolated let recordTypes: Set<RecordType> = [.probate]
+    nonisolated let coverageYearRange: ClosedRange<Int>? = nil
+    nonisolated let coverageRegions: Set<Region> = []
+    nonisolated let dataLineage: SourceLineage = .communityEdited
+    nonisolated let trustTier: SourceTrustTier = .community
+    nonisolated let evidenceDirectness: EvidenceDirectness = .derivative
+    nonisolated let tosStatus = SourceToSStatus(level: .community, summary: "test double")
+    func search(_ query: RecordQuery) async -> SourceQueryResult { .results([]) }
+}

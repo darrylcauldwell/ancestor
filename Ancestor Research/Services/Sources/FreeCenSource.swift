@@ -11,6 +11,7 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
     // MARK: - RecordSource Protocol
 
     nonisolated let sourceID = "freecen"
+    nonisolated let scopeHandling: ScopeHandling = .scoped
     nonisolated let displayName = "FreeCen"
     nonisolated let descriptiveName = "UK Census Transcriptions (FreeCen)"
     nonisolated let recordTypes: Set<RecordType> = [.census]

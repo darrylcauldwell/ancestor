@@ -116,6 +116,7 @@ struct NegativeSearchSuppressionDispatchTests {
 /// suppressed query never reaches `search`.
 private actor CountingKeySource: RecordSource {
     nonisolated let sourceID: String
+    nonisolated let scopeHandling: ScopeHandling = .inherentlyNational(reason: "test double")
     nonisolated let displayName = "Counting Key Source"
     nonisolated let recordTypes: Set<RecordType> = [.probate, .death, .burial]
     nonisolated let coverageYearRange: ClosedRange<Int>? = nil

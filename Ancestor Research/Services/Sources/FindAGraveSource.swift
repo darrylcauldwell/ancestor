@@ -11,6 +11,8 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
     // MARK: - RecordSource Protocol
 
     nonisolated let sourceID = "findagrave"
+    nonisolated let scopeHandling: ScopeHandling = .anchorPinned(
+        reason: "Burial search pins to the subject death/home county at every scope; national never lifts the pin — resolve in SOURCE_WEIGHTING build")
     nonisolated let displayName = "Find a Grave"
     nonisolated let recordTypes: Set<RecordType> = [.burial]
     nonisolated let coverageYearRange: ClosedRange<Int>? = nil  // unbounded

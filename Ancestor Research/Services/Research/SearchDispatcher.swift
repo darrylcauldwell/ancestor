@@ -1150,11 +1150,20 @@ struct SearchDispatcher {
             }
 
         default:
-            // Generic single query for Probate, Wirksworth, and any
-            // future sources without dispatcher-side custom axes.
-            // Fan-out to married surname when applicable — critical
-            // for Probate (UK Calendar files married women under married
-            // surname).
+            // SOURCE_WEIGHTING Change 1 — a source declaring `.scoped`
+            // must have a dedicated scope-aware branch above; landing
+            // here means that branch is missing and generic queries would
+            // silently ignore the user's scope bound (SCOPE_AUDIT finding
+            // 5). Refuse loudly instead of building unscoped queries.
+            if source.scopeHandling == .scoped {
+                Self.geoLogger.error("Source \(source.sourceID, privacy: .public) declares .scoped but has no scope-aware buildQueries branch — refusing to build unscoped queries")
+                return []
+            }
+            // Generic single query for declared inherently-national /
+            // anchor-pinned / local-corpus sources (Probate, Wirksworth,
+            // and future DECLARED sources). Fan-out to married surname
+            // when applicable — critical for Probate (UK Calendar files
+            // married women under married surname).
             let genericSurnames = subject.surnamesToProbe(for: recordType)
             return genericSurnames.map { surnameToTry in
                 RecordQuery(

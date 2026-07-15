@@ -162,6 +162,7 @@ struct FagBridgeCapTests {
 @MainActor
 final class CountingFAGDetailSource: DetailFetchingSource {
     nonisolated let sourceID = "findagrave"
+    nonisolated let scopeHandling: ScopeHandling = .anchorPinned(reason: "test double")
     nonisolated let displayName = "Find a Grave (test)"
     nonisolated let recordTypes: Set<RecordType> = [.death]
     nonisolated let coverageYearRange: ClosedRange<Int>? = nil

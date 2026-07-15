@@ -399,6 +399,7 @@ struct SearchOutcomeEnvelopeTests {
 /// script runs out) and records the strictness tier of every call.
 actor ScriptedOutcomeSource: RecordSource {
     nonisolated let sourceID: String = "scripted"
+    nonisolated let scopeHandling: ScopeHandling = .inherentlyNational(reason: "test double")
     nonisolated let displayName = "Scripted Outcome Source"
     nonisolated let recordTypes: Set<RecordType> = [.death, .birth]
     nonisolated let coverageYearRange: ClosedRange<Int>? = nil

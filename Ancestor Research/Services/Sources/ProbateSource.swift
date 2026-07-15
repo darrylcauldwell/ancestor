@@ -14,6 +14,8 @@ struct ProbateSource: RecordSource {
     // MARK: - RecordSource Protocol
 
     nonisolated let sourceID = "probate"
+    nonisolated let scopeHandling: ScopeHandling = .inherentlyNational(
+        reason: "Single England & Wales probate calendar; registry catchment is applied scorer-side, not query-side")
     nonisolated let displayName = "Probate Calendar"
     nonisolated let recordTypes: Set<RecordType> = [.probate]
     /// T1-26 — the DECLARED range is the union of everything the digital

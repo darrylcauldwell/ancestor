@@ -358,6 +358,7 @@ struct EmptyThenBroadenTests {
 /// returns configurable empty/non-empty results per tier.
 actor TierRecordingSource: RecordSource {
     nonisolated let sourceID: String
+    nonisolated let scopeHandling: ScopeHandling = .inherentlyNational(reason: "test double")
     nonisolated let displayName = "Tier Recorder"
     nonisolated let recordTypes: Set<RecordType> = [.death]
     nonisolated let coverageYearRange: ClosedRange<Int>? = nil
@@ -413,6 +414,7 @@ actor TierRecordingSource: RecordSource {
 /// configurable empty/error envelopes.
 actor ScopeRecordingFreeBMD: RecordSource {
     nonisolated let sourceID = "freebmd"
+    nonisolated let scopeHandling: ScopeHandling = .scoped
     nonisolated let displayName = "FreeBMD (test)"
     nonisolated let recordTypes: Set<RecordType> = [.birth, .death, .marriage]
     nonisolated let coverageYearRange: ClosedRange<Int>? = 1837...1992
@@ -462,6 +464,7 @@ actor ScopeRecordingFreeBMD: RecordSource {
 /// so this counts exactly one.
 actor CountingCWGC: RecordSource {
     nonisolated let sourceID = "cwgc"
+    nonisolated let scopeHandling: ScopeHandling = .inherentlyNational(reason: "test double")
     nonisolated let displayName = "CWGC (test)"
     nonisolated let recordTypes: Set<RecordType> = [.death, .burial]
     nonisolated let coverageYearRange: ClosedRange<Int>? = 1914...1947

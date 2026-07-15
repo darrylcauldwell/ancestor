@@ -271,6 +271,7 @@ struct QueryCacheTests {
 /// a query reached the wire or was served from the cache.
 private actor CountingRecordSource: RecordSource {
     nonisolated let sourceID: String
+    nonisolated let scopeHandling: ScopeHandling = .inherentlyNational(reason: "test double")
     nonisolated let displayName = "Counting Source"
     nonisolated let recordTypes: Set<RecordType> = [.birth, .census, .burial, .parish]
     nonisolated let coverageYearRange: ClosedRange<Int>? = nil

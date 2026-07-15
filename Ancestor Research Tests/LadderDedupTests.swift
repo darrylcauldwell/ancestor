@@ -192,6 +192,7 @@ struct LadderDedupTests {
 /// went back to the network.
 private actor CountingWireSource: RecordSource {
     nonisolated let sourceID: String
+    nonisolated let scopeHandling: ScopeHandling = .inherentlyNational(reason: "test double")
     nonisolated let displayName = "Counting Wire Source"
     nonisolated let recordTypes: Set<RecordType> = [.birth, .death, .burial, .probate, .census, .parish]
     nonisolated let coverageYearRange: ClosedRange<Int>? = nil

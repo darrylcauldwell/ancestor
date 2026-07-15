@@ -13,6 +13,7 @@ struct WirksworthSource: RecordSource {
     // MARK: - RecordSource Protocol
 
     nonisolated let sourceID = "wirksworth"
+    nonisolated let scopeHandling: ScopeHandling = .localCorpus
     nonisolated let displayName = "Wirksworth Parish Records"
     nonisolated let recordTypes: Set<RecordType> = [.pedigree, .parish]
     // Coverage corrected 2026-05-20: the project's own homepage banner

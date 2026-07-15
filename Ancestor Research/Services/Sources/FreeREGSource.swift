@@ -17,6 +17,7 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
     // MARK: - RecordSource Protocol
 
     nonisolated let sourceID = "freereg"
+    nonisolated let scopeHandling: ScopeHandling = .scoped
     nonisolated let displayName = "FreeREG"
     nonisolated let descriptiveName = "UK Parish Registers (FreeREG)"
     nonisolated let recordTypes: Set<RecordType> = [.baptism, .marriage, .burial, .parish]

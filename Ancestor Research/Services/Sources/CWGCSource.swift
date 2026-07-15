@@ -12,6 +12,8 @@ struct CWGCSource: RecordSource {
     // MARK: - RecordSource Protocol
 
     nonisolated let sourceID = "cwgc"
+    nonisolated let scopeHandling: ScopeHandling = .inherentlyNational(
+        reason: "War-grave registry: casualties have no UK locality axis; every search spans the global register")
     nonisolated let displayName = "CWGC"
     nonisolated let descriptiveName = "Commonwealth War Graves Commission (CWGC)"
     /// T1-12 — `.death` only. The source previously declared

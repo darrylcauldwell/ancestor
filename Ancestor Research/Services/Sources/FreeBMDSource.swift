@@ -17,6 +17,7 @@ actor FreeBMDSource: RecordSource {
     // MARK: - RecordSource Protocol
 
     nonisolated let sourceID = "freebmd"
+    nonisolated let scopeHandling: ScopeHandling = .scoped
     nonisolated let displayName = "FreeBMD"
     nonisolated let descriptiveName = "UK Births, Deaths & Marriages Index (FreeBMD)"
     nonisolated let recordTypes: Set<RecordType> = [.birth, .death, .marriage]

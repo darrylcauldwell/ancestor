@@ -33,6 +33,7 @@ actor ProseCorpusSource: RecordSource {
     // MARK: - RecordSource protocol surface
 
     nonisolated let sourceID = "prose-corpus"
+    nonisolated let scopeHandling: ScopeHandling = .localCorpus
     nonisolated let displayName = "Prose Corpora"
     nonisolated let descriptiveName = "User-added narrative sources (parish records, local-history pages, etc.)"
     /// Empty — prose candidates aren't dispatch-routable by record

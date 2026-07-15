@@ -95,6 +95,7 @@ struct PausedSourceVisibleSkipTests {
 /// so the dispatcher's pause loop treats it exactly like FreeBMD.
 private actor BudgetedCountingSource: RecordSource {
     nonisolated let sourceID: String
+    nonisolated let scopeHandling: ScopeHandling = .inherentlyNational(reason: "test double")
     nonisolated let displayName = "Budgeted Counting Source"
     nonisolated let recordTypes: Set<RecordType> = [.birth]
     nonisolated let coverageYearRange: ClosedRange<Int>? = nil

@@ -18,6 +18,29 @@ nonisolated enum SourceKind: String, Codable, Sendable {
     case localPlugin
 }
 
+/// How a source responds to the user's Scope picker (SOURCE_WEIGHTING_SPEC
+/// Change 1). Scope-ignoring must be DECLARED, never inherited: there is no
+/// protocol default, so every source (and test double) chooses explicitly at
+/// compile time — a new source cannot silently fall into the dispatcher's
+/// generic branch the way FamilySearch did (SCOPE_AUDIT_2026-07 finding 5).
+nonisolated enum ScopeHandling: Sendable, Equatable {
+    /// Geographic fan-out follows the scope parameter — the dispatcher has
+    /// a dedicated scope-aware branch for this source (FreeBMD/FreeCen/
+    /// FreeREG). Landing in the generic branch while declaring `.scoped`
+    /// is refused at query-build time.
+    case scoped
+    /// Reach is inherently national/global — scope cannot narrow it. The
+    /// reason is honesty copy for docs and the searched-surface.
+    case inherentlyNational(reason: String)
+    /// Queries pin to the subject's anchor geography at EVERY scope level —
+    /// neither scoped nor national (FindAGrave's county pin). Declared so
+    /// the incoherence is visible until resolved.
+    case anchorPinned(reason: String)
+    /// Hyper-local corpus — always local by definition; the scope axis
+    /// does not apply (SourceKind.localPlugin territory).
+    case localCorpus
+}
+
 /// A search result paired with its honesty envelope (connector-audit
 /// T1-01). The result carries the records; the outcome says whether an
 /// empty result can be trusted as evidence of absence and whether a
@@ -52,6 +75,9 @@ protocol RecordSource: Sendable {
     nonisolated var evidenceDirectness: EvidenceDirectness { get }
     nonisolated var tosStatus: SourceToSStatus { get }
     nonisolated var kind: SourceKind { get }
+    /// Scope-contract declaration (SOURCE_WEIGHTING Change 1). Deliberately
+    /// has NO default — every conformance must declare.
+    nonisolated var scopeHandling: ScopeHandling { get }
     /// Long-form "what is this source" name for Settings UI. The
     /// short canonical `displayName` is what citations and activity-feed
     /// summaries use; `descriptiveName` is for educating the user about
