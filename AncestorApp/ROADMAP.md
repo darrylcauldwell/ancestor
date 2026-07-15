@@ -58,6 +58,21 @@ This section reads as the build sequence — top to bottom is the intended order
   same-foreign-county credit derived from the district registry (no hardcoded regions).
   Gate: ClusteringEngine tests incl. a Northumberland-namesake fixture; SANDWICH_AUDIT
   cross-check that wider lifespans can't push unrelated records over the 0.4 attach threshold.
+- **Coal-mining accident databases as a source** (proposed by Darryl 2026-07-15, Harry
+  Marshall case). Primary candidate: Coalmining History Resource Centre (cmhrc.co.uk, Ian
+  Winstanley) — 164k+ UK mining accident/death records 1700–2000, name/date/colliery/
+  county/age/occupation; secondary: Durham Mining Museum (dmm.org.uk — TLS cert broken for
+  direct fetch 2026-07-15), Scottish Mining Website. Protocol, in order (per
+  `feedback_verify_source_terms_first` — this gate applies to prose-corpus CRAWLING too):
+  (1) terms review — fetch + quote cmhrc.co.uk privacy_policy.html + disclaimer.html and
+  any robots.txt; if silent on programmatic access → ask the operator, per the FS playbook;
+  (2) cheap value probe: register as a prose corpus for a Harry-class subject (crawl +
+  MLX extraction through the firewall — zero new connector code); (3) structured
+  RecordSource connector ONLY if the probe shows yield and terms permit — death-shape
+  records with occupation/colliery detail, explicit `ScopeHandling` declaration (county
+  fields exist, could be `.scoped`), budget policy, per-scope contract pins per
+  SOURCE_WEIGHTING Change 1. Note: Findmypast licenses this dataset behind a paywall —
+  free-first means the original site, within its terms.
 - `PROSE_CORPUS_SPEC.md` — bio synthesis / prose corpus ("polish we would do after we have a totally solid core logic system" — user, 2026-07-10)
 - `SOURCE_MEDIA_SPEC.md` — record images / headstone media
 - Epic 12 — sample-tree first-launch tour
