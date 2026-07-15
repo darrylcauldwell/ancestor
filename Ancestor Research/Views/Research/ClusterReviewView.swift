@@ -470,6 +470,13 @@ struct ClusterReviewView: View {
                         // which the user can't trust on a mixed-quality
                         // cluster.
                         let applyCount = liveRecords.filter { rec in
+                            // Already-applied records need no re-apply —
+                            // exclude them so the count reflects what's
+                            // actually left to do (owner report 2026-07-15:
+                            // "Apply 2" persisted after both records were
+                            // applied individually).
+                            guard vm.userStatusForRecord(rec.record.id) != .savedAsLead
+                            else { return false }
                             switch vm.recordDecisions[rec.id] {
                             case .accepted: return true
                             case .rejected: return false
@@ -477,22 +484,30 @@ struct ClusterReviewView: View {
                             }
                         }.count
                         let total = liveRecords.count
-                        // CL3 — applying a cluster whose records conflict
-                        // with the tree opens disputes; say so up front.
-                        let disputeCount = conflictDiscrepancyCount(for: cluster)
-                        let disputeSuffix = disputeCount > 0
-                            ? " — will open \(disputeCount) dispute\(disputeCount == 1 ? "" : "s")"
-                            : ""
-                        let buttonLabel = (applyCount == total
-                            ? "Apply \(applyCount)"
-                            : "Apply \(applyCount) of \(total)") + disputeSuffix
-                        Button(buttonLabel) { vm.applyCluster(cluster, into: appState) }
-                            .buttonStyle(.glassProminent)
-                            .tint(.green)
-                            .controlSize(.small)
-                            .help(canApplyKnownMarriage
-                                ? "Fill the marriage date / location on the existing spouse relationship (only where currently blank). The other \(total - applyCount) records in this cluster stay as evidence history."
-                                : "Write \(applyCount) qualifying record\(applyCount == 1 ? "" : "s") to the profile (filling only nil fields) and attach as citation sources. Records that haven't fully cleared the scoring gates are skipped.")
+                        if applyCount == 0 {
+                            // Everything the cluster could write is already on
+                            // the profile — no action, just confirm the state.
+                            Label("Applied", systemImage: "checkmark.seal.fill")
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.green)
+                        } else {
+                            // CL3 — applying a cluster whose records conflict
+                            // with the tree opens disputes; say so up front.
+                            let disputeCount = conflictDiscrepancyCount(for: cluster)
+                            let disputeSuffix = disputeCount > 0
+                                ? " — will open \(disputeCount) dispute\(disputeCount == 1 ? "" : "s")"
+                                : ""
+                            let buttonLabel = (applyCount == total
+                                ? "Apply \(applyCount)"
+                                : "Apply \(applyCount) of \(total)") + disputeSuffix
+                            Button(buttonLabel) { vm.applyCluster(cluster, into: appState) }
+                                .buttonStyle(.glassProminent)
+                                .tint(.green)
+                                .controlSize(.small)
+                                .help(canApplyKnownMarriage
+                                    ? "Fill the marriage date / location on the existing spouse relationship (only where currently blank). The other \(total - applyCount) records in this cluster stay as evidence history."
+                                    : "Write \(applyCount) qualifying record\(applyCount == 1 ? "" : "s") to the profile (filling only nil fields) and attach as citation sources. Records that haven't fully cleared the scoring gates are skipped.")
+                        }
                     } else {
                         // Save-as-lead is a deferral, not a commit, so it
                         // stays blue rather than green — green is reserved
