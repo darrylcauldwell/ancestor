@@ -79,36 +79,44 @@ FS. A future per-run toggle ("FS: always / on-miss / never") is an open question
    2026-07-14/15 campaign profile set).
 4. Searched-surface reporting distinguishes answered / negative / stage-skipped per source.
 
-## Companion change — two research intents (FRAMING DECIDED 2026-07-15)
+## Companion change — one research action + Sourcing report (DECIDED 2026-07-15)
 
 Origin: Darryl asked whether Verify/Extend/Discover/All is the right way to think about
-research at all ("simply we would have one kind of research… with the associated data it
-has"). Mechanical audit: the Depth modes only pre-declare (a) where the strictness ladder
-starts/stops (verify `[strict]`, extend `[strict,loose]`, discover `[loose,variant]`) and
-(b) stopping policy (verify's early-stop; All's extra iterations + fact cap). Query richness
-is already profile-data-driven in every mode — so most of the picker is homework the engine
-can do itself. The one variable that is NOT inferable from the profile is the user's
-*purpose* (same profile, two visits: "corroborate before I trust this branch" vs "dig for
-anything new"). **Decided framing: the four-preset Depth picker is replaced by two intents
-that name a purpose, not pipeline internals:**
+research at all. The design settled through three steps, each verified against the code:
 
-- **"Check what we have"** — corroboration pass. Strict-only searches over existing facts,
-  stops early once they corroborate (today's verify semantics, honestly named). Cheap and
-  bounded; the pre-trust sanity pass.
-- **"Find more"** — adaptive dig, subsuming Extend/Discover/All. Strictness starts `.strict`
-  and escalates `.loose` → `.variant` only on miss (the same on-miss pattern as this spec's
-  source stages — rich profiles never escalate, ghosts escalate all the way). Stops when the
-  profile's open gaps (the sheet's existing gap analysis) are answered, or stable-point
-  detection / budgets bound it. Prose extraction is offered under this intent only.
+1. **The Depth modes only pre-declare what the engine can infer.** They set (a) the
+   strictness ladder (verify `[strict]`, extend `[strict,loose]`, discover
+   `[loose,variant]`) and (b) stopping policy (verify's early-stop; All's extra iterations +
+   fact cap). Query richness is already profile-data-driven in every mode.
+2. **A "check/verify" intent seemed like the un-inferable residue** (user purpose:
+   corroborate-before-trusting vs dig) — but examining what Verify *actually does* dissolved
+   it: strict-only search + stop-as-soon-as-ANY-fact-corroborates. Not an audit; a truncated
+   dig. Its honest deliverable — per-field sourcing verdicts — is a REPORT over persisted
+   state, not a run type.
+3. **Adaptive cost self-bounds where a check would be used**: on a rich profile, strict
+   searches hit immediately, gaps are few, the run stops early — the dig IS the check. The
+   expensive escalation only occurs on thin profiles, where discovery was wanted anyway.
 
-Kept: Scope (user-owned geographic knowledge); focused runs (record-type focus, e.g.
-"Research birth"); `ResearchMode` internally + on the MCP `kick_off_research` surface
-(verify ↔ check; extend/discover/all map to the adaptive dig; explicit mode = override).
-Sheet becomes: subject → intent → Scope → prose toggle (Find more) → gaps → Run.
+**Decided design:**
 
-Validation before/at build: run the 2026-07-14/15 campaign fixture set under both models and
-compare queries spent, wall-clock, new facts, junk-lead count; if "Check what we have" goes
-unused in real sessions, it dies too and one-mode wins outright.
+- **One research action.** Strictness starts `.strict`, escalates `.loose` → `.variant` only
+  on miss (same on-miss pattern as this spec's source stages). Stops when the profile's open
+  gaps are answered, or stable-point detection / budgets bound it. Depth picker removed;
+  sheet becomes subject → Scope → prose toggle → gaps → Run.
+- **Sourcing report** (successor to what Verify pretended to be): per-field verdict —
+  *corroborated* (level + independent-lineage count from `evidence_convergence`),
+  *unsourced* (with the searched-surface from `negative_searches`, honestly distinguishing
+  "not searched" from "searched, nothing found"), *contradicted* (open dispute, linked).
+  Rendered per profile from persisted state — no run required — and tree-wide, which also
+  feeds the publisher's empty `convergenceByProfile` badge slot (Phase 3 follow-up).
+- **Kept:** Scope (user-owned geographic knowledge); focused runs (record-type focus);
+  prose-extraction opt-in; `ResearchMode` internally + on the MCP `kick_off_research`
+  surface for watcher/campaign compatibility (any explicit mode = override honoured; the
+  in-app sheet always dispatches adaptive).
+
+Validation at build: run the 2026-07-14/15 campaign fixture set under both models — queries
+spent, wall-clock, new facts, junk-lead count must not regress (and total queries should
+drop per this spec's main acceptance criteria).
 
 ## Non-goals
 
