@@ -229,26 +229,61 @@ final class ResearchPipeline {
             )
         }
 
-        for iteration in 1...config.maxIterations {
+        // SOURCE_WEIGHTING Change 5 — staged dispatch. Each active record
+        // type walks the scope-bounded stage ladder: local free sources
+        // first, geographic widening on miss, FamilySearch last and only
+        // for what the free tier left unanswered. Answered types stay at
+        // their stage (refinement re-queries never escalate); the ladder
+        // may need more iterations than the config's default, so the bound
+        // stretches to the ladder length.
+        let stageLadder = DispatchStage.ladder(for: config.scope)
+        var stageIndexPerType: [RecordType: Int] = [:]
+        var answeredTypes: Set<RecordType> = []
+        let effectiveMaxIterations = max(config.maxIterations, stageLadder.count)
+
+        for iteration in 1...effectiveMaxIterations {
             state.iteration = iteration
 
             // Check cancellation between iterations
             if Task.isCancelled { break }
 
-            logger.notice("Pipeline iteration \(iteration)/\(config.maxIterations) for \(subject.displayName)")
+            logger.notice("Pipeline iteration \(iteration)/\(effectiveMaxIterations) for \(subject.displayName)")
 
             // DETERMINISTIC: dispatch and score. Envelope-preserving
             // dispatch (T1-01) — per-query outcomes accumulate on the
             // state so genuine negatives and GPS accounting can tell
             // "searched, found nothing" from "blocked/errored/truncated".
-            let (dispatchedRecords, dispatchOutcomes) = await dispatcher.dispatchWithOutcomes(
-                subject: state.subject,
-                recordTypes: state.activeRecordTypes,
-                scope: config.scope,
-                mode: state.subject.mode,
-                cache: queryCache,
-                negativeCache: negativeCache
-            )
+            // Group active record types by their current stage; a type
+            // whose ladder is exhausted no longer dispatches.
+            var typesByStageIndex: [Int: Set<RecordType>] = [:]
+            for recordType in state.activeRecordTypes {
+                let idx = stageIndexPerType[recordType, default: 0]
+                guard idx < stageLadder.count else { continue }
+                typesByStageIndex[idx, default: []].insert(recordType)
+            }
+            if typesByStageIndex.isEmpty {
+                logger.info("Stage ladder exhausted for every record type, stopping")
+                break
+            }
+            var dispatchedRecords: [SourceRecord] = []
+            var dispatchOutcomes: [SearchOutcomeEntry] = []
+            for (idx, stageTypes) in typesByStageIndex.sorted(by: { $0.key < $1.key }) {
+                let stage = stageLadder[idx]
+                await ResearchActivityBus.shared.publish(.pipelineStage(
+                    message: "Stage \(idx + 1)/\(stageLadder.count) — \(stage.displayName): \(stageTypes.map(\.rawValue).sorted().joined(separator: ", "))"
+                ))
+                let (stageRecords, stageOutcomes) = await dispatcher.dispatchWithOutcomes(
+                    subject: state.subject,
+                    recordTypes: stageTypes,
+                    scope: config.scope,
+                    mode: state.subject.mode,
+                    cache: queryCache,
+                    negativeCache: negativeCache,
+                    stage: stage
+                )
+                dispatchedRecords.append(contentsOf: stageRecords)
+                dispatchOutcomes.append(contentsOf: stageOutcomes)
+            }
             state.searchOutcomes.append(contentsOf: dispatchOutcomes)
 
             // Capture prior record IDs before append, so the stopping check
@@ -301,6 +336,29 @@ final class ResearchPipeline {
             let newScored = scored.filter { !priorRecordIDs.contains($0.record.id) }
             state.scoredRecords.append(contentsOf: newScored)
             let newRecordCount = newScored.count
+
+            // Change 5 miss test — a stage ANSWERS a record type when it
+            // produced at least one non-impossible record whose geography
+            // gate did not contradict the subject anchor (pass or skip;
+            // softFail is a suspicious mismatch and does not answer).
+            // Unanswered types advance one stage for the next iteration.
+            for (idx, stageTypes) in typesByStageIndex {
+                for recordType in stageTypes where !answeredTypes.contains(recordType) {
+                    let answered = scored.contains { s in
+                        s.record.recordType == recordType
+                            && s.verdict != .impossible
+                            && !s.gates.contains {
+                                $0.gate == .geography
+                                    && ($0.outcome == .fail || $0.outcome == .softFail || $0.outcome == .impossible)
+                            }
+                    }
+                    if answered {
+                        answeredTypes.insert(recordType)
+                    } else {
+                        stageIndexPerType[recordType] = idx + 1
+                    }
+                }
+            }
 
             // Track search history
             let searchKey = "\(iteration)_\(state.activeRecordTypes.map(\.rawValue).sorted().joined(separator: ","))"
@@ -490,13 +548,44 @@ final class ResearchPipeline {
             // through the remaining iterations. Bail out and save the
             // queries — measured ~53% of FreeBMD requests on a typical
             // extend run come from these redundant iterations.
+            let ladderCanAdvance = state.activeRecordTypes.contains { recordType in
+                !answeredTypes.contains(recordType)
+                    && stageIndexPerType[recordType, default: 0] < stageLadder.count
+            }
             if records.isEmpty {
+                if ladderCanAdvance {
+                    logger.info("Stage returned nothing — advancing the ladder")
+                    continue
+                }
                 logger.info("No records returned, stopping")
                 break
             }
             if iteration > 1 && newRecordCount == 0 {
+                if ladderCanAdvance {
+                    logger.notice("Stable point at this stage — advancing the ladder")
+                    continue
+                }
                 logger.notice("Stable point: iteration \(iteration) re-fetched \(records.count) records, none new — stopping")
                 break
+            }
+        }
+
+        // Change 5 — searched-surface disclosure: FamilySearch stages that
+        // never fired because the free tier answered are recorded as SKIPS
+        // (availability .skipped: never conclusive, never a negative), so
+        // "FS wasn't needed" is visible and distinct from "FS wasn't
+        // searched".
+        if let fsIndex = stageLadder.firstIndex(of: .familySearch) {
+            for recordType in answeredTypes
+            where stageIndexPerType[recordType, default: 0] < fsIndex {
+                let answeredStage = stageLadder[stageIndexPerType[recordType, default: 0]]
+                state.searchOutcomes.append(SearchOutcomeEntry(
+                    sourceID: "familysearch",
+                    recordType: recordType,
+                    strictness: .strict,
+                    queryKey: "stage-skip|familysearch|\(recordType.rawValue)",
+                    outcome: .scopeSkip(reason: "not needed — answered by \(answeredStage.displayName)")
+                ))
             }
         }
 

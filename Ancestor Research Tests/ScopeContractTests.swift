@@ -375,6 +375,110 @@ struct DispatchStagingTests {
     }
 }
 
+/// SOURCE_WEIGHTING_SPEC Change 5 (pipeline integration) — FamilySearch
+/// fires ONLY for record types the free tier left unanswered, and a run
+/// where the free tier answered records a visible FS stage-skip.
+@MainActor
+struct StagedPipelineTests {
+
+    private func makeSubject() -> ResearchSubject {
+        ResearchSubject(
+            profileID: nil, surname: "Cauldwell", givenName: "Robert",
+            birthYearFrom: 1880, birthYearTo: 1880,
+            deathYearFrom: nil, deathYearTo: nil,
+            gender: .male, region: .county("Derbyshire"), mode: .extend,
+            familyContext: nil, homeChapmanCode: "DBY")
+    }
+
+    private func matchingBirth() -> SourceRecord {
+        .birth(BirthRecord(
+            common: RecordCommon(id: "b-match", sourceID: "freebmd",
+                                 name: "Robert Cauldwell", surname: "Cauldwell",
+                                 givenName: "Robert", detailURL: nil, rawFields: [:]),
+            birthYear: 1880, birthDate: "1880", birthPlace: nil,
+            quarter: "Jun", district: "Belper", volume: "7b", page: "3",
+            mothersMaidenName: nil))
+    }
+
+    private func run(freeResults: [SourceRecord], fs: StagedScriptedSource)
+    async -> ResearchResult {
+        let registry = SourceRegistry()
+        registry.register(StagedScriptedSource(
+            sourceID: "freebmd", displayName: "FreeBMD (test)", results: freeResults))
+        registry.register(fs)
+        let pipeline = ResearchPipeline(
+            dispatcher: SearchDispatcher(registry: registry),
+            snapshot: .empty, sourceInfoMap: [:])
+        return await pipeline.research(
+            subject: makeSubject(),
+            config: ResearchConfig(maxIterations: 3, maxFacts: 50, mode: .extend,
+                                   scope: .county))
+    }
+
+    @Test func freeTierAnswerSkipsFamilySearchVisibly() async {
+        let fs = StagedScriptedSource(
+            sourceID: "familysearch", displayName: "FamilySearch (test)", results: [])
+        let result = await run(freeResults: [matchingBirth()], fs: fs)
+
+        #expect(result.allScoredRecords.contains { $0.record.id == "b-match" })
+        let fsCalls = await fs.searchCount
+        #expect(fsCalls == 0,
+                "the free tier answered birth — FS must not fire for it")
+        let fsSkips = result.searchOutcomes.filter { entry in
+            guard entry.sourceID == "familysearch", entry.recordType == .birth else { return false }
+            if case .skipped = entry.outcome.availability { return true }
+            return false
+        }
+        #expect(!fsSkips.isEmpty,
+                "an FS stage that never fired because the free tier answered must be a visible skip")
+    }
+
+    @Test func freeTierMissWalksTheLadderToFamilySearch() async {
+        let fsRecord = SourceRecord.birth(BirthRecord(
+            common: RecordCommon(id: "b-fs", sourceID: "familysearch",
+                                 name: "Robert Cauldwell", surname: "Cauldwell",
+                                 givenName: "Robert", detailURL: nil, rawFields: [:]),
+            birthYear: 1880, birthDate: "1880", birthPlace: nil,
+            quarter: nil, district: "Belper", volume: nil, page: nil,
+            mothersMaidenName: nil))
+        let fs = StagedScriptedSource(
+            sourceID: "familysearch", displayName: "FamilySearch (test)",
+            results: [fsRecord])
+        let result = await run(freeResults: [], fs: fs)
+
+        let fsCalls = await fs.searchCount
+        #expect(fsCalls > 0, "an unanswered free tier must escalate to FS")
+        #expect(result.allScoredRecords.contains { $0.record.id == "b-fs" })
+    }
+}
+
+/// Scripted staged source: fixed results, counted calls.
+private actor StagedScriptedSource: RecordSource {
+    nonisolated let sourceID: String
+    nonisolated let scopeHandling: ScopeHandling = .scoped
+    nonisolated let displayName: String
+    nonisolated let recordTypes: Set<RecordType> = [.birth]
+    nonisolated let coverageYearRange: ClosedRange<Int>? = nil
+    nonisolated let coverageRegions: Set<Region> = [.englandAndWales]
+    nonisolated let dataLineage: SourceLineage = .communityEdited
+    nonisolated let trustTier: SourceTrustTier = .community
+    nonisolated let evidenceDirectness: EvidenceDirectness = .derivative
+    nonisolated let tosStatus = SourceToSStatus(level: .community, summary: "test double")
+    private let results: [SourceRecord]
+    private(set) var searchCount = 0
+
+    init(sourceID: String, displayName: String, results: [SourceRecord]) {
+        self.sourceID = sourceID
+        self.displayName = displayName
+        self.results = results
+    }
+
+    func search(_ query: RecordQuery) async -> SourceQueryResult {
+        searchCount += 1
+        return .results(results)
+    }
+}
+
 /// Test double: declares `.scoped` but the dispatcher has no branch for it.
 private struct ScopedImpostorSource: RecordSource {
     nonisolated let sourceID = "scoped-impostor"
