@@ -43,6 +43,32 @@ nonisolated struct FreeBMDParseSearchResultsTests {
     </html>
     """
 
+    @Test func percentEncodedDistrictAndSurnameColumnsDecode() {
+        // Owner screenshot 2026-07-15: 'Chapel%20le%20F.' leaked into the
+        // proposed-relative card and its persisted citation — the district
+        // (and surname) columns were never percent-decoded, unlike the
+        // name columns.
+        let payload = """
+        <html><body><script>
+        var searchData = new Array (
+          " ;0;2;1913",
+          "41;Marshall;HARRY;Howard;0;Chapel%20le%20F.;7b;177;114000001:1036",
+          "41;O%27Brien;Mary;;0;Belper;7b;620;114000002:1036"
+        );
+        </script></body></html>
+        """
+        let records = FreeBMDSource.parseSearchResults(
+            payload, recordType: .birth, querySurname: "Marshall")
+        #expect(records.count == 2)
+        guard case let .birth(harry) = records[0], case let .birth(mary) = records[1] else {
+            Issue.record("expected two birth records"); return
+        }
+        #expect(harry.district == "Chapel le F.",
+                "district must be percent-decoded; got \(harry.district ?? "nil")")
+        #expect(mary.common.surname == "O'Brien",
+                "surname must be percent-decoded; got \(mary.common.surname ?? "nil")")
+    }
+
     @Test func carriesSurnameDistrictAndVolForwardAcrossSparseRows() {
         let records = FreeBMDSource.parseSearchResults(
             Self.sparseEncodedPayload,

@@ -857,8 +857,17 @@ actor FreeBMDSource: RecordSource {
                 // Carry-forward: only update the tracked value when this
                 // row populates the column. Blank columns inherit the
                 // last populated value.
-                if !parts[1].isEmpty { currentSurname = parts[1] }
-                if !parts[5].isEmpty { currentDistrict = parts[5] }
+                // Percent-decode like the name columns below — the
+                // district column leaks encoded ("Chapel%20le%20F.") into
+                // records and persisted citations otherwise (owner
+                // screenshot 2026-07-15); surnames with apostrophes
+                // (O%27Brien) had the same exposure.
+                if !parts[1].isEmpty {
+                    currentSurname = parts[1].removingPercentEncoding ?? parts[1]
+                }
+                if !parts[5].isEmpty {
+                    currentDistrict = parts[5].removingPercentEncoding ?? parts[5]
+                }
                 if !parts[6].isEmpty { currentVol = parts[6] }
 
                 // Surname-specific belt-and-braces: if carry-forward had
