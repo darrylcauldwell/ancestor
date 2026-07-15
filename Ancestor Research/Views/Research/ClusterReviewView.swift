@@ -393,7 +393,7 @@ struct ClusterReviewView: View {
 
             // Records
             ForEach(liveRecords, id: \.id) { scored in
-                recordRow(scored)
+                recordRow(scored, soleRecord: liveRecords.count == 1)
             }
 
             // Household members
@@ -503,7 +503,7 @@ struct ClusterReviewView: View {
                     }
                 }
                 if decision != .rejected {
-                    Button("Discard") { vm.rejectCluster(cluster) }
+                    Button(liveRecords.count == 1 ? "Discard" : "Discard cluster") { vm.rejectCluster(cluster) }
                         .buttonStyle(.glassProminent)
                         .tint(.red)
                         .controlSize(.small)
@@ -528,7 +528,7 @@ struct ClusterReviewView: View {
     /// summary" (pointing up) rather than "expand to show detail".
     @State private var collapsedCitations: Set<String> = []
 
-    private func recordRow(_ scored: ScoredRecord) -> some View {
+    private func recordRow(_ scored: ScoredRecord, soleRecord: Bool = false) -> some View {
         let citation = CitationRenderer.cite(scored.record)
         let isExpanded = !collapsedCitations.contains(scored.id)
         // Cross-run "already applied" check — when the user applied
@@ -712,7 +712,7 @@ struct ClusterReviewView: View {
                     // a single lead they've manually verified, or opt-out of
                     // a record the gate predicate would otherwise apply.
                     // Cluster-level Apply respects these overrides.
-                    perRecordActions(scored, alreadyApplied: alreadyApplied)
+                    perRecordActions(scored, alreadyApplied: alreadyApplied, soleRecord: soleRecord)
                 }
                 .padding(.leading, 24)
                 .padding(.top, 4)
@@ -726,7 +726,9 @@ struct ClusterReviewView: View {
     }
 
     @ViewBuilder
-    private func perRecordActions(_ scored: ScoredRecord, alreadyApplied: Bool) -> some View {
+    private func perRecordActions(
+        _ scored: ScoredRecord, alreadyApplied: Bool, soleRecord: Bool = false
+    ) -> some View {
         let decision = vm.recordDecisions[scored.id]
         HStack(spacing: 8) {
             if alreadyApplied {
@@ -751,7 +753,8 @@ struct ClusterReviewView: View {
             Spacer()
             // Hide Apply when already applied — there's nothing to do.
             // Re-applying would just write the same FieldSource twice.
-            if !alreadyApplied && decision != .accepted {
+            if !alreadyApplied && decision != .accepted
+                && !(soleRecord && RecordScorer.wouldApply(scored)) {
                 Button("Apply this record") {
                     vm.applyRecord(scored, into: appState)
                 }
@@ -760,7 +763,7 @@ struct ClusterReviewView: View {
                 .controlSize(.mini)
                 .help("Write just this record's data to the profile and mark it saved-as-lead, overriding the cluster's gate check.")
             }
-            if decision != .rejected {
+            if decision != .rejected && !soleRecord {
                 Button("Discard this record") {
                     vm.discardRecord(scored)
                 }
