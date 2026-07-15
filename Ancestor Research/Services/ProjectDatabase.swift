@@ -3357,6 +3357,25 @@ nonisolated extension ProjectDatabase {
         }) ?? 0
     }
 
+    /// Pending-review counts for EVERY profile in one query — the Triage
+    /// profile selector needs all of them to badge rows and sort
+    /// needs-review profiles to the top (an overnight campaign can queue
+    /// findings across dozens of profiles; per-row COUNT queries would be
+    /// 200+ reads per render). Profiles with zero pending facts are absent
+    /// from the dictionary. Returns empty on any DB error.
+    func pendingFactCountsByProfile() -> [String: Int] {
+        (try? dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT profile_id, COUNT(*) AS n FROM pending_facts
+                WHERE review_status = 'pending'
+                GROUP BY profile_id
+                """)
+            return Dictionary(uniqueKeysWithValues: rows.map {
+                ($0["profile_id"] as String, $0["n"] as Int)
+            })
+        }) ?? [:]
+    }
+
     func loadPendingFacts(profileID: String) throws -> [[String: Any]] {
         try dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """

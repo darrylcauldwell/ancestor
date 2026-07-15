@@ -43,7 +43,15 @@ struct ResearchView: View {
         .onChange(of: appState.requestPendingReviewProfileID) { _, _ in
             consumePendingReviewRequest()
         }
-        .onAppear { consumePendingReviewRequest() }
+        .onAppear {
+            consumePendingReviewRequest()
+            reloadPendingCounts()
+        }
+        // Returning from a per-profile review (accept/reject changed counts)
+        // refreshes the selector's badges and ordering.
+        .onChange(of: showPendingReview) { _, showing in
+            if !showing { reloadPendingCounts() }
+        }
     }
 
     private func consumePendingReviewRequest() {
@@ -51,6 +59,14 @@ struct ResearchView: View {
         appState.requestPendingReviewProfileID = nil
         pendingReviewProfileID = requested
         showPendingReview = true
+    }
+
+    /// One GROUP-BY query for all profiles' pending-review counts — drives
+    /// the row badges and the needs-review-first sort. An overnight watcher
+    /// campaign can queue findings across dozens of profiles; without this
+    /// the selector was an unmarked list of 200+ names.
+    private func reloadPendingCounts() {
+        pendingCounts = appState.currentDatabase?.pendingFactCountsByProfile() ?? [:]
     }
 
     private var navigationTitle: String {
@@ -170,6 +186,24 @@ struct ResearchView: View {
 
             Spacer()
 
+            // Pending-review badge — the row-level signal for "this profile
+            // has findings waiting". Same styling as the profile panel's
+            // badge so the two surfaces read as one system.
+            if let pending = pendingCounts[profile.id], pending > 0 {
+                HStack(spacing: 4) {
+                    Image(systemName: "tray.full.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text("\(pending) to review")
+                        .font(.caption2.weight(.semibold))
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.orange.opacity(0.18))
+                .foregroundStyle(.orange)
+                .clipShape(.capsule)
+                .accessibilityLabel("\(pending) findings to review")
+            }
+
             Text("\(comp.score)/\(comp.maximum)")
                 .font(AppTypography.cardMeta)
                 .foregroundStyle(comp.score == comp.maximum ? .green : .orange)
@@ -194,7 +228,13 @@ struct ResearchView: View {
                 return profile.displayName.localizedCaseInsensitiveContains(profileSearchText)
             }
             .sorted { a, b in
-                // Sort by completeness (least complete first)
+                // Needs-review first: profiles with pending facts outrank
+                // everything (most-pending first) so the triage work is at
+                // the top of the list, then the existing least-complete-first
+                // ordering for the rest.
+                let pa = pendingCounts[a.id] ?? 0
+                let pb = pendingCounts[b.id] ?? 0
+                if pa != pb { return pa > pb }
                 let ca = appState.snapshot.completeness(for: a.id)
                 let cb = appState.snapshot.completeness(for: b.id)
                 if ca.score != cb.score { return ca.score < cb.score }
@@ -256,4 +296,8 @@ struct ResearchView: View {
     // MARK: - Research All confirmation
 
     @State private var showResearchAllConfirmation = false
+
+    // MARK: - Pending-review counts (Triage selector badges + sort)
+
+    @State private var pendingCounts: [String: Int] = [:]
 }
