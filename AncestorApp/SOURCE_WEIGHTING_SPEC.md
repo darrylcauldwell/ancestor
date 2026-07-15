@@ -87,10 +87,15 @@ sequences it, it does not shrink it).
 
 ## Open questions for owner acceptance
 
-1. Should Stage 4 FS be **on-miss only** (recommended default above) or **always-last with
-   narrowed axes**? On-miss is the strongest volume/noise reduction; always-last preserves
-   maximum corroboration harvest.
-2. Does the user-facing research config need a visible "source strategy" control, or is
-   staging silent engine behaviour?
+1. ~~Stage 4 FS: on-miss only vs always-last?~~ **DECIDED 2026-07-15 (Darryl): on-miss
+   only.** FS fires solely for record types the free tier left unanswered (plus the
+   structural-coverage carve-outs above).
+2. ~~Visible "source strategy" control vs silent engine behaviour?~~ **DECIDED 2026-07-15
+   (Darryl, by pointing at the existing research sheet): no new control.** The sheet already
+   expresses user intent via Depth (Verify/Extend/Discover/All) and Scope (parish …
+   national) — staging runs silently *within* the chosen Scope, escalating stages only up to
+   its bound. Build-time copy tweak only: the Scope/Depth descriptions mention that
+   FamilySearch fires only when the free sources come up empty.
 3. Wirksworth/local-corpus placement — Stage 1 alongside FreeREG, or a pre-stage (it is the
-   cheapest, most local source)?
+   cheapest, most local source)? *Default if unanswered at build time: Stage 1 alongside
+   FreeREG.*
