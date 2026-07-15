@@ -1,9 +1,10 @@
 import SwiftUI
 
 /// Sheet presented from a profile's detail view to configure and trigger a
-/// research run. Picks smart default mode based on what's missing on the profile
-/// — Discover for sparse profiles (no parents / no key dates), Extend when
-/// filling gaps, Verify when mostly complete.
+/// research run. One adaptive research action (SOURCE_WEIGHTING companion,
+/// 2026-07-15): the Depth picker is retired — strictness escalates on miss
+/// and staged dispatch owns geography. The profile's shape still seeds the
+/// SCOPE default (sparse → wider), which the user can override.
 struct ResearchConfigSheet: View {
     let profile: Profile
     let snapshot: FamilyGraphSnapshot
@@ -15,7 +16,6 @@ struct ResearchConfigSheet: View {
     let onRun: (ResearchRequest) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var mode: ResearchMode
     @State private var scope: ResearchScope
     /// User opt-in for the prose-extraction phase. Defaults to off — it's a
     /// ~20-minute MLX workload that's only useful for subjects whose
@@ -33,14 +33,12 @@ struct ResearchConfigSheet: View {
         self.snapshot = snapshot
         self.focus = focus
         self.onRun = onRun
-        // Focus-driven runs default to Discover — you're looking for
-        // something not in the tree, so the smart-default shape-based
-        // mode picker would land in the wrong place.
-        let initialMode: ResearchMode = focus == nil
+        // The legacy shape-based mode heuristic survives ONLY as the
+        // scope seed: sparse/focused subjects default wider.
+        let seedMode: ResearchMode = focus == nil
             ? Self.defaultMode(for: profile, snapshot: snapshot)
             : .discover
-        self._mode = State(initialValue: initialMode)
-        self._scope = State(initialValue: Self.defaultScope(for: initialMode))
+        self._scope = State(initialValue: Self.defaultScope(for: seedMode))
     }
 
     var body: some View {
@@ -57,24 +55,6 @@ struct ResearchConfigSheet: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Depth")
-                    .font(.headline)
-                Picker("Depth", selection: $mode) {
-                    Text("Verify").tag(ResearchMode.verify)
-                    Text("Extend").tag(ResearchMode.extend)
-                    Text("Discover").tag(ResearchMode.discover)
-                    Text("All").tag(ResearchMode.all)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                Text(modeDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -99,23 +79,18 @@ struct ResearchConfigSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // Prose-extraction opt-in. Only relevant for Discover/All —
-            // other modes never run prose extraction regardless. Hidden
-            // outside those modes to avoid promising something the
-            // pipeline won't honour.
-            if mode == .discover || mode == .all {
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle(isOn: $runProseExtraction) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Prose extraction (AI)")
-                                .font(.subheadline)
-                            Text("Run the local reasoning model over local-history corpora. Adds roughly 20 minutes; useful when the subject's location matches a registered corpus.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+            // Prose-extraction opt-in — available on every adaptive run.
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(isOn: $runProseExtraction) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Prose extraction (AI)")
+                            .font(.subheadline)
+                        Text("Run the local reasoning model over local-history corpora. Adds roughly 20 minutes; useful when the subject's location matches a registered corpus.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .toggleStyle(.switch)
                 }
+                .toggleStyle(.switch)
             }
 
             // Hint: what's missing on this profile — primes the user on what
@@ -134,6 +109,11 @@ struct ResearchConfigSheet: View {
                 }
             }
 
+            Text(runDescription)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             HStack {
                 Button("Cancel") { dismiss() }
                     .buttonStyle(.glass)
@@ -142,7 +122,10 @@ struct ResearchConfigSheet: View {
                 Button {
                     onRun(ResearchRequest(
                         profileID: profile.id,
-                        mode: mode,
+                        // SOURCE_WEIGHTING companion (2026-07-15): the sheet
+                        // always dispatches the one adaptive action — Depth
+                        // is retired; explicit modes remain MCP overrides.
+                        mode: .adaptive,
                         scope: scope,
                         focus: focus,
                         runProseExtraction: runProseExtraction
@@ -184,28 +167,8 @@ struct ResearchConfigSheet: View {
         case .extend:   return .county
         case .discover: return .adjacent
         case .all:      return .national
+        case .adaptive: return .county
         }
-    }
-
-    private var modeDescription: String {
-        let estimate = Self.estimatedDuration(mode: mode, scope: scope)
-        let intent: String
-        let strictnessHint: String
-        switch mode {
-        case .verify:
-            intent = "Confirm what's already known against sources. Stops early when corroborated."
-            strictnessHint = "Exact-name matches only — no phonetic or variant fan-out."
-        case .extend:
-            intent = "Fill missing facts (death, marriage, location). Standard depth."
-            strictnessHint = "Tries exact match first; broadens to phonetic on empty per source."
-        case .discover:
-            intent = "Broad search from scratch. Use for ghost profiles or unfamiliar ancestors."
-            strictnessHint = "Starts with phonetic match; escalates to spelling-variant fan-out if empty."
-        case .all:
-            intent = "Most thorough preset. Maximum iterations, highest fact cap, no early stop."
-            strictnessHint = "Runs every match tier (exact, phonetic, variants) and dedupes."
-        }
-        return "\(intent) \(strictnessHint) Estimated \(estimate)."
     }
 
     private var scopeDescription: String {
@@ -216,6 +179,12 @@ struct ResearchConfigSheet: View {
         case .adjacent: "Home county plus counties bordering it (single hop). Useful for ancestors near a county border."
         case .national: "Every UK registration district (~1,125 districts, year-filtered)."
         }
+    }
+
+    /// One cost-of-the-click line: adaptive strictness + staged dispatch,
+    /// bounded by the chosen scope.
+    private var runDescription: String {
+        "Searches free sources first and escalates on miss (FamilySearch only if needed). Estimated \(Self.estimatedDuration(mode: .adaptive, scope: scope))."
     }
 
     /// Rough duration estimate per (depth × scope) combination. Values assume the
@@ -245,6 +214,11 @@ struct ResearchConfigSheet: View {
         case (.all, .county):         return "3–6 min"
         case (.all, .adjacent):       return "5–12 min"
         case (.all, .national):       return "8–20 min"
+        case (.adaptive, .parish):    return "15–45 sec (stops when answered)"
+        case (.adaptive, .district):  return "1–2 min (stops when answered)"
+        case (.adaptive, .county):    return "2–4 min (stops when answered)"
+        case (.adaptive, .adjacent):  return "3–8 min (stops when answered)"
+        case (.adaptive, .national):  return "5–15 min (stops when answered)"
         }
     }
 

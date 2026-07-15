@@ -437,6 +437,7 @@ struct SearchDispatcher {
         case .verify:   return [.strict]
         case .extend:   return [.strict, .loose]
         case .discover: return [.loose, .variant]
+        case .adaptive: return [.strict, .loose, .variant]
         case .all:      return [.strict, .loose, .variant]
         }
     }

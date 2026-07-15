@@ -211,6 +211,10 @@ nonisolated struct ResearchConfig: Sendable {
         self.forceRefreshNegatives = forceRefreshNegatives ?? (mode == .verify)
     }
 
+    /// The in-app default (SOURCE_WEIGHTING companion): full strictness
+    /// ladder walked on-miss, staged dispatch owns geography, stable-point
+    /// + budgets own stopping. No verify-style early stop.
+    static let adaptive = ResearchConfig(maxIterations: 4, maxFacts: 100, mode: .adaptive)
     static let verify = ResearchConfig(maxIterations: 2, maxFacts: 20, mode: .verify)
     static let extend = ResearchConfig(maxIterations: 4, maxFacts: 50, mode: .extend)
     static let discover = ResearchConfig(maxIterations: 4, maxFacts: 100, mode: .discover)
@@ -225,6 +229,7 @@ nonisolated struct ResearchConfig: Sendable {
         case .extend:   return .extend
         case .discover: return .discover
         case .all:      return .all
+        case .adaptive: return .adaptive
         }
     }
 

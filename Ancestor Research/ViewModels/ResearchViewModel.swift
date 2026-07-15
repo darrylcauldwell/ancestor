@@ -350,7 +350,7 @@ final class ResearchViewModel {
             displayName: "Level-2 Strategist (AI)",
             state: .pending, resultCount: 0, reason: nil
         ))
-        if (selectedMode == .discover || selectedMode == .all), runProseExtraction {
+        if (selectedMode == .discover || selectedMode == .all || selectedMode == .adaptive), runProseExtraction {
             sourceStatuses.append(SourceStatus(
                 id: "mlx-prose",
                 displayName: "Prose Extraction (AI)",
@@ -390,7 +390,7 @@ final class ResearchViewModel {
         // through `narrative_findings`. Profile-keyed; lead-only
         // runs (no profileID) skip this just like they skip
         // structured evidence persistence above.
-        if (selectedMode == .discover || selectedMode == .all),
+        if (selectedMode == .discover || selectedMode == .all || selectedMode == .adaptive),
            runProseExtraction,
            let profileID = persistProfileID,
            let db = appDatabase,
@@ -570,6 +570,7 @@ final class ResearchViewModel {
         case .extend:   return 3
         case .discover: return 5
         case .all:      return 8
+        case .adaptive: return 5   // discover-grade shortlist for the one action
         }
     }
 

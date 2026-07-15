@@ -13,6 +13,12 @@ nonisolated enum ResearchMode: String, Sendable {
     /// Most thorough preset — runs everything Discover does, plus extra
     /// iterations and a higher fact cap. Use when you want the kitchen sink.
     case all
+    /// The one in-app research action (SOURCE_WEIGHTING companion change,
+    /// decided 2026-07-15): strictness starts strict and escalates only on
+    /// miss; stopping is gap/stable-point/budget-driven through the stage
+    /// ladder. The legacy presets above remain for the MCP/watcher surface,
+    /// where an explicit mode is an override.
+    case adaptive
 }
 
 /// Profile-contextual trigger for a research run. Used by the profile-detail
