@@ -1,6 +1,11 @@
 # Source Weighting — staged dispatch, free-sources-first
 
-**Status: ACCEPTED 2026-07-15 (Darryl: "accepted let build") — building in change order.** Direction set by Darryl during
+**Status: ACCEPTED 2026-07-15 (Darryl: "accepted let build") — building in change order.**
+Shipped: Change 1 `b99ce47` (scope contract + pins) · Change 2 `72de503` (visible skips) ·
+Change 3 `07914e4` (FreeREG umbrella + dead params) · Change 0 `63259a9` (Wirksworth
+retired) · Change 4 `d07a0c5` (FS scope participation — axis-level steering per published
+single-value fuzzy place params; national drops the county axis). Next: Change 5 (staged
+dispatch). Direction set by Darryl during
 Barbara Ayre triage: "the free UK sources offer us capability to provide localised search to
 parish, district and then region then national… the weighting for our app should be from the
 known free sources."
