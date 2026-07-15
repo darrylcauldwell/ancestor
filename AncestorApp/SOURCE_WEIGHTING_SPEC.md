@@ -56,6 +56,22 @@ way it records negative searches today (a stage that never fired is not a covere
 still bounds every stage; a national-scope run still stages free-before-FS but does not skip
 FS. A future per-run toggle ("FS: always / on-miss / never") is an open question below.
 
+## Change — FreeCEN place scoping (FT-13 folded in; owner decision 2026-07-15)
+
+FreeCEN currently widens `.parish`/`.district` scope to `.county` because `FreeCenParams`
+has no parish field — the freecen2 `place_ids[]` capability was noted and deferred as FT-13
+(dispatcher comment, SearchDispatcher ~§FreeCen). With Scope becoming the app's ONLY fan-out
+control (Depth retired above), silent widening undermines the picker's honesty — fold FT-13
+in: extend `FreeCenParams` with place scoping, resolve place ids from the subject's
+parish/district via the freecen2 API's place search, and honour `.parish`/`.district`
+natively. Keep FT-11's birth-county axis behaviour at `.adjacent`/`.national` unchanged.
+
+Constraints: capability must be built from freecen2's PUBLISHED API surface
+(`feedback_verify_source_terms_first` — fetch and cite the docs, no trial-and-error probing),
+and it ships behind the ADR-008 resolution like all Free UK Genealogy traffic. Acceptance: a
+parish-scope run emits FreeCEN queries carrying place scoping; county-scope queries are
+byte-identical to today's.
+
 ## Interactions audited before build
 
 - **Convergence/witness collapse (DS-03)** — staging FS after a FreeBMD hit does not lose
