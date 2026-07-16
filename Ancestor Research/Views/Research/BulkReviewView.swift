@@ -31,6 +31,10 @@ struct BulkReviewView: View {
     @State private var showAllHistory = false
     @State private var findings: [CampaignFinding] = []
     @State private var campaignLeads: [CampaignLeadRow] = []
+    /// TRIAGE_UX_DATA_QUALITY_SPEC Change 3a — dismissed leads are persisted,
+    /// not deleted; this bucket surfaces them for Restore. Collapsed by default.
+    @State private var dismissedLeads: [CampaignLeadRow] = []
+    @State private var showDismissed = false
     @State private var failedEntries: [CampaignReviewService.CampaignEntry] = []
     @State private var filterTier: FrictionTier?
     /// TRIAGE_UX_DATA_QUALITY_SPEC Change 1 — name filter across findings,
@@ -46,7 +50,7 @@ struct BulkReviewView: View {
             if isLoading {
                 ProgressView("Reconstructing research findings…")
                     .frame(maxHeight: .infinity)
-            } else if findings.isEmpty && campaignLeads.isEmpty && failedEntries.isEmpty {
+            } else if findings.isEmpty && campaignLeads.isEmpty && failedEntries.isEmpty && dismissedLeads.isEmpty {
                 ContentUnavailableView {
                     Label("All Clear", systemImage: "checkmark.circle")
                 } description: {
@@ -99,6 +103,18 @@ struct BulkReviewView: View {
                                 sectionHeader("Research skipped / failed")
                                 ForEach(visibleFail) { entry in
                                     failureRow(entry)
+                                }
+                            }
+                            // Change 3a — dismissed leads, collapsed by default,
+                            // each restorable. Kept at the very bottom, out of
+                            // the way, but not lost.
+                            let visibleDismissed = self.visibleDismissed
+                            if !visibleDismissed.isEmpty && filterTier == nil {
+                                dismissedHeader(count: visibleDismissed.count)
+                                if showDismissed {
+                                    ForEach(visibleDismissed) { row in
+                                        dismissedLeadRow(row)
+                                    }
                                 }
                             }
                         }
@@ -214,6 +230,10 @@ struct BulkReviewView: View {
         }
     }
 
+    private var visibleDismissed: [CampaignLeadRow] {
+        dismissedLeads.filter { matchesSearch($0.profileName) || matchesSearch($0.lead.name) }
+    }
+
     private var searchBar: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
@@ -255,6 +275,7 @@ struct BulkReviewView: View {
 
         var newFindings: [CampaignFinding] = []
         var newLeads: [CampaignLeadRow] = []
+        var newDismissed: [CampaignLeadRow] = []
 
         for entry in entries {
             guard let profile = appState.snapshot.profiles[entry.profileID] else { continue }
@@ -328,8 +349,13 @@ struct BulkReviewView: View {
                 ))
             }
 
-            let leads = ((try? db.loadLeads(profileID: entry.profileID)) ?? [])
-                .filter { $0.createdAt >= windowStart && ($0.status == .new || $0.status == .investigated) }
+            let windowLeads = ((try? db.loadLeads(profileID: entry.profileID)) ?? [])
+                .filter { $0.createdAt >= windowStart }
+            newDismissed.append(contentsOf: windowLeads
+                .filter { $0.status == .dismissed }
+                .map { CampaignLeadRow(lead: $0, profileName: profile.displayName) })
+            let leads = windowLeads
+                .filter { $0.status == .new || $0.status == .investigated }
             newLeads.append(contentsOf: leads.map {
                 CampaignLeadRow(lead: $0, profileName: profile.displayName)
             })
@@ -337,6 +363,7 @@ struct BulkReviewView: View {
 
         findings = newFindings
         campaignLeads = newLeads
+        dismissedLeads = newDismissed
     }
 
     // MARK: - Finding card
@@ -470,6 +497,49 @@ struct BulkReviewView: View {
         .glassEffect(.regular, in: .rect(cornerRadius: 10))
     }
 
+    // MARK: - Change 3a — dismissed leads
+
+    /// Tappable "Dismissed leads (n)" disclosure header.
+    private func dismissedHeader(count: Int) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: showDismissed ? "chevron.down" : "chevron.right")
+                .font(AppTypography.cardMeta)
+                .foregroundStyle(.secondary)
+            Text("Dismissed leads (\(count))")
+                .font(AppTypography.cardTitle)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.top, 12)
+        .contentShape(Rectangle())
+        .onTapGesture { showDismissed.toggle() }
+    }
+
+    /// A dismissed lead — dimmed, with a Restore action that returns it to the
+    /// active queue.
+    private func dismissedLeadRow(_ row: CampaignLeadRow) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "signpost.right")
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(row.lead.name)  ·  for \(row.profileName)")
+                    .font(AppTypography.cardBody)
+                Text(row.lead.evidence)
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer()
+            Button("Restore") { restore(row) }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                .help("Return this lead to the active queue.")
+        }
+        .padding(10)
+        .glassEffect(.regular, in: .rect(cornerRadius: 10))
+        .opacity(0.6)
+    }
+
     // MARK: - Actions
 
     private func acceptAllConfirmations() {
@@ -510,7 +580,27 @@ struct BulkReviewView: View {
         )
         try? db.upsertLead(dismissed)
         campaignLeads.removeAll { $0.id == row.id }
+        // Change 3a — move into the dismissed bucket instead of vanishing, so
+        // it stays restorable in this session without a reload.
+        dismissedLeads.append(CampaignLeadRow(lead: dismissed, profileName: row.profileName))
         processedCount += 1
+    }
+
+    /// Change 3a — restore a dismissed lead to the active queue.
+    private func restore(_ row: CampaignLeadRow) {
+        guard let db = appState.currentDatabase else { return }
+        let restored = Lead(
+            id: row.lead.id, profileID: row.lead.profileID,
+            name: row.lead.name, surname: row.lead.surname, givenName: row.lead.givenName,
+            birthYear: row.lead.birthYear, deathYear: row.lead.deathYear,
+            relationship: row.lead.relationship, source: row.lead.source,
+            status: .new, evidence: row.lead.evidence,
+            createdAt: row.lead.createdAt, investigatedAt: row.lead.investigatedAt,
+            resolvedAt: nil, resolution: nil
+        )
+        try? db.upsertLead(restored)
+        dismissedLeads.removeAll { $0.id == row.id }
+        campaignLeads.append(CampaignLeadRow(lead: restored, profileName: row.profileName))
     }
 
     // MARK: - Badges

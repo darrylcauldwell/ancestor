@@ -33,6 +33,42 @@ Tree-2, via MCP `get_profile`). The screenshot-level "duplicates" were mostly NO
   Sub-item: fold transcription variants (Mathews/Matthews, Ida/Ada) — fuzzier, do after the
   exact (name,year) grouping proves out.
 
+## Change 3 — leads triage rework (create-on-accept). DECIDED 2026-07-16.
+
+**Model (Darryl):** a lead is a candidate, not something to blind-add. Today "Promote" calls
+`promoteLeadToProfile` and mints a profile from thin data (often a one-record surname) with NO
+research — backwards. Instead: **research the lead → review the evidence → accept**, and accept
+is the only thing that touches the tree — attaching to an existing profile OR (create-on-accept)
+materialising a new one. This REUSES the existing profile flow rather than a parallel path — the
+same principle that made `ApplyEngine` one shared accept path (the 2026-05 accept-flow bug class
+came from divergent paths). Investigation confirms the reuse surface is large: the pipeline
+already researches leads (`ResearchSubject.fromLead`, `RunRequestWatcher.execute` lead branch,
+`research_run_requests.lead_id`), and the review UI + accept path are subject-agnostic.
+
+**Slices:**
+- **3a — reversible Dismiss (S, UI, independent).** Dismiss → a collapsible "Dismissed leads"
+  section with a Restore action. Leads are already persisted `.dismissed` (not deleted); this
+  just surfaces + un-dismisses them. Safe first slice.
+- **3b — Research action (S/M).** A "Research" button on a lead enqueues a `research_run_requests`
+  row keyed by `lead_id` (the watcher already dispatches it). No new pipeline.
+- **3c — route lead-run results to review (M).** Surface a completed lead investigation in the
+  same `ClusterReviewView`, reusing the subject-agnostic review.
+- **3d — create-on-accept seam (M, the one real new bit).** Accepting a lead-subject's evidence
+  dedups-or-creates the profile (`ProposalDedup` → attach existing / else materialise via
+  `promoteLeadToProfile`) THEN applies via `ApplyEngine`. Evidence-before-commit; no stub
+  pollution.
+- **3e — retire blind Promote (S).** Remove/demote the Promote button; "add to tree" now flows
+  through 3b→3c→3d. Keep a clearly-labelled "add without researching" shortcut only if wanted.
+- **3f — identity-grouping of leads (M).** Group leads by (surname+given+year) into one row
+  ("N records"); competing candidates stay separate. Applied to Triage + profile Leads list.
+
+**Order:** 3a → 3b → 3c → 3d → 3e → 3f. 3a ships independently; 3b–3d are the core flow; then
+retire Promote and group.
+
+**Note:** "Research" pays off for identity leads ("Ida L Land b.1885") but not bare parent-surname
+leads ("[mother] /Mathews/"), whose meaningful accept is "add inferred placeholder parent" — a
+smaller reviewed tree change. Both route through accept; the affordance may differ by lead kind.
+
 ## Order & gate
 1 → 2, then 3 after a data investigation defines its exact scope. Each gated by full
 `xcodebuild test`.
