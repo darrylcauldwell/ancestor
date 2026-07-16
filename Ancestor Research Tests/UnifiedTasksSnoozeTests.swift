@@ -21,11 +21,14 @@ struct UnifiedTasksSnoozeTests {
         lastName: String? = "Doe",
         birthDate: String? = "1880",
         deathDate: String? = "1950",
-        // The MissingBirthLocationRule (warning, gap) is what we use to force
-        // a deterministic audit fire across these tests — leave nil to fire.
-        birthLocation: String? = nil,
+        birthLocation: String? = "Derby",
         deathLocation: String? = "Derby",
-        bio: String? = "Sample bio."
+        // UnsourcedBioRule (warning, ISSUE) is the deterministic audit fire
+        // across these tests — a >50-char bio with no citations. An issue-class
+        // rule is used deliberately: gap-class rules (missing-*) no longer
+        // surface as audit issues (they route to the Gaps view), so the snooze
+        // mechanism must be exercised through a rule that still appears.
+        bio: String? = "A sample biography comfortably longer than fifty characters, carrying no citations at all."
     ) -> Profile {
         Profile(
             id: id,
@@ -102,7 +105,7 @@ struct UnifiedTasksSnoozeTests {
         let baseline = aggregate(snapshot: snap, overrides: [])
         let firedBefore = baseline.contains { task in
             if case .auditIssue(let r) = task,
-               r.profileID == "p1", r.ruleID == "missingBirthLocation" {
+               r.profileID == "p1", r.ruleID == "unsourcedBio" {
                 return true
             }
             return false
@@ -111,14 +114,14 @@ struct UnifiedTasksSnoozeTests {
 
         // Now snooze it for this person.
         let snooze = makeSnooze(
-            ruleID: "missingBirthLocation",
+            ruleID: "unsourcedBio",
             scope: .profile(id: "p1")
         )
         let after = aggregate(snapshot: snap, overrides: [snooze])
 
         let firedAfter = after.contains { task in
             if case .auditIssue(let r) = task,
-               r.profileID == "p1", r.ruleID == "missingBirthLocation" {
+               r.profileID == "p1", r.ruleID == "unsourcedBio" {
                 return true
             }
             return false
@@ -135,7 +138,7 @@ struct UnifiedTasksSnoozeTests {
         // Both profiles should fire baseline.
         let baseline = aggregate(snapshot: snap, overrides: [])
         let baselineHits = baseline.filter { task in
-            if case .auditIssue(let r) = task, r.ruleID == "missingBirthLocation" {
+            if case .auditIssue(let r) = task, r.ruleID == "unsourcedBio" {
                 return true
             }
             return false
@@ -143,12 +146,12 @@ struct UnifiedTasksSnoozeTests {
         #expect(baselineHits.count == 2, "Baseline: rule fires on both profiles")
 
         let snooze = makeSnooze(
-            ruleID: "missingBirthLocation",
+            ruleID: "unsourcedBio",
             scope: .global
         )
         let after = aggregate(snapshot: snap, overrides: [snooze])
         let remaining = after.filter { task in
-            if case .auditIssue(let r) = task, r.ruleID == "missingBirthLocation" {
+            if case .auditIssue(let r) = task, r.ruleID == "unsourcedBio" {
                 return true
             }
             return false
@@ -166,7 +169,7 @@ struct UnifiedTasksSnoozeTests {
         let yesterday = now.addingTimeInterval(-86_400)
         let expired = AuditRuleOverride(
             id: UUID(),
-            ruleID: "missingBirthLocation",
+            ruleID: "unsourcedBio",
             scope: .profile(id: "p1"),
             enabled: true,
             snoozedUntil: yesterday,
@@ -176,7 +179,7 @@ struct UnifiedTasksSnoozeTests {
         let after = aggregate(snapshot: snap, overrides: [expired], now: now)
         let fired = after.contains { task in
             if case .auditIssue(let r) = task,
-               r.profileID == "p1", r.ruleID == "missingBirthLocation" {
+               r.profileID == "p1", r.ruleID == "unsourcedBio" {
                 return true
             }
             return false
@@ -191,7 +194,7 @@ struct UnifiedTasksSnoozeTests {
         let snap = snapshot([p1, p2])
 
         let snooze = makeSnooze(
-            ruleID: "missingBirthLocation",
+            ruleID: "unsourcedBio",
             scope: .profile(id: "p1")
         )
 
@@ -199,14 +202,14 @@ struct UnifiedTasksSnoozeTests {
 
         let firedForP1 = after.contains { task in
             if case .auditIssue(let r) = task,
-               r.profileID == "p1", r.ruleID == "missingBirthLocation" {
+               r.profileID == "p1", r.ruleID == "unsourcedBio" {
                 return true
             }
             return false
         }
         let firedForP2 = after.contains { task in
             if case .auditIssue(let r) = task,
-               r.profileID == "p2", r.ruleID == "missingBirthLocation" {
+               r.profileID == "p2", r.ruleID == "unsourcedBio" {
                 return true
             }
             return false
