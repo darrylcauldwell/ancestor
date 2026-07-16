@@ -109,8 +109,18 @@ occupation electrician · residence 3 Mill Lane · +4 household leads"), so acce
 lands every nugget, and a lead's nuggets are visible before acceptance (no silent loss).
 
 ## Order & gate
-1 → 2 → 3, then 4 (refactor onto the proven behaviour), then 5 (review surface). Each gated by
-full `xcodebuild test`. Change 1 first — smallest, unblocks Abraham, proves the routing.
+1 → 2 → 3 (SHIPPED), then **4 before 5**, each gated by full `xcodebuild test`. Change 1 first —
+smallest, unblocks Abraham, proves the routing.
+
+**Why 4 before 5 (decided 2026-07-16, no time pressure):** Change 5's review preview must
+enumerate every fact a record will absorb; Change 4 *is* that enumeration (apply becomes
+"compute absorption items → execute"). Build 5 on 4 and the preview computes the same item list
+and merely displays it — preview and write cannot drift. Build 5 first and you either duplicate
+the enumeration across the three scattered paths (the drift bug this spec exists to prevent) or
+write a throwaway dry-run 4 then reworks. 4's refactor target is already complete because 1–3
+are shipped, so there's no moving-target reason to defer it. The only thing 4-first costs is
+delaying the visible win (5) behind a payoff-free refactor — a cost that only bites under time
+pressure. Under pressure, flip to 5→4.
 
 ## Non-goals
 Auto-apply (firewall unchanged); a profile-level occupation *column* (occupation stays a typed
