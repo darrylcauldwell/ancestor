@@ -365,6 +365,10 @@ struct UnifiedTasksView: View {
     @Environment(AppState.self) private var appState
     @State private var auditVM = AuditViewModel()
     @State private var category: TaskCategory?
+    /// Sub-filter within the Audit category: a specific audit rule ID (e.g.
+    /// "excessParentEdges"). Only meaningful while `category == .audit`; cleared
+    /// whenever the top-level category changes.
+    @State private var auditRuleFilter: String?
     @State private var searchText = ""
     @State private var lifeEvents: [LifeEvent] = []
     @State private var leads: [Lead] = []
@@ -405,6 +409,12 @@ struct UnifiedTasksView: View {
         var tasks = allTasks
         if let category {
             tasks = tasks.filter { $0.category == category }
+        }
+        if category == .audit, let ruleID = auditRuleFilter {
+            tasks = tasks.filter {
+                if case .auditIssue(let r) = $0 { return r.ruleID == ruleID }
+                return false
+            }
         }
         if !searchText.isEmpty {
             let needle = searchText.lowercased()
@@ -454,10 +464,7 @@ struct UnifiedTasksView: View {
     private var actionRow: some View {
         HStack {
             Button {
-                let disabled = (try? JSONDecoder().decode(Set<String>.self, from: disabledRuleIDsData)) ?? []
-                auditVM.runAudit(snapshot: appState.snapshot, disabledRuleIDs: disabled)
-                reloadLifeEvents()
-                reloadLeads()
+                rerunAudit()
             } label: {
                 Label("Re-run Audit", systemImage: "arrow.clockwise")
             }
@@ -495,26 +502,65 @@ struct UnifiedTasksView: View {
     /// chip again) clears the filter. Wraps naturally to a second line
     /// at narrow window widths via `FlowLayout`.
     private var chipRow: some View {
-        FlowLayout(spacing: 6, lineSpacing: 6) {
-            FilterChip(
-                label: "All",
-                count: allTasks.count,
-                tint: .accentColor,
-                isSelected: category == nil
-            ) {
-                category = nil
-            }
-            ForEach(TaskCategory.allCases) { c in
+        VStack(alignment: .leading, spacing: 8) {
+            FlowLayout(spacing: 6, lineSpacing: 6) {
                 FilterChip(
-                    label: c.displayName,
-                    count: count(in: c),
-                    tint: c.chipColor,
-                    isSelected: category == c
+                    label: "All",
+                    count: allTasks.count,
+                    tint: .accentColor,
+                    isSelected: category == nil
                 ) {
-                    category = (category == c) ? nil : c
+                    category = nil
+                    auditRuleFilter = nil
+                }
+                ForEach(TaskCategory.allCases) { c in
+                    FilterChip(
+                        label: c.displayName,
+                        count: count(in: c),
+                        tint: c.chipColor,
+                        isSelected: category == c
+                    ) {
+                        category = (category == c) ? nil : c
+                        auditRuleFilter = nil
+                    }
                 }
             }
+
+            // Second-level chips: when Audit is selected, break it down by rule
+            // so common findings ("Excess or Placeholder Parents", "Missing
+            // Parents", …) are one tap away. Ordered by frequency.
+            if category == .audit, !auditRuleChips.isEmpty {
+                FlowLayout(spacing: 6, lineSpacing: 6) {
+                    ForEach(auditRuleChips, id: \.id) { chip in
+                        FilterChip(
+                            label: chip.name,
+                            count: chip.count,
+                            tint: .red.opacity(0.75),
+                            isSelected: auditRuleFilter == chip.id
+                        ) {
+                            auditRuleFilter = (auditRuleFilter == chip.id) ? nil : chip.id
+                        }
+                    }
+                }
+                .padding(.leading, 12)
+            }
         }
+    }
+
+    /// Distinct audit rules present in the current results, with friendly names
+    /// and counts — the data behind the Audit sub-chip row.
+    private var auditRuleChips: [(id: String, name: String, count: Int)] {
+        var counts: [String: Int] = [:]
+        for task in allTasks where task.category == .audit {
+            if case .auditIssue(let r) = task { counts[r.ruleID, default: 0] += 1 }
+        }
+        let nameByID = Dictionary(
+            AuditRules.builtIn.map { ($0.id, $0.displayName) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return counts
+            .map { (id: $0.key, name: nameByID[$0.key] ?? $0.key, count: $0.value) }
+            .sorted { $0.count == $1.count ? $0.name < $1.name : $0.count > $1.count }
     }
 
     // MARK: - List
@@ -538,7 +584,7 @@ struct UnifiedTasksView: View {
                     ForEach(UnifiedTaskGrouping.groupedByProfile(filteredTasks), id: \.profileName) { group in
                         Section {
                             ForEach(group.tasks) { task in
-                                TaskRow(task: task, onResearchLead: onResearchLead, onLeadChanged: reloadLeads, onOpenProfile: onOpenProfile)
+                                TaskRow(task: task, onResearchLead: onResearchLead, onLeadChanged: reloadLeads, onAuditChanged: rerunAudit, onOpenProfile: onOpenProfile)
                             }
                         } header: {
                             HStack {
@@ -562,12 +608,23 @@ struct UnifiedTasksView: View {
             ScrollView {
                 LazyVStack(spacing: 10) {
                     ForEach(filteredTasks) { task in
-                        TaskRow(task: task, onResearchLead: onResearchLead, onLeadChanged: reloadLeads, onOpenProfile: onOpenProfile)
+                        TaskRow(task: task, onResearchLead: onResearchLead, onLeadChanged: reloadLeads, onAuditChanged: rerunAudit, onOpenProfile: onOpenProfile)
                     }
                 }
                 .padding()
             }
         }
+    }
+
+    /// Re-run the audit and reload derived rows. Used by the Re-run button and
+    /// after any in-row action that mutates the graph (e.g. the placeholder
+    /// repair), so the list reflects the new state instead of the stale summary
+    /// the last run cached on the view model.
+    private func rerunAudit() {
+        let disabled = (try? JSONDecoder().decode(Set<String>.self, from: disabledRuleIDsData)) ?? []
+        auditVM.runAudit(snapshot: appState.snapshot, disabledRuleIDs: disabled)
+        reloadLifeEvents()
+        reloadLeads()
     }
 
     private func reloadLifeEvents() {
@@ -599,6 +656,9 @@ private struct TaskRow: View {
     /// Called after a lead is dismissed inline so the parent reloads the
     /// list and the row disappears.
     let onLeadChanged: () -> Void
+    /// Called after an in-row action mutates the graph (e.g. the placeholder
+    /// repair) so the parent re-runs the audit and the row refreshes.
+    let onAuditChanged: () -> Void
     let onOpenProfile: (String) -> Void
     @Environment(AppState.self) private var appState
 
@@ -610,6 +670,16 @@ private struct TaskRow: View {
         let id = UUID()
         let leftID: String
         let rightID: String
+    }
+
+    /// The profile whose parent links are being reviewed in the sheet.
+    @State private var reviewParentsTarget: ReviewTarget?
+    /// The profile for which the "Link spouse" sheet is open.
+    @State private var linkSpouseTarget: ReviewTarget?
+
+    private struct ReviewTarget: Identifiable {
+        let id = UUID()
+        let profileID: String
     }
 
     var body: some View {
@@ -652,11 +722,26 @@ private struct TaskRow: View {
                 rightProfileID: pair.rightID
             )
         }
+        .sheet(item: $reviewParentsTarget) { target in
+            ReviewParentsView(profileID: target.profileID, onChanged: onAuditChanged)
+        }
+        .sheet(item: $linkSpouseTarget) { target in
+            AddRelationshipView(anchorID: target.profileID, initialKind: .spouse)
+        }
     }
 
     private func openProfile() {
         guard let pid = task.targetProfileID else { return }
         onOpenProfile(pid)
+    }
+
+    /// Remove every spouse edge where the profile is its own spouse (the
+    /// `selfSpouse` audit finding). Normally exactly one edge.
+    private func removeSelfSpouse(_ profileID: String) {
+        let selfEdges = appState.snapshot.relationships.filter {
+            $0.type == .spouse && $0.from == profileID && $0.to == profileID
+        }
+        for edge in selfEdges { appState.removeRelationship(id: edge.id) }
     }
 
     private var iconColor: Color {
@@ -692,10 +777,23 @@ private struct TaskRow: View {
         switch task {
         case .auditIssue(let r):
             HStack(spacing: 6) {
-                // M19 — duplicateDetection rows get a Compare action that
-                // opens the candidate side-by-side. The candidate ID rides
-                // on `relatedProfileIDs` populated by the rule.
-                if r.ruleID == "duplicateDetection",
+                // Phase 1 — universal baseline: every audit row can jump to the
+                // person's profile to fix the details (edit dates, add missing
+                // fields, correct names). The row body opens it too, but an
+                // explicit action makes the fix path discoverable.
+                Button { openProfile() } label: {
+                    Label("Open to fix", systemImage: "pencil")
+                }
+                .buttonStyle(.glass)
+                .controlSize(.mini)
+                .disabled(task.targetProfileID == nil)
+                .help("Open this person's profile to edit the details")
+                .accessibilityHint("Open this person's profile to edit the details")
+
+                // Duplicate-shaped findings get a Compare action that opens the
+                // candidate side-by-side (Compare offers Merge). The candidate ID
+                // rides on `relatedProfileIDs` populated by the rule.
+                if r.ruleID == "duplicateDetection" || r.ruleID == "orphanStub",
                    let candidateID = r.relatedProfileIDs?.first,
                    appState.snapshot.profiles[candidateID] != nil,
                    appState.snapshot.profiles[r.profileID] != nil {
@@ -708,6 +806,97 @@ private struct TaskRow: View {
                     .controlSize(.mini)
                     .help("View both profiles side by side")
                     .accessibilityHint("View both profiles side by side")
+                }
+
+                // Excess/placeholder parents — one-click absorb of the blank
+                // stub parents into the real ones, re-homing shared siblings.
+                // Driven by the finding's own `relatedProfileIDs` (the junk stubs
+                // the rule flagged) so the button and the rule's wording can
+                // never disagree; the George-Wheeldon all-named case has no
+                // related IDs, so it correctly shows no button.
+                if r.ruleID == "excessParentEdges",
+                   r.relatedProfileIDs?.isEmpty == false {
+                    Button {
+                        appState.repairExcessPlaceholderParents(for: r.profileID)
+                        onAuditChanged()
+                    } label: {
+                        Label("Remove placeholders", systemImage: "wand.and.stars")
+                    }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.mini)
+                    .help("Absorb the blank placeholder parents into the real parents and re-home any siblings that shared them")
+                    .accessibilityHint("Absorb the blank placeholder parents into the real parents and re-home shared siblings")
+                } else if r.ruleID == "excessParentEdges" {
+                    // All-named excess (no stubs to auto-strip) — a human picks
+                    // which parent is wrong. Opens a sheet to unlink one.
+                    Button {
+                        reviewParentsTarget = ReviewTarget(profileID: r.profileID)
+                    } label: {
+                        Label("Review parents", systemImage: "list.bullet.rectangle")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.mini)
+                    .help("Review this person's parent links and remove the incorrect or duplicate one")
+                    .accessibilityHint("Review this person's parent links and remove the incorrect or duplicate one")
+                }
+
+                // Phase 2 — structural rules reuse the relationship-review path.
+                // Two biological parents in the same role → review + unlink one.
+                if r.ruleID == "parentsPerRole" {
+                    Button {
+                        reviewParentsTarget = ReviewTarget(profileID: r.profileID)
+                    } label: {
+                        Label("Review parents", systemImage: "list.bullet.rectangle")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.mini)
+                    .help("Review this person's parent links and remove the duplicate")
+                    .accessibilityHint("Review this person's parent links and remove the duplicate")
+                }
+
+                // Self-spouse → one-click removal of the erroneous self-link.
+                if r.ruleID == "selfSpouse" {
+                    Button {
+                        removeSelfSpouse(r.profileID)
+                        onAuditChanged()
+                    } label: {
+                        Label("Remove self-link", systemImage: "minus.circle")
+                    }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.mini)
+                    .help("Remove the erroneous link where this person is their own spouse")
+                    .accessibilityHint("Remove the erroneous self-spouse link")
+                }
+
+                // Phase 5 — married surname without a linked spouse → open Add
+                // Relationship pre-set to Spouse so research can pivot to the
+                // married surname once the spouse is linked.
+                if r.ruleID == "unlinkedSpouseForFemaleSubject" {
+                    Button {
+                        linkSpouseTarget = ReviewTarget(profileID: r.profileID)
+                    } label: {
+                        Label("Link spouse", systemImage: "person.2.badge.plus")
+                    }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.mini)
+                    .help("Link this person's spouse so research can find records under the married surname")
+                    .accessibilityHint("Link this person's spouse")
+                }
+
+                // Phase 3 — gap-category findings (missing parents, dates,
+                // locations, end-of-line) get a direct pipeline kickoff.
+                if r.category == .gap {
+                    Button {
+                        if let p = appState.snapshot.profiles[r.profileID] {
+                            appState.researchConfigProfile = p
+                        }
+                    } label: {
+                        Label("Research", systemImage: "magnifyingglass")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.mini)
+                    .help("Run the research pipeline to find the missing details")
+                    .accessibilityHint("Run the research pipeline to find the missing details")
                 }
 
                 Button {
@@ -902,6 +1091,102 @@ private struct TaskRow: View {
             promotedFrom: origin
         )
         appState.successMessage = "Added to workbench questions."
+    }
+}
+
+// MARK: - Review parents sheet
+
+/// Lists a profile's parent links so the user can unlink an incorrect or
+/// duplicate one — the manual counterpart to the placeholder auto-repair, for
+/// the all-named excess-parents case (e.g. George Wheeldon's three named
+/// parents, a probable bad merge). Reads the snapshot live, so removing an edge
+/// updates the list in place; `onChanged` re-runs the audit behind the sheet.
+private struct ReviewParentsView: View {
+    let profileID: String
+    let onChanged: () -> Void
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    private var parentEdges: [(edgeID: UUID, parent: Profile?, role: ParentRole?)] {
+        appState.snapshot.relationships
+            .filter { $0.type == .parent && $0.to == profileID }
+            .map { (edgeID: $0.id, parent: appState.snapshot.profiles[$0.from], role: $0.role) }
+    }
+
+    private var subjectName: String {
+        appState.snapshot.profiles[profileID]?.displayName ?? "this person"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Review parents").font(.title2).fontWeight(.semibold)
+                Spacer()
+                Button { dismiss() } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.glass)
+                    .accessibilityLabel("Close")
+            }
+            .padding(20)
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("\(subjectName) has \(parentEdges.count) parents recorded — a person has at most two. Remove the incorrect or duplicate ones. This unlinks the parent from \(subjectName); it does not delete the parent's profile.")
+                        .font(AppTypography.cardBody)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    ForEach(parentEdges, id: \.edgeID) { edge in
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(parentLabel(edge.parent))
+                                    .font(AppTypography.cardTitle)
+                                let meta = [roleLabel(edge.role), birthLabel(edge.parent)]
+                                    .compactMap { $0 }
+                                if !meta.isEmpty {
+                                    Text(meta.joined(separator: " · "))
+                                        .font(AppTypography.cardMeta)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            Button(role: .destructive) {
+                                appState.removeRelationship(id: edge.edgeID)
+                                onChanged()
+                            } label: {
+                                Label("Remove", systemImage: "minus.circle")
+                            }
+                            .buttonStyle(.glass)
+                            .controlSize(.small)
+                            .help("Unlink this parent from \(subjectName)")
+                        }
+                        .padding(12)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 10))
+                    }
+                }
+                .padding(20)
+            }
+        }
+        .frame(minWidth: 440, minHeight: 360)
+    }
+
+    private func parentLabel(_ p: Profile?) -> String {
+        guard let p else { return "(missing profile)" }
+        let name = p.displayName.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? "(blank placeholder)" : name
+    }
+
+    private func roleLabel(_ r: ParentRole?) -> String? {
+        switch r {
+        case .father: return "Father"
+        case .mother: return "Mother"
+        default: return nil
+        }
+    }
+
+    private func birthLabel(_ p: Profile?) -> String? {
+        guard let original = p?.birthDate?.original, !original.isEmpty else { return nil }
+        return "b. \(original)"
     }
 }
 
