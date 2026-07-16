@@ -92,12 +92,10 @@ This section reads as the build sequence — top to bottom is the intended order
   (b) [over-split, Barbara Ayre] `locationConsistency` scores districts only relative to the
   SUBJECT's home county, so two records in the same *foreign* county score 0.0 — grant
   same-foreign-county credit from the district registry (no hardcoded regions).
-  (c) [over-merge, Ernest Cauldwell 2026-07-16] a **death never caps the lifespan** — a birth
-  seeds `[year, year+110]` and later records only *expand* the window, so an infant death
-  (1886, age 0) merges with a 1915 marriage. Fix: a death sets `lifespanEnd = deathYear`
-  (+margin), a death-with-age bounds birth (`birth ≈ deathYear − age`), and assignment
-  **rejects records dated after the cluster's death**. Small + high-value; can ship ahead of
-  (a)/(b) and is a prerequisite for lead discovery below.
+  (c) [over-merge, Ernest Cauldwell 2026-07-16] **[✓ shipped `b120ac9`]** a death now caps the
+  life: assignment refuses records dated after the cluster's death (+2yr), and findContradiction
+  splits post-death records + births incompatible with the death's age-implied birth. Tests:
+  infant death no longer clusters with a later marriage/census. (a)/(b) [over-split] remain.
   Gate: ClusteringEngine tests incl. a Northumberland-namesake fixture (a/b) and an
   infant-death-vs-marriage fixture (c); SANDWICH_AUDIT cross-check that wider lifespans can't
   push unrelated records over the 0.4 attach threshold.
@@ -113,7 +111,11 @@ This section reads as the build sequence — top to bottom is the intended order
   emit a report of what coheres — and is the **go/no-go for the whole pivot**, cheap enough to
   run early once (c) lands; then **Phase 1** read-only discovery panel → **Phase 2** hypothesis
   emission → **Phase 3** embeddings → **Phase 4** AI narration → **Phase 5** unify acceptance +
-  discovery. This is *core research capability*, not polish, so it **leads** Stage 2's
+  discovery. **[◐ Phase 0/1 engine shipped `c831baa`]** — `LeadDiscoveryEngine` (deterministic
+  blocking + agglomerative within-block clustering + coherence signal + `DiscoveryReport`), unit
+  tested. **Next: run it on the LIVE lead pool** — needs an MCP tool or in-app dev trigger, which
+  wants the engine (and `Lead`) in a shared module accessible to `FieldResearcherMCP`; that
+  module-boundary refactor is the immediate follow-up. Then Phase 1 UI. This is *core research capability*, not polish, so it **leads** Stage 2's
   enrichment/polish items rather than trailing them. Gate to start: core declared solid
   (Stage 1) + clustering item (c).
 - **Query-side given-name variants** (surfaced 2026-07-15, Harry Marshall: possibly
