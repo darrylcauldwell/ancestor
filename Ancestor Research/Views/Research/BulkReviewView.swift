@@ -469,17 +469,16 @@ struct BulkReviewView: View {
                     .lineLimit(2)
             }
             Spacer()
-            // Change 3b — Research is the primary action: investigate the
-            // candidate and review the evidence BEFORE anything reaches the
-            // tree. Promote (blind add) stays for now, demoted; 3e retires it.
+            // Change 3b/3e — the ONLY two lead actions: Research (investigate,
+            // then review, then commit) or Dismiss. Blind "Promote" was removed
+            // — it minted incomplete profiles from thin one-record inferences,
+            // the exact risk this rework exists to eliminate. "Add to tree" now
+            // happens only through Research → review → promote-in-review, after
+            // evidence.
             Button("Research") { appState.researchLeadRequest = row.lead }
                 .buttonStyle(.glassProminent)
                 .controlSize(.small)
                 .help("Investigate this candidate — gather evidence, then decide, rather than adding it blind.")
-            Button("Promote") { promote(row) }
-                .buttonStyle(.glass)
-                .controlSize(.small)
-                .help("Add to the tree now without researching (creates a sparse profile).")
             Button("Dismiss") { dismiss(row) }
                 .buttonStyle(.glass)
                 .controlSize(.small)
@@ -565,14 +564,6 @@ struct BulkReviewView: View {
         }
         findings.removeAll { finding in confirmations.contains { $0.id == finding.id } }
         vm.reset()
-    }
-
-    private func promote(_ row: CampaignLeadRow) {
-        guard let db = appState.currentDatabase else { return }
-        guard (try? db.promoteLeadToProfile(row.lead)) != nil else { return }
-        if let snap = try? db.buildSnapshot() { appState.snapshot = snap }
-        campaignLeads.removeAll { $0.id == row.id }
-        processedCount += 1
     }
 
     private func dismiss(_ row: CampaignLeadRow) {
