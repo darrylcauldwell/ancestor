@@ -68,8 +68,18 @@ nonisolated struct DiscoveryExtractor {
             for scored in cluster.records where scored.verdict == .fact {
                 if case .marriage(let r) = scored.record, let spouse = r.spouseName {
                     let spouseUpper = spouse.uppercased()
-                    let hasSpouse = snapshot.spousesOf(profile.id).contains {
-                        $0.displayName.uppercased() == spouseUpper
+                    // Suppress when a spouse is already linked. The record's
+                    // spouse is often surname-only ("MARSHALL"), while the linked
+                    // spouse has a full name ("Harry Marshall"), so a full-name
+                    // equality check missed it and surfaced redundant discoveries.
+                    // Match on surname too.
+                    let hasSpouse = snapshot.spousesOf(profile.id).contains { existing in
+                        let existingName = existing.displayName.uppercased()
+                        let existingSurname = (existing.lastName ?? "").uppercased()
+                        return existingName == spouseUpper
+                            || (!existingSurname.isEmpty && existingSurname == spouseUpper)
+                            || (!existingSurname.isEmpty && spouseUpper.contains(existingSurname))
+                            || (!spouseUpper.isEmpty && existingName.contains(spouseUpper))
                     }
                     if !hasSpouse {
                         discoveries.append(Discovery(

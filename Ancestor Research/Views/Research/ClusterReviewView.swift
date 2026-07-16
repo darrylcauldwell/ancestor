@@ -17,6 +17,14 @@ struct ClusterReviewView: View {
     }
     @Environment(AppState.self) private var appState
 
+    /// Subject for the "Add spouse" sheet opened from a spouse discovery.
+    @State private var addSpouseAnchor: DiscoveryAnchor?
+
+    private struct DiscoveryAnchor: Identifiable {
+        let id = UUID()
+        let profileID: String
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Summary bar
@@ -759,6 +767,7 @@ struct ClusterReviewView: View {
                     perRecordActions(scored, alreadyApplied: alreadyApplied, soleRecord: soleRecord)
                 }
                 .padding(.leading, 24)
+                .padding(.trailing, 16)
                 .padding(.top, 4)
             }
         }
@@ -1294,9 +1303,20 @@ struct ClusterReviewView: View {
                         Text(discovery.evidence)
                             .font(AppTypography.badge)
                             .foregroundStyle(.secondary)
-                        Text(discovery.suggestedAction)
+                        // Wired actions are real buttons; the rest render as
+                        // plain hints so they don't masquerade as dead links.
+                        if discovery.type == .spouseIdentified,
+                           let subjectID = vm.selectedProfile?.id {
+                            Button(discovery.suggestedAction) {
+                                addSpouseAnchor = DiscoveryAnchor(profileID: subjectID)
+                            }
+                            .buttonStyle(.link)
                             .font(AppTypography.badge)
-                            .foregroundStyle(.blue)
+                        } else {
+                            Text(discovery.suggestedAction)
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
                 }
@@ -1305,6 +1325,9 @@ struct ClusterReviewView: View {
         }
         .padding(14)
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        .sheet(item: $addSpouseAnchor) { anchor in
+            AddRelationshipView(anchorID: anchor.profileID, initialKind: .spouse)
+        }
     }
 
     @ViewBuilder
