@@ -70,6 +70,7 @@ public nonisolated enum AuditRules {
         MissingBirthLocationRule(),
         MissingBioRule(),
         DuplicateDetectionRule(),
+        ExcessParentEdgesRule(),
         CompletenessScoreRule(),
         ParentDiedBeforeChildRule(),
         ParentSuspiciouslyOldRule(),
@@ -848,6 +849,84 @@ public nonisolated struct UnlinkedSpouseForFemaleSubjectRule: AuditRuleDefinitio
     public func guidanceMessage(profile: Profile) -> String? {
         let married = (profile.marriedSurname ?? "?").trimmingCharacters(in: .whitespaces)
         return "Link \(profile.displayName)'s spouse so research can find her death/probate records under '\(married)'. Use Add Spouse from the profile, or import the spouse from WikiTree."
+    }
+}
+
+// MARK: - Excess / Placeholder Parents (2026-07-16 sibling-shortcut regression)
+
+/// Fires when a profile has more than two parent edges, or a blank placeholder
+/// parent stacked alongside a real (named) one. The sibling-shortcut direction
+/// bug (owner report 2026-07-16) wired an orphan's *placeholder* parents onto an
+/// established profile that already had real parents — Elsie Twyford ended up
+/// with six parent edges (2 real + 4 blank placeholders), invisible in the tree
+/// because the renderer collapses blank placeholders.
+///
+/// `ParentsPerRoleRule` (F4a) misses this entirely: the junk edges carry role
+/// `.unspecified`, so the same-role duplicate check never groups them. The
+/// legitimate shared-placeholder case (two parentless siblings sharing ONE
+/// unknown-couple placeholder) does not fire — that is a single placeholder
+/// parent with no named parent. `relatedProfileIDs` lists the placeholder
+/// parents so a repair can target them precisely.
+public nonisolated struct ExcessParentEdgesRule: AuditRuleDefinition {
+    public let id = "excessParentEdges"
+    public let displayName = "Excess or Placeholder Parents"
+    public let description = "A profile must not have more than two parents, nor a blank placeholder parent alongside a real one."
+    public let fireCondition = "More than 2 parent edges, OR a placeholder parent coexists with a named parent."
+    public let warningCondition: String? = "Placeholder parent alongside a named parent (2 or fewer total)."
+    public let workedExample = "Elsie Twyford has Abraham Twyford + Wilhelmina Wright plus four blank placeholder parents → 6 parent edges → error."
+    public let defaultSeverity = Severity.error
+    public init() {}
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        let parentEdges = snapshot.relationships.filter {
+            $0.type == .parent && $0.to == profile.id
+        }
+        // 0 or 1 parent is always fine (a lone placeholder is the legitimate
+        // unknown-couple stand-in).
+        guard parentEdges.count > 1 else { return [] }
+
+        // Junk = anonymous stub parents (blank/placeholder), by the SAME
+        // predicate `PlaceholderParentRepair` uses, so the finding and the
+        // repair can never disagree about what to strip. A dangling edge to a
+        // missing profile also counts as junk to remove.
+        let junkParentIDs = parentEdges
+            .map(\.from)
+            .filter { snapshot.profiles[$0]?.isAnonymousStub ?? true }
+        let hasNamedParent = parentEdges.contains {
+            guard let parent = snapshot.profiles[$0.from] else { return false }
+            return !parent.isAnonymousStub
+        }
+
+        // ERROR: structurally impossible parent count. The remedy differs by
+        // cause: blank/anonymous stubs are junk to remove; all-named excess is a
+        // duplicate or bad merge that needs a human to pick the right parent.
+        if parentEdges.count > 2 {
+            let placeholderNote = junkParentIDs.isEmpty
+                ? ""
+                : " (including \(junkParentIDs.count) blank placeholder\(junkParentIDs.count == 1 ? "" : "s"))"
+            let remedy = junkParentIDs.isEmpty
+                ? "Review which parent is correct — likely a duplicate or bad merge."
+                : "Remove the junk placeholder parents."
+            return [AuditResult(
+                profileID: profile.id, profileName: profile.displayName,
+                severity: .error, ruleID: id,
+                message: "\(profile.displayName) has \(parentEdges.count) parent edges\(placeholderNote) — a person has at most two. \(remedy)",
+                relatedProfileIDs: junkParentIDs.isEmpty ? nil : junkParentIDs
+            )]
+        }
+
+        // WARNING: a placeholder parent is redundant next to a real one — the
+        // fingerprint of a bad sibling link that didn't overflow past two.
+        if !junkParentIDs.isEmpty && hasNamedParent {
+            return [AuditResult(
+                profileID: profile.id, profileName: profile.displayName,
+                severity: .warning, ruleID: id,
+                message: "\(profile.displayName) has a blank placeholder parent alongside a named parent — likely a stray placeholder from a bad sibling link.",
+                relatedProfileIDs: junkParentIDs
+            )]
+        }
+
+        return []
     }
 }
 

@@ -147,6 +147,21 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
         [firstName, middleName, lastName].compactMap { $0 }.joined(separator: " ")
     }
 
+    /// A profile carrying no identifying information — the anonymous stub the
+    /// sibling shortcut / bad relinks leave behind. `.placeholder` status counts
+    /// outright; otherwise a profile with no non-whitespace name field and no
+    /// birth or death date qualifies (the sibling-shortcut regression produced
+    /// blank stubs that are NOT flagged `.placeholder`). Checked against the raw
+    /// name fields, not `displayName`, so a stray joining space can't mask a
+    /// blank name. Single source of truth for `ExcessParentEdgesRule` and
+    /// `PlaceholderParentRepair` — they must agree on what counts as junk.
+    public var isAnonymousStub: Bool {
+        if attributes?.nameStatus == .placeholder { return true }
+        let hasName = [firstName, middleName, lastName]
+            .contains { !($0 ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+        return !hasName && birthDate == nil && deathDate == nil
+    }
+
     /// WikiTree ID shortcut — reads from externalIDs.
     public var wikiTreeID: String? {
         externalIDs["wikitree"]

@@ -2057,6 +2057,46 @@ final class AppState {
         softDeleteProfile(id: victim.id)
     }
 
+    /// Repairs an "excess / placeholder parents" finding for `childID` (audit
+    /// rule `excessParentEdges`) by absorbing every blank stub parent into the
+    /// child's real (named) parents: each sibling that shared a stub is re-homed
+    /// onto the child's real parents, then the stubs are unlinked and
+    /// soft-deleted. Planning is pure (`PlaceholderParentRepair.plan`); this
+    /// only applies it through the transactional mutators. No-op when there's
+    /// nothing to absorb into — the legitimate unknown-couple case, not this bug.
+    func repairExcessPlaceholderParents(for childID: String) {
+        guard let db = currentDatabase,
+              let plan = PlaceholderParentRepair.plan(childID: childID, snapshot: snapshot)
+        else { return }
+
+        // Apply every DB write first, then rebuild the snapshot and re-audit
+        // exactly ONCE. Going through addRelationship/removeRelationship/
+        // softDeleteProfile individually rebuilds the snapshot and runs a full
+        // 218-profile audit per call — a ~10-write repair beachballed the app
+        // (owner report 2026-07-16). One rebuild + one audit at the end fixes it.
+        do {
+            for r in plan.rehome {
+                let tx = try db.addRelationship(Relationship(
+                    id: UUID(), from: r.parentID, to: r.childID,
+                    type: .parent, role: r.role, subtype: .biological,
+                    marriageDate: nil, marriageLocation: nil, divorceDate: nil))
+                recordSessionEvent(.transactionRecorded(tx.id))
+            }
+            for eid in plan.removeEdgeIDs {
+                let tx = try db.removeRelationship(id: eid)
+                recordSessionEvent(.transactionRecorded(tx.id))
+            }
+            if !plan.deleteStubIDs.isEmpty {
+                let tx = try db.softDeleteProfiles(ids: plan.deleteStubIDs)
+                recordSessionEvent(.transactionRecorded(tx.id))
+            }
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+        } catch {
+            errorMessage = "Failed to repair placeholder parents: \(error.localizedDescription)"
+        }
+    }
+
     /// Remove a relationship.
     func removeRelationship(id: UUID) {
         guard let db = currentDatabase else { return }

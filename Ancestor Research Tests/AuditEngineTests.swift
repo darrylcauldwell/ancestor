@@ -41,6 +41,124 @@ struct AuditEngineTests {
         return FamilyGraphSnapshot(profiles: dict, relationships: relationships)
     }
 
+    private func makePlaceholderParent(id: String) -> Profile {
+        Profile(
+            id: id,
+            externalIDs: [:],
+            firstName: nil,
+            lastName: nil,
+            gender: nil,
+            attributes: PersonAttributes(nameStatus: .placeholder, lifeStatus: .normal, privacy: .normal),
+            birthDate: nil,
+            birthLocation: nil,
+            deathDate: nil,
+            deathLocation: nil,
+            bio: nil,
+            isDeleted: false,
+            sources: [:],
+            disputes: [:]
+        )
+    }
+
+    private func parentEdge(parent: String, child: String, role: ParentRole = .unspecified) -> Relationship {
+        Relationship(
+            id: UUID(), from: parent, to: child,
+            type: .parent, role: role, subtype: .biological,
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
+        )
+    }
+
+    // MARK: - Excess / Placeholder Parents
+
+    @Test func excessParents_realPlusFourPlaceholders_error() {
+        // The Elsie Twyford regression: 2 real parents + 4 blank placeholders.
+        let child = makeProfile(id: "child")
+        let father = makeProfile(id: "father", firstName: "Abraham", lastName: "Twyford")
+        let mother = makeProfile(id: "mother", firstName: "Wilhelmina", lastName: "Wright")
+        let ph = (1...4).map { makePlaceholderParent(id: "ph\($0)") }
+        let snapshot = makeSnapshot(
+            profiles: [child, father, mother] + ph,
+            relationships: [
+                parentEdge(parent: "father", child: "child", role: .father),
+                parentEdge(parent: "mother", child: "child", role: .mother),
+            ] + ph.map { parentEdge(parent: $0.id, child: "child") }
+        )
+        let results = ExcessParentEdgesRule().evaluate(profile: child, snapshot: snapshot)
+        #expect(results.count == 1)
+        #expect(results.first?.severity == .error)
+        // The four placeholders are surfaced for repair; the two named parents are not.
+        #expect(Set(results.first?.relatedProfileIDs ?? []) == Set(["ph1", "ph2", "ph3", "ph4"]))
+        // Placeholders present → remedy is "remove", not the merge-review wording.
+        #expect(results.first?.message.contains("Remove the junk placeholder parents") == true)
+    }
+
+    @Test func excessParents_allNamed_noPlaceholders_reviewRemedy() {
+        // George-Wheeldon shape: 3 NAMED parents, zero placeholders. Still an
+        // error, but the remedy is human review, not "remove placeholders", and
+        // no repair targets are surfaced.
+        let child = makeProfile(id: "child")
+        let p1 = makeProfile(id: "p1", firstName: "Alfred", lastName: "Wheeldon")
+        let p2 = makeProfile(id: "p2", firstName: "Mary", lastName: "Wheeldon")
+        let p3 = makeProfile(id: "p3", firstName: "Sarah", lastName: "Wheeldon")
+        let snapshot = makeSnapshot(
+            profiles: [child, p1, p2, p3],
+            relationships: [
+                parentEdge(parent: "p1", child: "child", role: .father),
+                parentEdge(parent: "p2", child: "child", role: .mother),
+                parentEdge(parent: "p3", child: "child", role: .mother),
+            ]
+        )
+        let results = ExcessParentEdgesRule().evaluate(profile: child, snapshot: snapshot)
+        #expect(results.count == 1)
+        #expect(results.first?.severity == .error)
+        #expect(results.first?.relatedProfileIDs == nil)
+        #expect(results.first?.message.contains("likely a duplicate or bad merge") == true)
+        #expect(results.first?.message.contains("blank placeholder") == false)
+    }
+
+    @Test func excessParents_lonePlaceholderIsLegitimate_noFire() {
+        // Two parentless siblings sharing ONE unknown-couple placeholder — valid.
+        let child = makeProfile(id: "child")
+        let ph = makePlaceholderParent(id: "ph1")
+        let snapshot = makeSnapshot(
+            profiles: [child, ph],
+            relationships: [parentEdge(parent: "ph1", child: "child")]
+        )
+        #expect(ExcessParentEdgesRule().evaluate(profile: child, snapshot: snapshot).isEmpty)
+    }
+
+    @Test func excessParents_placeholderAlongsideNamed_warning() {
+        // One real parent + one stray placeholder (2 total) → warning, not error.
+        let child = makeProfile(id: "child")
+        let father = makeProfile(id: "father", firstName: "Abraham", lastName: "Twyford")
+        let ph = makePlaceholderParent(id: "ph1")
+        let snapshot = makeSnapshot(
+            profiles: [child, father, ph],
+            relationships: [
+                parentEdge(parent: "father", child: "child", role: .father),
+                parentEdge(parent: "ph1", child: "child"),
+            ]
+        )
+        let results = ExcessParentEdgesRule().evaluate(profile: child, snapshot: snapshot)
+        #expect(results.count == 1)
+        #expect(results.first?.severity == .warning)
+        #expect(results.first?.relatedProfileIDs == ["ph1"])
+    }
+
+    @Test func excessParents_twoNamedParents_noFire() {
+        let child = makeProfile(id: "child")
+        let father = makeProfile(id: "father", firstName: "Abraham", lastName: "Twyford")
+        let mother = makeProfile(id: "mother", firstName: "Wilhelmina", lastName: "Wright")
+        let snapshot = makeSnapshot(
+            profiles: [child, father, mother],
+            relationships: [
+                parentEdge(parent: "father", child: "child", role: .father),
+                parentEdge(parent: "mother", child: "child", role: .mother),
+            ]
+        )
+        #expect(ExcessParentEdgesRule().evaluate(profile: child, snapshot: snapshot).isEmpty)
+    }
+
     // MARK: - Birth Before Death
 
     @Test func birthBeforeDeath_exactDates_error() {

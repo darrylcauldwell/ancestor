@@ -116,6 +116,70 @@ struct ManualEntryIntegrationTests {
         #expect(groups.last == ["z"])
     }
 
+    // MARK: - PlaceholderParentRepair (excessParentEdges auto-fix)
+
+    @Test func placeholderRepair_absorbsSharedStubsIntoRealParents() {
+        // The Elsie regression: 2 real parents + 2 blank stubs, each stub shared
+        // with one orphaned sibling. One stub is `.placeholder`, one is a blank
+        // `.known` stub — both must be caught.
+        let elsie = makeProfile(id: "elsie", firstName: "Elsie", lastName: "T")
+        let abe = makeProfile(id: "abe", firstName: "Abe", lastName: "T", gender: .male)
+        let wright = makeProfile(id: "wright", firstName: "Wil", lastName: "W", gender: .female)
+        let connie = makeProfile(id: "connie", firstName: "Connie", lastName: "T")
+        let wilma = makeProfile(id: "wilma", firstName: "Wilma", lastName: "T")
+        let s1 = makeProfile(id: "s1", nameStatus: .placeholder)
+        let s2 = makeProfile(id: "s2", nameStatus: .known)
+
+        let abeE = parentEdge("abe", "elsie", role: .father)
+        let wrightE = parentEdge("wright", "elsie", role: .mother)
+        let s1E = parentEdge("s1", "elsie")
+        let s1C = parentEdge("s1", "connie")
+        let s2E = parentEdge("s2", "elsie")
+        let s2W = parentEdge("s2", "wilma")
+
+        let snapshot = snap(
+            [elsie, abe, wright, connie, wilma, s1, s2],
+            [abeE, wrightE, s1E, s1C, s2E, s2W]
+        )
+
+        let plan = PlaceholderParentRepair.plan(childID: "elsie", snapshot: snapshot)
+        #expect(plan != nil)
+        guard let plan else { return }
+
+        // Connie & Wilma re-homed onto BOTH real parents; Elsie already has them
+        // so she is not re-added.
+        let rehomeSet = Set(plan.rehome.map { "\($0.childID)->\($0.parentID)" })
+        #expect(rehomeSet == ["connie->abe", "connie->wright", "wilma->abe", "wilma->wright"])
+        #expect(!plan.rehome.contains { $0.childID == "elsie" })
+        // Role carried through from the real parent edge.
+        #expect(plan.rehome.first { $0.childID == "connie" && $0.parentID == "abe" }?.role == .father)
+
+        // All four stub edges removed; both stubs deleted.
+        #expect(Set(plan.removeEdgeIDs) == Set([s1E.id, s1C.id, s2E.id, s2W.id]))
+        #expect(plan.deleteStubIDs == ["s1", "s2"])
+    }
+
+    @Test func placeholderRepair_noRealParents_returnsNil() {
+        // Two parentless siblings sharing ONE unknown-couple placeholder — valid,
+        // nothing to absorb into.
+        let a = makeProfile(id: "a")
+        let b = makeProfile(id: "b")
+        let stub = makeProfile(id: "stub", nameStatus: .placeholder)
+        let snapshot = snap([a, b, stub], [parentEdge("stub", "a"), parentEdge("stub", "b")])
+        #expect(PlaceholderParentRepair.plan(childID: "a", snapshot: snapshot) == nil)
+    }
+
+    @Test func placeholderRepair_noStubs_returnsNil() {
+        // Two clean named parents — nothing to repair (also the George-Wheeldon
+        // shape once you strip the third named parent: no stubs → nil).
+        let child = makeProfile(id: "c")
+        let f = makeProfile(id: "f", firstName: "F", lastName: "X", gender: .male)
+        let m = makeProfile(id: "m", firstName: "M", lastName: "X", gender: .female)
+        let snapshot = snap([child, f, m],
+                            [parentEdge("f", "c", role: .father), parentEdge("m", "c", role: .mother)])
+        #expect(PlaceholderParentRepair.plan(childID: "c", snapshot: snapshot) == nil)
+    }
+
     // MARK: - PlaceholderResolver
 
     @Test func placeholders_returnsPlaceholderProfiles() {
