@@ -66,11 +66,25 @@ struct BulkReviewView: View {
                         ForEach(visible) { finding in
                             findingCard(finding)
                         }
+                        // Emit lead/failure rows DIRECTLY into the LazyVStack
+                        // — one lazy child per row — instead of wrapping them
+                        // in a VStack "section". Wrapped, the whole section was
+                        // a single lazy child, so every lead row (each with a
+                        // Liquid Glass backdrop) rendered at once the moment it
+                        // scrolled into view — the scroll-down beachball on the
+                        // "New leads from research" list (owner report,
+                        // 2026-07-16). Flattened, only visible rows render.
                         if !campaignLeads.isEmpty && filterTier == nil {
-                            leadsSection
+                            sectionHeader("New leads from research")
+                            ForEach(campaignLeads) { row in
+                                leadRow(row)
+                            }
                         }
                         if !failedEntries.isEmpty && filterTier == nil {
-                            failuresSection
+                            sectionHeader("Research skipped / failed")
+                            ForEach(failedEntries) { entry in
+                                failureRow(entry)
+                            }
                         }
                     }
                     .padding()
@@ -343,58 +357,56 @@ struct BulkReviewView: View {
 
     // MARK: - Leads section
 
-    private var leadsSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("New leads from research")
-                .font(AppTypography.cardTitle)
-                .padding(.top, 8)
-            ForEach(campaignLeads) { row in
-                HStack(spacing: 10) {
-                    Image(systemName: "signpost.right")
-                        .foregroundStyle(.orange)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(row.lead.name)  ·  for \(row.profileName)")
-                            .font(AppTypography.cardBody)
-                        Text(row.lead.evidence)
-                            .font(AppTypography.cardMeta)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                    Spacer()
-                    Button("Promote") { promote(row) }
-                        .buttonStyle(.glass)
-                        .controlSize(.small)
-                    Button("Dismiss") { dismiss(row) }
-                        .buttonStyle(.glass)
-                        .controlSize(.small)
-                }
-                .padding(10)
-                .glassEffect(.regular, in: .rect(cornerRadius: 10))
-            }
-        }
+    /// A section title emitted as a direct child of the list's LazyVStack.
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(AppTypography.cardTitle)
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var failuresSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Research skipped / failed")
-                .font(AppTypography.cardTitle)
-                .padding(.top, 8)
-            ForEach(failedEntries) { entry in
-                HStack(spacing: 10) {
-                    Image(systemName: "xmark.octagon")
-                        .foregroundStyle(.red)
-                    Text(appState.snapshot.profiles[entry.profileID]?.displayName ?? entry.profileID)
-                        .font(AppTypography.cardBody)
-                    Text(entry.lastError ?? "failed")
-                        .font(AppTypography.cardMeta)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Spacer()
-                }
-                .padding(10)
-                .glassEffect(.regular, in: .rect(cornerRadius: 10))
+    /// One "new lead" row. A top-level function (not nested in a section
+    /// VStack) so the caller can place it directly in the LazyVStack for
+    /// per-row lazy rendering.
+    private func leadRow(_ row: CampaignLeadRow) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "signpost.right")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(row.lead.name)  ·  for \(row.profileName)")
+                    .font(AppTypography.cardBody)
+                Text(row.lead.evidence)
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
+            Spacer()
+            Button("Promote") { promote(row) }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+            Button("Dismiss") { dismiss(row) }
+                .buttonStyle(.glass)
+                .controlSize(.small)
         }
+        .padding(10)
+        .glassEffect(.regular, in: .rect(cornerRadius: 10))
+    }
+
+    /// One "skipped / failed" row — same lazy-child rationale as `leadRow`.
+    private func failureRow(_ entry: CampaignReviewService.CampaignEntry) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "xmark.octagon")
+                .foregroundStyle(.red)
+            Text(appState.snapshot.profiles[entry.profileID]?.displayName ?? entry.profileID)
+                .font(AppTypography.cardBody)
+            Text(entry.lastError ?? "failed")
+                .font(AppTypography.cardMeta)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer()
+        }
+        .padding(10)
+        .glassEffect(.regular, in: .rect(cornerRadius: 10))
     }
 
     // MARK: - Actions
