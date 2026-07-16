@@ -69,8 +69,22 @@ So 3c/3d needed no new machinery — just the 3b entry point to reach them.
   *Follow-up:* bare parent-surname leads ("[mother] /Mathews/") now have only a (weak) Research +
   Dismiss. If wanted, add a deliberate, clearly-labelled "add placeholder parent" affordance for
   those — distinct from the old blind Promote, and a smaller reviewed tree change.
-- **3f — identity-grouping of leads (M).** Group leads by (surname+given+year) into one row
-  ("N records"); competing candidates stay separate. Applied to Triage + profile Leads list.
+- **3f — identity-grouping of leads. SHIPPED `755fc77`.** Group leads by candidate identity
+  (parent leads: profile+role+surname; identity leads: profile+surname+given+year) into one row
+  badged "N records"; competing candidates stay separate; sorted most-supported-first; Dismiss
+  clears the whole group. (Fuzzy transcription-variant folding — Mathews/Matthews — still a later
+  sub-item.) *Not yet applied to the profile Leads list — Triage only for now.*
+- **3g — Add-as-parent affordance. SHIPPED `0fa82d1`.** Parent-inference leads (mother/father
+  from birth-index MMN) show a prominent **"Add as mother/father"** creating an INTENTIONAL
+  surname-only placeholder parent + edge via `promoteLeadToProfile` — captures the hard-to-find
+  maiden name (women rarely appear under it). Scoped to parent leads, clearly labelled, evidence
+  in tooltip; distinct from the removed blind Promote (which faked *identity* profiles). Identity
+  leads keep Research. Origin: Darryl — "maiden names are hard to find, ladies appear under
+  married name in birth/death/census."
+
+**Leads rework COMPLETE 2026-07-16** (3a–3g). Remaining tails (optional): single-click
+"accept materialises" polish (3d); fuzzy transcription-variant folding (3f); apply grouping to
+the profile Leads list. Change 2 (profile "Leads (n)" deep-link) still queued.
 
 **Order:** 3a → 3b → 3c → 3d → 3e → 3f. 3a ships independently; 3b–3d are the core flow; then
 retire Promote and group.
