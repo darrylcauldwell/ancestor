@@ -681,6 +681,28 @@ struct ClusterReviewView: View {
                         }
                     }
 
+                    // EVIDENCE_ABSORPTION_SPEC Change 5 — show every off-agenda
+                    // fact this record will land on the profile BEFORE the user
+                    // accepts it, so a lead's nuggets (birthplace, occupation,
+                    // residence, corroborating dates) are never silently lost.
+                    // Reads the same `absorptionPlan` the write path executes,
+                    // so the preview can't promise a fact the accept won't land.
+                    if let subjectID = vm.selectedProfile?.id {
+                        let willAdd = scored.record.absorptionPreview(profileID: subjectID)
+                        if !willAdd.isEmpty {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Will add to profile")
+                                    .font(AppTypography.cardMeta)
+                                    .foregroundStyle(.green)
+                                Text(willAdd.joined(separator: " · "))
+                                    .font(AppTypography.badge)
+                                    .foregroundStyle(.primary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                    }
+
                     // Raw fields — exact key/value pairs the source returned, after
                     // removing those whose value already appears in the curated list above.
                     // Guarantees the user sees every field from the record, not just the

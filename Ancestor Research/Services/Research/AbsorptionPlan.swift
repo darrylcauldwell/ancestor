@@ -89,4 +89,59 @@ nonisolated extension SourceRecord {
         guard let t = s?.trimmingCharacters(in: .whitespaces), !t.isEmpty else { return nil }
         return t
     }
+
+    /// EVIDENCE_ABSORPTION_SPEC Change 5 — the human-readable list of what this
+    /// record will land on the profile, for the review surface ("birth place
+    /// Alport, Derbyshire · birth date about 1887–1888 · occupation Colliery
+    /// electrician · residence 3 Mill Lane"). Reads the SAME `absorptionPlan`
+    /// the write path executes, so a lead's nuggets are visible before accept
+    /// and the preview can never promise a fact the write won't land.
+    ///
+    /// The record's own *primary* timeline event is excluded — the review row
+    /// already names the record itself; the preview is about the off-agenda
+    /// facts it additionally carries.
+    func absorptionPreview(profileID: String) -> [String] {
+        let primaryEventID = projectToLifeEvent(profileID: profileID)?.id
+        return absorptionPlan(profileID: profileID).compactMap { item in
+            if case .lifeEvent(let event) = item, event.id == primaryEventID { return nil }
+            return item.reviewLabel
+        }
+    }
+}
+
+nonisolated extension Absorption {
+    /// One-line review label, or nil for items not worth surfacing.
+    var reviewLabel: String? {
+        switch self {
+        case .dateField(let field, let date):
+            let what = field == .birthDate ? "birth date" : "death date"
+            return "\(what) \(Self.dateLabel(date))"
+        case .stringField(let field, let value):
+            let what = field == .birthLocation ? "birth place" : "death place"
+            return "\(what) \(value)"
+        case .spouseEdge(let marriage):
+            if let spouse = (marriage.spouseName ?? marriage.partnerSurnameFromSamePage)?
+                .trimmingCharacters(in: .whitespaces), !spouse.isEmpty {
+                return "marriage to \(spouse)"
+            }
+            return "marriage"
+        case .lifeEvent(let event):
+            switch event.type {
+            case .occupation: return event.description.map { "occupation \($0)" }
+            case .residence:  return event.location.map { "residence \($0)" }
+            default:
+                let place = event.location.map { " \($0)" } ?? ""
+                return "\(event.type.displayName.lowercased())\(place)"
+            }
+        }
+    }
+
+    /// Compact date phrasing: age-*calculated* dates read as "about YYYY[–YYYY]";
+    /// everything else shows its original genealogical string ("Dec 1883").
+    private static func dateLabel(_ date: GenealogicalDate) -> String {
+        if date.qualifier == .calculated, let earliest = date.earliest, let latest = date.latest {
+            return earliest == latest ? "about \(latest)" : "about \(earliest)–\(latest)"
+        }
+        return date.original
+    }
 }
