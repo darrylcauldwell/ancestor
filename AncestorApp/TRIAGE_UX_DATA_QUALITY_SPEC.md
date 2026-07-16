@@ -58,10 +58,14 @@ So 3c/3d needed no new machinery — just the 3b entry point to reach them.
   Mirrors the profile trigger; the interactive (not enqueued) path.
 - **3c — route lead-run results to review. DONE (reused).** `startResearch(lead:)` sets
   `currentResult`, so ResearchView switches to `ClusterReviewView` exactly as for a profile.
-- **3d — create-on-accept. DONE (reused).** In `ClusterReviewView`, a lead subject shows
-  "Promote to profile" → `promoteLeadToProfile` materialises the ghost + attaches evidence, then
-  the cluster Apply buttons write facts. Two labelled steps in-review = evidence-before-commit.
-  (Optional future polish: collapse to a single "accept materialises" click.)
+- **3d — create-on-accept. COMPLETE `de695fb`.** In `ClusterReviewView`, a lead subject shows
+  "Promote to profile", then Apply writes facts (evidence-before-commit). **The attach-vs-create
+  fork is now wired** (`ResearchViewModel.promoteLeadToProfile` runs `ProposalDedup.decide` first):
+  a candidate matching an existing profile ATTACHES there (no duplicate); else a new ghost is
+  created; `multipleMatches` → create-new (when-in-doubt-split). New `Query(lead:)` builder + tests
+  `leadMatchingExistingProfileAttaches` / `leadWithNoMatchCreatesNew`. This delivers Darryl's model
+  in full: "evidence relates to an existing profile OR adds a new one." (Only remaining polish:
+  collapse the two in-review clicks — Promote then Apply — into one "Accept" click.)
 - **3e — retire blind Promote. SHIPPED `d7dbdd0`.** Blind Promote removed entirely (it minted
   incomplete profiles from one-record inferences — the risk this rework exists to kill; leaving
   it even demoted was wrong once Research shipped). Lead actions are now **Research** + **Dismiss**
