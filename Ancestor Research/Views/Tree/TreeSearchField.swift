@@ -7,8 +7,13 @@ struct TreeSearchField: View {
     let snapshot: FamilyGraphSnapshot
     let currentViewMode: TreeViewMode
     var onSelect: (String) -> Void
+    /// Whether the field is expanded. When false the control is a compact
+    /// magnifying-glass button, so it stays out of the toolbar overflow; the
+    /// parent drives this (button tap or ⌘F).
+    @Binding var isExpanded: Bool
 
     @State private var highlightedIndex: Int = 0
+    @FocusState private var fieldFocused: Bool
 
     private var matches: [(profile: Profile, completeness: ProfileCompleteness)] {
         guard !searchText.isEmpty else { return [] }
@@ -21,10 +26,38 @@ struct TreeSearchField: View {
     }
 
     var body: some View {
+        Group {
+            if isExpanded {
+                expandedField
+            } else {
+                Button { isExpanded = true } label: {
+                    Image(systemName: "magnifyingglass")
+                        .font(.body)
+                        .padding(7)
+                        .accessibilityHidden(true)
+                }
+                .buttonStyle(.glass)
+                .help("Search people (⌘F)")
+                .accessibilityLabel("Search people")
+                .accessibilityHint("Search for a person by name and centre the tree on them. Keyboard shortcut Command F.")
+            }
+        }
+        .onChange(of: isExpanded) { _, expanded in
+            if expanded { fieldFocused = true }
+        }
+    }
+
+    private var expandedField: some View {
         VStack(alignment: .leading, spacing: 0) {
             TextField("Search people…", text: $searchText)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 200)
+                .focused($fieldFocused)
+                .onChange(of: fieldFocused) { _, focused in
+                    // Collapse back to the icon when focus leaves and the field
+                    // is empty — keeps the toolbar tidy.
+                    if !focused && searchText.isEmpty { isExpanded = false }
+                }
                 .onSubmit {
                     if highlightedIndex < matches.count {
                         onSelect(matches[highlightedIndex].profile.id)

@@ -18,6 +18,9 @@ struct TreeGraphView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var treeVM = TreeViewModel()
     @FocusState private var focus: TreeFocus?
+    /// Whether the toolbar profile-search field is expanded (vs its compact
+    /// magnifying-glass icon). Toggled by the search button and the ⌘F shortcut.
+    @State private var searchExpanded = false
     @AppStorage("coachMarkShownCount") private var coachMarkShownCount: Int = 0
     @AppStorage("selectionCount") private var selectionCount: Int = 0
     /// M16.11 — Settings toggle hides note dots, question markers, focus
@@ -236,6 +239,34 @@ struct TreeGraphView: View {
             }
         }
         .toolbar { toolbarContent }
+        .overlay(alignment: .topLeading) {
+            // Profile search lives in the content layer (not the toolbar) so its
+            // results dropdown renders ABOVE the canvas — a toolbar item clips it.
+            // Compact magnifying-glass icon that expands to a field; also ⌘F.
+            TreeSearchField(
+                searchText: $treeVM.searchText,
+                allProfiles: Array(appState.snapshot.profiles.values),
+                snapshot: appState.snapshot,
+                currentViewMode: treeVM.viewMode,
+                onSelect: { profileID in
+                    treeVM.recenter(on: profileID, snapshot: appState.snapshot,
+                                   canvasSize: treeVM.lastCanvasSize,
+                                   reduceMotion: reduceMotion)
+                    searchExpanded = false
+                    focus = .canvas
+                },
+                isExpanded: $searchExpanded
+            )
+            .padding(.top, 10)
+            .padding(.leading, 12)
+        }
+        .background {
+            // ⌘F opens/focuses the profile search from anywhere in the Tree view.
+            // Hidden button — present only to register the shortcut.
+            Button("Search people") { searchExpanded = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .hidden()
+        }
         .onAppear {
             selectInitialRoot()
             treeVM.rebuildLayout(snapshot: appState.snapshot)
@@ -1164,20 +1195,6 @@ struct TreeGraphView: View {
             .help("Toggle inspector (⌘⌥I)")
             .accessibilityLabel("Toggle inspector")
             .accessibilityHint("Toggle inspector. Keyboard shortcut Command Option I.")
-
-            TreeSearchField(
-                searchText: $treeVM.searchText,
-                allProfiles: Array(appState.snapshot.profiles.values),
-                snapshot: appState.snapshot,
-                currentViewMode: treeVM.viewMode,
-                onSelect: { profileID in
-                    treeVM.recenter(on: profileID, snapshot: appState.snapshot,
-                                   canvasSize: treeVM.lastCanvasSize,
-                                   reduceMotion: reduceMotion)
-                    focus = .canvas
-                }
-            )
-            .focused($focus, equals: .search)
         }
     }
 }
