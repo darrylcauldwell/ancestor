@@ -207,19 +207,15 @@ struct ClusterReviewView: View {
                     .foregroundStyle(.orange)
             }
 
-            // Promote-to-Profile — only meaningful when the subject is
-            // currently a Lead (no profile attached yet). Converts the lead
-            // into a ghost Profile and persists the in-memory evidence
-            // under it, so the cluster Apply buttons gain a target without
-            // requiring a fresh research run. Hidden once the subject is a
-            // profile (the normal case).
+            // Lead subject: the separate "Promote to profile" step is gone —
+            // the cluster Apply buttons now materialise the candidate on first
+            // click (attach-to-existing or create-new), so accepting evidence
+            // is a single action. A hint makes that discoverable.
             if vm.selectedLead != nil {
-                Button("Promote to profile") {
-                    _ = vm.promoteLeadToProfile(into: appState)
-                }
-                .buttonStyle(.glassProminent)
-                .controlSize(.small)
-                .help("Create a ghost Profile from this lead, attach a relationship edge to the generating profile (when the lead has one), and save the records you see here as evidence under it. Existing tree data is not overwritten.")
+                Label("Applying evidence adds this candidate to the tree", systemImage: "arrow.down.circle")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                    .help("This candidate isn't on the tree yet. Applying any record here adds it — matching an existing profile attaches the evidence there; otherwise a new profile is created.")
             }
 
             // Compare candidates — disambiguation prose from the local

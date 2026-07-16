@@ -767,6 +767,7 @@ final class ResearchViewModel {
     /// so the citation lands in `field_sources` while the column value stays.
     func applyCluster(_ cluster: LifeCluster, into appState: AppState) {
         clusterDecisions[cluster.id] = .accepted
+        materialiseLeadSubjectIfNeeded(into: appState)
         guard let db = appState.currentDatabase, let profile = selectedProfile else { return }
         let kept = recordsAfterDiscardVeto(cluster, profileID: profile.id, db: db)
         persist("Save evidence status") { try db.updateEvidenceUserStatus(profileID: profile.id, sourceRecordIDs: kept.map(\.record.id), status: .savedAsLead) }
@@ -807,6 +808,7 @@ final class ResearchViewModel {
     /// Apply honours the override too.
     func applyRecord(_ scored: ScoredRecord, into appState: AppState) {
         recordDecisions[scored.id] = .accepted
+        materialiseLeadSubjectIfNeeded(into: appState)
         guard let db = appState.currentDatabase, let profile = selectedProfile else { return }
         persist("Save evidence status") {
             try db.updateEvidenceUserStatus(
@@ -1496,6 +1498,17 @@ final class ResearchViewModel {
         selectedProfile = appState.snapshot.profiles[ghostID]
         selectedLead = nil
         return ghostID
+    }
+
+    /// One-click create-on-accept: if the subject is still a lead (no profile
+    /// yet), materialise it now — attach-to-existing or create-new via
+    /// `promoteLeadToProfile` — so a single **Apply** click both commits the
+    /// candidate and writes its facts, instead of requiring a separate
+    /// "Promote to profile" click first. No-op for the normal profile path
+    /// (`selectedProfile` already set), so profile research is untouched.
+    private func materialiseLeadSubjectIfNeeded(into appState: AppState) {
+        guard selectedProfile == nil, selectedLead != nil else { return }
+        _ = promoteLeadToProfile(into: appState)
     }
 
     /// Resolve a lead as MERGED into an existing profile — the attach-to-
