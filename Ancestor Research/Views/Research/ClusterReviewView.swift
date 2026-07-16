@@ -541,11 +541,22 @@ struct ClusterReviewView: View {
     /// IDs of records explicitly collapsed by the user. Default state is expanded
     /// — full detail visible without a click. The chevron now means "collapse to
     /// summary" (pointing up) rather than "expand to show detail".
-    @State private var collapsedCitations: Set<String> = []
+    // Record rows are COLLAPSED by default (compact summary), expanded on tap.
+    // Expanded-by-default rendered every record's full detail — scoring gates,
+    // record fields, raw fields, citation, absorption preview, several Liquid
+    // Glass capsules — for every row at once, and a cluster card renders all
+    // its records eagerly. On a large cluster that builds a huge SwiftUI view
+    // tree; profiling a scroll hang (2026-07-16) showed the time entirely in
+    // AttributeGraph/QuartzCore relayout, not in any one function. Collapsing
+    // by default shrinks the tree ~5–10× and clears the beachball. Tracks the
+    // set of EXPANDED ids (empty = all collapsed).
+    @State private var expandedRecords: Set<String> = []
 
     private func recordRow(_ scored: ScoredRecord, soleRecord: Bool = false) -> some View {
         let citation = CitationRenderer.cite(scored.record)
-        let isExpanded = !collapsedCitations.contains(scored.id)
+        // A lone record in its own cluster stays expanded — it IS the focus
+        // and there's no list to scroll, so no view-tree cost to avoid.
+        let isExpanded = soleRecord || expandedRecords.contains(scored.id)
         // Cross-run "already applied" check — when the user applied
         // this record in a previous session, `user_status` on the
         // evidence_records row is .savedAsLead. The card stays in
@@ -633,14 +644,14 @@ struct ClusterReviewView: View {
             }
             .contentShape(Rectangle())
             .onTapGesture {
-                if isExpanded {
-                    collapsedCitations.insert(scored.id)
+                if expandedRecords.contains(scored.id) {
+                    expandedRecords.remove(scored.id)
                 } else {
-                    collapsedCitations.remove(scored.id)
+                    expandedRecords.insert(scored.id)
                 }
             }
 
-            // Expanded detail visible by default. Tap row to collapse to summary.
+            // Collapsed to summary by default. Tap row to expand full detail.
             if isExpanded {
                 VStack(alignment: .leading, spacing: 8) {
                     if !scored.gates.isEmpty {
