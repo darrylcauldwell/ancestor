@@ -80,10 +80,14 @@ by `censusBirthLocation` so a bare "Alport" becomes the anchor-able "Alport, Der
 Closes the anchor loop: the discovered birthplace becomes the anchor that promotes the
 subject's own records from anchorless National to Confirmed. Unblocks Abraham (Alport).
 
-**Change 2 — census occupation → `.occupation` event; address → `.residence` event (M).**
-Darryl's "nuggets" point. A census fans out into typed occupation/residence events (dated to
-the census year), not a single buried `.census` entry. Deduped by (profile, type, date,
-value).
+**Change 2 — census occupation → `.occupation` event; address → `.residence` event (M).
+SHIPPED 2026-07-16 (`b347351`).** Darryl's "nuggets" point. `SourceRecord.projectToLifeEvents`
+now fans a census into its `.census` event PLUS a typed `.occupation` event and `.residence`
+event (dated to the census year, located at the household address), so those first-class event
+types finally populate from records instead of the nugget staying buried in census details.
+Idempotent via a discriminated deterministic ID; empty fields spawn no event. All four
+LifeEvent-save call sites in `ResearchViewModel` iterate the fan-out. Test
+`CensusLifeEventFanOutTests`.
 
 **Change 3 — corroboration fields (S/M).** Age-at-death / age-at-census → corroborate (not
 overwrite) the birth-year value-group; probate address → residence; probate age → birth-year
