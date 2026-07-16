@@ -520,16 +520,26 @@ struct BulkReviewView: View {
                     .lineLimit(2)
             }
             Spacer()
-            // Change 3b/3e — the ONLY two lead actions: Research (investigate,
-            // then review, then commit) or Dismiss. Blind "Promote" was removed
-            // — it minted incomplete profiles from thin one-record inferences,
-            // the exact risk this rework exists to eliminate. "Add to tree" now
-            // happens only through Research → review → promote-in-review, after
-            // evidence.
-            Button("Research") { appState.researchLeadRequest = row.lead }
-                .buttonStyle(.glassProminent)
-                .controlSize(.small)
-                .help("Investigate this candidate — gather evidence, then decide, rather than adding it blind.")
+            // The primary action depends on the lead KIND:
+            //   • Parent-inference lead (bare surname/maiden name) → "Add as
+            //     mother/father": create an INTENTIONAL placeholder parent node.
+            //     Research on a given-name-less surname is a broad, low-yield
+            //     search, and the maiden name itself is the valuable, hard-to-
+            //     find fact worth capturing. This is NOT the blind Promote we
+            //     removed — that minted fake *identity* profiles; this adds a
+            //     truthful surname-only placeholder backed by birth-index MMN.
+            //   • Identity lead (a real candidate person) → "Research".
+            if let role = parentRole(row.lead) {
+                Button("Add as \(role)") { addAsParent(group) }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.small)
+                    .help("Add a placeholder \(role) with this surname/maiden name (\(row.lead.evidence)), linked to the subject. An intentional surname-only node, not a researched identity profile.")
+            } else {
+                Button("Research") { appState.researchLeadRequest = row.lead }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.small)
+                    .help("Investigate this candidate — gather evidence, then decide, rather than adding it blind.")
+            }
             Button("Dismiss") { dismissGroup(group) }
                 .buttonStyle(.glass)
                 .controlSize(.small)
@@ -621,6 +631,30 @@ struct BulkReviewView: View {
     /// lead behind it, so the whole row leaves the active queue.
     private func dismissGroup(_ group: GroupedLead) {
         for member in group.members { dismiss(member) }
+    }
+
+    /// "mother"/"father" for a relationship-typed (parent-inference) lead, else
+    /// nil. Drives whether the row offers "Add as parent" or "Research".
+    private func parentRole(_ lead: Lead) -> String? {
+        switch lead.relationship?.lowercased() {
+        case "mother": return "mother"
+        case "father": return "father"
+        default:       return nil
+        }
+    }
+
+    /// Add a parent-inference lead as an INTENTIONAL placeholder parent — a
+    /// surname-only node + relationship edge to the subject, capturing the
+    /// (hard-to-find) maiden name. Distinct from the removed blind Promote:
+    /// scoped to parent leads, where a surname-only placeholder is the correct
+    /// representation, not a fake identity profile. `promoteLeadToProfile`
+    /// creates the ghost + edge and marks the lead promoted.
+    private func addAsParent(_ group: GroupedLead) {
+        guard let db = appState.currentDatabase else { return }
+        guard (try? db.promoteLeadToProfile(group.representative.lead)) != nil else { return }
+        if let snap = try? db.buildSnapshot() { appState.snapshot = snap }
+        for member in group.members { campaignLeads.removeAll { $0.id == member.id } }
+        processedCount += 1
     }
 
     private func dismiss(_ row: CampaignLeadRow) {
