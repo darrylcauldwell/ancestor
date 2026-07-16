@@ -1,0 +1,154 @@
+# LEAD DISCOVERY — Clustering as a Discovery Engine
+
+**Status:** Design / accepted-direction (2026-07-16). Not started. Design-before-implement per owner decision.
+**One line:** Repurpose clustering from a per-subject *evidence-acceptance* aid into a corpus-level *discovery* engine that turns the noisy lead pool into a small, prioritised set of hypothesised people, links, and families — routed through the existing hypothesis + firewall machinery for human review.
+
+---
+
+## 1. Problem & thesis
+
+Clustering today runs **inside** the per-subject research pipeline. Given a known subject, it groups that subject's candidate records into distinct "lives" so acceptance doesn't smear a namesake's facts onto the profile. That is a **defensive guard**, not the acceptance decision (the 4-gate scorer + convergence engine make the accept), and it can actively *harm* acceptance — the Ernest Cauldwell case over-merged an infant death (1886, age 0) with a 1915 marriage, producing contradictory facts the writer then (correctly) refused to apply, while the cluster badge misleadingly read "Applied".
+
+The higher-leverage use of clustering is the inverse: **bottom-up discovery over the accumulated lead pool.** Take records that individually look unconnected and find the groups that cohere into a life, a family, or a bridge between two existing people — "more than the sum of the parts." This grows the tree instead of confirming a node.
+
+**Thesis:** acceptance-clustering is the weaker fit (keep it, but as a hardened namesake guard); **discovery-clustering is the pivot** and the logic isn't there yet.
+
+---
+
+## 2. Two clustering roles (make the split explicit)
+
+| | **Job A — Disambiguation (current)** | **Job B — Discovery (new)** |
+|---|---|---|
+| Entry point | A known subject's candidate records | The whole *orphan* lead pool (no anchor) |
+| Question | "Which of these same-name records are *my* Ernest?" | "Do these unconnected leads cohere into someone/something new?" |
+| Output | Accept / reject records onto the subject | **Hypotheses** (possible person / link / family) |
+| Failure if wrong | Contradictory facts on a real profile | Noise in a review queue (recoverable) |
+| Decision maker | Scorer + convergence (clustering is a guard) | Deterministic blocking + constraints; human confirms |
+
+The two share a common core (group records into lives under identity constraints). The engine can be **one thing with two drivers**; the constraints (§7) benefit both.
+
+---
+
+## 3. What discovery produces (emergent-findings taxonomy)
+
+An emergent cluster is never evidence itself — it is a **prioritised hypothesis**. Concrete forms:
+
+1. **Candidate new person** — a coherent cluster of orphan leads (birth + census + marriage that lock together) → a person not in the tree.
+2. **Candidate link** — a cluster whose records touch two existing profiles → a proposed relationship between them.
+3. **Family from context** — a census household inside a cluster → siblings/parents to add.
+4. **Corroboration** — weak-alone leads that cohere → higher confidence a fact is real (fuel for the convergence engine).
+
+**What makes a candidate *valuable* vs a random namesake: tree-proximity.** Every lead carries provenance — the subject whose research generated it. A cluster of leads that all originated in the Cauldwell branch, cohering into a person, is a *likely Cauldwell relative*. A cluster of 1850 strangers who merely share a surname is not. **Origin-subject proximity is a first-class blocking feature**, not an afterthought — it ties discovery back to the existing tree.
+
+---
+
+## 4. Value chain: how a cluster becomes evidence
+
+The payoff is not "the cluster gives you a fact." It is **3,752 undifferentiated leads → a dozen high-value things to actually chase.** Noise pool → prioritised worklist. The chain:
+
+```
+orphan leads  →  deterministic blocking + constraints  →  emergent cluster
+             →  hypothesis (person / link / family)  →  [firewall + human review]
+             →  research subject  OR  proposed relationship
+             →  normal pipeline  →  real evidence
+```
+
+The cluster seeds a **T11/T12 hypothesis** — the same machinery already built for user-seeded hypotheses, but *seeded by discovery* instead of by the user. Confirmed hypotheses become research subjects (which produce evidence through the normal pipeline) or confirmable relationships (structural evidence).
+
+---
+
+## 5. Architecture
+
+Four layers, deterministic-first:
+
+**5.1 Deterministic blocking (does the heavy lifting).**
+Collapse the O(n²) pool into small candidate buckets with cheap, traceable keys: normalised surname, birth-decade, Chapman county, event type, and **origin-subject proximity**. Thousands of leads → many tiny buckets. Fast, reproducible, auditable. AI never sees the whole pool.
+
+**5.2 Identity constraints (the "when in doubt, split" enforcement).** See §7. Shared with acceptance-clustering; includes the **death-caps-lifespan** fix so the Ernest failure cannot recur.
+
+**5.3 AI boundary — bounded, never the clusterer.**
+The instinct "AI is good at finding patterns in a large unstructured pool" is right *only* in the embeddings sense, not the "hand the LLM the whole pool" sense (which is non-deterministic, hallucination-prone, and doesn't fit a 4B local model).
+- **Embeddings (per-lead, cheap, scalable):** each lead's text → a semantic-fingerprint vector via a small MLX embedding model. Deterministic *math* (cosine similarity) then clusters the vectors — the model produces *features*, not decisions. This catches fuzzy matches ("Ernest CAULDWELL, Turnditch" ≈ "Ernest Cauldwell, Ward") that no hand-written rule spells out. Reproducible given a fixed model + input.
+- **Adjudication (borderline pairs only):** where deterministic keys + embeddings are genuinely uncertain, the generative model gives a probabilistic same-person judgment — as a **proposal**, gated by the deterministic layer. It never auto-merges.
+- **Narration:** cluster summaries ("looks like a person born ~1887 in Turnditch who married a Ward") and relationship extraction from household prose — the local model's existing strengths.
+
+**5.4 Hypothesis emission + review.**
+Emergent clusters → T11/T12 hypotheses → Evidence Firewall → a review surface in **Triage** ("N possible people / M possible links from your leads"), each a card with its constituent leads, the AI narrative, and the proposed action. **No auto-apply.** Dismissed clusters feed the cross-run negative cache so they don't re-surface.
+
+---
+
+## 6. Determinism & the sandwich (invariant preserved)
+
+"AI proposes, rules + human decide" holds for discovery exactly as for acceptance:
+- Deterministic blocking + constraints **form** the groups (reproducible, auditable).
+- Embeddings are per-item **features**, not merge decisions; deterministic similarity does the grouping.
+- AI adjudicates/narrates but **never commits** — output is a hypothesis, gated and human-reviewed.
+- Nothing writes to profiles without passing the firewall.
+
+Deterministic scale; AI judgment at the boundary.
+
+---
+
+## 7. Identity constraints (the deterministic core, shared)
+
+Hard rules that split rather than merge on doubt:
+- **Death caps the lifespan.** A death record sets `lifespanEnd = deathYear` (small margin), never expands it. A death **with age** bounds birth (`birth ≈ deathYear − age`); an infant death collapses to ~one year. **Reject any record dated after a cluster's death** — you cannot marry or appear in a census after dying. *(This is also a standalone quality fix for acceptance-clustering — worth shipping first; see §9.)*
+- **One life-defining event per person** — at most one birth, one death per cluster; a second implies a split.
+- **Age/date consistency** — a census age must agree with the cluster's birth window; disagreement splits.
+- **Geography sanity** — Chapman-county coherence (already `SourceTierRegistry`/config-derived; no hardcoded regions).
+- **Prefer over-split** — a wrong merge corrupts; a wrong split just means two review cards instead of one.
+
+---
+
+## 8. Risks & failure modes
+
+| Risk | Mitigation |
+|---|---|
+| Over-merge (the Ernest failure at scale) | §7 constraints, death-caps-lifespan, over-split bias |
+| Noise flood (a wall of "maybe-people") | **Precision-first** — few confident clusters beat many speculative ones; recall grows later |
+| AI hallucination | AI is adjudicator/narrator, never decider; deterministic gate + firewall |
+| Non-determinism | Deterministic clustering over fixed embeddings; reproducible |
+| Performance (thousands of leads) | Blocking shrinks the problem before any similarity/AI work |
+| False confidence | Firewall + human review; nothing auto-applies |
+| Solution-looking-for-a-problem | **Phase 0 empirical probe** on the real pool as the go/no-go |
+
+---
+
+## 9. Staged plan (each phase has an explicit gate)
+
+- **Phase 0 — Empirical probe (diagnostic only).** Run deterministic blocking (no AI, no new UX) over this tree's real ~3,752 leads. Emit a report: how many coherent clusters (size ≥ 2–3, consistent identity), with a manual-inspection sample. **Gate:** do coherent people/links visibly emerge? If yes, proceed; if it's mush, we learned it cheaply. *This is the go/no-go for the whole pivot.*
+- **Phase 1 — Deterministic discovery clustering (read-only).** Blocking + §7 constraints → emergent clusters → a read-only "possible people / links" panel in Triage. Precision-first, no AI, no hypotheses yet. Ship the **death-caps-lifespan** hardening here (or earlier) as it's small and helps both roles.
+- **Phase 2 — Hypothesis emission.** Emergent clusters become T11/T12 hypotheses through the firewall; review → accept → research subject or proposed link. Dismissed → negative cache.
+- **Phase 3 — Embeddings.** Add the small MLX embedding model; blend embedding similarity into blocking to catch fuzzy matches deterministic keys miss. AI adjudication on borderline pairs.
+- **Phase 4 — AI narration.** Cluster summaries + household relationship extraction.
+- **Phase 5 — Unify acceptance + discovery** on one constrained engine, retiring the divergence.
+
+---
+
+## 10. Success metrics
+
+- Count of coherent emergent clusters surfaced.
+- **Precision** (sampled, human-judged: real person/link vs false) — the primary metric.
+- Conversion: clusters → accepted hypotheses → new researched subjects / confirmed links.
+- Reduction in undifferentiated lead noise the user must wade through.
+
+---
+
+## 11. Open questions / decisions owed
+
+1. **Keep acceptance-clustering, or move to scorer-only acceptance + discovery-clustering?** *Recommendation:* keep it as a hardened namesake guard; discovery is an addition, not a replacement.
+2. **Precision target for Phase 1** — how confident before a cluster surfaces? (Lean strict.)
+3. **Scope:** cluster *all* leads, or only genuinely-orphan (unresolved) ones? *Recommendation:* orphans only — higher value, smaller pool.
+4. Which MLX embedding model (Phase 3).
+5. Cross-project discovery (later)?
+
+---
+
+## 12. Relationship to existing systems
+
+- **Evidence Firewall** — hypotheses enter through it; nothing bypasses.
+- **Hypothesis framework (RESEARCH_PIPELINE_SPEC Part II, T11/T12 shipped)** — the vehicle for emergent findings.
+- **Triage** — the review surface (already hosts research findings + identity-grouped leads).
+- **Leads queue + cross-run negative cache** — the input pool; dismissed clusters feed the cache.
+- **ClusteringEngine / ConvergenceEngine** — the core to extend/share (incl. §7 constraints).
+- **No hardcoded regions** — geography constraints stay config/tree-derived.

@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This repo holds two related-but-independent codebases that share the genealogy domain model:
 
-1. **Python research agent** (root: `sources/`, `agent/`, `wikitree/`, `compare_*.py`, `research_agent.py`) — original deterministic CLI that researches a WikiTree profile against 7 free sources. Reference implementation for genealogical rules.
-2. **Swift macOS app** (`Ancestor Research/`, `Ancestor Research.xcodeproj`, `FieldResearcherMCP/`) — the productised SwiftUI app. Ports the Python rules and adds an MLX local reasoning model. This is the active product surface. (The in-app Claude API "Field Researcher" was removed in May 2026 ahead of App Store submission; the `FieldResearcherMCP` Swift package is unrelated — it's a developer-only MCP server with no outbound network calls.)
+1. **Python research agent** (root: `sources/`, `agent/`, `wikitree/`, `compare_*.py`, `research_agent.py`) — the original deterministic CLI that researches a WikiTree profile against 7 free sources. **Historical reference only.** The Swift app has diverged and is now the authoritative implementation of the genealogical rules; it is **no longer held to parity with the Python agent** (see the "Swift is the product" note under invariants). Consult the Python code for background if useful, but do not treat it as the source of truth or block Swift improvements on matching it.
+2. **Swift macOS app** (`Ancestor Research/`, `Ancestor Research.xcodeproj`, `FieldResearcherMCP/`) — the productised SwiftUI app; the authoritative implementation, with an MLX local reasoning model. This is the active product surface. (The in-app Claude API "Field Researcher" was removed in May 2026 ahead of App Store submission; the `FieldResearcherMCP` Swift package is unrelated — it's a developer-only MCP server with no outbound network calls.)
 
 When working in the Swift app, also read `Ancestor Research/CLAUDE.md` — it has app-specific architecture, schema, and MCP wiring.
 
@@ -50,10 +50,10 @@ python -m wikitree.twin sync      # refresh local mirror
 python research_agent.py "Ernest Cauldwell" --birth-year 1887 --gender M
 ```
 
-Cross-check tools (Python ↔ Swift parity — see memory `feedback_always_compare_python.md`):
+Legacy cross-check tools (kept for reference; parity with Swift is **no longer required** — the Swift app has intentionally diverged and improved):
 ```bash
-python compare_twins.py     # twin graph parity
-python compare_gaps.py      # gap-finder parity
+python compare_twins.py     # twin graph diff vs Swift (informational only)
+python compare_gaps.py      # gap-finder diff vs Swift (informational only)
 python import_twin_to_app.py    # one-shot import .wikitree-twin.json → app sqlite
 ```
 
@@ -107,7 +107,7 @@ These are easy to break and the tests will not always catch them:
 - **Evidence Firewall.** Anything outside the app writes only to `pending_facts` and `leads`. Never `sqlite3` the project DB directly — go through `FieldResearcherMCP`. (Memory: `feedback_firewall_sqlite.md`.)
 - **Source trust is URL-derived.** `SourceTierRegistry` maps cited URLs to trust tiers. Do not let LLM output assert a tier.
 - **When in doubt, split.** Clustering prefers over-splitting (user can merge) over over-merging (hard to undo).
-- **Port from Python faithfully.** When implementing a rule in Swift, copy the Python algorithm — do not reinvent. Verify with `compare_twins.py`/`compare_gaps.py`. (Memory: `feedback_port_from_python.md`, `feedback_always_compare_python.md`.)
+- **Swift is the product; improve it directly.** The Swift implementation is authoritative and is no longer constrained by parity with the Python agent. When a rule can be made better (more correct, more robust) than the Python original, do it in Swift — write tests for the new behaviour rather than reproducing the reference. The old Python is fine to learn from, but do not block or dilute a Swift improvement to keep `compare_twins.py`/`compare_gaps.py` green. (Retired: the former "port from Python faithfully / maintain parity" rule, 2026-07-16.)
 - **No hardcoded regions.** Context (county, parishes, districts) is derived from tree data and `config.yaml`, not from Derbyshire-specific code paths. (Memory: `feedback_no_hardcoded_regions.md`.)
 - **Check before overwrite.** Never overwrite precise WikiTree data with estimates. (Memory: `feedback_check_before_overwrite.md`.)
 

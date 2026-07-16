@@ -49,7 +49,18 @@ This section reads as the build sequence — top to bottom is the intended order
 
 9. **Evidence absorption + Triage leads rework** — [✓ shipped] 2026-07-16 (both specs removed post-completion; in git history). **Evidence absorption:** census/record nuggets now route to their homes — birthplace→birthLocation (county-composed, anchors the subject), occupation/residence → typed LifeEvents, birth/death corroboration from age + FindAGrave + probate, one declarative `absorptionPlan` the write path walks, and a review-time "will add" preview (`40b106b`, `b347351`, `5f79cc8`, `b215d8e`, `07c4c14`). **Triage leads rework:** search across findings+leads; identity-grouping ("N records"); Research → review → **one-click create-on-accept** (attach-to-existing via `ProposalDedup`, else create-new); **Add-as-parent** captures hard-to-find maiden names as placeholder parents; reversible Dismissed section; **blind Promote removed** (minted incomplete profiles) (`e885486`, `8adb202`, `0afc06d`, `d7dbdd0`, `755fc77`, `0fa82d1`, `de695fb`, `5c1a2cd`). Also: Triage scroll-beachball fix — leads rendered as lazy children (`512c520`); stable-`id` sort tiebreak stopping list reordering (`3e7b4f6`); four compiler warnings cleared (`2204b13`).
 
-**Parallel, externally gated:** FamilySearch official-API work — starts the day the Beta AppKey arrives; E1 should land first. In order: (a) read leg (`FAMILYSEARCH_SOURCE_SPEC.md` §§14–19, acceptance criteria A1–A9); (b) write leg — the FS-specific Tree service + smallest-honest-write compliance demo (ADR-002/ADR-005); its mini-spec is deliberately unwritten until FamilySearch’s demo instructions arrive with the AppKey, so it is specified against their actual requirements rather than guesses.
+**FamilySearch — DEMOTED from strategic centerpiece to opportunistic supplementary source (2026-07-16).** Empirically, the app is making strong progress *without* it: for a UK tree, FS's collections heavily overlap the free direct sources (BMD≈FreeBMD, census≈FreeCEN, parish≈FreeREG), and the **Records** API is licence-walled (Findmypast/Ancestry own many UK collections) — the "golden goose" was largely a wrapper over sources we already reach. The leverage was *using the direct sources better* + discovering across the lead pool (`LEAD_DISCOVERY_SPEC.md`).
+
+**Reframed FS shape — contribute-then-enrich (fits the ToS, and is the valuable direction):** stop pulling records *out* of FS; instead push our app-built tree *in* and harvest the hints it returns.
+- **Write leg is now primary** (was secondary): contribute the *deceased* persons to the FS shared world tree via the Tree API — the sanctioned surface — as a careful match/merge (smallest-honest-write compliance demo, ADR-002/ADR-005). Living people stay in-app (FS won't take them; the publisher's `livingPrivate` redaction already handles it).
+- **Enrichment read replaces the records-read leg:** FS's record hints / research suggestions / possible-duplicate + other-contributor data on our contributed persons come back as **leads**, through the Evidence Firewall, into the `LEAD_DISCOVERY` pipeline — never straight onto the tree. FS becomes a *lead source feeding discovery*, not a records tap.
+- The old records-read leg (`FAMILYSEARCH_SOURCE_SPEC.md` §§14–19, A1–A9) drops to *optional*, pursued only for the genuine non-overlap gaps (record images, ARK/place authority, international).
+- Externally gated as before — starts when the Beta AppKey arrives; E1 lands first — but **no longer blocks or centers the roadmap.** The direct-source leverage + lead discovery lead; FS is pursued opportunistically because its cost is already sunk.
+
+**Collaborative-tree contribute-then-enrich — the general pattern (WikiTree + FamilySearch), 2026-07-16. FUTURE / not near-term (owner decision 2026-07-16):** sequenced *after* lead discovery proves out — it consumes the discovery pipeline (hints → leads) and there's no urgency (WikiTree unblock, if real, doesn't create a deadline). Recorded here so the shape is captured; nothing starts until the near-term work (clustering death-cap → lead-discovery Phase 0/1) lands. Contribute-then-enrich is not an FS trick; it's a pattern with *multiple* targets, which is the **TreeProvider abstraction the ADRs deferred "until a 2nd tree integration"** — WikiTree + FS together are that integration and justify building it. Shape: the app is the private, rigorously-sourced authoritative tree (firewall-protected) → publishes *redacted, deceased-only* projections to N collaborative world trees → harvests each one's hints back as **leads** into `LEAD_DISCOVERY`. The existing CloudKit publisher is already this shape pointed at viewers; these point it at collaborative trees + add an enrichment-read.
+- **WikiTree is well-placed to be the PRIMARY avenue** (ahead of FS): open/free CC-licensed data (no records wall), it's where the app started (existing `WikiTreeClient` + `.wikitree-twin.json` mirror — the read/enrichment half is partly built), and its strict *sourcing* norms are satisfied by the app's firewall+citations (an app-built profile is an ideal WikiTree contribution). Blocker just cleared: **Darryl believes his WikiTree account is unblocked as of 2026-07-16 (verify with a real edit before building on it).** Open: a *sanctioned* write path — old writes were web-scraped (ToS smell like FS §15); prefer the WikiTree API, verify what it supports for profile edits. (Memory `wikitree_account_blocked`, ADR-006 reversal condition 2.)
+- **FamilySearch is the secondary** contribute-then-enrich target (see the demotion above).
+- Net strategy: **build rigorously-sourced trees locally; contribute to the open collaborative trees (WikiTree primary, FS secondary); harvest enrichment as leads.** A `TreeProvider`/multi-target-publisher abstraction becomes worth building once the second target is real.
 
 **Decision-gated (explored 2026-07-13, no commitment):** a user-facing BYO-API-key frontier-model tier (Claude/Gemini/OpenAI) behind the DOSSIER_SPEC provider seam — needs privacy consent UX + living-people redaction on outbound prompts. All explored benefits remain live candidates — prose-fact extraction from wills/newspapers (feeding the firewall + §14.B.1 re-check), a tier-2 adversarial challenger, whole-tree research direction, better narration. Dev-side judging + build assistance (via the MCP; no product changes needed) struck the user as the biggest win and is the natural first mover — the §5.8 eval harness is its concrete embodiment. The user-facing BYO tier is undecided, awaiting the privacy-consent design; nothing is discarded.
 
@@ -71,17 +82,40 @@ This section reads as the build sequence — top to bottom is the intended order
   decision 2026-07-15): he is the circle-back acceptance case** — his knowledge (died young,
   mining accident, electrician, shortly after daughter Margaret's birth) enters as the first
   real free-text hunch. Related: coal-mining accident databases entry in Stage 2.
-- **Clustering over-split repair** (surfaced 2026-07-15, Barbara Ayre triage: a consistent
-  Northumberland namesake shattered into per-record singleton clusters). Two engine defects,
-  both fixes must preserve the over-split-not-over-merge invariant and need their own mini-spec
-  + tests (assignment-threshold interactions make this core surgery, not a patch):
-  (a) non-birth singleton clusters get lifespan `(year−80, year+5)` — genealogically wrong for
-  marriage/census seeds, whose subject plausibly lives decades past the record; make the
-  forward bound record-type-aware. (b) `locationConsistency` scores districts only relative to
-  the SUBJECT's home county, so two records in the same *foreign* county score 0.0 — grant
-  same-foreign-county credit derived from the district registry (no hardcoded regions).
-  Gate: ClusteringEngine tests incl. a Northumberland-namesake fixture; SANDWICH_AUDIT
-  cross-check that wider lifespans can't push unrelated records over the 0.4 attach threshold.
+- **Clustering lifespan / identity-constraint hardening** (over-split *and* over-merge — the
+  shared deterministic core that `LEAD_DISCOVERY_SPEC.md` §7 also depends on). Three defects,
+  all must preserve the over-split-not-over-merge invariant and need their own mini-spec + tests
+  (assignment-threshold interactions make this core surgery, not a patch):
+  (a) [over-split, Barbara Ayre 2026-07-15] non-birth singleton clusters get lifespan
+  `(year−80, year+5)` — genealogically wrong for marriage/census seeds, whose subject plausibly
+  lives decades past the record; make the forward bound record-type-aware.
+  (b) [over-split, Barbara Ayre] `locationConsistency` scores districts only relative to the
+  SUBJECT's home county, so two records in the same *foreign* county score 0.0 — grant
+  same-foreign-county credit from the district registry (no hardcoded regions).
+  (c) [over-merge, Ernest Cauldwell 2026-07-16] a **death never caps the lifespan** — a birth
+  seeds `[year, year+110]` and later records only *expand* the window, so an infant death
+  (1886, age 0) merges with a 1915 marriage. Fix: a death sets `lifespanEnd = deathYear`
+  (+margin), a death-with-age bounds birth (`birth ≈ deathYear − age`), and assignment
+  **rejects records dated after the cluster's death**. Small + high-value; can ship ahead of
+  (a)/(b) and is a prerequisite for lead discovery below.
+  Gate: ClusteringEngine tests incl. a Northumberland-namesake fixture (a/b) and an
+  infant-death-vs-marriage fixture (c); SANDWICH_AUDIT cross-check that wider lifespans can't
+  push unrelated records over the 0.4 attach threshold.
+- **Lead discovery — clustering as a discovery engine** (`LEAD_DISCOVERY_SPEC.md`,
+  accepted-direction 2026-07-16). The pivot: repurpose clustering from a per-subject
+  evidence-*acceptance* aid into a corpus-level *discovery* engine that turns the ~3,752-lead
+  noise pool into a small, prioritised set of hypothesised people / links / families — routed
+  through the existing hypothesis (T11/T12) + firewall machinery for human review. AI stays
+  **bounded** (per-lead embeddings + deterministic clustering + borderline adjudication +
+  narration — never the clusterer). Depends on the clustering constraint hardening above
+  (shared §7 constraints; over-merge item (c) especially). Staged with explicit gates (spec §9):
+  **Phase 0** is a pure diagnostic — deterministic blocking over *this* tree's real lead pool,
+  emit a report of what coheres — and is the **go/no-go for the whole pivot**, cheap enough to
+  run early once (c) lands; then **Phase 1** read-only discovery panel → **Phase 2** hypothesis
+  emission → **Phase 3** embeddings → **Phase 4** AI narration → **Phase 5** unify acceptance +
+  discovery. This is *core research capability*, not polish, so it **leads** Stage 2's
+  enrichment/polish items rather than trailing them. Gate to start: core declared solid
+  (Stage 1) + clustering item (c).
 - **Query-side given-name variants** (surfaced 2026-07-15, Harry Marshall: possibly
   registered HENRY — the nickname table scores returned records, but outbound queries carry
   the subject's stored given name only, so a Henry-registered death is invisible to every
