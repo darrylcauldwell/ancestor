@@ -227,6 +227,71 @@ struct ClusteringEngineTests {
         }
     }
 
+    // MARK: - Death caps the life (over-merge guard)
+
+    @Test func infantDeathDoesNotClusterWithLaterMarriageOrCensus() {
+        // The Ernest Cauldwell over-merge: a death at age 0 in 1886 cannot be
+        // the same person as a 1915 marriage or a living 1891 census. All four
+        // records share a district (which pulls them together), so only the
+        // death logic can keep them apart.
+        let birth = scored(.birth(BirthRecord(
+            common: makeCommon(id: "b", surname: "CAULDWELL", givenName: "ERNEST"),
+            birthYear: 1877, birthDate: nil, birthPlace: nil, quarter: "Dec",
+            district: "Belper", volume: nil, page: nil, mothersMaidenName: nil)))
+        let death = scored(.death(DeathRecord(
+            common: makeCommon(id: "d", surname: "CAULDWELL", givenName: "ERNEST"),
+            deathYear: 1886, deathDate: nil, deathPlace: nil, age: 0, quarter: "Jun",
+            district: "Belper", volume: nil, page: nil, spouseSurname: nil)))
+        let census = scored(.census(CensusRecord(
+            common: makeCommon(id: "c", sourceID: "freecen", surname: "CAULDWELL", givenName: "ERNEST"),
+            censusYear: 1891, age: 4, birthYear: 1887, birthPlace: "Turnditch",
+            birthCounty: "Derbyshire", relationship: "Son", occupation: nil,
+            address: nil, parish: nil, district: "Belper", household: nil)))
+        let marriage = scored(.marriage(MarriageRecord(
+            common: makeCommon(id: "m", surname: "CAULDWELL", givenName: "ERNEST"),
+            marriageYear: 1915, marriageDate: nil, marriagePlace: nil, quarter: "Mar",
+            district: "Belper", volume: nil, page: nil, spouseName: "Ward")))
+
+        let clusters = ClusteringEngine.cluster(
+            records: [birth, death, census, marriage],
+            sourceInfoMap: emptySourceInfo, homeChapmanCode: "DBY")
+
+        for c in clusters {
+            let ids = Set(c.records.map(\.id))
+            #expect(!(ids.contains("d") && ids.contains("m")),
+                    "Infant death must not share a cluster with a later marriage")
+            #expect(!(ids.contains("d") && ids.contains("c")),
+                    "Infant death must not share a cluster with a living census")
+        }
+    }
+
+    @Test func recordAfterDeathIsRejectedFromAssignment() {
+        // A birth + death (age 56 ⇒ born 1834) form one life; a marriage dated
+        // AFTER the death cannot join it.
+        let birth = scored(.birth(BirthRecord(
+            common: makeCommon(id: "b"), birthYear: 1834, birthDate: nil,
+            birthPlace: nil, quarter: nil, district: "Bakewell", volume: nil,
+            page: nil, mothersMaidenName: nil)))
+        let death = scored(.death(DeathRecord(
+            common: makeCommon(id: "d"), deathYear: 1890, deathDate: nil,
+            deathPlace: nil, age: 56, quarter: nil, district: "Bakewell",
+            volume: nil, page: nil, spouseSurname: nil)))
+        let lateMarriage = scored(.marriage(MarriageRecord(
+            common: makeCommon(id: "m"), marriageYear: 1905, marriageDate: nil,
+            marriagePlace: nil, quarter: nil, district: "Bakewell", volume: nil,
+            page: nil, spouseName: "Brooks")))
+
+        let clusters = ClusteringEngine.cluster(
+            records: [birth, death, lateMarriage],
+            sourceInfoMap: emptySourceInfo, homeChapmanCode: "DBY")
+
+        for c in clusters {
+            let ids = Set(c.records.map(\.id))
+            #expect(!(ids.contains("d") && ids.contains("m")),
+                    "A marriage after death must not join the death's cluster")
+        }
+    }
+
     // MARK: - Score formula
 
     @Test func perfectMatchScoresOne() {

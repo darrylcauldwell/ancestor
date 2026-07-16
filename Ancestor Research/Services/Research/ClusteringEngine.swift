@@ -138,9 +138,30 @@ nonisolated struct ClusteringEngine {
         }
     }
 
+    /// The earliest death/burial year in the cluster, if any — a hard upper
+    /// bound on the life. Nothing can happen after it (+ a small registration /
+    /// burial-lag margin). ROADMAP clustering item (c) / LEAD_DISCOVERY §7.
+    static let postDeathMarginYears = 2
+    private static func clusterDeathYear(_ cluster: LifeCluster) -> Int? {
+        cluster.records.compactMap { rec -> Int? in
+            switch rec.record {
+            case .death(let r): return r.deathYear
+            case .burial(let r): return r.deathYear
+            default: return nil
+            }
+        }.min()
+    }
+
     /// Weighted assignment score per the spec formula.
     /// score = date_compatibility × 0.4 + location_consistency × 0.3 + household_confirmation × 0.3
     static func assignmentScore(record: ScoredRecord, cluster: LifeCluster, homeChapmanCode: String) -> Double {
+        // A death ends a life: refuse any record dated after the cluster's death
+        // (+ lag margin) — you can't marry or be enumerated after you die. It
+        // seeds its own cluster instead of merging (over-split, not over-merge).
+        if let deathYear = clusterDeathYear(cluster),
+           let year = yearOf(record), year > deathYear + postDeathMarginYears {
+            return 0.0
+        }
         let dateScore = dateCompatibility(record: record, cluster: cluster)
         let locationScore = locationConsistency(record: record, cluster: cluster, homeChapmanCode: homeChapmanCode)
         let householdScore = householdConfirmation(record: record, cluster: cluster)
@@ -339,6 +360,46 @@ nonisolated struct ClusteringEngine {
             let newer = sorted[1]
             let keepRecords = cluster.records.filter { $0.id != newer.id }
             return (keepRecords, [newer], nil)
+        }
+
+        // A death ends a life. Catch records that merged via a wide birth-seeded
+        // lifespan before the death capped it (ROADMAP clustering item c):
+        if let deathYear = deaths.compactMap({ yearOf($0) }).min() {
+            // (i) any record dated after the death (+ lag) is a different person
+            //     — the Ernest case: infant death 1886 + marriage 1915.
+            let postDeath = cluster.records.filter { rec in
+                guard let y = yearOf(rec) else { return false }
+                return y > deathYear + postDeathMarginYears
+            }
+            if !postDeath.isEmpty {
+                let keepRecords = cluster.records.filter { record in
+                    !postDeath.contains { $0.id == record.id }
+                }
+                return (keepRecords, postDeath,
+                        "Event after death (died \(deathYear)) — a person can't appear after they die")
+            }
+
+            // (ii) a death WITH an age implies a birth (birth ≈ deathYear − age);
+            //      a birth record disagreeing by >5 years is a different person —
+            //      died 1886 "age 0" ⇒ born ~1886, incompatible with an 1877 birth.
+            let deathImpliedBirths: [Int] = deaths.compactMap { rec in
+                guard case .death(let d) = rec.record, let age = d.age, let dy = d.deathYear
+                else { return nil }
+                return dy - age
+            }
+            if let impliedBirth = deathImpliedBirths.min() {
+                let incompatibleBirths = births.filter { rec in
+                    guard let by = yearOf(rec) else { return false }
+                    return abs(by - impliedBirth) > 5
+                }
+                if !incompatibleBirths.isEmpty {
+                    let keepRecords = cluster.records.filter { record in
+                        !incompatibleBirths.contains { $0.id == record.id }
+                    }
+                    return (keepRecords, incompatibleBirths,
+                            "Death age implies birth ~\(impliedBirth), incompatible with birth record")
+                }
+            }
         }
 
         // T-D ⟨G13⟩ (CONFLICT_LAYER_SPEC CL2) — same-enumeration-year
