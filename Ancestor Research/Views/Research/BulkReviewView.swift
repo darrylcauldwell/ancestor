@@ -153,7 +153,12 @@ struct BulkReviewView: View {
         let base = filterTier.map { tier in findings.filter { $0.tier == tier } } ?? findings
         return base.sorted {
             if $0.tier.sortOrder != $1.tier.sortOrder { return $0.tier.sortOrder < $1.tier.sortOrder }
-            return $0.profileName < $1.profileName
+            // Stable total-order tiebreak on the unique id — same reasoning as
+            // ResearchView.filteredProfiles: `sorted()` isn't stable, so
+            // findings sharing a tier + profileName would shuffle on each
+            // refresh without a unique final key.
+            if $0.profileName != $1.profileName { return $0.profileName < $1.profileName }
+            return $0.id < $1.id
         }
     }
 

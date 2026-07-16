@@ -311,7 +311,17 @@ struct ResearchView: View {
                 let ca = appState.snapshot.completeness(for: a.id)
                 let cb = appState.snapshot.completeness(for: b.id)
                 if ca.score != cb.score { return ca.score < cb.score }
-                return a.displayName < b.displayName
+                // Final tiebreak on the stable unique id, NOT just displayName.
+                // `sorted()` isn't stable and the source is `profiles.values`
+                // (an unordered dictionary re-enumerated on every snapshot
+                // rebuild). Profiles sharing a display name — common among
+                // placeholder stubs ("Unknown", "?", bare surnames) — used to
+                // tie on every key and shuffle positions on each 3s refresh
+                // ("continually reordering", owner report 2026-07-16). Ordering
+                // by id makes the comparator a strict total order, so the list
+                // is identical across rebuilds unless the data actually changes.
+                if a.displayName != b.displayName { return a.displayName < b.displayName }
+                return a.id < b.id
             }
     }
 
