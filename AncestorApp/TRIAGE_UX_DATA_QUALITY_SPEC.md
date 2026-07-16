@@ -64,8 +64,10 @@ So 3c/3d needed no new machinery — just the 3b entry point to reach them.
   a candidate matching an existing profile ATTACHES there (no duplicate); else a new ghost is
   created; `multipleMatches` → create-new (when-in-doubt-split). New `Query(lead:)` builder + tests
   `leadMatchingExistingProfileAttaches` / `leadWithNoMatchCreatesNew`. This delivers Darryl's model
-  in full: "evidence relates to an existing profile OR adds a new one." (Only remaining polish:
-  collapse the two in-review clicks — Promote then Apply — into one "Accept" click.)
+  in full: "evidence relates to an existing profile OR adds a new one." **One-click polish DONE
+  (`5c1a2cd`):** `applyCluster`/`applyRecord` call `materialiseLeadSubjectIfNeeded` first, so a
+  single Apply click materialises (attach-or-create) AND writes facts; the separate "Promote to
+  profile" button is replaced by a hint. No-op for the normal profile path. **3d fully complete.**
 - **3e — retire blind Promote. SHIPPED `d7dbdd0`.** Blind Promote removed entirely (it minted
   incomplete profiles from one-record inferences — the risk this rework exists to kill; leaving
   it even demoted was wrong once Research shipped). Lead actions are now **Research** + **Dismiss**
