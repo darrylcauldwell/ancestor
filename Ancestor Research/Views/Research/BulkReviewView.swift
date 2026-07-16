@@ -469,9 +469,17 @@ struct BulkReviewView: View {
                     .lineLimit(2)
             }
             Spacer()
+            // Change 3b — Research is the primary action: investigate the
+            // candidate and review the evidence BEFORE anything reaches the
+            // tree. Promote (blind add) stays for now, demoted; 3e retires it.
+            Button("Research") { appState.researchLeadRequest = row.lead }
+                .buttonStyle(.glassProminent)
+                .controlSize(.small)
+                .help("Investigate this candidate — gather evidence, then decide, rather than adding it blind.")
             Button("Promote") { promote(row) }
                 .buttonStyle(.glass)
                 .controlSize(.small)
+                .help("Add to the tree now without researching (creates a sparse profile).")
             Button("Dismiss") { dismiss(row) }
                 .buttonStyle(.glass)
                 .controlSize(.small)

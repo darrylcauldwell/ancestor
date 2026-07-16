@@ -78,6 +78,14 @@ final class AppState {
     /// RESEARCH_PIPELINE_SPEC §11.4.
     var researchConfigFocus: ResearchFocus?
 
+    /// TRIAGE_UX_DATA_QUALITY_SPEC Change 3b — request to research a LEAD
+    /// (a candidate not yet on the tree). Sibling of `researchRequest`: set by
+    /// the Triage "Research" action on a lead, observed centrally by
+    /// ContentView which drives `ResearchViewModel.startResearch(lead:)` and
+    /// surfaces the same progress → review flow as profile research. No config
+    /// sheet — lead research uses discover-mode defaults.
+    var researchLeadRequest: Lead?
+
     /// Cross-view request: open this profile's Full Detail sheet on the
     /// Tree tab. Set by surfaces that aren't the tree itself — today
     /// the Tasks list's row click. `TreeGraphView` observes via

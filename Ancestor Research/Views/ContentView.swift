@@ -188,13 +188,7 @@ struct MainView: View {
         .sheet(item: importCleanseBinding) { review in
             ImportCleanseSheet(review: review)
         }
-        .sheet(item: Binding(
-            get: { appState.researchConfigProfile },
-            set: {
-                appState.researchConfigProfile = $0
-                if $0 == nil { appState.researchConfigFocus = nil }
-            }
-        )) { profile in
+        .sheet(item: researchConfigProfileBinding) { profile in
             ResearchConfigSheet(
                 profile: profile,
                 snapshot: appState.snapshot,
@@ -233,6 +227,9 @@ struct MainView: View {
                 )
             }
             researchVM.currentResearchTask = task
+        }
+        .onChange(of: appState.researchLeadRequest?.id) { _, _ in
+            kickOffLeadResearch()
         }
         .sheet(isPresented: $showResearchProgress) {
             ResearchProgressSheet(
@@ -321,6 +318,44 @@ struct MainView: View {
     /// the chosen folder. Sensitive life events follow the existing
     /// "Exclude sensitive items" preference; the index always omits living
     /// people (privacy default for shared exports).
+    /// Extracted from the inline `.sheet(item:)` argument to keep the `body`
+    /// modifier chain under the Swift type-checker's complexity limit — adding
+    /// the Change 3b lead-research `.onChange` tipped an already-maxed body over.
+    private var researchConfigProfileBinding: Binding<Profile?> {
+        Binding(
+            get: { appState.researchConfigProfile },
+            set: {
+                appState.researchConfigProfile = $0
+                if $0 == nil { appState.researchConfigFocus = nil }
+            }
+        )
+    }
+
+    /// Change 3b — kick off research for a LEAD, mirroring the profile trigger.
+    /// A lead has no tree profile yet, so there's no config sheet and no
+    /// `persistProfileID`; discover-mode defaults drive the run. The result
+    /// lands in `currentResult` exactly like profile research, so ResearchView
+    /// switches to the review UI (which already offers the "Promote to Profile"
+    /// create-on-accept step). Extracted from an inline `.onChange` closure so
+    /// the large `body` expression stays under the type-checker's limit.
+    private func kickOffLeadResearch() {
+        guard let lead = appState.researchLeadRequest else { return }
+        appState.researchLeadRequest = nil
+        let task = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(200))
+            showResearchProgress = true
+            researchVM.appDatabase = appState.currentDatabase
+            researchVM.selectedMode = .discover
+            researchVM.selectedScope = .county
+            await researchVM.startResearch(
+                lead: lead,
+                snapshot: appState.snapshot,
+                registry: registry
+            )
+        }
+        researchVM.currentResearchTask = task
+    }
+
     private func presentHTMLExport() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
