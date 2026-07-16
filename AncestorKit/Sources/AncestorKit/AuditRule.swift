@@ -71,6 +71,7 @@ public nonisolated enum AuditRules {
         MissingBioRule(),
         DuplicateDetectionRule(),
         ExcessParentEdgesRule(),
+        EmptyProfileRule(),
         CompletenessScoreRule(),
         ParentDiedBeforeChildRule(),
         ParentSuspiciouslyOldRule(),
@@ -498,6 +499,18 @@ public nonisolated struct DuplicateDetectionRule: AuditRuleDefinition {
     }
 
     private func similarityScore(_ a: Profile, _ b: Profile) -> Double {
+        // A true duplicate shares the given name too. When both profiles have a
+        // given name and they're completely dissimilar (e.g. Dorothy vs
+        // Florence), they're different people — usually same-surname siblings —
+        // so surname (0.4) + birth-year overlap (0.3) alone must NOT reach the
+        // 0.7 threshold. nameSimilarity already credits nicknames, containment,
+        // and single-char typos, so anything genuinely close still scores > 0.
+        if let givenA = a.firstName?.trimmingCharacters(in: .whitespaces), !givenA.isEmpty,
+           let givenB = b.firstName?.trimmingCharacters(in: .whitespaces), !givenB.isEmpty,
+           nameSimilarity(givenA, givenB) == 0 {
+            return 0
+        }
+
         var score = 0.0
 
         // Surname similarity
@@ -927,6 +940,51 @@ public nonisolated struct ExcessParentEdgesRule: AuditRuleDefinition {
         }
 
         return []
+    }
+}
+
+// MARK: - Empty Profile (orphaned debris)
+
+/// Fires on a profile that carries no information at all — blank name, no birth
+/// or death date, and no relationships. These are orphaned stubs, typically the
+/// dead remains of a bad merge or the sibling-shortcut placeholder bug (owner
+/// report 2026-07-16: four blank stubs left behind after their parent edges were
+/// stripped). They can't be researched (no identity to search) and connect to
+/// nothing, so they're safe to delete. Distinct from `OrphanStubRule`, which
+/// needs a NAME match to fire and so misses fully-nameless orphans.
+public nonisolated struct EmptyProfileRule: AuditRuleDefinition {
+    public let id = "emptyProfile"
+    public let displayName = "Empty Profile"
+    public let description = "A profile with no identifying given name (a bare surname or \"?\"), no dates, and no relationships — orphaned debris, safe to remove."
+    public let fireCondition = "No meaningful given name AND no birth/death date AND no relationship edges."
+    public let warningCondition: String? = nil
+    public let workedExample = "A lone \" Wheeldon\" (surname only) left orphaned after its one bad parent-link was removed — no dates, no family."
+    public let defaultSeverity = Severity.warning
+    public init() {}
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        // "Identifiable" means a real given name — a bare surname or a "?" tells
+        // you nothing about who the person is. Strip "?"/whitespace so both
+        // surname-only and "?"-named stubs count as empty.
+        func meaningful(_ s: String?) -> Bool {
+            !(s ?? "").trimmingCharacters(in: CharacterSet(charactersIn: " ?")).isEmpty
+        }
+        let hasGivenName = meaningful(profile.firstName) || meaningful(profile.middleName)
+        guard !hasGivenName, profile.birthDate == nil, profile.deathDate == nil else { return [] }
+        // Must be an orphan. A surname-only person who is LINKED (e.g. an
+        // unknown-given-name spouse or parent) is a legitimate placeholder that
+        // holds real structure — not debris.
+        let hasRelationships = snapshot.relationships.contains {
+            $0.from == profile.id || $0.to == profile.id
+        }
+        guard !hasRelationships else { return [] }
+        return [AuditResult(
+            profileID: profile.id,
+            profileName: profile.displayName.trimmingCharacters(in: .whitespaces).isEmpty
+                ? "(empty profile)" : profile.displayName,
+            severity: .warning, ruleID: id,
+            message: "Empty profile — no given name, dates, or relationships (a bare surname or \"?\" stub). Safe to remove (orphaned debris)."
+        )]
     }
 }
 

@@ -159,6 +159,87 @@ struct AuditEngineTests {
         #expect(ExcessParentEdgesRule().evaluate(profile: child, snapshot: snapshot).isEmpty)
     }
 
+    // MARK: - Empty Profile (orphaned debris)
+
+    @Test func emptyProfile_blankNoRelationships_fires() {
+        let empty = makeProfile(id: "empty", firstName: nil, lastName: nil)
+        let snapshot = makeSnapshot(profiles: [empty])
+        let results = EmptyProfileRule().evaluate(profile: empty, snapshot: snapshot)
+        #expect(results.count == 1)
+        #expect(results.first?.severity == .warning)
+    }
+
+    @Test func emptyProfile_named_noFire() {
+        let p = makeProfile(id: "p", firstName: "Jane", lastName: "Doe")
+        let snapshot = makeSnapshot(profiles: [p])
+        #expect(EmptyProfileRule().evaluate(profile: p, snapshot: snapshot).isEmpty)
+    }
+
+    @Test func emptyProfile_blankButHasRelationship_noFire() {
+        // A nameless unknown that HOLDS a relationship (e.g. an unknown parent)
+        // is a legitimate placeholder, not empty debris.
+        let unknown = makeProfile(id: "u", firstName: nil, lastName: nil)
+        let child = makeProfile(id: "c")
+        let snapshot = makeSnapshot(profiles: [unknown, child],
+                                    relationships: [parentEdge(parent: "u", child: "c")])
+        #expect(EmptyProfileRule().evaluate(profile: unknown, snapshot: snapshot).isEmpty)
+    }
+
+    @Test func emptyProfile_blankButHasDate_noFire() {
+        let dated = makeProfile(id: "d", firstName: nil, lastName: nil, birthDate: "1900")
+        let snapshot = makeSnapshot(profiles: [dated])
+        #expect(EmptyProfileRule().evaluate(profile: dated, snapshot: snapshot).isEmpty)
+    }
+
+    @Test func emptyProfile_surnameOnlyOrphan_fires() {
+        // The lone " Wheeldon" left after its bad parent-link was removed.
+        let stub = makeProfile(id: "wheeldon", firstName: nil, lastName: "Wheeldon")
+        let snapshot = makeSnapshot(profiles: [stub])
+        let results = EmptyProfileRule().evaluate(profile: stub, snapshot: snapshot)
+        #expect(results.count == 1)
+        #expect(results.first?.severity == .warning)
+    }
+
+    @Test func emptyProfile_surnameOnlyButLinked_noFire() {
+        // A surname-only spouse who IS linked is a legit unknown-given placeholder.
+        let spouseStub = makeProfile(id: "bown", firstName: nil, lastName: "Bown")
+        let husband = makeProfile(id: "h", firstName: "John", lastName: "Smith")
+        let snapshot = makeSnapshot(
+            profiles: [spouseStub, husband],
+            relationships: [Relationship(id: UUID(), from: "bown", to: "h",
+                                         type: .spouse, role: nil, subtype: .unknown,
+                                         marriageDate: nil, marriageLocation: nil, divorceDate: nil)]
+        )
+        #expect(EmptyProfileRule().evaluate(profile: spouseStub, snapshot: snapshot).isEmpty)
+    }
+
+    // MARK: - Duplicate Detection (given-name guard)
+
+    @Test func duplicate_sameSurnameDifferentGiven_noFire() {
+        // Dorothy Winnifred vs Florence May Keyworth — sisters, not duplicates.
+        let a = makeProfile(id: "a", firstName: "Dorothy", lastName: "Keyworth", birthDate: "1901")
+        let b = makeProfile(id: "b", firstName: "Florence", lastName: "Keyworth", birthDate: "1900")
+        let snapshot = makeSnapshot(profiles: [a, b])
+        #expect(DuplicateDetectionRule().evaluate(profile: a, snapshot: snapshot).isEmpty)
+    }
+
+    @Test func duplicate_sameNameOverlappingBirth_fires() {
+        let a = makeProfile(id: "a1", firstName: "Mabel", lastName: "Cauldwell", birthDate: "1897")
+        let b = makeProfile(id: "a2", firstName: "Mabel", lastName: "Cauldwell", birthDate: "1897")
+        let snapshot = makeSnapshot(profiles: [a, b])
+        let results = DuplicateDetectionRule().evaluate(profile: a, snapshot: snapshot)
+        #expect(results.count == 1)
+        #expect(results.first?.severity == .warning)
+    }
+
+    @Test func duplicate_nicknameVariantStillFires() {
+        // Bill / William are the same person — the nickname keeps similarity > 0.
+        let a = makeProfile(id: "a1", firstName: "Bill", lastName: "Ward", birthDate: "1910")
+        let b = makeProfile(id: "a2", firstName: "William", lastName: "Ward", birthDate: "1910")
+        let snapshot = makeSnapshot(profiles: [a, b])
+        #expect(!DuplicateDetectionRule().evaluate(profile: a, snapshot: snapshot).isEmpty)
+    }
+
     // MARK: - Birth Before Death
 
     @Test func birthBeforeDeath_exactDates_error() {
