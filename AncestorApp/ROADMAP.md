@@ -1,6 +1,8 @@
 # Roadmap — routing document
 
-**Status:** Living (updated 2026-07-13). This file routes: where each phase stands and which document owns what happens next. Per-spec change lists stay authoritative on design (see `AncestorApp/README.md` for the full document index).
+**Status:** Living (updated 2026-07-16). This file routes: where each phase stands and which document owns what happens next. Per-spec change lists stay authoritative on design (see `AncestorApp/README.md` for the full document index).
+
+**Doc convention (2026-07-16):** completed specs are *removed*, not archived — git history is the archive (only the developer + Claude read these, and both have full history). This ROADMAP is the durable record of what shipped (with commit refs); the detailed spec is one `git show` away. So a Stage-1 item marked `[✓ shipped]` whose spec is gone is normal — the commits are the pointer.
 
 ## Phase state
 
@@ -44,6 +46,8 @@ This section reads as the build sequence — top to bottom is the intended order
    John-Ayre-entry-as-Barbara's-death mispackaging); (e) FS self-narrowing follow-up
    pacing; (f) housekeeping — bulk-dismiss George's ~29 junk leads + Kenneth's 4;
    Ian-listed-as-Kenneth's-father import inversion.
+
+9. **Evidence absorption + Triage leads rework** — [✓ shipped] 2026-07-16 (both specs removed post-completion; in git history). **Evidence absorption:** census/record nuggets now route to their homes — birthplace→birthLocation (county-composed, anchors the subject), occupation/residence → typed LifeEvents, birth/death corroboration from age + FindAGrave + probate, one declarative `absorptionPlan` the write path walks, and a review-time "will add" preview (`40b106b`, `b347351`, `5f79cc8`, `b215d8e`, `07c4c14`). **Triage leads rework:** search across findings+leads; identity-grouping ("N records"); Research → review → **one-click create-on-accept** (attach-to-existing via `ProposalDedup`, else create-new); **Add-as-parent** captures hard-to-find maiden names as placeholder parents; reversible Dismissed section; **blind Promote removed** (minted incomplete profiles) (`e885486`, `8adb202`, `0afc06d`, `d7dbdd0`, `755fc77`, `0fa82d1`, `de695fb`, `5c1a2cd`). Also: Triage scroll-beachball fix — leads rendered as lazy children (`512c520`); stable-`id` sort tiebreak stopping list reordering (`3e7b4f6`); four compiler warnings cleared (`2204b13`).
 
 **Parallel, externally gated:** FamilySearch official-API work — starts the day the Beta AppKey arrives; E1 should land first. In order: (a) read leg (`FAMILYSEARCH_SOURCE_SPEC.md` §§14–19, acceptance criteria A1–A9); (b) write leg — the FS-specific Tree service + smallest-honest-write compliance demo (ADR-002/ADR-005); its mini-spec is deliberately unwritten until FamilySearch’s demo instructions arrive with the AppKey, so it is specified against their actual requirements rather than guesses.
 
@@ -114,6 +118,19 @@ This section reads as the build sequence — top to bottom is the intended order
   fields exist, could be `.scoped`), budget policy, per-scope contract pins per
   SOURCE_WEIGHTING Change 1. Note: Findmypast licenses this dataset behind a paywall —
   free-first means the original site, within its terms.
+- **Leads-rework tails** (surfaced 2026-07-16; all optional — the rework is complete without them):
+  (a) group findings per profile — one profile with N conflicts shows as N separate cards today
+  (e.g. George Eric Vaughn Cauldwell ×2); (b) fuzzy transcription-variant folding in lead
+  grouping (Mathews/Matthews, Ida/Ada — exact-identity grouping shipped, fuzzy deferred);
+  (c) apply the lead identity-grouping to the profile's own Leads list (Triage-only today);
+  (d) Change 2 — a profile "Leads (n)" deep-link that jumps into filtered Triage (reuses the
+  Triage search).
+- **RunRequestWatcher off the main thread** (tech-debt, surfaced 2026-07-16). The `@MainActor`
+  watcher runs a SQLite write — and, when a request is queued, a full pipeline `execute()` — on
+  the main thread every 3s. Move the dequeue/execute to a background queue; touch MainActor only
+  for UI state. NOT a live bug (idle cost is small; the 2026-07-16 "beachball" was Xcode debug
+  instrumentation + an oversized SwiftUI view tree, both since fixed) but a real responsiveness
+  smell worth clearing. Detail in memory `project_runrequestwatcher_mainthread_poll`.
 - `PROSE_CORPUS_SPEC.md` — bio synthesis / prose corpus ("polish we would do after we have a totally solid core logic system" — user, 2026-07-10)
 - `SOURCE_MEDIA_SPEC.md` — record images / headstone media
 - Epic 12 — sample-tree first-launch tour
