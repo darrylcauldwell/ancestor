@@ -730,7 +730,7 @@ final class ResearchViewModel {
         let ids = kept.map(\.record.id)
         persist("Save evidence status") { try db.updateEvidenceUserStatus(profileID: profileID, sourceRecordIDs: ids, status: .savedAsLead) }
         for scored in kept {
-            if let event = scored.record.projectToLifeEvent(profileID: profileID) {
+            for event in scored.record.projectToLifeEvents(profileID: profileID) {
                 persist("Save life event") { try db.addLifeEventIfAbsent(event) }
             }
         }
@@ -782,8 +782,9 @@ final class ResearchViewModel {
 
             report(ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: appState.snapshot, db: db))
             // Non-BMD records (census/burial/probate/parish) still get a LifeEvent
-            // — same path acceptCluster takes. BMD records return nil here.
-            if let event = scored.record.projectToLifeEvent(profileID: profile.id) {
+            // — same path acceptCluster takes. BMD records return none here; a
+            // census fans out into census + occupation + residence events.
+            for event in scored.record.projectToLifeEvents(profileID: profile.id) {
                 persist("Save life event") { try db.addLifeEventIfAbsent(event) }
             }
         }
@@ -815,7 +816,7 @@ final class ResearchViewModel {
             )
         }
         report(ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: appState.snapshot, db: db))
-        if let event = scored.record.projectToLifeEvent(profileID: profile.id) {
+        for event in scored.record.projectToLifeEvents(profileID: profile.id) {
             persist("Save life event") { try db.addLifeEventIfAbsent(event) }
         }
         if let snap = persist("Refresh tree snapshot", { try db.buildSnapshot() }) {
@@ -930,7 +931,7 @@ final class ResearchViewModel {
                 status: .savedAsLead
             )
         }
-        if let event = scored.record.projectToLifeEvent(profileID: profileID) {
+        for event in scored.record.projectToLifeEvents(profileID: profileID) {
             persist("Save life event") { try db.addLifeEventIfAbsent(event) }
         }
         // Flip the observable signal so SwiftUI re-renders the row.

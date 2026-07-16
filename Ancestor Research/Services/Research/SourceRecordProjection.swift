@@ -132,11 +132,67 @@ nonisolated extension SourceRecord {
         }
     }
 
+    /// EVIDENCE_ABSORPTION_SPEC Change 2 — every typed LifeEvent a record
+    /// implies, not just one catch-all entry. A census spawns its `.census`
+    /// event (unchanged) PLUS a `.occupation` event and a `.residence` event
+    /// when it names an occupation / address, so those first-class event
+    /// types finally get populated from records instead of the nugget staying
+    /// buried in census details. All other records return their single event
+    /// (or none), exactly as before. Idempotent: derived events carry a
+    /// discriminated deterministic ID so they never collide with the primary.
+    func projectToLifeEvents(profileID: String) -> [LifeEvent] {
+        var events = projectToLifeEvent(profileID: profileID).map { [$0] } ?? []
+        if case .census(let r) = self {
+            events.append(contentsOf: Self.censusDerivedEvents(r, profileID: profileID))
+        }
+        return events
+    }
+
+    /// The off-agenda facts a census volunteers, each routed to its own typed
+    /// event. Dated to the census year; located at the household address (or
+    /// parish) so the occupation reads with its place. Empty fields yield no
+    /// event — we never manufacture a blank occupation/residence row.
+    private static func censusDerivedEvents(_ r: CensusRecord, profileID: String) -> [LifeEvent] {
+        let date = yearOnlyDate(r.censusYear)
+        var out: [LifeEvent] = []
+        if let occupation = r.occupation?.trimmingCharacters(in: .whitespaces), !occupation.isEmpty {
+            out.append(LifeEvent(
+                id: deterministicID(profileID: profileID, sourceRecordID: r.common.id, discriminator: "occupation"),
+                profileID: profileID,
+                type: .occupation,
+                date: date,
+                location: r.address ?? r.parish,
+                description: occupation,
+                details: nil
+            ))
+        }
+        if let address = r.address?.trimmingCharacters(in: .whitespaces), !address.isEmpty {
+            out.append(LifeEvent(
+                id: deterministicID(profileID: profileID, sourceRecordID: r.common.id, discriminator: "residence"),
+                profileID: profileID,
+                type: .residence,
+                date: date,
+                location: address,
+                description: nil,
+                details: nil
+            ))
+        }
+        return out
+    }
+
     /// Stable UUID derived from (profileID, sourceRecordID). Same record
     /// projected onto the same profile always produces the same UUID, so
     /// `INSERT OR IGNORE` makes the projection idempotent. Uses a SHA-256
     /// hash truncated to 16 bytes — sufficient uniqueness across the lifetime
     /// of a tree, and stable across app launches.
+    /// Discriminated variant for the derived fan-out events (Change 2): folds
+    /// an event-kind suffix into the hash input so a census's occupation and
+    /// residence events get distinct, stable IDs that never collide with the
+    /// bare-keyed primary `.census` event.
+    static func deterministicID(profileID: String, sourceRecordID: String, discriminator: String) -> UUID {
+        deterministicID(profileID: profileID, sourceRecordID: "\(sourceRecordID)#\(discriminator)")
+    }
+
     static func deterministicID(profileID: String, sourceRecordID: String) -> UUID {
         let input = "\(profileID)|\(sourceRecordID)"
         let digest = SHA256.hash(data: Data(input.utf8))
