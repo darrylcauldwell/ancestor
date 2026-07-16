@@ -55,90 +55,53 @@ nonisolated struct ApplyEngine {
             dateAccessed: rendered.accessedAt,
             notes: rendered.full
         )
-        switch scored.record {
-        case .birth(let r):
-            let dateCandidate = bmdDate(year: r.birthYear, quarter: r.quarter, exact: r.birthDate)
-            applyDateField(
-                .birthDate, existing: profile.birthDate,
-                existingSources: profile.sources[.birthDate] ?? [],
-                candidate: dateCandidate, profileID: profile.id, origin: origin, db: db,
-                citation: citation, failures: &failures
-            )
-            applyStringField(
-                .birthLocation, existing: profile.birthLocation,
-                existingSources: profile.sources[.birthLocation] ?? [],
-                candidate: r.birthPlace ?? r.district,
-                profileID: profile.id, origin: origin, db: db,
-                citation: citation, failures: &failures
-            )
-        case .death(let r):
-            let dateCandidate = bmdDate(year: r.deathYear, quarter: r.quarter, exact: r.deathDate)
-            applyDateField(
-                .deathDate, existing: profile.deathDate,
-                existingSources: profile.sources[.deathDate] ?? [],
-                candidate: dateCandidate, profileID: profile.id, origin: origin, db: db,
-                citation: citation, failures: &failures
-            )
-            applyStringField(
-                .deathLocation, existing: profile.deathLocation,
-                existingSources: profile.sources[.deathLocation] ?? [],
-                candidate: r.deathPlace ?? r.district,
-                profileID: profile.id, origin: origin, db: db,
-                citation: citation, failures: &failures
-            )
-        case .marriage(let m):
-            applyMarriageToSubjectSpouseEdge(m, profileID: profile.id, snapshot: snapshot, db: db, failures: &failures)
-        case .census(let r):
-            // EVIDENCE_ABSORPTION_SPEC Change 1 — a census volunteers the
-            // subject's birthplace off-agenda. It used to fall through with
-            // the rest, so the nugget only ever lived inside the census
-            // LifeEvent's details, never reaching the birthLocation field
-            // that anchors the subject's own record searches. Route it
-            // through the same directional string-overwrite policy as
-            // `.birth`: fills an empty field, upgrades a lower-tier value,
-            // never clobbers a precise existing one, and opens a dispute on
-            // an incompatible clash.
-            applyStringField(
-                .birthLocation, existing: profile.birthLocation,
-                existingSources: profile.sources[.birthLocation] ?? [],
-                candidate: censusBirthLocation(r),
-                profileID: profile.id, origin: origin, db: db,
-                citation: citation, failures: &failures
-            )
-        case .pedigree, .burial, .military, .probate, .parish:
-            // Remaining non-BMD types contribute no *primary* field write,
-            // but several imply a birth/death date off-agenda — see the
-            // corroboration pass below.
-            break
-        }
-
-        // EVIDENCE_ABSORPTION_SPEC Change 3 — birth/death corroboration.
-        // Beyond the primary writes above, many records imply a birth or
-        // death date off-agenda: a census/death age, a FindAGrave birth
-        // date, a probate age. Route each implied date through the SAME
-        // directional policy as a primary write — it fills an empty field,
-        // corroborates a compatible one (the value lands in field_sources as
-        // supporting evidence), and opens a dispute on an incompatible clash,
-        // but never overwrites a more-precise existing value. This is the
-        // "agree with, don't overwrite" behaviour, achieved by reusing the
-        // policy rather than a parallel value-group path.
-        if let impliedBirth = Self.impliedBirthDate(for: scored.record) {
-            applyDateField(
-                .birthDate, existing: profile.birthDate,
-                existingSources: profile.sources[.birthDate] ?? [],
-                candidate: impliedBirth, profileID: profile.id, origin: origin, db: db,
-                citation: citation, failures: &failures
-            )
-        }
-        if let impliedDeath = Self.impliedDeathDate(for: scored.record) {
-            applyDateField(
-                .deathDate, existing: profile.deathDate,
-                existingSources: profile.sources[.deathDate] ?? [],
-                candidate: impliedDeath, profileID: profile.id, origin: origin, db: db,
-                citation: citation, failures: &failures
-            )
+        // EVIDENCE_ABSORPTION_SPEC Change 4 — walk the record's declarative
+        // absorption plan instead of a per-type switch. The plan (identity
+        // fields + spouse edge + implied-date corroboration + life events, in
+        // the legacy write order) is the single enumeration the review preview
+        // also reads, so display and write can't drift. Life events are the
+        // caller's `projectToLifeEvents` concern, so they're skipped here.
+        for item in scored.record.absorptionPlan(profileID: profile.id) {
+            switch item {
+            case .dateField(let field, let candidate):
+                applyDateField(
+                    field, existing: existingDate(field, of: profile),
+                    existingSources: profile.sources[field] ?? [],
+                    candidate: candidate, profileID: profile.id, origin: origin, db: db,
+                    citation: citation, failures: &failures
+                )
+            case .stringField(let field, let candidate):
+                applyStringField(
+                    field, existing: existingString(field, of: profile),
+                    existingSources: profile.sources[field] ?? [],
+                    candidate: candidate, profileID: profile.id, origin: origin, db: db,
+                    citation: citation, failures: &failures
+                )
+            case .spouseEdge(let m):
+                applyMarriageToSubjectSpouseEdge(m, profileID: profile.id, snapshot: snapshot, db: db, failures: &failures)
+            case .lifeEvent:
+                break  // executed by the caller via projectToLifeEvents
+            }
         }
         return failures
+    }
+
+    /// The profile's current value for a plan-emitted date field.
+    private static func existingDate(_ field: ProfileField, of profile: Profile) -> GenealogicalDate? {
+        switch field {
+        case .birthDate: return profile.birthDate
+        case .deathDate: return profile.deathDate
+        default:         return nil
+        }
+    }
+
+    /// The profile's current value for a plan-emitted string field.
+    private static func existingString(_ field: ProfileField, of profile: Profile) -> String? {
+        switch field {
+        case .birthLocation: return profile.birthLocation
+        case .deathLocation: return profile.deathLocation
+        default:             return nil
+        }
     }
 
     // MARK: - EVIDENCE_ABSORPTION_SPEC Change 3 — implied dates
