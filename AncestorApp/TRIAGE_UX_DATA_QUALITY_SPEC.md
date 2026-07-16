@@ -62,9 +62,13 @@ So 3c/3d needed no new machinery — just the 3b entry point to reach them.
   "Promote to profile" → `promoteLeadToProfile` materialises the ghost + attaches evidence, then
   the cluster Apply buttons write facts. Two labelled steps in-review = evidence-before-commit.
   (Optional future polish: collapse to a single "accept materialises" click.)
-- **3e — retire blind Promote (S). NEXT.** 3b left the blind Promote button in place, demoted
-  ("add without researching"). Make Research the clear primary; consider hiding blind Promote for
-  identity leads (keep an "add placeholder parent" affordance for bare parent-surname leads).
+- **3e — retire blind Promote. SHIPPED `d7dbdd0`.** Blind Promote removed entirely (it minted
+  incomplete profiles from one-record inferences — the risk this rework exists to kill; leaving
+  it even demoted was wrong once Research shipped). Lead actions are now **Research** + **Dismiss**
+  only; "add to tree" happens solely via the reviewed post-research promote-in-review.
+  *Follow-up:* bare parent-surname leads ("[mother] /Mathews/") now have only a (weak) Research +
+  Dismiss. If wanted, add a deliberate, clearly-labelled "add placeholder parent" affordance for
+  those — distinct from the old blind Promote, and a smaller reviewed tree change.
 - **3f — identity-grouping of leads (M).** Group leads by (surname+given+year) into one row
   ("N records"); competing candidates stay separate. Applied to Triage + profile Leads list.
 
