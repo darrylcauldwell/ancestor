@@ -15,15 +15,23 @@ lead. Prerequisite for Change 2.
 switches to the Triage tab with the search pre-seeded to that profile, reusing Change 1's filter
 and the existing pending-review deep-link mechanism.
 
-**Change 3 — data-quality / dedup (M, investigate first).** Three distinct phenomena seen in the
-list, NOT all the same problem — investigate against real tree data before building:
-- **Same profile, multiple findings** (e.g. "George Eric Vaughn Cauldwell" ×2, both Conflict) —
-  group findings per profile rather than repeating the profile.
-- **Near-duplicate profiles** (e.g. "Annie Cauldwell" vs "Annie E Cauldwell") — the engine's
-  deliberate over-split ("when in doubt, split"); surface as merge candidates, don't auto-merge.
-- **Near-duplicate leads** (e.g. "[mother] /Mathews/" vs "/Matthews/" for Ida Louisa Land) —
-  transcription variants of one value; collapse. (Genuinely-competing candidates like Kasnowitz
-  vs Land are NOT dups and must stay separate.)
+**Change 3 — data-quality / dedup.** INVESTIGATED against real data 2026-07-16 (Cauldwell Family
+Tree-2, via MCP `get_profile`). The screenshot-level "duplicates" were mostly NOT duplicates:
+- **"Annie Cauldwell" vs "Annie E Cauldwell" — GENUINELY DIFFERENT people.** Annie (d.1978,
+  parents John Cauldwell/Elizabeth, married R Smith) vs Annie E (b.1909, parents Robert
+  Cauldwell/Ellen Ward, married Frank Fry). No merge — distinct. Screenshot guess was wrong.
+- **"George Eric Vaughn Cauldwell" ×2 — ONE profile** (`@I_1564736174@`), TWO separate conflict
+  findings. Not a data dup; a findings-DISPLAY issue. → optionally group findings per profile.
+- **Leads ARE the real issue, but not as storage dups.** Ida Louisa Land's lead list holds
+  "Ida L Land 1885" ×3, "Ida Land 1884" ×4, plus variants (Mathews/Matthews, Ida/Ada). Lead ids
+  are deterministic per SOURCE (`lead_<scoredID>` etc.), so INSERT OR IGNORE already prevents
+  true row dups — these are the SAME candidate identity surfaced from MANY source records, shown
+  one-row-per-source. → **group leads by candidate identity (name + year) into one row ("N
+  records/sources"); keep genuinely-competing candidates (Kasnowitz vs Land) separate.** This is
+  display-side (safe), applied to BOTH the Triage leads section and the profile Leads list.
+
+  Sub-item: fold transcription variants (Mathews/Matthews, Ida/Ada) — fuzzier, do after the
+  exact (name,year) grouping proves out.
 
 ## Order & gate
 1 → 2, then 3 after a data investigation defines its exact scope. Each gated by full
