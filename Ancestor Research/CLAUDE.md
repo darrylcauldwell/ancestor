@@ -96,7 +96,6 @@ real): `BackupServiceTests`, `MultiWindowAppStateTests/staticServicesAreThreadSa
 ## Specs
 
 - `AncestorApp/RESEARCH_PIPELINE_SPEC.md` — governing architectural spec. Part I = as-built (incl. §14 MCP-driven auto-approval); Part II = V2 hypothesis-framework pivot (T7/T8/T11/T12 shipped; T9/T23/T31 + §5.8 eval harness not built).
-- `AncestorApp/archive/ARCHITECTURE_REVIEW_2026-07.md` — July 2026 top-down review (acted on: phases 1–4 delivered; archived 2026-07-11): debt map, CloudKit publisher direction, AI-tier strategy, phased plan.
 - `AncestorApp/PROSE_CORPUS_SPEC.md` — unified prose-corpus + bio-synthesis spec (queued).
 - `AncestorApp/FAMILYSEARCH_SOURCE_SPEC.md` — FamilySearch source-plugin coverage.
 - `AncestorApp/ROADMAP.md` — routing document: phase state, live queues, parked list (May session logs retained as appendix). Full doc index at `AncestorApp/README.md`.
