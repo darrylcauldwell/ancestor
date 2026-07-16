@@ -33,6 +33,9 @@ struct BulkReviewView: View {
     @State private var campaignLeads: [CampaignLeadRow] = []
     @State private var failedEntries: [CampaignReviewService.CampaignEntry] = []
     @State private var filterTier: FrictionTier?
+    /// TRIAGE_UX_DATA_QUALITY_SPEC Change 1 — name filter across findings,
+    /// leads and failures. Empty = show everything.
+    @State private var searchText = ""
     @State private var processedCount = 0
     @State private var showAcceptAllConfirmation = false
 
@@ -60,30 +63,43 @@ struct BulkReviewView: View {
                     }
                 }
             } else {
+                searchBar
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        let visible = visibleFindings
-                        ForEach(visible) { finding in
-                            findingCard(finding)
-                        }
-                        // Emit lead/failure rows DIRECTLY into the LazyVStack
-                        // — one lazy child per row — instead of wrapping them
-                        // in a VStack "section". Wrapped, the whole section was
-                        // a single lazy child, so every lead row (each with a
-                        // Liquid Glass backdrop) rendered at once the moment it
-                        // scrolled into view — the scroll-down beachball on the
-                        // "New leads from research" list (owner report,
-                        // 2026-07-16). Flattened, only visible rows render.
-                        if !campaignLeads.isEmpty && filterTier == nil {
-                            sectionHeader("New leads from research")
-                            ForEach(campaignLeads) { row in
-                                leadRow(row)
+                        let visibleF = visibleFindings
+                        let visibleL = visibleLeads
+                        let visibleFail = visibleFailures
+                        if visibleF.isEmpty && visibleL.isEmpty && visibleFail.isEmpty {
+                            // Search filtered everything out — say so rather
+                            // than showing a blank list.
+                            Text("Nothing matches “\(searchText)”.")
+                                .font(AppTypography.cardBody)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.top, 40)
+                        } else {
+                            ForEach(visibleF) { finding in
+                                findingCard(finding)
                             }
-                        }
-                        if !failedEntries.isEmpty && filterTier == nil {
-                            sectionHeader("Research skipped / failed")
-                            ForEach(failedEntries) { entry in
-                                failureRow(entry)
+                            // Emit lead/failure rows DIRECTLY into the LazyVStack
+                            // — one lazy child per row — instead of wrapping them
+                            // in a VStack "section". Wrapped, the whole section was
+                            // a single lazy child, so every lead row (each with a
+                            // Liquid Glass backdrop) rendered at once the moment it
+                            // scrolled into view — the scroll-down beachball on the
+                            // "New leads from research" list (owner report,
+                            // 2026-07-16). Flattened, only visible rows render.
+                            if !visibleL.isEmpty && filterTier == nil {
+                                sectionHeader("New leads from research")
+                                ForEach(visibleL) { row in
+                                    leadRow(row)
+                                }
+                            }
+                            if !visibleFail.isEmpty && filterTier == nil {
+                                sectionHeader("Research skipped / failed")
+                                ForEach(visibleFail) { entry in
+                                    failureRow(entry)
+                                }
                             }
                         }
                     }
@@ -164,8 +180,9 @@ struct BulkReviewView: View {
     // MARK: - Loading
 
     private var visibleFindings: [CampaignFinding] {
-        let base = filterTier.map { tier in findings.filter { $0.tier == tier } } ?? findings
-        return base.sorted {
+        let tierFiltered = filterTier.map { tier in findings.filter { $0.tier == tier } } ?? findings
+        let searched = tierFiltered.filter { matchesSearch($0.profileName) || matchesSearch($0.summary) }
+        return searched.sorted {
             if $0.tier.sortOrder != $1.tier.sortOrder { return $0.tier.sortOrder < $1.tier.sortOrder }
             // Stable total-order tiebreak on the unique id — same reasoning as
             // ResearchView.filteredProfiles: `sorted()` isn't stable, so
@@ -174,6 +191,50 @@ struct BulkReviewView: View {
             if $0.profileName != $1.profileName { return $0.profileName < $1.profileName }
             return $0.id < $1.id
         }
+    }
+
+    // MARK: - TRIAGE_UX_DATA_QUALITY_SPEC Change 1 — search
+
+    /// True when the field is empty (everything shows) or `text` contains the
+    /// query, case/diacritic-insensitively.
+    private func matchesSearch(_ text: String) -> Bool {
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        return query.isEmpty || text.localizedCaseInsensitiveContains(query)
+    }
+
+    /// Leads whose target profile OR own name matches the search — so "Abraham"
+    /// finds both findings ABOUT Abraham and leads FOR Abraham.
+    private var visibleLeads: [CampaignLeadRow] {
+        campaignLeads.filter { matchesSearch($0.profileName) || matchesSearch($0.lead.name) }
+    }
+
+    private var visibleFailures: [CampaignReviewService.CampaignEntry] {
+        failedEntries.filter {
+            matchesSearch(appState.snapshot.profiles[$0.profileID]?.displayName ?? $0.profileID)
+        }
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search findings and leads by name…", text: $searchText)
+                .textFieldStyle(.plain)
+                .autocorrectionDisabled()
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear search")
+            }
+        }
+        .padding(8)
+        .glassEffect(.regular, in: .rect(cornerRadius: 10))
+        .padding([.horizontal, .top])
     }
 
     @MainActor
