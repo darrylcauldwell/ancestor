@@ -99,9 +99,13 @@ gain: `.burial`/`.probate`/`.military` previously wrote NOTHING to profile date 
 probate address → `.residence` event via the projection fan-out. `.birth`/`.death` imply
 nothing (their own cases write directly — no double write). Test `EvidenceCorroborationTests`.
 
-**Change 4 — the declarative field-map refactor (M/L).** Extract per-record-type field maps;
-`ApplyEngine` + `SourceRecordProjection` walk them. Removes the hardcoded switch; new sources
-declare a map.
+**Change 4 — the declarative field-map refactor (M/L). SHIPPED 2026-07-16 (`b215d8e`).**
+`SourceRecord.absorptionPlan(profileID:)` is now the single ordered enumeration of every fact a
+record absorbs — `Absorption` items (`.dateField`/`.stringField`/`.spouseEdge`/`.lifeEvent`)
+covering identity fields, the spouse edge, implied-date corroboration, and typed events, in the
+legacy write order. `ApplyEngine.applyFactToSubject` walks the plan instead of its old per-type
+switch; the same plan feeds Change 5's preview, so display and write can't drift. Pure refactor:
+suite stayed identically green (2652). Contract pinned by `AbsorptionPlanTests`.
 
 **Change 5 — surface absorption at review time (M).** The cluster/finding review shows the
 FULL set of proposed absorptions per record ("this census will set: birth place Alport ·
