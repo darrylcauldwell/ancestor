@@ -45,20 +45,26 @@ came from divergent paths). Investigation confirms the reuse surface is large: t
 already researches leads (`ResearchSubject.fromLead`, `RunRequestWatcher.execute` lead branch,
 `research_run_requests.lead_id`), and the review UI + accept path are subject-agnostic.
 
+**Recon (2026-07-16, Explore agent):** the flow was ~85% already built — `startResearch(lead:)`,
+`promoteLeadToProfile(into:)`, and the in-review "Promote to profile" button all exist; results
+route to review automatically via `currentResult`; `research_run_requests` already has `lead_id`.
+So 3c/3d needed no new machinery — just the 3b entry point to reach them.
+
 **Slices:**
-- **3a — reversible Dismiss (S, UI, independent).** Dismiss → a collapsible "Dismissed leads"
-  section with a Restore action. Leads are already persisted `.dismissed` (not deleted); this
-  just surfaces + un-dismisses them. Safe first slice.
-- **3b — Research action (S/M).** A "Research" button on a lead enqueues a `research_run_requests`
-  row keyed by `lead_id` (the watcher already dispatches it). No new pipeline.
-- **3c — route lead-run results to review (M).** Surface a completed lead investigation in the
-  same `ClusterReviewView`, reusing the subject-agnostic review.
-- **3d — create-on-accept seam (M, the one real new bit).** Accepting a lead-subject's evidence
-  dedups-or-creates the profile (`ProposalDedup` → attach existing / else materialise via
-  `promoteLeadToProfile`) THEN applies via `ApplyEngine`. Evidence-before-commit; no stub
-  pollution.
-- **3e — retire blind Promote (S).** Remove/demote the Promote button; "add to tree" now flows
-  through 3b→3c→3d. Keep a clearly-labelled "add without researching" shortcut only if wanted.
+- **3a — reversible Dismiss. SHIPPED `8adb202`.** Collapsible "Dismissed leads (n)" section with
+  Restore.
+- **3b — Research action. SHIPPED `0afc06d`.** "Research" button on the Triage lead row →
+  `AppState.researchLeadRequest` → ContentView trigger → `startResearch(lead:)` (discover mode).
+  Mirrors the profile trigger; the interactive (not enqueued) path.
+- **3c — route lead-run results to review. DONE (reused).** `startResearch(lead:)` sets
+  `currentResult`, so ResearchView switches to `ClusterReviewView` exactly as for a profile.
+- **3d — create-on-accept. DONE (reused).** In `ClusterReviewView`, a lead subject shows
+  "Promote to profile" → `promoteLeadToProfile` materialises the ghost + attaches evidence, then
+  the cluster Apply buttons write facts. Two labelled steps in-review = evidence-before-commit.
+  (Optional future polish: collapse to a single "accept materialises" click.)
+- **3e — retire blind Promote (S). NEXT.** 3b left the blind Promote button in place, demoted
+  ("add without researching"). Make Research the clear primary; consider hiding blind Promote for
+  identity leads (keep an "add placeholder parent" affordance for bare parent-surname leads).
 - **3f — identity-grouping of leads (M).** Group leads by (surname+given+year) into one row
   ("N records"); competing candidates stay separate. Applied to Triage + profile Leads list.
 
