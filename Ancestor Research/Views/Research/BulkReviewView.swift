@@ -95,8 +95,13 @@ struct BulkReviewView: View {
                             // 2026-07-16). Flattened, only visible rows render.
                             if !visibleL.isEmpty && filterTier == nil {
                                 sectionHeader("New leads from research")
-                                ForEach(visibleL) { row in
-                                    leadRow(row)
+                                // Change 3f — one row per candidate identity,
+                                // not one per source record. "Ida L Land 1885"
+                                // surfaced from 3 records collapses to a single
+                                // row badged "3 records"; genuinely-different
+                                // candidates stay separate.
+                                ForEach(groupedLeads) { group in
+                                    leadRow(group)
                                 }
                             }
                             if !visibleFail.isEmpty && filterTier == nil {
@@ -232,6 +237,38 @@ struct BulkReviewView: View {
 
     private var visibleDismissed: [CampaignLeadRow] {
         dismissedLeads.filter { matchesSearch($0.profileName) || matchesSearch($0.lead.name) }
+    }
+
+    // MARK: - Change 3f — group leads by candidate identity
+
+    /// The active leads collapsed so the SAME candidate surfaced from many
+    /// source records is one row, not N. Sorted most-supported-first (bigger
+    /// group), then name, then a stable id tiebreak.
+    private var groupedLeads: [GroupedLead] {
+        Dictionary(grouping: visibleLeads, by: leadGroupKey)
+            .map { key, members in
+                GroupedLead(id: key, members: members.sorted { $0.lead.id < $1.lead.id })
+            }
+            .sorted {
+                if $0.count != $1.count { return $0.count > $1.count }
+                if $0.profileName != $1.profileName { return $0.profileName < $1.profileName }
+                return $0.id < $1.id
+            }
+    }
+
+    /// Identity key for grouping. Parent-inference leads key on
+    /// (profile, role, surname) — already one per surname. Identity leads key
+    /// on (profile, surname, given, year) so "Ida L Land 1885" from three
+    /// different records collapses; a different year stays separate.
+    private func leadGroupKey(_ row: CampaignLeadRow) -> String {
+        let lead = row.lead
+        if let role = lead.relationship, !role.isEmpty {
+            return "rel|\(lead.profileID)|\(role.lowercased())|\((lead.surname ?? lead.name).uppercased())"
+        }
+        let surname = (lead.surname ?? "").uppercased()
+        let given = (lead.givenName ?? "").uppercased()
+        let year = lead.birthYear.map(String.init) ?? lead.deathYear.map(String.init) ?? "?"
+        return "id|\(lead.profileID)|\(surname)|\(given)|\(year)"
     }
 
     private var searchBar: some View {
@@ -456,13 +493,27 @@ struct BulkReviewView: View {
     /// One "new lead" row. A top-level function (not nested in a section
     /// VStack) so the caller can place it directly in the LazyVStack for
     /// per-row lazy rendering.
-    private func leadRow(_ row: CampaignLeadRow) -> some View {
-        HStack(spacing: 10) {
+    private func leadRow(_ group: GroupedLead) -> some View {
+        let row = group.representative
+        return HStack(spacing: 10) {
             Image(systemName: "signpost.right")
                 .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(row.lead.name)  ·  for \(row.profileName)")
-                    .font(AppTypography.cardBody)
+                HStack(spacing: 6) {
+                    Text("\(row.lead.name)  ·  for \(row.profileName)")
+                        .font(AppTypography.cardBody)
+                    // Change 3f — how many source records back this one
+                    // candidate. Only shown when > 1 (the collapsed case).
+                    if group.count > 1 {
+                        Text("\(group.count) records")
+                            .font(AppTypography.badge)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.15))
+                            .clipShape(.capsule)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Text(row.lead.evidence)
                     .font(AppTypography.cardMeta)
                     .foregroundStyle(.secondary)
@@ -479,7 +530,7 @@ struct BulkReviewView: View {
                 .buttonStyle(.glassProminent)
                 .controlSize(.small)
                 .help("Investigate this candidate — gather evidence, then decide, rather than adding it blind.")
-            Button("Dismiss") { dismiss(row) }
+            Button("Dismiss") { dismissGroup(group) }
                 .buttonStyle(.glass)
                 .controlSize(.small)
         }
@@ -564,6 +615,12 @@ struct BulkReviewView: View {
         }
         findings.removeAll { finding in confirmations.contains { $0.id == finding.id } }
         vm.reset()
+    }
+
+    /// Change 3f — dismissing a grouped candidate dismisses every source-record
+    /// lead behind it, so the whole row leaves the active queue.
+    private func dismissGroup(_ group: GroupedLead) {
+        for member in group.members { dismiss(member) }
     }
 
     private func dismiss(_ row: CampaignLeadRow) {
@@ -658,6 +715,15 @@ private struct CampaignLeadRow: Identifiable {
     var id: String { lead.id }
     let lead: Lead
     let profileName: String
+}
+
+/// Change 3f — one candidate identity, backed by ≥1 source-record leads.
+private struct GroupedLead: Identifiable {
+    let id: String
+    let members: [CampaignLeadRow]
+    var representative: CampaignLeadRow { members[0] }
+    var count: Int { members.count }
+    var profileName: String { representative.profileName }
 }
 
 // MARK: - Types
