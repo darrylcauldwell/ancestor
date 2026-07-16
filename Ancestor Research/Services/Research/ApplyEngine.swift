@@ -106,12 +106,133 @@ nonisolated struct ApplyEngine {
                 citation: citation, failures: &failures
             )
         case .pedigree, .burial, .military, .probate, .parish:
-            // Remaining non-BMD types fall through to the LifeEvent
-            // projection path in the caller (later spec slices route their
-            // own nuggets: probate address → residence, etc.).
+            // Remaining non-BMD types contribute no *primary* field write,
+            // but several imply a birth/death date off-agenda — see the
+            // corroboration pass below.
             break
         }
+
+        // EVIDENCE_ABSORPTION_SPEC Change 3 — birth/death corroboration.
+        // Beyond the primary writes above, many records imply a birth or
+        // death date off-agenda: a census/death age, a FindAGrave birth
+        // date, a probate age. Route each implied date through the SAME
+        // directional policy as a primary write — it fills an empty field,
+        // corroborates a compatible one (the value lands in field_sources as
+        // supporting evidence), and opens a dispute on an incompatible clash,
+        // but never overwrites a more-precise existing value. This is the
+        // "agree with, don't overwrite" behaviour, achieved by reusing the
+        // policy rather than a parallel value-group path.
+        if let impliedBirth = Self.impliedBirthDate(for: scored.record) {
+            applyDateField(
+                .birthDate, existing: profile.birthDate,
+                existingSources: profile.sources[.birthDate] ?? [],
+                candidate: impliedBirth, profileID: profile.id, origin: origin, db: db,
+                citation: citation, failures: &failures
+            )
+        }
+        if let impliedDeath = Self.impliedDeathDate(for: scored.record) {
+            applyDateField(
+                .deathDate, existing: profile.deathDate,
+                existingSources: profile.sources[.deathDate] ?? [],
+                candidate: impliedDeath, profileID: profile.id, origin: origin, db: db,
+                citation: citation, failures: &failures
+            )
+        }
         return failures
+    }
+
+    // MARK: - EVIDENCE_ABSORPTION_SPEC Change 3 — implied dates
+
+    /// The birth date a record implies, if any, for corroboration. `.birth`
+    /// returns nil (its own case writes birthDate directly — no double write);
+    /// every other type that carries a birth signal offers it here:
+    /// - census: explicit `birthYear`, else derived from `age` at census year
+    /// - death / military: derived from `age` at death year
+    /// - burial (FindAGrave): explicit `birthDate`, else `birthYear`
+    /// - probate: explicit `birthDate`, else derived from `ageAtDeath`
+    static func impliedBirthDate(for record: SourceRecord) -> GenealogicalDate? {
+        switch record {
+        case .birth, .marriage, .pedigree, .parish:
+            return nil
+        case .census(let r):
+            if let year = r.birthYear { return yearGranularDate(year) }
+            if let age = r.age { return birthDateFromAge(age: age, at: r.censusYear) }
+            return nil
+        case .death(let r):
+            guard let age = r.age, let deathYear = r.deathYear else { return nil }
+            return birthDateFromAge(age: age, at: deathYear)
+        case .military(let r):
+            guard let age = r.age, let deathYear = r.deathYear else { return nil }
+            return birthDateFromAge(age: age, at: deathYear)
+        case .burial(let r):
+            if let parsed = parsedDateOrNil(r.birthDate) { return parsed }
+            if let year = r.birthYear { return yearGranularDate(year) }
+            return nil
+        case .probate(let r):
+            if let parsed = parsedDateOrNil(r.birthDate) { return parsed }
+            if let age = r.ageAtDeath, let ref = r.deathYear ?? yearOf(r.probateDate) {
+                return birthDateFromAge(age: age, at: ref)
+            }
+            return nil
+        }
+    }
+
+    /// The death date a record implies, if any, for corroboration. `.death`
+    /// returns nil (its own case writes deathDate directly). FindAGrave,
+    /// probate, and military records all carry a death date/year that today
+    /// reaches no profile field at all.
+    static func impliedDeathDate(for record: SourceRecord) -> GenealogicalDate? {
+        switch record {
+        case .death, .birth, .census, .marriage, .pedigree, .parish:
+            return nil
+        case .burial(let r):
+            return parsedDateOrNil(r.deathDate) ?? r.deathYear.map(yearGranularDate)
+        case .probate(let r):
+            return parsedDateOrNil(r.deathDate) ?? r.deathYear.map(yearGranularDate)
+        case .military(let r):
+            return parsedDateOrNil(r.dateOfDeath) ?? r.deathYear.map(yearGranularDate)
+        }
+    }
+
+    /// Birth date *calculated* from an age at a reference year. A person aged
+    /// `age` at `referenceYear` was born in `[referenceYear-age-1, referenceYear-age]`
+    /// — the birthday may or may not have passed, so it's honestly a two-year
+    /// span, qualifier `.calculated`. Its span (1) always exceeds a precise
+    /// value's (0), so the directional policy never lets it overwrite one.
+    /// Rejects nonsense ages and pre-year-1 results.
+    static func birthDateFromAge(age: Int, at referenceYear: Int) -> GenealogicalDate? {
+        guard age >= 0, age <= 120 else { return nil }
+        let latest = referenceYear - age
+        let earliest = latest - 1
+        guard earliest > 0 else { return nil }
+        return GenealogicalDate(
+            original: "calc \(earliest)–\(latest)",
+            earliest: earliest, latest: latest,
+            isApproximate: true, qualifier: .calculated
+        )
+    }
+
+    /// A year-granularity date (earliest == latest == year), matching how the
+    /// BMD path stores year-only facts.
+    private static func yearGranularDate(_ year: Int) -> GenealogicalDate {
+        GenealogicalDate(
+            original: String(year), earliest: year, latest: year,
+            isApproximate: false, qualifier: .yearOnly
+        )
+    }
+
+    /// Parse a date string, returning nil for empty/unparseable input (so a
+    /// blank FindAGrave field never produces a phantom date).
+    private static func parsedDateOrNil(_ raw: String?) -> GenealogicalDate? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespaces), !trimmed.isEmpty else { return nil }
+        let parsed = GenealogicalDate(parsing: trimmed)
+        return (parsed.earliest != nil || parsed.latest != nil) ? parsed : nil
+    }
+
+    /// Extract a year from a free-text date string (probate reference year
+    /// fallback when no explicit deathYear is present).
+    private static func yearOf(_ raw: String?) -> Int? {
+        parsedDateOrNil(raw)?.latest
     }
 
     /// EVIDENCE_ABSORPTION_SPEC Change 1 — the birthplace a census carries,

@@ -142,8 +142,16 @@ nonisolated extension SourceRecord {
     /// discriminated deterministic ID so they never collide with the primary.
     func projectToLifeEvents(profileID: String) -> [LifeEvent] {
         var events = projectToLifeEvent(profileID: profileID).map { [$0] } ?? []
-        if case .census(let r) = self {
+        switch self {
+        case .census(let r):
             events.append(contentsOf: Self.censusDerivedEvents(r, profileID: profileID))
+        case .probate(let r):
+            // Change 3 — a probate grant's address is the deceased's last
+            // residence ("late of …"); surface it on the residence axis, not
+            // only buried in the probate event's details.
+            events.append(contentsOf: Self.probateDerivedEvents(r, profileID: profileID))
+        default:
+            break
         }
         return events
     }
@@ -178,6 +186,24 @@ nonisolated extension SourceRecord {
             ))
         }
         return out
+    }
+
+    /// Change 3 — the residence a probate grant's address attests. Dated to
+    /// the death year (the residence held at death), falling back to the
+    /// probate date. Empty address → no event.
+    private static func probateDerivedEvents(_ r: ProbateRecord, profileID: String) -> [LifeEvent] {
+        guard let address = r.address?.trimmingCharacters(in: .whitespaces), !address.isEmpty else { return [] }
+        let date = r.deathYear.map(yearOnlyDate)
+            ?? r.probateDate.flatMap { GenealogicalDate.parsePreview($0).parsed }
+        return [LifeEvent(
+            id: deterministicID(profileID: profileID, sourceRecordID: r.common.id, discriminator: "residence"),
+            profileID: profileID,
+            type: .residence,
+            date: date,
+            location: address,
+            description: nil,
+            details: nil
+        )]
     }
 
     /// Stable UUID derived from (profileID, sourceRecordID). Same record
