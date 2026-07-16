@@ -102,11 +102,11 @@ nonisolated extension HypothesisEngine {
                       case .census(let r) = scored.record,
                       let household = r.household else { return false }
                 return household.contains { member in
-                    let rel = (member.relationship ?? "").lowercased()
+                    let rel = member.relationship.lowercased()
                     let isParentRelation = rel.contains("head") || rel.contains("wife")
                         || rel.contains("father") || rel.contains("mother")
                     return isParentRelation
-                        && (member.name ?? "").uppercased().contains(given)
+                        && member.name.uppercased().contains(given)
                 }
             }
             if let link = householdLink {

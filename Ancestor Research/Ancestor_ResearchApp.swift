@@ -161,6 +161,6 @@ struct ContentRoot: View {
         guard LocalInferenceService.shared.onDiskBytes(for: model) > 1_000_000_000 else {
             return
         }
-        try? await LocalInferenceService.shared.loadModel(configuration: model.configuration)
+        _ = try? await LocalInferenceService.shared.loadModel(configuration: model.configuration)
     }
 }

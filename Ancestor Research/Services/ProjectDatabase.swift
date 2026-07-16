@@ -4190,7 +4190,6 @@ nonisolated extension ProjectDatabase {
     /// wants to leave the dispute unresolved). The conventional path for
     /// "leave it for later" is `.deferred`, which keeps the dispute in
     /// the resolved state but flags it as not-yet-acted-upon.
-    @discardableResult
     /// CL-UI pass — resolve a STRUCTURAL dispute (timeline / parentRole /
     /// spouseIdentity), whose field keys deliberately do not parse as
     /// `ProfileField`. Targets the open row for (profile, kind, fieldKey).
