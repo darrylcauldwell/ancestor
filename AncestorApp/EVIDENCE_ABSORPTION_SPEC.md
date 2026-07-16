@@ -107,10 +107,20 @@ legacy write order. `ApplyEngine.applyFactToSubject` walks the plan instead of i
 switch; the same plan feeds Change 5's preview, so display and write can't drift. Pure refactor:
 suite stayed identically green (2652). Contract pinned by `AbsorptionPlanTests`.
 
-**Change 5 — surface absorption at review time (M).** The cluster/finding review shows the
-FULL set of proposed absorptions per record ("this census will set: birth place Alport ·
-occupation electrician · residence 3 Mill Lane · +4 household leads"), so accepting a record
-lands every nugget, and a lead's nuggets are visible before acceptance (no silent loss).
+**Change 5 — surface absorption at review time (M). SHIPPED 2026-07-16 (`07c4c14`).**
+`SourceRecord.absorptionPreview(profileID:)` renders the plan as human labels ("birth place
+Alport, Derbyshire · birth date 1888 · occupation Colliery electrician · residence 3 Mill
+Lane"), excluding the record's own primary event. `ClusterReviewView.recordRow` shows it as a
+green "Will add to profile" line under each record, so a lead's nuggets are visible BEFORE
+accept — no silent loss. Reads the same `absorptionPlan` the write path executes, so the preview
+can never promise a fact the accept won't land. Test `AbsorptionPreviewTests`.
+
+---
+
+**Spec COMPLETE 2026-07-16.** All five changes shipped in one session. Household → relationship
+leads (the "+4 household leads" from the original example) remain a separate pipeline (Proposed
+Relatives), deliberately out of the absorptionPlan so the preview only ever promises what the
+plan will actually write.
 
 ## Order & gate
 1 → 2 → 3 (SHIPPED), then **4 before 5**, each gated by full `xcodebuild test`. Change 1 first —
