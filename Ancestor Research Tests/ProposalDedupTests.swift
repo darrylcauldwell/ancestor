@@ -51,6 +51,42 @@ struct ProposalDedupTests {
         )
     }
 
+    private func makeLead(
+        surname: String? = "Land",
+        given: String? = "Ida L",
+        birthYear: Int? = 1885
+    ) -> Lead {
+        Lead(
+            id: "lead1", profileID: "generator",
+            name: [given, surname].compactMap { $0 }.joined(separator: " "),
+            surname: surname, givenName: given,
+            birthYear: birthYear, deathYear: nil, relationship: nil,
+            source: .scoredLead, status: .new,
+            evidence: "test lead", createdAt: Date(),
+            investigatedAt: nil, resolvedAt: nil, resolution: nil
+        )
+    }
+
+    // MARK: - Lead dedup (create-on-accept attach-vs-create fork, 3d)
+
+    @Test func leadMatchingExistingProfileAttaches() {
+        // Researched candidate == a person already in the tree → attach, not
+        // duplicate.
+        let existing = makeProfile(id: "p1", surname: "Land", given: "Ida L", birthYear: 1885)
+        let decision = ProposalDedup.decide(
+            query: ProposalDedup.Query(lead: makeLead(surname: "Land", given: "Ida L", birthYear: 1885)),
+            candidates: [existing])
+        #expect(decision == .matched(profileID: "p1"))
+    }
+
+    @Test func leadWithNoMatchCreatesNew() {
+        let existing = makeProfile(id: "p1", surname: "Land", given: "Ida L", birthYear: 1885)
+        let decision = ProposalDedup.decide(
+            query: ProposalDedup.Query(lead: makeLead(surname: "Twyford", given: "Abraham", birthYear: 1888)),
+            candidates: [existing])
+        #expect(decision == .noMatch)
+    }
+
     // MARK: - Strict match (both have given names)
 
     @Test func surnameAndGivenNameAndYearAllMatchYieldsMatched() {

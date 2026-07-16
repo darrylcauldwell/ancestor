@@ -1415,12 +1415,28 @@ final class ResearchViewModel {
         guard let lead = selectedLead,
               let db = appState.currentDatabase else { return nil }
 
+        // Create-on-accept FORK (TRIAGE_UX_DATA_QUALITY_SPEC 3d): before minting
+        // a ghost, check whether the researched candidate already exists in the
+        // tree. If it matches an existing profile, ATTACH the evidence there
+        // (no duplicate); otherwise CREATE a new ghost. `.multipleMatches`
+        // deliberately falls through to create-new — "when in doubt, split": a
+        // wrong duplicate is easy to merge, a wrong merge is hard to undo.
         let ghostID: String
-        do {
-            ghostID = try db.promoteLeadToProfile(lead)
-        } catch {
-            errorMessage = "Failed to promote lead: \(error.localizedDescription)"
-            return nil
+        switch ProposalDedup.decide(
+            query: ProposalDedup.Query(lead: lead),
+            candidates: Array(appState.snapshot.profiles.values)
+        ) {
+        case .matched(let existingID):
+            ghostID = existingID
+            markLeadMerged(lead, into: existingID, db: db)
+            logger.info("Lead \(lead.id) matched existing profile \(existingID) — attaching evidence instead of creating a duplicate")
+        case .noMatch, .multipleMatches:
+            do {
+                ghostID = try db.promoteLeadToProfile(lead)
+            } catch {
+                errorMessage = "Failed to promote lead: \(error.localizedDescription)"
+                return nil
+            }
         }
 
         // Refresh snapshot so the new ghost is reachable for downstream
@@ -1480,6 +1496,23 @@ final class ResearchViewModel {
         selectedProfile = appState.snapshot.profiles[ghostID]
         selectedLead = nil
         return ghostID
+    }
+
+    /// Resolve a lead as MERGED into an existing profile — the attach-to-
+    /// existing branch of promote. Marks it `.promoted` (off the active queue)
+    /// with resolution `.merged`, recording that it resolved to a real person
+    /// already in the tree rather than a fresh ghost.
+    private func markLeadMerged(_ lead: Lead, into profileID: String, db: ProjectDatabase) {
+        let merged = Lead(
+            id: lead.id, profileID: lead.profileID,
+            name: lead.name, surname: lead.surname, givenName: lead.givenName,
+            birthYear: lead.birthYear, deathYear: lead.deathYear,
+            relationship: lead.relationship, source: lead.source,
+            status: .promoted, evidence: lead.evidence,
+            createdAt: lead.createdAt, investigatedAt: lead.investigatedAt,
+            resolvedAt: Date(), resolution: .merged
+        )
+        try? db.upsertLead(merged)
     }
 
     /// Reset for a new research session.

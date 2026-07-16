@@ -153,4 +153,14 @@ extension ProposalDedup.Query {
         self.birthYearEarliest = proposal.birthYearLow
         self.birthYearLatest = proposal.birthYearHigh
     }
+
+    /// Build a dedup query from a research lead — used at promote time to
+    /// decide attach-to-existing vs create-new (create-on-accept). Birth year
+    /// is a point (earliest == latest); nil when the lead carries no year.
+    init(lead: Lead) {
+        self.surname = lead.surname
+        self.givenName = lead.givenName
+        self.birthYearEarliest = lead.birthYear
+        self.birthYearLatest = lead.birthYear
+    }
 }
