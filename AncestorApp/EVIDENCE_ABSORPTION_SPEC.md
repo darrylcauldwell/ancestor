@@ -89,9 +89,15 @@ Idempotent via a discriminated deterministic ID; empty fields spawn no event. Al
 LifeEvent-save call sites in `ResearchViewModel` iterate the fan-out. Test
 `CensusLifeEventFanOutTests`.
 
-**Change 3 — corroboration fields (S/M).** Age-at-death / age-at-census → corroborate (not
-overwrite) the birth-year value-group; probate address → residence; probate age → birth-year
-corroboration; FindAGrave inscription dates → birth/death corroboration.
+**Change 3 — corroboration fields (S/M). SHIPPED 2026-07-16 (`5f79cc8`).**
+`ApplyEngine.impliedBirthDate`/`impliedDeathDate` extract the birth/death signal every record
+carries off-agenda — census/death/military age (`birthDateFromAge`, a two-year `.calculated`
+span), FindAGrave explicit birth/death dates, probate `ageAtDeath` — and route each through the
+SAME `applyDateField` directional policy: fills empty, corroborates a compatible value (lands
+in `field_sources`), disputes an incompatible one, never overwrites a precise value. Big net
+gain: `.burial`/`.probate`/`.military` previously wrote NOTHING to profile date fields. Plus
+probate address → `.residence` event via the projection fan-out. `.birth`/`.death` imply
+nothing (their own cases write directly — no double write). Test `EvidenceCorroborationTests`.
 
 **Change 4 — the declarative field-map refactor (M/L).** Extract per-record-type field maps;
 `ApplyEngine` + `SourceRecordProjection` walk them. Removes the hardcoded switch; new sources
