@@ -239,15 +239,29 @@ nonisolated enum UnifiedTaskAggregator {
     ) -> [UnifiedTask] {
         var tasks: [UnifiedTask] = []
 
-        // 1. Audit issues — flatten errors + warnings + info.
+        // 1. Audit issues — flatten errors + warnings + info, but only the
+        //    ISSUE-class rules (consistency problems, conflicts, structural,
+        //    duplicates, empty-profile). The GAP-class audit rules (Missing
+        //    Bio/Birth/Death/Location/Parents, Completeness Score, End-of-Line)
+        //    are redundant with the per-profile Gaps view below — `Completeness`
+        //    already covers every one of those fields — so they'd otherwise show
+        //    the same missing-data twice. Route them out; Gaps is the one view.
         if let summary = auditSummary {
-            for r in summary.errors { tasks.append(.auditIssue(r)) }
-            for r in summary.warnings { tasks.append(.auditIssue(r)) }
-            for r in summary.info { tasks.append(.auditIssue(r)) }
+            for r in summary.errors where r.category != .gap { tasks.append(.auditIssue(r)) }
+            for r in summary.warnings where r.category != .gap { tasks.append(.auditIssue(r)) }
+            for r in summary.info where r.category != .gap { tasks.append(.auditIssue(r)) }
         }
 
-        // 2. Gaps — one task per profile with completeness < maximum.
+        // 2. Gaps — one task per profile with completeness < maximum. Skip
+        //    nameless / unknown / placeholder profiles: their gaps are inherent
+        //    and un-fillable (same de-noise the audit engine applies).
         for profile in snapshot.profiles.values where !profile.isDeleted {
+            let nameStatus = profile.attributes?.nameStatus ?? .known
+            let strippedName = profile.displayName
+                .trimmingCharacters(in: CharacterSet(charactersIn: " ?"))
+            if strippedName.isEmpty || nameStatus == .unknown || nameStatus == .placeholder {
+                continue
+            }
             let comp = snapshot.completeness(for: profile.id)
             if comp.score < comp.maximum {
                 tasks.append(.gap(
@@ -868,6 +882,22 @@ private struct TaskRow: View {
                     .accessibilityHint("Remove the erroneous self-spouse link")
                 }
 
+                // Empty orphaned profile — nothing in it and connected to
+                // nothing; offer a direct delete (soft-delete, reversible).
+                if r.ruleID == "emptyProfile" {
+                    Button {
+                        appState.softDeleteProfile(id: r.profileID)
+                        onAuditChanged()
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                    .buttonStyle(.glassProminent)
+                    .tint(.red)
+                    .controlSize(.mini)
+                    .help("Delete this empty orphaned profile — no name, dates, or relationships to lose")
+                    .accessibilityHint("Delete this empty orphaned profile")
+                }
+
                 // Phase 5 — married surname without a linked spouse → open Add
                 // Relationship pre-set to Spouse so research can pivot to the
                 // married surname once the spouse is linked.
@@ -1107,10 +1137,10 @@ private struct ReviewParentsView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
-    private var parentEdges: [(edgeID: UUID, parent: Profile?, role: ParentRole?)] {
+    private var parentEdges: [(edgeID: UUID, parent: Profile?, role: ParentRole?, subtype: RelationshipSubtype)] {
         appState.snapshot.relationships
             .filter { $0.type == .parent && $0.to == profileID }
-            .map { (edgeID: $0.id, parent: appState.snapshot.profiles[$0.from], role: $0.role) }
+            .map { (edgeID: $0.id, parent: appState.snapshot.profiles[$0.from], role: $0.role, subtype: $0.subtype) }
     }
 
     private var subjectName: String {
@@ -1131,23 +1161,31 @@ private struct ReviewParentsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("\(subjectName) has \(parentEdges.count) parents recorded — a person has at most two. Remove the incorrect or duplicate ones. This unlinks the parent from \(subjectName); it does not delete the parent's profile.")
+                    Text("\(subjectName) has \(parentEdges.count) parents recorded — a person has at most two. Remove the incorrect or duplicate ones. A parent flagged **stub** has no name or details recorded and is usually the one to drop. This unlinks the parent from \(subjectName); it does not delete the parent's profile.")
                         .font(AppTypography.cardBody)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
 
                     ForEach(parentEdges, id: \.edgeID) { edge in
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(parentLabel(edge.parent))
-                                    .font(AppTypography.cardTitle)
-                                let meta = [roleLabel(edge.role), birthLabel(edge.parent)]
-                                    .compactMap { $0 }
-                                if !meta.isEmpty {
-                                    Text(meta.joined(separator: " · "))
-                                        .font(AppTypography.cardMeta)
-                                        .foregroundStyle(.secondary)
+                        HStack(alignment: .top, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 6) {
+                                    Text(parentLabel(edge.parent))
+                                        .font(AppTypography.cardTitle)
+                                    if edge.parent?.isAnonymousStub ?? true {
+                                        Text("STUB")
+                                            .font(AppTypography.badge)
+                                            .padding(.horizontal, 5).padding(.vertical, 1)
+                                            .background(.orange.opacity(0.25), in: .capsule)
+                                            .foregroundStyle(.orange)
+                                    }
                                 }
+                                Text(primaryMeta(edge))
+                                    .font(AppTypography.cardMeta)
+                                    .foregroundStyle(.secondary)
+                                Text(secondaryMeta(edge))
+                                    .font(AppTypography.cardMeta)
+                                    .foregroundStyle(.secondary)
                             }
                             Spacer()
                             Button(role: .destructive) {
@@ -1173,7 +1211,7 @@ private struct ReviewParentsView: View {
     private func parentLabel(_ p: Profile?) -> String {
         guard let p else { return "(missing profile)" }
         let name = p.displayName.trimmingCharacters(in: .whitespaces)
-        return name.isEmpty ? "(blank placeholder)" : name
+        return name.isEmpty ? "(no name)" : name
     }
 
     private func roleLabel(_ r: ParentRole?) -> String? {
@@ -1184,9 +1222,40 @@ private struct ReviewParentsView: View {
         }
     }
 
-    private func birthLabel(_ p: Profile?) -> String? {
-        guard let original = p?.birthDate?.original, !original.isEmpty else { return nil }
-        return "b. \(original)"
+    /// Role · non-biological subtype · life dates · birthplace — the identity
+    /// facts that distinguish two same-role parents.
+    private func primaryMeta(_ edge: (edgeID: UUID, parent: Profile?, role: ParentRole?, subtype: RelationshipSubtype)) -> String {
+        var parts: [String] = []
+        if let role = roleLabel(edge.role) { parts.append(role) }
+        if edge.subtype != .biological { parts.append(edge.subtype.rawValue.capitalized) }
+        parts.append(lifeSpan(edge.parent) ?? "no dates recorded")
+        if let loc = edge.parent?.birthLocation?.trimmingCharacters(in: .whitespaces), !loc.isEmpty {
+            parts.append(loc)
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Completeness score and how many other children share this parent — the
+    /// "how substantial is this link" signal and the removal blast radius.
+    private func secondaryMeta(_ edge: (edgeID: UUID, parent: Profile?, role: ParentRole?, subtype: RelationshipSubtype)) -> String {
+        guard let p = edge.parent else { return "profile no longer exists — safe to remove" }
+        let comp = appState.snapshot.completeness(for: p.id)
+        var parts = ["\(comp.score)/\(comp.maximum) complete"]
+        let others = appState.snapshot.childrenOf(p.id).count - 1
+        parts.append(others > 0
+            ? "also parent of \(others) other\(others == 1 ? "" : "s")"
+            : "only recorded child is \(subjectName)")
+        return parts.joined(separator: " · ")
+    }
+
+    private func lifeSpan(_ p: Profile?) -> String? {
+        let b = p?.birthDate?.original.trimmingCharacters(in: .whitespaces)
+        let d = p?.deathDate?.original.trimmingCharacters(in: .whitespaces)
+        let parts = [
+            (b?.isEmpty == false) ? "b. \(b!)" : nil,
+            (d?.isEmpty == false) ? "d. \(d!)" : nil
+        ].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " – ")
     }
 }
 
@@ -1210,19 +1279,20 @@ private struct FilterChip: View {
                 Text("\(count)")
                     .font(AppTypography.badge)
                     .monospacedDigit()
-                    .foregroundStyle(isSelected ? Color.white.opacity(0.85) : tint.opacity(0.85))
+                    .foregroundStyle(.white.opacity(0.85))
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
+            .foregroundStyle(.white)
+            // Solid fill with white text for readability on the dark UI.
+            // Selection is shown by full opacity + a white ring rather than by
+            // switching from outline to fill (the old scheme was low-contrast).
             .background(
-                Capsule()
-                    .fill(isSelected ? tint : Color.clear)
+                Capsule().fill(tint.opacity(isSelected ? 1.0 : 0.82))
             )
             .overlay(
-                Capsule()
-                    .strokeBorder(isSelected ? Color.clear : tint.opacity(0.55), lineWidth: 1)
+                Capsule().strokeBorder(.white.opacity(isSelected ? 0.9 : 0), lineWidth: 1.5)
             )
-            .foregroundStyle(isSelected ? Color.white : tint)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
