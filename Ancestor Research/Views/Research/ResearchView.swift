@@ -48,6 +48,26 @@ struct ResearchView: View {
             } else if researchVM.isResearching {
                 ResearchProgressView(vm: researchVM)
             } else if let result = researchVM.currentResult {
+                // Exit affordance for the Triage drill-down — same trap as the
+                // PendingFactsReviewView header above: the review renders
+                // whenever the shared VM carries a result (including after tab
+                // switches), and ClusterReviewView's own "New Research" button
+                // doesn't read as "back to the queue" (owner report 2026-07-17,
+                // Annie Cauldwell). reset() clears only in-memory UI state;
+                // accept/discard decisions are already persisted as they're made.
+                if role == .triage {
+                    HStack {
+                        Button {
+                            researchVM.reset()
+                        } label: {
+                            Label("Back to queue", systemImage: "chevron.left")
+                        }
+                        .buttonStyle(.glass)
+                        .controlSize(.small)
+                        Spacer()
+                    }
+                    .padding([.horizontal, .top])
+                }
                 ClusterReviewView(vm: researchVM, result: result)
             } else if role == .triage {
                 // Triage's resting state IS the queue. Drill-down sets the
