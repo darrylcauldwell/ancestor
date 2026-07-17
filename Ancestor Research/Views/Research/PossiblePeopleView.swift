@@ -28,6 +28,9 @@ struct PossiblePeopleView: View {
     @State private var isLoading = true
     @State private var showLowConfidence = false
     @State private var expanded: Set<String> = []
+    /// The ONE member lead currently showing full detail (nil = none). Single
+    /// selection by design — see `memberRow`.
+    @State private var expandedLeadID: String?
     @State private var usingSemanticModel = false
     @State private var loadingModel = false
     /// Phase 4 — advisory AI verdicts per cluster id. Annotation only: a
@@ -167,7 +170,7 @@ struct PossiblePeopleView: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(cluster.leads) { lead in
-                        memberRow(lead)
+                        memberRow(lead, in: cluster)
                     }
                 }
                 .padding(.leading, 22)
@@ -282,26 +285,124 @@ struct PossiblePeopleView: View {
         }
     }
 
-    private func memberRow(_ lead: Lead) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 6) {
-                Text(lead.name.trimmingCharacters(in: .whitespaces).isEmpty ? "(unnamed)" : lead.name)
-                    .font(AppTypography.cardBody)
-                if let place = lead.place, !place.isEmpty {
-                    Text("· \(place)")
-                        .font(AppTypography.cardMeta)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+    /// One member lead. Compact by default; tap to expand the full detail
+    /// (years, source, provenance, full evidence) with a per-lead Dismiss.
+    /// One row expands at a time — a 43-member cluster must not balloon the
+    /// view tree (the Liquid Glass scroll-perf lesson).
+    @ViewBuilder
+    private func memberRow(_ lead: Lead, in cluster: LeadDiscoveryEngine.EmergentCluster) -> some View {
+        let isOpen = expandedLeadID == lead.id
+        VStack(alignment: .leading, spacing: 3) {
+            Button {
+                expandedLeadID = isOpen ? nil : lead.id
+            } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Image(systemName: isOpen ? "chevron.down" : "chevron.right")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.tertiary)
+                        Text(lead.name.trimmingCharacters(in: .whitespaces).isEmpty ? "(unnamed)" : lead.name)
+                            .font(AppTypography.cardBody)
+                        if let place = lead.place, !place.isEmpty {
+                            Text("· \(place)")
+                                .font(AppTypography.cardMeta)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    if !isOpen && !lead.evidence.isEmpty {
+                        Text(lead.evidence)
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(2)
+                            .padding(.leading, 16)
+                    }
                 }
             }
-            if !lead.evidence.isEmpty {
-                Text(lead.evidence)
-                    .font(AppTypography.cardMeta)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(2)
+            .buttonStyle(.plain)
+
+            if isOpen {
+                memberDetail(lead, in: cluster)
+                    .padding(.leading, 16)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func memberDetail(_ lead: Lead, in cluster: LeadDiscoveryEngine.EmergentCluster) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Years + age, whichever the record carried.
+            let years: String = {
+                var bits: [String] = []
+                if let by = lead.birthYear { bits.append("b. ~\(by)") }
+                if let dy = lead.deathYear { bits.append("d. \(dy)") }
+                if let age = lead.ageAtDeath { bits.append("aged \(age)") }
+                if bits.isEmpty, let eff = lead.effectiveBirthYear { bits.append("b. ~\(eff) (implied)") }
+                return bits.joined(separator: " · ")
+            }()
+            if !years.isEmpty {
+                Text(years).font(AppTypography.cardMeta)
+            }
+
+            // Provenance: which relative's research surfaced this lead, and how.
+            let origin = appState.snapshot.profiles[lead.profileID]?.displayName ?? lead.profileID
+            Text("From research on \(origin) · \(sourceLabel(lead.source))")
+                .font(AppTypography.cardMeta)
+                .foregroundStyle(.secondary)
+
+            if !lead.evidence.isEmpty {
+                Text(lead.evidence)
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            Button(role: .destructive) {
+                dismissLead(lead, in: cluster)
+            } label: {
+                Label("Dismiss lead", systemImage: "xmark")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
+            .help("This lead is noise — dismiss it from the pool (persisted; it won't resurface)")
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func sourceLabel(_ source: LeadSource) -> String {
+        switch source {
+        case .scoredLead: return "scored record"
+        case .householdMember: return "census household"
+        case .discovery: return "discovery"
+        case .ghostNode: return "ghost node"
+        }
+    }
+
+    /// Dismiss ONE member lead (same firewall path as everything else) and
+    /// update the cluster card in place: coherence + consensus birth recompute
+    /// via the engine; a cluster that drops below surfaceable leaves the list.
+    /// Any AI verdict for the cluster is cleared — membership changed under it.
+    private func dismissLead(_ lead: Lead, in cluster: LeadDiscoveryEngine.EmergentCluster) {
+        guard let db = appState.currentDatabase else { return }
+        try? db.upsertLead(lead.with(status: .dismissed, resolvedAt: Date(), resolution: .dismissed))
+        expandedLeadID = nil
+        verdicts.removeValue(forKey: cluster.id)
+        adjudicationUnavailable.remove(cluster.id)
+        withAnimation {
+            let updated = LeadDiscoveryEngine.removingLead(lead.id, from: cluster)
+            func replace(in list: inout [LeadDiscoveryEngine.EmergentCluster]) {
+                guard let idx = list.firstIndex(where: { $0.id == cluster.id }) else { return }
+                if let updated, updated.coherence.isSurfaceable {
+                    list[idx] = updated
+                } else {
+                    list.remove(at: idx)
+                }
+            }
+            replace(in: &confident)
+            replace(in: &lowConfidence)
+        }
     }
 
     // MARK: - Presentation helpers

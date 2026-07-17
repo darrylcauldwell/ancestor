@@ -145,6 +145,17 @@ nonisolated struct LeadDiscoveryEngine {
         }
     }
 
+    /// The cluster with one member removed, coherence and consensus birth
+    /// recomputed. nil when nothing remains. Used by the Possible People
+    /// panel's per-lead dismissal so the card can update in place without a
+    /// full pool re-cluster; the caller drops clusters that are no longer
+    /// `isSurfaceable`.
+    static func removingLead(_ leadID: String, from cluster: EmergentCluster) -> EmergentCluster? {
+        let remaining = cluster.leads.filter { $0.id != leadID }
+        guard !remaining.isEmpty else { return nil }
+        return makeCluster(id: cluster.id, surname: cluster.surname, leads: remaining)
+    }
+
     private static func groupsCompatible(_ a: [Lead], _ b: [Lead]) -> Bool {
         for x in a { for y in b where !leadsCompatible(x, y) { return false } }
         return true

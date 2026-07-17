@@ -221,6 +221,36 @@ struct LeadDiscoveryEngineTests {
         #expect(clusters.count == 6)  // all singletons here — six distinct ids
     }
 
+    @Test func removingLeadRecomputesClusterInPlace() {
+        // Per-lead dismissal from the Possible People card: same id, one
+        // member gone, coherence + consensus birth recomputed.
+        let leads = [
+            makeLead(id: "1", surname: "Shaw", given: "Elizabeth", birthYear: 1867,
+                     evidence: "census 1871"),
+            makeLead(id: "2", surname: "Shaw", given: "Elizabeth", birthYear: 1867,
+                     source: .discovery, evidence: "marriage"),
+            makeLead(id: "3", surname: "Shaw", given: "Elizabeth", birthYear: 1869,
+                     evidence: "census 1881"),
+        ]
+        let cluster = LeadDiscoveryEngine.discover(leads: leads)[0]
+        #expect(cluster.leads.count == 3)
+
+        let updated = LeadDiscoveryEngine.removingLead("3", from: cluster)
+        #expect(updated?.id == cluster.id)
+        #expect(updated?.leads.count == 2)
+        #expect(updated?.birthYear == 1867)             // consensus recomputed
+        #expect(updated?.coherence.size == 2)
+        #expect(updated?.coherence.isSurfaceable == true)
+
+        // Down to one member → still returned, but no longer surfaceable
+        // (the view drops it from the list).
+        let one = LeadDiscoveryEngine.removingLead("2", from: updated!)
+        #expect(one?.coherence.isSurfaceable == false)
+        // Removing the last member → nil.
+        let none = LeadDiscoveryEngine.removingLead("1", from: one!)
+        #expect(none == nil)
+    }
+
     // MARK: - Phase 3: deterministic embedder + fuzzy-bridge
 
     private func vec(_ c: LeadDiscoveryEngine.EmergentCluster) -> [Float] {
