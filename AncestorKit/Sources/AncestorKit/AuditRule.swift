@@ -204,10 +204,9 @@ public nonisolated struct ParentAgeGapRule: AuditRuleDefinition {
 /// Detects a biologically impossible parent edge — the "parent" is not older
 /// than the child (born the same year or later), or their gender contradicts
 /// the parent role (a male linked as a "mother"). The mechanical signature of a
-/// GEDCOM import that scrambled parent/child DIRECTION or ROLE: a descendant
-/// wired upward as an ancestor (George Keyworth b.1904 as father of William
-/// Henry b.1875), or a child attached to a parent with the role reversed
-/// (Florence's own children linked to her as "mother").
+/// GEDCOM import (or manual slip) that reversed parent/child DIRECTION or got
+/// the ROLE wrong: a descendant wired upward as an ancestor, or a child
+/// attached to a parent with the role reversed.
 ///
 /// Distinct from `ParentAgeGapRule` (a real biological parent merely a few
 /// years too young): this is a HARD impossibility, checked across EVERY
@@ -221,7 +220,7 @@ public nonisolated struct ImpossibleParentageRule: AuditRuleDefinition {
     public let description = "A parent linked to a child born before them, or whose gender contradicts the parent role — usually a reversed or mis-roled edge from a GEDCOM import."
     public let fireCondition = "a parent's birth year ≥ the child's, or a male parent in a 'mother' role (or vice versa)"
     public let warningCondition: String? = nil
-    public let workedExample = "George Keyworth b.1904 listed as father of William Henry Keyworth b.1875 — a parent can't be born after their child; the edge is reversed."
+    public let workedExample = "A parent recorded with a birth year at or after their child's — e.g. an imported edge that reversed parent and child — can't be biologically real; flagged for the user to re-point."
     public let defaultSeverity = Severity.error
     public let category: AuditCategory = .issue
 
