@@ -247,7 +247,8 @@ struct PossiblePeopleView: View {
                     } label: {
                         Label("Not a person", systemImage: "xmark")
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glassProminent)
+                    .tint(.red)
                     .controlSize(.small)
 
                     Spacer()
@@ -415,7 +416,8 @@ struct PossiblePeopleView: View {
             } label: {
                 Label("Dismiss lead", systemImage: "xmark")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.glassProminent)
+            .tint(.red)
             .controlSize(.mini)
             .help("This lead is noise — dismiss it from the pool (persisted; it won't resurface)")
         }
