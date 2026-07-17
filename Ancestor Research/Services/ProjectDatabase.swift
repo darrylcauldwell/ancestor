@@ -2664,6 +2664,24 @@ nonisolated extension ProjectDatabase {
         return transaction
     }
 
+    /// Move a profile's life events (and, best-effort, its attachments) onto
+    /// another profile before a merge deletes it — so the survivor inherits
+    /// them instead of `hardDeleteProfile` cascade-destroying them. Returns the
+    /// number of rows moved. Idempotent by construction (re-running finds none
+    /// left on the source).
+    @discardableResult
+    func reassignLifeEventsAndAttachments(fromProfileID source: String, toProfileID target: String) throws -> Int {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE attachments SET target_primary_id = ? WHERE target_kind = 'profile' AND target_primary_id = ?",
+                arguments: [target, source])
+            try db.execute(
+                sql: "UPDATE life_events SET profile_id = ? WHERE profile_id = ?",
+                arguments: [target, source])
+            return db.changesCount
+        }
+    }
+
     /// Soft-delete profiles — sets is_deleted = 1. Reversible via restore.
     @discardableResult
     func softDeleteProfiles(ids: [String]) throws -> Transaction {

@@ -326,6 +326,9 @@ struct CompareProfilesView: View {
         guard let db = appState.currentDatabase,
               let winner = winnerProfile, let loser = loserProfile else { return }
         do {
+            // Preserve the loser's life events + attachments (hardDeleteProfile
+            // would otherwise cascade-destroy them) BEFORE the structural merge.
+            try db.reassignLifeEventsAndAttachments(fromProfileID: loser.id, toProfileID: winner.id)
             try ProfileMergeEngine.merge(
                 loserID: loser.id, winnerID: winner.id,
                 snapshot: appState.snapshot, db: db
