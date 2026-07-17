@@ -447,6 +447,16 @@ nonisolated struct ScoringRules {
         return config.nonLocalLocation(for: district)
     }
 
+    /// The Chapman code of the historical county a registration district belongs
+    /// to — for ANY county, not just the home one (national
+    /// `FreeBMDDistrictCatalogue`). Lets clustering judge whether two records
+    /// are in the same county even when that county is foreign to the subject
+    /// (ROADMAP clustering item b). nil when the district isn't in the
+    /// catalogue. No hardcoded regions — the mapping is data, not code.
+    static func countyCode(forDistrict district: String) -> String? {
+        FreeBMDDistrictCatalogue.shared.district(named: district)?.chapmanCode?.uppercased()
+    }
+
     /// Return parishes covered by a registration district within the home county.
     /// Prefers the rich per-county RegionConfig when available (DBY only);
     /// falls through to the FreeBMDDistrictCatalogue's nationally-enriched

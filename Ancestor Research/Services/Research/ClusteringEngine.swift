@@ -68,11 +68,14 @@ nonisolated struct ClusteringEngine {
             if let earliest = sorted.first {
                 let earliestYear = years.min() ?? 1850
                 let latestYear = years.max() ?? earliestYear
+                // Record-type-aware window (item a), widened to at least cover
+                // the known span of records this seed will gather.
+                let w = seedLifespan(year: earliestYear, record: earliest.record)
                 clusters.append(LifeCluster(
                     id: "cluster-\(clusters.count)",
                     records: [earliest],
-                    lifespanStart: earliestYear - 80,
-                    lifespanEnd: latestYear + 5
+                    lifespanStart: min(w.start, earliestYear),
+                    lifespanEnd: max(w.end, latestYear)
                 ))
             }
             return clusters
@@ -126,15 +129,46 @@ nonisolated struct ClusteringEngine {
                     clusters[bestIndex].lifespanEnd = max(clusters[bestIndex].lifespanEnd, year)
                 }
             } else {
-                // No good match — new cluster
+                // No good match — new cluster with a record-type-aware window
+                // (item a): a marriage/census seed must leave room for the
+                // subject's later records, not a death-shaped +5.
                 let year = yearOf(record) ?? 1850
+                let w = seedLifespan(year: year, record: record.record)
                 clusters.append(LifeCluster(
                     id: "cluster-\(clusters.count)",
                     records: [record],
-                    lifespanStart: year - 80,
-                    lifespanEnd: year + 5
+                    lifespanStart: w.start,
+                    lifespanEnd: w.end
                 ))
             }
+        }
+    }
+
+    static let maxLifespanYears = 110
+    static let maxAdultAgeYears = 90
+
+    /// The genealogically-plausible lifespan window for a cluster seeded by ONE
+    /// record, with a **record-type-aware forward bound** (ROADMAP clustering
+    /// item a, Barbara Ayre). A terminal event ends the life (+ lag margin); a
+    /// non-terminal event (marriage/census/residence) leaves the subject alive
+    /// for decades, so a death-shaped `+5` forward bound over-splits their later
+    /// records. Census anchors on age when it carries one.
+    static func seedLifespan(year: Int, record: SourceRecord) -> (start: Int, end: Int) {
+        switch record {
+        case .birth:
+            return (year, year + maxLifespanYears)                       // born now
+        case .parish(let r) where (r.eventType ?? "").lowercased().contains("bapt")
+            || (r.eventType ?? "").lowercased().contains("christ"):
+            return (year, year + maxLifespanYears)
+        case .death, .burial, .military, .probate:
+            return (year - maxLifespanYears, year + postDeathMarginYears) // life ends here
+        case .census(let c):
+            if let birth = c.birthYear ?? c.age.map({ year - $0 }) {
+                return (birth, birth + maxLifespanYears)                  // age-anchored
+            }
+            return (year - maxAdultAgeYears, year + maxLifespanYears)     // unknown age
+        default:                                                         // marriage, parish, pedigree, other
+            return (year - maxAdultAgeYears, year + maxAdultAgeYears)     // adult at event, lives on
         }
     }
 
@@ -142,6 +176,13 @@ nonisolated struct ClusteringEngine {
     /// bound on the life. Nothing can happen after it (+ a small registration /
     /// burial-lag margin). ROADMAP clustering item (c) / LEAD_DISCOVERY §7.
     static let postDeathMarginYears = 2
+    /// The set of historical counties (Chapman codes) the cluster's located
+    /// records resolve to via the national catalogue. Empty when no record has a
+    /// catalogue-known district — in which case the county veto stays silent.
+    private static func clusterCounties(_ cluster: LifeCluster) -> Set<String> {
+        Set(cluster.districts.compactMap { ScoringRules.countyCode(forDistrict: $0) })
+    }
+
     private static func clusterDeathYear(_ cluster: LifeCluster) -> Int? {
         cluster.records.compactMap { rec -> Int? in
             switch rec.record {
@@ -161,6 +202,22 @@ nonisolated struct ClusteringEngine {
         if let deathYear = clusterDeathYear(cluster),
            let year = yearOf(record), year > deathYear + postDeathMarginYears {
             return 0.0
+        }
+        // A different KNOWN county is a different person — refuse the attach
+        // (over-split, not over-merge). This is the safety pairing for the
+        // record-type-aware lifespan window (item a): without it, the widened
+        // window would let a same-name record in another county attach on date
+        // alone (date 1.0 → 0.4 = threshold). Only vetoes when BOTH sides have a
+        // derivable county and they don't intersect; location-less or
+        // catalogue-unknown records stay permissive (no veto), so migration is
+        // over-split rather than merged, and today's location-less behaviour is
+        // unchanged. ROADMAP items a+b safety.
+        if let recDistrict = extractRecordDistrict(record.record),
+           let recCounty = ScoringRules.countyCode(forDistrict: recDistrict) {
+            let clusterCounties = clusterCounties(cluster)
+            if !clusterCounties.isEmpty && !clusterCounties.contains(recCounty) {
+                return 0.0
+            }
         }
         let dateScore = dateCompatibility(record: record, cluster: cluster)
         let locationScore = locationConsistency(record: record, cluster: cluster, homeChapmanCode: homeChapmanCode)
@@ -196,6 +253,16 @@ nonisolated struct ClusteringEngine {
         // Exact district match with any record in the cluster
         if cluster.districts.contains(recordClean) {
             return 1.0
+        }
+
+        // Same county — home OR foreign (ROADMAP item b). Two records the
+        // national catalogue maps to the same historical county are
+        // geographically consistent even when that county isn't the subject's
+        // home region; without this a subject who lived in a foreign county
+        // scored their own records as contradictory and over-split.
+        if let recCounty = ScoringRules.countyCode(forDistrict: recordClean),
+           cluster.districts.contains(where: { ScoringRules.countyCode(forDistrict: $0) == recCounty }) {
+            return 0.7
         }
 
         // Same home county — both are in the subject's research region

@@ -393,4 +393,96 @@ struct ClusteringEngineTests {
         #expect(clusters.count == 1)
         #expect(clusters[0].records.count == 2)
     }
+
+    // MARK: - Lifespan/location hardening (CLUSTERING_LIFESPAN_LOCATION_SPEC)
+
+    /// (a) The seed's forward bound is record-type-aware: a terminal event ends
+    /// the life (+margin), a non-terminal one leaves the subject alive for
+    /// decades. A death-shaped `+5` on a marriage/census seed over-splits.
+    @Test func seedLifespanForwardBoundIsRecordTypeAware() {
+        let marriage = SourceRecord.marriage(MarriageRecord(
+            common: makeCommon(id: "m"), marriageYear: 1850, marriageDate: nil,
+            marriagePlace: nil, quarter: nil, district: "Belper",
+            volume: nil, page: nil, spouseName: nil))
+        let death = SourceRecord.death(DeathRecord(
+            common: makeCommon(id: "d"), deathYear: 1850, deathDate: nil,
+            deathPlace: nil, age: 60, quarter: nil, district: "Belper",
+            volume: nil, page: nil, spouseSurname: nil))
+
+        let m = ClusteringEngine.seedLifespan(year: 1850, record: marriage)
+        #expect(m.end >= 1930, "a marriage subject lives on for decades")
+        let d = ClusteringEngine.seedLifespan(year: 1850, record: death)
+        #expect(d.end <= 1855, "a death ends the life (+lag margin only)")
+        #expect(d.start <= 1745, "born up to a lifespan before the death")
+    }
+
+    /// (b) Two records the catalogue maps to the same FOREIGN county are
+    /// geographically consistent — 0.7 credit, not 0.0 (which over-split a
+    /// subject who lived outside the home county). Score = date 1.0×0.4 +
+    /// location 0.7×0.3 = 0.61.
+    @Test func sameForeignCountyGivesLocationCredit() {
+        let sheffield = scored(.census(CensusRecord(
+            common: makeCommon(id: "s", sourceID: "freecen"), censusYear: 1861,
+            age: nil, birthYear: 1830, birthPlace: nil, birthCounty: nil,
+            relationship: nil, occupation: nil, address: nil, parish: nil,
+            district: "Sheffield", household: nil)))          // WRY
+        let cluster = LifeCluster(id: "c", records: [sheffield],
+                                  lifespanStart: 1820, lifespanEnd: 1910)
+        let leeds = scored(.census(CensusRecord(
+            common: makeCommon(id: "l", sourceID: "freecen"), censusYear: 1871,
+            age: nil, birthYear: 1830, birthPlace: nil, birthCounty: nil,
+            relationship: nil, occupation: nil, address: nil, parish: nil,
+            district: "Leeds", household: nil)))              // WRY, home is DBY
+        let score = ClusteringEngine.assignmentScore(
+            record: leeds, cluster: cluster, homeChapmanCode: "DBY")
+        #expect(abs(score - 0.61) < 0.01)
+    }
+
+    /// Safety pairing for the widened window: a same-name record in a DIFFERENT
+    /// known county is a different person — vetoed (0.0), not merged on date
+    /// alone. Prevents the over-merge the wider lifespan would otherwise allow.
+    @Test func differentCountyRecordIsVetoed() {
+        let bakewellBirth = scored(.birth(BirthRecord(
+            common: makeCommon(id: "b"), birthYear: 1850, birthDate: nil,
+            birthPlace: nil, quarter: nil, district: "Bakewell",       // DBY
+            volume: nil, page: nil, mothersMaidenName: nil)))
+        let cluster = LifeCluster(id: "c", records: [bakewellBirth],
+                                  lifespanStart: 1850, lifespanEnd: 1960)
+        let sheffieldCensus = scored(.census(CensusRecord(
+            common: makeCommon(id: "s", sourceID: "freecen"), censusYear: 1871,
+            age: nil, birthYear: 1850, birthPlace: nil, birthCounty: nil,
+            relationship: nil, occupation: nil, address: nil, parish: nil,
+            district: "Sheffield", household: nil)))          // WRY vs DBY cluster
+        let score = ClusteringEngine.assignmentScore(
+            record: sheffieldCensus, cluster: cluster, homeChapmanCode: "DBY")
+        #expect(score == 0.0)
+    }
+
+    /// Integration: a foreign-county person's records (both Bakewell/DBY) stay
+    /// as ONE cluster and do NOT merge into a home namesake's Sheffield/WRY
+    /// birth. Exercises the veto (keeps them apart) AND item (a) (the widened
+    /// window lets the 1881 census attach to the 1851 census seed).
+    @Test func foreignNamesakeStaysSeparateAndLaterRecordAttaches() {
+        let sheffieldBirth = scored(.birth(BirthRecord(
+            common: makeCommon(id: "a"), birthYear: 1850, birthDate: nil,
+            birthPlace: nil, quarter: nil, district: "Sheffield",     // WRY, person A
+            volume: nil, page: nil, mothersMaidenName: nil)))
+        let census1851 = scored(.census(CensusRecord(
+            common: makeCommon(id: "b1", sourceID: "freecen"), censusYear: 1851,
+            age: 30, birthYear: 1821, birthPlace: nil, birthCounty: nil,
+            relationship: "Head", occupation: nil, address: nil, parish: nil,
+            district: "Bakewell", household: nil)))            // DBY, person B
+        let census1881 = scored(.census(CensusRecord(
+            common: makeCommon(id: "b2", sourceID: "freecen"), censusYear: 1881,
+            age: 60, birthYear: 1821, birthPlace: nil, birthCounty: nil,
+            relationship: "Head", occupation: nil, address: nil, parish: nil,
+            district: "Bakewell", household: nil)))            // DBY, person B, 30y later
+
+        let clusters = ClusteringEngine.cluster(
+            records: [sheffieldBirth, census1851, census1881],
+            sourceInfoMap: emptySourceInfo, homeChapmanCode: "DBY")
+        #expect(clusters.count == 2)
+        let dbyCluster = clusters.first { $0.districts.contains("BAKEWELL") }
+        #expect(dbyCluster?.records.count == 2, "both Bakewell censuses cluster together")
+    }
 }
