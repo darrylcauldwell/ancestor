@@ -213,55 +213,67 @@ struct ProfileDetailView: View {
                 .keyboardShortcut(.defaultAction)
             }
         } else {
-            HStack(spacing: 8) {
-                Button("Edit") {
-                    isEditing = true
-                }
-                .buttonStyle(.glass)
-                .controlSize(.small)
-
-                Button {
-                    showingTimeline = true
-                } label: {
-                    Label("Timeline", systemImage: "calendar")
-                }
-                .buttonStyle(.glass)
-                .controlSize(.small)
-
-                Button {
-                    showingRelationshipCalculator = true
-                } label: {
-                    Label("Relationship to…", systemImage: "person.2")
-                }
-                .buttonStyle(.glass)
-                .controlSize(.small)
-
-                Button {
-                    appState.researchConfigProfile = profile
-                } label: {
-                    Label("Research", systemImage: "magnifyingglass")
-                }
-                .buttonStyle(.glass)
-                .controlSize(.small)
-
-                Button {
-                    cleansePresentation = .singleProfile(profile.id)
-                } label: {
-                    Label("Cleanse", systemImage: "sparkles")
-                }
-                .buttonStyle(.glass)
-                .controlSize(.small)
-
-                if let setRoot = onSetRoot {
-                    // Same action as the popover's Focus Here and the
-                    // canvas right-click → Focus Here. Vocabulary
-                    // harmonised so the user finds it in any surface
-                    // they reach for.
-                    Button("Focus Here") {
-                        setRoot()
+            // Two rows so the labels stay readable (six buttons on one row
+            // truncated to "Time…", "Relat…", "Rese…", "Clea…" — owner report
+            // 2026-07-17). Row 1 = inspect, row 2 = act, with the prominent
+            // Focus Here anchored right.
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Button("Edit") {
+                        isEditing = true
                     }
-                    .buttonStyle(.glassProminent)
+                    .buttonStyle(.glass)
                     .controlSize(.small)
+
+                    Button {
+                        showingTimeline = true
+                    } label: {
+                        Label("Timeline", systemImage: "calendar")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+
+                    Button {
+                        showingRelationshipCalculator = true
+                    } label: {
+                        Label("Relationship to…", systemImage: "person.2")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+
+                    Spacer()
+                }
+
+                HStack(spacing: 8) {
+                    Button {
+                        appState.researchConfigProfile = profile
+                    } label: {
+                        Label("Research", systemImage: "magnifyingglass")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+
+                    Button {
+                        cleansePresentation = .singleProfile(profile.id)
+                    } label: {
+                        Label("Cleanse", systemImage: "sparkles")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+
+                    Spacer()
+
+                    if let setRoot = onSetRoot {
+                        // Same action as the popover's Focus Here and the
+                        // canvas right-click → Focus Here. Vocabulary
+                        // harmonised so the user finds it in any surface
+                        // they reach for.
+                        Button("Focus Here") {
+                            setRoot()
+                        }
+                        .buttonStyle(.glassProminent)
+                        .controlSize(.small)
+                    }
                 }
             }
         }
