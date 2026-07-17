@@ -1408,6 +1408,19 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // v47 — structured age-at-death + event place on leads. Lead discovery
+        // (LEAD_DISCOVERY_SPEC §9) derives an implied birth year from
+        // age-at-death and uses place as a second discriminator so no-birth-
+        // year death/burial/marriage leads stop chain-merging on name alone
+        // (the Phase 0 "George Ward = 273" over-merge). Additive columns; old
+        // rows read nil for both.
+        migrator.registerMigration("v47_lead_age_place") { db in
+            try db.alter(table: "leads") { t in
+                t.add(column: "age_at_death", .integer)
+                t.add(column: "place", .text)
+            }
+        }
+
         return migrator
     }
 
@@ -3681,11 +3694,13 @@ nonisolated extension ProjectDatabase {
             try db.execute(sql: """
                 INSERT OR IGNORE INTO leads
                 (id, profile_id, name, surname, given_name, birth_year, death_year,
+                 age_at_death, place,
                  relationship, source, status, evidence, created_at, investigated_at, resolved_at, resolution)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
                     lead.id, lead.profileID, lead.name, lead.surname, lead.givenName,
-                    lead.birthYear, lead.deathYear, lead.relationship,
+                    lead.birthYear, lead.deathYear, lead.ageAtDeath, lead.place,
+                    lead.relationship,
                     lead.source.rawValue, lead.status.rawValue, lead.evidence,
                     lead.createdAt, lead.investigatedAt, lead.resolvedAt, lead.resolution?.rawValue
                 ])
@@ -3700,11 +3715,13 @@ nonisolated extension ProjectDatabase {
             try db.execute(sql: """
                 INSERT OR REPLACE INTO leads
                 (id, profile_id, name, surname, given_name, birth_year, death_year,
+                 age_at_death, place,
                  relationship, source, status, evidence, created_at, investigated_at, resolved_at, resolution)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
                     lead.id, lead.profileID, lead.name, lead.surname, lead.givenName,
-                    lead.birthYear, lead.deathYear, lead.relationship,
+                    lead.birthYear, lead.deathYear, lead.ageAtDeath, lead.place,
+                    lead.relationship,
                     lead.source.rawValue, lead.status.rawValue, lead.evidence,
                     lead.createdAt, lead.investigatedAt, lead.resolvedAt, lead.resolution?.rawValue
                 ])
@@ -3735,6 +3752,8 @@ nonisolated extension ProjectDatabase {
                     givenName: row["given_name"],
                     birthYear: row["birth_year"],
                     deathYear: row["death_year"],
+                    ageAtDeath: row["age_at_death"],
+                    place: row["place"],
                     relationship: row["relationship"],
                     source: source,
                     status: status,
@@ -3758,6 +3777,7 @@ nonisolated extension ProjectDatabase {
                     id: row["id"], profileID: row["profile_id"],
                     name: row["name"], surname: row["surname"], givenName: row["given_name"],
                     birthYear: row["birth_year"], deathYear: row["death_year"],
+                    ageAtDeath: row["age_at_death"], place: row["place"],
                     relationship: row["relationship"], source: source, status: status,
                     evidence: row["evidence"], createdAt: row["created_at"],
                     investigatedAt: row["investigated_at"], resolvedAt: row["resolved_at"],

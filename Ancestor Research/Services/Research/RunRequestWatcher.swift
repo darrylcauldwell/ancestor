@@ -672,6 +672,7 @@ final class RunRequestWatcher {
         try? db.dbQueue.read { dbConn in
             guard let row = try Row.fetchOne(dbConn, sql: """
                 SELECT id, profile_id, name, surname, given_name, birth_year, death_year,
+                       age_at_death, place,
                        relationship, source, status, evidence,
                        created_at, investigated_at, resolved_at, resolution
                 FROM leads WHERE id = ?
@@ -684,6 +685,8 @@ final class RunRequestWatcher {
                 givenName: row["given_name"],
                 birthYear: row["birth_year"],
                 deathYear: row["death_year"],
+                ageAtDeath: row["age_at_death"],
+                place: row["place"],
                 relationship: row["relationship"],
                 source: LeadSource(rawValue: row["source"] ?? "") ?? .discovery,
                 status: LeadStatus(rawValue: row["status"] ?? "new") ?? .new,

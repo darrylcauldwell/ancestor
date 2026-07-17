@@ -12,6 +12,8 @@ struct LeadDiscoveryEngineTests {
         given: String?,
         birthYear: Int? = nil,
         deathYear: Int? = nil,
+        ageAtDeath: Int? = nil,
+        place: String? = nil,
         source: LeadSource = .scoredLead,
         evidence: String = "",
         profileID: String = "origin",
@@ -22,6 +24,7 @@ struct LeadDiscoveryEngineTests {
             name: [given, surname].compactMap { $0 }.joined(separator: " "),
             surname: surname, givenName: given,
             birthYear: birthYear, deathYear: deathYear,
+            ageAtDeath: ageAtDeath, place: place,
             relationship: nil, source: source, status: status,
             evidence: evidence, createdAt: Date(timeIntervalSince1970: 0),
             investigatedAt: nil, resolvedAt: nil, resolution: nil
@@ -95,5 +98,74 @@ struct LeadDiscoveryEngineTests {
         #expect(r.surfaceableClusters == 1)
         #expect(r.largestClusterSize == 2)
         #expect(r.leadsInSurfaceableClusters == 2)
+    }
+
+    // MARK: - Phase 0 fix: age-at-death implied birth year + place discriminator
+
+    @Test func effectiveBirthYearDerivesFromAgeAtDeath() {
+        // No own birth year, but a death record with an age → implied birth.
+        let lead = makeLead(id: "1", surname: "Ward", given: "George",
+                            deathYear: 1960, ageAtDeath: 74)
+        #expect(lead.effectiveBirthYear == 1886)
+        // Own birth year always wins over the implied one.
+        let known = makeLead(id: "2", surname: "Ward", given: "George",
+                             birthYear: 1888, deathYear: 1960, ageAtDeath: 74)
+        #expect(known.effectiveBirthYear == 1888)
+        // A nonsense age is ignored.
+        let junk = makeLead(id: "3", surname: "Ward", given: "George",
+                            deathYear: 1960, ageAtDeath: 999)
+        #expect(junk.effectiveBirthYear == nil)
+    }
+
+    @Test func ageAtDeathSplitsNamesakesIntoDifferentDecades() {
+        // Two "George Ward" death leads, neither with an own birth year, but
+        // ages implying births ~40 years apart. They must NOT merge — the
+        // Phase 0 over-merge (all no-birth-year George Wards → one cluster).
+        let leads = [
+            makeLead(id: "1", surname: "Ward", given: "George",
+                     deathYear: 1960, ageAtDeath: 74),   // b~1886
+            makeLead(id: "2", surname: "Ward", given: "George",
+                     deathYear: 1975, ageAtDeath: 30),   // b~1945
+        ]
+        let clusters = LeadDiscoveryEngine.discover(leads: leads)
+        #expect(clusters.count == 2)
+    }
+
+    @Test func yearlessSameNameDifferentPlaceStaySeparate() {
+        // No birth signal at all on either side. Different cemeteries ⇒
+        // different people ⇒ must not merge on name alone (George Ward = 273).
+        let leads = [
+            makeLead(id: "1", surname: "Ward", given: "George", place: "Wollaton Cemetery"),
+            makeLead(id: "2", surname: "Ward", given: "George", place: "St Michael and All Angels Church"),
+        ]
+        let clusters = LeadDiscoveryEngine.discover(leads: leads)
+        #expect(clusters.count == 2)
+    }
+
+    @Test func yearlessSameNameSamePlaceMerge() {
+        // No birth signal, but an agreeing locality ⇒ plausibly one person.
+        let leads = [
+            makeLead(id: "1", surname: "Ward", given: "George", place: "Wollaton Cemetery"),
+            makeLead(id: "2", surname: "Ward", given: "George", place: "Wollaton", source: .discovery),
+        ]
+        let clusters = LeadDiscoveryEngine.discover(leads: leads)
+        #expect(clusters.count == 1)
+        #expect(clusters[0].coherence.isSurfaceable)
+    }
+
+    @Test func yearlessSameNameNoPlaceStaySeparate() {
+        // No birth signal AND no place ⇒ can't be resolved ⇒ stay split.
+        let leads = [
+            makeLead(id: "1", surname: "Ward", given: "George"),
+            makeLead(id: "2", surname: "Ward", given: "George", source: .discovery),
+        ]
+        let clusters = LeadDiscoveryEngine.discover(leads: leads)
+        #expect(clusters.count == 2)
+    }
+
+    @Test func placesCompatibleIgnoresGenericWords() {
+        // Both are "a cemetery" — the shared word is generic, not a locality.
+        #expect(!LeadDiscoveryEngine.placesCompatible("BURNLEY CEMETERY", "HAREHILLS CEMETERY"))
+        #expect(LeadDiscoveryEngine.placesCompatible("WOLLATON CEMETERY", "WOLLATON"))
     }
 }

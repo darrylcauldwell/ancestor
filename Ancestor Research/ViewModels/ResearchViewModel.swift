@@ -1520,6 +1520,7 @@ final class ResearchViewModel {
             id: lead.id, profileID: lead.profileID,
             name: lead.name, surname: lead.surname, givenName: lead.givenName,
             birthYear: lead.birthYear, deathYear: lead.deathYear,
+            ageAtDeath: lead.ageAtDeath, place: lead.place,
             relationship: lead.relationship, source: lead.source,
             status: .promoted, evidence: lead.evidence,
             createdAt: lead.createdAt, investigatedAt: lead.investigatedAt,

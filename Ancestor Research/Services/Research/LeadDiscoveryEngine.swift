@@ -63,7 +63,12 @@ nonisolated struct LeadDiscoveryEngine {
         for lead in pool {
             let surname = normaliseSurname(lead.surname ?? Self.surname(fromName: lead.name))
             guard !surname.isEmpty else { continue }
-            let decade = lead.birthYear.map { ($0 / 10) * 10 }
+            // Block on the EFFECTIVE birth year (own, or implied from
+            // age-at-death) so no-birth-year death leads carrying an age split
+            // into their real decade instead of all landing in one (surname,
+            // nil) block and chain-merging on name alone — the Phase 0
+            // over-merge (LEAD_DISCOVERY_SPEC §9).
+            let decade = lead.effectiveBirthYear.map { ($0 / 10) * 10 }
             blocks[BlockKey(surname: surname, decade: decade), default: []].append(lead)
         }
 
@@ -125,8 +130,8 @@ nonisolated struct LeadDiscoveryEngine {
     }
 
     /// Two leads could be the same person when their given names aren't
-    /// contradictory, their birth years are close, and no life-event
-    /// impossibility (born after death) is implied.
+    /// contradictory, their (effective) birth years are close, and no
+    /// life-event impossibility (born after death) is implied.
     static func leadsCompatible(_ a: Lead, _ b: Lead) -> Bool {
         // Given name: a real disagreement (both present, zero similarity) rules
         // it out; a missing given name is permissive.
@@ -134,18 +139,30 @@ nonisolated struct LeadDiscoveryEngine {
            ScoringRules.nameSimilarity(ga.uppercased(), gb.uppercased()) == 0 {
             return false
         }
-        // Birth year within ±5 when both present.
-        if let ba = a.birthYear, let bb = b.birthYear, abs(ba - bb) > 5 {
+        let ea = a.effectiveBirthYear
+        let eb = b.effectiveBirthYear
+        // Birth year within ±5 when both known (own or age-implied).
+        if let ba = ea, let bb = eb, abs(ba - bb) > 5 {
             return false
         }
         // A death ends a life: a birth after the other's death is impossible.
-        if let d = a.deathYear, let born = b.birthYear, born > d + 1 { return false }
-        if let d = b.deathYear, let born = a.birthYear, born > d + 1 { return false }
+        if let d = a.deathYear, let born = eb, born > d + 1 { return false }
+        if let d = b.deathYear, let born = ea, born > d + 1 { return false }
+        // No birth signal on EITHER side is the dangerous case: name alone
+        // chain-merged hundreds of namesakes in Phase 0 (George Ward = 273
+        // different men across different cemeteries). Require an agreeing
+        // place as the second discriminator — no place, or disagreeing
+        // places, and they stay separate. Precision-first ("when in doubt,
+        // split"). LEAD_DISCOVERY_SPEC §9.
+        if ea == nil && eb == nil {
+            guard let pa = normalisePlace(a.place), let pb = normalisePlace(b.place),
+                  placesCompatible(pa, pb) else { return false }
+        }
         return true
     }
 
     private static func makeCluster(id: String, surname: String, leads: [Lead]) -> EmergentCluster {
-        let births = leads.compactMap { $0.birthYear }.sorted()
+        let births = leads.compactMap { $0.effectiveBirthYear }.sorted()
         let consensusBirth = births.isEmpty ? nil : births[births.count / 2] // median
         let coherence = Coherence(
             size: leads.count,
@@ -183,6 +200,45 @@ nonisolated struct LeadDiscoveryEngine {
         guard let s = s?.trimmingCharacters(in: CharacterSet(charactersIn: " ?")),
               !s.isEmpty else { return nil }
         return s
+    }
+
+    static func normalisePlace(_ s: String?) -> String? {
+        guard let s = s?.trimmingCharacters(in: CharacterSet(charactersIn: " ?.,'")).uppercased(),
+              !s.isEmpty else { return nil }
+        return s
+    }
+
+    /// Generic place words that carry no locality signal — two different
+    /// people can both be buried in "a cemetery" or "a churchyard", so these
+    /// must never be the token two leads agree on.
+    private static let placeStopwords: Set<String> = [
+        "CEMETERY", "CHURCHYARD", "CHURCH", "CREMATORIUM", "MEMORIAL",
+        "BURIAL", "GROUND", "GARDEN", "GARDENS", "PARK", "THE", "AND",
+        "ALL", "SAINT", "OLD", "NEW", "MUNICIPAL", "GENERAL", "DISTRICT",
+        "ROAD", "STREET", "LANE", "HOUSE", "FARM",
+    ]
+
+    /// The locality-bearing tokens of a place string — letters only, ≥3 chars,
+    /// stopwords dropped. "WOLLATON CEMETERY" → [WOLLATON];
+    /// "ST MARY MAGDALENE CHURCHYARD" → [MARY, MAGDALENE].
+    private static func significantTokens(_ s: String) -> Set<String> {
+        Set(
+            s.split(whereSeparator: { !$0.isLetter })
+                .map { String($0).uppercased() }
+                .filter { $0.count >= 3 && !placeStopwords.contains($0) }
+        )
+    }
+
+    /// Two normalised places agree when they're identical or share a
+    /// locality token. Precision-first: no shared token ⇒ different place ⇒
+    /// don't merge. If one place has no locality token at all (e.g. bare
+    /// "Cemetery"), it can't agree with anything and the leads stay split.
+    static func placesCompatible(_ a: String, _ b: String) -> Bool {
+        if a == b { return true }
+        let ta = significantTokens(a)
+        let tb = significantTokens(b)
+        guard !ta.isEmpty, !tb.isEmpty else { return false }
+        return !ta.isDisjoint(with: tb)
     }
 
     /// A coarse event-kind bucket derived from the lead's evidence/relationship,

@@ -71,6 +71,48 @@ struct LeadStorePersistenceTests {
         #expect(loaded.first?.evidence == "after promote")
     }
 
+    // MARK: - v47: age-at-death + place survive persistence and status flips
+
+    @Test func ageAtDeathAndPlaceRoundTripThroughDB() throws {
+        let db = try makeTempDB()
+        let lead = Lead(
+            id: "lead_ap", profileID: "p1",
+            name: "George Ward", surname: "Ward", givenName: "George",
+            birthYear: nil, deathYear: 1960, ageAtDeath: 74, place: "Wollaton Cemetery",
+            relationship: nil, source: .scoredLead, status: .new,
+            evidence: "burial", createdAt: Date()
+        )
+        try db.saveLead(lead)
+
+        let loaded = try #require(try db.loadLeads().first)
+        #expect(loaded.ageAtDeath == 74)
+        #expect(loaded.place == "Wollaton Cemetery")
+        #expect(loaded.effectiveBirthYear == 1886)
+    }
+
+    @Test func statusFlipPreservesAgeAtDeathAndPlace() async throws {
+        // The trap this whole change had to avoid: a reconstruction site
+        // dropping the new fields on a status update. updateStatus rebuilds
+        // the Lead — the age/place must survive.
+        let db = try makeTempDB()
+        let store = LeadStore(db: db)
+        let lead = Lead(
+            id: "lead_flip", profileID: "p1",
+            name: "George Ward", surname: "Ward", givenName: "George",
+            birthYear: nil, deathYear: 1960, ageAtDeath: 74, place: "Wollaton Cemetery",
+            relationship: nil, source: .scoredLead, status: .new,
+            evidence: "burial", createdAt: Date()
+        )
+        try db.saveLead(lead)
+        try await store.loadAll()
+        try await store.updateStatus("lead_flip", status: .investigated)
+
+        let reloaded = try #require(try db.loadLeads().first)
+        #expect(reloaded.status == .investigated)
+        #expect(reloaded.ageAtDeath == 74, "age-at-death must survive a status flip")
+        #expect(reloaded.place == "Wollaton Cemetery", "place must survive a status flip")
+    }
+
     // MARK: - Invariant 3: household-member id is deterministic
 
     @Test func householdMemberLeadIDIsDeterministicAcrossInstances() async throws {

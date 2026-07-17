@@ -11,6 +11,17 @@ nonisolated struct Lead: Identifiable, Codable, Sendable {
     let givenName: String?
     let birthYear: Int?
     let deathYear: Int?
+    /// Age at death when a death/burial/probate/military record carried one.
+    /// Lets lead discovery derive an implied birth year for leads that have
+    /// no birth year of their own (deaths, burials, marriages) — the dominant
+    /// over-merge the Phase 0 probe surfaced, where hundreds of same-name
+    /// death leads with no birth window chain-merged into one false person
+    /// (LEAD_DISCOVERY_SPEC §9). nil when unknown.
+    let ageAtDeath: Int?
+    /// Best-effort event place / district for the lead — a geographic
+    /// discriminator so two leads with no birth signal never merge on name
+    /// alone. nil when the source carried no usable place.
+    let place: String?
     let relationship: String?       // e.g. "spouse", "child", "sibling", "unknown"
     let source: LeadSource
     let status: LeadStatus
@@ -19,6 +30,62 @@ nonisolated struct Lead: Identifiable, Codable, Sendable {
     var investigatedAt: Date?
     var resolvedAt: Date?
     var resolution: LeadResolution?
+
+    /// Explicit init so `ageAtDeath`/`place` (and the trailing lifecycle
+    /// optionals) default to nil — existing construction sites that predate
+    /// these fields compile unchanged, while discovery-aware callers pass
+    /// them. A synthesized memberwise init would drop the defaults on the
+    /// `let` fields, forcing every call site to supply them.
+    init(
+        id: String,
+        profileID: String,
+        name: String,
+        surname: String?,
+        givenName: String?,
+        birthYear: Int?,
+        deathYear: Int?,
+        ageAtDeath: Int? = nil,
+        place: String? = nil,
+        relationship: String?,
+        source: LeadSource,
+        status: LeadStatus,
+        evidence: String,
+        createdAt: Date,
+        investigatedAt: Date? = nil,
+        resolvedAt: Date? = nil,
+        resolution: LeadResolution? = nil
+    ) {
+        self.id = id
+        self.profileID = profileID
+        self.name = name
+        self.surname = surname
+        self.givenName = givenName
+        self.birthYear = birthYear
+        self.deathYear = deathYear
+        self.ageAtDeath = ageAtDeath
+        self.place = place
+        self.relationship = relationship
+        self.source = source
+        self.status = status
+        self.evidence = evidence
+        self.createdAt = createdAt
+        self.investigatedAt = investigatedAt
+        self.resolvedAt = resolvedAt
+        self.resolution = resolution
+    }
+
+    /// The birth year lead discovery keys identity on: the lead's own when
+    /// known, otherwise derived from age-at-death (`deathYear − ageAtDeath`).
+    /// This is what keeps no-birth-year death/burial leads carrying a birth
+    /// window instead of over-merging on name alone (LEAD_DISCOVERY_SPEC §9).
+    /// The 0..<120 guard rejects nonsense ages.
+    var effectiveBirthYear: Int? {
+        if let birthYear { return birthYear }
+        if let deathYear, let ageAtDeath, (0..<120).contains(ageAtDeath) {
+            return deathYear - ageAtDeath
+        }
+        return nil
+    }
 }
 
 /// Where a lead came from.
@@ -101,6 +168,8 @@ actor LeadStore {
             givenName: scored.record.givenName,
             birthYear: extractBirthYear(from: scored.record),
             deathYear: extractDeathYear(from: scored.record),
+            ageAtDeath: extractAgeAtDeath(from: scored.record),
+            place: extractPlace(from: scored.record),
             relationship: nil,
             source: .scoredLead,
             status: .new,
@@ -180,6 +249,7 @@ actor LeadStore {
             givenName: member.name.split(separator: " ").first.map(String.init),
             birthYear: member.birthYear ?? member.age.map { censusYear - $0 },
             deathYear: nil,
+            place: member.birthPlace ?? member.birthCounty,
             relationship: member.relationship,
             source: .householdMember,
             status: .new,
@@ -217,6 +287,7 @@ actor LeadStore {
             id: lead.id, profileID: lead.profileID,
             name: lead.name, surname: lead.surname, givenName: lead.givenName,
             birthYear: lead.birthYear, deathYear: lead.deathYear,
+            ageAtDeath: lead.ageAtDeath, place: lead.place,
             relationship: lead.relationship, source: lead.source,
             status: status, evidence: lead.evidence,
             createdAt: lead.createdAt,
@@ -246,6 +317,7 @@ actor LeadStore {
                 id: dismissed.id, profileID: dismissed.profileID,
                 name: dismissed.name, surname: dismissed.surname, givenName: dismissed.givenName,
                 birthYear: dismissed.birthYear, deathYear: dismissed.deathYear,
+                ageAtDeath: dismissed.ageAtDeath, place: dismissed.place,
                 relationship: dismissed.relationship, source: dismissed.source,
                 status: .dismissed, evidence: dismissed.evidence,
                 createdAt: dismissed.createdAt,
@@ -281,6 +353,41 @@ actor LeadStore {
         case .military(let r): return r.deathYear
         case .probate(let r): return r.deathYear
         default: return nil
+        }
+    }
+
+    /// Age at death when the record type carries one (death/military/probate).
+    /// Feeds `Lead.effectiveBirthYear` so no-birth-year death leads still get
+    /// a birth window for discovery blocking.
+    private func extractAgeAtDeath(from record: SourceRecord) -> Int? {
+        switch record {
+        case .death(let r): return r.age
+        case .military(let r): return r.age
+        case .probate(let r): return r.ageAtDeath
+        default: return nil
+        }
+    }
+
+    /// Best-effort event place / locality for the lead, most-specific first.
+    /// Used as a geographic discriminator in lead discovery (never merge two
+    /// no-birth-year leads on name alone). nil when the record carries none.
+    private func extractPlace(from record: SourceRecord) -> String? {
+        func clean(_ candidates: [String?]) -> String? {
+            for c in candidates {
+                if let c, !c.trimmingCharacters(in: .whitespaces).isEmpty { return c }
+            }
+            return nil
+        }
+        switch record {
+        case .death(let r): return clean([r.district, r.deathPlace])
+        case .burial(let r): return clean([r.burialLocation, r.cemetery, r.deathPlace, r.birthPlace])
+        case .military(let r): return clean([r.cemetery])
+        case .probate(let r): return clean([r.postcode, r.address])
+        case .census(let r): return clean([r.district, r.parish, r.address, r.birthPlace, r.birthCounty])
+        case .birth(let r): return clean([r.district, r.birthPlace])
+        case .marriage(let r): return clean([r.district, r.marriagePlace])
+        case .parish(let r): return clean([r.parish, r.county])
+        case .pedigree(let r): return clean([r.location])
         }
     }
 }
