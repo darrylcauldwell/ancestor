@@ -13,16 +13,14 @@
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES"
       shouldAutocreateTestPlan = "YES">
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "ANCESTOR_PROJECTS_DIR"
+            value = "$(TMPDIR)AncestorResearchTests-projects"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
       <Testables>
-         <!-- parallelizable = "NO": test-EXECUTION parallelism is disabled
-              (build parallelism stays on via parallelizeBuildables above).
-              A crashing parallel test-runner worker was dragging thousands
-              of unrelated tests down as 0.000s instant-fails, masking real
-              failures — it hid a red gate for a full day after the CL5
-              ship. The full suite runs serially in ~32s, so parallel
-              execution bought nothing worth that unreliability. If a
-              future speedup is wanted, fix the root cause first (the
-              AncestorKit duplicate-class linkage warning) and re-enable. -->
          <TestableReference
             skipped = "NO"
             parallelizable = "NO">
@@ -35,13 +33,6 @@
             </BuildableReference>
          </TestableReference>
       </Testables>
-      <EnvironmentVariables>
-         <EnvironmentVariable
-            key = "ANCESTOR_PROJECTS_DIR"
-            value = "$(TMPDIR)AncestorResearchTests-projects"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-      </EnvironmentVariables>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"

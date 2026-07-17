@@ -263,6 +263,92 @@ nonisolated struct LeadDiscoveryEngine {
         return !ta.isDisjoint(with: tb)
     }
 
+    // MARK: - Phase 3: fuzzy-bridge across surname spelling variants
+
+    /// Merge cluster pairs the EXACT-surname block key kept apart because their
+    /// surnames are spelling variants ("CAULDWELL"/"COLDWELL") — the fuzzy
+    /// matches deterministic keys miss (LEAD_DISCOVERY_SPEC Phase 3). This runs
+    /// AFTER `discover`, over the already-formed clusters, and is precision-
+    /// first: two clusters bridge only when their surnames are close variants,
+    /// their representatives pass every hard constraint (given name, birth
+    /// window, born-after-death, a-person-dies-once), their birth years agree
+    /// within ±2, AND their text embeddings are similar enough. The embedder
+    /// (semantic MLX vectors, or the deterministic trigram fallback) only
+    /// proposes; these deterministic gates decide.
+    static func bridgeVariantSurnames(
+        _ clusters: [EmergentCluster],
+        vectorFor: (EmergentCluster) -> [Float],
+        threshold: Double
+    ) -> [EmergentCluster] {
+        var groups = clusters
+        var merged = true
+        while merged {
+            merged = false
+            outer: for i in 0..<groups.count {
+                for j in (i + 1)..<groups.count
+                where clustersBridgeable(groups[i], groups[j], vectorFor: vectorFor, threshold: threshold) {
+                    groups[i] = makeCluster(
+                        id: groups[i].id, surname: groups[i].surname,
+                        leads: groups[i].leads + groups[j].leads
+                    )
+                    groups.remove(at: j)
+                    merged = true
+                    break outer
+                }
+            }
+        }
+        return groups.sorted {
+            $0.coherence.size != $1.coherence.size
+                ? $0.coherence.size > $1.coherence.size
+                : $0.id < $1.id
+        }
+    }
+
+    static func clustersBridgeable(
+        _ a: EmergentCluster,
+        _ b: EmergentCluster,
+        vectorFor: (EmergentCluster) -> [Float],
+        threshold: Double
+    ) -> Bool {
+        // Only bridge ACROSS a surname spelling variant — same-surname clusters
+        // already had their chance to merge inside discover().
+        guard surnamesAreVariants(a.surname, b.surname) else { return false }
+        // Require a birth signal on both and tight agreement (tighter than the
+        // ±5 within-block window — bridging across surnames earns less slack).
+        guard let ya = a.birthYear, let yb = b.birthYear, abs(ya - yb) <= 2 else { return false }
+        // Every other hard constraint (given name, born-after-death, dies-once)
+        // must hold between the representatives — reuse the one rule set.
+        guard leadsCompatible(a.representativeLead, b.representativeLead) else { return false }
+        // Finally the fuzzy signal: text embeddings must be similar.
+        return VectorMath.cosine(vectorFor(a), vectorFor(b)) >= threshold
+    }
+
+    /// Two surnames are spelling variants: not identical, same first letter,
+    /// lengths within 2, and edit distance ≤ 2. Deterministic and cheap; the
+    /// embedding threshold is the semantic backstop for false positives.
+    static func surnamesAreVariants(_ a: String, _ b: String) -> Bool {
+        let x = normaliseSurname(a), y = normaliseSurname(b)
+        guard !x.isEmpty, !y.isEmpty, x != y else { return false }
+        guard x.first == y.first, abs(x.count - y.count) <= 2 else { return false }
+        return levenshtein(Array(x), Array(y)) <= 2
+    }
+
+    static func levenshtein(_ a: [Character], _ b: [Character]) -> Int {
+        if a.isEmpty { return b.count }
+        if b.isEmpty { return a.count }
+        var prev = Array(0...b.count)
+        var curr = [Int](repeating: 0, count: b.count + 1)
+        for i in 1...a.count {
+            curr[0] = i
+            for j in 1...b.count {
+                let cost = a[i - 1] == b[j - 1] ? 0 : 1
+                curr[j] = min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+            }
+            swap(&prev, &curr)
+        }
+        return prev[b.count]
+    }
+
     /// A coarse event-kind bucket derived from the lead's evidence/relationship,
     /// for the diversity signal (birth vs death vs marriage vs census).
     private static func eventKind(of lead: Lead) -> String {

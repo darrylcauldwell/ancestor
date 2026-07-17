@@ -200,4 +200,71 @@ struct LeadDiscoveryEngineTests {
         #expect(!LeadDiscoveryEngine.placesCompatible("BURNLEY CEMETERY", "HAREHILLS CEMETERY"))
         #expect(LeadDiscoveryEngine.placesCompatible("WOLLATON CEMETERY", "WOLLATON"))
     }
+
+    // MARK: - Phase 3: deterministic embedder + fuzzy-bridge
+
+    private func vec(_ c: LeadDiscoveryEngine.EmergentCluster) -> [Float] {
+        DeterministicTextEmbedder.vector(
+            for: "\(c.representativeLead.givenName ?? "") \(c.surname)")
+    }
+
+    @Test func deterministicEmbedderCosineReflectsTextOverlap() {
+        let a = DeterministicTextEmbedder.vector(for: "Ernest Cauldwell")
+        let same = DeterministicTextEmbedder.vector(for: "Ernest Cauldwell")
+        let variant = DeterministicTextEmbedder.vector(for: "Ernest Cauldwel")
+        let different = DeterministicTextEmbedder.vector(for: "Mabel Thompson")
+        #expect(abs(VectorMath.cosine(a, same) - 1.0) < 1e-6)          // identical
+        #expect(VectorMath.cosine(a, variant) > 0.6)                   // spelling variant
+        #expect(VectorMath.cosine(a, different) < 0.4)                 // unrelated
+    }
+
+    @Test func surnamesAreVariantsDetection() {
+        #expect(LeadDiscoveryEngine.surnamesAreVariants("Cauldwell", "Cauldwel"))  // drop a letter
+        #expect(LeadDiscoveryEngine.surnamesAreVariants("Smith", "Smyth"))         // vowel swap
+        #expect(!LeadDiscoveryEngine.surnamesAreVariants("Smith", "Jones"))        // unrelated
+        #expect(!LeadDiscoveryEngine.surnamesAreVariants("Ward", "Ward"))          // identical
+        #expect(!LeadDiscoveryEngine.surnamesAreVariants("Smith", "Smithson"))     // length gap
+    }
+
+    @Test func bridgeMergesSurnameVariantsThatAgree() {
+        // Two clusters the exact-surname block key kept apart: "Cauldwell" and
+        // "Cauldwel", same given name + birth year. The bridge should merge.
+        let leads = [
+            makeLead(id: "1", surname: "Cauldwell", given: "Ernest", birthYear: 1887, evidence: "census"),
+            makeLead(id: "2", surname: "Cauldwell", given: "Ernest", birthYear: 1887, source: .discovery, evidence: "marriage"),
+            makeLead(id: "3", surname: "Cauldwel", given: "Ernest", birthYear: 1888, evidence: "birth"),
+            makeLead(id: "4", surname: "Cauldwel", given: "Ernest", birthYear: 1888, source: .discovery, evidence: "death"),
+        ]
+        let base = LeadDiscoveryEngine.discover(leads: leads).filter { $0.coherence.isSurfaceable }
+        #expect(base.count == 2)  // different surname blocks pre-bridge
+        let bridged = LeadDiscoveryEngine.bridgeVariantSurnames(base, vectorFor: vec, threshold: 0.5)
+        #expect(bridged.count == 1)
+        #expect(bridged[0].leads.count == 4)
+    }
+
+    @Test func bridgeRefusesWhenBirthYearsDisagree() {
+        // Same surname variants + given, but births 8 years apart — different
+        // people; the bridge must not merge them.
+        let leads = [
+            makeLead(id: "1", surname: "Cauldwell", given: "Ernest", birthYear: 1887),
+            makeLead(id: "2", surname: "Cauldwell", given: "Ernest", birthYear: 1887, source: .discovery),
+            makeLead(id: "3", surname: "Cauldwel", given: "Ernest", birthYear: 1895),
+            makeLead(id: "4", surname: "Cauldwel", given: "Ernest", birthYear: 1895, source: .discovery),
+        ]
+        let base = LeadDiscoveryEngine.discover(leads: leads).filter { $0.coherence.isSurfaceable }
+        let bridged = LeadDiscoveryEngine.bridgeVariantSurnames(base, vectorFor: vec, threshold: 0.5)
+        #expect(bridged.count == 2)
+    }
+
+    @Test func bridgeRefusesNonVariantSurnames() {
+        let leads = [
+            makeLead(id: "1", surname: "Cauldwell", given: "Ernest", birthYear: 1887),
+            makeLead(id: "2", surname: "Cauldwell", given: "Ernest", birthYear: 1887, source: .discovery),
+            makeLead(id: "3", surname: "Thompson", given: "Ernest", birthYear: 1887),
+            makeLead(id: "4", surname: "Thompson", given: "Ernest", birthYear: 1887, source: .discovery),
+        ]
+        let base = LeadDiscoveryEngine.discover(leads: leads).filter { $0.coherence.isSurfaceable }
+        let bridged = LeadDiscoveryEngine.bridgeVariantSurnames(base, vectorFor: vec, threshold: 0.5)
+        #expect(bridged.count == 2)  // Cauldwell vs Thompson never bridge
+    }
 }

@@ -225,11 +225,35 @@ struct PossiblePeopleView: View {
         // the main actor so a large pool never beach-balls the UI.
         let leads = (try? db.loadLeads()) ?? []
         totalLeads = leads.count
+        // Deterministic core (Phase 1) then the Phase 3 fuzzy-bridge across
+        // surname spelling variants. The embedder is the always-available
+        // deterministic one; a real MLX semantic embedder plugs in behind the
+        // same `TextEmbedder` contract when a model is loaded.
+        let embedder = DeterministicTextEmbedder()
         let clusters = await Task.detached(priority: .userInitiated) {
-            LeadDiscoveryEngine.discover(leads: leads).filter { $0.coherence.isSurfaceable }
+            let base = LeadDiscoveryEngine.discover(leads: leads).filter { $0.coherence.isSurfaceable }
+            // Precompute one vector per cluster from its representative text.
+            let texts = base.map { Self.clusterText($0) }
+            let vectors = await embedder.embed(texts)
+            var vectorByID: [String: [Float]] = [:]
+            for (cluster, vec) in zip(base, vectors) { vectorByID[cluster.id] = vec }
+            return LeadDiscoveryEngine.bridgeVariantSurnames(
+                base,
+                vectorFor: { vectorByID[$0.id] ?? [] },
+                threshold: 0.5
+            )
         }.value
         confident = clusters.filter { $0.birthYear != nil }
         lowConfidence = clusters.filter { $0.birthYear == nil }
         isLoading = false
+    }
+
+    /// The text a cluster embeds as — its representative name plus place, the
+    /// fields that carry identity signal.
+    private static func clusterText(_ cluster: LeadDiscoveryEngine.EmergentCluster) -> String {
+        let lead = cluster.representativeLead
+        return [lead.givenName, lead.surname, lead.place]
+            .compactMap { $0 }
+            .joined(separator: " ")
     }
 }
