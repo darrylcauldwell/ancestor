@@ -22,6 +22,22 @@ struct PossiblePeopleView: View {
     /// the firewall queue.
     var onResearch: (Lead) -> Void = { _ in }
 
+    /// What slice of the pool to show. `.all` is the full Triage panel;
+    /// `.profile(id)` shows only clusters that person's research surfaced —
+    /// what the profile-detail deep-link opens (POSSIBLE_PEOPLE_CONTEXT_SPEC).
+    enum Scope: Equatable { case all, profile(String) }
+    var scope: Scope = .all
+
+    /// How the `.all` panel organises clusters — flat by coherence, or in
+    /// sections under the tree person who surfaced them. Ignored when scoped
+    /// to a single profile (already one person's clusters).
+    enum Grouping: String, CaseIterable, Identifiable {
+        case coherence = "By coherence"
+        case byPerson = "By person"
+        var id: String { rawValue }
+    }
+    @State private var grouping: Grouping = .coherence
+
     @State private var confident: [LeadDiscoveryEngine.EmergentCluster] = []
     @State private var lowConfidence: [LeadDiscoveryEngine.EmergentCluster] = []
     @State private var totalLeads = 0
@@ -56,6 +72,15 @@ struct PossiblePeopleView: View {
             } else {
                 header
                 searchBar
+                if scope == .all {
+                    Picker("Group", selection: $grouping) {
+                        ForEach(Grouping.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+                }
                 Divider()
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
@@ -67,6 +92,8 @@ struct PossiblePeopleView: View {
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.top, 40)
+                        } else if scope == .all && grouping == .byPerson {
+                            byPersonList(visibleC + visibleL)
                         } else {
                             ForEach(visibleC) { clusterCard($0) }
 
@@ -180,6 +207,58 @@ struct PossiblePeopleView: View {
                         || ($0.place?.lowercased().contains(needle) ?? false)
                 }
         }
+    }
+
+    // MARK: - By-person grouping
+
+    /// Clusters sectioned by the tree person who surfaced them. A cluster with
+    /// several origins appears under EACH (owner decision) — the cross-relative
+    /// connection is the point. Clusters with no resolvable origin fall into an
+    /// "Unattached" section, last.
+    @ViewBuilder
+    private func byPersonList(_ clusters: [LeadDiscoveryEngine.EmergentCluster]) -> some View {
+        let sections = byPersonSections(clusters)
+        ForEach(sections, id: \.title) { section in
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(section.title)
+                        .font(AppTypography.cardTitle)
+                    Text("\(section.clusters.count)")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.top, 4)
+                ForEach(section.clusters) { clusterCard($0) }
+            }
+        }
+    }
+
+    private func byPersonSections(
+        _ clusters: [LeadDiscoveryEngine.EmergentCluster]
+    ) -> [(title: String, clusters: [LeadDiscoveryEngine.EmergentCluster])] {
+        var buckets: [String: [LeadDiscoveryEngine.EmergentCluster]] = [:]
+        var titleForKey: [String: String] = [:]
+        var unattached: [LeadDiscoveryEngine.EmergentCluster] = []
+        for cluster in clusters {
+            let origins = ClusterContext.origins(for: cluster, in: appState.snapshot.profiles)
+            if origins.isEmpty {
+                unattached.append(cluster)
+                continue
+            }
+            for origin in origins {
+                let title = "\(origin.name) \(origin.lifespanLabel)".trimmingCharacters(in: .whitespaces)
+                titleForKey[origin.id] = title
+                buckets[origin.id, default: []].append(cluster)
+            }
+        }
+        var sections = buckets
+            .map { (title: titleForKey[$0.key] ?? $0.key, clusters: $0.value) }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        if !unattached.isEmpty {
+            sections.append((title: "Unattached", clusters: unattached))
+        }
+        return sections
     }
 
     // MARK: - Cluster card
@@ -538,8 +617,17 @@ struct PossiblePeopleView: View {
                 threshold: 0.5
             )
         }.value
-        confident = clusters.filter { $0.birthYear != nil }
-        lowConfidence = clusters.filter { $0.birthYear == nil }
+        // Scope: the panel shows everything; a profile deep-link shows only the
+        // clusters that person's research surfaced.
+        let scoped: [LeadDiscoveryEngine.EmergentCluster]
+        switch scope {
+        case .all:
+            scoped = clusters
+        case .profile(let id):
+            scoped = clusters.filter { c in c.leads.contains { $0.profileID == id } }
+        }
+        confident = scoped.filter { $0.birthYear != nil }
+        lowConfidence = scoped.filter { $0.birthYear == nil }
         isLoading = false
     }
 
