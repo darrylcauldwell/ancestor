@@ -63,6 +63,7 @@ public nonisolated enum AuditRules {
         ParentAgeGapRule(),
         MarriageAgeRule(),
         LifespanRule(),
+        MuddledIdentityRule(),
         NoMarriageAfterDeathRule(),
         MissingParentsRule(),
         MissingBirthDateRule(),
@@ -234,6 +235,60 @@ public nonisolated struct MarriageAgeRule: AuditRuleDefinition {
                     message: "\(profile.displayName) may have married (~\(mby)) before age 16 (born ~\(bby))"
                 ))
             }
+        }
+        return results
+    }
+}
+
+/// Patronymic-muddle detector: a single profile whose ACCEPTED birth (or
+/// death) date spans more years than one person's could — the signature of two
+/// same-named relatives (father/son both "Abraham", etc.) collapsed onto one
+/// node. A person is born once and dies once; a 27-year accepted birth range
+/// means two people's births were averaged together.
+///
+/// This is the acceptance-side echo of the discovery engine's identity
+/// constraints (dies-once, one birth window): those split contradictory
+/// records apart while *clustering*; this flags the same contradiction once
+/// it's already been *absorbed* onto a profile. Read-only — it names the muddle
+/// so a human can disentangle it.
+public nonisolated struct MuddledIdentityRule: AuditRuleDefinition {
+    public init() {}
+
+    public let id = "muddledIdentity"
+    public let displayName = "Muddled Identity"
+    public let description = "A profile whose birth or death date spans more years than one person's could — usually two same-named relatives (a patronymic muddle) merged into one profile."
+    public let fireCondition = "birthDate or deathDate range wider than the span threshold (default 15 years)"
+    public let warningCondition: String? = nil
+    public let workedExample = "Abraham Twyford, birth 'BET 1882 AND 1909' — a 27-year span: the 1888-born father and a second Abraham collapsed onto one node."
+    public let defaultSeverity = Severity.warning
+    public let category: AuditCategory = .issue
+
+    public static let defaultSpanYears = 15
+
+    public var tunableThresholds: [TunableThreshold] {
+        [TunableThreshold(
+            key: "spanYears",
+            displayName: "Max plausible date span for one person",
+            defaultValue: Double(Self.defaultSpanYears), minimum: 8, maximum: 40, unit: "years"
+        )]
+    }
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        evaluate(profile: profile, snapshot: snapshot, thresholds: [:])
+    }
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot, thresholds: [String: Double]) -> [AuditResult] {
+        let maxSpan = Int(thresholds["spanYears"] ?? Double(Self.defaultSpanYears))
+        var results: [AuditResult] = []
+        for (field, label) in [(ProfileField.birthDate, "Birth"), (ProfileField.deathDate, "Death")] {
+            guard let date = profile.effectiveDate(field),
+                  let earliest = date.earliest, let latest = date.latest,
+                  latest - earliest > maxSpan else { continue }
+            results.append(AuditResult(
+                id: UUID(), profileID: profile.id, profileName: profile.displayName,
+                severity: .warning, category: .issue, ruleID: id,
+                message: "\(profile.displayName) — \(label.lowercased()) recorded as '\(date.original)' spans \(latest - earliest) years; likely two same-named people (a patronymic muddle) merged into one profile"
+            ))
         }
         return results
     }

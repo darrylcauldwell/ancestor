@@ -33,6 +33,43 @@ struct AuditEngineTests {
         )
     }
 
+    // MARK: - MuddledIdentityRule (patronymic-muddle detector)
+
+    @Test func muddledIdentityFlagsImpossibleBirthSpan() {
+        // The Abraham Twyford case: one profile, birth 'BET 1882 AND 1909'
+        // (27 years) — two same-named Abrahams merged onto one node.
+        let abraham = makeProfile(id: "abr", firstName: "Abraham", lastName: "Twyford",
+                                  birthDate: "BET 1882 AND 1909")
+        let snapshot = makeSnapshot(profiles: [abraham])
+        let results = MuddledIdentityRule().evaluate(profile: abraham, snapshot: snapshot)
+        #expect(results.count == 1)
+        #expect(results.first?.severity == .warning)
+        #expect(results.first?.message.contains("spans 27 years") == true)
+    }
+
+    @Test func muddledIdentityFlagsImpossibleDeathSpan() {
+        // Two deaths 44 years apart (1936 + 1980) merge into a death range.
+        let p = makeProfile(id: "d", firstName: "Abraham", lastName: "Twyford",
+                            deathDate: "BET 1936 AND 1980")
+        let results = MuddledIdentityRule().evaluate(profile: p, snapshot: makeSnapshot(profiles: [p]))
+        #expect(results.count == 1)
+        #expect(results.first?.message.lowercased().contains("death") == true)
+    }
+
+    @Test func muddledIdentityIgnoresNarrowAndEstimateRanges() {
+        // A tight index range (5 years) and an 'ABT' estimate (±5 = 10 years)
+        // are normal single-person uncertainty — must not fire.
+        let tight = makeProfile(id: "t", birthDate: "BET 1885 AND 1890")
+        let estimate = makeProfile(id: "e", birthDate: "ABT 1900")
+        let snap = makeSnapshot(profiles: [tight, estimate])
+        #expect(MuddledIdentityRule().evaluate(profile: tight, snapshot: snap).isEmpty)
+        #expect(MuddledIdentityRule().evaluate(profile: estimate, snapshot: snap).isEmpty)
+    }
+
+    @Test func muddledIdentityIsRegisteredBuiltIn() {
+        #expect(AuditRules.builtIn.contains { $0.id == "muddledIdentity" })
+    }
+
     private func makeSnapshot(
         profiles: [Profile],
         relationships: [Relationship] = []
