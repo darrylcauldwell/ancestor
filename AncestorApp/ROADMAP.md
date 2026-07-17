@@ -83,22 +83,26 @@ This section reads as the build sequence — top to bottom is the intended order
   mining accident, electrician, shortly after daughter Margaret's birth) enters as the first
   real free-text hunch. Related: coal-mining accident databases entry in Stage 2.
 - **Clustering lifespan / identity-constraint hardening** (over-split *and* over-merge — the
-  shared deterministic core that `LEAD_DISCOVERY_SPEC.md` §7 also depends on). Three defects,
-  all must preserve the over-split-not-over-merge invariant and need their own mini-spec + tests
-  (assignment-threshold interactions make this core surgery, not a patch):
-  (a) [over-split, Barbara Ayre 2026-07-15] non-birth singleton clusters get lifespan
-  `(year−80, year+5)` — genealogically wrong for marriage/census seeds, whose subject plausibly
-  lives decades past the record; make the forward bound record-type-aware.
-  (b) [over-split, Barbara Ayre] `locationConsistency` scores districts only relative to the
-  SUBJECT's home county, so two records in the same *foreign* county score 0.0 — grant
-  same-foreign-county credit from the district registry (no hardcoded regions).
-  (c) [over-merge, Ernest Cauldwell 2026-07-16] **[✓ shipped `b120ac9`]** a death now caps the
-  life: assignment refuses records dated after the cluster's death (+2yr), and findContradiction
-  splits post-death records + births incompatible with the death's age-implied birth. Tests:
-  infant death no longer clusters with a later marriage/census. (a)/(b) [over-split] remain.
-  Gate: ClusteringEngine tests incl. a Northumberland-namesake fixture (a/b) and an
-  infant-death-vs-marriage fixture (c); SANDWICH_AUDIT cross-check that wider lifespans can't
-  push unrelated records over the 0.4 attach threshold.
+  shared deterministic core that `LEAD_DISCOVERY_SPEC.md` §7 also depends on). **[✓ ALL THREE
+  SHIPPED]** — mini-spec `CLUSTERING_LIFESPAN_LOCATION_SPEC.md`; the over-split-not-over-merge
+  invariant held throughout (assignment-threshold interactions made this core surgery, not a patch):
+  (a) [over-split, Barbara Ayre — **✓ shipped `dfdb058`**] non-birth seeds got a death-shaped
+  `(year−80, year+5)` window; now `seedLifespan(year:record:)` is record-type-aware (terminal →
+  +margin, non-terminal → decades forward, census age-anchored).
+  (b) [over-split, Barbara Ayre — **✓ shipped `dfdb058`**] `locationConsistency` now grants 0.7 for
+  two records in the same county — home OR foreign — via the national `FreeBMDDistrictCatalogue`
+  (`ScoringRules.countyCode(forDistrict:)`, no hardcoded regions).
+  Safety pairing (`dfdb058`): `assignmentScore` vetoes a record whose known county matches none of
+  the cluster's known counties (different county = different person), so the widened window can't
+  attach a namesake on date alone.
+  (c) [over-merge, Ernest Cauldwell — **✓ shipped `b120ac9`**] a death caps the life: assignment
+  refuses records after the cluster's death (+2yr); findContradiction splits post-death records +
+  births incompatible with the death's age-implied birth.
+  Gate met: 4 new ClusteringEngine fixtures (record-type window, same-foreign-county credit,
+  different-county veto, foreign-namesake integration) + the infant-death fixture (c); the veto test
+  IS the SANDWICH_AUDIT cross-check that wider lifespans can't push an unrelated record over 0.4.
+  Real-tree behavioural validation (does clustering visibly improve on real profiles) is observed on
+  the next research run.
 - **Lead discovery — clustering as a discovery engine** (`LEAD_DISCOVERY_SPEC.md`,
   accepted-direction 2026-07-16). The pivot: repurpose clustering from a per-subject
   evidence-*acceptance* aid into a corpus-level *discovery* engine that turns the ~3,752-lead
