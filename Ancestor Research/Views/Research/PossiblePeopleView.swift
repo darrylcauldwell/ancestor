@@ -30,6 +30,11 @@ struct PossiblePeopleView: View {
     @State private var expanded: Set<String> = []
     @State private var usingSemanticModel = false
     @State private var loadingModel = false
+    /// Phase 4 — advisory AI verdicts per cluster id. Annotation only: a
+    /// verdict never merges, splits, or moves a cluster.
+    @State private var verdicts: [String: ClusterAdjudicator.Verdict] = [:]
+    @State private var adjudicating: Set<String> = []
+    @State private var adjudicationUnavailable: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -151,6 +156,15 @@ struct PossiblePeopleView: View {
             .buttonStyle(.plain)
 
             if isOpen {
+                // Phase 4 narration — deterministic, formatted from lead facts.
+                let narration = ClusterAdjudicator.summary(cluster)
+                if !narration.isEmpty {
+                    Text(narration)
+                        .font(AppTypography.cardMeta)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 22)
+                }
+
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(cluster.leads) { lead in
                         memberRow(lead)
@@ -158,6 +172,10 @@ struct PossiblePeopleView: View {
                 }
                 .padding(.leading, 22)
                 .padding(.top, 2)
+
+                adjudicationRow(cluster)
+                    .padding(.leading, 22)
+                    .padding(.top, 2)
 
                 HStack(spacing: 8) {
                     Button {
@@ -185,6 +203,68 @@ struct PossiblePeopleView: View {
         }
         .padding(10)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// Phase 4 — advisory AI adjudication for BORDERLINE clusters (the yearless
+    /// ones, where name+place alone grouped the leads). The verdict is a badge
+    /// with reasoning; it never restructures anything. Nil result (no model,
+    /// unusable reply) → a quiet caption, panel unchanged.
+    @ViewBuilder
+    private func adjudicationRow(_ cluster: LeadDiscoveryEngine.EmergentCluster) -> some View {
+        if let verdict = verdicts[cluster.id] {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                switch verdict.assessment {
+                case .plausiblyOnePerson:
+                    Label("AI: plausibly one person", systemImage: "person.fill.checkmark")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.green)
+                case .likelyMultiplePeople:
+                    Label("AI: likely multiple people", systemImage: "person.2.fill")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.orange)
+                }
+                Text(verdict.reasoning)
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        } else if adjudicating.contains(cluster.id) {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Asking local model…")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+            }
+        } else if adjudicationUnavailable.contains(cluster.id) {
+            Text("AI unavailable — load a reasoning model to get a verdict.")
+                .font(AppTypography.cardMeta)
+                .foregroundStyle(.tertiary)
+        } else if cluster.birthYear == nil {
+            // Only offer on borderline clusters — the confident cohorts don't
+            // need a second opinion; the yearless ones are exactly where the
+            // "one person or namesakes?" question is live.
+            Button {
+                adjudicate(cluster)
+            } label: {
+                Label("Ask AI: one person or several?", systemImage: "sparkles")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .font(AppTypography.controlLabel)
+        }
+    }
+
+    private func adjudicate(_ cluster: LeadDiscoveryEngine.EmergentCluster) {
+        adjudicating.insert(cluster.id)
+        Task {
+            let verdict = await ClusterAdjudicator.adjudicate(cluster)
+            adjudicating.remove(cluster.id)
+            if let verdict {
+                verdicts[cluster.id] = verdict
+            } else {
+                adjudicationUnavailable.insert(cluster.id)
+            }
+        }
     }
 
     /// "Not a person" — dismiss every lead in the cluster so it leaves the
