@@ -181,6 +181,20 @@ struct LeadDiscoveryEngineTests {
         ))
     }
 
+    @Test func representativeLeadPrefersBirthSignalThenFullestName() {
+        // Cluster of one person spelled three ways. The representative (used by
+        // Phase 2's "Research as one person") should be the fullest name that
+        // also carries a birth signal.
+        let leads = [
+            makeLead(id: "1", surname: "Ward", given: "G", birthYear: 1886),
+            makeLead(id: "2", surname: "Ward", given: "George Edwin", birthYear: 1886),
+            makeLead(id: "3", surname: "Ward", given: "George", birthYear: 1887),
+        ]
+        let clusters = LeadDiscoveryEngine.discover(leads: leads)
+        #expect(clusters.count == 1)
+        #expect(clusters[0].representativeLead.id == "2")
+    }
+
     @Test func placesCompatibleIgnoresGenericWords() {
         // Both are "a cemetery" — the shared word is generic, not a locality.
         #expect(!LeadDiscoveryEngine.placesCompatible("BURNLEY CEMETERY", "HAREHILLS CEMETERY"))

@@ -24,6 +24,19 @@ nonisolated struct LeadDiscoveryEngine {
         /// Consensus birth year when the leads carry one; nil otherwise.
         var birthYear: Int?
         var coherence: Coherence
+
+        /// The single lead that best stands in for the cluster when the user
+        /// asks to research it as one person — the one with a birth signal and
+        /// the fullest name (e.g. "George Edwin Ward" over a bare "G Ward").
+        /// Never nil: a cluster always has at least one lead.
+        var representativeLead: Lead {
+            leads
+                .max { a, b in
+                    let ka = (a.effectiveBirthYear != nil ? 1 : 0, a.name.count)
+                    let kb = (b.effectiveBirthYear != nil ? 1 : 0, b.name.count)
+                    return ka < kb
+                } ?? leads[0]
+        }
     }
 
     /// Precision-first signal for how much a cluster looks like a real person.

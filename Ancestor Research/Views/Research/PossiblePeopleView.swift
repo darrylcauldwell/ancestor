@@ -15,6 +15,13 @@ import SwiftUI
 struct PossiblePeopleView: View {
     @Environment(AppState.self) private var appState
 
+    /// Phase 2 (LEAD_DISCOVERY_SPEC). "Research as one person" — kick off a
+    /// research run on the cluster's representative lead. The run flows through
+    /// the normal review path (findings → accept), so nothing touches the tree
+    /// directly. Owner-chosen lead route: the cluster's leads already live in
+    /// the firewall queue.
+    var onResearch: (Lead) -> Void = { _ in }
+
     @State private var confident: [LeadDiscoveryEngine.EmergentCluster] = []
     @State private var lowConfidence: [LeadDiscoveryEngine.EmergentCluster] = []
     @State private var totalLeads = 0
@@ -113,10 +120,48 @@ struct PossiblePeopleView: View {
                 }
                 .padding(.leading, 22)
                 .padding(.top, 2)
+
+                HStack(spacing: 8) {
+                    Button {
+                        onResearch(cluster.representativeLead)
+                    } label: {
+                        Label("Research as one person", systemImage: "magnifyingglass")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+
+                    Button(role: .destructive) {
+                        dismissCluster(cluster)
+                    } label: {
+                        Label("Not a person", systemImage: "xmark")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Spacer()
+                }
+                .font(AppTypography.controlLabel)
+                .padding(.leading, 22)
+                .padding(.top, 4)
             }
         }
         .padding(10)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// "Not a person" — dismiss every lead in the cluster so it leaves the
+    /// pool and can't re-form (discovery only clusters `.new`/`.investigated`
+    /// leads). This IS the discovery negative memory; it uses the existing
+    /// lead-dismissal firewall path, nothing touches the tree.
+    private func dismissCluster(_ cluster: LeadDiscoveryEngine.EmergentCluster) {
+        guard let db = appState.currentDatabase else { return }
+        for lead in cluster.leads {
+            try? db.upsertLead(lead.with(status: .dismissed, resolvedAt: Date(), resolution: .dismissed))
+        }
+        withAnimation {
+            confident.removeAll { $0.id == cluster.id }
+            lowConfidence.removeAll { $0.id == cluster.id }
+        }
     }
 
     private func memberRow(_ lead: Lead) -> some View {

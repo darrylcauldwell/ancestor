@@ -425,7 +425,16 @@ struct ResearchView: View {
                     onDone: nil
                 )
             case .people:
-                PossiblePeopleView()
+                PossiblePeopleView(onResearch: { lead in
+                    Task { @MainActor in
+                        researchVM.appDatabase = appState.currentDatabase
+                        await researchVM.startResearch(
+                            lead: lead,
+                            snapshot: appState.snapshot,
+                            registry: registry
+                        )
+                    }
+                })
             }
         }
     }

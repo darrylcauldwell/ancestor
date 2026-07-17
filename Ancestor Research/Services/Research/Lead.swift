@@ -74,6 +74,19 @@ nonisolated struct Lead: Identifiable, Codable, Sendable {
         self.resolution = resolution
     }
 
+    /// Copy this lead with a changed lifecycle status. Threads every other
+    /// field through so a transition can't silently drop `ageAtDeath`/`place`
+    /// (the reconstruction trap the v47 work had to chase across the app).
+    func with(status: LeadStatus, resolvedAt: Date? = nil, resolution: LeadResolution? = nil) -> Lead {
+        Lead(
+            id: id, profileID: profileID, name: name, surname: surname, givenName: givenName,
+            birthYear: birthYear, deathYear: deathYear, ageAtDeath: ageAtDeath, place: place,
+            relationship: relationship, source: source, status: status, evidence: evidence,
+            createdAt: createdAt, investigatedAt: investigatedAt,
+            resolvedAt: resolvedAt ?? self.resolvedAt, resolution: resolution ?? self.resolution
+        )
+    }
+
     /// The birth year lead discovery keys identity on: the lead's own when
     /// known, otherwise derived from age-at-death (`deathYear − ageAtDeath`).
     /// This is what keeps no-birth-year death/burial leads carrying a birth
