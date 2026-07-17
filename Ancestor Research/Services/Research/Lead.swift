@@ -338,6 +338,30 @@ actor LeadStore {
     // MARK: - Helpers
 
     private func extractBirthYear(from record: SourceRecord) -> Int? {
+        LeadFieldExtraction.birthYear(from: record)
+    }
+
+    private func extractDeathYear(from record: SourceRecord) -> Int? {
+        LeadFieldExtraction.deathYear(from: record)
+    }
+
+    private func extractAgeAtDeath(from record: SourceRecord) -> Int? {
+        LeadFieldExtraction.ageAtDeath(from: record)
+    }
+
+    private func extractPlace(from record: SourceRecord) -> String? {
+        LeadFieldExtraction.place(from: record)
+    }
+}
+
+/// Projects a `SourceRecord`'s typed fields onto the flat lead columns.
+/// Shared single source of truth so live lead creation
+/// (`LeadStore.createFromScoredRecord`) and the v48 backfill migration
+/// derive `ageAtDeath` / `place` identically. `nonisolated` so the DB
+/// migration layer can call it off the main actor.
+nonisolated enum LeadFieldExtraction {
+
+    static func birthYear(from record: SourceRecord) -> Int? {
         switch record {
         case .birth(let r): return r.birthYear
         case .census(let r): return r.birthYear
@@ -346,7 +370,7 @@ actor LeadStore {
         }
     }
 
-    private func extractDeathYear(from record: SourceRecord) -> Int? {
+    static func deathYear(from record: SourceRecord) -> Int? {
         switch record {
         case .death(let r): return r.deathYear
         case .burial(let r): return r.deathYear
@@ -359,7 +383,7 @@ actor LeadStore {
     /// Age at death when the record type carries one (death/military/probate).
     /// Feeds `Lead.effectiveBirthYear` so no-birth-year death leads still get
     /// a birth window for discovery blocking.
-    private func extractAgeAtDeath(from record: SourceRecord) -> Int? {
+    static func ageAtDeath(from record: SourceRecord) -> Int? {
         switch record {
         case .death(let r): return r.age
         case .military(let r): return r.age
@@ -371,7 +395,7 @@ actor LeadStore {
     /// Best-effort event place / locality for the lead, most-specific first.
     /// Used as a geographic discriminator in lead discovery (never merge two
     /// no-birth-year leads on name alone). nil when the record carries none.
-    private func extractPlace(from record: SourceRecord) -> String? {
+    static func place(from record: SourceRecord) -> String? {
         func clean(_ candidates: [String?]) -> String? {
             for c in candidates {
                 if let c, !c.trimmingCharacters(in: .whitespaces).isEmpty { return c }

@@ -1421,6 +1421,22 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // v48 — backfill age-at-death + place onto leads created before v47.
+        // The structured SourceRecord is already persisted in
+        // evidence_records.record_json; a scored lead's id is
+        // "lead_" + source_record_id, so each nil-age/place lead is joined
+        // back to its record and re-projected with the SAME extraction the
+        // live path uses (`LeadFieldExtraction`) — no wire access, no
+        // free-text parsing, and user-set lead statuses are untouched.
+        // Household leads (`lead_hh_…`) and parent-inferred leads have no
+        // directly-linked evidence row and stay nil (parent-inferred carries
+        // no age/place anyway). Idempotent: only rows still NULL are touched.
+        migrator.registerMigration("v48_backfill_lead_age_place") { db in
+            let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "ProjectDatabase")
+            let updated = try Self.backfillLeadAgePlace(db)
+            logger.info("v48: backfilled age/place onto \(updated) leads from persisted source records")
+        }
+
         return migrator
     }
 
@@ -3765,6 +3781,48 @@ nonisolated extension ProjectDatabase {
                 )
             }
         }
+    }
+
+    /// Backfill `age_at_death` + `place` onto leads that predate v47, by
+    /// re-projecting each lead's already-persisted `SourceRecord`
+    /// (`evidence_records.record_json`) with the live extraction rules. A
+    /// scored lead's id is `"lead_" + source_record_id`, so the join recovers
+    /// its record without touching the wire or the lead's user status.
+    /// Idempotent — only rows still NULL on both fields are considered.
+    /// Returns the number of leads updated. Called by the v48 migration and
+    /// exercised directly by tests. `db` is the migration/transaction handle.
+    /// Run the v48 backfill in its own write transaction. Wrapper so callers
+    /// (and tests) don't need to touch the GRDB write API directly.
+    @discardableResult
+    func runLeadAgePlaceBackfill() throws -> Int {
+        try dbQueue.write { try Self.backfillLeadAgePlace($0) }
+    }
+
+    static func backfillLeadAgePlace(_ db: Database) throws -> Int {
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT l.id AS lead_id, e.record_json AS record_json
+            FROM leads l
+            JOIN evidence_records e
+              ON l.id = 'lead_' || e.source_record_id
+             AND l.profile_id = e.profile_id
+            WHERE l.age_at_death IS NULL AND l.place IS NULL
+            """)
+        var updated = 0
+        for row in rows {
+            guard let json = row["record_json"] as String?,
+                  let data = json.data(using: .utf8),
+                  let record = try? JSONDecoder().decode(SourceRecord.self, from: data)
+            else { continue }
+            let age = LeadFieldExtraction.ageAtDeath(from: record)
+            let place = LeadFieldExtraction.place(from: record)
+            guard age != nil || place != nil else { continue }
+            try db.execute(
+                sql: "UPDATE leads SET age_at_death = ?, place = ? WHERE id = ?",
+                arguments: [age, place, row["lead_id"] as String]
+            )
+            updated += 1
+        }
+        return updated
     }
 
     func loadLeads(profileID: String) throws -> [Lead] {

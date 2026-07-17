@@ -113,6 +113,71 @@ struct LeadStorePersistenceTests {
         #expect(reloaded.place == "Wollaton Cemetery", "place must survive a status flip")
     }
 
+    // MARK: - v48: backfill age/place from persisted source records
+
+    @Test func backfillProjectsAgeAndPlaceFromEvidenceRecord() throws {
+        let db = try makeTempDB()
+
+        // A death record with an age + district, as it would already be
+        // persisted in evidence_records for a pre-v47 lead.
+        let record = SourceRecord.death(DeathRecord(
+            common: RecordCommon(id: "rec_death_1", sourceID: "freebmd", rawFields: [:]),
+            deathYear: 1960, age: 74, district: "Basford"
+        ))
+        let scored = ScoredRecord(id: "rec_death_1", record: record,
+                                  verdict: .lead, gates: [], summary: "death")
+        try db.saveEvidence(profileID: "p1", scored: scored,
+                            citationFull: nil, citationURL: nil)
+
+        // The lead as it exists pre-backfill: nil age/place, id embeds the
+        // source-record id.
+        let lead = Lead(
+            id: "lead_rec_death_1", profileID: "p1",
+            name: "George Ward", surname: "Ward", givenName: "George",
+            birthYear: nil, deathYear: 1960, ageAtDeath: nil, place: nil,
+            relationship: nil, source: .scoredLead, status: .new,
+            evidence: "death", createdAt: Date()
+        )
+        try db.saveLead(lead)
+
+        let updated = try db.runLeadAgePlaceBackfill()
+        #expect(updated == 1)
+
+        let reloaded = try #require(try db.loadLeads().first)
+        #expect(reloaded.ageAtDeath == 74)
+        #expect(reloaded.place == "Basford")
+        #expect(reloaded.effectiveBirthYear == 1886, "implied birth now available for blocking")
+    }
+
+    @Test func backfillIsIdempotentAndSkipsAlreadyFilledLeads() throws {
+        let db = try makeTempDB()
+        let record = SourceRecord.death(DeathRecord(
+            common: RecordCommon(id: "rec_death_2", sourceID: "freebmd", rawFields: [:]),
+            deathYear: 1950, age: 60, district: "Belper"
+        ))
+        try db.saveEvidence(
+            profileID: "p1",
+            scored: ScoredRecord(id: "rec_death_2", record: record,
+                                 verdict: .lead, gates: [], summary: "death"),
+            citationFull: nil, citationURL: nil
+        )
+        // Lead already carries age/place (post-v47 creation) — must be left alone.
+        try db.saveLead(Lead(
+            id: "lead_rec_death_2", profileID: "p1",
+            name: "Ann Ward", surname: "Ward", givenName: "Ann",
+            birthYear: nil, deathYear: 1950, ageAtDeath: 60, place: "Belper",
+            relationship: nil, source: .scoredLead, status: .new,
+            evidence: "death", createdAt: Date()
+        ))
+
+        let updated = try db.runLeadAgePlaceBackfill()
+        #expect(updated == 0, "already-filled leads are not re-touched")
+
+        // Second pass finds nothing to do either.
+        let again = try db.runLeadAgePlaceBackfill()
+        #expect(again == 0)
+    }
+
     // MARK: - Invariant 3: household-member id is deterministic
 
     @Test func householdMemberLeadIDIsDeterministicAcrossInstances() async throws {
