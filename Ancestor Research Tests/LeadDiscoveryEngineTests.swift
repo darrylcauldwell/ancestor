@@ -201,6 +201,26 @@ struct LeadDiscoveryEngineTests {
         #expect(LeadDiscoveryEngine.placesCompatible("WOLLATON CEMETERY", "WOLLATON"))
     }
 
+    @Test func clusterIDsAreUniqueAcrossBlocks() {
+        // Same surname lands in MANY (surname, decade) blocks — 1880s, 1920s,
+        // yearless — and each block used to mint ids from its own local index
+        // ("WARD-0", "WARD-1", …), colliding across blocks. Duplicate ForEach
+        // ids render as blank ghost rows in the Possible People panel (owner
+        // report 2026-07-17). Ids must be unique across the whole pool.
+        let leads = [
+            makeLead(id: "1", surname: "Ward", given: "George", birthYear: 1885),
+            makeLead(id: "2", surname: "Ward", given: "Mary", birthYear: 1887),
+            makeLead(id: "3", surname: "Ward", given: "George", birthYear: 1925),
+            makeLead(id: "4", surname: "Ward", given: "Mary", birthYear: 1922),
+            makeLead(id: "5", surname: "Ward", given: "Ellen", place: "Wollaton"),
+            makeLead(id: "6", surname: "Ward", given: "Harold", place: "Runnymede"),
+        ]
+        let clusters = LeadDiscoveryEngine.discover(leads: leads)
+        let ids = clusters.map(\.id)
+        #expect(Set(ids).count == ids.count, "cluster ids must be globally unique")
+        #expect(clusters.count == 6)  // all singletons here — six distinct ids
+    }
+
     // MARK: - Phase 3: deterministic embedder + fuzzy-bridge
 
     private func vec(_ c: LeadDiscoveryEngine.EmergentCluster) -> [Float] {

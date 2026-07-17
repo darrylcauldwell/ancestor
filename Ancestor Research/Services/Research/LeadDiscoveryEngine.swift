@@ -87,7 +87,7 @@ nonisolated struct LeadDiscoveryEngine {
 
         var clusters: [EmergentCluster] = []
         for (key, blockLeads) in blocks.sorted(by: { $0.key < $1.key }) {
-            clusters.append(contentsOf: clusterBlock(blockLeads, surname: key.surname))
+            clusters.append(contentsOf: clusterBlock(blockLeads, surname: key.surname, decade: key.decade))
         }
         // Most-coherent first; stable tiebreak by id for reproducibility.
         return clusters.sorted {
@@ -117,7 +117,7 @@ nonisolated struct LeadDiscoveryEngine {
     /// Agglomerative merge inside one (surname, decade) block: start each lead
     /// as its own group and merge two groups only when EVERY cross-pair is
     /// compatible (conservative — precision over recall). Deterministic order.
-    private static func clusterBlock(_ leads: [Lead], surname: String) -> [EmergentCluster] {
+    private static func clusterBlock(_ leads: [Lead], surname: String, decade: Int?) -> [EmergentCluster] {
         let sorted = leads.sorted { $0.id < $1.id }
         var groups: [[Lead]] = sorted.map { [$0] }
         var merged = true
@@ -133,7 +133,15 @@ nonisolated struct LeadDiscoveryEngine {
             }
         }
         return groups.enumerated().map { idx, g in
-            makeCluster(id: "\(surname)-\(idx)", surname: surname, leads: g)
+            // The id must be unique across the WHOLE pool, not just this
+            // block: the same surname appears in many decade blocks, and
+            // "WARD-0" from each of them collided — SwiftUI renders duplicate
+            // ForEach ids as blank ghost rows (owner report 2026-07-17,
+            // Possible People gaps). The block's decade disambiguates.
+            makeCluster(
+                id: "\(surname)-\(decade.map(String.init) ?? "nodecade")-\(idx)",
+                surname: surname, leads: g
+            )
         }
     }
 
