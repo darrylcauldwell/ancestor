@@ -368,8 +368,9 @@ struct PossiblePeopleView: View {
     }
 
     /// The text a cluster embeds as — its representative name plus place, the
-    /// fields that carry identity signal.
-    private static func clusterText(_ cluster: LeadDiscoveryEngine.EmergentCluster) -> String {
+    /// fields that carry identity signal. `nonisolated` because it runs inside
+    /// the detached clustering task (MainActor-default target).
+    nonisolated private static func clusterText(_ cluster: LeadDiscoveryEngine.EmergentCluster) -> String {
         let lead = cluster.representativeLead
         return [lead.givenName, lead.surname, lead.place]
             .compactMap { $0 }
