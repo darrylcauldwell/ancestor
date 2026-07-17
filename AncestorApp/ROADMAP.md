@@ -113,17 +113,19 @@ This section reads as the build sequence — top to bottom is the intended order
   (shared §7 constraints; over-merge item (c) especially). Staged with explicit gates (spec §9):
   **Phase 0** diagnostic (go/no-go) → **Phase 1** read-only discovery panel → **Phase 2** hypothesis
   emission → **Phase 3** embeddings → **Phase 4** AI narration → **Phase 5** unify acceptance +
-  discovery. **[✓ Phases 0–3 shipped 2026-07-17]:** Phase 0 run live on the real 5,409-lead pool
-  (go — largest false cluster 273→54 after the no-birth-year over-merge fix: structured age-at-death
-  + place on `Lead` `4563cdd`, v48 backfill `cee36a9`, dies-once + place gate); Phase 1 read-only
-  "Possible People" panel in Triage (`9352849`); Phase 2 act-via-leads-firewall — "Research as one
-  person" / "Not a person" (owner-chosen lead route over the hypothesis route, `55db1bc`); Phase 3
-  fuzzy-bridge across surname spelling variants — deterministic embedder `85bd30d` + real MLX
-  semantic embedder wired behind the `TextEmbedder` seam `b34dab0` (opt-in, runtime-validated by
-  loading a model in-app). **Remaining: Phase 4 (AI adjudication of borderline pairs + cluster
-  narration) → Phase 5 (unify).** Known residual: yearless same-place namesakes still over-merge —
-  quarantined as low-confidence, needs a second signal (Phase 4). This is *core research
-  capability*, not polish. Gate for the tail: as before.
+  discovery. **[✓ ALL PHASES 0–5 SHIPPED 2026-07-17 — the pivot's staged plan is complete]:**
+  Phase 0 run live on the real 5,409-lead pool (go — largest false cluster 273→54 after the
+  no-birth-year over-merge fix: structured age-at-death + place on `Lead` `4563cdd`, v48 backfill
+  `cee36a9`, dies-once + place gate); Phase 1 read-only "Possible People" panel in Triage
+  (`9352849`); Phase 2 act-via-leads-firewall — "Research as one person" / "Not a person"
+  (owner-chosen lead route over the hypothesis route, `55db1bc`); Phase 3 fuzzy-bridge across
+  surname spelling variants — deterministic embedder `85bd30d` + real MLX semantic embedder behind
+  the `TextEmbedder` seam `b34dab0` (opt-in); Phase 4 deterministic narration + advisory AI
+  adjudication of borderline clusters (`2d16947`); Phase 5 shared identity core —
+  `IdentityConstraints` is the single §7 rule authority both engines consult, drift-detector
+  tested (`0072c82`). Remaining tails are OBSERVATIONAL, not build: real-run behavioural
+  validation, semantic-model + adjudication verdict quality (user, in-app with a model loaded);
+  household relationship extraction deliberately deferred to `PROSE_CORPUS_SPEC.md`.
 - **Query-side given-name variants** (surfaced 2026-07-15, Harry Marshall: possibly
   registered HENRY — the nickname table scores returned records, but outbound queries carry
   the subject's stored given name only, so a Henry-registered death is invisible to every
