@@ -92,8 +92,12 @@ struct ResearchView: View {
         .onChange(of: appState.requestPendingReviewProfileID) { _, _ in
             consumePendingReviewRequest()
         }
+        .onChange(of: appState.requestPossiblePeopleProfileID) { _, _ in
+            consumePossiblePeopleRequest()
+        }
         .onAppear {
             consumePendingReviewRequest()
+            consumePossiblePeopleRequest()
             reloadPendingCounts()
         }
         // Returning from a per-profile review (accept/reject changed counts)
@@ -108,6 +112,15 @@ struct ResearchView: View {
         appState.requestPendingReviewProfileID = nil
         pendingReviewProfileID = requested
         showPendingReview = true
+    }
+
+    /// Deep-link from a profile's "Possible People (N)" section: land on the
+    /// Possible People panel scoped to that person (POSSIBLE_PEOPLE_CONTEXT_SPEC).
+    private func consumePossiblePeopleRequest() {
+        guard let requested = appState.requestPossiblePeopleProfileID else { return }
+        appState.requestPossiblePeopleProfileID = nil
+        possiblePeopleScopeProfileID = requested
+        triageMode = .people
     }
 
     /// One GROUP-BY query for all profiles' pending-review counts — drives
@@ -421,6 +434,9 @@ struct ResearchView: View {
         case people = "Possible People"
     }
     @State private var triageMode: TriageMode = .findings
+    /// Set by the profile deep-link to scope the Possible People panel to one
+    /// person; nil = the full pool. Cleared when the user switches to Findings.
+    @State private var possiblePeopleScopeProfileID: String?
 
     private var triageResting: some View {
         VStack(spacing: 0) {
@@ -445,18 +461,55 @@ struct ResearchView: View {
                     onDone: nil
                 )
             case .people:
-                PossiblePeopleView(onResearch: { lead in
-                    Task { @MainActor in
-                        researchVM.appDatabase = appState.currentDatabase
-                        await researchVM.startResearch(
-                            lead: lead,
-                            snapshot: appState.snapshot,
-                            registry: registry
-                        )
-                    }
-                })
+                if let scopeID = possiblePeopleScopeProfileID {
+                    scopedPossiblePeopleHeader(scopeID)
+                }
+                PossiblePeopleView(
+                    onResearch: { lead in
+                        Task { @MainActor in
+                            researchVM.appDatabase = appState.currentDatabase
+                            await researchVM.startResearch(
+                                lead: lead,
+                                snapshot: appState.snapshot,
+                                registry: registry
+                            )
+                        }
+                    },
+                    scope: possiblePeopleScopeProfileID.map { .profile($0) } ?? .all
+                )
+                // Re-instantiate the panel when the scope changes so it
+                // recomputes for the new person / the full pool.
+                .id(possiblePeopleScopeProfileID ?? "all")
             }
         }
+        // Switching to Findings clears any profile scope so returning to
+        // Possible People shows the full pool again.
+        .onChange(of: triageMode) { _, mode in
+            if mode == .findings { possiblePeopleScopeProfileID = nil }
+        }
+    }
+
+    /// Banner shown when the panel is scoped to one profile via the deep-link —
+    /// names the person and offers a one-tap return to the full pool.
+    @ViewBuilder
+    private func scopedPossiblePeopleHeader(_ profileID: String) -> some View {
+        let name = appState.snapshot.profiles[profileID]?.displayName ?? "this person"
+        HStack(spacing: 8) {
+            Image(systemName: "person.crop.circle")
+                .foregroundStyle(.secondary)
+            Text("Scoped to \(name)")
+                .font(AppTypography.cardMeta)
+            Spacer()
+            Button {
+                possiblePeopleScopeProfileID = nil
+            } label: {
+                Label("Show all", systemImage: "xmark.circle")
+            }
+            .buttonStyle(.glass)
+            .controlSize(.small)
+        }
+        .padding(.horizontal)
+        .padding(.bottom, 6)
     }
 
 }

@@ -111,6 +111,14 @@ final class AppState {
     /// consumes via `.onChange` + `.onAppear` and clears the request.
     var requestPendingReviewProfileID: String?
 
+    /// Cross-view request: open the Triage → Possible People panel scoped to
+    /// this profile — set by a profile's "Possible People (N)" section so the
+    /// user lands on that person's surfaced candidate clusters. Set together
+    /// with `requestSidebarTab = .triage`; `ResearchView` consumes it, flips
+    /// the Triage segment to Possible People, and scopes the panel
+    /// (POSSIBLE_PEOPLE_CONTEXT_SPEC).
+    var requestPossiblePeopleProfileID: String?
+
     var isLoading = false
     var loadingMessage: String?
     var errorMessage: String?

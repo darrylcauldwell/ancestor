@@ -63,6 +63,10 @@ struct ProfileDetailView: View {
     @State private var showingTimeline: Bool = false
     @State private var showingRelationshipCalculator: Bool = false
     @State private var cleansePresentation: CleansePresentation?
+    /// Count of active leads this profile's research surfaced — the cheap
+    /// signal behind the "Possible People (N)" section (the expensive
+    /// clustering happens in the panel the section deep-links to).
+    @State private var surfacedLeadCount: Int = 0
 
     var body: some View {
         ScrollView {
@@ -84,6 +88,11 @@ struct ProfileDetailView: View {
                     sourceSection
                 }
 
+                if !isEditing && surfacedLeadCount > 0 {
+                    Divider()
+                    possiblePeopleSection
+                }
+
                 Divider()
                 actionRow
             }
@@ -96,6 +105,7 @@ struct ProfileDetailView: View {
                 populate()
                 isEditing = true
             }
+            reloadSurfacedLeadCount()
         }
         .onChange(of: profile.id) { _, _ in
             // Selection changed — exit edit without saving and let the
@@ -103,6 +113,7 @@ struct ProfileDetailView: View {
             // the in-progress edit accidentally would invite a save against
             // the wrong subject.
             isEditing = false
+            reloadSurfacedLeadCount()
         }
         .onChange(of: isEditing) { _, nowEditing in
             // Repopulate on every entry to edit mode so the form always
@@ -142,6 +153,42 @@ struct ProfileDetailView: View {
             .help("Close")
             .accessibilityLabel("Close profile")
         }
+    }
+
+    /// Lightweight discovery pointer (POSSIBLE_PEOPLE_CONTEXT_SPEC step 4):
+    /// signals that this person's research surfaced candidate people, and
+    /// deep-links into the Possible People panel scoped to them — where the
+    /// actual clustering + assessment happens. A summary, not a second copy
+    /// of the interactive cards.
+    private var possiblePeopleSection: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "person.2.badge.gearshape")
+                .foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Possible People")
+                    .font(AppTypography.cardTitle)
+                Text("\(surfacedLeadCount) lead\(surfacedLeadCount == 1 ? "" : "s") from this person's research — candidate people to review")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                appState.requestPossiblePeopleProfileID = profile.id
+                appState.requestSidebarTab = .triage
+            } label: {
+                Label("Explore", systemImage: "arrow.right")
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.small)
+        }
+    }
+
+    private func reloadSurfacedLeadCount() {
+        guard let db = appState.currentDatabase else { surfacedLeadCount = 0; return }
+        let leads = (try? db.loadLeads(profileID: profile.id)) ?? []
+        surfacedLeadCount = leads.filter {
+            $0.status == .new || $0.status == .investigating || $0.status == .investigated
+        }.count
     }
 
     @ViewBuilder
