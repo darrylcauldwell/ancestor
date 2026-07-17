@@ -20,7 +20,17 @@ struct CompareProfilesView: View {
     /// M24 — Drop the toast fade-in for users who prefer reduced motion.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var showMergeNotice: Bool = false
+    /// Merge state. `keepLeft` — which profile survives (the other folds in and
+    /// is removed). Defaults to the more-complete one; user can flip.
+    @State private var keepLeft: Bool = true
+    @State private var mergeDefaulted = false
+    @State private var showMergeConfirm = false
+    @State private var mergeError: String?
+
+    private var mergeAssessment: MergeSafety.Assessment {
+        guard let l = leftProfile, let r = rightProfile else { return .ok }
+        return MergeSafety.assess(left: l, right: r, relationships: appState.snapshot.relationships)
+    }
 
     private var leftProfile: Profile? {
         appState.snapshot.profiles[leftProfileID]
@@ -53,17 +63,6 @@ struct CompareProfilesView: View {
             footer
         }
         .frame(minWidth: 720, minHeight: 520)
-        .overlay(alignment: .top) {
-            if showMergeNotice {
-                Text("Merging is not yet implemented (deferred to a later milestone).")
-                    .font(AppTypography.toast)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .glassEffect(.regular, in: .capsule)
-                    .padding(.top, 8)
-                    .transition(reduceMotion ? .identity : .opacity)
-            }
-        }
     }
 
     // MARK: - Header
@@ -233,27 +232,108 @@ struct CompareProfilesView: View {
         }
     }
 
+    @ViewBuilder
     private var actionsRow: some View {
-        HStack {
-            Spacer()
-            Button("Mark as duplicate") {
-                showMergeNotice = true
-                Task {
-                    try? await Task.sleep(for: .seconds(1.6))
-                    showMergeNotice = false
-                    dismiss()
-                }
+        let assessment = mergeAssessment
+        VStack(alignment: .leading, spacing: 8) {
+            // Safety banner — the father/son guard. Blocked = no merge at all.
+            switch assessment {
+            case .blocked(let reason):
+                Label(reason, systemImage: "hand.raised.fill")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.red)
+            case .warn(let reason):
+                Label(reason, systemImage: "exclamationmark.triangle.fill")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.orange)
+            case .ok:
+                EmptyView()
             }
-            .buttonStyle(.glassProminent)
-            .controlSize(.small)
-            .disabled(leftProfile == nil || rightProfile == nil)
+            if let mergeError {
+                Text(mergeError).font(AppTypography.cardMeta).foregroundStyle(.red)
+            }
 
-            Button("Close") {
-                dismiss()
+            HStack(spacing: 10) {
+                if canMerge {
+                    // Which profile survives — the other folds into it and is
+                    // removed (undoable). Default is the more-complete one.
+                    Picker("Keep", selection: $keepLeft) {
+                        Text(shortName(leftProfile, leftProfileID)).tag(true)
+                        Text(shortName(rightProfile, rightProfileID)).tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 320)
+                }
+                Spacer()
+                if canMerge {
+                    Button("Merge…") { showMergeConfirm = true }
+                        .buttonStyle(.glassProminent)
+                        .controlSize(.small)
+                }
+                Button("Close") { dismiss() }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+                    .keyboardShortcut(.cancelAction)
             }
-            .buttonStyle(.glass)
-            .controlSize(.small)
-            .keyboardShortcut(.cancelAction)
+        }
+        .onAppear { defaultWinnerToMoreComplete() }
+        .confirmationDialog(
+            "Merge \(shortName(loserProfile, "")) into \(shortName(winnerProfile, ""))?",
+            isPresented: $showMergeConfirm, titleVisibility: .visible
+        ) {
+            Button("Merge", role: .destructive) { performMerge() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(confirmMessage)
+        }
+    }
+
+    /// Merge is offered unless the pair is structurally impossible (blocked).
+    private var canMerge: Bool {
+        guard leftProfile != nil, rightProfile != nil else { return false }
+        if case .blocked = mergeAssessment { return false }
+        return true
+    }
+
+    private var winnerProfile: Profile? { keepLeft ? leftProfile : rightProfile }
+    private var loserProfile: Profile? { keepLeft ? rightProfile : leftProfile }
+
+    private var confirmMessage: String {
+        var msg = "\(shortName(loserProfile, "the other profile"))'s records and relationships move onto \(shortName(winnerProfile, "the kept profile")), and it is removed. This can be undone."
+        if case .warn(let reason) = mergeAssessment {
+            msg = "⚠︎ \(reason)\n\n" + msg
+        }
+        return msg
+    }
+
+    private func shortName(_ p: Profile?, _ fallback: String) -> String {
+        guard let p, !p.displayName.isEmpty else { return fallback }
+        return p.displayName
+    }
+
+    /// Default the survivor to whichever profile is more complete (a stub
+    /// should fold into the rich original, not the reverse).
+    private func defaultWinnerToMoreComplete() {
+        guard !mergeDefaulted, let l = leftProfile, let r = rightProfile else { return }
+        mergeDefaulted = true
+        let lc = appState.snapshot.completeness(for: l.id).score
+        let rc = appState.snapshot.completeness(for: r.id).score
+        keepLeft = lc >= rc
+    }
+
+    private func performMerge() {
+        guard let db = appState.currentDatabase,
+              let winner = winnerProfile, let loser = loserProfile else { return }
+        do {
+            try ProfileMergeEngine.merge(
+                loserID: loser.id, winnerID: winner.id,
+                snapshot: appState.snapshot, db: db
+            )
+            appState.snapshot = try db.buildSnapshot()
+            dismiss()
+        } catch {
+            mergeError = "Merge failed: \(error.localizedDescription)"
         }
     }
 }
