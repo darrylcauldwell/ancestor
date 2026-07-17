@@ -1,6 +1,8 @@
 # POSSIBLE_PEOPLE_CONTEXT_SPEC
 
-**Status:** accepted-direction 2026-07-17 (owner). Building now.
+**Status:** SHIPPED 2026-07-17. Commits: `bcb29d7` (ClusterContext), `d8754a9`
+(card context), `938d44b` (panel scope + by-person grouping), `f868aaf`
+(profile section + scoped deep-link). All decisions below built as chosen.
 **Motivation:** a cluster is only assessable once you can see the tree person it
 hangs off. The Possible People panel today shows *what* cohered (a candidate
 identity) but not *how it connects to your tree* — and that connection (who
