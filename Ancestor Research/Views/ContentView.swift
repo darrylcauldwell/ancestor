@@ -107,7 +107,7 @@ struct MainView: View {
                 }
             case .tasks:
                 UnifiedTasksView(
-                    onResearchLead: researchLead,
+                    onOpenTriage: openTriage,
                     onOpenProfile: openProfileDetail
                 )
             case .sourcing:
@@ -458,6 +458,12 @@ struct MainView: View {
     private func openProfileDetail(_ profileID: String) {
         selectedTab = .tree
         appState.requestOpenProfileDetail = profileID
+    }
+
+    /// Tasks' leads-pointer banner hands off here — leads live in Triage
+    /// (owner decision 2026-07-17), Tasks only points at the queue.
+    private func openTriage() {
+        selectedTab = .triage
     }
 
     /// Shared "research this lead" handler — invoked from Task rows in

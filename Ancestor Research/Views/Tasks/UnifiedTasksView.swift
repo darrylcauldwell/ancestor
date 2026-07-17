@@ -3,15 +3,20 @@ import SwiftUI
 // MARK: - Unified Task Model
 //
 // Per DESIGN.md §7.13: a single sortable, filterable list that aggregates
-// everything the user might want to act on next. Five input streams:
+// everything the user might want to act on next. Four input streams:
 //   1. Audit issues (errors / warnings / info)
 //   2. Gap items (profiles with missing fields)
 //   3. Open questions (workbench questions)
 //   4. Tentative facts — FieldSource with confidence == .tentative, plus
 //      LifeEvent with confidence == .tentative
-//   5. Active leads (status new / investigating / investigated) —
-//      engine-discovered person-shaped gaps awaiting research or a
-//      promote/dismiss decision.
+//
+// Leads are deliberately NOT a task stream (owner decision 2026-07-17):
+// they are research findings, and Triage is their one home — the identity-
+// grouped Findings queue and the Possible People discovery panel. Tasks
+// shows only a one-line pointer ("N leads awaiting triage") so the queue's
+// existence stays visible without re-hosting it; the old flat per-lead rows
+// were the pre-pivot presentation of the raw noise pool, superseded twice
+// (identity grouping, then clustering).
 //
 // The data layer is pure/nonisolated so the aggregator is trivially testable
 // without touching the view or the database.
@@ -25,7 +30,6 @@ nonisolated enum UnifiedTask: Identifiable {
     case openQuestion(OpenQuestion)
     case tentativeField(profileID: String, profileName: String, field: ProfileField, value: String, source: FieldSource)
     case tentativeLifeEvent(LifeEvent, profileName: String)
-    case lead(Lead)
 
     var id: String {
         switch self {
@@ -40,8 +44,6 @@ nonisolated enum UnifiedTask: Identifiable {
             return "tentative-field:\(pid):\(field.rawValue):\(source.addedAt.timeIntervalSince1970)"
         case .tentativeLifeEvent(let e, _):
             return "tentative-event:\(e.id.uuidString)"
-        case .lead(let lead):
-            return "lead:\(lead.id)"
         }
     }
 
@@ -51,7 +53,6 @@ nonisolated enum UnifiedTask: Identifiable {
         case .gap: return .gap
         case .openQuestion: return .question
         case .tentativeField, .tentativeLifeEvent: return .tentative
-        case .lead: return .lead
         }
     }
 
@@ -62,7 +63,6 @@ nonisolated enum UnifiedTask: Identifiable {
         case .openQuestion(let q): return q.profileIDs.isEmpty ? "—" : "Question"
         case .tentativeField(_, let name, _, _, _): return name
         case .tentativeLifeEvent(_, let name): return name
-        case .lead(let lead): return lead.name
         }
     }
 
@@ -77,10 +77,6 @@ nonisolated enum UnifiedTask: Identifiable {
         case .openQuestion(let q): return q.profileIDs.first
         case .tentativeField(let pid, _, _, _, _): return pid
         case .tentativeLifeEvent(let e, _): return e.profileID
-        // Leads are pinned to the profile that generated them (the
-        // profile whose research surfaced the candidate), not to the
-        // lead's own non-existent profile.
-        case .lead(let lead): return lead.profileID
         }
     }
 
@@ -111,12 +107,6 @@ nonisolated enum UnifiedTask: Identifiable {
         case .tentativeLifeEvent(let e, _):
             let parts = [e.type.displayName, e.description, e.location].compactMap { $0 }.filter { !$0.isEmpty }
             return parts.joined(separator: " — ")
-        case .lead(let lead):
-            var bits: [String] = []
-            if let rel = lead.relationship { bits.append(rel) }
-            if let year = lead.birthYear { bits.append("b. ~\(year)") }
-            bits.append(lead.evidence)
-            return bits.joined(separator: " · ")
         }
     }
 
@@ -133,23 +123,14 @@ nonisolated enum UnifiedTask: Identifiable {
         case .gap: return "rectangle.portrait.and.arrow.right"
         case .openQuestion: return "questionmark.bubble"
         case .tentativeField, .tentativeLifeEvent: return "wand.and.stars"
-        case .lead(let lead):
-            switch lead.status {
-            case .new: return "sparkle"
-            case .investigating: return "arrow.triangle.2.circlepath"
-            case .investigated: return "checkmark.circle"
-            case .promoted: return "person.badge.plus"
-            case .dismissed: return "xmark.circle"
-            }
         }
     }
 
     /// Sort key — lower comes first. Tier ordering:
     ///   0 audit error • 1 audit warning • 2 high-priority question •
-    ///   3 gap with no name/birth • 4 investigated lead (decision needed) •
-    ///   5 other gap • 6 new lead (research available) •
-    ///   7 medium question • 8 tentative field • 9 tentative life event •
-    ///   10 low question • 11 audit info • 12 investigating lead (in flight)
+    ///   3 gap with no name/birth • 5 other gap • 7 medium question •
+    ///   8 tentative field • 9 tentative life event •
+    ///   10 low question • 11 audit info
     var sortKey: Int {
         switch self {
         case .auditIssue(let r):
@@ -174,19 +155,6 @@ nonisolated enum UnifiedTask: Identifiable {
                 }
             }
             return critical ? 3 : 5
-        case .lead(let lead):
-            switch lead.status {
-            // Engine has finished researching this lead and is waiting on
-            // the user's promote/dismiss call — highest-actionable lead state.
-            case .investigated: return 4
-            // Engine found a candidate; user can kick off research.
-            case .new: return 6
-            // Already in flight — visible but inert; sink to the bottom.
-            case .investigating: return 12
-            // .promoted / .dismissed never reach the aggregator; ranked
-            // last defensively so a programming error doesn't crash sort.
-            case .promoted, .dismissed: return Int.max
-            }
         case .tentativeField: return 8
         case .tentativeLifeEvent: return 9
         }
@@ -194,7 +162,7 @@ nonisolated enum UnifiedTask: Identifiable {
 }
 
 nonisolated enum TaskCategory: String, CaseIterable, Identifiable {
-    case audit, gap, question, tentative, lead
+    case audit, gap, question, tentative
 
     var id: String { rawValue }
 
@@ -204,7 +172,6 @@ nonisolated enum TaskCategory: String, CaseIterable, Identifiable {
         case .gap: return "Gaps"
         case .question: return "Questions"
         case .tentative: return "Tentative"
-        case .lead: return "Leads"
         }
     }
 }
@@ -219,7 +186,6 @@ extension TaskCategory {
         case .gap: return .orange
         case .question: return .accentColor
         case .tentative: return .purple
-        case .lead: return .blue          // Matches `.new` lead icon — most common lead state
         }
     }
 }
@@ -234,8 +200,7 @@ nonisolated enum UnifiedTaskAggregator {
         snapshot: FamilyGraphSnapshot,
         auditSummary: AuditSummary?,
         questions: [OpenQuestion],
-        lifeEvents: [LifeEvent],
-        leads: [Lead] = []
+        lifeEvents: [LifeEvent]
     ) -> [UnifiedTask] {
         var tasks: [UnifiedTask] = []
 
@@ -301,17 +266,6 @@ nonisolated enum UnifiedTaskAggregator {
         for event in lifeEvents where event.confidence == .tentative {
             let name = snapshot.profiles[event.profileID]?.displayName ?? event.profileID
             tasks.append(.tentativeLifeEvent(event, profileName: name))
-        }
-
-        // 5. Active leads — engine-discovered candidates awaiting research
-        // or a promote/dismiss decision. Promoted / dismissed leads are
-        // terminal and not surfaced; `.new` and `.investigated` get
-        // action buttons; `.investigating` shows in-flight state
-        // without action.
-        for lead in leads where lead.status == .new
-            || lead.status == .investigating
-            || lead.status == .investigated {
-            tasks.append(.lead(lead))
         }
 
         // Sort by tier then by profile name for stable ordering.
@@ -392,10 +346,9 @@ struct UnifiedTasksView: View {
     /// Persisted via AppStorage so the choice survives app launches.
     @AppStorage("tasksGroupByProfile") private var groupByProfile: Bool = false
 
-    /// Callback fired when the user clicks Research on a lead row. Owned
-    /// by ContentView so the closure stays alongside the rest of the
-    /// research-progress sheet wiring.
-    let onResearchLead: (Lead) -> Void
+    /// Callback fired by the leads-pointer banner — hands the user off to
+    /// the Triage tab, the one home for leads (Findings + Possible People).
+    let onOpenTriage: () -> Void
 
     /// Callback fired when the user clicks the label area of a task row
     /// (anywhere outside the trailing action buttons). Receives the
@@ -414,8 +367,7 @@ struct UnifiedTasksView: View {
             snapshot: appState.snapshot,
             auditSummary: effectiveSummary,
             questions: appState.questions,
-            lifeEvents: lifeEvents,
-            leads: leads
+            lifeEvents: lifeEvents
         )
     }
 
@@ -448,6 +400,7 @@ struct UnifiedTasksView: View {
         VStack(spacing: 0) {
             toolbar
             Divider()
+            leadsPointer
             content
         }
         .navigationTitle("Tasks")
@@ -598,7 +551,7 @@ struct UnifiedTasksView: View {
                     ForEach(UnifiedTaskGrouping.groupedByProfile(filteredTasks), id: \.profileName) { group in
                         Section {
                             ForEach(group.tasks) { task in
-                                TaskRow(task: task, onResearchLead: onResearchLead, onLeadChanged: reloadLeads, onAuditChanged: rerunAudit, onOpenProfile: onOpenProfile)
+                                TaskRow(task: task, onAuditChanged: rerunAudit, onOpenProfile: onOpenProfile)
                             }
                         } header: {
                             HStack {
@@ -622,7 +575,7 @@ struct UnifiedTasksView: View {
             ScrollView {
                 LazyVStack(spacing: 10) {
                     ForEach(filteredTasks) { task in
-                        TaskRow(task: task, onResearchLead: onResearchLead, onLeadChanged: reloadLeads, onAuditChanged: rerunAudit, onOpenProfile: onOpenProfile)
+                        TaskRow(task: task, onAuditChanged: rerunAudit, onOpenProfile: onOpenProfile)
                     }
                 }
                 .padding()
@@ -656,6 +609,40 @@ struct UnifiedTasksView: View {
         }
         leads = (try? db.loadLeads()) ?? []
     }
+
+    // MARK: - Leads pointer (owner decision 2026-07-17)
+
+    /// Leads live in Triage, not here — this one-line banner keeps the queue
+    /// visible from Tasks without re-hosting it as task rows.
+    private var activeLeadCount: Int {
+        leads.filter {
+            $0.status == .new || $0.status == .investigating || $0.status == .investigated
+        }.count
+    }
+
+    @ViewBuilder
+    private var leadsPointer: some View {
+        if activeLeadCount > 0 {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkle")
+                    .foregroundStyle(.blue)
+                Text("\(activeLeadCount) lead\(activeLeadCount == 1 ? "" : "s") awaiting triage")
+                    .font(AppTypography.cardBody)
+                Spacer()
+                Button {
+                    onOpenTriage()
+                } label: {
+                    Label("Open Triage", systemImage: "arrow.right")
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background(.blue.opacity(0.06))
+            Divider()
+        }
+    }
 }
 
 // MARK: - Row
@@ -666,10 +653,6 @@ struct UnifiedTasksView: View {
 /// tentative facts (no-op for now).
 private struct TaskRow: View {
     let task: UnifiedTask
-    let onResearchLead: (Lead) -> Void
-    /// Called after a lead is dismissed inline so the parent reloads the
-    /// list and the row disappears.
-    let onLeadChanged: () -> Void
     /// Called after an in-row action mutates the graph (e.g. the placeholder
     /// repair) so the parent re-runs the audit and the row refreshes.
     let onAuditChanged: () -> Void
@@ -764,14 +747,6 @@ private struct TaskRow: View {
         case .gap: return .orange
         case .openQuestion: return .accentColor
         case .tentativeField, .tentativeLifeEvent: return .purple
-        case .lead(let lead):
-            switch lead.status {
-            case .new: return .blue
-            case .investigating: return .secondary
-            case .investigated: return .orange
-            case .promoted: return .green
-            case .dismissed: return .secondary
-            }
         }
     }
 
@@ -981,63 +956,7 @@ private struct TaskRow: View {
             // Resolve is a no-op placeholder for v1. The user upgrades the
             // confidence via the profile editor (M12 Q-track).
             EmptyView()
-
-        case .lead(let lead):
-            // `.new` and `.investigated` get Research + Dismiss;
-            // `.investigating` shows a spinner and no buttons.
-            switch lead.status {
-            case .new, .investigated:
-                HStack(spacing: 6) {
-                    Button {
-                        onResearchLead(lead)
-                    } label: {
-                        Label("Research", systemImage: "magnifyingglass")
-                    }
-                    .buttonStyle(.glassProminent)
-                    .controlSize(.mini)
-                    .help("Run the research pipeline against this lead")
-
-                    Button {
-                        dismissLead(lead)
-                    } label: {
-                        Label("Dismiss", systemImage: "xmark")
-                    }
-                    .buttonStyle(.glassProminent)
-                    .tint(.red)
-                    .controlSize(.mini)
-                    .help("Dismiss this lead — not relevant")
-                }
-            case .investigating:
-                ProgressView()
-                    .controlSize(.small)
-            case .promoted, .dismissed:
-                // Never reach the aggregator, but render nothing if they do.
-                EmptyView()
-            }
         }
-    }
-
-    /// Constructs a dismissed copy of the lead and persists it via the
-    /// project database (no `LeadStore` actor hop — direct save matches
-    /// the existing in-app write pattern for this surface).
-    private func dismissLead(_ lead: Lead) {
-        guard let db = appState.currentDatabase else { return }
-        let dismissed = Lead(
-            id: lead.id, profileID: lead.profileID,
-            name: lead.name, surname: lead.surname, givenName: lead.givenName,
-            birthYear: lead.birthYear, deathYear: lead.deathYear,
-            ageAtDeath: lead.ageAtDeath, place: lead.place,
-            relationship: lead.relationship, source: lead.source,
-            status: .dismissed, evidence: lead.evidence,
-            createdAt: lead.createdAt,
-            investigatedAt: lead.investigatedAt,
-            resolvedAt: Date(), resolution: .dismissed
-        )
-        // upsertLead, not saveLead — saveLead is INSERT OR IGNORE and the
-        // dismissal silently no-ops for existing rows (CAMPAIGN_REVIEW_SPEC
-        // Change 1): the lead reappeared as .new on the next reload.
-        try? db.upsertLead(dismissed)
-        onLeadChanged()
     }
 
     private var profileForGap: Profile? {

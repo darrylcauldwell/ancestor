@@ -275,84 +275,21 @@ struct UnifiedTaskAggregatorTests {
         #expect(warnIdx! < infoIdx!)
     }
 
-    // MARK: - Leads
+    // MARK: - Leads are NOT tasks (owner decision 2026-07-17)
 
-    private func makeLead(
-        id: String = "lead1",
-        profileID: String = "p1",
-        name: String = "Henry Cauldwell",
-        status: LeadStatus = .new,
-        source: LeadSource = .scoredLead,
-        relationship: String? = "father",
-        birthYear: Int? = 1860
-    ) -> Lead {
-        Lead(
-            id: id, profileID: profileID,
-            name: name,
-            surname: name.split(separator: " ").last.map(String.init),
-            givenName: name.split(separator: " ").first.map(String.init),
-            birthYear: birthYear, deathYear: nil,
-            relationship: relationship, source: source,
-            status: status, evidence: "scored 0.8",
-            createdAt: Date(), investigatedAt: nil,
-            resolvedAt: nil, resolution: nil
-        )
-    }
-
-    @Test func aggregateEmitsActiveLeads() {
-        // .new, .investigating, .investigated all surface — they're things
-        // the user can either act on (research / decide) or see in flight.
-        let leads = [
-            makeLead(id: "l-new", name: "New Lead", status: .new),
-            makeLead(id: "l-flight", name: "Flight Lead", status: .investigating),
-            makeLead(id: "l-done", name: "Done Lead", status: .investigated)
-        ]
-
+    @Test func aggregatorHasNoLeadStream() {
+        // Leads live only in Triage (Findings + Possible People). The
+        // aggregator takes no leads input and TaskCategory has no lead case —
+        // this pins the taxonomy so a regression re-adding lead rows to Tasks
+        // fails here first.
+        #expect(!TaskCategory.allCases.map(\.rawValue).contains("lead"))
         let tasks = UnifiedTaskAggregator.aggregate(
             snapshot: snapshot([]),
             auditSummary: nil,
             questions: [],
-            lifeEvents: [],
-            leads: leads
+            lifeEvents: []
         )
-
-        let leadTasks = tasks.filter { $0.category == .lead }
-        #expect(leadTasks.count == 3)
-    }
-
-    @Test func aggregateSkipsTerminalLeads() {
-        // Promoted and dismissed leads are resolved — never surface as tasks.
-        let leads = [
-            makeLead(id: "l-promoted", name: "Old Promoted", status: .promoted),
-            makeLead(id: "l-dismissed", name: "Old Dismissed", status: .dismissed),
-            makeLead(id: "l-new", name: "Current", status: .new)
-        ]
-
-        let tasks = UnifiedTaskAggregator.aggregate(
-            snapshot: snapshot([]),
-            auditSummary: nil,
-            questions: [],
-            lifeEvents: [],
-            leads: leads
-        )
-
-        let leadTasks = tasks.filter { $0.category == .lead }
-        #expect(leadTasks.count == 1)
-        if case .lead(let lead) = leadTasks.first {
-            #expect(lead.id == "l-new")
-        } else {
-            Issue.record("Expected the single .new lead to survive the filter")
-        }
-    }
-
-    @Test func leadTaskTargetProfileIDPointsAtGeneratingProfile() {
-        // Leads are anchored to the profile whose research surfaced the
-        // candidate, not to the lead's own (non-existent) profile. The
-        // Tasks-row click handler uses targetProfileID to navigate, so
-        // a lead row opens the parent's profile detail — where the
-        // user can act on the lead via the Triage handoff.
-        let lead = makeLead(id: "l1", profileID: "ernest", name: "Henry")
-        #expect(UnifiedTask.lead(lead).targetProfileID == "ernest")
+        #expect(tasks.isEmpty)
     }
 
     @Test func gapTaskTargetProfileIDPointsAtOwningProfile() {
@@ -389,30 +326,4 @@ struct UnifiedTaskAggregatorTests {
         #expect(UnifiedTask.openQuestion(q).targetProfileID == "ernest")
     }
 
-    @Test func aggregateRanksInvestigatedLeadsAboveNewLeads() {
-        // .investigated needs the user's promote/dismiss decision — more
-        // actionable than a .new lead which only needs research kicked off.
-        let leads = [
-            makeLead(id: "l-new", name: "Aaa New", status: .new),
-            makeLead(id: "l-done", name: "Zzz Done", status: .investigated)
-        ]
-
-        let tasks = UnifiedTaskAggregator.aggregate(
-            snapshot: snapshot([]),
-            auditSummary: nil,
-            questions: [],
-            lifeEvents: [],
-            leads: leads
-        )
-
-        let leadIdxs = tasks.enumerated().compactMap { idx, t -> (Int, String)? in
-            if case .lead(let lead) = t { return (idx, lead.id) }
-            return nil
-        }
-        let newIdx = leadIdxs.first(where: { $0.1 == "l-new" })?.0
-        let doneIdx = leadIdxs.first(where: { $0.1 == "l-done" })?.0
-        #expect(newIdx != nil && doneIdx != nil)
-        #expect(doneIdx! < newIdx!,
-                "investigated lead should sort above .new despite alphabetical disadvantage")
-    }
 }
