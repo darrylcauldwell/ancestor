@@ -88,16 +88,13 @@ nonisolated struct Lead: Identifiable, Codable, Sendable {
     }
 
     /// The birth year lead discovery keys identity on: the lead's own when
-    /// known, otherwise derived from age-at-death (`deathYear − ageAtDeath`).
-    /// This is what keeps no-birth-year death/burial leads carrying a birth
-    /// window instead of over-merging on name alone (LEAD_DISCOVERY_SPEC §9).
-    /// The 0..<120 guard rejects nonsense ages.
+    /// known, otherwise derived from age-at-death via the SHARED identity core
+    /// (`IdentityConstraints.impliedBirthYear`, which also guards against
+    /// nonsense ages). This is what keeps no-birth-year death/burial leads
+    /// carrying a birth window instead of over-merging on name alone
+    /// (LEAD_DISCOVERY_SPEC §9).
     var effectiveBirthYear: Int? {
-        if let birthYear { return birthYear }
-        if let deathYear, let ageAtDeath, (0..<120).contains(ageAtDeath) {
-            return deathYear - ageAtDeath
-        }
-        return nil
+        birthYear ?? IdentityConstraints.impliedBirthYear(deathYear: deathYear, ageAtDeath: ageAtDeath)
     }
 }
 

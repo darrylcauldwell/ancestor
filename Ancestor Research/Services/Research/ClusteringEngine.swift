@@ -144,8 +144,11 @@ nonisolated struct ClusteringEngine {
         }
     }
 
-    static let maxLifespanYears = 110
-    static let maxAdultAgeYears = 90
+    // Phase 5 (LEAD_DISCOVERY_SPEC §7/§9): lifespan constants live in the
+    // SHARED identity core so acceptance- and discovery-clustering can't
+    // drift apart again. These aliases keep existing call sites readable.
+    static let maxLifespanYears = IdentityConstraints.maxLifespanYears
+    static let maxAdultAgeYears = IdentityConstraints.maxAdultAgeYears
 
     /// The genealogically-plausible lifespan window for a cluster seeded by ONE
     /// record, with a **record-type-aware forward bound** (ROADMAP clustering
@@ -175,7 +178,8 @@ nonisolated struct ClusteringEngine {
     /// The earliest death/burial year in the cluster, if any — a hard upper
     /// bound on the life. Nothing can happen after it (+ a small registration /
     /// burial-lag margin). ROADMAP clustering item (c) / LEAD_DISCOVERY §7.
-    static let postDeathMarginYears = 2
+    /// Alias of the shared identity core (Phase 5).
+    static let postDeathMarginYears = IdentityConstraints.postDeathMarginYears
     /// The set of historical counties (Chapman codes) the cluster's located
     /// records resolve to via the national catalogue. Empty when no record has a
     /// catalogue-known district — in which case the county veto stays silent.
@@ -199,8 +203,8 @@ nonisolated struct ClusteringEngine {
         // A death ends a life: refuse any record dated after the cluster's death
         // (+ lag margin) — you can't marry or be enumerated after you die. It
         // seeds its own cluster instead of merging (over-split, not over-merge).
-        if let deathYear = clusterDeathYear(cluster),
-           let year = yearOf(record), year > deathYear + postDeathMarginYears {
+        if IdentityConstraints.eventAfterDeath(
+            eventYear: yearOf(record), deathYear: clusterDeathYear(cluster)) {
             return 0.0
         }
         // A different KNOWN county is a different person — refuse the attach
@@ -215,7 +219,8 @@ nonisolated struct ClusteringEngine {
         if let recDistrict = extractRecordDistrict(record.record),
            let recCounty = ScoringRules.countyCode(forDistrict: recDistrict) {
             let clusterCounties = clusterCounties(cluster)
-            if !clusterCounties.isEmpty && !clusterCounties.contains(recCounty) {
+            if !clusterCounties.isEmpty,
+               clusterCounties.allSatisfy({ IdentityConstraints.countiesContradict(recCounty, $0) }) {
                 return 0.0
             }
         }
@@ -435,8 +440,7 @@ nonisolated struct ClusteringEngine {
             // (i) any record dated after the death (+ lag) is a different person
             //     — the Ernest case: infant death 1886 + marriage 1915.
             let postDeath = cluster.records.filter { rec in
-                guard let y = yearOf(rec) else { return false }
-                return y > deathYear + postDeathMarginYears
+                IdentityConstraints.eventAfterDeath(eventYear: yearOf(rec), deathYear: deathYear)
             }
             if !postDeath.isEmpty {
                 let keepRecords = cluster.records.filter { record in
@@ -450,14 +454,12 @@ nonisolated struct ClusteringEngine {
             //      a birth record disagreeing by >5 years is a different person —
             //      died 1886 "age 0" ⇒ born ~1886, incompatible with an 1877 birth.
             let deathImpliedBirths: [Int] = deaths.compactMap { rec in
-                guard case .death(let d) = rec.record, let age = d.age, let dy = d.deathYear
-                else { return nil }
-                return dy - age
+                guard case .death(let d) = rec.record else { return nil }
+                return IdentityConstraints.impliedBirthYear(deathYear: d.deathYear, ageAtDeath: d.age)
             }
             if let impliedBirth = deathImpliedBirths.min() {
                 let incompatibleBirths = births.filter { rec in
-                    guard let by = yearOf(rec) else { return false }
-                    return abs(by - impliedBirth) > 5
+                    IdentityConstraints.birthYearsContradict(yearOf(rec), impliedBirth)
                 }
                 if !incompatibleBirths.isEmpty {
                     let keepRecords = cluster.records.filter { record in

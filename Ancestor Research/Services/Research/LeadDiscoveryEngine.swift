@@ -142,34 +142,23 @@ nonisolated struct LeadDiscoveryEngine {
         return true
     }
 
-    /// Two leads could be the same person when their given names aren't
-    /// contradictory, their (effective) birth years are close, and no
-    /// life-event impossibility (born after death) is implied.
+    /// Two leads could be the same person when the SHARED identity core
+    /// (`IdentityConstraints`, spec §7 — one rule set for both clustering
+    /// roles since Phase 5) finds no contradiction between them.
     static func leadsCompatible(_ a: Lead, _ b: Lead) -> Bool {
-        // Given name: a real disagreement (both present, zero similarity) rules
-        // it out; a missing given name is permissive.
-        if let ga = nonEmpty(a.givenName), let gb = nonEmpty(b.givenName),
-           ScoringRules.nameSimilarity(ga.uppercased(), gb.uppercased()) == 0 {
+        if IdentityConstraints.givenNamesContradict(a.givenName, b.givenName) {
             return false
         }
         let ea = a.effectiveBirthYear
         let eb = b.effectiveBirthYear
-        // Birth year within ±5 when both known (own or age-implied).
-        if let ba = ea, let bb = eb, abs(ba - bb) > 5 {
-            return false
-        }
+        // Birth years (own or age-implied) must agree within tolerance.
+        if IdentityConstraints.birthYearsContradict(ea, eb) { return false }
         // A death ends a life: a birth after the other's death is impossible.
-        if let d = a.deathYear, let born = eb, born > d + 1 { return false }
-        if let d = b.deathYear, let born = ea, born > d + 1 { return false }
-        // A person dies once: two leads that each carry a death year more than
-        // a year apart describe different people, however alike their names.
-        // This splits the yearless death-cluster tail — same-name burials in
-        // different years that name+place alone chain-merged (Phase 0's
-        // 54-John-Thompson residual). ±1 tolerates death-vs-burial-vs-probate
-        // year jitter for one true death.
-        if let da = a.deathYear, let db = b.deathYear, abs(da - db) > 1 {
-            return false
-        }
+        if IdentityConstraints.bornAfterDeath(birth: eb, death: a.deathYear) { return false }
+        if IdentityConstraints.bornAfterDeath(birth: ea, death: b.deathYear) { return false }
+        // A person dies once — splits the yearless death-cluster tail (same-
+        // name burials in different years that name+place alone chain-merged).
+        if IdentityConstraints.distinctDeaths(a.deathYear, b.deathYear) { return false }
         // No birth signal on EITHER side is the dangerous case: name alone
         // chain-merged hundreds of namesakes in Phase 0 (George Ward = 273
         // different men across different cemeteries). Require an agreeing
@@ -314,8 +303,11 @@ nonisolated struct LeadDiscoveryEngine {
         // already had their chance to merge inside discover().
         guard surnamesAreVariants(a.surname, b.surname) else { return false }
         // Require a birth signal on both and tight agreement (tighter than the
-        // ±5 within-block window — bridging across surnames earns less slack).
-        guard let ya = a.birthYear, let yb = b.birthYear, abs(ya - yb) <= 2 else { return false }
+        // within-block window — bridging across surnames earns less slack).
+        guard let ya = a.birthYear, let yb = b.birthYear,
+              !IdentityConstraints.birthYearsContradict(
+                ya, yb, tolerance: IdentityConstraints.bridgeBirthYearTolerance)
+        else { return false }
         // Every other hard constraint (given name, born-after-death, dies-once)
         // must hold between the representatives — reuse the one rule set.
         guard leadsCompatible(a.representativeLead, b.representativeLead) else { return false }
