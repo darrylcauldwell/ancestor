@@ -184,6 +184,27 @@ struct PossiblePeopleView: View {
 
     // MARK: - Cluster card
 
+    /// The tree-context line: which profile(s) surfaced this cluster, with
+    /// their dates — the frame for judging real-relative vs. namesake — plus a
+    /// conservative namesake flag when the eras are egregiously far apart.
+    @ViewBuilder
+    private func contextLine(_ cluster: LeadDiscoveryEngine.EmergentCluster) -> some View {
+        let origins = ClusterContext.origins(for: cluster, in: appState.snapshot.profiles)
+        if !origins.isEmpty {
+            let names = origins.prefix(2).map { "\($0.name) \($0.lifespanLabel)".trimmingCharacters(in: .whitespaces) }
+            let extra = origins.count > 2 ? " +\(origins.count - 2) more" : ""
+            Label("Surfaced by \(names.joined(separator: ", "))\(extra)", systemImage: "person.crop.circle.badge.questionmark")
+                .font(AppTypography.cardMeta)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            if let flag = ClusterContext.namesakeFlag(clusterBirthYear: cluster.birthYear, origins: origins) {
+                Label(flag, systemImage: "exclamationmark.triangle")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
     @ViewBuilder
     private func clusterCard(_ cluster: LeadDiscoveryEngine.EmergentCluster) -> some View {
         let isOpen = expanded.contains(cluster.id)
@@ -201,6 +222,7 @@ struct PossiblePeopleView: View {
                         Text(metaLine(cluster))
                             .font(AppTypography.cardMeta)
                             .foregroundStyle(.secondary)
+                        contextLine(cluster)
                     }
                     Spacer()
                     Text("\(cluster.leads.count) records")
@@ -485,9 +507,7 @@ struct PossiblePeopleView: View {
         if cluster.coherence.distinctSources > 1 {
             parts.append("\(cluster.coherence.distinctSources) sources")
         }
-        if cluster.coherence.originProfileCount > 1 {
-            parts.append("from \(cluster.coherence.originProfileCount) relatives")
-        }
+        // Origins are now named on the context line below — no bare count here.
         return parts.joined(separator: " · ")
     }
 
