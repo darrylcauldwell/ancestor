@@ -107,17 +107,19 @@ This section reads as the build sequence — top to bottom is the intended order
   **bounded** (per-lead embeddings + deterministic clustering + borderline adjudication +
   narration — never the clusterer). Depends on the clustering constraint hardening above
   (shared §7 constraints; over-merge item (c) especially). Staged with explicit gates (spec §9):
-  **Phase 0** is a pure diagnostic — deterministic blocking over *this* tree's real lead pool,
-  emit a report of what coheres — and is the **go/no-go for the whole pivot**, cheap enough to
-  run early once (c) lands; then **Phase 1** read-only discovery panel → **Phase 2** hypothesis
+  **Phase 0** diagnostic (go/no-go) → **Phase 1** read-only discovery panel → **Phase 2** hypothesis
   emission → **Phase 3** embeddings → **Phase 4** AI narration → **Phase 5** unify acceptance +
-  discovery. **[◐ Phase 0/1 engine shipped `c831baa`]** — `LeadDiscoveryEngine` (deterministic
-  blocking + agglomerative within-block clustering + coherence signal + `DiscoveryReport`), unit
-  tested. **Next: run it on the LIVE lead pool** — needs an MCP tool or in-app dev trigger, which
-  wants the engine (and `Lead`) in a shared module accessible to `FieldResearcherMCP`; that
-  module-boundary refactor is the immediate follow-up. Then Phase 1 UI. This is *core research capability*, not polish, so it **leads** Stage 2's
-  enrichment/polish items rather than trailing them. Gate to start: core declared solid
-  (Stage 1) + clustering item (c).
+  discovery. **[✓ Phases 0–3 shipped 2026-07-17]:** Phase 0 run live on the real 5,409-lead pool
+  (go — largest false cluster 273→54 after the no-birth-year over-merge fix: structured age-at-death
+  + place on `Lead` `4563cdd`, v48 backfill `cee36a9`, dies-once + place gate); Phase 1 read-only
+  "Possible People" panel in Triage (`9352849`); Phase 2 act-via-leads-firewall — "Research as one
+  person" / "Not a person" (owner-chosen lead route over the hypothesis route, `55db1bc`); Phase 3
+  fuzzy-bridge across surname spelling variants — deterministic embedder `85bd30d` + real MLX
+  semantic embedder wired behind the `TextEmbedder` seam `b34dab0` (opt-in, runtime-validated by
+  loading a model in-app). **Remaining: Phase 4 (AI adjudication of borderline pairs + cluster
+  narration) → Phase 5 (unify).** Known residual: yearless same-place namesakes still over-merge —
+  quarantined as low-confidence, needs a second signal (Phase 4). This is *core research
+  capability*, not polish. Gate for the tail: as before.
 - **Query-side given-name variants** (surfaced 2026-07-15, Harry Marshall: possibly
   registered HENRY — the nickname table scores returned records, but outbound queries carry
   the subject's stored given name only, so a Henry-registered death is invisible to every
@@ -167,9 +169,21 @@ This section reads as the build sequence — top to bottom is the intended order
   for UI state. NOT a live bug (idle cost is small; the 2026-07-16 "beachball" was Xcode debug
   instrumentation + an oversized SwiftUI view tree, both since fixed) but a real responsiveness
   smell worth clearing. Detail in memory `project_runrequestwatcher_mainthread_poll`.
+- **Project onboarding + Getting Started** (`PROJECT_ONBOARDING_SPEC.md`, accepted-direction
+  2026-07-17). Fixes the discoverability gap where capability-affecting settings are found by
+  accident. **Part A (primary) — setup wizard** at new-project / GEDCOM-import / WikiTree-connect:
+  minimal-first = Step 1 home region (the highest-value lever — sets `home_chapman_code` /
+  `resolvedHomeChapmanCode`, the fallback locality that drives geography gates + source scoping)
+  + Step 2 unified "enable local AI" (ONE consent screen for both the Qwen reasoning model and the
+  minilm semantic embedder, replacing today's two unexplained downloads; folds in auto-use-semantic-
+  once-downloaded); later Steps 3 home person + 4 sources. Every step skippable with sane defaults —
+  never blocks diving in; no new tree data / firewall unchanged. **Part B (secondary) — Getting
+  Started**: re-openable, low-maintenance per-view help affordances (Tree/Research/Triage/Workbench/
+  Sourcing) + an overview, NOT coordinate-glued coach marks; **supersedes / absorbs Epic 12** below.
+  Delivery staged: A-core → A-rest → B.
 - `PROSE_CORPUS_SPEC.md` — bio synthesis / prose corpus ("polish we would do after we have a totally solid core logic system" — user, 2026-07-10)
 - `SOURCE_MEDIA_SPEC.md` — record images / headstone media
-- Epic 12 — sample-tree first-launch tour
+- Epic 12 — sample-tree first-launch tour *(absorbed into PROJECT_ONBOARDING_SPEC Part B, 2026-07-17)*
 
 ### Stage 3 — release (gate: every phase complete — user, 2026-07-10)
 
