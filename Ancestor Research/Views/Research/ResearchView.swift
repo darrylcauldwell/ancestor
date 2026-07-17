@@ -52,16 +52,11 @@ struct ResearchView: View {
             } else if role == .triage {
                 // Triage's resting state IS the queue. Drill-down sets the
                 // VM quartet, so the currentResult branch above renders the
-                // per-profile review; vm.reset() lands back here.
-                BulkReviewView(
-                    vm: researchVM,
-                    onOpenProfileReview: { profile, result in
-                        researchVM.appDatabase = appState.currentDatabase
-                        researchVM.selectedProfile = profile
-                        researchVM.currentResult = result
-                    },
-                    onDone: nil
-                )
+                // per-profile review; vm.reset() lands back here. A segmented
+                // control switches between the per-record Findings queue and
+                // the read-only Possible People panel (LEAD_DISCOVERY_SPEC
+                // Phase 1) — two views of the same lead pool.
+                triageResting
             } else {
                 profileSelector
             }
@@ -395,5 +390,44 @@ struct ResearchView: View {
     @State private var pendingCounts: [String: Int] = [:]
 
     // MARK: - Campaign review (CAMPAIGN_REVIEW_SPEC Change 6)
+
+    // MARK: - Triage resting state (Findings queue ↔ Possible People)
+
+    /// Which triage surface is showing. `.findings` is the per-record review
+    /// queue (`BulkReviewView`); `.people` is the read-only discovery panel
+    /// (`PossiblePeopleView`, LEAD_DISCOVERY_SPEC Phase 1).
+    private enum TriageMode: String, CaseIterable {
+        case findings = "Findings"
+        case people = "Possible People"
+    }
+    @State private var triageMode: TriageMode = .findings
+
+    private var triageResting: some View {
+        VStack(spacing: 0) {
+            Picker("Triage mode", selection: $triageMode) {
+                ForEach(TriageMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            switch triageMode {
+            case .findings:
+                BulkReviewView(
+                    vm: researchVM,
+                    onOpenProfileReview: { profile, result in
+                        researchVM.appDatabase = appState.currentDatabase
+                        researchVM.selectedProfile = profile
+                        researchVM.currentResult = result
+                    },
+                    onDone: nil
+                )
+            case .people:
+                PossiblePeopleView()
+            }
+        }
+    }
 
 }

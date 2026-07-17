@@ -163,6 +163,24 @@ struct LeadDiscoveryEngineTests {
         #expect(clusters.count == 2)
     }
 
+    @Test func differentDeathYearsAreDifferentPeople() {
+        // Two "John Thompson" burial leads, no birth signal, SAME place, but
+        // deaths three years apart — a person dies once, so they must split.
+        let leads = [
+            makeLead(id: "1", surname: "Thompson", given: "John",
+                     deathYear: 1917, place: "Burnley Cemetery"),
+            makeLead(id: "2", surname: "Thompson", given: "John",
+                     deathYear: 1920, place: "Burnley Cemetery"),
+        ]
+        let clusters = LeadDiscoveryEngine.discover(leads: leads)
+        #expect(clusters.count == 2)
+        // A one-year jitter (death vs burial vs probate) still counts as one.
+        #expect(LeadDiscoveryEngine.leadsCompatible(
+            makeLead(id: "3", surname: "Thompson", given: "John", deathYear: 1917, place: "Burnley"),
+            makeLead(id: "4", surname: "Thompson", given: "John", deathYear: 1918, place: "Burnley")
+        ))
+    }
+
     @Test func placesCompatibleIgnoresGenericWords() {
         // Both are "a cemetery" — the shared word is generic, not a locality.
         #expect(!LeadDiscoveryEngine.placesCompatible("BURNLEY CEMETERY", "HAREHILLS CEMETERY"))

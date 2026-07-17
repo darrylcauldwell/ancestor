@@ -148,6 +148,15 @@ nonisolated struct LeadDiscoveryEngine {
         // A death ends a life: a birth after the other's death is impossible.
         if let d = a.deathYear, let born = eb, born > d + 1 { return false }
         if let d = b.deathYear, let born = ea, born > d + 1 { return false }
+        // A person dies once: two leads that each carry a death year more than
+        // a year apart describe different people, however alike their names.
+        // This splits the yearless death-cluster tail — same-name burials in
+        // different years that name+place alone chain-merged (Phase 0's
+        // 54-John-Thompson residual). ±1 tolerates death-vs-burial-vs-probate
+        // year jitter for one true death.
+        if let da = a.deathYear, let db = b.deathYear, abs(da - db) > 1 {
+            return false
+        }
         // No birth signal on EITHER side is the dangerous case: name alone
         // chain-merged hundreds of namesakes in Phase 0 (George Ward = 273
         // different men across different cemeteries). Require an agreeing
