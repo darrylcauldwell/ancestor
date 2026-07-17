@@ -33,6 +33,9 @@ struct PossiblePeopleView: View {
     @State private var expandedLeadID: String?
     @State private var usingSemanticModel = false
     @State private var loadingModel = false
+    /// Name/place filter across the cluster list — same affordance as the
+    /// Findings search (TRIAGE_UX Change 1 pattern). Empty = show everything.
+    @State private var searchText = ""
     /// Phase 4 — advisory AI verdicts per cluster id. Annotation only: a
     /// verdict never merges, splits, or moves a cluster.
     @State private var verdicts: [String: ClusterAdjudicator.Verdict] = [:]
@@ -52,21 +55,32 @@ struct PossiblePeopleView: View {
                 }
             } else {
                 header
+                searchBar
                 Divider()
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(confident) { clusterCard($0) }
+                        let visibleC = visible(confident)
+                        let visibleL = visible(lowConfidence)
+                        if visibleC.isEmpty && visibleL.isEmpty {
+                            Text("Nothing matches “\(searchText)”.")
+                                .font(AppTypography.cardBody)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.top, 40)
+                        } else {
+                            ForEach(visibleC) { clusterCard($0) }
 
-                        if !lowConfidence.isEmpty {
-                            DisclosureGroup(isExpanded: $showLowConfidence) {
-                                ForEach(lowConfidence) { clusterCard($0) }
-                            } label: {
-                                Label("\(lowConfidence.count) lower-confidence (no birth year)",
-                                      systemImage: "questionmark.circle")
-                                    .font(AppTypography.cardMeta)
-                                    .foregroundStyle(.secondary)
+                            if !visibleL.isEmpty {
+                                DisclosureGroup(isExpanded: $showLowConfidence) {
+                                    ForEach(visibleL) { clusterCard($0) }
+                                } label: {
+                                    Label("\(visibleL.count) lower-confidence (no birth year)",
+                                          systemImage: "questionmark.circle")
+                                        .font(AppTypography.cardMeta)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.top, 4)
                             }
-                            .padding(.top, 4)
                         }
                     }
                     .padding()
@@ -127,6 +141,45 @@ struct PossiblePeopleView: View {
         if await MLXTextEmbedder.shared.isAvailable { return MLXTextEmbedder.shared }
         #endif
         return DeterministicTextEmbedder()
+    }
+
+    // MARK: - Search
+
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search possible people by name or place…", text: $searchText)
+                .textFieldStyle(.plain)
+                .autocorrectionDisabled()
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear search")
+            }
+        }
+        .padding(8)
+        .glassEffect(.regular, in: .rect(cornerRadius: 10))
+        .padding([.horizontal, .bottom])
+    }
+
+    /// Clusters matching the search — by surname, any member's name, or any
+    /// member's place. Empty search shows everything.
+    private func visible(_ clusters: [LeadDiscoveryEngine.EmergentCluster]) -> [LeadDiscoveryEngine.EmergentCluster] {
+        let needle = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !needle.isEmpty else { return clusters }
+        return clusters.filter { cluster in
+            cluster.surname.lowercased().contains(needle)
+                || cluster.leads.contains {
+                    $0.name.lowercased().contains(needle)
+                        || ($0.place?.lowercased().contains(needle) ?? false)
+                }
+        }
     }
 
     // MARK: - Cluster card
