@@ -64,6 +64,7 @@ public nonisolated enum AuditRules {
         MarriageAgeRule(),
         LifespanRule(),
         MuddledIdentityRule(),
+        ImpossibleParentageRule(),
         NoMarriageAfterDeathRule(),
         MissingParentsRule(),
         MissingBirthDateRule(),
@@ -194,6 +195,59 @@ public nonisolated struct ParentAgeGapRule: AuditRuleDefinition {
                     severity: .warning, ruleID: id,
                     message: "\(parent.displayName) (~\(pby)) may be too young to be parent of \(profile.displayName) (~\(cby)) — gap ~\(cby - pby) years"
                 ))
+            }
+        }
+        return results
+    }
+}
+
+/// Detects a biologically impossible parent edge — the "parent" is not older
+/// than the child (born the same year or later), or their gender contradicts
+/// the parent role (a male linked as a "mother"). The mechanical signature of a
+/// GEDCOM import that scrambled parent/child DIRECTION or ROLE: a descendant
+/// wired upward as an ancestor (George Keyworth b.1904 as father of William
+/// Henry b.1875), or a child attached to a parent with the role reversed
+/// (Florence's own children linked to her as "mother").
+///
+/// Distinct from `ParentAgeGapRule` (a real biological parent merely a few
+/// years too young): this is a HARD impossibility, checked across EVERY
+/// relationship subtype — `ParentAgeGapRule` filters to `.biological`, so it
+/// misses import artifacts whose edges carry an unknown/other subtype.
+public nonisolated struct ImpossibleParentageRule: AuditRuleDefinition {
+    public init() {}
+
+    public let id = "impossibleParentage"
+    public let displayName = "Impossible Parentage"
+    public let description = "A parent linked to a child born before them, or whose gender contradicts the parent role — usually a reversed or mis-roled edge from a GEDCOM import."
+    public let fireCondition = "a parent's birth year ≥ the child's, or a male parent in a 'mother' role (or vice versa)"
+    public let warningCondition: String? = nil
+    public let workedExample = "George Keyworth b.1904 listed as father of William Henry Keyworth b.1875 — a parent can't be born after their child; the edge is reversed."
+    public let defaultSeverity = Severity.error
+    public let category: AuditCategory = .issue
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        // `profile` is the CHILD; inspect edges where it's the `to` side.
+        var results: [AuditResult] = []
+        let childYear = profile.effectiveDate(.birthDate)?.bestYear
+        for rel in snapshot.relationships where rel.type == .parent && rel.to == profile.id {
+            guard let parent = snapshot.profiles[rel.from], !parent.isDeleted else { continue }
+
+            // Date impossibility — a parent cannot be born on/after their child.
+            if let cy = childYear, let py = parent.effectiveDate(.birthDate)?.bestYear, py >= cy {
+                results.append(AuditResult(
+                    id: UUID(), profileID: profile.id, profileName: profile.displayName,
+                    severity: .error, category: .issue, ruleID: id,
+                    message: "\(parent.displayName) (born ~\(py)) is listed as a parent of \(profile.displayName) (born ~\(cy)) — a parent can't be born after their child; this edge is likely reversed or mis-linked (common GEDCOM import error)"))
+                continue
+            }
+
+            // Gender/role contradiction — a male "mother" or female "father".
+            if let role = rel.role, let g = parent.gender,
+               (role == .mother && g == .male) || (role == .father && g == .female) {
+                results.append(AuditResult(
+                    id: UUID(), profileID: profile.id, profileName: profile.displayName,
+                    severity: .error, category: .issue, ruleID: id,
+                    message: "\(parent.displayName) (\(g == .male ? "male" : "female")) is linked as the \(role == .mother ? "mother" : "father") of \(profile.displayName) — the role contradicts their gender; likely a mis-linked edge"))
             }
         }
         return results

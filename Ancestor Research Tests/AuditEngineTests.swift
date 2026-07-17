@@ -367,6 +367,57 @@ struct AuditEngineTests {
         #expect(results.isEmpty)
     }
 
+    // MARK: - ImpossibleParentageRule (reversed/mis-roled import edges)
+
+    @Test func impossibleParentage_parentBornAfterChild_error() {
+        // The George Keyworth b.1904 "father" of William Henry b.1875 case —
+        // and note the edge subtype is NOT biological, so ParentAgeGap misses it.
+        let parent = makeProfile(id: "george1904", birthDate: "1904")
+        let child = makeProfile(id: "william1875", birthDate: "1875")
+        let rel = Relationship(
+            id: UUID(), from: "george1904", to: "william1875",
+            type: .parent, role: .father, subtype: .unknown,
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
+        )
+        let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
+        let results = ImpossibleParentageRule().evaluate(profile: child, snapshot: snapshot)
+        #expect(results.count == 1)
+        #expect(results.first?.severity == .error)
+        #expect(results.first?.message.contains("can't be born after their child") == true)
+    }
+
+    @Test func impossibleParentage_genderRoleMismatch_error() {
+        // A male linked as "mother" (Florence's son Reginald wired as her mother).
+        // Dates are fine here so ONLY the gender/role contradiction fires.
+        let parent = makeProfile(id: "reginald", birthDate: "1850")   // makeProfile is male
+        let child = makeProfile(id: "florence", birthDate: "1880")
+        let rel = Relationship(
+            id: UUID(), from: "reginald", to: "florence",
+            type: .parent, role: .mother, subtype: .biological,
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
+        )
+        let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
+        let results = ImpossibleParentageRule().evaluate(profile: child, snapshot: snapshot)
+        #expect(results.count == 1)
+        #expect(results.first?.message.contains("contradicts their gender") == true)
+    }
+
+    @Test func impossibleParentage_normalParent_noIssue() {
+        let parent = makeProfile(id: "p", birthDate: "1850")
+        let child = makeProfile(id: "c", birthDate: "1880")
+        let rel = Relationship(
+            id: UUID(), from: "p", to: "c",
+            type: .parent, role: .father, subtype: .biological,
+            marriageDate: nil, marriageLocation: nil, divorceDate: nil
+        )
+        let snapshot = makeSnapshot(profiles: [parent, child], relationships: [rel])
+        #expect(ImpossibleParentageRule().evaluate(profile: child, snapshot: snapshot).isEmpty)
+    }
+
+    @Test func impossibleParentageIsRegisteredBuiltIn() {
+        #expect(AuditRules.builtIn.contains { $0.id == "impossibleParentage" })
+    }
+
     // MARK: - Lifespan
 
     @Test func lifespan_exceeds110_error() {
