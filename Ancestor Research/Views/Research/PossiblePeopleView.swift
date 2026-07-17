@@ -28,6 +28,8 @@ struct PossiblePeopleView: View {
     @State private var isLoading = true
     @State private var showLowConfidence = false
     @State private var expanded: Set<String> = []
+    @State private var usingSemanticModel = false
+    @State private var loadingModel = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -73,14 +75,50 @@ struct PossiblePeopleView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Possible People")
                     .font(AppTypography.cardTitle)
-                Text("\(confident.count) candidate\(confident.count == 1 ? "" : "s") from \(totalLeads) leads — read-only")
+                Text("\(confident.count) candidate\(confident.count == 1 ? "" : "s") from \(totalLeads) leads — read-only\(usingSemanticModel ? " · semantic" : "")")
                     .font(AppTypography.cardMeta)
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            semanticModelControl
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
+    }
+
+    /// Opt-in trigger for the real MLX semantic embedder (Phase 3). Only shown
+    /// when the embedding modules are linked; downloads a small model on first
+    /// use, then re-clusters using semantic similarity instead of the
+    /// deterministic trigram fallback. Absent → deterministic is used silently.
+    @ViewBuilder
+    private var semanticModelControl: some View {
+        #if canImport(MLXEmbedders) && canImport(MLX)
+        if loadingModel {
+            ProgressView().controlSize(.small)
+        } else if !usingSemanticModel {
+            Button {
+                Task {
+                    loadingModel = true
+                    try? await MLXTextEmbedder.shared.loadModel()
+                    loadingModel = false
+                    await compute()
+                }
+            } label: {
+                Label("Use semantic model", systemImage: "sparkles")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        #endif
+    }
+
+    /// The embedder the bridge runs on: the real MLX semantic model once loaded,
+    /// otherwise the always-available deterministic trigram embedder.
+    private func currentEmbedder() async -> any TextEmbedder {
+        #if canImport(MLXEmbedders) && canImport(MLX)
+        if await MLXTextEmbedder.shared.isAvailable { return MLXTextEmbedder.shared }
+        #endif
+        return DeterministicTextEmbedder()
     }
 
     // MARK: - Cluster card
@@ -226,10 +264,11 @@ struct PossiblePeopleView: View {
         let leads = (try? db.loadLeads()) ?? []
         totalLeads = leads.count
         // Deterministic core (Phase 1) then the Phase 3 fuzzy-bridge across
-        // surname spelling variants. The embedder is the always-available
-        // deterministic one; a real MLX semantic embedder plugs in behind the
-        // same `TextEmbedder` contract when a model is loaded.
-        let embedder = DeterministicTextEmbedder()
+        // surname spelling variants. The embedder is the real MLX semantic
+        // model when one is loaded, else the always-available deterministic
+        // trigram embedder — both behind the same `TextEmbedder` contract.
+        let embedder = await currentEmbedder()
+        usingSemanticModel = !(embedder is DeterministicTextEmbedder)
         let clusters = await Task.detached(priority: .userInitiated) {
             let base = LeadDiscoveryEngine.discover(leads: leads).filter { $0.coherence.isSurfaceable }
             // Precompute one vector per cluster from its representative text.
