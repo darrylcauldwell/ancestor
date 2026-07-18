@@ -831,9 +831,19 @@ final class ResearchPipeline {
         // `ProposedRelative`'s evidence list instead of as standalone cluster
         // cards. Filter them out here so the cluster review doesn't show the
         // parents' marriage as e.g. a "DAVID N CAULDWELL" orphan cluster.
-        let clusterInput = state.scoredRecords.filter {
-            !state.enrichmentRecordIDs.contains($0.id)
-        }
+        // A record the user has DISCARDED must not be resurrected by a later
+        // research run. The pipeline's own doctrine — "a hunch cannot resurrect
+        // records the user discarded" (§5.15.6, `excludingRejected`) — applies
+        // equally to the MAIN pass; without this, a namesake the user discarded
+        // (e.g. George Herbert Brooks's "George Brooks, Mar 1884" twin)
+        // re-clusters into the review every single run. Uses the rejection
+        // memory already loaded via `rejectionLookup` (record_rejections +
+        // evidence_records.user_status='discarded').
+        let rejectedRecordIDs: Set<String> = subject.profileID.flatMap { rejectionLookup?($0) } ?? []
+        let clusterInput = Self.clusterInput(
+            from: state.scoredRecords,
+            enrichmentIDs: state.enrichmentRecordIDs,
+            rejectedIDs: rejectedRecordIDs)
         let clusters = ClusteringEngine.cluster(
             records: clusterInput,
             sourceInfoMap: sourceInfoMap,
@@ -907,9 +917,10 @@ final class ResearchPipeline {
         // hypothesis, not a candidate life), so the cluster set is
         // unchanged — but recompute defensively so future ladder
         // levels that add un-tagged candidates surface correctly.
-        let postSecondPassClusterInput = state.scoredRecords.filter {
-            !state.enrichmentRecordIDs.contains($0.id)
-        }
+        let postSecondPassClusterInput = Self.clusterInput(
+            from: state.scoredRecords,
+            enrichmentIDs: state.enrichmentRecordIDs,
+            rejectedIDs: rejectedRecordIDs)
         let finalClusters: [LifeCluster]
         if postSecondPassClusterInput.count != clusterInput.count {
             finalClusters = ClusteringEngine.cluster(
@@ -1880,6 +1891,21 @@ final class ResearchPipeline {
     ) -> [ScoredRecord] {
         guard !rejectedIDs.isEmpty else { return records }
         return records.filter { !rejectedIDs.contains($0.id) }
+    }
+
+    /// The records that reach clustering / the review: everything scored,
+    /// minus enrichment-only rows (they belong under a parent's evidence, not
+    /// as standalone cluster cards) AND minus records the user has DISCARDED
+    /// (rejection memory — a discarded namesake must not re-cluster every run).
+    /// Pure so the exclusion is unit-tested without the full pipeline.
+    nonisolated static func clusterInput(
+        from scored: [ScoredRecord],
+        enrichmentIDs: Set<String>,
+        rejectedIDs: Set<String>
+    ) -> [ScoredRecord] {
+        scored.filter {
+            !enrichmentIDs.contains($0.id) && !rejectedIDs.contains($0.id)
+        }
     }
 
     // MARK: - T7 second pass (V2 spec §5.3)
