@@ -1247,9 +1247,15 @@ final class AppState {
         // but leaves the record). Surfaced for one-click review; empty
         // stubs are safe to remove (they carry no data), non-empty ones
         // route to the Compare/merge flow.
+        // Change 6 — the same two detectors that back the on-demand scan run
+        // at import: zero-edge orphan stubs AND single-spouse-edge phantom
+        // spouses (the four-wife Keyworth shape), so the guided cards appear
+        // in the post-import summary with no Audit-tab spelunking.
         let stubCandidates = OrphanStubDetector.candidates(in: snapshot)
-        if !stubCandidates.isEmpty {
-            importCleanseReview = ImportCleanseReview(candidates: stubCandidates)
+        let phantomCandidates = phantomSpouseCandidatesToReview()
+        if !stubCandidates.isEmpty || !phantomCandidates.isEmpty {
+            importCleanseReview = ImportCleanseReview(
+                candidates: stubCandidates, phantomSpouseCandidates: phantomCandidates)
         }
 
         // Update project metadata with refresh time

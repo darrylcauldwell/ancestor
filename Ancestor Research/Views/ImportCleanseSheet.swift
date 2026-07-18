@@ -1,21 +1,26 @@
 import SwiftUI
 import AncestorKit
 
-/// IMPORT_DEDUPE_SPEC — post-import review of orphan-stub duplicates left
-/// by the GEDCOM export (e.g. Ancestry merges). Empty stubs offer a
-/// one-click removal (they carry no data); non-empty ones are listed for
-/// manual review via the tree's Compare flow.
+/// IMPORT_DEDUPE_SPEC — post-import review of duplicate records left by a
+/// GEDCOM export (e.g. Ancestry merges). Two shapes:
+/// - Orphan stubs (zero edges): empty ones offer a one-click removal.
+/// - Phantom spouses (one spouse-edge, dateless): a plain-language guided
+///   card that combines each into the correct real spouse (Change 5).
 struct ImportCleanseSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     let review: ImportCleanseReview
+
+    private var totalCount: Int {
+        review.candidates.count + review.phantomSpouseCandidates.count
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Duplicate records found")
                 .font(.title2).fontWeight(.bold)
 
-            Text("This GEDCOM export left \(review.candidates.count) record\(review.candidates.count == 1 ? "" : "s") that look like duplicates of people already in your tree — a common artifact of Ancestry.com's tree-merge tool, which strips a duplicate's family links but leaves the record behind.")
+            Text("Your tree has \(totalCount) record\(totalCount == 1 ? "" : "s") that look like duplicates of people already in it — a common artifact of a tree-merge tool (e.g. Ancestry.com), which strips a duplicate's family links but leaves the record behind.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -38,6 +43,15 @@ struct ImportCleanseSheet: View {
                         }
                         .buttonStyle(.borderedProminent)
                     }
+                }
+            }
+
+            // Change 5 — phantom-spouse guided cards. One per phantom; each
+            // resolves to the correct real spouse (or a picker when the anchor
+            // has more than one documented wife).
+            if !review.phantomSpouseCandidates.isEmpty {
+                ForEach(review.phantomSpouseCandidates, id: \.phantomID) { candidate in
+                    PhantomSpouseCard(candidate: candidate)
                 }
             }
 
@@ -67,5 +81,72 @@ struct ImportCleanseSheet: View {
         }
         .padding(24)
         .frame(minWidth: 460, maxWidth: 560)
+    }
+}
+
+/// A single phantom-spouse decision, framed for a non-expert (no "merge",
+/// "loser", "edge", or "stub" jargon — decision Change 5 AC3).
+private struct PhantomSpouseCard: View {
+    @Environment(AppState.self) private var appState
+    let candidate: PhantomSpouseCandidate
+
+    private func name(_ id: String?) -> String {
+        guard let id, let p = appState.snapshot.profiles[id] else { return "this person" }
+        return p.displayName
+    }
+    private var phantomName: String { name(candidate.phantomID) }
+    private var anchorName: String { name(candidate.anchorID) }
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("\(anchorName) has an extra spouse that looks like a duplicate")
+                    .font(.headline)
+                Text(explanation)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    combineControl
+                    Button("These were separate people") {
+                        appState.markPhantomSpouseSeparate(phantomID: candidate.phantomID)
+                    }
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    private var explanation: String {
+        let lead = "\(phantomName) has no dates and no records, and only exists as a marriage link to \(anchorName)."
+        if let target = candidate.suggestedTargetID {
+            return "\(lead) They're likely the same person as \(name(target))."
+        } else if !candidate.documentedSpouseIDs.isEmpty {
+            return "\(lead) Which of \(anchorName)'s known spouses is this?"
+        }
+        return lead
+    }
+
+    @ViewBuilder private var combineControl: some View {
+        if let target = candidate.suggestedTargetID {
+            Button("Combine into \(name(target))") {
+                appState.combinePhantomSpouse(phantomID: candidate.phantomID, winnerID: target)
+            }
+            .buttonStyle(.borderedProminent)
+        } else if !candidate.documentedSpouseIDs.isEmpty {
+            Menu("Combine into…") {
+                ForEach(candidate.documentedSpouseIDs, id: \.self) { spouseID in
+                    Button(name(spouseID)) {
+                        appState.combinePhantomSpouse(
+                            phantomID: candidate.phantomID, winnerID: spouseID)
+                    }
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        // No documented spouse → only "separate people" applies; the anchor has
+        // nothing to combine into, so the card offers just that + the overall
+        // "Keep everything" dismiss.
     }
 }

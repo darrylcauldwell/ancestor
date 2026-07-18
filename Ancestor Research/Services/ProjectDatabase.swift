@@ -1437,6 +1437,17 @@ nonisolated final class ProjectDatabase: Sendable {
             logger.info("v48: backfilled age/place onto \(updated) leads from persisted source records")
         }
 
+        // v49 — IMPORT_DEDUPE_SPEC Change 5: the phantom-spouse "not a
+        // duplicate" marker. When the user chooses "These were separate people"
+        // on a phantom-spouse card, the phantom's id lands here so the detector
+        // stops surfacing it in future scans (without deleting the profile).
+        migrator.registerMigration("v49_phantom_spouse_reviewed") { db in
+            try db.create(table: "phantom_spouse_reviewed") { t in
+                t.column("profile_id", .text).primaryKey()
+                t.column("reviewed_at", .datetime).notNull()
+            }
+        }
+
         return migrator
     }
 
@@ -2679,6 +2690,51 @@ nonisolated extension ProjectDatabase {
                 sql: "UPDATE life_events SET profile_id = ? WHERE profile_id = ?",
                 arguments: [target, source])
             return db.changesCount
+        }
+    }
+
+    /// Salvage the loser's *cited* evidence before a merge deletes it: move
+    /// every `field_sources` row that carries a real citation (`citation_json`
+    /// present — e.g. a christening record URL) onto the winner, so
+    /// `hardDeleteProfile` does not destroy genuine evidence. Bare GEDCOM
+    /// name/value provenance (no citation) is deliberately left behind — it
+    /// only describes the loser's own unwanted fields and must not be re-applied
+    /// to the winner. Returns the number of citation rows preserved.
+    ///
+    /// IMPORT_DEDUPE_SPEC option A (2026-07-18): the general Merge path dropped
+    /// the loser's field-level citations; this closes that gap for every merge,
+    /// not just phantom spouses.
+    @discardableResult
+    func salvageCitedFieldSources(fromProfileID source: String, toProfileID target: String) throws -> Int {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE field_sources
+                   SET entity_id = ?
+                 WHERE entity_id = ? AND entity_kind = 'profile'
+                   AND citation_json IS NOT NULL
+                """, arguments: [target, source])
+            return db.changesCount
+        }
+    }
+
+    // MARK: - IMPORT_DEDUPE_SPEC Change 5 — phantom-spouse "reviewed" marker
+
+    /// Mark a phantom-spouse profile as "not a duplicate" so the detector stops
+    /// surfacing it in future scans. Does NOT delete the profile — the user
+    /// asserted these were genuinely separate people. Idempotent.
+    func markPhantomSpouseReviewed(profileID: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "INSERT OR REPLACE INTO phantom_spouse_reviewed (profile_id, reviewed_at) VALUES (?, ?)",
+                arguments: [profileID, Date()])
+        }
+    }
+
+    /// The set of phantom-spouse profile ids the user has marked "separate
+    /// people" — filtered out of scan/cleanse candidate lists.
+    func reviewedPhantomSpouseIDs() throws -> Set<String> {
+        try dbQueue.read { db in
+            try Set(String.fetchAll(db, sql: "SELECT profile_id FROM phantom_spouse_reviewed"))
         }
     }
 
