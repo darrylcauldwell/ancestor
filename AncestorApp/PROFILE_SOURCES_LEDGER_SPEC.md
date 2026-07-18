@@ -1,6 +1,12 @@
 # Profile Sources & Records Ledger
 
-**Status: PROPOSED 2026-07-18.** A per-profile, read-and-manage surface for the
+**Status: PARTIALLY SHIPPED 2026-07-18. Change 2 (read-only ledger) shipped** (`ProfileSourcesLedger` + `ProfileDetailView` "Sources & Records" section, `03cf0d3`; reads `evidence_records`, no migration). **The rejection-memory goal of Change 4 shipped independently as a pipeline fix** (`3433f46`): the main research pass was re-clustering DISCARDED records every run (the "namesakes keep coming back" bug — `excludingRejected` was wired only into the §5.15 hunch path, not the main pass). Now `ResearchPipeline.clusterInput` filters cluster input through the rejection memory it already loads, so a discarded record stays gone across re-runs. **This is the real George fix** — it needed no removal machinery, because George's records were never applied (all GEDCOM); his pain was namesakes resurrecting on re-run. **Changes 1 + 3 (per-record removal / revert) remain unbuilt** and are the delicate part (the apply path fans a single record into value-write / alternative-fact / conflict / dispute / quality-dominance / citation transactions, so removal must unwind all of them directionally — do NOT rush it). Commits reference `#LEDGER-Change2`…`#LEDGER-Change5`.
+
+Original proposal follows.
+
+---
+
+A per-profile, read-and-manage surface for the
 records that back a person: see every applied record in full (citation, vol/page,
 source tier, which fields it established) **without re-running research**, and
 **remove a bad record** — reversing its effect and remembering the rejection so a
