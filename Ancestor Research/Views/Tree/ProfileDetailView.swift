@@ -67,6 +67,10 @@ struct ProfileDetailView: View {
     /// signal behind the "Possible People (N)" section (the expensive
     /// clustering happens in the panel the section deep-links to).
     @State private var surfacedLeadCount: Int = 0
+    // PROFILE_SOURCES_LEDGER_SPEC Change 2 — the records backing this person,
+    // read from evidence_records with no research run.
+    @State private var ledgerEntries: [ProfileSourcesLedger.Entry] = []
+    @State private var ledgerExpanded: Bool = false
 
     var body: some View {
         ScrollView {
@@ -93,6 +97,11 @@ struct ProfileDetailView: View {
                     possiblePeopleSection
                 }
 
+                if !isEditing {
+                    Divider()
+                    sourcesLedgerSection
+                }
+
                 Divider()
                 actionRow
             }
@@ -106,6 +115,7 @@ struct ProfileDetailView: View {
                 isEditing = true
             }
             reloadSurfacedLeadCount()
+            reloadLedger()
         }
         .onChange(of: profile.id) { _, _ in
             // Selection changed — exit edit without saving and let the
@@ -114,6 +124,7 @@ struct ProfileDetailView: View {
             // the wrong subject.
             isEditing = false
             reloadSurfacedLeadCount()
+            reloadLedger()
         }
         .onChange(of: isEditing) { _, nowEditing in
             // Repopulate on every entry to edit mode so the form always
@@ -189,6 +200,71 @@ struct ProfileDetailView: View {
         surfacedLeadCount = leads.filter {
             $0.status == .new || $0.status == .investigating || $0.status == .investigated
         }.count
+    }
+
+    // MARK: - Sources & Records ledger (PROFILE_SOURCES_LEDGER_SPEC Change 2)
+
+    private func reloadLedger() {
+        guard let db = appState.currentDatabase else { ledgerEntries = []; return }
+        ledgerEntries = (try? ProfileSourcesLedger.entries(for: profile.id, db: db)) ?? []
+    }
+
+    /// Read-only list of the records that back this person — full citation +
+    /// what each one established — with no research run. When empty, says so
+    /// honestly rather than hiding (the profile's data came from the import).
+    private var sourcesLedgerSection: some View {
+        DisclosureGroup(isExpanded: $ledgerExpanded) {
+            if ledgerEntries.isEmpty {
+                Text("No research records applied yet — this profile's data comes from the original import. Run research to find records.")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 4)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(ledgerEntries) { entry in
+                        ledgerRow(entry)
+                    }
+                }
+                .padding(.top, 4)
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "doc.text.magnifyingglass").foregroundStyle(.blue)
+                Text("Sources & Records").font(AppTypography.cardTitle)
+                if !ledgerEntries.isEmpty {
+                    Text("\(ledgerEntries.count)")
+                        .font(AppTypography.badge)
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(.blue.opacity(0.15), in: Capsule())
+                }
+            }
+        }
+    }
+
+    private func ledgerRow(_ entry: ProfileSourcesLedger.Entry) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(entry.recordType.rawValue.uppercased())
+                    .font(AppTypography.badge)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+                Text(entry.sourceID.uppercased())
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.secondary)
+            }
+            if !entry.establishes.isEmpty {
+                Text("Establishes: \(entry.establishes.joined(separator: " · "))")
+                    .font(AppTypography.cardBody)
+            }
+            Text(entry.citation)
+                .font(AppTypography.cardMeta)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        .background(.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
     }
 
     @ViewBuilder
