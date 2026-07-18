@@ -60,6 +60,7 @@ public nonisolated enum AuditRules {
         ParentsPerRoleRule(),
         RecordAfterDeathRule(),
         OrphanStubRule(),
+        PhantomSpouseRule(),
         ParentAgeGapRule(),
         MarriageAgeRule(),
         LifespanRule(),
@@ -1186,6 +1187,56 @@ public nonisolated struct OrphanStubRule: AuditRuleDefinition {
                     severity: defaultSeverity, ruleID: id,
                     message: "Possible orphan duplicate: \(candidate.matchBasis)\(emptyNote).",
                     relatedProfileIDs: [candidate.targetID])
+            }
+    }
+}
+
+/// IMPORT_DEDUPE_SPEC Change 4 — surfaces phantom-spouse stubs (a dateless,
+/// evidence-free profile whose ONLY edge is a single spouse-link to a real
+/// person). The one spouse-edge disqualifies these from `OrphanStubRule`'s
+/// zero-edge cleanse, yet they are the same duplicate debris — extra
+/// husbands/wives left by a GEDCOM merge. Thin wrapper over
+/// `PhantomSpouseDetector` so the Audit tab, the on-demand scan, and the guided
+/// cleanse card can never disagree.
+public nonisolated struct PhantomSpouseRule: AuditRuleDefinition {
+    public let id = "phantomSpouse"
+    public let displayName = "Phantom Spouse Duplicates"
+    public let description = "A dateless, evidence-free profile whose only link is a marriage to a real person — usually a duplicate of that person's real spouse, left by a GEDCOM merge."
+    public let fireCondition = "Empty (name only — no dates, locations, or bio) AND exactly one relationship edge, which is a spouse-link."
+    public let warningCondition: String? = nil
+    public let workedExample = "Gerty — no dates or records, sole edge a marriage to William Henry Keyworth — a fragment of his real second wife, Elizabeth Wallace."
+    public let defaultSeverity = Severity.warning
+    public let category: AuditCategory = .issue
+    public init() {}
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        // One row per phantom; only report when THIS profile is the phantom.
+        PhantomSpouseDetector.candidates(in: snapshot)
+            .filter { $0.phantomID == profile.id }
+            .map { candidate in
+                let anchorName = snapshot.profiles[candidate.anchorID]?.displayName ?? "a linked person"
+                let targetClause: String
+                if let targetID = candidate.suggestedTargetID,
+                   let targetName = snapshot.profiles[targetID]?.displayName {
+                    targetClause = " — likely the same person as \(targetName)"
+                } else if !candidate.documentedSpouseIDs.isEmpty {
+                    let names = candidate.documentedSpouseIDs
+                        .compactMap { snapshot.profiles[$0]?.displayName }
+                    targetClause = names.isEmpty ? ""
+                        : " — likely a duplicate of \(anchorName)'s documented spouse (\(names.joined(separator: " or ")))"
+                } else {
+                    targetClause = ""   // anchor has no documented spouse — pure manual review
+                }
+                // Implicated IDs: the anchor, then the suggested target or the
+                // full documented set, so the Tasks/cleanse surfaces can act
+                // without re-parsing the message.
+                let related = [candidate.anchorID]
+                    + (candidate.suggestedTargetID.map { [$0] } ?? candidate.documentedSpouseIDs)
+                return AuditResult(
+                    profileID: profile.id, profileName: profile.displayName,
+                    severity: defaultSeverity, category: .issue, ruleID: id,
+                    message: "\(profile.displayName) has no dates or records and only exists as a marriage link to \(anchorName)\(targetClause).",
+                    relatedProfileIDs: related)
             }
     }
 }
