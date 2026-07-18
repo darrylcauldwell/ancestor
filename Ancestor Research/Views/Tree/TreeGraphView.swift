@@ -62,12 +62,20 @@ struct TreeGraphView: View {
 
     @State private var dismissedDisconnectedBanner: Bool = false
 
-    // M19 — comparison sheet state. `compareLeftID` is the profile the
-    // user right-clicked on; `compareRightID` is the picked counterpart.
-    @State private var showComparePicker: Bool = false
-    @State private var compareLeftID: String?
-    @State private var compareRightID: String?
+    // M19 — comparison sheet state. `comparePickerSource` carries the profile
+    // the user right-clicked on; `compareSheetIDs` carries both once the
+    // counterpart is picked.
+    @State private var comparePickerSource: ComparePickerSource?
     @State private var compareSheetIDs: ComparePair?
+
+    /// Identifiable wrapper so the picker uses `.sheet(item:)` rather than
+    /// `.sheet(isPresented:) + if let`, which renders an empty EmptyView
+    /// rectangle when the inner binding hasn't settled at presentation time
+    /// (memory `feedback_sheet_isPresented_race`).
+    private struct ComparePickerSource: Identifiable {
+        /// The left (right-clicked) profile's ID; doubles as the identity.
+        let id: String
+    }
 
     /// Identifiable wrapper so the sheet uses `item:` and reliably presents
     /// once both IDs are known (avoids the timing pitfalls of two `Bool`s).
@@ -169,9 +177,7 @@ struct TreeGraphView: View {
                                 .disabled(anchorID == treeVM.rootProfileID)
                                 Divider()
                                 Button("Compare with…") {
-                                    compareLeftID = anchorID
-                                    compareRightID = nil
-                                    showComparePicker = true
+                                    comparePickerSource = ComparePickerSource(id: anchorID)
                                 }
                                 Divider()
                                 // The home person anchors the relationship
@@ -302,14 +308,16 @@ struct TreeGraphView: View {
             AddRelationshipView(anchorID: sheetID.id)
         }
         // M19 — pick the right-hand profile, then present the comparison.
-        .sheet(isPresented: $showComparePicker) {
-            if let leftID = compareLeftID,
-               let leftProfile = appState.snapshot.profiles[leftID] {
+        // `.sheet(item:)` (not `isPresented: + if let`) so the picker only
+        // exists when the source ID does — avoids the empty-rectangle race.
+        .sheet(item: $comparePickerSource) { source in
+            if let leftProfile = appState.snapshot.profiles[source.id] {
                 CompareTargetPicker(
                     sourceProfile: leftProfile,
                     snapshot: appState.snapshot,
                     onSelect: { rightID in
-                        showComparePicker = false
+                        let leftID = source.id
+                        comparePickerSource = nil
                         // Defer the second sheet by one runloop tick so the
                         // picker dismiss animation completes cleanly.
                         Task { @MainActor in
@@ -318,7 +326,7 @@ struct TreeGraphView: View {
                         }
                     },
                     onCancel: {
-                        showComparePicker = false
+                        comparePickerSource = nil
                     }
                 )
             }
