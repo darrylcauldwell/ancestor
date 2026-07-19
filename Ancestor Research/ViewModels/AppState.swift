@@ -119,6 +119,19 @@ final class AppState {
     /// (POSSIBLE_PEOPLE_CONTEXT_SPEC).
     var requestPossiblePeopleProfileID: String?
 
+    /// PROFILE_LIFECYCLE_SPEC Change 1 — one canonical profile-action set,
+    /// surfaced identically in the tree right-click menu AND the profile card.
+    /// The card-owned sheet actions (Edit / Timeline / Relationship / Cleanse)
+    /// are reached from the context menu by raising this intent (paired with
+    /// `requestOpenProfileDetail` so the card is showing); `ProfileDetailView`
+    /// observes it for its own profile and performs the sheet, then clears it.
+    var pendingCardAction: PendingCardAction?
+
+    /// Sibling intent for the reverse direction — the profile card raising
+    /// "Compare with…", which only the tree can present (its picker + canvas).
+    /// `TreeGraphView` observes and opens the compare picker for this id.
+    var requestCompareProfileID: String?
+
     var isLoading = false
     var loadingMessage: String?
     var errorMessage: String?
@@ -2214,4 +2227,18 @@ nonisolated enum PendingPersonAction: Equatable, Sendable {
     case add
     case addFamily
     case editSelected(profileID: String)
+}
+
+/// PROFILE_LIFECYCLE_SPEC Change 1 — the profile-card-owned actions that the
+/// tree context menu raises via `AppState.pendingCardAction`. Kept minimal:
+/// only the actions whose UI lives inside `ProfileDetailView` (its sheets /
+/// edit mode). Research, Compare, Focus, and Set-as-Home route through their
+/// own existing intents.
+nonisolated enum ProfileCardAction: Equatable, Sendable {
+    case edit, timeline, relationship, cleanse
+}
+
+nonisolated struct PendingCardAction: Equatable, Sendable {
+    let profileID: String
+    let action: ProfileCardAction
 }

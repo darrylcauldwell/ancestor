@@ -159,13 +159,14 @@ struct TreeGraphView: View {
                         .contextMenu {
                             let anchorID = treeVM.hoveredNodeID ?? treeVM.selectedProfileID
                             if let anchorID,
-                               appState.snapshot.profiles[anchorID] != nil {
-                                // Focus Here — same action as the popover's
-                                // Focus Here button and the Full Detail
-                                // sheet's "Focus Here" button. Reaching it
-                                // via two-finger / right-click is the
-                                // natural macOS muscle memory for
-                                // "navigate to this thing".
+                               let anchorProfile = appState.snapshot.profiles[anchorID] {
+                                // PROFILE_LIFECYCLE_SPEC Change 1 — the right-click
+                                // menu offers the SAME canonical action set as the
+                                // profile card, so actions never vanish depending
+                                // on how you reached the person. Card-owned actions
+                                // (Edit/Timeline/Relationship/Cleanse) open the card
+                                // and hand it a `pendingCardAction`; the rest route
+                                // through their existing intents.
                                 Button("Focus Here") {
                                     treeVM.recenter(
                                         on: anchorID,
@@ -175,10 +176,18 @@ struct TreeGraphView: View {
                                     )
                                 }
                                 .disabled(anchorID == treeVM.rootProfileID)
-                                Divider()
+
+                                Button("Research") { appState.researchConfigProfile = anchorProfile }
                                 Button("Compare with…") {
                                     comparePickerSource = ComparePickerSource(id: anchorID)
                                 }
+
+                                Divider()
+                                Button("Edit") { openCardAction(anchorID, .edit) }
+                                Button("Timeline") { openCardAction(anchorID, .timeline) }
+                                Button("Relationship to…") { openCardAction(anchorID, .relationship) }
+                                Button("Cleanse") { openCardAction(anchorID, .cleanse) }
+
                                 Divider()
                                 // The home person anchors the relationship
                                 // calculator and becomes the published
@@ -216,6 +225,13 @@ struct TreeGraphView: View {
                     // still visible (rare on macOS where the sidebar
                     // and detail render side-by-side, but cheap).
                     handlePendingProfileDetailRequest()
+                }
+                // Change 1 — the profile card raising "Compare with…" (only the
+                // tree can present the picker). Opens it for the requested id.
+                .onChange(of: appState.requestCompareProfileID) { _, newValue in
+                    guard let id = newValue else { return }
+                    comparePickerSource = ComparePickerSource(id: id)
+                    appState.requestCompareProfileID = nil
                 }
 
                 // Floating profile card. Overlays the tree canvas in the
@@ -494,6 +510,18 @@ struct TreeGraphView: View {
         treeVM.popoverProfileID = nil
         treeVM.showInspector = true
         appState.requestOpenProfileDetail = nil
+    }
+
+    /// PROFILE_LIFECYCLE_SPEC Change 1 — open the profile card for `id` and hand
+    /// it a card-owned action (Edit/Timeline/Relationship/Cleanse) raised from
+    /// the right-click menu. `ProfileDetailView` consumes `pendingCardAction` on
+    /// appear / profile-switch / intent-change, so this works whether the card
+    /// was closed, showing this person, or showing someone else.
+    private func openCardAction(_ id: String, _ action: ProfileCardAction) {
+        appState.pendingCardAction = PendingCardAction(profileID: id, action: action)
+        treeVM.selectedProfileID = id
+        treeVM.popoverProfileID = nil
+        treeVM.showInspector = true
     }
 
     /// Skip the popover layer and open the full Profile Detail sheet

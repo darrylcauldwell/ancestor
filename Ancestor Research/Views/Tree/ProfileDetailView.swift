@@ -122,6 +122,7 @@ struct ProfileDetailView: View {
             }
             reloadSurfacedLeadCount()
             reloadLedger()
+            consumePendingCardActionIfMine()
         }
         .onChange(of: profile.id) { _, _ in
             // Selection changed — exit edit without saving and let the
@@ -131,12 +132,20 @@ struct ProfileDetailView: View {
             isEditing = false
             reloadSurfacedLeadCount()
             reloadLedger()
+            consumePendingCardActionIfMine()
         }
         .onChange(of: isEditing) { _, nowEditing in
             // Repopulate on every entry to edit mode so the form always
             // reflects the persisted profile, not a stale buffer from a
             // previous cancelled session.
             if nowEditing { populate() }
+        }
+        // Change 1 — perform a card-owned action raised from the tree context
+        // menu (Edit / Timeline / Relationship / Cleanse), for THIS profile only.
+        // Checked here AND in onAppear / profile-switch so it fires whatever the
+        // mount ordering (card already open, freshly opened, or switched to).
+        .onChange(of: appState.pendingCardAction) { _, _ in
+            consumePendingCardActionIfMine()
         }
         .sheet(isPresented: $showingTimeline) {
             ProfileTimelineView(profileID: profile.id)
@@ -249,6 +258,25 @@ struct ProfileDetailView: View {
         case .evidenced:   return .blue
         case .verified:    return .green
         }
+    }
+
+    /// Perform a card-owned action (Change 1) — the same effect as the
+    /// action-row buttons, so the tree context menu and the card share one set.
+    private func performCardAction(_ action: ProfileCardAction) {
+        switch action {
+        case .edit:         isEditing = true
+        case .timeline:     showingTimeline = true
+        case .relationship: showingRelationshipCalculator = true
+        case .cleanse:      cleansePresentation = .singleProfile(profile.id)
+        }
+    }
+
+    /// Consume a context-menu-raised card action if it targets THIS profile.
+    /// Called from every mount/switch path so ordering never drops it.
+    private func consumePendingCardActionIfMine() {
+        guard let pending = appState.pendingCardAction, pending.profileID == profile.id else { return }
+        performCardAction(pending.action)
+        appState.pendingCardAction = nil
     }
 
     /// Read-only list of the records that back this person — full citation +
@@ -375,6 +403,19 @@ struct ProfileDetailView: View {
                         cleansePresentation = .singleProfile(profile.id)
                     } label: {
                         Label("Cleanse", systemImage: "sparkles")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+
+                    // Change 1 — the two tree-centric actions, so the card offers
+                    // the SAME set as the right-click menu (kept in a compact
+                    // "More" menu rather than a 7th/8th full-width button).
+                    Menu {
+                        Button("Compare with…") { appState.requestCompareProfileID = profile.id }
+                        Button("Set as Home Person") { appState.setHomePerson(id: profile.id) }
+                            .disabled(profile.id == appState.currentProject?.homePersonID)
+                    } label: {
+                        Label("More", systemImage: "ellipsis.circle")
                     }
                     .buttonStyle(.glass)
                     .controlSize(.small)
