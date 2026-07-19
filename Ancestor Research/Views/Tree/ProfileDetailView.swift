@@ -71,6 +71,8 @@ struct ProfileDetailView: View {
     // read from evidence_records with no research run.
     @State private var ledgerEntries: [ProfileSourcesLedger.Entry] = []
     @State private var ledgerExpanded: Bool = false
+    // PROFILE_LIFECYCLE_SPEC Change 3 — the derived import→verified stage.
+    @State private var lifecycle: ProfileLifecycle?
 
     var body: some View {
         ScrollView {
@@ -85,6 +87,10 @@ struct ProfileDetailView: View {
                     editable: isEditing,
                     bindings: isEditing ? makeBindings() : nil
                 )
+
+                if !isEditing {
+                    lifecycleChip
+                }
 
                 if isEditing {
                     sourceDetailsSection(profile: profile)
@@ -205,8 +211,44 @@ struct ProfileDetailView: View {
     // MARK: - Sources & Records ledger (PROFILE_SOURCES_LEDGER_SPEC Change 2)
 
     private func reloadLedger() {
-        guard let db = appState.currentDatabase else { ledgerEntries = []; return }
+        guard let db = appState.currentDatabase else { ledgerEntries = []; lifecycle = nil; return }
         ledgerEntries = (try? ProfileSourcesLedger.entries(for: profile.id, db: db)) ?? []
+        // Derive the lifecycle stage from what we already hold (Change 3). GPS
+        // isn't computed here yet, so `gpsStrong: false` keeps a person at
+        // "evidenced" rather than falsely claiming "verified" — honest by
+        // construction; wiring GPS is a follow-up.
+        let evidenceCount = (try? db.evidenceCountForProfile(profile.id)) ?? 0
+        lifecycle = ProfileLifecycle.evaluate(
+            hasResearchEvidence: evidenceCount > 0,
+            pendingReview: surfacedLeadCount,
+            appliedRecords: ledgerEntries.count,
+            gpsStrong: false)
+    }
+
+    @ViewBuilder private var lifecycleChip: some View {
+        if let lifecycle {
+            HStack(spacing: 8) {
+                Circle().fill(stageColor(lifecycle.stage)).frame(width: 9, height: 9)
+                Text(lifecycle.headline)
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.primary)
+                Spacer()
+                Text(lifecycle.stage.rawValue.capitalized)
+                    .font(AppTypography.badge)
+                    .foregroundStyle(stageColor(lifecycle.stage))
+            }
+            .padding(8)
+            .background(stageColor(lifecycle.stage).opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func stageColor(_ stage: ProfileLifecycleStage) -> Color {
+        switch stage {
+        case .imported:    return .gray
+        case .researching: return .orange
+        case .evidenced:   return .blue
+        case .verified:    return .green
+        }
     }
 
     /// Read-only list of the records that back this person — full citation +
