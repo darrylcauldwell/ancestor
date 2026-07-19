@@ -1,6 +1,19 @@
 # Profile Lifecycle & UX Coherence
 
-**Status: PROPOSED 2026-07-18.** One design tying together three UX papercuts that
+**Status: ALL THREE CHANGES SHIPPED 2026-07-19.** Change 1 unified profile actions
+(right-click menu ≡ card, via shared AppState intents `pendingCardAction` /
+`requestCompareProfileID`, `5b6650e`); Change 2 applied-vs-selected legibility in the
+review (blue "Will apply" vs green "Applied", visible labels, `dd1145b`); Change 3
+per-person lifecycle chip (`ProfileLifecycle` derived stage + card chip, 5 tests,
+`b36ea19`). Full suite 2759 green. **Follow-up:** wire GPS to the card so the chip can
+reach "Verified" (currently tops out at "Evidenced" — honest, never falsely verified);
+optional per-record "Apply this one" button.
+
+**Original proposal follows.**
+
+---
+
+One design tying together three UX papercuts that
 share a single root cause: the app *knows* a person's state internally but presents
 it **inconsistently**, so a non-expert can't tell where they are or what to do next.
 The north star (owner, 2026-07-18): **carry a person all the way from a raw GEDCOM
