@@ -254,7 +254,12 @@ struct TreeGraphView: View {
                             treeVM.showInspector = false
                         }
                     )
-                    .frame(minWidth: 380, idealWidth: 420, maxWidth: 460,
+                    // Opening a profile is a "read the detail" mode, so give the
+                    // card room — responsive up to ~60% of the canvas (capped so
+                    // it never dominates a very wide window), with the close (X)
+                    // returning to the full tree.
+                    .frame(minWidth: 420, idealWidth: 560,
+                           maxWidth: max(480, min(canvasSize.width * 0.6, 760)),
                            maxHeight: canvasSize.height - 32)
                     .padding(16)
                 }
