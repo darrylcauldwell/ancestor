@@ -992,7 +992,11 @@ public nonisolated struct UnlinkedSpouseForFemaleSubjectRule: AuditRuleDefinitio
 /// safe path.
 public nonisolated struct MarriedSurnameFromSpouseRule: AuditRuleDefinition {
     public let id = "marriedSurnameFromSpouse"
-    public let category: AuditCategory = .gap
+    // `.issue`, not `.gap`: the Tasks view routes `.gap`-category audit findings
+    // out (they're meant to be redundant with the completeness Gaps view — this
+    // one isn't, so `.gap` would hide it entirely). It's a data-quality issue
+    // with a concrete consequence (missed death-side records), which fits.
+    public let category: AuditCategory = .issue
     public let displayName = "Married Surname Missing"
     public let description = "A woman with a linked spouse but no married surname recorded — her death, probate, and burial records won't be found under her married name."
     public let fireCondition = "gender == .female, a linked spouse's surname differs from hers, and marriedSurname is empty."
@@ -1023,7 +1027,7 @@ public nonisolated struct MarriedSurnameFromSpouseRule: AuditRuleDefinition {
         guard let (spouse, marriedSurname) = Self.suggestion(for: profile, in: snapshot) else { return [] }
         return [AuditResult(
             profileID: profile.id, profileName: profile.displayName,
-            severity: .warning, category: .gap, ruleID: id,
+            severity: .warning, category: .issue, ruleID: id,
             message: "\(profile.displayName) is married to \(spouse.displayName) but has no married surname — her death, probate, and burial records won't be found under '\(marriedSurname)'.",
             relatedProfileIDs: [spouse.id])]
     }
