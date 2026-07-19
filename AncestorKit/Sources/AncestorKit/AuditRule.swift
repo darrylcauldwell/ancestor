@@ -690,6 +690,10 @@ public nonisolated func nameSimilarity(_ a: String, _ b: String) -> Double {
         "LIZZIE": "ELIZABETH",
         "FLORRIE": "FLORENCE", "FLORENCE": "FLORRIE",
         "BOB": "ROBERT", "ROBERT": "BOB",
+        // Ada — standalone name AND a diminutive of Adelaide/Adeline/Adela;
+        // map the long forms to "ADA" so duplicate detection treats them as
+        // the same person (kept in step with ScoringRules.nicknameEquivalents).
+        "ADELAIDE": "ADA", "ADELINE": "ADA", "ADELA": "ADA", "ADELINA": "ADA",
     ]
     if nicknames[a] == b || nicknames[b] == a { return 0.85 }
 

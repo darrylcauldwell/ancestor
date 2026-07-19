@@ -265,6 +265,16 @@ nonisolated struct ScoringRules {
         // Betty — either could be the registered form).
         "ELSIE": "ELIZABETH",
         "FLORRIE": "FLORENCE", "FLORENCE": "FLORRIE",
+        // Ada — a hugely popular standalone Victorian/Edwardian name that is
+        // ALSO a diminutive of Adelaide / Adeline / Adela / Adelina. Mapping
+        // the long forms to a shared "ADA" canonical lets a subject known as
+        // "Ada" match a record registered under any of the fuller names, and
+        // the fuller names match each other (owner case 2026-07-19: Aunty Ada,
+        // wife of Eric Cauldwell, may be registered as Adelaide/Adeline).
+        "ADELAIDE": "ADA",
+        "ADELINE": "ADA",
+        "ADELA": "ADA",
+        "ADELINA": "ADA",
     ]
 
     // MARK: - Pattern Rules
