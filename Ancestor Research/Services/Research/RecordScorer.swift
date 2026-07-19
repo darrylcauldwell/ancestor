@@ -772,10 +772,20 @@ nonisolated struct RecordScorer {
                 // here (catchment mismatch suggests a different person of
                 // the same name from a different region).
                 if let catchment = ProbateRegistryCatchment.chapmanCodes(forRegistry: r.registry) {
+                    // Spell it out for a non-expert: a probate registry is where
+                    // the GRANT was processed, not where the person lived, and it
+                    // covers several counties — so a Manchester grant for a
+                    // Derbyshire death is expected, not suspicious (owner asked
+                    // "how would I know Manchester is right?", 2026-07-19).
+                    let county = Self.countyName(forChapman: subject.homeChapmanCode)
+                    let countyLabel = county.isEmpty ? subject.homeChapmanCode : county
+                    let registryName = r.registry ?? "This"
                     if catchment.contains(subject.homeChapmanCode.uppercased()) {
-                        return GateResult(gate: .geography, outcome: .pass, reason: "registry \(r.registry ?? "?") covers \(subject.homeChapmanCode)")
+                        return GateResult(gate: .geography, outcome: .pass,
+                            reason: "\(registryName) probate registry covers \(countyLabel) — the registry is where the grant was processed, not where they lived")
                     }
-                    return GateResult(gate: .geography, outcome: .softFail, reason: "registry \(r.registry ?? "?") catchment doesn't cover \(subject.homeChapmanCode)")
+                    return GateResult(gate: .geography, outcome: .softFail,
+                        reason: "the \(registryName) probate registry doesn't cover \(countyLabel) — may be a different person of the same name from another region")
                 }
                 // Registry unknown — fall back to subject's free-text death
                 // location. Less precise than a structured catchment match
