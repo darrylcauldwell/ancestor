@@ -612,27 +612,26 @@ struct ClusterReviewView: View {
                 let recordDecision = vm.recordDecisions[scored.id]
                 let effectiveWillApply = recordDecision == .accepted
                     || (recordDecision != .rejected && RecordScorer.wouldApply(scored))
+                // PROFILE_LIFECYCLE_SPEC Change 2 — applied vs selected, legible
+                // WITHOUT hovering, and green reserved for "done/on the profile".
+                // Previously both states were `.iconOnly` green checkmarks
+                // (seal vs circle) with the words hidden in a tooltip, so
+                // "Will apply" read as "already applied" (owner-reported).
                 if alreadyApplied {
-                    // Already-applied wins over the will-apply / skipped
-                    // dichotomy — it's the most specific state and the
-                    // user wants to know "you already did this" before
-                    // anything else.
-                    Label("Already applied", systemImage: "checkmark.seal.fill")
-                        .labelStyle(.iconOnly)
-                        .foregroundStyle(.green)
-                        .help("This record was applied to the profile in a previous run. Re-finding it confirms the engine is consistent — no new action needed.")
-                        .accessibilityLabel("Already applied in a previous run")
+                    // Green = it is ON the profile. The most specific state.
+                    statusPill("Applied", icon: "checkmark.seal.fill", tint: .green)
+                        .help("This record is already on the profile (applied in a previous run). No new action needed.")
+                        .accessibilityLabel("Applied — already on the profile")
                 } else if effectiveWillApply {
-                    Label("Will apply", systemImage: "checkmark.circle.fill")
-                        .labelStyle(.iconOnly)
-                        .foregroundStyle(.green)
-                        .help("This record will be applied to the profile when you click Apply.")
-                        .accessibilityLabel("Will apply when you click Apply")
+                    // Blue (not green) = a pending SELECTION: included in the next
+                    // Apply, but NOT written yet. The colour break is the fix —
+                    // green would read as "done".
+                    statusPill("Will apply", icon: "checkmark.circle", tint: .blue)
+                        .help("Selected — this record will be written to the profile when you click Apply. It is NOT on the profile yet.")
+                        .accessibilityLabel("Will apply when you click Apply — not on the profile yet")
                 } else {
-                    Label("Skipped on apply", systemImage: "circle.dashed")
-                        .labelStyle(.iconOnly)
-                        .foregroundStyle(.tertiary)
-                        .help("This record stays in the cluster as evidence but isn't written to the profile on Apply (didn't clear the scoring gates or was discarded).")
+                    statusPill("Skipped", icon: "circle.dashed", tint: .gray)
+                        .help("Stays in the cluster as evidence but isn't written on Apply (didn't clear the scoring gates or was discarded).")
                         .accessibilityLabel("Skipped on apply; remains as evidence")
                 }
 
@@ -935,6 +934,21 @@ struct ClusterReviewView: View {
             .filter { !$0.value.isEmpty && !shownValues.contains($0.value) }
             .sorted { $0.key < $1.key }
             .map { (key: $0.key, value: $0.value) }
+    }
+
+    /// A compact, text-bearing status pill (PROFILE_LIFECYCLE_SPEC Change 2) —
+    /// the words are always visible, and the tint distinguishes states at a
+    /// glance (green = applied/done, blue = pending selection, grey = skipped).
+    private func statusPill(_ text: String, icon: String, tint: Color) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon)
+            Text(text)
+        }
+        .font(AppTypography.badge)
+        .foregroundStyle(tint)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(tint.opacity(0.14), in: .capsule)
     }
 
     @ViewBuilder
