@@ -2201,6 +2201,27 @@ final class AppState {
             errorMessage = "Failed to set home person: \(error.localizedDescription)"
         }
     }
+
+    /// One-click fix for the `MarriedSurnameFromSpouseRule` finding — record a
+    /// woman's married surname (derived from her linked spouse) so research
+    /// pivots her death / probate / burial searches to it. Human-confirmed via
+    /// the Tasks button; provenance tagged `manual.derived`.
+    func setMarriedSurname(profileID: String, surname: String) {
+        guard let db = currentDatabase,
+              let profile = snapshot.profiles[profileID] else { return }
+        do {
+            _ = try db.editProfile(
+                profileID: profileID,
+                changes: [(.marriedSurname, profile.marriedSurname, surname)],
+                dateChanges: [],
+                source: SourceOrigin(identifier: "manual.derived"))
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+            successMessage = "Recorded married surname '\(surname)' — research will now search her death and probate records under it."
+        } catch {
+            errorMessage = "Could not set married surname: \(error.localizedDescription)"
+        }
+    }
 }
 
 /// Errors raised by `AppState.importGEDCOM`. Currently just one case —

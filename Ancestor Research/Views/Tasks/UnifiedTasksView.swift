@@ -829,6 +829,26 @@ private struct TaskRow: View {
                     .accessibilityHint("Review this person's parent links and remove the incorrect or duplicate one")
                 }
 
+                // Married surname missing — one-click "Set <spouse surname>"
+                // (MarriedSurnameFromSpouseRule). Uses the SAME suggestion the
+                // rule computed, so the button label and the applied value can
+                // never disagree. Without this the woman's death-side records
+                // (probate/burial) search under her maiden name and miss her.
+                if r.ruleID == "marriedSurnameFromSpouse",
+                   let her = appState.snapshot.profiles[r.profileID],
+                   let suggestion = MarriedSurnameFromSpouseRule.suggestion(for: her, in: appState.snapshot) {
+                    Button {
+                        appState.setMarriedSurname(profileID: r.profileID, surname: suggestion.marriedSurname)
+                        onAuditChanged()
+                    } label: {
+                        Label("Set “\(suggestion.marriedSurname)”", systemImage: "person.badge.plus")
+                    }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.mini)
+                    .help("Record \(suggestion.marriedSurname) as her married surname so research finds her death and probate records")
+                    .accessibilityHint("Set married surname to \(suggestion.marriedSurname)")
+                }
+
                 // Phase 2 — structural rules reuse the relationship-review path.
                 // Two biological parents in the same role → review + unlink one.
                 if r.ruleID == "parentsPerRole" {

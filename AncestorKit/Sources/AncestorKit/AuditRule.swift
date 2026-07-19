@@ -83,6 +83,7 @@ public nonisolated enum AuditRules {
         MissingDeathLocationRule(),
         AncestorExtensionRule(),
         UnlinkedSpouseForFemaleSubjectRule(),
+        MarriedSurnameFromSpouseRule(),
     ]
 }
 
@@ -971,6 +972,64 @@ public nonisolated struct UnlinkedSpouseForFemaleSubjectRule: AuditRuleDefinitio
     public func guidanceMessage(profile: Profile) -> String? {
         let married = (profile.marriedSurname ?? "?").trimmingCharacters(in: .whitespaces)
         return "Link \(profile.displayName)'s spouse so research can find her death/probate records under '\(married)'. Use Add Spouse from the profile, or import the spouse from WikiTree."
+    }
+}
+
+/// The MIRROR of `UnlinkedSpouseForFemaleSubjectRule`: a female profile that HAS
+/// a linked spouse (whose surname differs from hers) but NO `marriedSurname`
+/// recorded. Without it, `ResearchSubject.fromProfile` can't pivot death-shape
+/// searches (death / burial / probate / military) to the married name, so her
+/// death-side records are systematically missed — searched under her maiden
+/// name, they return only namesakes (the live Jennifer Holmes → Cauldwell case:
+/// probate searched as HOLMES surfaced strangers in Enfield/Frome/…, never her
+/// real Derbyshire CAULDWELL grant).
+///
+/// The finding carries the spouse in `relatedProfileIDs` so the Tasks surface
+/// can offer a one-click "Set married surname to <spouse surname>" — the app
+/// suggests the fix rather than leaving the user to know they need it. Marriage
+/// records were deliberately NOT auto-derived onto `marriedSurname` (divorce /
+/// remarriage can change surname-at-death), so this human-confirmed nudge is the
+/// safe path.
+public nonisolated struct MarriedSurnameFromSpouseRule: AuditRuleDefinition {
+    public let id = "marriedSurnameFromSpouse"
+    public let category: AuditCategory = .gap
+    public let displayName = "Married Surname Missing"
+    public let description = "A woman with a linked spouse but no married surname recorded — her death, probate, and burial records won't be found under her married name."
+    public let fireCondition = "gender == .female, a linked spouse's surname differs from hers, and marriedSurname is empty."
+    public let warningCondition: String? = nil
+    public let workedExample = "Jennifer Holmes is linked to David Cauldwell but has no married surname — probate searched under HOLMES returns only namesakes, never her CAULDWELL grant."
+    public let defaultSeverity = Severity.warning
+    public init() {}
+
+    /// The spouse whose surname she can adopt, plus that surname — nil when the
+    /// rule doesn't apply. Shared by the rule and the Tasks one-click action so
+    /// the finding and the fix can never disagree about which name to set.
+    public static func suggestion(for profile: Profile, in snapshot: FamilyGraphSnapshot) -> (spouse: Profile, marriedSurname: String)? {
+        guard profile.gender == .female,
+              (profile.marriedSurname ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+        else { return nil }
+        let herSurname = (profile.lastName ?? "").uppercased().trimmingCharacters(in: .whitespaces)
+        // First linked spouse with a real surname that differs from hers.
+        for spouse in snapshot.spousesOf(profile.id) {
+            let ss = (spouse.lastName ?? "").trimmingCharacters(in: .whitespaces)
+            if !ss.isEmpty, ss.uppercased() != herSurname {
+                return (spouse, ss)
+            }
+        }
+        return nil
+    }
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        guard let (spouse, marriedSurname) = Self.suggestion(for: profile, in: snapshot) else { return [] }
+        return [AuditResult(
+            profileID: profile.id, profileName: profile.displayName,
+            severity: .warning, category: .gap, ruleID: id,
+            message: "\(profile.displayName) is married to \(spouse.displayName) but has no married surname — her death, probate, and burial records won't be found under '\(marriedSurname)'.",
+            relatedProfileIDs: [spouse.id])]
+    }
+
+    public func guidanceMessage(profile: Profile) -> String? {
+        "Record \(profile.displayName)'s married surname so research finds her death and probate records."
     }
 }
 
