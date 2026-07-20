@@ -55,6 +55,12 @@ struct ClusterReviewView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
+                        // Subject context — the known life facts (birth, death,
+                        // marriages, children) so the reviewer can judge whether
+                        // a candidate record is chronologically feasible without
+                        // leaving the screen to look them up.
+                        subjectContextPanel
+
                         // SubjectSpouseMarriage status banner (§5.14.6).
                         // Surfaces when subject was thin entering the run —
                         // either reports recovered name, no-match, ambiguous
@@ -184,6 +190,89 @@ struct ClusterReviewView: View {
             searchedSourceCount: searchedSources.count,
             totalSourceCount: registry.allSources().count
         )
+    }
+
+    // MARK: - Subject Context
+
+    /// The subject's known life facts, so a reviewer can judge whether a
+    /// candidate record is chronologically feasible (e.g. "death 1980 at age
+    /// 92, married ~1920, children 1927–1938 — consistent") without leaving the
+    /// review screen. Pure surfacing of snapshot data the scorer already uses.
+    @ViewBuilder
+    private var subjectContextPanel: some View {
+        if let subject = vm.selectedProfile {
+            let snap = appState.snapshot
+            let spouses = snap.spousesOrderedByMarriage(subject.id)
+            let children = snap.childrenOf(subject.id)
+                .sorted { ($0.birthDate?.bestYear ?? Int.max) < ($1.birthDate?.bestYear ?? Int.max) }
+            let hasAnything = subject.birthDate != nil || subject.deathDate != nil
+                || !spouses.isEmpty || !children.isEmpty
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.text.rectangle")
+                        .foregroundStyle(.secondary)
+                    Text("About \(subject.displayName)")
+                        .font(AppTypography.cardTitle)
+                }
+                if hasAnything {
+                    contextRow("Born", vitalText(subject.birthDate, place: subject.birthLocation))
+                    contextRow("Died", vitalText(subject.deathDate, place: subject.deathLocation))
+                    if !spouses.isEmpty {
+                        contextRow("Married", marriagesText(subject: subject, spouses: spouses, snapshot: snap))
+                    }
+                    if !children.isEmpty {
+                        contextRow("Children", childrenText(children))
+                    }
+                } else {
+                    Text("No dates or family recorded yet — a record here may be the first anchor for this person.")
+                        .font(AppTypography.cardMeta)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        }
+    }
+
+    private func contextRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(AppTypography.cardMeta)
+                .foregroundStyle(.secondary)
+                .frame(width: 66, alignment: .leading)
+            Text(value)
+                .font(AppTypography.cardBody)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// "1888 · Bakewell" / "1980" / "—" (unknown). Unknown death is meaningful
+    /// context — it's usually why a death record is under review.
+    private func vitalText(_ date: GenealogicalDate?, place: String?) -> String {
+        guard let date else { return "—" }
+        let year = date.bestYear.map(String.init) ?? date.original
+        if let place, !place.isEmpty { return "\(year) · \(place)" }
+        return year
+    }
+
+    private func marriagesText(subject: Profile, spouses: [Profile], snapshot: FamilyGraphSnapshot) -> String {
+        spouses.map { spouse in
+            let year = snapshot.relationships.first {
+                $0.type == .spouse
+                    && (($0.from == subject.id && $0.to == spouse.id)
+                        || ($0.from == spouse.id && $0.to == subject.id))
+            }?.marriageDate?.bestYear
+            return spouse.displayName + (year.map { " (\($0))" } ?? "")
+        }.joined(separator: ", ")
+    }
+
+    private func childrenText(_ children: [Profile]) -> String {
+        children.map { child in
+            child.displayName + (child.birthDate?.bestYear.map { " (\($0))" } ?? "")
+        }.joined(separator: ", ")
     }
 
     private var summaryBar: some View {
