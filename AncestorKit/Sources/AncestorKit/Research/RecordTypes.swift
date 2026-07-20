@@ -604,6 +604,20 @@ public nonisolated struct RecordQuery: Sendable {
             motherSurname: motherSurname, motherGivenName: motherGivenName
         )
     }
+
+    public func with(givenName: String?) -> RecordQuery {
+        RecordQuery(
+            surname: surname, givenName: givenName, recordType: recordType,
+            yearFrom: yearFrom, yearTo: yearTo, gender: gender, region: region,
+            sourceParams: sourceParams, strictness: strictness,
+            birthPlace: birthPlace, deathPlace: deathPlace,
+            residencePlace: residencePlace, marriagePlace: marriagePlace,
+            anyPlace: anyPlace,
+            spouseSurname: spouseSurname, spouseGivenName: spouseGivenName,
+            fatherSurname: fatherSurname, fatherGivenName: fatherGivenName,
+            motherSurname: motherSurname, motherGivenName: motherGivenName
+        )
+    }
 }
 
 /// Source-specific typed parameters. The dispatcher knows which source

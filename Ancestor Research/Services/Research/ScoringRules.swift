@@ -277,6 +277,38 @@ nonisolated struct ScoringRules {
         "ADELINA": "ADA",
     ]
 
+    /// All given-name equivalents of `name` for outbound query fan-out — so a
+    /// person registered under a formal name (Harry→HENRY) or a sibling
+    /// nickname (Elsie→ELIZABETH, and thence BETTY/LIZZIE) is found by the
+    /// sources, not just recognised in returned records. The nickname table
+    /// mixes bidirectional pairs and many-nicknames→one-canonical, so this
+    /// walks the transitive equivalence cluster (BFS) rather than a single
+    /// lookup. Uppercased; empty for names with no equivalents. Bounded — the
+    /// table is small and clusters are tiny.
+    static func givenNameVariants(of name: String) -> [String] {
+        let start = name.uppercased().trimmingCharacters(in: .whitespaces)
+        guard !start.isEmpty else { return [] }
+        var cluster: Set<String> = [start]
+        var frontier: Set<String> = [start]
+        var guardCount = 0
+        while !frontier.isEmpty && guardCount < 20 {
+            guardCount += 1
+            var next: Set<String> = []
+            for n in frontier {
+                // Forward: this name's mapped equivalent.
+                if let mapped = nicknameEquivalents[n], !cluster.contains(mapped) { next.insert(mapped) }
+                // Reverse: every name that maps INTO this one.
+                for (nick, canon) in nicknameEquivalents where canon == n && !cluster.contains(nick) {
+                    next.insert(nick)
+                }
+            }
+            cluster.formUnion(next)
+            frontier = next
+        }
+        cluster.remove(start)
+        return cluster.sorted()
+    }
+
     // MARK: - Pattern Rules
 
     /// If mother-in-law has a different surname, that's the wife's maiden name.

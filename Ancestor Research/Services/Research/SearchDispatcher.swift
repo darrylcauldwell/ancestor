@@ -747,12 +747,34 @@ struct SearchDispatcher {
                     let original = q.surname ?? ""
                     let variants = SurnameVariants.shared.variants(of: original)
                     let fannedSurnames = variants.isEmpty ? [original] : [original] + variants
+
+                    // Given-name fan-out (query-side nickname variants): a
+                    // person registered under a formal/sibling name — Harry as
+                    // HENRY, Elsie as ELIZABETH/BETTY — is otherwise invisible
+                    // to every source (the nickname table only scored RETURNED
+                    // records). Fan the given name across its equivalence
+                    // cluster. Only when a given name is present: surname-only
+                    // queries stay on the surname-fan path above and keep the
+                    // storm guard. Bounded (clusters are tiny) and the tier's
+                    // dedup collapses any collisions.
+                    let givenName = (q.givenName ?? "").trimmingCharacters(in: .whitespaces)
+                    let fannedGivens: [String?]
+                    if givenName.isEmpty {
+                        fannedGivens = [q.givenName]
+                    } else {
+                        fannedGivens = [q.givenName] + ScoringRules.givenNameVariants(of: givenName)
+                    }
+
                     // Each fanned-out query carries strictness=.variant so the
                     // dispatcher's tier-walk and activity-bus events reflect
                     // the intended tier — the source may still treat it as
                     // strict-on-the-wire (Phonetic=false), because the variant
-                    // IS the exact surname for that probe.
-                    return fannedSurnames.map { q.with(surname: $0).with(strictness: .variant) }
+                    // IS the exact surname/given name for that probe.
+                    return fannedSurnames.flatMap { s in
+                        fannedGivens.map { g in
+                            q.with(surname: s).with(givenName: g).with(strictness: .variant)
+                        }
+                    }
                 }
             case "cwgc":
                 // No useful variant axis distinct from server soundex per §7.
