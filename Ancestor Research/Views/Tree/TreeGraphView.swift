@@ -191,6 +191,19 @@ struct TreeGraphView: View {
                                 Button("Cleanse") { openCardAction(anchorID, .cleanse) }
 
                                 Divider()
+                                // RETIRE_POPOVER_SPEC Change 1 — add-relative and
+                                // remove move off the popover onto the surfaces we
+                                // keep. Add-relative opens the same sheet as before.
+                                Menu("Add Relative") {
+                                    Button("Add Spouse") { beginAddRelative(anchorID, .spouse) }
+                                    Button("Add Child") { beginAddRelative(anchorID, .child) }
+                                    Button("Add Parent") { beginAddRelative(anchorID, .parent) }
+                                    Button("Add Sibling") { beginAddRelative(anchorID, .sibling) }
+                                    Divider()
+                                    Button("Connect to existing person…") { beginConnectExisting(anchorID) }
+                                }
+
+                                Divider()
                                 // The home person anchors the relationship
                                 // calculator and becomes the published
                                 // manifest's rootPerson — without it viewers
@@ -199,6 +212,20 @@ struct TreeGraphView: View {
                                     appState.setHomePerson(id: anchorID)
                                 }
                                 .disabled(anchorID == appState.currentProject?.homePersonID)
+
+                                Divider()
+                                Button("Remove Person", role: .destructive) {
+                                    treeVM.popoverProfileID = nil
+                                    appState.softDeleteProfile(id: anchorID)
+                                }
+                                Menu("Remove Branch") {
+                                    Button("Remove person and ancestors", role: .destructive) {
+                                        beginBranchDelete(anchorID, ancestors: true)
+                                    }
+                                    Button("Remove person and descendants", role: .destructive) {
+                                        beginBranchDelete(anchorID, ancestors: false)
+                                    }
+                                }
                             }
                         }
 
@@ -234,6 +261,18 @@ struct TreeGraphView: View {
                     guard let id = newValue else { return }
                     comparePickerSource = ComparePickerSource(id: id)
                     appState.requestCompareProfileID = nil
+                }
+                // RETIRE_POPOVER_SPEC Change 1 — Full Detail raising add-relative /
+                // connect-to-existing. Only the tree owns the add sheets.
+                .onChange(of: appState.requestAddRelative) { _, newValue in
+                    guard let req = newValue else { return }
+                    beginAddRelative(req.profileID, req.relation)
+                    appState.requestAddRelative = nil
+                }
+                .onChange(of: appState.requestConnectExisting) { _, newValue in
+                    guard let id = newValue else { return }
+                    beginConnectExisting(id)
+                    appState.requestConnectExisting = nil
                 }
 
                 // Floating profile card. Overlays the tree canvas in the
@@ -529,6 +568,31 @@ struct TreeGraphView: View {
         treeVM.selectedProfileID = id
         treeVM.popoverProfileID = nil
         treeVM.showInspector = true
+    }
+
+    // Shared action handlers (RETIRE_POPOVER_SPEC Change 1) — the right-click
+    // menu, Full Detail, and (until it's retired) the popover all route through
+    // these so the add/remove actions behave identically wherever invoked.
+
+    /// Open the "add relative" flow for `id` with a preselected relation kind.
+    private func beginAddRelative(_ id: String, _ relation: AutoSuggestService.RelationContext) {
+        treeVM.popoverProfileID = nil
+        addPersonContext = .relative(id: id, relation: relation)
+        showAddPerson = true
+    }
+
+    /// Open the "connect to an existing person" relationship sheet for `id`.
+    private func beginConnectExisting(_ id: String) {
+        treeVM.popoverProfileID = nil
+        relationshipAnchorID = SheetID(id: id)
+    }
+
+    /// Stage a branch delete (person + ancestors or descendants) for confirmation.
+    private func beginBranchDelete(_ id: String, ancestors: Bool) {
+        treeVM.popoverProfileID = nil
+        let direction: BranchDirection = ancestors ? .ancestors : .descendants
+        let ids = BranchSelector.branch(rootedAt: id, direction: direction, in: appState.snapshot)
+        pendingBranchDelete = PendingBranchDelete(rootID: id, ids: ids, direction: direction)
     }
 
     /// Skip the popover layer and open the full Profile Detail sheet

@@ -132,6 +132,17 @@ final class AppState {
     /// `TreeGraphView` observes and opens the compare picker for this id.
     var requestCompareProfileID: String?
 
+    /// RETIRE_POPOVER_SPEC Change 1 — Full Detail raising add-relative /
+    /// connect-to-existing. The tree owns the add sheets, so the card sets these
+    /// intents and `TreeGraphView` observes and presents, mirroring
+    /// `requestCompareProfileID`.
+    struct AddRelativeRequest: Equatable {
+        let profileID: String
+        let relation: AutoSuggestService.RelationContext
+    }
+    var requestAddRelative: AddRelativeRequest?
+    var requestConnectExisting: String?
+
     var isLoading = false
     var loadingMessage: String?
     var errorMessage: String?

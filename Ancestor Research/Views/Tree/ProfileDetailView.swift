@@ -411,9 +411,24 @@ struct ProfileDetailView: View {
                     // the SAME set as the right-click menu (kept in a compact
                     // "More" menu rather than a 7th/8th full-width button).
                     Menu {
+                        // RETIRE_POPOVER_SPEC Change 1 — add-relative + remove
+                        // move here (and to the right-click menu) off the popover.
+                        // The tree owns the add sheets, so these set intents it
+                        // observes, mirroring "Compare with…".
+                        Button("Add Spouse") { appState.requestAddRelative = .init(profileID: profile.id, relation: .spouse) }
+                        Button("Add Child") { appState.requestAddRelative = .init(profileID: profile.id, relation: .child) }
+                        Button("Add Parent") { appState.requestAddRelative = .init(profileID: profile.id, relation: .parent) }
+                        Button("Add Sibling") { appState.requestAddRelative = .init(profileID: profile.id, relation: .sibling) }
+                        Button("Connect to existing person…") { appState.requestConnectExisting = profile.id }
+                        Divider()
                         Button("Compare with…") { appState.requestCompareProfileID = profile.id }
                         Button("Set as Home Person") { appState.setHomePerson(id: profile.id) }
                             .disabled(profile.id == appState.currentProject?.homePersonID)
+                        Divider()
+                        Button("Remove Person", role: .destructive) {
+                            appState.softDeleteProfile(id: profile.id)
+                            onClose?()
+                        }
                     } label: {
                         Label("More", systemImage: "ellipsis.circle")
                     }

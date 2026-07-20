@@ -6,7 +6,7 @@ nonisolated enum AutoSuggestService {
 
     /// The relationship of a person being added relative to a context profile.
     /// Determines whether surname suggestions make sense.
-    enum RelationContext {
+    enum RelationContext: Equatable {
         case child       // Add child of context — likely shares context's surname
         case sibling     // Add sibling — shares parent's surname
         case parent      // Add parent — often shares child's surname (paternal line)
