@@ -6,6 +6,7 @@ nonisolated enum HitTestResult: Sendable {
     case arrowIndicator(String)
     case ancestorIndicator(String)
     case descendantIndicator(String)
+    case spouseChip(person: String, spouse: String)
     case nodeBody(String)
     case empty
 }
@@ -278,9 +279,24 @@ final class TreeViewModel {
 
     // MARK: - Hit Testing
 
-    func hitTest(at screenPoint: CGPoint, canvasSize: CGSize) -> HitTestResult {
+    func hitTest(at screenPoint: CGPoint, canvasSize: CGSize, snapshot: FamilyGraphSnapshot) -> HitTestResult {
         let transform = currentTransform(canvasSize: canvasSize)
         let layoutPoint = transform.toLayout(screenX: screenPoint.x, screenY: screenPoint.y)
+
+        // Phase 0: marriage-switch chips (multi-spouse people). Tested first so
+        // a chip beats the node body underneath it.
+        for node in layout.nodes {
+            let marriages = snapshot.spousesOrderedByMarriage(node.id)
+            guard marriages.count >= 2 else { continue }
+            let centres = TreeLayout.spouseChipCentres(nodeX: node.x, nodeY: node.y, count: marriages.count)
+            let half = TreeLayout.spouseChipSize / 2 + 3   // a little slop for touch/click
+            for (i, c) in centres.enumerated() {
+                let rect = CGRect(x: c.x - half, y: c.y - half, width: half * 2, height: half * 2)
+                if rect.contains(layoutPoint) {
+                    return .spouseChip(person: node.id, spouse: marriages[i].id)
+                }
+            }
+        }
 
         // Phase 1: ⓘ icon on the selected node
         if let selectedID = selectedProfileID,

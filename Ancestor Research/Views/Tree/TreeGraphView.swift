@@ -140,11 +140,13 @@ struct TreeGraphView: View {
                         .onContinuousHover { phase in
                             switch phase {
                             case .active(let location):
-                                let result = treeVM.hitTest(at: location, canvasSize: canvasSize)
+                                let result = treeVM.hitTest(at: location, canvasSize: canvasSize, snapshot: appState.snapshot)
                                 switch result {
                                 case .nodeBody(let id), .infoIcon(let id), .arrowIndicator(let id),
                                      .ancestorIndicator(let id), .descendantIndicator(let id):
                                     treeVM.hoveredNodeID = id
+                                case .spouseChip(let person, _):
+                                    treeVM.hoveredNodeID = person
                                 case .empty:
                                     treeVM.hoveredNodeID = nil
                                 }
@@ -535,15 +537,15 @@ struct TreeGraphView: View {
     /// because there's no single profile to open. The popover is
     /// dismissed if currently visible so the two surfaces don't stack.
     private func handleDoubleClick(at location: CGPoint, canvasSize: CGSize) {
-        switch treeVM.hitTest(at: location, canvasSize: canvasSize) {
+        switch treeVM.hitTest(at: location, canvasSize: canvasSize, snapshot: appState.snapshot) {
         case .nodeBody(let id), .infoIcon(let id):
             treeVM.selectedProfileID = id
             treeVM.popoverProfileID = nil
             treeVM.showInspector = true
             focus = .canvas
-        case .arrowIndicator, .ancestorIndicator, .descendantIndicator, .empty:
-            // Defer to the single-click handler — these targets navigate
-            // rather than open detail.
+        case .arrowIndicator, .ancestorIndicator, .descendantIndicator, .spouseChip, .empty:
+            // Defer to the single-click handler — these targets navigate or
+            // switch marriage rather than open detail.
             handleSingleClick(at: location, canvasSize: canvasSize)
         }
     }
@@ -554,7 +556,11 @@ struct TreeGraphView: View {
             treeVM.isAnimatingRecenter = false
         }
 
-        switch treeVM.hitTest(at: location, canvasSize: canvasSize) {
+        switch treeVM.hitTest(at: location, canvasSize: canvasSize, snapshot: appState.snapshot) {
+        case .spouseChip(let person, let spouse):
+            // Switch which marriage the tree shows for a multi-spouse person.
+            treeVM.setActiveSpouse(person: person, spouse: spouse, snapshot: appState.snapshot)
+
         case .infoIcon(let id):
             treeVM.popoverProfileID = id
 

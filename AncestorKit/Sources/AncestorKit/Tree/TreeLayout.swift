@@ -84,6 +84,24 @@ public nonisolated struct TreeLayout {
     public static let arrowHitWidth: Double = 80
     public static let arrowHitHeight: Double = 20
     public static let infoIconSize: Double = 24
+    public static let spouseChipSize: Double = 18
+    public static let spouseChipGap: Double = 4
+
+    /// Layout-space CENTRES of the marriage-switch chips for a person with
+    /// `count` marriages — a small row centred below the couple (between the
+    /// person and the shown spouse), clear of the person-centred "▼ children"
+    /// affordance. Draw AND hit-test both derive chip positions from this, so
+    /// they stay perfectly in sync. Empty for < 2 marriages.
+    public static func spouseChipCentres(nodeX: Double, nodeY: Double, count: Int) -> [(x: Double, y: Double)] {
+        guard count >= 2 else { return [] }
+        let midX = nodeX + (nodeWidth + spouseSpacing) / 2
+        let rowWidth = Double(count) * spouseChipSize + Double(count - 1) * spouseChipGap
+        let firstCentreX = midX - rowWidth / 2 + spouseChipSize / 2
+        let y = nodeY + nodeHeight / 2 + spouseChipSize / 2 + 6
+        return (0..<count).map { i in
+            (x: firstCentreX + Double(i) * (spouseChipSize + spouseChipGap), y: y)
+        }
+    }
     public static let ghostNodeWidth: Double = 100
     public static let ghostNodeHeight: Double = 48
 

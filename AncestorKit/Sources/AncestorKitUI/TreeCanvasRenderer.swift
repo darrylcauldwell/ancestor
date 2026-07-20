@@ -347,6 +347,38 @@ public enum TreeCanvasRenderer {
                 anchor: .center
             )
         }
+
+        // Marriage-switch chips — a person with 2+ marriages gets a small row
+        // of ordinal pills below the couple; the shown marriage is filled. The
+        // chip centres come from TreeLayout.spouseChipCentres (layout space)
+        // and are mapped to screen via this node's rect + scale, so they line
+        // up exactly with the hit-test regions.
+        let marriages = snapshot.spousesOrderedByMarriage(node.id)
+        if marriages.count >= 2 {
+            let activeID = snapshot.displayedSpouse(of: node.id, activeSpouse: activeSpouse)?.id
+            let centres = TreeLayout.spouseChipCentres(nodeX: node.x, nodeY: node.y, count: marriages.count)
+            let chipScreen = TreeLayout.spouseChipSize * scale
+            for (i, c) in centres.enumerated() {
+                let sx = rect.midX + (c.x - node.x) * scale
+                let sy = rect.midY + (c.y - node.y) * scale
+                let chipRect = CGRect(x: sx - chipScreen / 2, y: sy - chipScreen / 2,
+                                      width: chipScreen, height: chipScreen)
+                let isActive = marriages[i].id == activeID
+                let pill = Path(ellipseIn: chipRect)
+                if isActive {
+                    context.fill(pill, with: .color(theme.controlAccent))
+                } else {
+                    // Tinted fill + outline so it reads as a control (portable,
+                    // no AppKit/UIKit colour needed).
+                    context.fill(pill, with: .color(theme.controlAccent.opacity(0.18)))
+                    context.stroke(pill, with: .color(theme.controlAccent.opacity(0.7)), lineWidth: 1)
+                }
+                let label = Text("\(i + 1)")
+                    .font(theme.badge)
+                    .foregroundStyle(isActive ? Color.white : theme.controlAccent)
+                context.draw(context.resolve(label), at: CGPoint(x: sx, y: sy), anchor: .center)
+            }
+        }
     }
 
     public static func drawGhostNode(context: inout GraphicsContext, node: TreeLayout.LayoutNode, rect: CGRect, theme: TreeCanvasTheme) {

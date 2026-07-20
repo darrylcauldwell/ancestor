@@ -86,6 +86,20 @@ struct TreeLayoutMultiSpouseTests {
         #expect(j == ["sam"])
     }
 
+    /// Stage 2 chip geometry — the shared source of truth for drawing AND
+    /// hit-testing the on-canvas marriage-switch pills.
+    @Test func spouseChipGeometry() {
+        #expect(TreeLayout.spouseChipCentres(nodeX: 0, nodeY: 0, count: 1).isEmpty,
+                "no chips for a single marriage")
+        let two = TreeLayout.spouseChipCentres(nodeX: 100, nodeY: 200, count: 2)
+        #expect(two.count == 2)
+        #expect(two[0].x != two[1].x, "chips must not overlap")
+        #expect(two[0].y == two[1].y, "chips share a row")
+        // Row centred between the person and the shown spouse.
+        let expectedMid = 100 + (TreeLayout.nodeWidth + TreeLayout.spouseSpacing) / 2
+        #expect(abs((two[0].x + two[1].x) / 2 - expectedMid) < 0.001)
+    }
+
     /// A single spouse always shows (no switcher, no regression).
     @Test func singleSpouseAlwaysShown() {
         let david = profile("david", "David", "Rose", 1950)
