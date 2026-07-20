@@ -10,6 +10,12 @@ struct ProfilePopoverView: View {
     let isRoot: Bool
     let currentViewMode: TreeViewMode
 
+    /// Marriage switcher: the spouse whose marriage is currently shown in the
+    /// tree (nil → the person's earliest marriage / default). `onSwitchMarriage`
+    /// is called with a chosen spouse's id. Only shown for 2+ marriages.
+    var activeSpouseID: String? = nil
+    var onSwitchMarriage: ((String) -> Void)?
+
     var onRecenter: (String) -> Void
     var onFocusHere: () -> Void
     var onShowDetail: () -> Void
@@ -31,6 +37,7 @@ struct ProfilePopoverView: View {
                 header
                 Divider()
                 vitalEvents
+                marriageSwitcherSection
                 offCanvasRelativesSection
                 missingFields
                 disputeIndicator
@@ -117,6 +124,48 @@ struct ProfilePopoverView: View {
                     .padding(.vertical, 2)
                     .glassEffect(.regular, in: .capsule)
             }
+        }
+    }
+
+    // MARK: - Marriage Switcher
+
+    /// When the person has 2+ marriages, let the user choose which one the tree
+    /// shows (spouse + that marriage's children). Ordered earliest-first.
+    @ViewBuilder
+    private var marriageSwitcherSection: some View {
+        let spouses = snapshot.spousesOrderedByMarriage(profile.id)
+        if spouses.count >= 2 {
+            let active = activeSpouseID ?? spouses.first?.id
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Showing marriage")
+                    .font(AppTypography.popoverLabel)
+                    .foregroundStyle(.secondary)
+                ForEach(Array(spouses.enumerated()), id: \.element.id) { pair in
+                    let isActive = pair.element.id == active
+                    Button {
+                        onSwitchMarriage?(pair.element.id)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
+                                .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                            Text("\(Self.ordinal(pair.offset + 1)) · \(pair.element.displayName)")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private static func ordinal(_ n: Int) -> String {
+        switch n {
+        case 1: return "1st"
+        case 2: return "2nd"
+        case 3: return "3rd"
+        default: return "\(n)th"
         }
     }
 

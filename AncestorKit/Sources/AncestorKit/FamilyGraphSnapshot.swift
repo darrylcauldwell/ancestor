@@ -77,6 +77,60 @@ public nonisolated struct FamilyGraphSnapshot: Sendable {
             }
     }
 
+    /// Spouses of `id` ordered by marriage date, earliest first — so a
+    /// remarriage renders after the first marriage. Undated marriages sort
+    /// last, then by id for stability (so ordering never flickers).
+    public func spousesOrderedByMarriage(_ id: String) -> [Profile] {
+        let dated: [(profile: Profile, year: Int)] = relationships
+            .filter { $0.type == .spouse && ($0.from == id || $0.to == id) }
+            .compactMap { rel in
+                let otherID = rel.from == id ? rel.to : rel.from
+                guard let profile = profiles[otherID] else { return nil }
+                return (profile, rel.marriageDate?.bestYear ?? Int.max)
+            }
+        return dated
+            .sorted { l, r in l.year != r.year ? l.year < r.year : l.profile.id < r.profile.id }
+            .map(\.profile)
+    }
+
+    /// The single spouse to DISPLAY for `id` under the marriage-switcher:
+    /// nobody with ≤1 spouse changes; a person with 2+ spouses shows the
+    /// user-selected marriage (`activeSpouse[id]`) or, by default, their
+    /// earliest. Nil when there is no spouse.
+    public func displayedSpouse(of id: String, activeSpouse: [String: String]) -> Profile? {
+        let ordered = spousesOrderedByMarriage(id)
+        guard !ordered.isEmpty else { return nil }
+        if ordered.count == 1 { return ordered[0] }
+        if let activeID = activeSpouse[id], let sel = ordered.first(where: { $0.id == activeID }) {
+            return sel
+        }
+        return ordered[0]
+    }
+
+    /// Children shared by the couple `a`+`b` (both listed as parents), sorted
+    /// by birth year. Used to show only the ACTIVE marriage's children.
+    public func childrenOfCouple(_ a: String, _ b: String) -> [Profile] {
+        let aKids = Set(childrenOf(a).map(\.id))
+        let bKids = Set(childrenOf(b).map(\.id))
+        return aKids.intersection(bKids)
+            .compactMap { profiles[$0] }
+            .sorted { l, r in
+                let ly = l.birthDate?.bestYear ?? Int.max
+                let ry = r.birthDate?.bestYear ?? Int.max
+                return ly != ry ? ly < ry : l.displayName < r.displayName
+            }
+    }
+
+    /// Children to DISPLAY for `id` under the switcher: when `id` has 2+
+    /// spouses, only the active marriage's children; otherwise all children.
+    public func displayedChildren(of id: String, activeSpouse: [String: String]) -> [Profile] {
+        if spousesOrderedByMarriage(id).count >= 2,
+           let shown = displayedSpouse(of: id, activeSpouse: activeSpouse) {
+            return childrenOfCouple(id, shown.id)
+        }
+        return childrenOf(id)
+    }
+
     /// Derived from shared parents — no sibling edges stored.
     public func siblingsOf(_ id: String) -> [Profile] {
         (siblingCache[id] ?? []).compactMap { profiles[$0] }

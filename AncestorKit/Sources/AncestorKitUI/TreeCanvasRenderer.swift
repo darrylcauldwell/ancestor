@@ -110,6 +110,7 @@ public enum TreeCanvasRenderer {
         rect: CGRect,
         scale: Double,
         snapshot: FamilyGraphSnapshot,
+        activeSpouse: [String: String] = [:],
         theme: TreeCanvasTheme,
         isSelected: Bool,
         isRoot: Bool,
@@ -334,7 +335,9 @@ public enum TreeCanvasRenderer {
             )
         }
         if node.hasMoreDescendants {
-            let childCount = snapshot.childrenOf(node.id).count
+            // Count only the ACTIVE marriage's children, matching the spouse
+            // shown under the marriage switcher.
+            let childCount = snapshot.displayedChildren(of: node.id, activeSpouse: activeSpouse).count
             let label = Text("▼ \(childCount) child\(childCount == 1 ? "" : "ren")")
                 .font(theme.arrow)
                 .foregroundStyle(theme.controlAccent)

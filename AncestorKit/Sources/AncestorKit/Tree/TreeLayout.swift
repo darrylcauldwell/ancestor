@@ -186,7 +186,8 @@ public nonisolated struct TreeLayout {
     public static func pedigreeLayout(
         rootID: String,
         snapshot: FamilyGraphSnapshot,
-        maxGenerations: Int = 5
+        maxGenerations: Int = 5,
+        activeSpouse: [String: String] = [:]
     ) -> LayoutResult {
         var realNodes: [LayoutNode] = []
         var ghostNodes: [LayoutNode] = []
@@ -206,7 +207,9 @@ public nonisolated struct TreeLayout {
             let y = Double(actualDepth - generation) * (nodeHeight + verticalSpacing)
             let completeness = snapshot.completeness(for: profileID)
             let parents = snapshot.parentsOf(profileID)
-            let children = snapshot.childrenOf(profileID)
+            // Only the ACTIVE marriage's children count toward the "▼ N
+            // children" affordance, so the count matches the spouse shown.
+            let children = snapshot.displayedChildren(of: profileID, activeSpouse: activeSpouse)
 
             let hasMoreAncestors = generation == maxGenerations && !parents.isEmpty
             let hasMoreDescendants = generation == 0 && !children.isEmpty
@@ -323,36 +326,33 @@ public nonisolated struct TreeLayout {
         // Execute layout
         place(profileID: rootID, generation: 0, centreX: 0)
 
-        // Add spouses beside their partners. Each spouse gets its OWN column
-        // to the right — a person with 2+ spouses (remarriage / widowhood,
+        // Add the DISPLAYED spouse beside each partner. Under the marriage
+        // switcher, a person with multiple spouses (remarriage / widowhood —
         // e.g. David Rose married Margaret, then Jean after Margaret died)
-        // previously had every spouse placed at the SAME x, so the cards
-        // rendered on top of each other. Fan them out one card apart, in a
-        // stable order.
+        // shows ONE marriage at a time (the selected one, else the earliest),
+        // so at most one spouse card renders here and the generation row stays
+        // neat. Previously all spouses shared one x and overwrote each other.
         for node in Array(realNodes) {
-            guard node.profile != nil else { continue }
-            let spouses = snapshot.spousesOf(node.id)
-                .filter { !visited.contains($0.id) }
-                .sorted { $0.id < $1.id }
-            var spouseX = node.x
-            for spouse in spouses {
-                visited.insert(spouse.id)
-                spouseX += nodeWidth + spouseSpacing
-                let completeness = snapshot.completeness(for: spouse.id)
-                realNodes.append(LayoutNode(
-                    id: spouse.id,
-                    kind: .profile(spouse, completeness),
-                    x: spouseX, y: node.y, generation: node.generation,
-                    hasMoreAncestors: false, hasMoreDescendants: false
-                ))
-                edges.append(LayoutEdge(
-                    id: "\(node.id)=\(spouse.id)",
-                    fromID: node.id, toID: spouse.id,
-                    fromX: node.x, fromY: node.y,
-                    toX: spouseX, toY: node.y,
-                    type: .spouse
-                ))
-            }
+            guard node.profile != nil,
+                  let spouse = snapshot.displayedSpouse(of: node.id, activeSpouse: activeSpouse),
+                  !visited.contains(spouse.id)
+            else { continue }
+            visited.insert(spouse.id)
+            let completeness = snapshot.completeness(for: spouse.id)
+            let spouseX = node.x + nodeWidth + spouseSpacing
+            realNodes.append(LayoutNode(
+                id: spouse.id,
+                kind: .profile(spouse, completeness),
+                x: spouseX, y: node.y, generation: node.generation,
+                hasMoreAncestors: false, hasMoreDescendants: false
+            ))
+            edges.append(LayoutEdge(
+                id: "\(node.id)=\(spouse.id)",
+                fromID: node.id, toID: spouse.id,
+                fromX: node.x, fromY: node.y,
+                toX: spouseX, toY: node.y,
+                type: .spouse
+            ))
         }
 
         // Render the focal subject's siblings at generation 0 alongside
@@ -432,7 +432,8 @@ public nonisolated struct TreeLayout {
     public static func descendantLayout(
         rootID: String,
         snapshot: FamilyGraphSnapshot,
-        maxGenerations: Int = 4
+        maxGenerations: Int = 4,
+        activeSpouse: [String: String] = [:]
     ) -> LayoutResult {
         var nodes: [LayoutNode] = []
         var edges: [LayoutEdge] = []
@@ -448,7 +449,8 @@ public nonisolated struct TreeLayout {
 
             visited.insert(profileID)
 
-            let children = snapshot.childrenOf(profileID)
+            // Only the active marriage's children under the switcher.
+            let children = snapshot.displayedChildren(of: profileID, activeSpouse: activeSpouse)
             let y = Double(generation) * (nodeHeight + verticalSpacing)
             let completeness = snapshot.completeness(for: profileID)
 
@@ -516,9 +518,12 @@ public nonisolated struct TreeLayout {
             }
         }
 
-        /// Place spouse(s) of a person to the right, advancing nextX.
+        /// Place the DISPLAYED spouse of a person to the right, advancing nextX.
+        /// Under the switcher a multi-spouse person shows one marriage at a time.
         func placeSpouses(of profileID: String, personX: Double, atY y: Double, generation: Int) {
-            let spouses = snapshot.spousesOf(profileID).filter { !visited.contains($0.id) }
+            let spouses = [snapshot.displayedSpouse(of: profileID, activeSpouse: activeSpouse)]
+                .compactMap { $0 }
+                .filter { !visited.contains($0.id) }
             for spouse in spouses {
                 visited.insert(spouse.id)
                 let spouseX = nextX

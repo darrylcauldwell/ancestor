@@ -19,34 +19,75 @@ struct TreeLayoutMultiSpouseTests {
             bio: nil, isDeleted: false, sources: [:], disputes: [:])
     }
 
-    private func spouseRel(_ a: String, _ b: String) -> Relationship {
+    private func spouseRel(_ a: String, _ b: String, marriage: String? = nil) -> Relationship {
         Relationship(id: UUID(), from: a, to: b, type: .spouse, role: nil,
-                     subtype: .unknown, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
+                     subtype: .unknown, marriageDate: marriage.map { GenealogicalDate(parsing: $0) },
+                     marriageLocation: nil, divorceDate: nil)
     }
 
-    @Test func twoSpousesGetDistinctPositions() {
+    /// Under the marriage switcher, a person with two marriages shows only ONE
+    /// spouse at a time — the earliest marriage by default — never both stacked.
+    @Test func showsOnlyEarliestMarriageByDefault() {
         let david = profile("david", "David", "Rose", 1950)
         let margaret = profile("margaret", "Margaret Helen", "Marshall", 1951)
         let jean = profile("jean", "Jean", "", 1935)
         let snapshot = FamilyGraphSnapshot(
             profiles: [david.id: david, margaret.id: margaret, jean.id: jean],
-            relationships: [spouseRel("david", "margaret"), spouseRel("david", "jean")])
+            // Margaret married 1972 (first), Jean 1990 (after Margaret died).
+            relationships: [spouseRel("david", "margaret", marriage: "1972"),
+                            spouseRel("david", "jean", marriage: "1990")])
 
         let result = TreeLayout.pedigreeLayout(rootID: "david", snapshot: snapshot)
-        let david0 = result.nodes.first { $0.id == "david" }
-        let m = result.nodes.first { $0.id == "margaret" }
-        let j = result.nodes.first { $0.id == "jean" }
-
-        #expect(m != nil && j != nil, "both spouses must be laid out")
-        // The bug: both got `node.x + width + spacing` → identical x → overlap.
-        #expect(m!.x != j!.x, "two spouses must not share the same x (they overlapped)")
-        // Both sit on the partner's row, to their right.
-        #expect(m!.y == david0!.y && j!.y == david0!.y)
-        #expect(m!.x > david0!.x && j!.x > david0!.x)
+        #expect(result.nodes.contains { $0.id == "margaret" }, "earliest marriage shows by default")
+        #expect(!result.nodes.contains { $0.id == "jean" }, "the later marriage is hidden until selected")
     }
 
-    /// A single spouse still lands exactly where it always did (no regression).
-    @Test func singleSpouseUnchanged() {
+    /// Selecting the second marriage swaps which spouse is shown.
+    @Test func activeSpouseSelectionSwapsShownSpouse() {
+        let david = profile("david", "David", "Rose", 1950)
+        let margaret = profile("margaret", "Margaret Helen", "Marshall", 1951)
+        let jean = profile("jean", "Jean", "", 1935)
+        let snapshot = FamilyGraphSnapshot(
+            profiles: [david.id: david, margaret.id: margaret, jean.id: jean],
+            relationships: [spouseRel("david", "margaret", marriage: "1972"),
+                            spouseRel("david", "jean", marriage: "1990")])
+
+        let result = TreeLayout.pedigreeLayout(
+            rootID: "david", snapshot: snapshot, activeSpouse: ["david": "jean"])
+        #expect(result.nodes.contains { $0.id == "jean" }, "selected marriage shows")
+        #expect(!result.nodes.contains { $0.id == "margaret" }, "the other marriage is hidden")
+    }
+
+    /// Only the SHOWN marriage's children count toward "▼ N children".
+    @Test func displayedChildrenFollowTheActiveMarriage() {
+        let david = profile("david", "David", "Rose", 1950)
+        let margaret = profile("margaret", "Margaret", "Marshall", 1951)
+        let jean = profile("jean", "Jean", "Smith", 1948)
+        let claire = profile("claire", "Claire", "Rose", 1978)   // David + Margaret
+        let sam = profile("sam", "Sam", "Rose", 1992)            // David + Jean
+        func parent(_ p: String, _ c: String) -> Relationship {
+            Relationship(id: UUID(), from: p, to: c, type: .parent, role: nil,
+                         subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
+        }
+        let snapshot = FamilyGraphSnapshot(
+            profiles: [david.id: david, margaret.id: margaret, jean.id: jean, claire.id: claire, sam.id: sam],
+            relationships: [
+                spouseRel("david", "margaret", marriage: "1972"),
+                spouseRel("david", "jean", marriage: "1990"),
+                parent("david", "claire"), parent("margaret", "claire"),
+                parent("david", "sam"), parent("jean", "sam"),
+            ])
+
+        // Default (Margaret) → Claire only.
+        let m = snapshot.displayedChildren(of: "david", activeSpouse: [:]).map(\.id)
+        #expect(m == ["claire"])
+        // Switch to Jean → Sam only.
+        let j = snapshot.displayedChildren(of: "david", activeSpouse: ["david": "jean"]).map(\.id)
+        #expect(j == ["sam"])
+    }
+
+    /// A single spouse always shows (no switcher, no regression).
+    @Test func singleSpouseAlwaysShown() {
         let david = profile("david", "David", "Rose", 1950)
         let margaret = profile("margaret", "Margaret Helen", "Marshall", 1951)
         let snapshot = FamilyGraphSnapshot(

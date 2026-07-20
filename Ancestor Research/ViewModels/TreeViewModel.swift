@@ -41,6 +41,11 @@ final class TreeViewModel {
     var hoveredNodeID: String?
     var pendingExpandTarget: String?
     var lastCanvasSize: CGSize = .zero
+
+    /// Marriage switcher: for a person with 2+ spouses, which marriage is
+    /// currently shown in the tree (personID → spouseID). A person absent from
+    /// this map shows their earliest marriage by default.
+    var activeSpouseByPerson: [String: String] = [:]
     private var toastGeneration: Int = 0
 
     var canGoBack: Bool { historyIndex > 0 }
@@ -63,9 +68,9 @@ final class TreeViewModel {
 
             switch mode {
             case .pedigree:
-                layout = TreeLayout.pedigreeLayout(rootID: rootID, snapshot: snapshot, maxGenerations: visibleGenerations)
+                layout = TreeLayout.pedigreeLayout(rootID: rootID, snapshot: snapshot, maxGenerations: visibleGenerations, activeSpouse: activeSpouseByPerson)
             case .descendants:
-                layout = TreeLayout.descendantLayout(rootID: rootID, snapshot: snapshot, maxGenerations: visibleGenerations)
+                layout = TreeLayout.descendantLayout(rootID: rootID, snapshot: snapshot, maxGenerations: visibleGenerations, activeSpouse: activeSpouseByPerson)
             }
         } else {
             layout = .init(nodes: [], ghostNodes: [], edges: [], contentWidth: 0, contentHeight: 0, rootID: nil)
@@ -80,10 +85,18 @@ final class TreeViewModel {
         guard let rootID = rootProfileID else { return }
         switch viewMode {
         case .pedigree:
-            layout = TreeLayout.pedigreeLayout(rootID: rootID, snapshot: snapshot, maxGenerations: visibleGenerations)
+            layout = TreeLayout.pedigreeLayout(rootID: rootID, snapshot: snapshot, maxGenerations: visibleGenerations, activeSpouse: activeSpouseByPerson)
         case .descendants:
-            layout = TreeLayout.descendantLayout(rootID: rootID, snapshot: snapshot, maxGenerations: visibleGenerations)
+            layout = TreeLayout.descendantLayout(rootID: rootID, snapshot: snapshot, maxGenerations: visibleGenerations, activeSpouse: activeSpouseByPerson)
         }
+    }
+
+    /// Marriage switcher — show a different one of a multi-spouse person's
+    /// marriages, keeping the current pan/zoom (no recenter).
+    func setActiveSpouse(person: String, spouse: String, snapshot: FamilyGraphSnapshot) {
+        guard activeSpouseByPerson[person] != spouse else { return }
+        activeSpouseByPerson[person] = spouse
+        rebuildLayoutOnly(snapshot: snapshot)
     }
 
     // MARK: - Recenter (animated)

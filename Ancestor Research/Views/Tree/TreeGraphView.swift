@@ -830,6 +830,7 @@ struct TreeGraphView: View {
                     TreeCanvasRenderer.drawNode(
                         context: &context, node: node, rect: rect,
                         scale: treeVM.scale, snapshot: appState.snapshot,
+                        activeSpouse: treeVM.activeSpouseByPerson,
                         theme: Self.canvasTheme,
                         isSelected: isSelected, isRoot: isRoot, isHovered: isHovered, dimmed: dimmed,
                         inFocus: inFocus, hasNote: hasNote, hasOpenQuestion: hasOpenQuestion,
@@ -925,6 +926,10 @@ struct TreeGraphView: View {
                 visibleNodeIDs: Set(treeVM.layout.nodes.map(\.id)),
                 isRoot: popoverID == treeVM.rootProfileID,
                 currentViewMode: treeVM.viewMode,
+                activeSpouseID: treeVM.activeSpouseByPerson[popoverID],
+                onSwitchMarriage: { spouseID in
+                    treeVM.setActiveSpouse(person: popoverID, spouse: spouseID, snapshot: appState.snapshot)
+                },
                 onRecenter: { relativeID in
                     treeVM.popoverProfileID = nil
                     treeVM.recenterOnRelative(
