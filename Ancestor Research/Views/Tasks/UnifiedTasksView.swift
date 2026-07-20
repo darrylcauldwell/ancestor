@@ -849,6 +849,27 @@ private struct TaskRow: View {
                     .accessibilityHint("Set married surname to \(suggestion.marriedSurname)")
                 }
 
+                // Birth year derivable from a linked relative's census age —
+                // one-click "Set birth year ~YYYY" (CensusAgeBirthYearRule).
+                // Same shared suggestion so label and applied value agree; the
+                // AppState write is gap-fill only and stamps a calculated date.
+                if r.ruleID == "censusAgeBirthYear",
+                   let target = appState.snapshot.profiles[r.profileID],
+                   let s = CensusAgeBirthYearRule.suggestion(for: target, in: appState.snapshot) {
+                    Button {
+                        appState.setBirthYearFromCensus(
+                            profileID: r.profileID, year: s.year,
+                            censusYear: s.censusYear, sourceID: s.sourceID)
+                        onAuditChanged()
+                    } label: {
+                        Label("Set birth year ~\(String(s.year))", systemImage: "calendar.badge.plus")
+                    }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.mini)
+                    .help("Set a calculated birth year of ~\(String(s.year)) from their age in \(s.viaName)'s \(String(s.censusYear)) census")
+                    .accessibilityHint("Set birth year to approximately \(String(s.year))")
+                }
+
                 // Phase 2 — structural rules reuse the relationship-review path.
                 // Two biological parents in the same role → review + unlink one.
                 if r.ruleID == "parentsPerRole" {

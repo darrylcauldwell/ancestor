@@ -2222,6 +2222,30 @@ final class AppState {
             errorMessage = "Could not set married surname: \(error.localizedDescription)"
         }
     }
+
+    /// Fill an EMPTY birth year on `profileID` from a linked relative's census
+    /// age. Written as a `.calculated` (CAL, ±1) date so its provenance reads
+    /// "derived from the census", not an asserted precise date. Gap-fill only —
+    /// refuses if a birth year already exists, so the Tasks one-click can never
+    /// stomp known data even on a stale finding.
+    func setBirthYearFromCensus(profileID: String, year: Int, censusYear: Int, sourceID: String?) {
+        guard let db = currentDatabase,
+              let profile = snapshot.profiles[profileID],
+              profile.birthDate?.bestYear == nil else { return }
+        do {
+            let newDate = GenealogicalDate(parsing: "CAL \(year)")
+            _ = try db.editProfile(
+                profileID: profileID,
+                changes: [],
+                dateChanges: [(.birthDate, nil, newDate)],
+                source: SourceOrigin(identifier: sourceID ?? "census.\(censusYear)"))
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+            successMessage = "Set \(profile.displayName)'s birth year to ~\(year) (calculated from the \(censusYear) census)."
+        } catch {
+            errorMessage = "Could not set birth year: \(error.localizedDescription)"
+        }
+    }
 }
 
 /// Errors raised by `AppState.importGEDCOM`. Currently just one case —

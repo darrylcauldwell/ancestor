@@ -84,6 +84,7 @@ public nonisolated enum AuditRules {
         AncestorExtensionRule(),
         UnlinkedSpouseForFemaleSubjectRule(),
         MarriedSurnameFromSpouseRule(),
+        CensusAgeBirthYearRule(),
     ]
 }
 
@@ -1305,5 +1306,78 @@ public nonisolated struct PhantomSpouseRule: AuditRuleDefinition {
                     message: "\(profile.displayName) has no dates or records and only exists as a marriage link to \(anchorName)\(targetClause).",
                     relatedProfileIDs: related)
             }
+    }
+}
+
+// MARK: - Birth Year From Census
+
+/// A relative with no birth year whose age appears in a *linked* family
+/// member's applied census — the birth year can be calculated (`censusYear −
+/// age`, ±1). This is the "linked → enrich" half of census-roster absorption,
+/// surfaced as a persistent Tasks entry with a one-click fix rather than only
+/// inside a research review. Gap-fill only, and it reuses
+/// `CensusAgeEnrichment`'s two-way-unique matching so an ambiguous "two Johns"
+/// household is skipped, not guessed.
+public nonisolated struct CensusAgeBirthYearRule: AuditRuleDefinition {
+    // `.issue`, not `.gap`: the Tasks view routes `.gap` findings out (they
+    // duplicate the completeness Gaps view). This one carries a concrete,
+    // one-click action, so it belongs in Tasks.
+    public let id = "censusAgeBirthYear"
+    public let category: AuditCategory = .issue
+    public let displayName = "Birth Year From Census"
+    public let description = "A relative with no birth year appears, with an age, in a linked family member's census — the year can be calculated."
+    public let fireCondition = "birthDate is empty AND the profile appears (by name, with an age) in a linked relative's applied census household."
+    public let warningCondition: String? = nil
+    public let workedExample = "John Cauldwell has no birth year but appears as 'Head, age 30' in his son Ernest's 1891 census → calculated birth year ~1861."
+    public let defaultSeverity = Severity.warning
+    public init() {}
+
+    /// The calculated year, the census it came from, and the relative whose
+    /// census carried it — nil when the rule doesn't apply. Shared by the rule
+    /// and the Tasks one-click so the finding and the fix can't disagree.
+    public static func suggestion(for profile: Profile, in snapshot: FamilyGraphSnapshot)
+        -> (year: Int, censusYear: Int, viaName: String, sourceID: String?)? {
+        // Only ever fill an EMPTY birth year.
+        guard profile.birthDate?.bestYear == nil else { return nil }
+
+        // Each census-owning relative, tagged with how THIS profile relates to
+        // them (the subject): the profile is a parent's child, a child's
+        // parent, a sibling's sibling, a spouse's spouse. That tag lets the
+        // engine break a "two Johns" roster tie by role.
+        var relatives: [(via: Profile, relation: CensusRelation)] = []
+        relatives += snapshot.parentsOf(profile.id).map { ($0, CensusRelation.child) }
+        relatives += snapshot.childrenOf(profile.id).map { ($0, CensusRelation.parent) }
+        relatives += snapshot.siblingsOf(profile.id).map { ($0, CensusRelation.sibling) }
+        relatives += snapshot.spousesOf(profile.id).map { ($0, CensusRelation.spouse) }
+        for (via, relation) in relatives {
+            for event in snapshot.lifeEvents[via.id] ?? [] where event.type == .census {
+                guard case .census(let details)? = event.details,
+                      !details.household.isEmpty,
+                      let censusYear = event.date?.bestYear else { continue }
+                // Ask the shared engine whether THIS profile is an unambiguous
+                // match in `via`'s roster (subject = via, candidate = profile).
+                let proposals = CensusAgeEnrichment.proposals(
+                    subjectID: via.id, household: details.household,
+                    censusYear: censusYear, linkedRelatives: [profile],
+                    sourceID: event.sources.first?.origin.identifier,
+                    relations: [profile.id: relation])
+                if let p = proposals.first {
+                    return (p.estimatedBirthYear, censusYear, via.displayName, p.sourceID)
+                }
+            }
+        }
+        return nil
+    }
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        guard let s = Self.suggestion(for: profile, in: snapshot) else { return [] }
+        return [AuditResult(
+            profileID: profile.id, profileName: profile.displayName,
+            severity: .warning, category: .issue, ruleID: id,
+            message: "\(profile.displayName) has no birth year, but appears in \(s.viaName)'s \(s.censusYear) census — their age gives a calculated birth year of ~\(s.year).")]
+    }
+
+    public func guidanceMessage(profile: Profile) -> String? {
+        "Set \(profile.displayName)'s birth year from their age in a linked relative's census."
     }
 }
