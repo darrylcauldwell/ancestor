@@ -25,6 +25,16 @@ struct ClusterReviewView: View {
         let profileID: String
     }
 
+    /// Subject + payload for the "add household member" sheet opened from a
+    /// person-add discovery (sibling / child / parent found in a census).
+    @State private var personAddAnchor: PersonAddAnchor?
+
+    private struct PersonAddAnchor: Identifiable {
+        let id = UUID()
+        let subjectID: String
+        let add: DiscoveryPersonAdd
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Summary bar
@@ -1326,6 +1336,13 @@ struct ClusterReviewView: View {
                             }
                             .buttonStyle(.link)
                             .font(AppTypography.badge)
+                        } else if let add = discovery.personAdd,
+                                  let subjectID = vm.selectedProfile?.id {
+                            Button(discovery.suggestedAction) {
+                                personAddAnchor = PersonAddAnchor(subjectID: subjectID, add: add)
+                            }
+                            .buttonStyle(.link)
+                            .font(AppTypography.badge)
                         } else {
                             Text(discovery.suggestedAction)
                                 .font(AppTypography.badge)
@@ -1341,6 +1358,28 @@ struct ClusterReviewView: View {
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
         .sheet(item: $addSpouseAnchor) { anchor in
             AddRelationshipView(anchorID: anchor.profileID, initialKind: .spouse)
+        }
+        .sheet(item: $personAddAnchor) { anchor in
+            AddRelationshipView(
+                anchorID: anchor.subjectID,
+                initialKind: Self.relationshipKind(for: anchor.add.kind),
+                newPerson: AddRelationshipView.NewPerson(
+                    name: anchor.add.name,
+                    birthYear: anchor.add.birthYear,
+                    birthPlace: anchor.add.birthPlace,
+                    sex: anchor.add.sex,
+                    sourceID: anchor.add.sourceID))
+        }
+    }
+
+    /// Map the discovery's subject-relative kind onto the add-relationship
+    /// sheet's edge kind.
+    private static func relationshipKind(for kind: DiscoveryAddKind) -> AddRelationshipView.Kind {
+        switch kind {
+        case .parent: .parent
+        case .child: .child
+        case .sibling: .sibling
+        case .spouse: .spouse
         }
     }
 

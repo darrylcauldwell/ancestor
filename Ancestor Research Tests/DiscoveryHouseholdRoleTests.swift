@@ -74,4 +74,21 @@ struct DiscoveryHouseholdRoleTests {
     @Test func noRemapWhenSubjectRoleUnknown() {
         #expect(DiscoveryExtractor.relativeToSubject("Son", subjectRole: nil, memberSex: "M") == nil)
     }
+
+    // MARK: - addKind (actionable edge kind)
+
+    @Test func addKindWhenSubjectIsChild() {
+        #expect(DiscoveryExtractor.addKind(memberRole: "Son", subjectRole: "son") == .sibling)
+        #expect(DiscoveryExtractor.addKind(memberRole: "Daughter", subjectRole: "son") == .sibling)
+        #expect(DiscoveryExtractor.addKind(memberRole: "Head", subjectRole: "son") == .parent)
+        #expect(DiscoveryExtractor.addKind(memberRole: "Wife", subjectRole: "son") == .parent)
+        #expect(DiscoveryExtractor.addKind(memberRole: "Mother-in-law", subjectRole: "son") == nil)
+    }
+
+    @Test func addKindWhenSubjectIsHead() {
+        #expect(DiscoveryExtractor.addKind(memberRole: "Son", subjectRole: "head") == .child)
+        #expect(DiscoveryExtractor.addKind(memberRole: "Wife", subjectRole: "head") == .spouse)
+        #expect(DiscoveryExtractor.addKind(memberRole: "Father", subjectRole: "head") == .parent)
+        #expect(DiscoveryExtractor.addKind(memberRole: "Son-in-law", subjectRole: "head") == nil)
+    }
 }

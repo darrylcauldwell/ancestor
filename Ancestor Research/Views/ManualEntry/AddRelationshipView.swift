@@ -21,12 +21,24 @@ struct AddRelationshipView: View {
     /// nearly welded two unrelated families (owner report 2026-07-15).
     @State private var anchorID: String
 
-    init(anchorID: String, initialKind: Kind = .parent) {
+    init(anchorID: String, initialKind: Kind = .parent, newPerson: NewPerson? = nil) {
         self._anchorID = State(initialValue: anchorID)
         self._kind = State(initialValue: initialKind)
+        self._newPerson = State(initialValue: newPerson)
+    }
+
+    /// A person NOT yet in the tree (e.g. a census household member) to be
+    /// created and linked on save, instead of picking an existing profile.
+    struct NewPerson: Equatable {
+        var name: String
+        var birthYear: Int?
+        var birthPlace: String?
+        var sex: String?
+        var sourceID: String?
     }
 
     @State private var kind: Kind
+    @State private var newPerson: NewPerson?
     @State private var targetID: String?
     @State private var subtype: RelationshipSubtype = .biological
     @State private var marriageDateText: String = ""
@@ -103,9 +115,28 @@ struct AddRelationshipView: View {
 
     /// Plain-English statement of the edge Add will create — the reader's
     /// last defence against an anchor they didn't intend.
+    /// One-line context for the to-be-created person: birth year + place.
+    private func newPersonDetail(_ np: NewPerson) -> String {
+        var parts = ["New person"]
+        if let y = np.birthYear { parts.append("b. ~\(y)") }
+        if let p = np.birthPlace, !p.isEmpty { parts.append(p) }
+        return parts.joined(separator: " · ")
+    }
+
     @ViewBuilder
     private var edgeDescription: some View {
-        if let anchor = appState.snapshot.profiles[anchorID],
+        if let anchor = appState.snapshot.profiles[anchorID], let np = newPerson, targetID == nil {
+            let noun: String = switch kind {
+            case .parent: "a parent of"
+            case .child: "a child of"
+            case .spouse: "the spouse of"
+            case .sibling: "a sibling of"
+            }
+            Text("\(np.name) will be added to the tree and recorded as \(noun) \(anchor.displayName).")
+                .font(AppTypography.cardMeta.weight(.medium))
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if let anchor = appState.snapshot.profiles[anchorID],
            let targetID, let target = appState.snapshot.profiles[targetID] {
             let sentence: String = {
                 switch kind {
@@ -150,11 +181,29 @@ struct AddRelationshipView: View {
     private var targetSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionTitle("Other person")
-            ProfilePickerField(
-                label: "Target",
-                snapshot: appState.snapshot,
-                selectedID: $targetID
-            )
+            if let np = newPerson {
+                HStack(spacing: 8) {
+                    Image(systemName: "person.crop.circle.badge.plus")
+                        .foregroundStyle(.green)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(np.name)
+                            .font(AppTypography.cardBody.weight(.medium))
+                        Text(newPersonDetail(np))
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassEffect(.regular, in: .rect(cornerRadius: 8))
+            } else {
+                ProfilePickerField(
+                    label: "Target",
+                    snapshot: appState.snapshot,
+                    selectedID: $targetID
+                )
+            }
             if kind == .sibling, siblingIsPlaceholderCase {
                 Text("Neither person has parents yet — a placeholder parent will be created so they share it. You can replace the placeholder with a real person later.")
                     .font(AppTypography.cardMeta)
@@ -237,7 +286,7 @@ struct AddRelationshipView: View {
             Button("Add") { save() }
                 .buttonStyle(.glassProminent)
                 .keyboardShortcut(.defaultAction)
-                .disabled(targetID == nil || (requiresThirdParentConfirmation && !thirdParentSubtypeConfirmed) || siblingBlockedBothHaveParents)
+                .disabled((targetID == nil && newPerson == nil) || (requiresThirdParentConfirmation && !thirdParentSubtypeConfirmed) || siblingBlockedBothHaveParents)
         }
         .padding(16)
     }
@@ -271,8 +320,44 @@ struct AddRelationshipView: View {
         return false
     }
 
+    /// Build a Profile from a census household member — split the name into
+    /// given/surname, title-case a shouty census surname, derive gender from
+    /// the sex column, and record a calculated (±1) birth year.
+    static func buildProfile(from np: NewPerson) -> Profile {
+        let tokens = np.name.split(separator: " ").map(String.init).filter { !$0.isEmpty }
+        let last = tokens.count > 1 ? tokens.last?.capitalized : nil
+        let first = (tokens.count > 1 ? tokens.dropLast().joined(separator: " ") : tokens.first)?.capitalized
+        let gender: Gender? = switch (np.sex ?? "").uppercased().first {
+        case "M": .male
+        case "F": .female
+        default: nil
+        }
+        let birth = np.birthYear.map { GenealogicalDate(parsing: "CAL \($0)") }
+        return Profile(
+            id: UUID().uuidString, externalIDs: [:],
+            firstName: first, middleName: nil, lastName: last,
+            gender: gender, attributes: nil,
+            birthDate: birth, birthLocation: np.birthPlace,
+            deathDate: nil, deathLocation: nil,
+            bio: nil, isDeleted: false, sources: [:], disputes: [:])
+    }
+
     private func save() {
-        guard let targetID else { return }
+        // Resolve the target: an existing pick, or a freshly-created person.
+        let resolvedTargetID: String?
+        if let existing = targetID {
+            resolvedTargetID = existing
+        } else if let np = newPerson {
+            let profile = Self.buildProfile(from: np)
+            appState.addProfile(
+                profile,
+                source: SourceOrigin(identifier: np.sourceID ?? "census.household"),
+                relatedTo: nil)
+            resolvedTargetID = profile.id
+        } else {
+            resolvedTargetID = nil
+        }
+        guard let targetID = resolvedTargetID else { return }
 
         switch kind {
         case .parent:

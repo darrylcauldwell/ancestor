@@ -1,5 +1,24 @@
 import Foundation
 
+/// The relationship a discovered household member has TO THE SUBJECT — already
+/// resolved from the head-relative census role (see
+/// `DiscoveryExtractor.relativeToSubject`). Drives the one-click "add" action.
+nonisolated enum DiscoveryAddKind: Sendable, Equatable {
+    case parent, child, sibling, spouse
+}
+
+/// Payload for a discovery that can be actioned by creating a new profile and
+/// linking it to the subject. Carried so the review UI's button can open the
+/// add-relationship sheet pre-filled instead of leaving dead advisory text.
+nonisolated struct DiscoveryPersonAdd: Sendable, Equatable {
+    let name: String
+    let kind: DiscoveryAddKind
+    let birthYear: Int?
+    let birthPlace: String?
+    let sex: String?
+    let sourceID: String?
+}
+
 /// A first-class finding the research pipeline surfaces to the user.
 /// Discoveries are things the user didn't explicitly ask for but are genealogically significant.
 nonisolated struct Discovery: Identifiable, Sendable {
@@ -9,6 +28,19 @@ nonisolated struct Discovery: Identifiable, Sendable {
     let evidence: String
     let suggestedAction: String
     let sourceID: String?
+    /// Set when the discovery can be actioned by creating + linking a person.
+    let personAdd: DiscoveryPersonAdd?
+
+    init(id: String, type: DiscoveryType, description: String, evidence: String,
+         suggestedAction: String, sourceID: String?, personAdd: DiscoveryPersonAdd? = nil) {
+        self.id = id
+        self.type = type
+        self.description = description
+        self.evidence = evidence
+        self.suggestedAction = suggestedAction
+        self.sourceID = sourceID
+        self.personAdd = personAdd
+    }
 }
 
 /// Types of discoveries the pipeline can surface.
@@ -67,6 +99,32 @@ nonisolated struct DiscoveryExtractor {
         return nil  // in-laws, grandparents, boarders — don't guess
     }
 
+    /// The subject-relative relationship KIND a roster member can be added as,
+    /// or nil when it's not a simple parent/child/sibling/spouse edge (in-laws,
+    /// grandparents — those need manual handling, so they stay advisory).
+    /// Mirrors `relativeToSubject` but yields the actionable edge kind.
+    static func addKind(memberRole: String, subjectRole: String?) -> DiscoveryAddKind? {
+        let m = memberRole.lowercased()
+        let isInLaw = m.contains("law")
+        let subjectIsChild = (subjectRole ?? "").contains("son")
+            || (subjectRole ?? "").contains("daughter")
+        if subjectIsChild {
+            // Roster roles are head-relative — re-map onto the subject.
+            if m.contains("head") { return .parent }
+            if !isInLaw, m == "wife" || m == "mother" { return .parent }
+            if !isInLaw, m == "husband" || m == "father" { return .parent }
+            if !isInLaw, m.contains("son") || m.contains("daughter") { return .sibling }
+            if m.contains("brother") || m.contains("sister") { return .sibling }
+            return nil   // in-laws / grandparents
+        }
+        // Subject is the head (or unknown) — the recorded role reads correctly.
+        if !isInLaw, m.contains("son") || m.contains("daughter") { return .child }
+        if m.contains("wife") || m.contains("husband") { return .spouse }
+        if !isInLaw, m.contains("father") || m.contains("mother") { return .parent }
+        if m.contains("brother") || m.contains("sister") { return .sibling }
+        return nil
+    }
+
     /// Extract a research result and the current tree.
     static func extract(
         from result: ResearchResult,
@@ -95,6 +153,12 @@ nonisolated struct DiscoveryExtractor {
                 } else {
                     .householdMember
                 }
+                let addKind = Self.addKind(memberRole: member.relationship, subjectRole: hhSubjectRole)
+                let personAdd = addKind.map {
+                    DiscoveryPersonAdd(
+                        name: member.name, kind: $0, birthYear: member.birthYear,
+                        birthPlace: member.birthPlace, sex: member.sex, sourceID: nil)
+                }
 
                 discoveries.append(Discovery(
                     id: "disc-hh-\(member.name.hashValue)",
@@ -104,7 +168,8 @@ nonisolated struct DiscoveryExtractor {
                         (member.age.map { ", age \($0)" } ?? "") +
                         (member.birthPlace.map { ", born \($0)" } ?? ""),
                     suggestedAction: "Add to tree as \(label)",
-                    sourceID: nil
+                    sourceID: nil,
+                    personAdd: personAdd
                 ))
             }
         }
@@ -223,6 +288,8 @@ nonisolated struct DiscoveryExtractor {
                             if member.isTarget == true { continue }
                             if member.name.uppercased() == subjectName { continue }
 
+                            let birthYear = member.birthYear
+                                ?? member.age.map { r.censusYear - $0 }
                             if subjectIsChild {
                                 // Sibling, not child.
                                 let known = knownSiblings.contains {
@@ -236,7 +303,11 @@ nonisolated struct DiscoveryExtractor {
                                     description: "\(member.name) (\(sib))",
                                     evidence: "\(r.censusYear) census household",
                                     suggestedAction: "Add \(member.name) as \(sib)",
-                                    sourceID: scored.record.sourceID
+                                    sourceID: scored.record.sourceID,
+                                    personAdd: DiscoveryPersonAdd(
+                                        name: member.name, kind: .sibling, birthYear: birthYear,
+                                        birthPlace: member.birthPlace, sex: member.sex,
+                                        sourceID: scored.record.sourceID)
                                 ))
                             } else {
                                 // Subject is the head/parent → genuinely a child.
@@ -250,7 +321,11 @@ nonisolated struct DiscoveryExtractor {
                                     description: "\(member.name) (\(member.relationship))",
                                     evidence: "\(r.censusYear) census household",
                                     suggestedAction: "Add \(member.name) as \(member.relationship.lowercased())",
-                                    sourceID: scored.record.sourceID
+                                    sourceID: scored.record.sourceID,
+                                    personAdd: DiscoveryPersonAdd(
+                                        name: member.name, kind: .child, birthYear: birthYear,
+                                        birthPlace: member.birthPlace, sex: member.sex,
+                                        sourceID: scored.record.sourceID)
                                 ))
                             }
                         }
