@@ -28,7 +28,46 @@ nonisolated enum DiscoveryType: String, Sendable {
 /// Extracts discoveries from research results.
 nonisolated struct DiscoveryExtractor {
 
-    /// Extract discoveries from a research result and the current tree.
+    /// The subject's own relationship-to-head in a census household
+    /// (lowercased) — via the `isTarget` flag or a name match. Nil if the
+    /// subject isn't located in the roster.
+    static func subjectHouseholdRole(_ household: [HouseholdMember], subject: Profile) -> String? {
+        if let target = household.first(where: { $0.isTarget == true }) {
+            return target.relationship.lowercased()
+        }
+        let name = subject.displayName.uppercased()
+        return household.first(where: { $0.name.uppercased() == name })?.relationship.lowercased()
+    }
+
+    /// Census enumerators record every role relative to the HEAD of household.
+    /// When our subject is NOT the head, those labels are wrong for us — a
+    /// fellow "Son" is the subject's *brother*, the "Head" is the subject's
+    /// *father*. Re-expresses a member's role relative to the subject.
+    ///
+    /// Returns the subject-relative label plus whether it's specifically a
+    /// sibling (so the discovery can be typed and de-duplicated correctly).
+    /// Returns nil to mean "keep the recorded role" — the subject is the head
+    /// (roles already read correctly), or the role is an in-law/grandparent we
+    /// won't risk mis-mapping.
+    static func relativeToSubject(_ memberRole: String, subjectRole: String?, memberSex: String?)
+        -> (label: String, isSibling: Bool)? {
+        // Only re-map when the subject is a CHILD in the household — that's the
+        // case the head-relative roles get wrong.
+        guard let s = subjectRole, s.contains("son") || s.contains("daughter") else { return nil }
+        let m = memberRole.lowercased()
+        let female = (memberSex ?? "").uppercased().hasPrefix("F")
+        let isInLaw = m.contains("law")
+        if m.contains("head") { return (female ? "mother" : "father", false) }
+        if !isInLaw, m.contains("wife") || m == "mother" { return ("mother", false) }
+        if !isInLaw, m.contains("husband") || m == "father" { return ("father", false) }
+        if !isInLaw, m.contains("son") { return ("brother", true) }
+        if !isInLaw, m.contains("daughter") { return ("sister", true) }
+        if m.contains("brother") { return ("brother", true) }
+        if m.contains("sister") { return ("sister", true) }
+        return nil  // in-laws, grandparents, boarders — don't guess
+    }
+
+    /// Extract a research result and the current tree.
     static func extract(
         from result: ResearchResult,
         profile: Profile,
@@ -36,15 +75,22 @@ nonisolated struct DiscoveryExtractor {
     ) -> [Discovery] {
         var discoveries: [Discovery] = []
 
-        // Household members not in the tree
+        // Household members not in the tree. Census roles are head-relative,
+        // so re-express each one relative to the subject before labelling.
+        let hhSubjectRole = Self.subjectHouseholdRole(result.householdMembers, subject: profile)
+        let subjectNameUpper = profile.displayName.uppercased()
         for member in result.householdMembers {
             let nameUpper = member.name.uppercased()
+            if nameUpper == subjectNameUpper { continue }   // never the subject themselves
             let isInTree = snapshot.profiles.values.contains { p in
                 p.displayName.uppercased() == nameUpper
             }
             if !isInTree {
-                let relationship = member.relationship.lowercased()
-                let type: DiscoveryType = if relationship.contains("brother") || relationship.contains("sister") {
+                let remap = Self.relativeToSubject(
+                    member.relationship, subjectRole: hhSubjectRole, memberSex: member.sex)
+                let label = remap?.label ?? member.relationship.lowercased()
+                let type: DiscoveryType = if remap?.isSibling == true
+                    || label.contains("brother") || label.contains("sister") {
                     .unknownSibling
                 } else {
                     .householdMember
@@ -53,11 +99,11 @@ nonisolated struct DiscoveryExtractor {
                 discoveries.append(Discovery(
                     id: "disc-hh-\(member.name.hashValue)",
                     type: type,
-                    description: "\(member.name) (\(member.relationship))",
+                    description: "\(member.name) (\(label))",
                     evidence: "Found in census household" +
                         (member.age.map { ", age \($0)" } ?? "") +
                         (member.birthPlace.map { ", born \($0)" } ?? ""),
-                    suggestedAction: "Add to tree as \(member.relationship.lowercased())",
+                    suggestedAction: "Add to tree as \(label)",
                     sourceID: nil
                 ))
             }
@@ -158,16 +204,46 @@ nonisolated struct DiscoveryExtractor {
                             sourceID: scored.record.sourceID
                         ))
                     }
-                    // Unknown children
+                    // Unknown children (or siblings) — census roles are
+                    // head-relative, so if the SUBJECT is a child in this
+                    // household, the other Son/Daughter rows are the subject's
+                    // brothers/sisters, not their children.
                     if let household = r.household {
-                        let children = snapshot.childrenOf(profile.id)
+                        let subjectRole = Self.subjectHouseholdRole(household, subject: profile)
+                        let subjectIsChild = subjectRole.map {
+                            $0.contains("son") || $0.contains("daughter")
+                        } ?? false
+                        let knownChildren = snapshot.childrenOf(profile.id)
+                        let knownSiblings = snapshot.siblingsOf(profile.id)
+                        let subjectName = profile.displayName.uppercased()
                         for member in household {
                             let rel = member.relationship.lowercased()
                             guard rel.contains("son") || rel.contains("daughter") else { continue }
-                            let isKnown = children.contains {
-                                $0.displayName.uppercased() == member.name.uppercased()
-                            }
-                            if !isKnown {
+                            // Never offer the subject themselves.
+                            if member.isTarget == true { continue }
+                            if member.name.uppercased() == subjectName { continue }
+
+                            if subjectIsChild {
+                                // Sibling, not child.
+                                let known = knownSiblings.contains {
+                                    $0.displayName.uppercased() == member.name.uppercased()
+                                }
+                                if known { continue }
+                                let sib = rel.contains("daughter") ? "sister" : "brother"
+                                discoveries.append(Discovery(
+                                    id: "disc-sib-\(member.name.hashValue)_\(r.censusYear)",
+                                    type: .unknownSibling,
+                                    description: "\(member.name) (\(sib))",
+                                    evidence: "\(r.censusYear) census household",
+                                    suggestedAction: "Add \(member.name) as \(sib)",
+                                    sourceID: scored.record.sourceID
+                                ))
+                            } else {
+                                // Subject is the head/parent → genuinely a child.
+                                let known = knownChildren.contains {
+                                    $0.displayName.uppercased() == member.name.uppercased()
+                                }
+                                if known { continue }
                                 discoveries.append(Discovery(
                                     id: "disc-child-\(member.name.hashValue)_\(r.censusYear)",
                                     type: .unknownChild,
