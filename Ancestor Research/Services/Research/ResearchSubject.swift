@@ -118,6 +118,13 @@ nonisolated struct ResearchSubject: Sendable {
     /// surnames are probed. Nil for males and for women whose surname
     /// never changed.
     var marriedSurname: String? = nil
+    /// ALL of a woman's married surnames, latest marriage first — a twice-
+    /// married woman (e.g. Gillian Rose, whose last marriage before death was
+    /// to David Grant) may have died under any of them, and we rarely know
+    /// which. The death-shape probe (death/burial/probate/military) fans out
+    /// across every entry so her records aren't missed under the wrong married
+    /// name. Empty for males and never-married-name-changed women.
+    var marriedSurnames: [String] = []
     var givenName: String?
     /// Optional middle name(s). When present, the name gate uses it to reject
     /// records whose given-name field carries a different middle initial — so
@@ -338,11 +345,20 @@ nonisolated extension ResearchSubject {
         case .death, .burial, .probate, .military, .census: true
         default: false
         }
-        if probesMarriedAxis,
-           let married = marriedSurname,
-           !married.isEmpty,
-           married.caseInsensitiveCompare(surname) != .orderedSame {
-            out.append(married)
+        if probesMarriedAxis {
+            // Fan out across EVERY married surname (latest marriage first) — a
+            // remarried woman may have died under any of them, and we rarely
+            // know which. Falls back to the single `marriedSurname` for
+            // subjects built without the plural list.
+            let marriedList = marriedSurnames.isEmpty
+                ? [marriedSurname].compactMap { $0 }
+                : marriedSurnames
+            for married in marriedList
+            where !married.isEmpty
+                && married.caseInsensitiveCompare(surname) != .orderedSame
+                && !out.contains(where: { $0.caseInsensitiveCompare(married) == .orderedSame }) {
+                out.append(married)
+            }
         }
 
         return out
@@ -592,10 +608,43 @@ nonisolated extension ResearchSubject {
             return nil
         }()
 
+        // Every distinct married surname, latest marriage first, for the
+        // death-side probe fan-out. A remarried woman (Gillian Rose → … →
+        // David Grant) may have died under any of them.
+        let derivedMarriedSurnames: [String] = {
+            guard profile.gender == .female else { return [] }
+            let ownSurname = (profile.lastName ?? "").lowercased()
+            var pairs: [(surname: String, year: Int)] = []
+            for rel in snapshot.relationships
+            where rel.type == .spouse && (rel.from == profile.id || rel.to == profile.id) {
+                let otherID = rel.from == profile.id ? rel.to : rel.from
+                guard let spouse = snapshot.profiles[otherID] else { continue }
+                let ss = (spouse.lastName ?? "").trimmingCharacters(in: .whitespaces)
+                guard !ss.isEmpty, ss.lowercased() != ownSurname else { continue }
+                // Undated marriages sort last (Int.min under descending order).
+                pairs.append((ss, rel.marriageDate?.bestYear ?? Int.min))
+            }
+            let latestFirst = pairs.sorted { $0.year > $1.year }
+            var seen = Set<String>()
+            var out: [String] = []
+            // An explicit married surname (the user's authoritative "known as")
+            // leads the list.
+            if let explicit = profile.marriedSurname?.trimmingCharacters(in: .whitespaces),
+               !explicit.isEmpty {
+                out.append(explicit)
+                seen.insert(explicit.lowercased())
+            }
+            for p in latestFirst where seen.insert(p.surname.lowercased()).inserted {
+                out.append(p.surname)
+            }
+            return out
+        }()
+
         return ResearchSubject(
             profileID: profile.id,
             surname: profile.lastName,
             marriedSurname: derivedMarriedSurname,
+            marriedSurnames: derivedMarriedSurnames,
             givenName: profile.firstName,
             middleName: profile.middleName,
             birthYearFrom: birthFrom,
