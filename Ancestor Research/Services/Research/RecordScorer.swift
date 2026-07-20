@@ -560,10 +560,46 @@ nonisolated struct RecordScorer {
                 if case .military(let mr) = record { return mr.age }
                 return nil
             }()
+
+            // A subject with a recorded spouse or children demonstrably reached
+            // adulthood/parenthood, so any death that implies they died a child
+            // is a same-name namesake, not them. `familyContext` is the tree's
+            // own family (not a search hint). (Nora Beresford b.1907, m. Rose,
+            // with children → the "Nora Beresford, 1920, age 4" child death is a
+            // different person.) `childbearingFloor` = 15.
+            let fc = subject.familyContext
+            let reachedAdulthood = !(fc?.spouseName ?? "").isEmpty
+                || !(fc?.childNames ?? []).isEmpty
+            let childbearingFloor = 15
+            // (b) Even the OLDEST plausible age at this death year is a child —
+            // impossible for someone who married/had children. Also catches the
+            // age-less namesake burials (e.g. the "Spital Cemetery, d.1920"
+            // twin) that carry no recorded age.
+            if reachedAdulthood, ageAtDeathHigh < childbearingFloor {
+                return GateResult(gate: .date, outcome: .impossible, reason: "died \(recordYear) at age ≤\(ageAtDeathHigh), but the subject married/had children — a childhood-death namesake, not them")
+            }
+
             if let recordedAge {
+                // (b) Recorded childhood death for a subject who was a
+                // parent/spouse — impossible regardless of the birth window.
+                if reachedAdulthood, recordedAge < childbearingFloor {
+                    return GateResult(gate: .date, outcome: .impossible, reason: "died at age \(recordedAge), but the subject married/had children — a childhood-death namesake, not them")
+                }
                 let matchesAnyAge = (ageAtDeathLow ... ageAtDeathHigh).contains { ScoringRules.yearsMatch(recordedAge, $0, tolerance: 2) }
                 if matchesAnyAge {
                     return GateResult(gate: .date, outcome: .pass, reason: "age at death \(recordedAge) consistent with birth \(windowLabel)")
+                }
+                // (a) A recorded age far outside the plausible range is a
+                // different person, not a borderline misreport — escalate
+                // .fail → .impossible so it drops out of the leads. Young-side
+                // is tight (a child/young age is precise and unmistakable);
+                // old-side is lenient (elderly ages are misreported more).
+                // EXCEPT military (CWGC) records: same-name casualties are
+                // deliberately separated by demoting the age-mismatched one to
+                // a reviewable lead (aged 19 vs implied 31), not dropping it.
+                let isMilitary: Bool = { if case .military = record { return true }; return false }()
+                if !isMilitary, recordedAge < ageAtDeathLow - 5 || recordedAge > ageAtDeathHigh + 12 {
+                    return GateResult(gate: .date, outcome: .impossible, reason: "age at death \(recordedAge) impossible for birth \(windowLabel) — a different person")
                 }
                 return GateResult(gate: .date, outcome: .fail, reason: "age at death \(recordedAge) inconsistent with birth \(windowLabel)")
             }
