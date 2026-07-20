@@ -396,6 +396,18 @@ struct UnifiedTasksView: View {
         allTasks.filter { $0.category == category }.count
     }
 
+    /// Count of structural excess/placeholder-parent findings — a person with
+    /// more than two parent edges (or a stray placeholder). Surfaced as its own
+    /// always-visible top-level chip because it's a rare-but-serious structural
+    /// error that would otherwise be buried among high-count nag findings and
+    /// only reachable after drilling into Audit.
+    private var excessParentCount: Int {
+        allTasks.filter {
+            if case .auditIssue(let r) = $0 { return r.ruleID == "excessParentEdges" }
+            return false
+        }.count
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             toolbar
@@ -489,6 +501,28 @@ struct UnifiedTasksView: View {
                     ) {
                         category = (category == c) ? nil : c
                         auditRuleFilter = nil
+                    }
+                }
+                // Structural-error shortcut: >2 parents (or a stray placeholder
+                // parent) is rare but serious, so it gets its own top-level chip
+                // rather than being buried in the frequency-sorted Audit sub-row.
+                // Tapping it jumps straight to those findings (each carries a
+                // "Review parents" action).
+                if excessParentCount > 0 {
+                    let isExcessSelected = category == .audit && auditRuleFilter == "excessParentEdges"
+                    FilterChip(
+                        label: "Excess Parents",
+                        count: excessParentCount,
+                        tint: .red,
+                        isSelected: isExcessSelected
+                    ) {
+                        if isExcessSelected {
+                            category = nil
+                            auditRuleFilter = nil
+                        } else {
+                            category = .audit
+                            auditRuleFilter = "excessParentEdges"
+                        }
                     }
                 }
             }
