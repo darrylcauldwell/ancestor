@@ -581,6 +581,17 @@ struct ClusterReviewView: View {
         let alreadyApplied = vm.userStatusForRecord(scored.record.id) == .savedAsLead
 
         return VStack(alignment: .leading, spacing: 4) {
+            // Disclosure is a Button, not `.onTapGesture`: on macOS a tap
+            // gesture on a view inside a ScrollView/LazyVStack is unreliably
+            // delivered, so clicking the row/chevron often did nothing. A
+            // Button's click handling is reliable (as the footer buttons are).
+            Button {
+                if expandedRecords.contains(scored.id) {
+                    expandedRecords.remove(scored.id)
+                } else {
+                    expandedRecords.insert(scored.id)
+                }
+            } label: {
             HStack(spacing: 8) {
                 verdictIcon(scored.verdict)
 
@@ -656,15 +667,10 @@ struct ClusterReviewView: View {
                     .foregroundStyle(.secondary)
             }
             .contentShape(Rectangle())
-            .onTapGesture {
-                if expandedRecords.contains(scored.id) {
-                    expandedRecords.remove(scored.id)
-                } else {
-                    expandedRecords.insert(scored.id)
-                }
             }
+            .buttonStyle(.plain)
 
-            // Collapsed to summary by default. Tap row to expand full detail.
+            // Collapsed to summary by default. Click row to expand full detail.
             if isExpanded {
                 VStack(alignment: .leading, spacing: 8) {
                     if !scored.gates.isEmpty {
@@ -1054,6 +1060,7 @@ struct ClusterReviewView: View {
     @ViewBuilder
     private var rejectedRecordsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
+            Button { rejectedExpanded.toggle() } label: {
             HStack {
                 Image(systemName: rejectedExpanded ? "chevron.down" : "chevron.right")
                     .font(AppTypography.cardMeta)
@@ -1069,7 +1076,8 @@ struct ClusterReviewView: View {
                 Spacer()
             }
             .contentShape(Rectangle())
-            .onTapGesture { rejectedExpanded.toggle() }
+            }
+            .buttonStyle(.plain)
             if !rejectedExpanded {
                 Text("Records the scorer judged not to match \(vm.selectedProfile?.displayName ?? "this profile") — usually because the subject's profile is too sparse for the scorer to reconcile dates. Expand to override.")
                     .font(AppTypography.cardMeta)
@@ -1124,6 +1132,7 @@ struct ClusterReviewView: View {
     @ViewBuilder
     private var discardedRecordsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
+            Button { discardedExpanded.toggle() } label: {
             HStack {
                 Image(systemName: discardedExpanded ? "chevron.down" : "chevron.right")
                     .font(AppTypography.cardMeta)
@@ -1142,7 +1151,8 @@ struct ClusterReviewView: View {
                 Spacer()
             }
             .contentShape(Rectangle())
-            .onTapGesture { discardedExpanded.toggle() }
+            }
+            .buttonStyle(.plain)
             if !discardedExpanded {
                 Text("Records you ruled out — hidden from the clusters above and never re-proposed by future runs. Expand to restore one discarded in error.")
                     .font(AppTypography.cardMeta)
@@ -1613,15 +1623,20 @@ struct ClusterReviewView: View {
                 .controlSize(.small)
             }
 
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(AppTypography.badge)
-                    .foregroundStyle(.secondary)
+                // Chevron-only Button (the header already holds Accept/Reject
+                // buttons, so the whole row can't be one Button). A Button is
+                // used over `.onTapGesture` for reliable macOS click delivery.
+                Button {
+                    if isExpanded { collapsedProposals.insert(proposal.id) }
+                    else { collapsedProposals.remove(proposal.id) }
+                } label: {
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
             }
             .contentShape(Rectangle())
-            .onTapGesture {
-                if isExpanded { collapsedProposals.insert(proposal.id) }
-                else { collapsedProposals.remove(proposal.id) }
-            }
 
             if isExpanded {
                 proposedRelativeDetail(proposal)
