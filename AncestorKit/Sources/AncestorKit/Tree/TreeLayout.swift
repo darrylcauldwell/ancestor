@@ -323,14 +323,22 @@ public nonisolated struct TreeLayout {
         // Execute layout
         place(profileID: rootID, generation: 0, centreX: 0)
 
-        // Add spouses beside their partners
+        // Add spouses beside their partners. Each spouse gets its OWN column
+        // to the right — a person with 2+ spouses (remarriage / widowhood,
+        // e.g. David Rose married Margaret, then Jean after Margaret died)
+        // previously had every spouse placed at the SAME x, so the cards
+        // rendered on top of each other. Fan them out one card apart, in a
+        // stable order.
         for node in Array(realNodes) {
             guard node.profile != nil else { continue }
             let spouses = snapshot.spousesOf(node.id)
-            for spouse in spouses where !visited.contains(spouse.id) {
+                .filter { !visited.contains($0.id) }
+                .sorted { $0.id < $1.id }
+            var spouseX = node.x
+            for spouse in spouses {
                 visited.insert(spouse.id)
+                spouseX += nodeWidth + spouseSpacing
                 let completeness = snapshot.completeness(for: spouse.id)
-                let spouseX = node.x + nodeWidth + spouseSpacing
                 realNodes.append(LayoutNode(
                     id: spouse.id,
                     kind: .profile(spouse, completeness),
