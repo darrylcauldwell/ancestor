@@ -150,13 +150,6 @@ nonisolated struct ScoringRules {
         return birthYear < civilRegistrationStart
     }
 
-    static func militaryDeathNotInCivilRegister(_ deathLocation: String) -> Bool {
-        let abroadKeywords = ["france", "belgium", "flanders", "gallipoli",
-                              "tunisia", "italy", "egypt", "burma", "germany"]
-        let lower = deathLocation.lowercased()
-        return abroadKeywords.contains { lower.contains($0) }
-    }
-
     // MARK: - Name Similarity (0.0–1.0)
 
     /// Score name similarity handling common genealogical variations.
@@ -458,35 +451,6 @@ nonisolated struct ScoringRules {
             }
         }
         return nil
-    }
-
-    /// Gaps >threshold years between children suggest infant deaths.
-    static func childGapSuggestsDeath(birthYears: [Int], threshold: Int = 3) -> [(Int, Int)] {
-        guard birthYears.count >= 2 else { return [] }
-        let sorted = birthYears.sorted()
-        var gaps: [(Int, Int)] = []
-        for i in 0..<(sorted.count - 1) {
-            let gap = sorted[i + 1] - sorted[i]
-            if gap > threshold {
-                gaps.append((sorted[i], sorted[i + 1]))
-            }
-        }
-        return gaps
-    }
-
-    /// Person present in one census but absent from next — suggests death/emigration/marriage/military.
-    static func absentFromCensusSuggests(birthYear: Int, lastSeenYear: Int, gender: Gender?) -> [String] {
-        var suggestions = ["death", "emigration"]
-        if gender == .female {
-            suggestions.append("marriage (changed surname)")
-        }
-        if gender == .male {
-            let wars = militaryEligible(birthYear: birthYear, gender: .male)
-            if !wars.isEmpty {
-                suggestions.append("military service (\(wars.joined(separator: ", ")))")
-            }
-        }
-        return suggestions
     }
 
     // MARK: - Convergence Scoring
