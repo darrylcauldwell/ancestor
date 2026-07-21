@@ -1448,6 +1448,21 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // v50 — PROJECT_ONBOARDING_SPEC Part A: the once-per-project setup
+        // wizard marker. NULL = the setup wizard has not been completed/skipped
+        // for this project. Deliberately NOT in the Project struct / the
+        // saveProjectMeta column list — it is written by a targeted UPDATE
+        // (markSetupComplete) and read by isSetupComplete, so a full-row
+        // saveProjectMeta never resets it (same discipline as the high-water
+        // columns). Existing projects predate this and stay NULL; they are
+        // never ambushed on open (the wizard is only offered at create/import/
+        // connect, never on openProject).
+        migrator.registerMigration("v50_project_setup_shown") { db in
+            try db.alter(table: "project_meta") { t in
+                t.add(column: "setup_completed_at", .datetime)
+            }
+        }
+
         return migrator
     }
 
@@ -1755,9 +1770,29 @@ nonisolated final class ProjectDatabase: Sendable {
                 sourceValue = ""
             }
 
+            // UPSERT (not INSERT OR REPLACE): REPLACE is DELETE+INSERT, which
+            // resets every column NOT in this list to its default — silently
+            // wiping the columns saveProjectMeta doesn't manage
+            // (setup_completed_at, conflict_sweep_high_water,
+            // v41_conflict_backfill_done, campaign_review_high_water, all
+            // written by targeted UPDATEs). ON CONFLICT DO UPDATE touches only
+            // the managed columns, so those side-channel markers survive a
+            // save. (PROJECT_ONBOARDING_SPEC Part A caught this via the
+            // setup marker; the fix also protects the conflict-layer
+            // high-water marks.)
             try db.execute(sql: """
-                INSERT OR REPLACE INTO project_meta (id, name, source_kind, source_value, created_at, last_refreshed, home_person_id, archived_at, home_chapman_code, expansion_policy)
+                INSERT INTO project_meta (id, name, source_kind, source_value, created_at, last_refreshed, home_person_id, archived_at, home_chapman_code, expansion_policy)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    source_kind = excluded.source_kind,
+                    source_value = excluded.source_value,
+                    created_at = excluded.created_at,
+                    last_refreshed = excluded.last_refreshed,
+                    home_person_id = excluded.home_person_id,
+                    archived_at = excluded.archived_at,
+                    home_chapman_code = excluded.home_chapman_code,
+                    expansion_policy = excluded.expansion_policy
                 """, arguments: [
                     project.id.uuidString, project.name, sourceKind, sourceValue,
                     project.createdAt, project.lastRefreshed, project.homePersonID,
@@ -2845,6 +2880,29 @@ nonisolated extension ProjectDatabase {
                 sql: "UPDATE project_meta SET home_person_id = ?",
                 arguments: [id]
             )
+        }
+    }
+
+    /// PROJECT_ONBOARDING_SPEC Part A — mark the setup wizard as
+    /// completed/skipped for this project so it is never auto-offered again.
+    /// Targeted UPDATE (not via saveProjectMeta) so a later full-row save
+    /// can't reset it.
+    func markSetupComplete(at date: Date) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE project_meta SET setup_completed_at = ?",
+                arguments: [date]
+            )
+        }
+    }
+
+    /// True once the setup wizard has been completed or skipped for this
+    /// project. NULL (unset) → false, so a fresh project offers the wizard.
+    func isSetupComplete() throws -> Bool {
+        try dbQueue.read { db in
+            let value = try Date.fetchOne(
+                db, sql: "SELECT setup_completed_at FROM project_meta LIMIT 1")
+            return value != nil
         }
     }
 

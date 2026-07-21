@@ -258,8 +258,21 @@ struct MainView: View {
         .sheet(isPresented: Binding(
             get: { appState.showOnboardingWizard },
             set: { appState.showOnboardingWizard = $0 }
-        )) {
+        ), onDismiss: {
+            // PROJECT_ONBOARDING_SPEC Part A — after the manual family wizard
+            // closes (built or skipped), offer the project setup wizard once.
+            appState.offerSetupIfNeeded()
+        }) {
             OnboardingWizardView()
+        }
+        // PROJECT_ONBOARDING_SPEC Part A — the project setup wizard (home
+        // region now; local-AI later). Offered once per project by
+        // offerSetupIfNeeded(), or re-run from Settings.
+        .sheet(isPresented: Binding(
+            get: { appState.showSetupWizard },
+            set: { appState.showSetupWizard = $0 }
+        )) {
+            ProjectSetupWizardView()
         }
         .sheet(isPresented: $showingReportPicker) {
             ReportPickerView()

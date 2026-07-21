@@ -172,6 +172,13 @@ final class AppState {
     /// Briefly populated after the wizard commits — drives the completion toast.
     var onboardingCompletionMessage: String?
 
+    /// PROJECT_ONBOARDING_SPEC Part A — the project SETUP wizard (home region
+    /// + local-AI), distinct from the manual family-entry wizard above (which
+    /// owns `showOnboardingWizard`). Offered once per project at
+    /// create/import/connect via `offerSetupIfNeeded()`; ContentView presents
+    /// it as a sheet. Re-runnable from Settings for any project type.
+    var showSetupWizard: Bool = false
+
     // MARK: - Pending person actions (M16.9 — global keyboard shortcuts)
     //
     // Routed via AppState so Cmd+N, Cmd+Shift+N, and Cmd+E fire from any
@@ -1235,12 +1242,19 @@ final class AppState {
             switch source {
             case .gedcom(let path):
                 try importGEDCOM(path: path, db: db)
+                // PROJECT_ONBOARDING_SPEC Part A — offer setup after a GEDCOM
+                // import. No-ops if the import raised a cleanse review (they
+                // must not both present); that project reaches setup via
+                // Settings → Re-run setup.
+                offerSetupIfNeeded()
             case .wikitree:
                 // WikiTree credentials are entered separately in Settings
-                // For now, create the project — user connects via Settings
+                // For now, create the project — user connects via Settings.
+                // Setup is offered when connectWikiTree first succeeds.
                 snapshot = .empty
             case .manual:
-                // Empty project — user adds profiles manually or via onboarding wizard
+                // Empty project — the family wizard shows first (NewProjectView
+                // sets showOnboardingWizard); setup is offered on its dismiss.
                 snapshot = .empty
             }
 
@@ -1592,6 +1606,9 @@ final class AppState {
 
             let auditCount = auditSummary?.total ?? 0
             successMessage = "Imported \(profiles.count) profiles, \(relationships.count) relationships. Audit found \(auditCount) items."
+            // PROJECT_ONBOARDING_SPEC Part A — offer setup once the WikiTree
+            // tree has landed.
+            offerSetupIfNeeded()
         } catch {
             errorMessage = "WikiTree error: \(error.localizedDescription)"
         }
@@ -2235,6 +2252,55 @@ final class AppState {
         } catch {
             errorMessage = "Failed to build tree: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - PROJECT_ONBOARDING_SPEC Part A — setup wizard lifecycle
+
+    /// Set the project's home Chapman anchor (Step 1). Mutates a copy of the
+    /// current project so every other field is preserved, then persists via
+    /// the full-row `saveProjectMeta` (the same pattern the Settings home-county
+    /// picker uses; there is no targeted db setter for this column). An empty
+    /// code clears the anchor (back to per-profile derivation).
+    func setHomeChapmanCode(_ code: String?) {
+        guard let db = currentDatabase, var project = currentProject else { return }
+        let cleaned = code?.trimmingCharacters(in: .whitespaces)
+        project.homeChapmanCode = (cleaned?.isEmpty == false) ? cleaned : nil
+        do {
+            try db.saveProjectMeta(project)
+            currentProject = project
+        } catch {
+            errorMessage = "Could not set home region: \(error.localizedDescription)"
+        }
+    }
+
+    /// Offer the setup wizard once per project. Called at the end of each
+    /// project create/import/connect path — NOT on `openProject`, so existing
+    /// projects (which predate the marker and read as incomplete) are never
+    /// ambushed on open. Won't fire while another onboarding-shaped sheet is
+    /// up (the family wizard or the GEDCOM import-cleanse review), so the two
+    /// never collide; those cases fall back to Settings → Re-run setup.
+    func offerSetupIfNeeded() {
+        guard let db = currentDatabase,
+              (try? db.isSetupComplete()) == false,
+              !showOnboardingWizard, importCleanseReview == nil
+        else { return }
+        showSetupWizard = true
+    }
+
+    /// The setup wizard finished (completed or skipped) — mark it done so it is
+    /// never auto-offered again, and dismiss.
+    func finishSetup() {
+        if let db = currentDatabase {
+            try? db.markSetupComplete(at: Date())
+        }
+        showSetupWizard = false
+    }
+
+    /// Re-run the setup wizard from Settings, for ANY project type, ignoring
+    /// the completed marker (an explicit user request, not the once-per-project
+    /// auto-offer).
+    func rerunSetup() {
+        showSetupWizard = true
     }
 
     /// Set the home person for the current project.

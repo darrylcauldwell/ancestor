@@ -155,13 +155,26 @@ struct SettingsPlaceholderView: View {
 
             ProseCorporaSettingsView()
 
+            // PROJECT_ONBOARDING_SPEC Part A — re-run the project setup wizard
+            // (home region etc.), available for ANY project type. Distinct from
+            // the manual-only family-entry wizard below.
+            Section("Project setup") {
+                Button("Re-run setup") {
+                    appState.rerunSetup()
+                }
+                .buttonStyle(.glass)
+                Text("Revisit the home region and other project settings. Changes nothing you don't confirm.")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.tertiary)
+            }
+
             if isManualProject {
                 Section("Onboarding") {
                     Button("Re-launch wizard") {
                         appState.showOnboardingWizard = true
                     }
                     .buttonStyle(.glass)
-                    Text("Walk through the guided setup again. Existing profiles aren't replaced — the wizard adds new people in a single transaction.")
+                    Text("Walk through the guided family builder again. Existing profiles aren't replaced — the wizard adds new people in a single transaction.")
                         .font(AppTypography.badge)
                         .foregroundStyle(.tertiary)
                 }
