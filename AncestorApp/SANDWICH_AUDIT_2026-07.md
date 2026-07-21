@@ -8,14 +8,16 @@ verifier trail. The findings below are the OPEN half: Swift-side scorer/gate rep
 `Services/Research/`, produced by the original 2026-07-13 five-lens adversarial audit and confirmed
 against the code. IDs are DS-nn; commits reference `#DS-nn`. Severity = impact on tree correctness.
 
-Suggested repair sequence (Part B 1.3): **(1st)** DS-01 + DS-17 · **(2nd)** shared name-gate ladder
+Suggested repair sequence (Part B 1.3): **(1st)** DS-01 + DS-17 ✅ **shipped `5f91641`** · **(2nd)** shared name-gate ladder
 rework covering DS-16/DS-05/DS-06 · **(3rd)** FP/FN residues DS-02/DS-12/DS-15/DS-10/DS-11 · **(4th)**
-GPS reporting honesty DS-19/DS-18/DS-21/DS-22/DS-23 · **(5th)** DS-27 dead-code cleanup. DS-04 is an
+GPS reporting honesty DS-19/~~DS-18~~ ✅ (shipped `5f91641`)/DS-21/DS-22/DS-23 · **(5th)** DS-27 dead-code cleanup. DS-04 is an
 independent false-negative (middle-name gate).
 
 ## OPEN findings
 
-### DS-01 · high · (false-positive) No-age death/burial records auto-promote to .fact on a bare [15,100] plausibility band
+### DS-01 · high · (false-positive) No-age death/burial records auto-promote to .fact on a bare [15,100] plausibility band ✅ RESOLVED `5f91641`
+
+**Resolved:** the no-age date-gate arm now soft-fails (→ `.lead`) unless the death is independently anchored (known death year, or a military casualty). Pinned by `RecordScorerGateRepairTests` + re-baselined burial tests. Finding body retained below for the verifier trail.
 
 **Claim:** When the subject has no known death year (deathYearFrom nil, RecordScorer.swift:399) and the record carries no recorded age (recordedAge nil at :428-433 — true for ALL burial records and every FreeBMD death index row before 1866), the date gate passes iff the implied age-at-death range intersects [15,100] (:441-447). Name pass + local district + familyContext skip (:954) = .fact with zero softFails, and wouldApply writes the death year. For a subject with an exact birth year this accepts ~85 years of registrations of any in-district namesake (father/son case). The burial arm scores .fact the same way but routes to LifeEvent projection, not deathDate.
 
@@ -95,7 +97,9 @@ independent false-negative (middle-name gate).
 
 **Residue:** Needs a given-vs-surname-aware containment rule and/or a softFail band (part of the shared name-gate ladder rework).
 
-### DS-17 · medium · (false-positive, invariant breach) Hardcoded 'derby' substring passes geography for West Derby (Liverpool) and for Derbyshire records regardless of the subject's home county
+### DS-17 · medium · (false-positive, invariant breach) Hardcoded 'derby' substring passes geography for West Derby (Liverpool) and for Derbyshire records regardless of the subject's home county ✅ RESOLVED `5f91641`
+
+**Resolved:** both `.contains("derby")` literals now derive the home county from `subject.homeChapmanCode` via `countyName(forChapman:)` and match bidirectionally. Pinned by `RecordScorerGateRepairTests` (Nottinghamshire subject, Derbyshire-record discriminator). Finding body retained below.
 
 **Claim:** In the empty-district path the gate passes outright when the fallback place field merely CONTAINS 'derby' (RecordScorer.swift:606-608), before the parameterised parish lookup; probate has a second literal on subject.deathLocation (:655-657). Neither reads subject.homeChapmanCode, so (a) any non-Derbyshire user gets Derbyshire records passing geography, and (b) 'West Derby, Liverpool, Lancashire' and any 'Derby Road' address match. Burial/probate always take this path (no district extraction, :566-572). Directly violates the No-Hardcoded-Regions invariant.
 
@@ -103,7 +107,9 @@ independent false-negative (middle-name gate).
 
 **Residue:** Replace both literals with chapman-parameterised parish/district checks.
 
-### DS-18 · medium · (false-negative, residual) Name-gate widening still reads a single married surname
+### DS-18 · medium · (false-negative, residual) Name-gate widening still reads a single married surname ✅ RESOLVED `5f91641`
+
+**Resolved:** `acceptableSurnames` now unions every entry in `subject.marriedSurnames` (plus the singular `marriedSurname`) on the death-shape axis. Pinned by `RecordScorerGateRepairTests.deathUnderEarlierMarriedSurnameIsAccepted`.
 
 **Residue only:** The marriage-switcher work shipped the plural `ResearchSubject.marriedSurnames: [String]` (populated from all spouses, fanned out on the death/burial/probate/census wire), so the original twice-married-women data loss is largely resolved. The remaining OPEN residue: the name-gate widening at `RecordScorer.swift:151` still reads the single `subject.marriedSurname`, so a swept-in second-married-surname record can still fail the name gate. One-line fix: widen acceptableSurnames from the plural set.
 
