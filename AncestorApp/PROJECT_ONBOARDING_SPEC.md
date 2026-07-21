@@ -1,6 +1,12 @@
 # PROJECT_ONBOARDING_SPEC
 
-**Status:** accepted-direction 2026-07-17 (owner). Not started.
+**Status:** Part A Slice 1 SHIPPED 2026-07-21 (`0166815`) — the setup-wizard lifecycle + Step 1 (home region). Slice 2 (Step 2, enable local AI), Stage 2 (Steps 3–4), Stage 3 (Part B) remain.
+
+**Slice 1 as-built (`0166815`):** `ProjectSetupWizardView` (welcome → home region), separate from the family-entry `OnboardingWizardView`. Shown once per project via `AppState.offerSetupIfNeeded()` (gated on a v50 `project_meta.setup_completed_at` marker + no competing onboarding sheet), triggered at GEDCOM import / WikiTree connect / manual (family-wizard dismiss); re-runnable from Settings ("Re-run setup", all project types). Step 1 reuses the Settings home-county `UKChapmanCodes` picker and persists via `AppState.setHomeChapmanCode` → `saveProjectMeta`. **Load-bearing fix:** `saveProjectMeta` was `INSERT OR REPLACE` (DELETE+INSERT, wiping unlisted columns) → converted to `ON CONFLICT DO UPDATE` so the setup marker AND the conflict-layer high-water marks survive a save. 10 tests. **Open decisions resolved:** wizard = modal sheet (reused existing `showSetupWizard` sheet slot); GEDCOM home-region auto-suggest from dominant birth county = NOT done (deferred; the picker defaults to the project's current value).
+
+---
+
+**Original spec (accepted-direction 2026-07-17, owner). Parts below Slice 1 not yet started.**
 **Motivation:** several settings that materially change research quality are
 currently *discoverable-by-accident* — most importantly the home region anchor
 (silently derived, and quietly under-performs when empty/wrong) and the two
