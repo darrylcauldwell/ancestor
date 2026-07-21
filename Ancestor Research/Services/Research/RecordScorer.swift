@@ -1196,6 +1196,34 @@ nonisolated struct RecordScorer {
             }
         }
 
+        // DS-10 — parish/christening parent-name cross-check. FreeREG
+        // baptism rows carry the named father/mother (ParishRecord.fatherName
+        // / .motherName), but `.parish` records previously fell through to
+        // `.skip` — so a namesake-cousin baptism naming CONTRADICTING parents
+        // reached `.fact`. Mirror the MMN arm below: compare the record's
+        // parent GIVEN name (the surname is usually the shared family surname,
+        // so the given is the discriminating token) against the subject's
+        // linked parents. Corroborate on a match, soft-fail on a clear
+        // contradiction, skip when there's nothing to compare.
+        if case .parish(let parish) = record {
+            let father = Self.parentGivenMatch(
+                recordName: parish.fatherName,
+                knownGiven: context.fatherGivenName, knownFull: context.fatherName)
+            let mother = Self.parentGivenMatch(
+                recordName: parish.motherName,
+                knownGiven: context.motherGivenName, knownFull: context.motherName)
+            if father == false || mother == false {
+                return GateResult(
+                    gate: .familyContext, outcome: .softFail,
+                    reason: "parish record names a parent inconsistent with the subject's linked parents — possible namesake baptism")
+            }
+            if father == true || mother == true {
+                return GateResult(
+                    gate: .familyContext, outcome: .pass,
+                    reason: "parish record parents consistent with the subject's linked parents")
+            }
+        }
+
         // Slice 9 — validate-enrichment-parents.
         // Mirrors Python `validate_enrichment_parents` (`agent/rules.py:525`).
         // When a record carries the mother's maiden surname AND the subject
@@ -1231,6 +1259,21 @@ nonisolated struct RecordScorer {
         }
 
         return GateResult(gate: .familyContext, outcome: .skip, reason: "no family context applicable for this record type")
+    }
+
+    /// Compare a record's parent name against a known linked parent (DS-10).
+    /// Returns `true` when the parent GIVEN names match, `false` when they
+    /// clearly contradict, and `nil` when there's nothing to compare (either
+    /// side missing). The given is the discriminating token — a baptism's
+    /// father surname is normally the shared family surname.
+    static func parentGivenMatch(recordName: String?, knownGiven: String?, knownFull: String?) -> Bool? {
+        guard let recordName = recordName?.trimmingCharacters(in: .whitespaces), !recordName.isEmpty,
+              let recordGiven = recordName.uppercased().split(separator: " ").first.map(String.init)
+        else { return nil }
+        let known = (knownGiven ?? knownFull?.split(separator: " ").first.map(String.init))?
+            .uppercased().trimmingCharacters(in: .whitespaces)
+        guard let known, !known.isEmpty else { return nil }
+        return ScoringRules.nameSimilarity(recordGiven, known) >= 0.7
     }
 
     // MARK: - Helpers

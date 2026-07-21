@@ -86,6 +86,42 @@ struct ScorerFPFNResidueTests {
         #expect(result.verdict == .impossible)
     }
 
+    // MARK: - DS-10: parish parent-name cross-check
+
+    @Test func christeningWithContradictingFatherSoftFails() {
+        // Subject's linked father is William Cauldwell; a baptism naming
+        // father "John Cauldwell" (same surname, different given) is a
+        // namesake-cousin baptism → soft-fail, not a silent .fact.
+        let result = RecordScorer.classify(
+            record: parish(surname: "Cauldwell", given: "Thomas", father: "John Cauldwell"),
+            subject: subjectWithFather(given: "William"),
+            searchType: .baptism
+        )
+        let family = result.gates.first { $0.gate == .familyContext }
+        #expect(family?.outcome == .softFail,
+                "a contradicting baptism father must soft-fail — got \(String(describing: family?.outcome))")
+        #expect(result.verdict != .fact)
+    }
+
+    @Test func christeningWithMatchingFatherCorroborates() {
+        let result = RecordScorer.classify(
+            record: parish(surname: "Cauldwell", given: "Thomas", father: "William Cauldwell"),
+            subject: subjectWithFather(given: "William"),
+            searchType: .baptism
+        )
+        #expect(result.gates.first { $0.gate == .familyContext }?.outcome == .pass)
+    }
+
+    @Test func christeningWithNoParentDataSkips() {
+        let result = RecordScorer.classify(
+            record: parish(surname: "Cauldwell", given: "Thomas", father: nil),
+            subject: subjectWithFather(given: "William"),
+            searchType: .baptism
+        )
+        // No comparable parent data → gate skips (absent from result.gates).
+        #expect(result.gates.first { $0.gate == .familyContext } == nil)
+    }
+
     // MARK: - Fixtures
 
     private func subjectNamed(given: String, middle: String?) -> ResearchSubject {
@@ -118,6 +154,36 @@ struct ScorerFPFNResidueTests {
                 motherName: nil, motherSurname: nil, motherGivenName: nil
             )
         )
+    }
+
+    private func subjectWithFather(given: String) -> ResearchSubject {
+        ResearchSubject(
+            surname: "Cauldwell",
+            givenName: "Thomas",
+            birthYearFrom: 1843,
+            birthYearTo: 1847,
+            gender: .male,
+            region: .englandAndWales,
+            mode: .extend,
+            familyContext: FamilyContext(
+                spouseName: nil, spouseSurname: nil, spouseGivenName: nil,
+                spouseFatherSurname: nil, childNames: [],
+                fatherName: "\(given) Cauldwell", fatherSurname: "Cauldwell", fatherGivenName: given,
+                motherName: nil, motherSurname: nil, motherGivenName: nil
+            )
+        )
+    }
+
+    private func parish(surname: String, given: String, father: String?) -> SourceRecord {
+        .parish(ParishRecord(
+            common: RecordCommon(
+                id: "p-\(surname)-\(given)", sourceID: "freereg", name: nil,
+                surname: surname, givenName: given, detailURL: nil, rawFields: [:]
+            ),
+            eventType: "baptism", eventDate: nil, eventYear: 1845,
+            parish: "Duffield", county: "DBY",
+            fatherName: father, motherName: nil
+        ))
     }
 
     private func emptyContext() -> FamilyContext {
