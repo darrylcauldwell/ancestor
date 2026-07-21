@@ -66,60 +66,12 @@ struct ScopeContractTests {
         }
     }
 
-    @Test func familySearchDeclaresScoped() async {
-        // Change 4 — scope steers FS's place-axis level.
-        #expect(FamilySearchSource().scopeHandling == .scoped)
-    }
-
-    @Test func familySearchScopeSteersAxisLevel() {
-        let dispatcher = makeDispatcher()
-        // Region derives from the subject; give it a county so the
-        // bounded-scope axes have a value to carry.
-        let subject = ResearchSubject(
-            profileID: nil, surname: "Cauldwell", givenName: "Robert",
-            birthYearFrom: 1880, birthYearTo: 1880,
-            deathYearFrom: nil, deathYearTo: nil,
-            gender: .male, region: .county("Derbyshire"), mode: .extend,
-            familyContext: nil, homeChapmanCode: "DBY")
-        let source = FamilySearchSource()
-
-        // Bounded scopes share county-level axes (adjacent is the
-        // disclosed residual — single-value fuzzy axes cannot fan out).
-        let county = keys(source, .birth, .county, dispatcher: dispatcher, subject: subject)
-        for scope in [ResearchScope.parish, .district, .adjacent] {
-            #expect(keys(source, .birth, scope, dispatcher: dispatcher, subject: subject) == county)
-        }
-        // National drops the county axis — remote true records must not
-        // be rank-demoted below the single fetched page.
-        let national = keys(source, .birth, .national, dispatcher: dispatcher, subject: subject)
-        #expect(national != county, "national must not carry the county place axis")
-        // A KNOWN death place is evidence, not scoping — it rides at
-        // every scope including national.
-        let deathSubject = ResearchSubject(
-            profileID: nil, surname: "Cauldwell", givenName: "Robert",
-            birthYearFrom: 1880, birthYearTo: 1880,
-            deathYearFrom: 1950, deathYearTo: 1960,
-            gender: .male, region: .county("Derbyshire"),
-            deathLocation: "Glasgow, Scotland", mode: .extend,
-            familyContext: nil, homeChapmanCode: "DBY")
-        let deathNational = dispatcher.buildQueriesForTest(
-            source: source, subject: deathSubject, recordType: .death, scope: .national)
-        #expect(deathNational.allSatisfy { $0.deathPlace == "Glasgow, Scotland" })
-    }
-
-    @Test func familySearchNeverScopeSkips() {
-        // FS is .scoped via axis-level steering but needs no chapman
-        // anchor — an anchor-less subject at a bounded scope still
-        // searches FS (it is the wide net, not a chapman fan-out).
-        let anchorless = ResearchSubject(
-            profileID: nil, surname: "Cauldwell", givenName: "Robert",
-            birthYearFrom: 1880, birthYearTo: 1880,
-            deathYearFrom: nil, deathYearTo: nil,
-            gender: .male, region: nil, mode: .extend,
-            familyContext: nil, homeChapmanCode: "")
-        #expect(SearchDispatcher.scopeSkipReason(
-            source: FamilySearchSource(), subject: anchorless, scope: .county) == nil)
-    }
+    // The three FamilySearch scope tests (declares-scoped, scope-steers-axis-
+    // level, never-scope-skips) were removed with the FS records plugin (owner
+    // pivot 2026-07-21 — FS is no longer a data source). The generic scope
+    // contract stays covered by the free-source tests below; the FS dispatch
+    // STAGE (DispatchStage.familySearch) is still exercised via scripted mock
+    // sources in DispatchStagingTests / StagedPipelineTests.
 
     // MARK: - Scoped sources: per-scope shapes (audit verdict table)
 
@@ -348,12 +300,12 @@ struct DispatchStagingTests {
         #expect(DispatchStage.localFree.includes(FreeBMDSource()))
         #expect(DispatchStage.localFree.includes(CWGCSource()),
                 "scope-invariant free specialists fire in the first stage")
-        #expect(!DispatchStage.localFree.includes(FamilySearchSource()))
         #expect(DispatchStage.adjacentFree.includes(FreeREGSource()))
         #expect(!DispatchStage.adjacentFree.includes(ProbateSource()),
                 "widening stages are the chapman trio only")
-        #expect(!DispatchStage.nationalFree.includes(FamilySearchSource()))
-        #expect(DispatchStage.familySearch.includes(FamilySearchSource()))
+        // The familySearch-stage membership asserts moved out with the FS
+        // plugin; the stage's behaviour is still pinned by the scripted-source
+        // DispatchStagingTests / StagedPipelineTests below.
         #expect(!DispatchStage.familySearch.includes(FreeBMDSource()))
     }
 

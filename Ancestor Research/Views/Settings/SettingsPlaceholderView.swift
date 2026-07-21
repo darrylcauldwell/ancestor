@@ -8,10 +8,6 @@ struct SettingsPlaceholderView: View {
     @State private var wikiTreePassword = ""
     @State private var cleansePresentation: CleansePresentation?
     @State private var unresolvableFlagCount: Int = 0
-    @State private var familySearchSignedIn: Bool = false
-    @State private var familySearchProbeStatus: String?
-    @State private var familySearchProbing: Bool = false
-    @State private var showFamilySearchAuth: Bool = false
     /// M16.11 — controls whether the tree canvas draws note dots, open-question
     /// markers, focus rings, and tentative-fact glyphs. Hidden state is useful
     /// for printing or screen-shotting a clean tree.
@@ -271,93 +267,12 @@ struct SettingsPlaceholderView: View {
                 NavigationLink("Statistics") { StatisticsView() }
             }
 
-            Section("FamilySearch (development)") {
-                familySearchSection
-            }
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
         .onAppear(perform: refreshUnresolvableFlagCount)
-        .task {
-            familySearchSignedIn = await FamilySearchCookieStore.shared.hasCookies()
-        }
         .sheet(item: $cleansePresentation) { presentation in
             ProfileCleanseWizard(mode: presentation.mode)
-        }
-        .sheet(isPresented: $showFamilySearchAuth) {
-            FamilySearchAuthView { success in
-                if success {
-                    Task {
-                        familySearchSignedIn = await FamilySearchCookieStore.shared.hasCookies()
-                        familySearchProbeStatus = nil
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - FamilySearch (dev section)
-
-    private var familySearchSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: familySearchSignedIn ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(familySearchSignedIn ? .green : .secondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(familySearchSignedIn ? "Signed in" : "Not signed in")
-                        .font(AppTypography.cardTitle)
-                    Text("Cookie-based session; expires every 1–2 hours")
-                        .font(AppTypography.cardMeta)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button(familySearchSignedIn ? "Re-authenticate" : "Sign in") {
-                    showFamilySearchAuth = true
-                }
-                .buttonStyle(.glass)
-            }
-
-            if familySearchSignedIn {
-                HStack(spacing: 8) {
-                    Button(familySearchProbing ? "Testing…" : "Test session") {
-                        Task { await runProbe() }
-                    }
-                    .buttonStyle(.glass)
-                    .controlSize(.small)
-                    .disabled(familySearchProbing)
-
-                    Button("Clear session") {
-                        Task {
-                            await FamilySearchCookieStore.shared.clear()
-                            familySearchSignedIn = false
-                            familySearchProbeStatus = nil
-                        }
-                    }
-                    .buttonStyle(.glass)
-                    .controlSize(.small)
-                }
-
-                if let status = familySearchProbeStatus {
-                    Text(status)
-                        .font(AppTypography.badge)
-                        .foregroundStyle(.tertiary)
-                        .textSelection(.enabled)
-                }
-            }
-        }
-    }
-
-    private func runProbe() async {
-        familySearchProbing = true
-        let outcome = await FamilySearchTestProbe.run()
-        familySearchProbing = false
-        if outcome.success {
-            let count = outcome.resultCount ?? 0
-            let total = outcome.totalCount ?? 0
-            let noun = count == 1 ? "entry" : "entries"
-            familySearchProbeStatus = "OK: HTTP \(outcome.httpStatus ?? 0), \(count) \(noun) of \(total) total"
-        } else {
-            familySearchProbeStatus = "Failed: \(outcome.error ?? "unknown error")"
         }
     }
 

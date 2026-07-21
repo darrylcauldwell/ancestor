@@ -66,83 +66,10 @@ struct SecondaryMetadataColumnsTests {
         }
     }
 
-    // MARK: - FS promotes completeness + place ARK
-
-    @Test func familySearchPromotesCollectionCompletenessAndPlaceARK() throws {
-        let json = """
-        {
-          "entries": [{
-            "content": {
-              "gedcomx": {
-                "persons": [{
-                  "id": "p0",
-                  "names": [{"nameForms": [{
-                    "fullText": "Kenneth Cauldwell",
-                    "parts": [
-                      {"type": "http://gedcomx.org/Given", "value": "Kenneth"},
-                      {"type": "http://gedcomx.org/Surname", "value": "Cauldwell"}
-                    ]}]}],
-                  "facts": [{
-                    "type": "http://gedcomx.org/Death",
-                    "date": {"original": "2007", "formal": "+2007"},
-                    "place": {
-                      "original": "Derbyshire, England",
-                      "normalized": [{"description": "https://www.familysearch.org/ark:/61903/2:1:M9V7-PLACE"}]
-                    }
-                  }]
-                }],
-                "sourceDescriptions": [{
-                  "about": "ark:/61903/coll-1",
-                  "titles": [{"value": "England Deaths"}],
-                  "coverage": [{"completeness": 0.94}]
-                }]
-              }
-            }
-          }]
-        }
-        """
-        let q = RecordQuery(
-            surname: "Cauldwell", givenName: "Kenneth", recordType: .death,
-            yearFrom: 1919, yearTo: 2017, gender: .male, region: nil,
-            sourceParams: .generic, strictness: .strict)
-        let records = try FamilySearchSource.parseSearchResponse(data: Data(json.utf8), query: q)
-        let common = try #require(records.first?.common)
-        #expect(common.collectionCompleteness == 0.94)
-        // Bare ARK path segment only — the https:// prefix is stripped.
-        #expect(common.placeARK == "ark:/61903/2:1:M9V7-PLACE")
-    }
-
-    @Test func familySearchPlaceARKNilWhenNoNormalizedARK() throws {
-        let json = """
-        {
-          "entries": [{
-            "content": {
-              "gedcomx": {
-                "persons": [{
-                  "id": "p0",
-                  "names": [{"nameForms": [{
-                    "fullText": "Kenneth Cauldwell",
-                    "parts": [
-                      {"type": "http://gedcomx.org/Given", "value": "Kenneth"},
-                      {"type": "http://gedcomx.org/Surname", "value": "Cauldwell"}
-                    ]}]}],
-                  "facts": [{"type": "http://gedcomx.org/Death",
-                             "date": {"original": "2007", "formal": "+2007"},
-                             "place": {"original": "Derbyshire, England"}}]
-                }],
-                "sourceDescriptions": [{"about": "ark:/61903/c", "titles": [{"value": "T"}]}]
-              }
-            }
-          }]
-        }
-        """
-        let q = RecordQuery(
-            surname: "Cauldwell", givenName: "Kenneth", recordType: .death,
-            yearFrom: 1919, yearTo: 2017, gender: .male, region: nil,
-            sourceParams: .generic, strictness: .strict)
-        let records = try FamilySearchSource.parseSearchResponse(data: Data(json.utf8), query: q)
-        let common = try #require(records.first?.common)
-        #expect(common.placeARK == nil)
-        #expect(common.collectionCompleteness == nil)
-    }
+    // The two FamilySearch parse-side tests (placeARK / collectionCompleteness
+    // promotion off an FS GEDCOMx response) were removed with the FS records
+    // plugin (owner pivot 2026-07-21). The RecordCommon fields they exercised
+    // are shared-model identity and stay covered by the Codable round-trip +
+    // v43 migration tests above; a fresh FS enrichment integration will add its
+    // own parse tests against the Tree-API contract.
 }

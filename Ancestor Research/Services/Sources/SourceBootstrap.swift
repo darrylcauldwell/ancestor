@@ -15,10 +15,12 @@ func bootstrapSources(registry: SourceRegistry) {
     registry.register(FreeCenSource())
     registry.register(FreeREGSource())
 
-    // Tier 3: Authenticated (cookie session via WKWebView capture).
-    // FamilySearch will swap to OAuth bearer-token transport when App Store /
-    // Partner approval lands — see AncestorApp/FAMILYSEARCH_SOURCE_SPEC.md.
-    registry.register(FamilySearchSource())
+    // FamilySearch is NOT registered as a records source (owner pivot
+    // 2026-07-21): the free direct sources cover UK vital-record data, so FS
+    // is not a data tap. Its value is enrichment/hints + document-image
+    // POINTERS via the Tree API, designed fresh against the OAuth foundation
+    // in Services/Sources/FamilySearchAuth/FamilySearchOAuth.swift. The old
+    // cookie records plugin was deleted (recoverable from git history).
 
     // Tier 4: User-added prose corpora (parish records, local-history sites).
     // Failure to resolve Application Support is non-fatal — the user just

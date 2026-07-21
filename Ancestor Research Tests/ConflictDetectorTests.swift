@@ -165,7 +165,10 @@ struct ConflictDetectorTests {
         // mapping must survive, pinned against the value the plugin
         // declared (.transcription).
         #expect(ConflictDetector.trustTier(forOriginIdentifier: "wirksworth") == .transcription)
-        #expect(ConflictDetector.trustTier(forOriginIdentifier: "familysearch") == FamilySearchSource().trustTier)
+        // familysearch: same retired-plugin pattern (records leg deleted
+        // 2026-07-21) — the read-time tier for persisted / enrichment FS
+        // evidence survives, pinned to the value the plugin declared.
+        #expect(ConflictDetector.trustTier(forOriginIdentifier: "familysearch") == .transcription)
         #expect(ConflictDetector.trustTier(forOriginIdentifier: "cwgc") == CWGCSource().trustTier)
         #expect(ConflictDetector.trustTier(forOriginIdentifier: "probate") == ProbateSource().trustTier)
         #expect(ConflictDetector.trustTier(forOriginIdentifier: "findagrave") == FindAGraveSource().trustTier)

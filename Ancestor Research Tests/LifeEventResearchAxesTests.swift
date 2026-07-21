@@ -211,65 +211,12 @@ struct LifeEventResearchAxesTests {
         dispatcher.registry.allSources().first { $0.sourceID == id }
     }
 
-    /// FS census query carries the residence event's place — COMPOSED with
-    /// its county name so the soft axis never loses county context — when
-    /// the event window covers at least one census year in the subject's
-    /// window.
-    @Test func familySearchCensusCarriesResidenceEventPlace() {
-        let dispatcher = makeDispatcher()
-        guard let fs = source(dispatcher, "familysearch") else {
-            Issue.record("familysearch not registered"); return
-        }
-        let axis = ResidenceAxis(place: "Youlgreave", chapmanCode: "DBY", yearFrom: nil, yearTo: nil)
-        let queries = dispatcher.buildQueriesForTest(
-            source: fs, subject: subject(residenceAxes: [axis]),
-            recordType: .census, scope: .county)
-        #expect(queries.first?.residencePlace == "Youlgreave, Derbyshire")
-
-        // A place already carrying its county is not double-composed.
-        let selfContained = ResidenceAxis(
-            place: "Youlgreave, Derbyshire", chapmanCode: "DBY", yearFrom: nil, yearTo: nil)
-        let sc = dispatcher.buildQueriesForTest(
-            source: fs, subject: subject(residenceAxes: [selfContained]),
-            recordType: .census, scope: .county)
-        #expect(sc.first?.residencePlace == "Youlgreave, Derbyshire")
-
-        // Baseline regression: without axes the scoped county still rides.
-        let baseline = dispatcher.buildQueriesForTest(
-            source: fs, subject: subject(), recordType: .census, scope: .county)
-        #expect(baseline.first?.residencePlace == "Derbyshire")
-    }
-
-    /// The FS gate is REAL census-year coverage, not lifespan overlap: an
-    /// axis whose window covers no census year in the subject's window falls
-    /// back to the scoped county.
-    @Test func familySearchAxisCoveringNoCensusYearFallsBack() {
-        let dispatcher = makeDispatcher()
-        guard let fs = source(dispatcher, "familysearch") else {
-            Issue.record("familysearch not registered"); return
-        }
-        // Window 1902–1910 sits between the 1901 and 1911 census nights.
-        let axis = ResidenceAxis(place: "Mansfield", chapmanCode: "NTT", yearFrom: 1902, yearTo: 1910)
-        let queries = dispatcher.buildQueriesForTest(
-            source: fs, subject: subject(residenceAxes: [axis]),
-            recordType: .census, scope: .county)
-        #expect(queries.first?.residencePlace == "Derbyshire",
-                "no covered census year → scoped-county fallback")
-    }
-
-    /// FS burial queries prefer the burial event's place; death queries keep
-    /// deathLocation (died-at ≠ buried-at).
-    @Test func familySearchBurialPrefersBurialEventPlace() {
-        let dispatcher = makeDispatcher()
-        guard let fs = source(dispatcher, "familysearch") else {
-            Issue.record("familysearch not registered"); return
-        }
-        let s = subject(burialPlace: "Bakewell, Derbyshire", deathLocation: "Derby")
-        let burial = dispatcher.buildQueriesForTest(source: fs, subject: s, recordType: .burial, scope: .county)
-        #expect(burial.first?.deathPlace == "Bakewell, Derbyshire")
-        let death = dispatcher.buildQueriesForTest(source: fs, subject: s, recordType: .death, scope: .county)
-        #expect(death.first?.deathPlace == "Derby", "death queries keep deathLocation — burial place must not leak")
-    }
+    // The three FamilySearch residence/burial axis tests were removed with
+    // the FS records plugin (owner pivot 2026-07-21 — FS is no longer a data
+    // source, so it builds no query axes). The same axis-composition logic
+    // (residence place composed with its county; census-year coverage gate;
+    // burial-place-over-deathLocation) stays covered by the FreeCEN / FreeREG /
+    // FindAGrave axis tests below, which exercise the identical dispatcher path.
 
     /// FreeCEN: the residence-event county joins the census-year probes ONLY
     /// for years its window covers, ADDITIVELY (the home county's own query
