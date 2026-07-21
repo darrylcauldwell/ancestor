@@ -135,6 +135,13 @@ This section reads as the build sequence — top to bottom is the intended order
   tested (`0072c82`). Remaining tails are OBSERVATIONAL, not build: real-run behavioural
   validation, semantic-model + adjudication verdict quality (user, in-app with a model loaded);
   household relationship extraction deliberately deferred to `PROSE_CORPUS_SPEC.md`.
+- **Tree popover retired — one inspection surface** — **[✓ shipped 2026-07-21]**
+  (`RETIRE_POPOVER_SPEC.md`, raised by the owner 2026-07-20: three surfaces with divergent
+  action sets caused repeated mis-adds). Change 1 `1bcc510` (Add Relative + Remove on context
+  menu + Full Detail); Changes 2–3 `8014ef4` (relative rows navigate with the mode-switch
+  hint, marriage switcher + focus toggle + Remove Branch on the card, popover deleted;
+  single-click selects, re-click/Space/ⓘ/double-click open the card). Pre-commit adversarial
+  review added the intent-drain + tab-mount fix for card-raised tree intents.
 - **Query-side given-name variants** (surfaced 2026-07-15, Harry Marshall: possibly
   registered HENRY — the nickname table scores returned records, but outbound queries carry
   the subject's stored given name only, so a Henry-registered death is invisible to every
