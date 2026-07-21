@@ -143,6 +143,18 @@ This section reads as the build sequence — top to bottom is the intended order
   reopen); About-the-subject spouses/children are tappable and drive the main window's tree.
   Adversarial review pre-commit caught a critical project-switch cross-database write —
   fixed with a project-identity guard (=== bound database, no silent re-bind).
+- **Married-surname absorption** — **[✓ shipped 2026-07-21 `c3e951d`]** (owner case: researched
+  George Brooks, applied his marriage to Mary Vallance, but Mary's married surname stayed
+  empty — married surname had only ONE write path, the `MarriedSurnameFromSpouseRule` Tasks
+  one-click). `applyMarriageToSubjectSpouseEdge`, after matching + filling the spouse edge,
+  now also fills the female partner's married surname from the male partner's — same UK
+  convention the audit encodes, but tied to the applied record: cited to the record's source
+  (not `manual.derived`), gap-fill only. Writes to whichever partner of the edge is female
+  (a man's record fills his wife; a woman's own record fills her). Deliberately NOT in
+  `absorptionPlan`/record-removal inversion — the married surname reflects the marriage (the
+  edge), which record removal doesn't delete, so it should persist; once filled the audit
+  stops offering the same Task. 7 tests. Reviewed inline (parallel review still spend-limit
+  blocked).
 - **Name-enrichment absorption** — **[✓ shipped 2026-07-21 `d075662`]** (owner case: Geoff
   Bonsall's applied marriage record carried the fuller "Geoffrey W Bonsall" and the fuller
   name evaporated on apply). The absorption plan now emits name items when the profile is
