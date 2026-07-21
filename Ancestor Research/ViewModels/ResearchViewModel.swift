@@ -724,8 +724,9 @@ final class ResearchViewModel {
     /// sourceRecordID), so re-clicking "Save as lead" on the same cluster
     /// is idempotent via `addLifeEventIfAbsent`.
     func acceptCluster(_ cluster: LifeCluster) {
-        clusterDecisions[cluster.id] = .accepted
+        // Decision only after the guard — see applyCluster.
         guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
+        clusterDecisions[cluster.id] = .accepted
         let kept = recordsAfterDiscardVeto(cluster, profileID: profileID, db: db)
         let ids = kept.map(\.record.id)
         persist("Save evidence status") { try db.updateEvidenceUserStatus(profileID: profileID, sourceRecordIDs: ids, status: .savedAsLead) }
@@ -766,9 +767,12 @@ final class ResearchViewModel {
     /// already populated, the record is recorded via `recordAlternativeFact`
     /// so the citation lands in `field_sources` while the column value stays.
     func applyCluster(_ cluster: LifeCluster, into appState: AppState) {
-        clusterDecisions[cluster.id] = .accepted
         materialiseLeadSubjectIfNeeded(into: appState)
+        // Decision recorded only AFTER the guard: a failed guard must never
+        // paint "Applied" over zero writes (adversarial-review finding —
+        // reachable when a detached review window outlives the project).
         guard let db = appState.currentDatabase, let profile = selectedProfile else { return }
+        clusterDecisions[cluster.id] = .accepted
         let kept = recordsAfterDiscardVeto(cluster, profileID: profile.id, db: db)
         persist("Save evidence status") { try db.updateEvidenceUserStatus(profileID: profile.id, sourceRecordIDs: kept.map(\.record.id), status: .savedAsLead) }
 
@@ -807,9 +811,10 @@ final class ResearchViewModel {
     /// `user_status = savedAsLead`. Records the decision so cluster-level
     /// Apply honours the override too.
     func applyRecord(_ scored: ScoredRecord, into appState: AppState) {
-        recordDecisions[scored.id] = .accepted
         materialiseLeadSubjectIfNeeded(into: appState)
+        // Decision only after the guard — see applyCluster.
         guard let db = appState.currentDatabase, let profile = selectedProfile else { return }
+        recordDecisions[scored.id] = .accepted
         persist("Save evidence status") {
             try db.updateEvidenceUserStatus(
                 profileID: profile.id,
@@ -831,8 +836,9 @@ final class ResearchViewModel {
     /// Cluster-level Apply skips this record even if `wouldApply` would
     /// otherwise pick it up.
     func discardRecord(_ scored: ScoredRecord) {
-        recordDecisions[scored.id] = .rejected
+        // Decision only after the guard — see applyCluster.
         guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
+        recordDecisions[scored.id] = .rejected
         persist("Save discard status") {
             try db.updateEvidenceUserStatus(
                 profileID: profileID,

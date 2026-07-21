@@ -36,11 +36,17 @@ struct Ancestor_ResearchApp: App {
 
     @State private var quitKeyMonitor: QuitKeyMonitor = QuitKeyMonitor()
 
+    /// Shared across windows — the bridge that lets the detached Record
+    /// Review window borrow the main window's AppState and receive the
+    /// live result at pop-out. See `ReviewWindowBroker`.
+    @State private var reviewWindowBroker = ReviewWindowBroker()
+
     var body: some Scene {
         WindowGroup(id: "main") {
             ContentRoot()
                 .environment(sourceRegistry)
                 .environment(proseCorpusService)
+                .environment(reviewWindowBroker)
                 .onAppear { quitKeyMonitor.install() }
         }
         .commands {
@@ -69,6 +75,28 @@ struct Ancestor_ResearchApp: App {
                 .keyboardShortcut("q", modifiers: .command)
             }
         }
+
+        // Detached Record Review window (owner request 2026-07-21): the
+        // record review in its own movable window, keyed by profileID —
+        // opening the same person again focuses the existing window. The
+        // main window stays free for tree navigation while reviewing.
+        WindowGroup("Record Review", id: "record-review", for: String.self) { $profileID in
+            if let profileID {
+                ReviewWindowRoot(profileID: profileID)
+                    .environment(sourceRegistry)
+                    .environment(proseCorpusService)
+                    .environment(reviewWindowBroker)
+            } else {
+                // Value-less open (e.g. Window menu) — nothing to review.
+                ContentUnavailableView(
+                    "No review selected",
+                    systemImage: "doc.text.magnifyingglass",
+                    description: Text("Pop a review out from Triage or the Research tab.")
+                )
+                .frame(minWidth: 720, minHeight: 520)
+            }
+        }
+        .defaultSize(width: 940, height: 720)
     }
 }
 
@@ -131,11 +159,28 @@ private struct NewWindowCommand: View {
 struct ContentRoot: View {
     @State private var appState = AppState()
     @AppStorage("reasoningModelChoice") private var reasoningModelChoiceRaw: String = ReasoningModel.default.rawValue
+    @Environment(ReviewWindowBroker.self) private var reviewWindowBroker
 
     var body: some View {
         ContentView()
             .environment(appState)
             .task { await autoLoadReasoningModelIfOnDisk() }
+            // Register this window's AppState as the one the detached
+            // Record Review window borrows. Last-registered wins — with
+            // multiple main windows the most recently opened is the
+            // review window's anchor (documented limitation; the common
+            // case is a single main window).
+            .onAppear { reviewWindowBroker.activeAppState = appState }
+            // Explicit deregistration on window close (identity-guarded so a
+            // closing older window can't clobber a newer one's registration).
+            // The weak var would zero anyway, but assigning nil through the
+            // @Observable setter makes the change visible to the review
+            // window's body immediately.
+            .onDisappear {
+                if reviewWindowBroker.activeAppState === appState {
+                    reviewWindowBroker.activeAppState = nil
+                }
+            }
     }
 
     /// Auto-loads the user's selected reasoning model on app launch if the

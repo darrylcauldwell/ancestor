@@ -5,6 +5,11 @@ import SwiftUI
 struct ClusterReviewView: View {
     @Bindable var vm: ResearchViewModel
     let result: ResearchResult
+    /// True when hosted in the detached Record Review window. Hides the
+    /// "New Research" reset affordance (there is no queue behind the window
+    /// to fall back to — closing the window is the exit) and lets re-run
+    /// affordances account for the windowed context.
+    var isDetachedWindow: Bool = false
 
     /// CL3 — run discrepancies ≥ .conflict raised by records in this
     /// cluster ("conflicts with tree"): the badge and the will-open-N
@@ -219,10 +224,19 @@ struct ClusterReviewView: View {
                     contextRow("Born", vitalText(subject.birthDate, place: subject.birthLocation))
                     contextRow("Died", vitalText(subject.deathDate, place: subject.deathLocation))
                     if !spouses.isEmpty {
-                        contextRow("Married", marriagesText(subject: subject, spouses: spouses, snapshot: snap))
+                        contextPeopleRow("Married", people: spouses.map { spouse in
+                            let year = snap.relationships.first {
+                                $0.type == .spouse
+                                    && (($0.from == subject.id && $0.to == spouse.id)
+                                        || ($0.from == spouse.id && $0.to == subject.id))
+                            }?.marriageDate?.bestYear
+                            return (profile: spouse, annotation: year.map { "(\($0))" })
+                        })
                     }
                     if !children.isEmpty {
-                        contextRow("Children", childrenText(children))
+                        contextPeopleRow("Children", people: children.map { child in
+                            (profile: child, annotation: child.birthDate?.bestYear.map { "(\($0))" })
+                        })
                     }
                 } else {
                     Text("No dates or family recorded yet — a record here may be the first anchor for this person.")
@@ -258,21 +272,51 @@ struct ClusterReviewView: View {
         return year
     }
 
-    private func marriagesText(subject: Profile, spouses: [Profile], snapshot: FamilyGraphSnapshot) -> String {
-        spouses.map { spouse in
-            let year = snapshot.relationships.first {
-                $0.type == .spouse
-                    && (($0.from == subject.id && $0.to == spouse.id)
-                        || ($0.from == spouse.id && $0.to == subject.id))
-            }?.marriageDate?.bestYear
-            return spouse.displayName + (year.map { " (\($0))" } ?? "")
-        }.joined(separator: ", ")
-    }
-
-    private func childrenText(_ children: [Profile]) -> String {
-        children.map { child in
-            child.displayName + (child.birthDate?.bestYear.map { " (\($0))" } ?? "")
-        }.joined(separator: ", ")
+    /// A row of tappable relatives. Clicking a name shows that person in the
+    /// tree (main window's tree tab + Full Detail card) — the reviewer's way
+    /// to check a family member's detail while judging records for a thin
+    /// subject (the "Mrs Bown" case: her age/place live on her husband's and
+    /// children's profiles). Uses the tree-owned intents, so it works from
+    /// the detached review window (shared AppState) and in-window alike.
+    private func contextPeopleRow(
+        _ label: String,
+        people: [(profile: Profile, annotation: String?)]
+    ) -> some View {
+        // .top, not .firstTextBaseline: the label can't reach a lazy grid's
+        // first-row baseline, so baseline alignment sits the label low once
+        // the grid wraps.
+        HStack(alignment: .top, spacing: 8) {
+            Text(label)
+                .font(AppTypography.cardMeta)
+                .foregroundStyle(.secondary)
+                .frame(width: 66, alignment: .leading)
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 150), alignment: .leading)],
+                alignment: .leading, spacing: 4
+            ) {
+                ForEach(people, id: \.profile.id) { person in
+                    Button {
+                        appState.requestSidebarTab = .tree
+                        appState.requestOpenProfileDetail = person.profile.id
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(person.profile.displayName)
+                                .font(AppTypography.cardBody)
+                                .foregroundStyle(Color.accentColor)
+                            if let annotation = person.annotation {
+                                Text(annotation)
+                                    .font(AppTypography.cardMeta)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Show \(person.profile.displayName) in the tree")
+                }
+            }
+            Spacer(minLength: 0)
+        }
     }
 
     private var summaryBar: some View {
@@ -341,11 +385,15 @@ struct ClusterReviewView: View {
                 .help("Use the local reasoning model to disambiguate these candidates in plain English. Requires a reasoning model to be loaded in Settings.")
             }
 
-            Button("New Research") {
-                vm.reset()
+            // Hidden in the detached window — there's no queue behind it to
+            // fall back to; closing the window is the exit.
+            if !isDetachedWindow {
+                Button("New Research") {
+                    vm.reset()
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
             }
-            .buttonStyle(.glass)
-            .controlSize(.small)
         }
     }
 
@@ -1544,6 +1592,10 @@ struct ClusterReviewView: View {
                     }
                     .buttonStyle(.glassProminent)
                     .controlSize(.regular)
+                    // No concurrent re-runs — repeat clicks during a live
+                    // run would launch parallel national sweeps against
+                    // budget-capped volunteer sources.
+                    .disabled(vm.isResearching)
                 } else {
                     Text("National search covered every UK registration district.")
                         .font(AppTypography.cardMeta)

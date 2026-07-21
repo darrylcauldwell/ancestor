@@ -11,6 +11,8 @@ import SwiftUI
 struct ResearchView: View {
     @Environment(AppState.self) private var appState
     @Environment(SourceRegistry.self) private var registry
+    @Environment(ReviewWindowBroker.self) private var reviewWindowBroker
+    @Environment(\.openWindow) private var openWindow
     /// Lifted to ContentView so research can be started from any tab without
     /// the user being forced into the Research tab. ContentView owns the state;
     /// this view binds to it for display.
@@ -55,8 +57,9 @@ struct ResearchView: View {
                 // doesn't read as "back to the queue" (owner report 2026-07-17,
                 // Annie Cauldwell). reset() clears only in-memory UI state;
                 // accept/discard decisions are already persisted as they're made.
-                if role == .triage {
-                    HStack {
+                if role == .triage || researchVM.selectedProfile != nil {
+                HStack {
+                    if role == .triage {
                         Button {
                             researchVM.reset()
                         } label: {
@@ -64,9 +67,30 @@ struct ResearchView: View {
                         }
                         .buttonStyle(.glass)
                         .controlSize(.small)
-                        Spacer()
                     }
-                    .padding([.horizontal, .top])
+                    Spacer()
+                    // Pop the review out into its own movable window so the
+                    // tree stays navigable here (owner request 2026-07-21 —
+                    // a thin subject like Mrs Bown is judged from her
+                    // family's profiles). Profile reviews only: lead-only
+                    // reviews have no profileID to key the window on.
+                    if let popOutID = researchVM.selectedProfile?.id {
+                        Button {
+                            reviewWindowBroker.stageHandoff(profileID: popOutID, result: result)
+                            openWindow(id: "record-review", value: popOutID)
+                            // This window returns to its resting state and
+                            // shows the tree — the whole point of popping out.
+                            researchVM.reset()
+                            appState.requestSidebarTab = .tree
+                        } label: {
+                            Label("Open in Window", systemImage: "macwindow.on.rectangle")
+                        }
+                        .buttonStyle(.glass)
+                        .controlSize(.small)
+                        .help("Move this review to its own window and free this one for the tree")
+                    }
+                }
+                .padding([.horizontal, .top])
                 }
                 ClusterReviewView(vm: researchVM, result: result)
             } else if role == .triage {
