@@ -345,8 +345,13 @@ nonisolated struct RecordScorer {
             guard let subFirst = sub.first, let recFirst = rec.first else { continue }
             if subFirst != recFirst { return false }
             // Full token comparison when both are longer than initials.
+            // A scribal contraction or nickname of the same name is still a
+            // match (DS-05): "THOMAS" middle vs "THOS" record middle share
+            // the first initial and resolve equal through the similarity
+            // ladder, so don't reject them on the prefix test alone.
             if sub.count > 1 && rec.count > 1 && sub != rec
-               && !sub.hasPrefix(rec) && !rec.hasPrefix(sub) {
+               && !sub.hasPrefix(rec) && !rec.hasPrefix(sub)
+               && ScoringRules.nameSimilarity(sub, rec) < 0.7 {
                 return false
             }
         }

@@ -235,6 +235,15 @@ nonisolated struct ScoringRules {
            let canonicalB = nicknameEquivalents[b],
            canonicalA == canonicalB { return 0.85 }
 
+        // Scribal contractions and Latin register forms (DS-05): resolve
+        // either side to its canonical modern form and match when they agree
+        // — 'WM' vs 'WILLIAM', 'THOS' vs 'THOMAS', 'GULIELMUS' vs 'WILLIAM'.
+        if let canonA = scribalContractions[a], canonA == b { return 0.85 }
+        if let canonB = scribalContractions[b], canonB == a { return 0.85 }
+        if let canonA = scribalContractions[a],
+           let canonB = scribalContractions[b],
+           canonA == canonB { return 0.85 }
+
         // Single character difference (typo/transcription)
         if a.count == b.count {
             let diffs = zip(a, b).filter { $0 != $1 }.count
@@ -279,6 +288,49 @@ nonisolated struct ScoringRules {
         "ADELINE": "ADA",
         "ADELA": "ADA",
         "ADELINA": "ADA",
+    ]
+
+    /// Scribal contractions and Latin register forms → canonical modern
+    /// given name (DS-05). Enumerator shorthand ('Wm', 'Thos', 'Jno') and
+    /// pre-1733 parish-register Latin ('Gulielmus', 'Johannes') scored 0.0
+    /// against the modern form because they are neither a contiguous
+    /// substring nor an equal-length single-char typo. Only unambiguous
+    /// entries: forms that are also standalone modern names (Maria, Anna,
+    /// Eliza) are deliberately excluded — a false match writes the wrong
+    /// person, a miss only defers a record to a lead. Substring-recoverable
+    /// contractions (Geo⊂George, Thoˢ handled, Eliz⊂Elizabeth) are omitted
+    /// because the containment rung already catches them.
+    static let scribalContractions: [String: String] = [
+        // Census / register contractions
+        "WM": "WILLIAM", "WILLM": "WILLIAM",
+        "JNO": "JOHN",
+        "THOS": "THOMAS",
+        "CHAS": "CHARLES",
+        "JAS": "JAMES",
+        "RICHD": "RICHARD", "RICD": "RICHARD",
+        "ROBT": "ROBERT",
+        "EDWD": "EDWARD",
+        "SAML": "SAMUEL",
+        "BENJ": "BENJAMIN",
+        "DANL": "DANIEL",
+        "MARGT": "MARGARET",
+        "FREDK": "FREDERICK",
+        "ALEXR": "ALEXANDER",
+        "HENY": "HENRY",
+        // Latin register forms (parish registers, largely pre-1733)
+        "GULIELMUS": "WILLIAM", "GUILIELMUS": "WILLIAM",
+        "JOHANNES": "JOHN", "JOHANNIS": "JOHN",
+        "JACOBUS": "JAMES",
+        "CAROLUS": "CHARLES",
+        "GEORGIUS": "GEORGE",
+        "HENRICUS": "HENRY",
+        "RICARDUS": "RICHARD",
+        "ROBERTUS": "ROBERT",
+        "EDWARDUS": "EDWARD",
+        "RADULPHUS": "RALPH",
+        "GALFRIDUS": "GEOFFREY",
+        "ELIZABETHA": "ELIZABETH",
+        "MARGARETA": "MARGARET",
     ]
 
     /// True when `record` (a record's FIRST given-name token) is a FULLER
