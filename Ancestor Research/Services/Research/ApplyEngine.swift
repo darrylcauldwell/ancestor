@@ -290,6 +290,50 @@ nonisolated struct ApplyEngine {
                 candidateLocation: locationCandidate
             )
         }
+
+        // Married-surname enrichment (owner request 2026-07-21): a marriage
+        // record evidences that the female partner is now married under the
+        // male partner's surname, so fill her (empty) marriedSurname as part
+        // of the same absorption — cited to THIS record, not left for the
+        // Tasks one-click. Same UK convention MarriedSurnameFromSpouseRule
+        // encodes; GAP-FILL only (never overwrites a recorded married name),
+        // and it writes to whichever partner of THIS edge is female (the
+        // spouse when a man's record is applied; the subject when a woman's
+        // is), so the two apply directions agree.
+        enrichMarriedSurnameFromMarriage(
+            edge: edge, subjectID: profileID, snapshot: snapshot,
+            origin: SourceOrigin(identifier: m.common.sourceID), db: db, failures: &failures)
+    }
+
+    /// Fill the female partner's married surname from the male partner's, for
+    /// the two people joined by `edge`. Gap-fill, cited to the applied
+    /// marriage record's source. Shares the audit's convention (female
+    /// partner adopts the differently-surnamed partner's surname) so a
+    /// research-time write and the Tasks one-click can't disagree.
+    private static func enrichMarriedSurnameFromMarriage(
+        edge: Relationship, subjectID: String, snapshot: FamilyGraphSnapshot,
+        origin: SourceOrigin, db: ProjectDatabase, failures: inout [WriteFailure]
+    ) {
+        let otherID = edge.from == subjectID ? edge.to : edge.from
+        guard let subject = snapshot.profiles[subjectID],
+              let other = snapshot.profiles[otherID] else { return }
+        // (recipient, surname-source) both ways — only the female partner
+        // with an empty married surname and a differently-surnamed partner
+        // is written.
+        for (recipient, surnameSource) in [(subject, other), (other, subject)] {
+            guard recipient.gender == .female,
+                  (recipient.marriedSurname ?? "").trimmingCharacters(in: .whitespaces).isEmpty,
+                  let adopted = surnameSource.lastName?.trimmingCharacters(in: .whitespaces),
+                  !adopted.isEmpty,
+                  adopted.uppercased() != (recipient.lastName ?? "").uppercased().trimmingCharacters(in: .whitespaces)
+            else { continue }
+            attempt("Fill \(recipient.displayName) married surname", into: &failures) {
+                _ = try db.editProfile(
+                    profileID: recipient.id,
+                    changes: [(.marriedSurname, recipient.marriedSurname, adopted)],
+                    dateChanges: [], source: origin)
+            }
+        }
     }
 
     private static func applyDateField(
