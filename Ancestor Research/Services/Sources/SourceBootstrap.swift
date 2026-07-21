@@ -15,12 +15,13 @@ func bootstrapSources(registry: SourceRegistry) {
     registry.register(FreeCenSource())
     registry.register(FreeREGSource())
 
-    // FamilySearch is NOT registered as a records source (owner pivot
-    // 2026-07-21): the free direct sources cover UK vital-record data, so FS
-    // is not a data tap. Its value is enrichment/hints + document-image
-    // POINTERS via the Tree API, designed fresh against the OAuth foundation
-    // in Services/Sources/FamilySearchAuth/FamilySearchOAuth.swift. The old
-    // cookie records plugin was deleted (recoverable from git history).
+    // FamilySearch historical records over the official OAuth Platform API
+    // (owner 2026-07-21: records ARE granted at our Beta tier — live-verified,
+    // ~21k hits for a real subject — so the pivot's "records are walled"
+    // premise was empirically false). Search + score in memory; persistence is
+    // §16 pointer-only (ARKs + our verdicts, never record content/images).
+    // Beta (non-production) only until production certification.
+    registry.register(FamilySearchSource())
 
     // Tier 4: User-added prose corpora (parish records, local-history sites).
     // Failure to resolve Application Support is non-fatal — the user just
