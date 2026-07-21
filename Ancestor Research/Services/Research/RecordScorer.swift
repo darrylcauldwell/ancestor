@@ -148,13 +148,25 @@ nonisolated struct RecordScorer {
             var set: [String] = []
             if !personSurname.isEmpty { set.append(personSurname) }
 
-            let married = (subject.marriedSurname ?? "").uppercased().trimmingCharacters(in: .whitespaces)
-            if !married.isEmpty, married != personSurname {
-                let acceptsMarried: Bool = switch record.recordType {
-                case .death, .burial, .probate, .military, .census: true
-                default: false
+            // Accept EVERY married surname she may have died under, not just
+            // the latest (DS-18). A twice-married woman's death/burial/probate/
+            // military/census record can carry any of them, and we rarely know
+            // which — the death-shape probe already fans out across all of them,
+            // so the name gate must accept all of them too or it rejects the
+            // very records that probe surfaced.
+            let acceptsMarried: Bool = switch record.recordType {
+            case .death, .burial, .probate, .military, .census: true
+            default: false
+            }
+            if acceptsMarried {
+                var marriedCandidates = subject.marriedSurnames
+                if let single = subject.marriedSurname { marriedCandidates.append(single) }
+                for raw in marriedCandidates {
+                    let married = raw.uppercased().trimmingCharacters(in: .whitespaces)
+                    if !married.isEmpty, married != personSurname, !set.contains(married) {
+                        set.append(married)
+                    }
                 }
-                if acceptsMarried { set.append(married) }
             }
 
             if subject.gender == .female,
@@ -606,11 +618,31 @@ nonisolated struct RecordScorer {
                 }
                 return GateResult(gate: .date, outcome: .fail, reason: "age at death \(recordedAge) inconsistent with birth \(windowLabel)")
             }
-            // No recorded age — accept when the ageAtDeath range intersects
-            // the plausible-lifespan band [15, 100].
+            // No recorded age — the only remaining signal is that the implied
+            // age-at-death sits within the plausible band. That is weak: with
+            // neither a recorded age NOR a known death year, essentially any
+            // adult death of a same-named person in the district clears it, so
+            // auto-promoting to a .fact is over-confident (DS-01). Pass to
+            // .fact only when the subject's death year is independently known —
+            // the record year was already constrained to that window above, so
+            // the band overlap is then genuinely corroborating. Otherwise
+            // soft-fail: the record lands as a reviewable .lead, not a fact.
             let rangeOverlapsPlausible = ageAtDeathHigh >= 15 && ageAtDeathLow <= 100
             if rangeOverlapsPlausible {
-                return GateResult(gate: .date, outcome: .pass, reason: "died \(recordYear), age range \(max(15, ageAtDeathLow))–\(min(100, ageAtDeathHigh)) plausible (birth \(windowLabel))")
+                let bandReason = "died \(recordYear), age range \(max(15, ageAtDeathLow))–\(min(100, ageAtDeathHigh)) plausible (birth \(windowLabel))"
+                // Pass to .fact when the death is independently anchored:
+                // either the subject's death year is known (the record year
+                // was constrained to it above) OR this is a military casualty
+                // — CWGC records carry a verified casualty date and are
+                // separated by next-of-kin / unit / initials at the other
+                // gates, so DS-01 must not demote them (mirrors the isMilitary
+                // arm in the recorded-age branch above). Everything else with
+                // neither an age nor a death anchor is too weak for a fact.
+                let isMilitary: Bool = { if case .military = record { return true }; return false }()
+                if subject.deathYearFrom != nil || isMilitary {
+                    return GateResult(gate: .date, outcome: .pass, reason: bandReason)
+                }
+                return GateResult(gate: .date, outcome: .softFail, reason: bandReason + " — no recorded age or known death year, needs review")
             }
             return GateResult(gate: .date, outcome: .fail, reason: "died \(recordYear), age range inconsistent with birth \(windowLabel)")
 
@@ -771,8 +803,19 @@ nonisolated struct RecordScorer {
             if !county.isEmpty, Self.isObviouslyForeign(county) {
                 return GateResult(gate: .geography, outcome: .fail, reason: "non-UK location: \(String(county.prefix(50)))")
             }
-            if county.lowercased().contains("derby") {
-                return GateResult(gate: .geography, outcome: .pass, reason: "Derbyshire")
+            // Home-county match. Previously hardcoded `.contains("derby")`,
+            // which broke the No-Hardcoded-Regions invariant (DS-17). Derive
+            // the county name from the subject's Chapman code and match both
+            // directions so the full county ("Derbyshire") and the common
+            // census short form / county town ("Derby", "Derbys") both pass,
+            // for whichever county the subject actually belongs to.
+            let homeCounty = Self.countyName(forChapman: subject.homeChapmanCode)
+            if !homeCounty.isEmpty {
+                let place = county.lowercased()
+                let home = homeCounty.lowercased()
+                if place.contains(home) || (place.count >= 5 && home.contains(place)) {
+                    return GateResult(gate: .geography, outcome: .pass, reason: homeCounty)
+                }
             }
             // Slice 8 — parish-level lookup. A census record reporting
             // birthplace "Windley" or "Mugginton" doesn't contain the
@@ -830,8 +873,13 @@ nonisolated struct RecordScorer {
                 // location. Less precise than a structured catchment match
                 // but useful when the registry is missing or our map
                 // doesn't cover it.
-                if let dl = subject.deathLocation, dl.lowercased().contains("derby") {
-                    return GateResult(gate: .geography, outcome: .pass, reason: "subject's death location \(dl) overlaps Probate UK coverage")
+                let homeCounty = Self.countyName(forChapman: subject.homeChapmanCode)
+                if let dl = subject.deathLocation, !homeCounty.isEmpty {
+                    let place = dl.lowercased()
+                    let home = homeCounty.lowercased()
+                    if place.contains(home) || (place.count >= 5 && home.contains(place)) {
+                        return GateResult(gate: .geography, outcome: .pass, reason: "subject's death location \(dl) overlaps Probate UK coverage")
+                    }
                 }
             }
             return GateResult(gate: .geography, outcome: .softFail, reason: "no location data")

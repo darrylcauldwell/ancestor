@@ -514,27 +514,30 @@ struct RecordScorerProbateTests {
         #expect(result.verdict == .fact)
     }
 
-    @Test func burialRecordWhenSubjectDeathYearUnknownFallsBackToAgePlausibility() {
-        // When subject's death year isn't known, the new check is
-        // skipped and we fall back to the existing ageAtDeath
-        // plausibility gate. Preserves the original burial promotion
-        // path for subjects still being researched.
+    @Test func burialRecordWithoutDeathAnchorDemotesToLead() {
+        // DS-01: a no-age burial for a subject with NO known death year must
+        // not auto-promote to .fact on the bare [15,100] plausibility band —
+        // any in-district namesake of a plausible age clears it. It now
+        // demotes to a reviewable .lead (the date gate soft-fails). When the
+        // death year IS known the band overlap is corroborating and the same
+        // record still reaches .fact (burialRecordPassesWhenSubjectsKnownDeathYearMatches).
         let result = RecordScorer.classify(
             record: burialRecord(deathYear: 1980, location: "Derbyshire"),
             subject: neutralSubject(deathYear: nil),
             searchType: .burial
         )
-        #expect(result.verdict == .fact)
+        #expect(result.verdict == .lead)
+        #expect(result.gates.first { $0.gate == .date }?.outcome == .softFail)
     }
 
-    @Test func burialRecordPromotesOnDeathAxisMatch() {
-        // Burial parity — the same shared branch covers .burial. Name
-        // match + Derbyshire location + plausible death year → .fact.
-        // Pre-fix, burial records were falling through to the default
-        // birth-window branch too.
+    @Test func burialRecordPromotesOnDeathAxisMatchWhenAnchored() {
+        // Burial parity — the same shared branch covers .burial and can still
+        // reach .fact. Post-DS-01 that requires a death anchor: name match +
+        // Derbyshire location + a known death year matching the record → .fact.
+        // (Without the anchor it yields a .lead — see the test above.)
         let result = RecordScorer.classify(
             record: burialRecord(),
-            subject: neutralSubject(),
+            subject: neutralSubject(deathYear: 1980),
             searchType: .burial
         )
         #expect(result.verdict == .fact)
