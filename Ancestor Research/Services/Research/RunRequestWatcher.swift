@@ -118,22 +118,39 @@ final class RunRequestWatcher {
     }
 
     private func pollOnce() async {
+        // Reading the open database is a cheap MainActor touch.
         guard let db = appState.currentDatabase else { return }
-        // §5.15.2 — materialise queued user-hypothesis seeds before the
-        // run dequeue, so a submit_hypothesis → kick_off_research pair
-        // sees the hypothesis row exist before its run dispatches.
-        // Validation and refusal-reason writes live in the service.
-        HypothesisSeedService.materialiseQueuedSeeds(db: db)
-        guard let request = dequeueOne(db: db) else { return }
+        // The recurring poll — materialise queued seeds + the dequeue write —
+        // runs OFF the main thread. It only needs `db` (GRDB is thread-safe),
+        // and it previously blocked the main thread on a SQLite write
+        // transaction every 3 seconds even when the queue was idle
+        // (project_runrequestwatcher_mainthread_poll). Only `execute` needs
+        // the MainActor, and only when a request is actually queued.
+        guard let request = await Self.pollDatabase(db: db) else { return }
         logger.info("Dispatching research_run_request \(request.id): profile=\(request.profileID ?? "nil") lead=\(request.leadID ?? "nil") mode=\(request.mode) scope=\(request.scope)")
         await execute(request: request, db: db)
+    }
+
+    /// The recurring, MainActor-free half of a poll: materialise queued
+    /// user-hypothesis seeds, then dequeue the next request. Runs on a
+    /// background executor (nonisolated async) so the idle 3s SQLite write
+    /// never blocks the main thread.
+    ///
+    /// §5.15.2 — seeds materialise before the dequeue so a
+    /// submit_hypothesis → kick_off_research pair sees the hypothesis row
+    /// exist before its run dispatches. Validation / refusal writes live in
+    /// the service.
+    private nonisolated static func pollDatabase(db: ProjectDatabase) async -> PendingRequest? {
+        HypothesisSeedService.materialiseQueuedSeeds(db: db)
+        return dequeueOne(db: db)
     }
 
     /// Pull the oldest queued row and atomically flip it to `running` so a
     /// concurrent caller (or a duplicate watcher) can't pick the same row.
     /// The SQLite update returns the modified row by id; if zero rows were
-    /// affected we lost the race and skip.
-    private func dequeueOne(db: ProjectDatabase) -> PendingRequest? {
+    /// affected we lost the race and skip. `nonisolated static` — it only
+    /// touches `db`, so it runs off the main thread (see `pollDatabase`).
+    private nonisolated static func dequeueOne(db: ProjectDatabase) -> PendingRequest? {
         let snapshot: PendingRequest? = (try? db.dbQueue.write { dbConn -> PendingRequest? in
             guard let row = try Row.fetchOne(dbConn, sql: """
                 SELECT id, profile_id, lead_id, mode, scope, auto_accept
@@ -702,8 +719,9 @@ final class RunRequestWatcher {
 
 /// In-memory snapshot of a `research_run_requests` row picked up by the
 /// watcher. Stripped to the fields needed to execute; status / timestamps
-/// stay in the DB.
-private struct PendingRequest {
+/// stay in the DB. `Sendable` so the off-main `pollDatabase` can hand it
+/// back to the MainActor `execute`.
+private struct PendingRequest: Sendable {
     let id: String
     let profileID: String?
     let leadID: String?
