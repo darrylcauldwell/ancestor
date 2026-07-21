@@ -70,6 +70,15 @@ struct AuditEngineTests {
         #expect(AuditRules.builtIn.contains { $0.id == "muddledIdentity" })
     }
 
+    /// PROFILE_SOURCES_LEDGER_SPEC Change 5 — the Tasks "Review records"
+    /// deep-link keys on these exact rule IDs to open the Sources & Records
+    /// ledger. Pin them so a rule rename can't silently drop the deep-link.
+    @Test func ledgerReviewDeepLinkRuleIDsExist() {
+        #expect(MuddledIdentityRule().id == "muddledIdentity")
+        #expect(RecordAfterDeathRule().id == "recordAfterDeath")
+        #expect(AuditRules.builtIn.contains { $0.id == "recordAfterDeath" })
+    }
+
     private func makeSnapshot(
         profiles: [Profile],
         relationships: [Relationship] = []

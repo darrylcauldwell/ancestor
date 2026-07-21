@@ -84,10 +84,14 @@ struct ProfileDetailView: View {
     // PROFILE_SOURCES_LEDGER_SPEC Change 3 — the entry pending removal
     // confirmation (nil = no dialog).
     @State private var ledgerRemovalCandidate: ProfileSourcesLedger.Entry?
+    // PROFILE_SOURCES_LEDGER_SPEC Change 5 — the scroll anchor a muddle
+    // finding's "Review records" deep-link targets.
+    private static let ledgerAnchorID = "sourcesLedgerSection"
     // PROFILE_LIFECYCLE_SPEC Change 3 — the derived import→verified stage.
     @State private var lifecycle: ProfileLifecycle?
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if onClose != nil {
@@ -122,6 +126,7 @@ struct ProfileDetailView: View {
                 if !isEditing {
                     Divider()
                     sourcesLedgerSection
+                        .id(Self.ledgerAnchorID)
                 }
 
                 Divider()
@@ -139,6 +144,7 @@ struct ProfileDetailView: View {
             reloadSurfacedLeadCount()
             reloadLedger()
             consumePendingCardActionIfMine()
+            consumeLedgerReviewIfMine(proxy: proxy)
         }
         .onChange(of: profile.id) { _, _ in
             // Selection changed — exit edit without saving and let the
@@ -149,6 +155,7 @@ struct ProfileDetailView: View {
             reloadSurfacedLeadCount()
             reloadLedger()
             consumePendingCardActionIfMine()
+            consumeLedgerReviewIfMine(proxy: proxy)
         }
         .onChange(of: isEditing) { _, nowEditing in
             // Repopulate on every entry to edit mode so the form always
@@ -193,6 +200,13 @@ struct ProfileDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: { entry in
             Text("Reverts what it established (\(entry.establishes.isEmpty ? "citations" : entry.establishes.joined(separator: ", "))), removes its life events, and remembers the rejection so research won't re-add it. The record stays in research history and can be re-applied later.")
+        }
+        // PROFILE_SOURCES_LEDGER_SPEC Change 5 — a "Review records" deep-link
+        // may land after this card is already mounted for the profile, so
+        // consume the intent on change too (not only on appear / switch).
+        .onChange(of: appState.requestLedgerReviewProfileID) { _, _ in
+            consumeLedgerReviewIfMine(proxy: proxy)
+        }
         }
     }
 
@@ -446,6 +460,20 @@ struct ProfileDetailView: View {
         else { return }
         appState.removeAppliedRecord(evidence)
         reloadLedger()
+    }
+
+    /// PROFILE_SOURCES_LEDGER_SPEC Change 5 — honour a muddle finding's
+    /// "Review records" deep-link when it targets THIS profile: expand the
+    /// Sources & Records section and scroll it into view (it sits near the
+    /// bottom of a long card), then clear the intent. The scroll waits a
+    /// runloop hop so the DisclosureGroup's expanded content lays out first.
+    private func consumeLedgerReviewIfMine(proxy: ScrollViewProxy) {
+        guard appState.requestLedgerReviewProfileID == profile.id else { return }
+        appState.requestLedgerReviewProfileID = nil
+        ledgerExpanded = true
+        DispatchQueue.main.async {
+            withAnimation { proxy.scrollTo(Self.ledgerAnchorID, anchor: .top) }
+        }
     }
 
     @ViewBuilder

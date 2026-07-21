@@ -813,6 +813,25 @@ private struct TaskRow: View {
                 .help("Open this person's profile to edit the details")
                 .accessibilityHint("Open this person's profile to edit the details")
 
+                // PROFILE_SOURCES_LEDGER_SPEC Change 5 — muddle/conflict
+                // findings that a bad APPLIED RECORD caused (a patronymic
+                // date muddle, or alive-evidence after death) deep-link to
+                // the Sources & Records ledger, where the offending record is
+                // removed. Puts the flag and its remedy one click apart.
+                if r.ruleID == "muddledIdentity" || r.ruleID == "recordAfterDeath" {
+                    Button {
+                        openProfile()
+                        appState.requestLedgerReviewProfileID = r.profileID
+                    } label: {
+                        Label("Review records", systemImage: "doc.text.magnifyingglass")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.mini)
+                    .disabled(task.targetProfileID == nil)
+                    .help("Open the Sources & Records ledger to remove the record behind this")
+                    .accessibilityHint("Open the Sources and Records ledger to remove the record behind this")
+                }
+
                 // Duplicate-shaped findings get a Compare action that opens the
                 // candidate side-by-side (Compare offers Merge). The candidate ID
                 // rides on `relatedProfileIDs` populated by the rule.

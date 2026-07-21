@@ -102,6 +102,14 @@ final class AppState {
     /// Sibling pattern to `requestOpenProfileDetail`.
     var requestSidebarTab: SidebarTab?
 
+    /// PROFILE_SOURCES_LEDGER_SPEC Change 5 — a muddle/conflict audit finding
+    /// raising "Review records": open the flagged profile's Full Detail with
+    /// the Sources & Records ledger expanded and scrolled into view, so the
+    /// flag and its remedy (remove the offending record) are one click apart.
+    /// Set alongside `requestOpenProfileDetail`; `ProfileDetailView` consumes
+    /// it for its own profile and clears it.
+    var requestLedgerReviewProfileID: String?
+
     /// Cross-view request: open the pending-facts review screen for this
     /// profile on the Triage tab. Set together with `requestSidebarTab`
     /// by the profile panel's pending badge so the user lands on the
