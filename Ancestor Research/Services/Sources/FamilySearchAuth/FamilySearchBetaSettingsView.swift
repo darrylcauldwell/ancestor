@@ -20,6 +20,15 @@ struct FamilySearchBetaSettingsView: View {
     @State private var probing = false
     @State private var statusMessage: String?
 
+    // Tree-API spike inputs/output (diagnostic — learn the real contract).
+    @State private var probeGiven = ""
+    @State private var probeSurname = ""
+    @State private var probeYear = ""
+    @State private var probePersonID = ""
+    @State private var treeProbing = false
+    @State private var probeSummary: String?
+    @State private var probeRaw: String = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             appKeyRow
@@ -113,6 +122,54 @@ struct FamilySearchBetaSettingsView: View {
                         .buttonStyle(.glass)
                         .controlSize(.small)
                 }
+                Divider()
+                treeProbeSection
+            }
+        }
+    }
+
+    // MARK: - Tree-API spike (diagnostic)
+
+    private var treeProbeSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Tree-API probe (diagnostic)")
+                .font(AppTypography.cardTitle)
+            Text("Read-only spike to learn what the Tree API returns — hints/enrichment and image ARKs. The raw response confirms or corrects the endpoint contract.")
+                .font(AppTypography.badge)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                TextField("Given name", text: $probeGiven).textFieldStyle(.roundedBorder)
+                TextField("Surname", text: $probeSurname).textFieldStyle(.roundedBorder)
+                TextField("Birth year", text: $probeYear).textFieldStyle(.roundedBorder).frame(width: 90)
+                Button(treeProbing ? "…" : "Search tree") { searchTree() }
+                    .buttonStyle(.glass).controlSize(.small)
+                    .disabled(treeProbing || probeSurname.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            HStack {
+                TextField("Tree person id (e.g. LZ8X-…)", text: $probePersonID).textFieldStyle(.roundedBorder)
+                Button("Record hints") { recordHints() }
+                    .buttonStyle(.glass).controlSize(.small)
+                    .disabled(treeProbing || probePersonID.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+
+            if let probeSummary {
+                Text(probeSummary)
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            if !probeRaw.isEmpty {
+                ScrollView {
+                    Text(probeRaw)
+                        .font(.system(.caption2, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(height: 180)
+                .padding(6)
+                .background(.black.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
             }
         }
     }
@@ -155,6 +212,34 @@ struct FamilySearchBetaSettingsView: View {
             await FamilySearchTokenStore.shared.clear(environment: environment)
             statusMessage = nil
             await refresh()
+        }
+    }
+
+    private func searchTree() {
+        treeProbing = true
+        probeSummary = "Searching…"
+        Task {
+            let outcome = await FamilySearchTreeProbe.search(
+                environment: environment,
+                givenName: probeGiven.trimmingCharacters(in: .whitespaces),
+                surname: probeSurname.trimmingCharacters(in: .whitespaces),
+                birthYear: Int(probeYear.trimmingCharacters(in: .whitespaces)))
+            treeProbing = false
+            probeSummary = outcome.summary
+            probeRaw = outcome.rawBody
+        }
+    }
+
+    private func recordHints() {
+        treeProbing = true
+        probeSummary = "Fetching hints…"
+        Task {
+            let outcome = await FamilySearchTreeProbe.recordHints(
+                environment: environment,
+                personID: probePersonID.trimmingCharacters(in: .whitespaces))
+            treeProbing = false
+            probeSummary = outcome.summary
+            probeRaw = outcome.rawBody
         }
     }
 
