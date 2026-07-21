@@ -238,9 +238,9 @@ struct DisputeStoreTests {
         try seedProfile(db)
         // Mirror the apply path: alternative-fact transaction, dispute
         // bound to it.
-        let tx = try db.recordAlternativeFact(
+        let tx = try #require(try db.recordAlternativeFact(
             profileID: "p1", field: .deathDate, rawValue: "Dec 1900", source: .freebmd
-        )
+        ))
         let conflict = deathConflict()
         _ = try db.upsertDispute(
             profileID: "p1", conflict: conflict,

@@ -31,7 +31,7 @@ enum ProfileSourcesLedger {
     /// The kept records backing a profile, ordered deterministically (record
     /// type, then id). "Kept" = `savedAsLead` — the status both the apply path
     /// and "Save as lead" write; discarded/unreviewed rows are excluded.
-    static func entries(for profileID: String, db: ProjectDatabase) throws -> [Entry] {
+    static func entries(for profileID: String, db: ProjectDatabase, profile: Profile? = nil) throws -> [Entry] {
         try db.loadEvidenceForProfile(profileID)
             .filter { $0.userStatus == .savedAsLead }
             .map { rec in
@@ -42,7 +42,7 @@ enum ProfileSourcesLedger {
                     verdict: rec.verdict,
                     citation: (rec.citationFull?.isEmpty == false ? rec.citationFull! : rec.summary),
                     citationURL: rec.citationURL,
-                    establishes: rec.record.absorptionPlan(profileID: profileID).compactMap(\.reviewLabel))
+                    establishes: rec.record.absorptionPlan(profileID: profileID, profile: profile).compactMap(\.reviewLabel))
             }
             .sorted { ($0.recordType.rawValue, $0.id) < ($1.recordType.rawValue, $1.id) }
     }

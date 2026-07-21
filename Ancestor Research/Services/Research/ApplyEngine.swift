@@ -61,7 +61,7 @@ nonisolated struct ApplyEngine {
         // the legacy write order) is the single enumeration the review preview
         // also reads, so display and write can't drift. Life events are the
         // caller's `projectToLifeEvents` concern, so they're skipped here.
-        for item in scored.record.absorptionPlan(profileID: profile.id) {
+        for item in scored.record.absorptionPlan(profileID: profile.id, profile: profile) {
             switch item {
             case .dateField(let field, let candidate):
                 applyDateField(
@@ -96,10 +96,18 @@ nonisolated struct ApplyEngine {
     }
 
     /// The profile's current value for a plan-emitted string field.
-    private static func existingString(_ field: ProfileField, of profile: Profile) -> String? {
+    /// Internal (not private) because `absorptionPreview` reads it to label
+    /// kept-as-alternative items honestly.
+    static func existingString(_ field: ProfileField, of profile: Profile) -> String? {
         switch field {
         case .birthLocation: return profile.birthLocation
         case .deathLocation: return profile.deathLocation
+        // Name fields (1b name enrichment). Without these cases an OCCUPIED
+        // middle/first name would present as nil to the overwrite policy and
+        // be silently overwritten — the default-nil trap.
+        case .firstName:     return profile.firstName
+        case .middleName:    return profile.middleName
+        case .lastName:      return profile.lastName
         default:             return nil
         }
     }
@@ -368,10 +376,21 @@ nonisolated struct ApplyEngine {
             // fact (today's write outcome, AC5) and additionally opens a
             // fieldValue dispute so the losing value stops being buried in
             // field_sources (DS-09's surfacing half / DS-13 part 3).
-            let conflict = ConflictDetector.stringFieldConflict(
-                field: field, existing: existing, existingSources: existingSources,
-                candidate: trimmed, candidateOrigin: origin, profileID: profileID
-            )
+            //
+            // Name-refinement carve-out: when kept and candidate are
+            // COMPATIBLE FORMS of one name ("Geoff" vs "Geoffrey", middle
+            // "W" vs "William") there is no genuine disagreement — the
+            // plan's fuller-form gate certified the pair. A dispute here
+            // would be guaranteed noise (R3 refuses auto-resolution on
+            // user-authoritative fields, so it stays open forever) and would
+            // block §14.3 auto-approval on the field. The alternative fact
+            // below still lands, so the record's form stays cited.
+            let conflict = isCompatibleNameForm(field: field, existing: existing, candidate: trimmed)
+                ? nil
+                : ConflictDetector.stringFieldConflict(
+                    field: field, existing: existing, existingSources: existingSources,
+                    candidate: trimmed, candidateOrigin: origin, profileID: profileID
+                )
             var alternativeTx: Transaction?
             attempt("Record alternative \(field) fact", into: &failures) {
                 alternativeTx = try db.recordAlternativeFact(profileID: profileID, field: field, rawValue: trimmed, source: origin)
@@ -458,6 +477,27 @@ nonisolated struct ApplyEngine {
             return false
         }
         return candidateOrigin.tier > existingTier
+    }
+
+    /// True when an existing name-field value and a refused candidate are
+    /// compatible FORMS of the same name rather than a genuine disagreement:
+    /// equal after case/whitespace fold, a fuller/shorter pair in either
+    /// direction, the same nickname family, or (middles) an initial-vs-full
+    /// pair. Drives the F2 carve-out in `applyStringField` — a refinement
+    /// never opens a dispute; genuinely different names still do.
+    static func isCompatibleNameForm(field: ProfileField, existing: String?, candidate: String) -> Bool {
+        guard field == .firstName || field == .middleName else { return false }
+        let e = (existing ?? "").trimmingCharacters(in: .whitespaces)
+        let c = candidate.trimmingCharacters(in: .whitespaces)
+        guard !e.isEmpty, !c.isEmpty else { return false }
+        if e.caseInsensitiveCompare(c) == .orderedSame { return true }
+        if ScoringRules.isFullerGivenForm(record: c, profile: e)
+            || ScoringRules.isFullerGivenForm(record: e, profile: c) { return true }
+        if ScoringRules.givenNameVariants(of: e).contains(c.uppercased()) { return true }
+        if field == .middleName,
+           ScoringRules.isFullerMiddleForm(record: c, stored: e)
+            || ScoringRules.isFullerMiddleForm(record: e, stored: c) { return true }
+        return false
     }
 
     // MARK: - BMD dates

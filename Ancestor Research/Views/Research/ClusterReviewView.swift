@@ -855,7 +855,8 @@ struct ClusterReviewView: View {
                     // Reads the same `absorptionPlan` the write path executes,
                     // so the preview can't promise a fact the accept won't land.
                     if let subjectID = vm.selectedProfile?.id {
-                        let willAdd = scored.record.absorptionPreview(profileID: subjectID)
+                        let willAdd = scored.record.absorptionPreview(
+                            profileID: subjectID, profile: vm.selectedProfile)
                         if !willAdd.isEmpty {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Will add to profile")

@@ -1955,11 +1955,13 @@ final class AppState {
     ) {
         guard let db = currentDatabase else { return }
         do {
-            let tx = try db.recordAlternativeFact(
+            // nil = identical alternative already on file (idempotent no-op).
+            if let tx = try db.recordAlternativeFact(
                 profileID: profileID, field: field,
                 rawValue: rawValue, source: source
-            )
-            recordSessionEvent(.transactionRecorded(tx.id))
+            ) {
+                recordSessionEvent(.transactionRecorded(tx.id))
+            }
             snapshot = try db.buildSnapshot()
             runPostLoadAudit()
         } catch {

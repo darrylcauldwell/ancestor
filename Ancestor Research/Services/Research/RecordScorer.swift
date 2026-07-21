@@ -306,7 +306,10 @@ nonisolated struct RecordScorer {
     /// split surname off earlier, leaving recordGiven = "JENNIFER M" (or
     /// "JENNIFER MARGARET"). Return "M" / "MARGARET", or nil when there's
     /// no middle content to compare.
-    private static func extractMiddleContent(from recordGiven: String) -> String? {
+    // Internal (not private): the name-enrichment absorption reuses the
+    // same middle-token extraction so the gate and the absorber can never
+    // disagree about what counts as middle content.
+    static func extractMiddleContent(from recordGiven: String) -> String? {
         let tokens = recordGiven.split(separator: " ").map(String.init)
         guard tokens.count >= 2 else { return nil }
         // Everything after the first token is middle content (FreeBMD usually

@@ -2635,13 +2635,17 @@ nonisolated extension ProjectDatabase {
     ///
     /// Undo strategy: `.structural`, so undoing the transaction simply removes
     /// the inserted field_sources row. No column update means no replay needed.
+    ///
+    /// Idempotent: re-recording an identical alternative (same field, origin
+    /// AND raw value — e.g. the user re-applies the same record) is a no-op
+    /// returning nil, so duplicate rows never accumulate in the ledger.
     @discardableResult
     func recordAlternativeFact(
         profileID: String,
         field: ProfileField,
         rawValue: String,
         source: SourceOrigin
-    ) throws -> Transaction {
+    ) throws -> Transaction? {
         let now = Date()
         let transaction = Transaction(
             id: UUID(),
@@ -2651,7 +2655,15 @@ nonisolated extension ProjectDatabase {
             changeCount: 1, profileCount: 1
         )
 
-        try dbQueue.write { db in
+        return try dbQueue.write { db -> Transaction? in
+            let duplicate = try Bool.fetchOne(db, sql: """
+                SELECT EXISTS(
+                    SELECT 1 FROM field_sources
+                    WHERE entity_id = ? AND entity_kind = 'profile'
+                      AND field = ? AND origin = ? AND raw = ?
+                )
+                """, arguments: [profileID, field.rawValue, source.identifier, rawValue]) ?? false
+            if duplicate { return nil }
             try db.execute(sql: """
                 INSERT INTO transactions (id, kind, undo_strategy, started_at, completed_at, change_count, profile_count)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -2670,9 +2682,8 @@ nonisolated extension ProjectDatabase {
                     profileID, field.rawValue, source.identifier,
                     rawValue, Date(), transaction.id.uuidString,
                 ])
+            return transaction
         }
-
-        return transaction
     }
 
     /// Move a profile's life events (and, best-effort, its attachments) onto

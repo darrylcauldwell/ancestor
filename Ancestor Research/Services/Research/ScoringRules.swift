@@ -265,6 +265,10 @@ nonisolated struct ScoringRules {
         // Betty — either could be the registered form).
         "ELSIE": "ELIZABETH",
         "FLORRIE": "FLORENCE", "FLORENCE": "FLORRIE",
+        // Owner case 2026-07-21: Geoff Bonsall's marriage record was
+        // registered "Geoffrey" — pair them so scoring rates the pair as
+        // nickname-grade AND outbound queries fan Geoff→GEOFFREY.
+        "GEOFF": "GEOFFREY", "GEOFFREY": "GEOFF",
         // Ada — a hugely popular standalone Victorian/Edwardian name that is
         // ALSO a diminutive of Adelaide / Adeline / Adela / Adelina. Mapping
         // the long forms to a shared "ADA" canonical lets a subject known as
@@ -276,6 +280,54 @@ nonisolated struct ScoringRules {
         "ADELA": "ADA",
         "ADELINA": "ADA",
     ]
+
+    /// True when `record` (a record's FIRST given-name token) is a FULLER
+    /// FORM of the profile's stored given name — "GEOFF" → "GEOFFREY"
+    /// (prefix expansion), "ADA" → "ADELAIDE" (known nickname family,
+    /// longer form). Equality is NOT fuller. Prefix expansion requires at
+    /// least 3 stored characters so "Jo" can't claim every John / Joseph /
+    /// Joan record. Drives the name-enrichment absorption (a fuller form on
+    /// an APPLIED record is worth capturing; the overwrite policy decides
+    /// whether it writes or lands as a cited alternative).
+    static func isFullerGivenForm(record: String, profile: String) -> Bool {
+        let r = record.uppercased().trimmingCharacters(in: .whitespaces)
+        let p = profile.uppercased().trimmingCharacters(in: .whitespaces)
+        guard !r.isEmpty, !p.isEmpty, r != p else { return false }
+        if p.count >= 3 && r.hasPrefix(p) { return true }
+        if r.count > p.count && givenNameVariants(of: p).contains(r) { return true }
+        return false
+    }
+
+    /// Emission-grade variant of `isFullerGivenForm`: the record form must be
+    /// an ATTESTED equivalent of the stored name (a member of its nickname
+    /// cluster), not a raw prefix expansion. Raw prefixes bless outright
+    /// renames — JOSEPH→JOSEPHINE, ANN→ANNE, CHRISTIAN→CHRISTIANA — which
+    /// matters because the absorption plan can OVERWRITE an import-tier first
+    /// name. `isFullerGivenForm` remains the looser *compatibility* check;
+    /// this gate decides what the plan actually emits as a write.
+    static func isAttestedFullerGivenForm(record: String, profile: String) -> Bool {
+        let r = record.uppercased().trimmingCharacters(in: .whitespaces)
+        let p = profile.uppercased().trimmingCharacters(in: .whitespaces)
+        guard !r.isEmpty, !p.isEmpty, r != p, r.count > p.count else { return false }
+        return givenNameVariants(of: p).contains(r)
+    }
+
+    /// True when `record` middle content STRICTLY EXPANDS the stored middle:
+    /// every stored token is a prefix of the corresponding record token
+    /// ("W" → "William", "W" → "William Henry") and the record adds real
+    /// content. Directional — "W" never qualifies against a stored "William",
+    /// so a record's initial can never degrade a full middle name.
+    static func isFullerMiddleForm(record: String, stored: String) -> Bool {
+        let rTokens = record.uppercased().split(separator: " ").map(String.init)
+        let sTokens = stored.uppercased().split(separator: " ").map(String.init)
+        guard !rTokens.isEmpty, !sTokens.isEmpty, rTokens.count >= sTokens.count else { return false }
+        var expands = rTokens.count > sTokens.count
+        for (s, r) in zip(sTokens, rTokens) {
+            guard r.hasPrefix(s) else { return false }
+            if r.count > s.count { expands = true }
+        }
+        return expands
+    }
 
     /// All given-name equivalents of `name` for outbound query fan-out — so a
     /// person registered under a formal name (Harry→HENRY) or a sibling

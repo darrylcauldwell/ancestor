@@ -288,7 +288,7 @@ struct ProfileDetailView: View {
 
     private func reloadLedger() {
         guard let db = appState.currentDatabase else { ledgerEntries = []; lifecycle = nil; return }
-        ledgerEntries = (try? ProfileSourcesLedger.entries(for: profile.id, db: db)) ?? []
+        ledgerEntries = (try? ProfileSourcesLedger.entries(for: profile.id, db: db, profile: profile)) ?? []
         // Derive the lifecycle stage from what we already hold (Change 3). GPS
         // isn't computed here yet, so `gpsStrong: false` keeps a person at
         // "evidenced" rather than falsely claiming "verified" — honest by

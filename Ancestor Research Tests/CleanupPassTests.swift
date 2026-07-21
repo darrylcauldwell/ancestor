@@ -130,10 +130,10 @@ struct CleanupPassTests {
         let profile = basicProfile(id: "p")
         try db.addProfile(profile, source: .gedcom)
 
-        let tx = try db.recordAlternativeFact(
+        let tx = try #require(try db.recordAlternativeFact(
             profileID: "p", field: .birthLocation,
             rawValue: "Belper", source: .manualMemory
-        )
+        ))
         try db.undoStructural(transactionID: tx.id)
 
         let snap = try db.buildSnapshot()

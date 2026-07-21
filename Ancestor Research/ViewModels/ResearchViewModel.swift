@@ -785,7 +785,13 @@ final class ResearchViewModel {
                 guard RecordScorer.wouldApply(scored) else { continue }
             }
 
-            report(ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: appState.snapshot, db: db))
+            // Stale-profile guard: each apply can change name/date fields
+            // and their field_sources; the NEXT record's overwrite policy
+            // must see the post-write state, not the capture from review
+            // time — otherwise an earlier write gets re-fought (order-
+            // dependent loss) and re-cited.
+            let fresh = (try? db.loadProfile(id: profile.id)) ?? profile
+            report(ApplyEngine.applyFactToSubject(scored, profile: fresh, snapshot: appState.snapshot, db: db))
             // Non-BMD records (census/burial/probate/parish) still get a LifeEvent
             // — same path acceptCluster takes. BMD records return none here; a
             // census fans out into census + occupation + residence events.
@@ -822,7 +828,11 @@ final class ResearchViewModel {
                 status: .savedAsLead
             )
         }
-        report(ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: appState.snapshot, db: db))
+        // Stale-profile guard — same as applyCluster: `selectedProfile` was
+        // captured when the review opened; earlier applies may have already
+        // changed the fields and sources this write's policy consults.
+        let fresh = (try? db.loadProfile(id: profile.id)) ?? profile
+        report(ApplyEngine.applyFactToSubject(scored, profile: fresh, snapshot: appState.snapshot, db: db))
         for event in scored.record.projectToLifeEvents(profileID: profile.id) {
             persist("Save life event") { try db.addLifeEventIfAbsent(event) }
         }

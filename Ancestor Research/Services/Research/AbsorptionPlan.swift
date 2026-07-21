@@ -40,7 +40,7 @@ nonisolated extension SourceRecord {
     /// typed life events (Change 2/3 fan-out). Only present values appear —
     /// a nil/empty candidate was a no-op in the old code and is simply omitted
     /// here, which is also what the review preview wants to show.
-    func absorptionPlan(profileID: String) -> [Absorption] {
+    func absorptionPlan(profileID: String, profile: Profile? = nil) -> [Absorption] {
         var items: [Absorption] = []
 
         // 1. Primary identity fields + spouse edge (was the per-type switch).
@@ -69,6 +69,51 @@ nonisolated extension SourceRecord {
             break  // no primary field write — corroboration below may still fire
         }
 
+        // 1b. Name enrichment (owner case 2026-07-21 — Geoff Bonsall's
+        //     marriage record carried "Geoffrey W Bonsall"; the fuller name
+        //     evaporated on apply). When the record's given name is a FULLER
+        //     FORM of the profile's, absorb it: the fuller first token rides
+        //     the string-field policy (a user-authoritative "Geoff" is never
+        //     displaced — the record's form lands as a cited alternative;
+        //     an import-tier name upgrades outright), and the middle
+        //     token(s) gap-fill the middleName. Emitted only when the
+        //     PROFILE is in hand — the plan is the single declarative truth
+        //     both the write path and the preview walk, so gating happens
+        //     here, not in the consumers. Both emissions require the first
+        //     tokens to be compatible (equal or fuller) because a
+        //     force-applied record may have bypassed the name gate.
+        //     Census records are excluded outright: a census given name can
+        //     fall back to the household HEAD when no target marker survives
+        //     parsing, and is often abbreviated — never treat it as name
+        //     evidence. BMD/parish records name the subject directly.
+        if let profile, !isCensusRecord {
+            let recordGiven = (self.givenName ?? "").trimmingCharacters(in: .whitespaces)
+            let profileGiven = (profile.firstName ?? "").trimmingCharacters(in: .whitespaces)
+            if !recordGiven.isEmpty, !profileGiven.isEmpty {
+                let recordFirst = recordGiven.split(separator: " ").first.map(String.init) ?? recordGiven
+                let firstTokensCompatible = recordFirst.caseInsensitiveCompare(profileGiven) == .orderedSame
+                    || ScoringRules.isFullerGivenForm(record: recordFirst, profile: profileGiven)
+                if firstTokensCompatible {
+                    // First name: only an ATTESTED fuller form is emitted —
+                    // a raw prefix expansion (JOSEPH→JOSEPHINE) is a rename,
+                    // not an enrichment, and would overwrite an import-tier
+                    // name outright.
+                    if ScoringRules.isAttestedFullerGivenForm(record: recordFirst, profile: profileGiven) {
+                        items.append(.stringField(.firstName, Self.recasedName(recordFirst)))
+                    }
+                    // Middle: gap-fill when empty, otherwise only a STRICT
+                    // expansion of the stored value ("W"→"William" upgrades;
+                    // a record's initial never degrades a stored full middle).
+                    if let middle = RecordScorer.extractMiddleContent(from: recordGiven) {
+                        let profileMiddle = (profile.middleName ?? "").trimmingCharacters(in: .whitespaces)
+                        if profileMiddle.isEmpty || ScoringRules.isFullerMiddleForm(record: middle, stored: profileMiddle) {
+                            items.append(.stringField(.middleName, Self.recasedName(middle)))
+                        }
+                    }
+                }
+            }
+        }
+
         // 2. Implied-date corroboration (Change 3). impliedBirthDate/DeathDate
         //    return nil precisely for the type whose primary case already wrote
         //    that field (.birth / .death), so a field is never written twice.
@@ -90,6 +135,22 @@ nonisolated extension SourceRecord {
         return t
     }
 
+    private var isCensusRecord: Bool {
+        if case .census = self { return true }
+        return false
+    }
+
+    /// Re-case uniformly-cased source tokens ("GEOFFREY" → "Geoffrey",
+    /// "geoffrey" → "Geoffrey") while passing mixed-case forms through
+    /// untouched — bare `.capitalized` would degrade properly-cased
+    /// interior capitals (McKenzie → Mckenzie, O'Brien → O'brien).
+    private static func recasedName(_ name: String) -> String {
+        name.split(separator: " ").map { token in
+            let s = String(token)
+            return (s == s.uppercased() || s == s.lowercased()) ? s.capitalized : s
+        }.joined(separator: " ")
+    }
+
     /// EVIDENCE_ABSORPTION_SPEC Change 5 — the human-readable list of what this
     /// record will land on the profile, for the review surface ("birth place
     /// Alport, Derbyshire · birth date about 1887–1888 · occupation Colliery
@@ -100,11 +161,26 @@ nonisolated extension SourceRecord {
     /// The record's own *primary* timeline event is excluded — the review row
     /// already names the record itself; the preview is about the off-agenda
     /// facts it additionally carries.
-    func absorptionPreview(profileID: String) -> [String] {
+    func absorptionPreview(profileID: String, profile: Profile? = nil) -> [String] {
         let primaryEventID = projectToLifeEvent(profileID: profileID)?.id
-        return absorptionPlan(profileID: profileID).compactMap { item in
+        let origin = SourceOrigin(identifier: sourceID)
+        return absorptionPlan(profileID: profileID, profile: profile).compactMap { item in
             if case .lifeEvent(let event) = item, event.id == primaryEventID { return nil }
-            return item.reviewLabel
+            guard var label = item.reviewLabel else { return nil }
+            // Honest preview: when the string overwrite policy will KEEP the
+            // existing value (occupied + candidate tier doesn't outrank it),
+            // say so — "Will add to profile" must not promise an overwrite
+            // the tier policy is going to refuse. The record's form still
+            // lands as a cited alternative in field_sources.
+            if case .stringField(let field, _) = item, let profile,
+               !ApplyEngine.shouldOverwriteStringField(
+                   existing: ApplyEngine.existingString(field, of: profile),
+                   existingSources: profile.sources[field] ?? [],
+                   candidateOrigin: origin
+               ) {
+                label += " (as cited alternative)"
+            }
+            return label
         }
     }
 }
@@ -117,7 +193,14 @@ nonisolated extension Absorption {
             let what = field == .birthDate ? "birth date" : "death date"
             return "\(what) \(Self.dateLabel(date))"
         case .stringField(let field, let value):
-            let what = field == .birthLocation ? "birth place" : "death place"
+            let what: String
+            switch field {
+            case .birthLocation: what = "birth place"
+            case .deathLocation: what = "death place"
+            case .firstName:     what = "fuller given name"
+            case .middleName:    what = "middle name"
+            default:             what = field.rawValue
+            }
             return "\(what) \(value)"
         case .spouseEdge(let marriage):
             if let spouse = (marriage.spouseName ?? marriage.partnerSurnameFromSamePage)?
