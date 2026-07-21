@@ -16,6 +16,7 @@ import SwiftUI
 /// the project fully usable.
 struct ProjectSetupWizardView: View {
     @Environment(AppState.self) private var appState
+    @Environment(SourceRegistry.self) private var sourceRegistry
     @Environment(\.dismiss) private var dismiss
 
     @State private var step: Step = .welcome
@@ -27,16 +28,25 @@ struct ProjectSetupWizardView: View {
     @State private var semanticProgress: Double?
     @AppStorage("semanticEmbedderEnabled") private var semanticEmbedderEnabled = false
 
+    // Step 3 — local home-person selection (owned here so "Change" can clear
+    // the search without persisting nil; the pick persists on change).
+    @State private var homePersonID: String?
+    @State private var homePersonSeeded = false
+
     private enum Step: Int, CaseIterable {
         case welcome        // Step 0 — orientation
         case homeRegion     // Step 1 — Chapman anchor
         case localAI        // Step 2 — enable local AI
+        case homePerson     // Step 3 — you-are-here anchor
+        case sources        // Step 4 — free sources + etiquette
 
         var title: String {
             switch self {
             case .welcome:    return "A couple of quick choices"
             case .homeRegion: return "Where is this family mostly from?"
             case .localAI:    return "Local AI (optional)"
+            case .homePerson: return "Who is the tree centred on?"
+            case .sources:    return "Where research looks"
             }
         }
     }
@@ -51,6 +61,8 @@ struct ProjectSetupWizardView: View {
                     case .welcome:    welcomeStep
                     case .homeRegion: homeRegionStep
                     case .localAI:    localAIStep
+                    case .homePerson: homePersonStep
+                    case .sources:    sourcesStep
                     }
                 }
                 .padding(20)
@@ -59,7 +71,18 @@ struct ProjectSetupWizardView: View {
             Divider()
             footer
         }
-        .frame(minWidth: 560, minHeight: 540)
+        .frame(minWidth: 560, minHeight: 560)
+        .onAppear {
+            if !homePersonSeeded {
+                homePersonID = appState.currentProject?.homePersonID
+                homePersonSeeded = true
+            }
+        }
+        .onChange(of: homePersonID) { _, newValue in
+            // Persist only a positive pick — "Change" clears the local
+            // selection to re-open the search and must not clear the anchor.
+            if let newValue { appState.setHomePerson(id: newValue) }
+        }
     }
 
     // MARK: - Header
@@ -212,6 +235,72 @@ struct ProjectSetupWizardView: View {
                 .font(.callout).foregroundStyle(.secondary)
         }
         #endif
+    }
+
+    // MARK: - Step 3 — Home person
+
+    private var homePersonStep: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Pick the person the tree is centred on — usually you, or whoever you research outward from. It anchors navigation, the relationship calculator, and how far automated research reaches.")
+                .foregroundStyle(.secondary)
+
+            if appState.snapshot.profiles.isEmpty {
+                Text("No people yet — add some first, then set a home person any time from a profile's menu.")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                // The reusable searchable picker (same control AddFamily and the
+                // relationship calculator use). Persisted on change via
+                // AppState.setHomePerson.
+                ProfilePickerField(
+                    label: "Home person",
+                    snapshot: appState.snapshot,
+                    selectedID: $homePersonID)
+                if homePersonID == nil {
+                    Text("Optional — you can set or change this later from any profile's menu (“Set as Home Person”).")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    // MARK: - Step 4 — Sources
+
+    private var sourcesStep: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Research looks across these free UK record sources on your behalf. They're enabled by default — leave them as they are, or turn any off.")
+                .foregroundStyle(.secondary)
+
+            ForEach(generalSources, id: \.sourceID) { source in
+                Toggle(isOn: Binding(
+                    get: { sourceRegistry.isEnabled(source.sourceID) },
+                    set: { sourceRegistry.setEnabled(sourceID: source.sourceID, enabled: $0) }
+                )) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(source.descriptiveName).font(.callout)
+                        Text(source.tosStatus.summary)
+                            .font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                .toggleStyle(.switch).controlSize(.small)
+            }
+
+            Label {
+                Text("Some of these are run by volunteers with daily limits. The app paces itself automatically and never hammers them — you don't need to do anything.")
+                    .font(.callout).foregroundStyle(.secondary)
+            } icon: {
+                Image(systemName: "hand.raised").foregroundStyle(.blue)
+            }
+            Text("Full terms, coverage, and per-source detail are in Settings.")
+                .font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    /// The bundled general sources, sorted for a stable list.
+    private var generalSources: [any RecordSource] {
+        sourceRegistry.allSources()
+            .filter { $0.kind == .general }
+            .sorted { $0.descriptiveName < $1.descriptiveName }
     }
 
     // MARK: - Downloads (non-blocking; owned by the shared services, so they

@@ -2303,20 +2303,20 @@ final class AppState {
         showSetupWizard = true
     }
 
-    /// Set the home person for the current project.
+    /// Set the home person for the current project. Mutates a COPY of the
+    /// project so every other field survives — the earlier memberwise-init
+    /// rebuild dropped homeChapmanCode / archivedAt / expansionPolicy, so
+    /// setting a home person (e.g. the setup wizard's Step 3, or the "Set as
+    /// Home Person" context actions) silently wiped the home region and
+    /// expansion policy. `db.setHomePerson` is a targeted UPDATE; the
+    /// `saveProjectMeta` keeps the in-memory `currentProject` in sync.
     func setHomePerson(id: String) {
-        guard let db = currentDatabase else { return }
+        guard let db = currentDatabase, var project = currentProject else { return }
+        project.homePersonID = id
         do {
             try db.setHomePerson(id: id)
-            if var project = currentProject {
-                project = Project(
-                    id: project.id, name: project.name, source: project.source,
-                    homePersonID: id,
-                    createdAt: project.createdAt, lastRefreshed: project.lastRefreshed
-                )
-                try db.saveProjectMeta(project)
-                currentProject = project
-            }
+            try db.saveProjectMeta(project)
+            currentProject = project
         } catch {
             errorMessage = "Failed to set home person: \(error.localizedDescription)"
         }

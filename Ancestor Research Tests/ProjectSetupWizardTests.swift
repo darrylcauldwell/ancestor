@@ -126,4 +126,33 @@ struct ProjectSetupWizardTests {
         #expect(state.currentProject?.homeChapmanCode == nil, "empty picks the derive-per-profile default")
         #expect(try db.loadProjectMeta()?.resolvedHomeChapmanCode == "", "no anchor")
     }
+
+    // MARK: - Step 3: home person (and the field-preservation fix)
+
+    /// The wizard sets home region (Step 1) THEN home person (Step 3).
+    /// setHomePerson must NOT wipe the region — it previously rebuilt Project
+    /// via a partial memberwise init that dropped homeChapmanCode. This is the
+    /// same latent bug the "Set as Home Person" context actions hit.
+    @Test func setHomePersonPreservesHomeRegion() throws {
+        let (state, db, _) = try makeState()
+        state.setHomeChapmanCode("DBY")
+        state.setHomePerson(id: "@P1@")
+
+        #expect(state.currentProject?.homePersonID == "@P1@")
+        #expect(state.currentProject?.homeChapmanCode == "DBY", "region survives setting the home person")
+        // And on disk — the value the dispatcher reads.
+        let reloaded = try db.loadProjectMeta()
+        #expect(reloaded?.homePersonID == "@P1@")
+        #expect(reloaded?.resolvedHomeChapmanCode == "DBY")
+    }
+
+    /// The reverse order is also safe — set person first, then region.
+    @Test func setHomeRegionPreservesHomePerson() throws {
+        let (state, db, _) = try makeState()
+        state.setHomePerson(id: "@P1@")
+        state.setHomeChapmanCode("YKS")
+
+        #expect(try db.loadProjectMeta()?.homePersonID == "@P1@", "person survives setting the region")
+        #expect(try db.loadProjectMeta()?.resolvedHomeChapmanCode == "YKS")
+    }
 }
