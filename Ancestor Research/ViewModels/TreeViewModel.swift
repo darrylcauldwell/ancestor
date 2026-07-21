@@ -34,7 +34,6 @@ final class TreeViewModel {
     private var historyIndex: Int = -1
 
     // New state for v5 redesign
-    var popoverProfileID: String?
     var showInspector: Bool = false
     var isAnimatingRecenter: Bool = false
     var expandBreadcrumb: Bool = false
@@ -142,7 +141,6 @@ final class TreeViewModel {
         // 3. Rebuild with new root
         rootProfileID = profileID
         selectedProfileID = profileID
-        popoverProfileID = nil
         scale = 1.0
         rebuildLayoutOnly(snapshot: snapshot)
 
@@ -209,7 +207,6 @@ final class TreeViewModel {
         historyIndex -= 1
         rootProfileID = history[historyIndex]
         selectedProfileID = rootProfileID
-        popoverProfileID = nil
         rebuildLayout(snapshot: snapshot)
     }
 
@@ -434,7 +431,6 @@ final class TreeViewModel {
     func validateState(snapshot: FamilyGraphSnapshot) {
         if let selected = selectedProfileID, snapshot.profiles[selected] == nil {
             selectedProfileID = nil
-            popoverProfileID = nil
         }
         if let root = rootProfileID, snapshot.profiles[root] == nil {
             rootProfileID = nil

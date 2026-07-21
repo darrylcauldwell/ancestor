@@ -8,11 +8,11 @@ private enum TreeFocus: Hashable {
 
 /// Interactive family tree visualisation using Canvas.
 /// Shows a window of generations around a focal person.
-/// Click to select, click again or Space to inspect, Return to recenter.
+/// Click to select, click again / Space / ⓘ to open Full Detail, Return to recenter.
 struct TreeGraphView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.colorScheme) private var colorScheme
-    /// M24 — Honoured by the recenter slide and popover/banner transitions
+    /// M24 — Honoured by the recenter slide and banner transitions
     /// to avoid triggering vestibular issues for users with the system
     /// "Reduce motion" preference enabled.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -128,9 +128,10 @@ struct TreeGraphView: View {
                         // Double-click before single-click so SwiftUI's
                         // gesture disambiguator routes two-tap sequences here
                         // and leaves count:1 for genuine single clicks.
-                        // Double-click skips the popover entirely and opens
-                        // the full Profile Detail sheet — the popover is for
-                        // peek-style inspection, the sheet is for working in.
+                        // Both node double-click and the ⓘ icon open the
+                        // Full Detail card (RETIRE_POPOVER_SPEC Change 3 —
+                        // the peek popover is retired; the card is the one
+                        // inspection surface).
                         .onTapGesture(count: 2) { location in
                             handleDoubleClick(at: location, canvasSize: canvasSize)
                         }
@@ -212,10 +213,22 @@ struct TreeGraphView: View {
                                     appState.setHomePerson(id: anchorID)
                                 }
                                 .disabled(anchorID == appState.currentProject?.homePersonID)
+                                // W3 focus toggle — parity with the card's
+                                // More menu (RETIRE_POPOVER_SPEC Change 2).
+                                if appState.activeFocusSet != nil {
+                                    if appState.isInActiveFocus(anchorID) {
+                                        Button("Remove from Focus") {
+                                            appState.removeProfileFromActiveFocus(anchorID)
+                                        }
+                                    } else {
+                                        Button("Add to Focus") {
+                                            appState.addProfileToActiveFocus(anchorID)
+                                        }
+                                    }
+                                }
 
                                 Divider()
                                 Button("Remove Person", role: .destructive) {
-                                    treeVM.popoverProfileID = nil
                                     appState.softDeleteProfile(id: anchorID)
                                 }
                                 Menu("Remove Branch") {
@@ -229,10 +242,7 @@ struct TreeGraphView: View {
                             }
                         }
 
-                    // Layer 2: Popover overlay
-                    popoverOverlay(canvasSize: canvasSize)
-
-                    // Layer 3: Controls overlay
+                    // Layer 2: Controls overlay
                     controlsOverlay(canvasSize: canvasSize)
                 }
                 .onAppear {
@@ -244,6 +254,29 @@ struct TreeGraphView: View {
                     // a row's label area; the tab switches to .tree and
                     // we land here with the request pending.
                     handlePendingProfileDetailRequest()
+                    // Drain tree-owned intents raised while this view was
+                    // unmounted (e.g. the audit-hosted card's More menu on
+                    // another tab). `.onChange` never fires for a value set
+                    // before mount, and a stale Equatable value would also
+                    // suppress the NEXT identical request — so consume them
+                    // here. All of these only STAGE a sheet/confirmation,
+                    // never mutate data, so draining on appear is safe.
+                    if let req = appState.requestRemoveBranch {
+                        beginBranchDelete(req.profileID, ancestors: req.ancestors)
+                        appState.requestRemoveBranch = nil
+                    }
+                    if let req = appState.requestAddRelative {
+                        beginAddRelative(req.profileID, req.relation)
+                        appState.requestAddRelative = nil
+                    }
+                    if let id = appState.requestConnectExisting {
+                        beginConnectExisting(id)
+                        appState.requestConnectExisting = nil
+                    }
+                    if let id = appState.requestCompareProfileID {
+                        comparePickerSource = ComparePickerSource(id: id)
+                        appState.requestCompareProfileID = nil
+                    }
                 }
                 .onChange(of: canvasSize) { _, newSize in
                     treeVM.lastCanvasSize = newSize
@@ -274,6 +307,11 @@ struct TreeGraphView: View {
                     beginConnectExisting(id)
                     appState.requestConnectExisting = nil
                 }
+                .onChange(of: appState.requestRemoveBranch) { _, newValue in
+                    guard let req = newValue else { return }
+                    beginBranchDelete(req.profileID, ancestors: req.ancestors)
+                    appState.requestRemoveBranch = nil
+                }
 
                 // Floating profile card. Overlays the tree canvas in the
                 // top-right corner; the card itself carries the Liquid
@@ -293,6 +331,32 @@ struct TreeGraphView: View {
                         },
                         onClose: {
                             treeVM.showInspector = false
+                        },
+                        // RETIRE_POPOVER_SPEC Change 2 — the popover's
+                        // navigation + marriage switcher, now card-hosted.
+                        onNavigateToProfile: { relativeID in
+                            treeVM.recenterOnRelative(
+                                relativeID, from: selectedID,
+                                snapshot: appState.snapshot,
+                                canvasSize: treeVM.lastCanvasSize,
+                                reduceMotion: reduceMotion
+                            )
+                        },
+                        navigateSwitchesMode: { relativeID in
+                            // Mirrors recenterOnRelative's own auto-switch
+                            // rule so the hint can never disagree with the
+                            // behaviour.
+                            let isAncestor = appState.snapshot.parentsOf(selectedID)
+                                .contains { $0.id == relativeID }
+                            let isChild = appState.snapshot.childrenOf(selectedID)
+                                .contains { $0.id == relativeID }
+                            return (isAncestor && treeVM.viewMode == .descendants)
+                                || (isChild && treeVM.viewMode == .pedigree)
+                        },
+                        activeSpouseID: treeVM.activeSpouseByPerson[selectedID],
+                        onSwitchMarriage: { spouseID in
+                            treeVM.setActiveSpouse(person: selectedID, spouse: spouseID,
+                                                   snapshot: appState.snapshot)
                         }
                     )
                     // Opening a profile is a "read the detail" mode, so give the
@@ -553,7 +617,6 @@ struct TreeGraphView: View {
         guard let pid = appState.requestOpenProfileDetail,
               appState.snapshot.profiles[pid] != nil else { return }
         treeVM.selectedProfileID = pid
-        treeVM.popoverProfileID = nil
         treeVM.showInspector = true
         appState.requestOpenProfileDetail = nil
     }
@@ -566,45 +629,38 @@ struct TreeGraphView: View {
     private func openCardAction(_ id: String, _ action: ProfileCardAction) {
         appState.pendingCardAction = PendingCardAction(profileID: id, action: action)
         treeVM.selectedProfileID = id
-        treeVM.popoverProfileID = nil
         treeVM.showInspector = true
     }
 
-    // Shared action handlers (RETIRE_POPOVER_SPEC Change 1) — the right-click
-    // menu, Full Detail, and (until it's retired) the popover all route through
-    // these so the add/remove actions behave identically wherever invoked.
+    // Shared action handlers (RETIRE_POPOVER_SPEC Changes 1+3) — the
+    // right-click menu and Full Detail route through these so the add/remove
+    // actions behave identically wherever invoked.
 
     /// Open the "add relative" flow for `id` with a preselected relation kind.
     private func beginAddRelative(_ id: String, _ relation: AutoSuggestService.RelationContext) {
-        treeVM.popoverProfileID = nil
         addPersonContext = .relative(id: id, relation: relation)
         showAddPerson = true
     }
 
     /// Open the "connect to an existing person" relationship sheet for `id`.
     private func beginConnectExisting(_ id: String) {
-        treeVM.popoverProfileID = nil
         relationshipAnchorID = SheetID(id: id)
     }
 
     /// Stage a branch delete (person + ancestors or descendants) for confirmation.
     private func beginBranchDelete(_ id: String, ancestors: Bool) {
-        treeVM.popoverProfileID = nil
         let direction: BranchDirection = ancestors ? .ancestors : .descendants
         let ids = BranchSelector.branch(rootedAt: id, direction: direction, in: appState.snapshot)
         pendingBranchDelete = PendingBranchDelete(rootID: id, ids: ids, direction: direction)
     }
 
-    /// Skip the popover layer and open the full Profile Detail sheet
-    /// directly. Fires on a node body or the info icon — anywhere else
-    /// (empty canvas, arrow/ancestor/descendant indicators) is ignored
-    /// because there's no single profile to open. The popover is
-    /// dismissed if currently visible so the two surfaces don't stack.
+    /// Open the full Profile Detail card directly. Fires on a node body or
+    /// the info icon — anywhere else (empty canvas, arrow/ancestor/descendant
+    /// indicators) is ignored because there's no single profile to open.
     private func handleDoubleClick(at location: CGPoint, canvasSize: CGSize) {
         switch treeVM.hitTest(at: location, canvasSize: canvasSize, snapshot: appState.snapshot) {
         case .nodeBody(let id), .infoIcon(let id):
             treeVM.selectedProfileID = id
-            treeVM.popoverProfileID = nil
             treeVM.showInspector = true
             focus = .canvas
         case .arrowIndicator, .ancestorIndicator, .descendantIndicator, .spouseChip, .empty:
@@ -626,30 +682,30 @@ struct TreeGraphView: View {
             treeVM.setActiveSpouse(person: person, spouse: spouse, snapshot: appState.snapshot)
 
         case .infoIcon(let id):
-            treeVM.popoverProfileID = id
+            // RETIRE_POPOVER_SPEC Change 3 — the ⓘ icon opens the Full
+            // Detail card (the popover it used to open is retired).
+            treeVM.selectedProfileID = id
+            treeVM.showInspector = true
 
         case .arrowIndicator(let id):
-            treeVM.popoverProfileID = nil
             treeVM.recenter(on: id, snapshot: appState.snapshot, canvasSize: canvasSize, reduceMotion: reduceMotion)
 
         case .ancestorIndicator(let id):
             // Tapped "▲ ancestors" — stay in pedigree mode, recenter on this node
-            treeVM.popoverProfileID = nil
             treeVM.recenter(on: id, snapshot: appState.snapshot, canvasSize: canvasSize, reduceMotion: reduceMotion)
 
         case .descendantIndicator(let id):
             // Tapped "▼ N children" — switch to descendants mode to show them
-            treeVM.popoverProfileID = nil
             treeVM.viewMode = .descendants
             treeVM.recenter(on: id, snapshot: appState.snapshot, canvasSize: canvasSize, reduceMotion: reduceMotion)
 
         case .nodeBody(let id):
             if id == treeVM.selectedProfileID {
-                // Re-click on selected node → open popover
-                treeVM.popoverProfileID = id
+                // Re-click on the selected node → open the Full Detail card
+                // (was the popover before Change 3).
+                treeVM.showInspector = true
             } else {
                 treeVM.selectedProfileID = id
-                treeVM.popoverProfileID = nil
                 treeVM.pendingExpandTarget = nil
                 // Track selection count for coach mark
                 selectionCount += 1
@@ -665,7 +721,6 @@ struct TreeGraphView: View {
 
         case .empty:
             treeVM.selectedProfileID = nil
-            treeVM.popoverProfileID = nil
             treeVM.pendingExpandTarget = nil
         }
 
@@ -675,25 +730,20 @@ struct TreeGraphView: View {
     // MARK: - Keyboard Handling
 
     private func handleSpace() -> KeyPress.Result {
-        guard let selectedID = treeVM.selectedProfileID else { return .ignored }
-        if treeVM.popoverProfileID == nil {
-            treeVM.popoverProfileID = selectedID
-        }
+        guard treeVM.selectedProfileID != nil else { return .ignored }
+        // "Space to inspect" — inspect is the Full Detail card now that the
+        // popover is retired (RETIRE_POPOVER_SPEC Change 3).
+        treeVM.showInspector = true
         return .handled
     }
 
     private func handleReturn(canvasSize: CGSize) -> KeyPress.Result {
         guard let selectedID = treeVM.selectedProfileID else { return .ignored }
-        treeVM.popoverProfileID = nil
         treeVM.recenter(on: selectedID, snapshot: appState.snapshot, canvasSize: canvasSize, reduceMotion: reduceMotion)
         return .handled
     }
 
     private func handleEscape() -> KeyPress.Result {
-        if treeVM.popoverProfileID != nil {
-            treeVM.popoverProfileID = nil
-            return .handled
-        }
         if treeVM.showInspector {
             treeVM.showInspector = false
             return .handled
@@ -707,7 +757,6 @@ struct TreeGraphView: View {
 
     private func handleArrowKey(_ press: KeyPress, canvasSize: CGSize) -> KeyPress.Result {
         guard let selectedID = treeVM.selectedProfileID else { return .ignored }
-        treeVM.popoverProfileID = nil
 
         let snapshot = appState.snapshot
         var targetID: String?
@@ -932,7 +981,6 @@ struct TreeGraphView: View {
     private var panGesture: some Gesture {
         DragGesture(minimumDistance: 8)
             .onChanged { value in
-                treeVM.popoverProfileID = nil
                 treeVM.pendingExpandTarget = nil
                 treeVM.offset = CGSize(
                     width: treeVM.dragStartOffset.width + value.translation.width,
@@ -949,129 +997,6 @@ struct TreeGraphView: View {
             .onChanged { value in
                 treeVM.scale = max(0.5, min(2.0, value.magnification))
             }
-    }
-
-    // MARK: - Popover Overlay
-
-    @ViewBuilder
-    private func popoverOverlay(canvasSize: CGSize) -> some View {
-        if let popoverID = treeVM.popoverProfileID,
-           let profile = appState.snapshot.profiles[popoverID] {
-            let transform = treeVM.currentTransform(canvasSize: canvasSize)
-            let node = treeVM.layout.nodes.first { $0.id == popoverID }
-            let screenPos = node.map { transform.toScreen(x: $0.x, y: $0.y) }
-                ?? CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
-
-            // Popover sizing matches `.frame(width: 320).frame(maxHeight: 480)`
-            // below. Use the cap so placement decisions don't underestimate.
-            let popoverHeight: CGFloat = 480
-            let gap: CGFloat = 10
-            let halfHeight = popoverHeight / 2
-            let topOfNode = screenPos.y - TreeLayout.nodeHeight / 2 * treeVM.scale
-            let bottomOfNode = screenPos.y + TreeLayout.nodeHeight / 2 * treeVM.scale
-            let roomAbove = topOfNode - gap
-            let roomBelow = canvasSize.height - bottomOfNode - gap
-            // Prefer above when it fits; otherwise below when it fits; otherwise
-            // pick the larger side so we can clamp into whatever room we have.
-            let placeBelow: Bool = {
-                if roomAbove >= popoverHeight { return false }
-                if roomBelow >= popoverHeight { return true }
-                return roomBelow > roomAbove
-            }()
-            let rawAnchorY = placeBelow
-                ? bottomOfNode + gap + halfHeight
-                : topOfNode - gap - halfHeight
-            // Clamp to the canvas so the card never renders off-window. When
-            // the available side is shorter than the popover, the maxHeight
-            // frame lets the card compress and the clamp keeps it visible.
-            let minY = halfHeight + gap
-            let maxY = canvasSize.height - halfHeight - gap
-            let anchorY = max(minY, min(maxY, rawAnchorY))
-            let anchor: UnitPoint = placeBelow ? .top : .bottom
-
-            ProfilePopoverView(
-                profile: profile,
-                snapshot: appState.snapshot,
-                completeness: appState.snapshot.completeness(for: popoverID),
-                visibleNodeIDs: Set(treeVM.layout.nodes.map(\.id)),
-                isRoot: popoverID == treeVM.rootProfileID,
-                currentViewMode: treeVM.viewMode,
-                activeSpouseID: treeVM.activeSpouseByPerson[popoverID],
-                onSwitchMarriage: { spouseID in
-                    treeVM.setActiveSpouse(person: popoverID, spouse: spouseID, snapshot: appState.snapshot)
-                },
-                onRecenter: { relativeID in
-                    treeVM.popoverProfileID = nil
-                    treeVM.recenterOnRelative(
-                        relativeID, from: popoverID,
-                        snapshot: appState.snapshot, canvasSize: canvasSize,
-                        reduceMotion: reduceMotion
-                    )
-                },
-                onFocusHere: {
-                    treeVM.popoverProfileID = nil
-                    treeVM.recenter(on: popoverID, snapshot: appState.snapshot,
-                                   canvasSize: canvasSize, reduceMotion: reduceMotion)
-                },
-                onShowDetail: {
-                    treeVM.popoverProfileID = nil
-                    treeVM.showInspector = true
-                },
-                onResearch: {
-                    treeVM.popoverProfileID = nil
-                    appState.researchProfileID = popoverID
-                },
-                onAddRelative: { relation in
-                    treeVM.popoverProfileID = nil
-                    addPersonContext = .relative(id: popoverID, relation: relation)
-                    showAddPerson = true
-                },
-                onAddRelationship: {
-                    treeVM.popoverProfileID = nil
-                    relationshipAnchorID = SheetID(id: popoverID)
-                },
-                onRemove: {
-                    treeVM.popoverProfileID = nil
-                    appState.softDeleteProfile(id: popoverID)
-                },
-                onRemoveBranch: { ancestors in
-                    treeVM.popoverProfileID = nil
-                    let direction: BranchDirection = ancestors ? .ancestors : .descendants
-                    let ids = BranchSelector.branch(
-                        rootedAt: popoverID,
-                        direction: direction,
-                        in: appState.snapshot
-                    )
-                    pendingBranchDelete = PendingBranchDelete(
-                        rootID: popoverID,
-                        ids: ids,
-                        direction: direction
-                    )
-                },
-                isInFocus: appState.isInActiveFocus(popoverID),
-                hasActiveFocus: appState.activeFocusSet != nil,
-                onToggleFocus: {
-                    if appState.isInActiveFocus(popoverID) {
-                        appState.removeProfileFromActiveFocus(popoverID)
-                    } else {
-                        appState.addProfileToActiveFocus(popoverID)
-                    }
-                }
-            )
-            .frame(width: 320)
-            .frame(maxHeight: 480)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .clipShape(.rect(cornerRadius: 12))
-            .glassEffect(.regular, in: .rect(cornerRadius: 12))
-            .shadow(color: .black.opacity(0.25), radius: 16, y: 6)
-            .position(x: screenPos.x, y: anchorY)
-            // M24 — drop the scale component when reduce-motion is on; a pure
-            // opacity fade is the recommended fallback for popover transitions.
-            .transition(reduceMotion
-                        ? .opacity
-                        : .opacity.combined(with: .scale(scale: 0.95, anchor: anchor)))
-            .motionAware(.easeOut(duration: 0.15), value: popoverID)
-        }
     }
 
     // MARK: - Controls Overlay

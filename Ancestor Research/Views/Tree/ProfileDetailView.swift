@@ -25,6 +25,16 @@ struct ProfileDetailView: View {
     /// `EditPersonView` (the sheet wrapper) so the audit / context-menu
     /// edit flows still land directly on the form.
     var startInEditMode: Bool = false
+    /// RETIRE_POPOVER_SPEC Change 2 — tree-hosted navigation: tap a relative
+    /// row to jump the tree to that person. Nil in sheet contexts (no tree).
+    var onNavigateToProfile: ((String) -> Void)? = nil
+    /// Pass-through for SharedProfileLayout's mode-switch hint.
+    var navigateSwitchesMode: ((String) -> Bool)? = nil
+    /// Marriage switcher (moved from the popover): the spouse whose marriage
+    /// the tree currently shows, and the callback to switch it. Nil in sheet
+    /// contexts. The on-canvas ordinal chips remain the primary switcher.
+    var activeSpouseID: String? = nil
+    var onSwitchMarriage: ((String) -> Void)? = nil
 
     @Environment(AppState.self) private var appState
 
@@ -85,10 +95,13 @@ struct ProfileDetailView: View {
                     profile: profile,
                     snapshot: snapshot,
                     editable: isEditing,
-                    bindings: isEditing ? makeBindings() : nil
+                    bindings: isEditing ? makeBindings() : nil,
+                    onNavigateToProfile: isEditing ? nil : onNavigateToProfile,
+                    navigateSwitchesMode: isEditing ? nil : navigateSwitchesMode
                 )
 
                 if !isEditing {
+                    marriageSwitcherSection
                     lifecycleChip
                 }
 
@@ -163,6 +176,60 @@ struct ProfileDetailView: View {
     }
 
     // MARK: - Layout pieces
+
+    /// Marriage switcher (RETIRE_POPOVER_SPEC Change 2, moved from the
+    /// popover): when the person has 2+ marriages, choose which one the tree
+    /// shows (spouse + that marriage's children). Ordered earliest-first.
+    /// Rendered only when the host wires the callback (tree contexts).
+    @ViewBuilder
+    private var marriageSwitcherSection: some View {
+        if let onSwitchMarriage {
+            let spouses = snapshot.spousesOrderedByMarriage(profile.id)
+            if spouses.count >= 2 {
+                let active = activeSpouseID ?? spouses.first?.id
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Showing marriage")
+                        .font(AppTypography.cardMeta)
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                    ForEach(Array(spouses.enumerated()), id: \.element.id) { pair in
+                        let isActive = pair.element.id == active
+                        Button {
+                            onSwitchMarriage(pair.element.id)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
+                                    .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                                Text("\(Self.ordinal(pair.offset + 1)) · \(pair.element.displayName)")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private static func ordinal(_ n: Int) -> String {
+        switch n {
+        case 1: return "1st"
+        case 2: return "2nd"
+        case 3: return "3rd"
+        default: return "\(n)th"
+        }
+    }
+
+    /// Raise a tree-owned intent: set it, then request the tree tab so the
+    /// observing `TreeGraphView` is mounted (its onAppear drains pending
+    /// intents). Without the tab switch, a raise from a sheet hosted on
+    /// another tab (e.g. the audit flow's EditPersonView) does nothing.
+    private func raiseTreeIntent(_ set: () -> Void) {
+        set()
+        appState.requestSidebarTab = .tree
+    }
 
     private var closeButtonRow: some View {
         HStack {
@@ -415,19 +482,50 @@ struct ProfileDetailView: View {
                         // move here (and to the right-click menu) off the popover.
                         // The tree owns the add sheets, so these set intents it
                         // observes, mirroring "Compare with…".
-                        Button("Add Spouse") { appState.requestAddRelative = .init(profileID: profile.id, relation: .spouse) }
-                        Button("Add Child") { appState.requestAddRelative = .init(profileID: profile.id, relation: .child) }
-                        Button("Add Parent") { appState.requestAddRelative = .init(profileID: profile.id, relation: .parent) }
-                        Button("Add Sibling") { appState.requestAddRelative = .init(profileID: profile.id, relation: .sibling) }
-                        Button("Connect to existing person…") { appState.requestConnectExisting = profile.id }
+                        // Each of these is a TREE-owned intent: raise it AND
+                        // request the tree tab (M16.9 pattern), so the
+                        // observer is mounted even when this card is hosted
+                        // in another tab's sheet — otherwise the raise is a
+                        // silent no-op and the stale Equatable value would
+                        // suppress the next identical request.
+                        Button("Add Spouse") { raiseTreeIntent { appState.requestAddRelative = .init(profileID: profile.id, relation: .spouse) } }
+                        Button("Add Child") { raiseTreeIntent { appState.requestAddRelative = .init(profileID: profile.id, relation: .child) } }
+                        Button("Add Parent") { raiseTreeIntent { appState.requestAddRelative = .init(profileID: profile.id, relation: .parent) } }
+                        Button("Add Sibling") { raiseTreeIntent { appState.requestAddRelative = .init(profileID: profile.id, relation: .sibling) } }
+                        Button("Connect to existing person…") { raiseTreeIntent { appState.requestConnectExisting = profile.id } }
                         Divider()
-                        Button("Compare with…") { appState.requestCompareProfileID = profile.id }
+                        Button("Compare with…") { raiseTreeIntent { appState.requestCompareProfileID = profile.id } }
                         Button("Set as Home Person") { appState.setHomePerson(id: profile.id) }
                             .disabled(profile.id == appState.currentProject?.homePersonID)
+                        // RETIRE_POPOVER_SPEC Change 2 — W3 focus toggle,
+                        // moved from the popover. Only shown while a focus
+                        // set is active (same gating the popover used).
+                        if appState.activeFocusSet != nil {
+                            if appState.isInActiveFocus(profile.id) {
+                                Button("Remove from Focus") {
+                                    appState.removeProfileFromActiveFocus(profile.id)
+                                }
+                            } else {
+                                Button("Add to Focus") {
+                                    appState.addProfileToActiveFocus(profile.id)
+                                }
+                            }
+                        }
                         Divider()
                         Button("Remove Person", role: .destructive) {
                             appState.softDeleteProfile(id: profile.id)
                             onClose?()
+                        }
+                        // Branch removal parity with the context menu — the
+                        // tree owns the staged confirmation, so these raise
+                        // an intent it observes (mirroring Compare/Add).
+                        Menu("Remove Branch") {
+                            Button("Remove person and ancestors", role: .destructive) {
+                                raiseTreeIntent { appState.requestRemoveBranch = .init(profileID: profile.id, ancestors: true) }
+                            }
+                            Button("Remove person and descendants", role: .destructive) {
+                                raiseTreeIntent { appState.requestRemoveBranch = .init(profileID: profile.id, ancestors: false) }
+                            }
                         }
                     } label: {
                         Label("More", systemImage: "ellipsis.circle")

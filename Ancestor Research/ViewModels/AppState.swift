@@ -143,6 +143,16 @@ final class AppState {
     var requestAddRelative: AddRelativeRequest?
     var requestConnectExisting: String?
 
+    /// RETIRE_POPOVER_SPEC Change 2 — Full Detail raising branch removal.
+    /// The tree owns the staged confirmation dialog (`BranchSelector` +
+    /// PendingBranchDelete), so the card raises this and `TreeGraphView`
+    /// observes and stages it.
+    struct RemoveBranchRequest: Equatable {
+        let profileID: String
+        let ancestors: Bool
+    }
+    var requestRemoveBranch: RemoveBranchRequest?
+
     var isLoading = false
     var loadingMessage: String?
     var errorMessage: String?

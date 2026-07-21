@@ -4,7 +4,7 @@ import Foundation
 
 /// Tests for the spec-compliance cleanup pass: name-length validation,
 /// maiden-name suggestions, and the recordAlternativeFact DB primitive.
-/// The popover Add Parent / Add Sibling fix is exercised via behaviour
+/// The Add Parent / Add Sibling fix (ex-popover; actions now on the context menu + card) is exercised via behaviour
 /// — addFamily is the chosen primitive — so tests there assert the
 /// resulting graph shape rather than view internals.
 struct CleanupPassTests {

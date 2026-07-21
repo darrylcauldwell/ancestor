@@ -53,6 +53,16 @@ struct SharedProfileLayout: View {
     let snapshot: FamilyGraphSnapshot
     var editable: Bool = false
     var bindings: ProfileEditBindings? = nil
+    /// RETIRE_POPOVER_SPEC Change 2 — when set, relationship rows become
+    /// tappable navigation (jump the tree to that relative), replacing the
+    /// popover's off-canvas relatives list. Nil (plain-text rows) in
+    /// contexts with no tree to navigate (EditPersonView sheets).
+    var onNavigateToProfile: ((String) -> Void)? = nil
+    /// Advance warning that navigating to this relative will flip the tree's
+    /// view mode (pedigree ↔ descendants) — the popover's orange
+    /// mode-switch glyph, host-supplied so this layout stays ignorant of
+    /// TreeViewMode. Nil → no hint shown.
+    var navigateSwitchesMode: ((String) -> Bool)? = nil
 
     @Environment(AppState.self) private var appState
     /// M24 — when true (Settings → Accessibility → "Differentiate without
@@ -1115,17 +1125,49 @@ struct SharedProfileLayout: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 ForEach(profiles) { relative in
-                    HStack {
-                        Text(relative.displayName)
-                            .font(.callout)
-                        if let year = relative.birthDate?.bestYear {
-                            Text("b. \(String(year))")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
+                    relativeRow(relative)
                 }
             }
+        }
+    }
+
+    /// One relative line. With `onNavigateToProfile` set it is a Button that
+    /// jumps the tree to the relative (chevron affordance); otherwise plain
+    /// text. Button, not `.onTapGesture` — tap gestures inside a ScrollView
+    /// are unreliably delivered on macOS.
+    @ViewBuilder
+    private func relativeRow(_ relative: Profile) -> some View {
+        let switchesMode = navigateSwitchesMode?(relative.id) ?? false
+        let label = HStack {
+            Text(relative.displayName)
+                .font(.callout)
+            if let year = relative.birthDate?.bestYear {
+                Text("b. \(String(year))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            if switchesMode {
+                // Navigating flips pedigree ↔ descendants — same advance
+                // hint the popover (and TreeSearchField) used.
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("Switches view mode")
+            }
+            if onNavigateToProfile != nil {
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        if let navigate = onNavigateToProfile {
+            Button { navigate(relative.id) } label: {
+                label.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Show \(relative.displayName) in the tree")
+        } else {
+            label
         }
     }
 
@@ -1150,15 +1192,10 @@ struct SharedProfileLayout: View {
                     let otherID = edge.from == subject.id ? edge.to : edge.from
                     if let spouse = snapshot.profiles[otherID] {
                         VStack(alignment: .leading, spacing: 2) {
-                            HStack {
-                                Text(spouse.displayName)
-                                    .font(.callout)
-                                if let year = spouse.birthDate?.bestYear {
-                                    Text("b. \(String(year))")
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
+                            // Same navigation affordance as relativeRow —
+                            // spouses render separately only for the
+                            // marriage-metadata lines below.
+                            relativeRow(spouse)
                             // Marriage metadata, when present. "m." prefix
                             // mirrors common genealogy abbreviation. Location
                             // sits on its own line so a long district name

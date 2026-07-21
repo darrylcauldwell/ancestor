@@ -1,5 +1,17 @@
 # Retire the Tree Popover — unify profile actions
 
+**STATUS: COMPLETE 2026-07-21.** Change 1 shipped `1bcc510`; Changes 2–3 shipped
+together (single commit — the TreeGraphView edits interleave). Deviations from
+the plan below, found by the pre-commit adversarial review: (a) tree-owned
+intents raised from the card also set `requestSidebarTab = .tree` AND
+`TreeGraphView.onAppear` drains pending intents — without both, a raise from a
+sheet hosted on another tab (audit flow) was a silent no-op whose stale
+Equatable value then suppressed the next identical request; (b) the popover's
+orange "switches view mode" hint survives on the card's navigable relative rows
+(`navigateSwitchesMode` closure, host-computed so it can't disagree with
+`recenterOnRelative`'s auto-switch). Spec retained per doc convention until the
+next cleanup sweep; ROADMAP carries the shipped record.
+
 ## Problem
 
 Three surfaces expose profile actions with **divergent** sets, which is
