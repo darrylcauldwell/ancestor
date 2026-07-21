@@ -283,33 +283,39 @@ nonisolated enum UnifiedTaskAggregator {
 /// `nonisolated enum` namespace so tests can drive the grouping without
 /// spinning up SwiftUI.
 nonisolated enum UnifiedTaskGrouping {
-    /// One bucket of tasks belonging to a single profile name. The view
-    /// renders each as a `Section` with the name as the header.
+    /// One bucket of tasks belonging to a single profile. `id` is the identity
+    /// key (the profile id when the task owns a profile); `profileName` is the
+    /// display header.
     struct Group {
+        let id: String
         let profileName: String
         let tasks: [UnifiedTask]
     }
 
-    /// Bucket the given tasks by exact `profileName` match (no fuzzy / case
-    /// folding — distinct strings stay distinct). Within each bucket, the
-    /// caller-supplied order is preserved (so the existing tier sort survives).
-    /// Sections are then sorted by the most-severe task in each, falling back
-    /// to alphabetical name for tie-breaks.
+    /// Bucket the given tasks by profile IDENTITY (`targetProfileID`) rather
+    /// than the display name, so two distinct people who share a name aren't
+    /// merged into one section, and a profile with a blank/placeholder name
+    /// still groups its own findings together. Tasks with no owning profile
+    /// (an unattached open question) fall back to the display name. Within each
+    /// bucket, caller order is preserved (the tier sort survives); sections are
+    /// sorted by the most-severe task, then by name for determinism.
     static func groupedByProfile(_ tasks: [UnifiedTask]) -> [Group] {
         // Preserve first-seen order so sort stability is independent of
         // dictionary iteration order.
         var buckets: [String: [UnifiedTask]] = [:]
+        var displayName: [String: String] = [:]
         var order: [String] = []
         for task in tasks {
-            let name = task.profileName
-            if buckets[name] == nil {
-                order.append(name)
+            let key = task.targetProfileID ?? task.profileName
+            if buckets[key] == nil {
+                order.append(key)
+                displayName[key] = task.profileName
             }
-            buckets[name, default: []].append(task)
+            buckets[key, default: []].append(task)
         }
 
-        let groups = order.map { name in
-            Group(profileName: name, tasks: buckets[name] ?? [])
+        let groups = order.map { key in
+            Group(id: key, profileName: displayName[key] ?? key, tasks: buckets[key] ?? [])
         }
 
         // Sort by max severity within the group (lower sortKey == more
@@ -341,10 +347,12 @@ struct UnifiedTasksView: View {
     @State private var lifeEvents: [LifeEvent] = []
     @State private var leads: [Lead] = []
     @AppStorage("disabledAuditRuleIDs") private var disabledRuleIDsData: Data = Data()
-    /// M16.10 — when on, the list collapses by profile name with a section
-    /// header per person (sections sorted by max severity in the section).
-    /// Persisted via AppStorage so the choice survives app launches.
-    @AppStorage("tasksGroupByProfile") private var groupByProfile: Bool = false
+    /// M16.10 — when on, the list collapses by profile with a section header
+    /// per person (sections sorted by max severity in the section). Persisted
+    /// via AppStorage so the choice survives app launches. Defaults ON (leads-
+    /// rework tail a): a profile with N findings reads as one grouped person,
+    /// not N look-alike cards. The toolbar toggle switches back to a flat list.
+    @AppStorage("tasksGroupByProfile") private var groupByProfile: Bool = true
 
     /// Callback fired by the leads-pointer banner — hands the user off to
     /// the Triage tab, the one home for leads (Findings + Possible People).
@@ -582,7 +590,7 @@ struct UnifiedTasksView: View {
             // Sectioned by profile, sections sorted by max severity within.
             ScrollView {
                 LazyVStack(spacing: 12, pinnedViews: [.sectionHeaders]) {
-                    ForEach(UnifiedTaskGrouping.groupedByProfile(filteredTasks), id: \.profileName) { group in
+                    ForEach(UnifiedTaskGrouping.groupedByProfile(filteredTasks), id: \.id) { group in
                         Section {
                             ForEach(group.tasks) { task in
                                 TaskRow(task: task, onAuditChanged: rerunAudit, onOpenProfile: onOpenProfile)

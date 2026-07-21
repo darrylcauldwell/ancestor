@@ -108,4 +108,39 @@ struct UnifiedTaskGroupingTests {
         let groups = UnifiedTaskGrouping.groupedByProfile([aliceA, aliceB])
         #expect(groups.count == 2)
     }
+
+    // MARK: - Identity grouping (leads-rework tail a/b)
+
+    private func auditFor(id: String, name: String, severity: Severity = .warning) -> UnifiedTask {
+        .auditIssue(AuditResult(
+            profileID: id, profileName: name, severity: severity,
+            ruleID: "test.rule", message: "\(name)"))
+    }
+
+    /// The identity win: the SAME profile whose findings carry slightly
+    /// different display-name strings still collapses into ONE section (old
+    /// exact-profileName grouping would have split it).
+    @Test func sameProfileGroupsAcrossDisplayNameVariation() {
+        let tasks = [
+            auditFor(id: "@P1@", name: "George Cauldwell"),
+            auditFor(id: "@P1@", name: "George  Cauldwell"),   // stray double space
+            auditFor(id: "@P1@", name: "George Cauldwell"),
+        ]
+        let groups = UnifiedTaskGrouping.groupedByProfile(tasks)
+        #expect(groups.count == 1, "one person, one section — regardless of name-string wobble")
+        #expect(groups.first?.tasks.count == 3)
+        #expect(groups.first?.id == "@P1@")
+    }
+
+    /// Two DISTINCT people who share a display name stay in separate sections
+    /// (and get distinct SwiftUI ids) — the correctness the identity key buys.
+    @Test func distinctSameNamedProfilesDoNotMerge() {
+        let tasks = [
+            auditFor(id: "@P1@", name: "John Smith"),
+            auditFor(id: "@P2@", name: "John Smith"),
+        ]
+        let groups = UnifiedTaskGrouping.groupedByProfile(tasks)
+        #expect(groups.count == 2, "same name, different people → two sections")
+        #expect(Set(groups.map(\.id)) == ["@P1@", "@P2@"])
+    }
 }
