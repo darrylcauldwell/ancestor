@@ -143,6 +143,18 @@ This section reads as the build sequence — top to bottom is the intended order
   reopen); About-the-subject spouses/children are tappable and drive the main window's tree.
   Adversarial review pre-commit caught a critical project-switch cross-database write —
   fixed with a project-identity guard (=== bound database, no silent re-bind).
+- **Name-enrichment absorption** — **[✓ shipped 2026-07-21 `d075662`]** (owner case: Geoff
+  Bonsall's applied marriage record carried the fuller "Geoffrey W Bonsall" and the fuller
+  name evaporated on apply). The absorption plan now emits name items when the profile is
+  in hand: an ATTESTED fuller first name (nickname cluster — raw prefix expansion excluded,
+  JOSEPHINE must not "enrich" JOSEPH) rides the string overwrite policy (import-tier
+  upgrades outright; user-authoritative keeps the fuller form as a cited alternative);
+  middles gap-fill or strictly expand ("W"→"William", never the reverse); census names
+  excluded (household-HEAD fallback). 14-agent adversarial review pre-commit: 11 confirmed
+  findings fixed — incl. the compatible-name-forms dispute carve-out (no stays-open-forever
+  R3 noise), idempotent `recordAlternativeFact`, per-apply profile reload (stale-capture
+  order-dependent loss), honest "(as cited alternative)" preview labels. 18 tests incl.
+  end-to-end applies through a real ProjectDatabase.
 - **Tree popover retired — one inspection surface** — **[✓ shipped 2026-07-21]**
   (`RETIRE_POPOVER_SPEC.md`, raised by the owner 2026-07-20: three surfaces with divergent
   action sets caused repeated mis-adds). Change 1 `1bcc510` (Add Relative + Remove on context
