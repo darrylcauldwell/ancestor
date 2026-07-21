@@ -1,6 +1,6 @@
 # AncestorApp/ — document index
 
-One line per **live** document: what it is and when to read it. Updated 2026-07-16.
+One line per **live** document: what it is and when to read it. Updated 2026-07-21.
 
 **Convention (2026-07-16):** the only readers here are the developer and Claude, and both have
 full git history — so a *completed* spec is **deleted**, not kept. Git history is the archive
@@ -32,15 +32,14 @@ design rationale, in Claude's memory files. Only living work lives in this folde
 | `CONNECTOR_AUDIT_2026-07.md` | Connector fix backlog / as-built record | 56/58 shipped; FT-08/19/21 deferred |
 | `SOURCE_WEIGHTING_SPEC.md` | Staged-dispatch source weighting | Changes 0–5,7,8 shipped; live-verification pending + Change 6 gated on ADR-008 |
 | `SOURCE_ACCESS_COMPLIANCE_2026-07.md` | Connector terms-of-service evidence | Decisions pending ADR-008 |
-| `FAMILYSEARCH_SOURCE_SPEC.md` | FS source plugin; §§14–19 official-API pivot | Blocked on Beta AppKey |
-| `FAMILYSEARCH_READ_LEG_PLAN.md` | FS read-leg acceptance plan | Changes 5+8 gated on FS redirect-URI registration |
+| `FAMILYSEARCH_CLIENT_SPEC.md` | FS OAuth client library + records source + hint enrichment | Shipped 2026-07-21 (S1–S6b); small follow-ups open |
+| `FAMILYSEARCH_SOURCE_SPEC.md` | FS deferred work (write leg, ARK detail-fetch, per-collection tiering, place/vocab) + reference (§16 licensing, GEDCOM X taxonomy) | Thinned 2026-07-21 — implemented surface removed |
 
 ## Proposed — awaiting review
 
 | Doc | Role |
 |---|---|
 | `DOSSIER_SPEC.md` | T9 investigation dossier + bounded adversarial challenge |
-| `IMPORT_DEDUPE_SPEC.md` | Orphan-stub duplicate detection on GEDCOM import + merge primitive |
 
 ## Sequenced later (Stage 2 — gate: core declared solid)
 
@@ -52,7 +51,14 @@ design rationale, in Claude's memory files. Only living work lives in this folde
 
 ## Removed (completed — in git history)
 
-Fully-delivered specs are removed once shipped; retrieve any via git. Recently removed
-(2026-07-16): `EVIDENCE_ABSORPTION_SPEC`, `TRIAGE_UX_DATA_QUALITY_SPEC`, `CAMPAIGN_REVIEW_SPEC`,
+Fully-delivered specs are removed once shipped; retrieve any via git. Their shipped state +
+commits are recorded in `ROADMAP.md`.
+
+Removed 2026-07-21 (shipped/superseded): `LEAD_DISCOVERY_SPEC`, `IMPORT_DEDUPE_SPEC`,
+`PROFILE_LIFECYCLE_SPEC`, `PROFILE_SOURCES_LEDGER_SPEC`, `PROJECT_ONBOARDING_SPEC`,
+`POSSIBLE_PEOPLE_CONTEXT_SPEC`, `RETIRE_POPOVER_SPEC`, `FAMILYSEARCH_READ_LEG_PLAN` (superseded
+by the OAuth client library — `FAMILYSEARCH_CLIENT_SPEC`).
+
+Removed 2026-07-16: `EVIDENCE_ABSORPTION_SPEC`, `TRIAGE_UX_DATA_QUALITY_SPEC`, `CAMPAIGN_REVIEW_SPEC`,
 `SCOPE_AUDIT_2026-07`, `MODEL_EVOLUTION_SPEC`, `ENGINE_FOUNDATION_SPEC`, `CONFLICT_LAYER_SPEC`,
-`PUBLISHER_SPEC`, `PHASE4_VIEWER_SPEC`. Their shipped state + commits are recorded in `ROADMAP.md`.
+`PUBLISHER_SPEC`, `PHASE4_VIEWER_SPEC`.
