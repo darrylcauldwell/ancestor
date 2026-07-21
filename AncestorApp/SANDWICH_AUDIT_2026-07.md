@@ -9,7 +9,7 @@ verifier trail. The findings below are the OPEN half: Swift-side scorer/gate rep
 against the code. IDs are DS-nn; commits reference `#DS-nn`. Severity = impact on tree correctness.
 
 Suggested repair sequence (Part B 1.3): **(1st)** DS-01 + DS-17 ✅ **shipped `5f91641`** · **(2nd)** shared name-gate ladder
-rework covering DS-16/DS-05/DS-06 · **(3rd)** FP/FN residues DS-02/DS-12/DS-15/DS-10/DS-11 · **(4th)**
+rework covering DS-16/DS-05/DS-06 ✅ **shipped `aa7fc8b`+`d5ff18e`** · **(3rd)** FP/FN residues DS-02/DS-12/DS-15/DS-10/DS-11 · **(4th)**
 GPS reporting honesty DS-19/~~DS-18~~ ✅ (shipped `5f91641`)/DS-21/DS-22/DS-23 · **(5th)** DS-27 dead-code cleanup. DS-04 is an
 independent false-negative (middle-name gate).
 
@@ -41,7 +41,9 @@ independent false-negative (middle-name gate).
 
 **Residue:** No given/middle swap attempt anywhere; needs a scorer-side middle-name match arm.
 
-### DS-05 · high · (false-negative) Standard period abbreviations (Wm, Jno, Thos, Chas, Jas) and Latin forms score 0.0 → .impossible
+### DS-05 · high · (false-negative) Standard period abbreviations (Wm, Jno, Thos, Chas, Jas) and Latin forms score 0.0 → .impossible ✅ RESOLVED `aa7fc8b`
+
+**Resolved:** `ScoringRules.scribalContractions` resolves census shorthand and pre-1733 Latin register forms to the canonical modern given name (0.85); the middle-name guard consults the same ladder. Conservative — standalone modern names (Maria/Anna/Eliza) excluded. Pinned by `NameGateLadderTests`.
 
 **Claim:** The similarity ladder only rescues contiguous substrings ('GEO' in 'GEORGE') and equal-length single-char diffs (ScoringRules.swift:226,232-235). Canonical register contractions are neither — 'WM'⊄'WILLIAM', 'JNO'⊄'JOHN', 'THOS'⊄'THOMAS' → 0.0 → name-gate hard fail → .impossible. The nickname table (:241-257) has no scribal contractions or Latin forms. The same contractions also break the middle-name guard (THOS is not a prefix of THOMAS, :315-316), and nicknames are never consulted for middles (ANN vs HANNAH fails at :313). Faithful port of the Python ladder — a shared gap, but real.
 
@@ -49,7 +51,9 @@ independent false-negative (middle-name gate).
 
 **Residue:** Needs a scribal-contraction/Latin-form equivalence table (part of the shared name-gate ladder rework).
 
-### DS-06 · high · (false-negative) Unequal-length surname variants (Brookes/Brooks, Simms/Sims, Greenhough/Greenhow) score 0.0 → .impossible
+### DS-06 · high · (false-negative) Unequal-length surname variants (Brookes/Brooks, Simms/Sims, Greenhough/Greenhow) score 0.0 → .impossible ✅ RESOLVED (single-indel) `d5ff18e`
+
+**Resolved (partial):** `ScoringRules.isSingleIndel` adds a Levenshtein-1 insertion/deletion rung (0.70) covering the common Brookes/Brooks, Simms/Sims class; the DS-16 band routes these to a reviewable `.lead` instead of dropping them to `.impossible`. **Residual:** Soundex/Metaphone (Greenhough/Greenhow, edit distance > 1) deferred — higher false-positive risk, warrants its own pass.
 
 **Claim:** The transcription-error branch fires only when a.count == b.count (ScoringRules.swift:232-235), so a single-char insertion/deletion — the most common UK surname variant class — scores 0.0 unless it's a containment or AU/OU normalisation. 'BROOKES' vs 'BROOKS' → 0.0 → surname-gate fail → .impossible. No edit-distance, no Soundex/Metaphone; the dispatcher-side variant fan-out (SurnameVariants, 30 entries) lacks these families AND the scorer's acceptance side never consults the variants dictionary. George Herbert Brooks — the canonical test profile — loses his 'BROOKES'-transcribed marriage row.
 
@@ -89,7 +93,9 @@ independent false-negative (middle-name gate).
 
 **Residue:** CL2's retroactive F3 + RecordAfterDeathRule catch the damage *after* apply; the OPEN prevention half is deriving `subject.aliveAsOf` from accepted LifeEvents so the scorer stops accepting contradicted death records up front.
 
-### DS-16 · medium · (false-positive) Surname containment 0.8 / single-char-diff 0.7 pass distinct families (Harris/Harrison, Wood/Woodward, Dale/Gale)
+### DS-16 · medium · (false-positive) Surname containment 0.8 / single-char-diff 0.7 pass distinct families (Harris/Harrison, Wood/Woodward, Dale/Gale) ✅ RESOLVED `d5ff18e`
+
+**Resolved:** the name gate now grades only a strong surname match (≥0.90 — exact, AU/OU normalisation, learned equivalence) as fact-grade; a weak match (containment 0.80, single-char 0.70, single-indel 0.70) soft-fails the gate → `.lead` for review. Cauldwell/Caldwell (AU/OU 0.95) stays fact-grade. Pinned by `NameGateLadderTests`; full suite green with zero churn.
 
 **Claim:** nameSimilarity returns 0.8 for containment (ScoringRules.swift:226) and 0.7 for equal-length single-char diff (:232-235); the name gate passes at ≥0.7 and is binary with no softFail. Containment is applied identically to surnames, where Harris/Harrison etc. are different families co-occurring in the same districts. A wrong-surname record proceeds to .fact with an audit reason reading a healthy 'surname=0.80'.
 
