@@ -117,22 +117,52 @@ nonisolated struct GPSScorer {
 
     // MARK: - Criterion 2: Complete and Accurate Citations
 
-    /// Met if all confirmed facts have citation data (sourceID + detailURL or raw fields).
+    /// Met if all confirmed facts have a *complete* citation — a resolvable
+    /// locator, not merely a sourceID (DS-21).
     private static func criterion2Citations(result: ResearchResult?) -> GPSCriterion {
         guard let result, !result.confirmedFacts.isEmpty else {
             return GPSCriterion(criterion: .completeCitations, met: false, reason: "No confirmed facts")
         }
         let cited = result.confirmedFacts.filter { scored in
-            !scored.record.sourceID.isEmpty
+            !scored.record.sourceID.isEmpty && Self.hasCompleteCitation(scored.record)
         }
         let met = cited.count == result.confirmedFacts.count
         return GPSCriterion(
             criterion: .completeCitations,
             met: met,
             reason: met
-                ? "All \(cited.count) facts have source citations"
-                : "\(cited.count) of \(result.confirmedFacts.count) facts cited"
+                ? "All \(cited.count) facts have complete citations"
+                : "\(cited.count) of \(result.confirmedFacts.count) facts have a complete citation (\(result.confirmedFacts.count - cited.count) missing a locator)"
         )
+    }
+
+    /// DS-21: a confirmed fact is *completely* cited only when it carries a
+    /// resolvable locator, not just a sourceID — every plugin stamps a
+    /// non-empty sourceID, so the old presence check degenerated to "has any
+    /// confirmed fact". A detail URL always qualifies; otherwise the source's
+    /// structured reference must be present: BMD volume+page (or district), a
+    /// census district/address, a memorial/cemetery, a probate address/date, a
+    /// parish, or a military service number / regiment / grave. Reporting-only
+    /// (GPS is an audit surface, not an apply gate), so a missing locator
+    /// lowers the reported score rather than blocking anything.
+    static func hasCompleteCitation(_ record: SourceRecord) -> Bool {
+        if let url = record.detailURL, !url.trimmingCharacters(in: .whitespaces).isEmpty {
+            return true
+        }
+        func present(_ s: String?) -> Bool {
+            !(s ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        switch record {
+        case .birth(let r):    return (present(r.volume) && present(r.page)) || present(r.district)
+        case .death(let r):    return (present(r.volume) && present(r.page)) || present(r.district)
+        case .marriage(let r): return (present(r.volume) && present(r.page)) || present(r.district)
+        case .census(let r):   return present(r.district) || present(r.address)
+        case .burial(let r):   return r.memorialID != nil || present(r.cemetery) || present(r.burialLocation)
+        case .probate(let r):  return present(r.address) || present(r.probateDate)
+        case .parish(let r):   return present(r.parish)
+        case .military(let r): return present(r.serviceNumber) || present(r.regiment) || present(r.cemetery) || present(r.graveRef)
+        default:               return !record.rawFields.isEmpty
+        }
     }
 
     // MARK: - Criterion 3: Analysis and Correlation
