@@ -172,6 +172,59 @@ nonisolated struct ResearchSubject: Sendable {
     /// through `fromProfile`'s derivation chain (profile birthLocationCode
     /// → birthLocation → project setting → "").
     var homeChapmanCode: String = ""
+
+    /// Residence search axes derived from the subject's Residence
+    /// LifeEvents (Stage 2 roadmap: "life events feed research axes") —
+    /// user-entered ones and evidence-absorbed ones alike (absorbed events
+    /// were user-ACCEPTED through review, and their windows are closed to
+    /// the attested year at mint). Sorted by window start for determinism.
+    /// User-entered events are R3-authoritative data; these axes are SOFT
+    /// targeting only —
+    /// they widen or re-rank searches, never filter. Empty when the
+    /// subject has no residence events (leads, manual subjects, thin
+    /// profiles) — every consumer must tolerate the empty case.
+    var residenceAxes: [ResidenceAxis] = []
+    /// Burial place from a user-entered Burial LifeEvent — `location`
+    /// first, else the structured cemetery name. Feeds burial-shape place
+    /// axes (FindAGrave `location`, FS `q.deathLikePlace`) where it is a
+    /// strictly better fit than the `deathLocation` approximation.
+    var burialPlace: String? = nil
+    /// County chapman derived from the burial event's place via the same
+    /// derivation chain as profile fields. Nil when underivable.
+    var burialChapmanCode: String? = nil
+}
+
+/// One residence axis: a place the subject is known (user-attested) to have
+/// lived, with the event's year window. Soft targeting only — see
+/// `ResearchSubject.residenceAxes`.
+nonisolated struct ResidenceAxis: Sendable, Equatable {
+    /// Freeform place text as the user entered it ("Youlgreave",
+    /// "42 King St, Bakewell, Derbyshire").
+    let place: String
+    /// County chapman derived from the event's gazetteer locationCode or
+    /// place text — nil when underivable (bare village, no county suffix).
+    let chapmanCode: String?
+    /// Event year window. Nil bounds are OPEN — an undated residence
+    /// applies to every year (the common case: user types just a place).
+    /// A start-only duration event is open-ended forward ("lived there
+    /// from 1930").
+    let yearFrom: Int?
+    let yearTo: Int?
+
+    /// True when the window covers `year` (open bounds always cover).
+    func covers(_ year: Int) -> Bool {
+        if let from = yearFrom, year < from { return false }
+        if let to = yearTo, year > to { return false }
+        return true
+    }
+
+    /// True when the window intersects [from, to] (nil bounds open on
+    /// either side).
+    func overlaps(from: Int?, to: Int?) -> Bool {
+        if let queryFrom = from, let axisTo = yearTo, axisTo < queryFrom { return false }
+        if let queryTo = to, let axisFrom = yearFrom, axisFrom > queryTo { return false }
+        return true
+    }
 }
 
 /// Known family members for the family context gate.
@@ -640,6 +693,78 @@ nonisolated extension ResearchSubject {
             return out
         }()
 
+        // Life-event research axes (Stage 2 roadmap). Residence and Burial
+        // LifeEvents the user entered become soft search axes. `sensitive`
+        // events are excluded HERE, before any of their text could reach an
+        // outbound source query — the snapshot loader does not filter them.
+        // Deterministic ordering (window start, then place) because
+        // snapshot.lifeEvents arrays are unsorted.
+        let subjectEvents = snapshot.lifeEvents[profile.id] ?? []
+        let derivedResidenceAxes: [ResidenceAxis] = subjectEvents
+            .filter { $0.type == .residence && !$0.sensitive }
+            .compactMap { event -> ResidenceAxis? in
+                guard let place = event.location?.trimmingCharacters(in: .whitespaces),
+                      !place.isEmpty else { return nil }
+                return ResidenceAxis(
+                    place: place,
+                    chapmanCode: chapmanCodeFromLocationCode(event.locationCode)
+                        ?? Self.chapmanCode(forPlaceText: place),
+                    yearFrom: event.date?.earliest,
+                    // End of a duration event; a start-only residence is
+                    // open-ended forward ("lived there from 1930").
+                    yearTo: event.endDate?.latest ?? event.endDate?.earliest
+                )
+            }
+            .sorted {
+                if ($0.yearFrom ?? Int.min) != ($1.yearFrom ?? Int.min) {
+                    return ($0.yearFrom ?? Int.min) < ($1.yearFrom ?? Int.min)
+                }
+                return $0.place < $1.place
+            }
+        // Best burial event: prefer one that yields a place (location, else
+        // structured cemetery), then a dated one, with UUID order only as
+        // the final deterministic tie-break — a place-less stub must never
+        // shadow a located event.
+        func burialEventPlace(_ event: LifeEvent) -> String? {
+            if let loc = event.location?.trimmingCharacters(in: .whitespaces), !loc.isEmpty {
+                return loc
+            }
+            if case .burial(let details)? = event.details,
+               let cemetery = details.cemetery?.trimmingCharacters(in: .whitespaces),
+               !cemetery.isEmpty {
+                // A bare cemetery name is a weak match key for external
+                // sources — compose the county name in when the event's
+                // gazetteer code yields one ("St. Anne Churchyard,
+                // Derbyshire" matches; the bare name may not).
+                if let chapman = chapmanCodeFromLocationCode(event.locationCode) {
+                    let county = RecordScorer.countyName(forChapman: chapman)
+                    if !county.isEmpty,
+                       !cemetery.lowercased().contains(county.lowercased()) {
+                        return "\(cemetery), \(county)"
+                    }
+                }
+                return cemetery
+            }
+            return nil
+        }
+        let burialEvent = subjectEvents
+            .filter { $0.type == .burial && !$0.sensitive }
+            .sorted { a, b in
+                let aPlace = burialEventPlace(a) != nil
+                let bPlace = burialEventPlace(b) != nil
+                if aPlace != bPlace { return aPlace }
+                let aDated = a.date != nil
+                let bDated = b.date != nil
+                if aDated != bDated { return aDated }
+                return a.id.uuidString < b.id.uuidString
+            }
+            .first
+        let derivedBurialPlace: String? = burialEvent.flatMap(burialEventPlace)
+        let derivedBurialChapman: String? = burialEvent.flatMap { event in
+            chapmanCodeFromLocationCode(event.locationCode)
+                ?? derivedBurialPlace.flatMap { Self.chapmanCode(forPlaceText: $0) }
+        }
+
         return ResearchSubject(
             profileID: profile.id,
             surname: profile.lastName,
@@ -661,7 +786,10 @@ nonisolated extension ResearchSubject {
             familyContext: context,
             homeChapmanCode: Self.deriveHomeChapmanCode(
                 from: profile, projectFallback: homeChapmanCode
-            )
+            ),
+            residenceAxes: derivedResidenceAxes,
+            burialPlace: derivedBurialPlace,
+            burialChapmanCode: derivedBurialChapman
         )
     }
 
@@ -687,29 +815,42 @@ nonisolated extension ResearchSubject {
         if let code = chapmanCodeFromLocationCode(profile.birthLocationCode) {
             return code
         }
-        if let name = profile.birthLocation?.trimmingCharacters(in: .whitespaces),
-           !name.isEmpty {
-            // Exact registration-district match (e.g. "Bakewell").
-            if let code = FreeBMDDistrictCatalogue.shared
-                .district(named: name)?.chapmanCode {
-                return code
-            }
-            // Extract the COUNTY from a freeform "Parish, County[, Country]"
-            // string. A village like "Ashford in the Water" is not a
-            // registration district, so the district match above misses it —
-            // but the county component ("Derbyshire") still yields the anchor
-            // (owner report 2026-07-15: a valid "…, Derbyshire" birthplace
-            // still defaulted the subject to anchor-less National). County is
-            // usually the last-but-one component, so scan from the end.
-            let components = name.split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-            for component in components.reversed() {
-                if let code = UKChapmanCodes.shared.chapmanCode(forCountyName: component) {
-                    return code
-                }
-            }
+        if let name = profile.birthLocation,
+           let code = Self.chapmanCode(forPlaceText: name) {
+            return code
         }
         return projectFallback
+    }
+
+    /// Chapman code from a freeform place string — the tier-2 logic of
+    /// `deriveHomeChapmanCode`, extracted so LifeEvent place strings run
+    /// through the IDENTICAL derivation as profile fields (Stage 2 roadmap
+    /// requirement):
+    ///   1. Exact registration-district match (e.g. "Bakewell") via
+    ///      `FreeBMDDistrictCatalogue`.
+    ///   2. County-component scan of a freeform "Parish, County[, Country]"
+    ///      string. A village like "Ashford in the Water" is not a
+    ///      registration district, so the district match above misses it —
+    ///      but the county component ("Derbyshire") still yields the anchor
+    ///      (owner report 2026-07-15: a valid "…, Derbyshire" birthplace
+    ///      still defaulted the subject to anchor-less National). County is
+    ///      usually the last-but-one component, so scan from the end.
+    /// Nil when neither tier resolves (bare village, no county suffix).
+    static func chapmanCode(forPlaceText raw: String) -> String? {
+        let name = raw.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return nil }
+        if let code = FreeBMDDistrictCatalogue.shared
+            .district(named: name)?.chapmanCode {
+            return code
+        }
+        let components = name.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        for component in components.reversed() {
+            if let code = UKChapmanCodes.shared.chapmanCode(forCountyName: component) {
+                return code
+            }
+        }
+        return nil
     }
 
     /// Parse a 3-letter Chapman code prefix from a gazetteer ID like

@@ -180,6 +180,12 @@ nonisolated extension SourceRecord {
                 profileID: profileID,
                 type: .residence,
                 date: date,
+                // A census address is attested for that census year ONLY —
+                // close the window so the research residence axes
+                // (ResearchSubject.residenceAxes) don't treat it as
+                // open-ended-forward and let a one-night address shadow the
+                // subject's whole later life.
+                endDate: date,
                 location: address,
                 description: nil,
                 details: nil
@@ -200,6 +206,9 @@ nonisolated extension SourceRecord {
             profileID: profileID,
             type: .residence,
             date: date,
+            // The residence held AT DEATH — close the window (see the
+            // census-derived residence above for the rationale).
+            endDate: date,
             location: address,
             description: nil,
             details: nil

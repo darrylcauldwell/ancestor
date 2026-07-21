@@ -969,15 +969,51 @@ struct SearchDispatcher {
                 subject.birthYearTo.map { to in from...to }
             }
             let cenSurnames = subject.surnamesToProbe(for: .census)
+            // Stage 2 (life events feed research axes) — a Residence
+            // LifeEvent whose year window covers a census year contributes
+            // its COUNTY chapman to that year's probe set. ADDITIVE soft
+            // targeting: the home county's own query is never dropped or
+            // reshaped — the merged code list is routed back through
+            // `freeCenResidenceGroups`, so with the FT-27 batching gate
+            // OFF (the repeated `chapman_codes[]` wire idiom is unverified)
+            // each code stays its own proven single-code query, and with
+            // the gate ON they batch as FT-25/FT-28 intend. Umbrella codes
+            // expand (YKS → WRY/NRY/ERY) — FreeCEN's form doesn't tag the
+            // umbrella itself. BOUNDED SCOPES ONLY: the .adjacent/.national
+            // birth-axis and anchor-less ~90-code sweeps already reach
+            // residents in every county.
+            let residenceEventsApply: Bool
+            switch scope {
+            case .parish, .district, .county: residenceEventsApply = true
+            case .adjacent, .national: residenceEventsApply = false
+            }
+            func residenceEventCodes(coveringCensusYear year: Int) -> [String] {
+                subject.residenceAxes
+                    .filter { $0.covers(year) }
+                    .compactMap { $0.chapmanCode }
+                    .flatMap { RegionConfig.expandUmbrellaChapmanCode($0) }
+            }
             return cenSurnames.flatMap { surnameToTry in
                 censusYears.flatMap { year in
-                    cenGeoAxes.map { geo in
+                    cenGeoAxes.flatMap { geo -> [(residenceCodes: [String], birth: String?)] in
+                        guard residenceEventsApply, !geo.residenceCodes.isEmpty else {
+                            return [geo]
+                        }
+                        var merged = geo.residenceCodes
+                        var seen = Set(merged)
+                        for code in residenceEventCodes(coveringCensusYear: year)
+                        where seen.insert(code).inserted {
+                            merged.append(code)
+                        }
+                        return Self.freeCenResidenceGroups(merged).map { ($0, geo.birth) }
+                    }.map { geo in
+                        let residenceCodes = geo.residenceCodes
                         // A single-element residence group is passed as the
                         // scalar `chapmanCode` (byte-identical wire + cache
                         // key to the pre-FT-25 shape); a multi-element group
                         // becomes the `chapmanCodes` batch.
-                        let single = geo.residenceCodes.count == 1 ? geo.residenceCodes[0] : nil
-                        let batch = geo.residenceCodes.count > 1 ? geo.residenceCodes : nil
+                        let single = residenceCodes.count == 1 ? residenceCodes[0] : nil
+                        let batch = residenceCodes.count > 1 ? residenceCodes : nil
                         return RecordQuery(
                             surname: surnameToTry,
                             givenName: subject.givenName,
@@ -1028,11 +1064,27 @@ struct SearchDispatcher {
             // query. A single-code group is passed as the scalar
             // `chapmanCode` (byte-identical wire + cache key to pre-FT-25);
             // a multi-code group becomes the `chapmanCodes` batch.
+            // Stage 2 (life events feed research axes) — a Burial
+            // LifeEvent's county joins the burial probe. ADDITIVE (the
+            // scope's own codes are never dropped), so a burial recorded
+            // outside the home county is still reachable at bounded
+            // scopes. Umbrella codes expand (YKS → WRY/NRY/ERY) exactly as
+            // the .adjacent arm does — FreeREG's form doesn't tag the
+            // umbrella itself, so an unexpanded append would be a dead
+            // probe. At .national the E&W sweep already includes the
+            // constituents and the per-constituent check dedups.
+            var regCodesWithBurial = regChapmanCodes
+            if recordType == .burial, let burialCode = subject.burialChapmanCode {
+                for code in RegionConfig.expandUmbrellaChapmanCode(burialCode)
+                where !regCodesWithBurial.contains(code) {
+                    regCodesWithBurial.append(code)
+                }
+            }
             // Change 2 — drop empty codes (anchor-less subject): a [""]
             // axis was a dead query the source refused as outsideCoverage.
             // Zero usable codes → zero queries → walkLadder records the
             // visible scope-skip.
-            let usableRegCodes = regChapmanCodes.filter { !$0.isEmpty }
+            let usableRegCodes = regCodesWithBurial.filter { !$0.isEmpty }
             let regCodeGroups = Self.freeREGChapmanGroups(usableRegCodes)
             // FreeREG splits by register type; recordType drives this on the source side.
             let regSurnames = subject.surnamesToProbe(for: recordType)
@@ -1148,12 +1200,72 @@ struct SearchDispatcher {
                 let fsDeathPlace: String?
                 switch recordType {
                 case .death, .burial:
-                    if let dl = subject.deathLocation, !dl.isEmpty { fsDeathPlace = dl }
-                    else { fsDeathPlace = scopedCounty }
+                    // Stage 2 (life events feed research axes) — for BURIAL
+                    // queries a Burial LifeEvent's place is the best axis:
+                    // it says where they were buried, which deathLocation
+                    // only approximates. Death queries keep deathLocation
+                    // (where they died ≠ where they're buried). Soft
+                    // re-rank axis either way (q.deathLikePlace).
+                    if recordType == .burial,
+                       let bp = subject.burialPlace, !bp.isEmpty {
+                        fsDeathPlace = bp
+                    } else if let dl = subject.deathLocation, !dl.isEmpty {
+                        fsDeathPlace = dl
+                    } else {
+                        fsDeathPlace = scopedCounty
+                    }
                 default:
                     fsDeathPlace = nil
                 }
-                let fsResidencePlace: String? = (recordType == .census) ? scopedCounty : nil
+                // Stage 2 — a Residence LifeEvent supplies the census
+                // residence place: the user's attested knowledge beats the
+                // scoped-county guess. Selection is by REAL census-year
+                // coverage (the axis must cover at least one census year
+                // inside the subject's window — a mere lifespan overlap is
+                // near-always true and would gate nothing), preferring the
+                // axis covering the most census years; deterministic
+                // tie-break by window start then place. The chosen place is
+                // COMPOSED with its county name ("Youlgreave, Derbyshire")
+                // so the soft axis never loses county context — a bare
+                // village string could fuzzy-match the wrong county's
+                // namesake and re-rank the true record away. Census-only,
+                // soft re-rank (q.residenceLikePlace) — the record-type
+                // gating discipline of this branch is unchanged.
+                let fsResidencePlace: String?
+                if recordType == .census {
+                    let windowCensusYears = ScoringRules.censusYears.filter { year in
+                        year >= (yearRange.from ?? 1841) && year <= (yearRange.to ?? 1911)
+                    }
+                    let best = subject.residenceAxes
+                        .map { axis in
+                            (axis: axis, coverage: windowCensusYears.filter(axis.covers).count)
+                        }
+                        .filter { $0.coverage > 0 }
+                        .sorted { a, b in
+                            if a.coverage != b.coverage { return a.coverage > b.coverage }
+                            if (a.axis.yearFrom ?? Int.min) != (b.axis.yearFrom ?? Int.min) {
+                                return (a.axis.yearFrom ?? Int.min) < (b.axis.yearFrom ?? Int.min)
+                            }
+                            return a.axis.place < b.axis.place
+                        }
+                        .first?.axis
+                    if let axis = best {
+                        let countyName = axis.chapmanCode
+                            .map { RecordScorer.countyName(forChapman: $0) }
+                            .flatMap { $0.isEmpty ? nil : $0 }
+                            ?? scopedCounty
+                        if let county = countyName,
+                           !axis.place.lowercased().contains(county.lowercased()) {
+                            fsResidencePlace = "\(axis.place), \(county)"
+                        } else {
+                            fsResidencePlace = axis.place
+                        }
+                    } else {
+                        fsResidencePlace = scopedCounty
+                    }
+                } else {
+                    fsResidencePlace = nil
+                }
                 let fsMarriagePlace: String? = (recordType == .marriage) ? context?.marriageLocation : nil
                 let parentAxesApply: Bool
                 switch recordType {
@@ -1200,6 +1312,11 @@ struct SearchDispatcher {
             // fall back to region (county name from birthLocation) when
             // death location is unknown. Spec §23.
             let fagLocation: String? = {
+                // Stage 2 (life events feed research axes) — a Burial
+                // LifeEvent's place IS the burial location FAG filters on;
+                // it beats the deathLocation approximation, which beats the
+                // birth-county guess.
+                if let bp = subject.burialPlace, !bp.isEmpty { return bp }
                 if let dl = subject.deathLocation, !dl.isEmpty { return dl }
                 if case .county(let name) = subject.region { return name }
                 return nil

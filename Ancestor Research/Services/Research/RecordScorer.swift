@@ -956,8 +956,10 @@ nonisolated struct RecordScorer {
     /// (static hand-curated data, no bundle dependency), then the bundled
     /// UKChapmanCodes catalogue for every other county. Empty when the
     /// subject has no chapman anchor — callers skip the county checks and
-    /// fall through to district/town matching.
-    private static func countyName(forChapman code: String) -> String {
+    /// fall through to district/town matching. Internal (not private):
+    /// `SearchDispatcher` composes life-event residence places with their
+    /// derived county name so soft place axes never lose county context.
+    static func countyName(forChapman code: String) -> String {
         guard !code.isEmpty else { return "" }
         if let config = RegionConfig.config(forChapmanCode: code) {
             return config.county
