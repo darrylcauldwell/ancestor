@@ -71,6 +71,84 @@ struct NameGateLadderTests {
                 "contracted middle 'Thos' must match 'Thomas' — got \(String(describing: name?.reason))")
     }
 
+    // MARK: - DS-06: unequal-length surname variants (single insertion/deletion)
+
+    @Test func singleIndelDetectsTranscriptionVariants() {
+        #expect(ScoringRules.isSingleIndel("BROOKES", "BROOKS"))
+        #expect(ScoringRules.isSingleIndel("BROOKS", "BROOKES"))
+        #expect(ScoringRules.isSingleIndel("SIMMS", "SIMS"))
+        // Not single-indel: equal length (substitution), or length diff > 1.
+        #expect(!ScoringRules.isSingleIndel("SMITH", "SMYTH"))
+        #expect(!ScoringRules.isSingleIndel("HARRIS", "HARRISON"))
+        #expect(!ScoringRules.isSingleIndel("WOOD", "WOODWARD"))
+    }
+
+    @Test func brookesVariantNoLongerHardFails() {
+        // George BROOKES / George BROOKS — the canonical George Herbert Brooks
+        // case. Previously scored 0.0 → surname hard-fail → .impossible,
+        // dropping the record entirely. Now recovers as a reviewable .lead.
+        #expect(ScoringRules.nameSimilarity("BROOKES", "BROOKS") >= 0.7)
+        let result = RecordScorer.classify(
+            record: marriage(surname: "Brookes", given: "George"),
+            subject: subject(surname: "Brooks", given: "George"),
+            searchType: .marriage
+        )
+        let name = result.gates.first { $0.gate == .name }
+        #expect(name?.outcome == .softFail,
+                "an unequal-length surname variant is a reviewable weak match — got \(String(describing: name?.outcome))")
+        #expect(result.verdict != .impossible,
+                "Brookes/Brooks must be recoverable, not dropped — got \(result.verdict)")
+    }
+
+    // MARK: - DS-16: weak surname matches soft-fail instead of auto-facting
+
+    @Test func containmentSurnameSoftFailsNotFact() {
+        // Harris/Harrison and Wood/Woodward are distinct families that
+        // co-occur in the same districts; containment (0.80) must not
+        // auto-promote them to .fact.
+        for (record, subj) in [("Harrison", "Harris"), ("Woodward", "Wood")] {
+            let result = RecordScorer.classify(
+                record: birth(surname: record, given: "John"),
+                subject: subject(surname: subj, given: "John"),
+                searchType: .birth
+            )
+            let name = result.gates.first { $0.gate == .name }
+            #expect(name?.outcome == .softFail,
+                    "\(record) vs \(subj) must soft-fail the name gate — got \(String(describing: name?.outcome))")
+            #expect(result.verdict != .fact,
+                    "\(record) vs \(subj) must not auto-fact — got \(result.verdict)")
+        }
+    }
+
+    @Test func singleCharSurnameDiffSoftFails() {
+        // Dale/Gale — a one-character surname difference is ambiguous.
+        let result = RecordScorer.classify(
+            record: birth(surname: "Gale", given: "John"),
+            subject: subject(surname: "Dale", given: "John"),
+            searchType: .birth
+        )
+        #expect(result.gates.first { $0.gate == .name }?.outcome == .softFail)
+    }
+
+    @Test func strongSurnameVariantStaysStrong() {
+        // AU/OU normalisation (Cauldwell/Caldwell, 0.95) and exact matches
+        // are fact-grade — the owner's own surname variant must not demote.
+        let auOu = RecordScorer.classify(
+            record: birth(surname: "Cauldwell", given: "John"),
+            subject: subject(surname: "Caldwell", given: "John"),
+            searchType: .birth
+        )
+        #expect(auOu.gates.first { $0.gate == .name }?.outcome == .pass,
+                "AU/OU surname variant must stay a strong (pass) match")
+
+        let exact = RecordScorer.classify(
+            record: birth(surname: "Smith", given: "John"),
+            subject: subject(surname: "Smith", given: "John"),
+            searchType: .birth
+        )
+        #expect(exact.gates.first { $0.gate == .name }?.outcome == .pass)
+    }
+
     // MARK: - Fixtures
 
     private func subject(surname: String, given: String, middle: String? = nil) -> ResearchSubject {
@@ -101,6 +179,18 @@ struct NameGateLadderTests {
             birthYear: 1845, birthDate: nil, birthPlace: nil,
             quarter: "Mar", district: "Belper", volume: "19", page: "438",
             mothersMaidenName: nil
+        ))
+    }
+
+    private func marriage(surname: String, given: String) -> SourceRecord {
+        .marriage(MarriageRecord(
+            common: RecordCommon(
+                id: "m-\(surname)-\(given)", sourceID: "freebmd", name: nil,
+                surname: surname, givenName: given, detailURL: nil, rawFields: [:]
+            ),
+            marriageYear: 1867, marriageDate: nil, marriagePlace: nil,
+            quarter: "Dec", district: "Belper", volume: "7b", page: "112",
+            spouseName: nil
         ))
     }
 }

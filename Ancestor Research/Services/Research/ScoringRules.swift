@@ -250,7 +250,35 @@ nonisolated struct ScoringRules {
             if diffs == 1 { return 0.7 }
         }
 
+        // Single insertion/deletion — unequal-length transcription variant
+        // (DS-06): BROOKES/BROOKS, SIMMS/SIMS, the most common UK surname
+        // variant class, previously scored 0.0 and hard-failed the gate.
+        // Levenshtein-1 across a length difference of exactly one.
+        if isSingleIndel(a, b) { return 0.7 }
+
         return 0.0
+    }
+
+    /// True when `a` and `b` differ by a single insertion/deletion — their
+    /// lengths differ by exactly one and the shorter is the longer with one
+    /// character removed. (Edit distance 1 for the unequal-length case; the
+    /// equal-length single-substitution case is handled separately.)
+    static func isSingleIndel(_ a: String, _ b: String) -> Bool {
+        let x = Array(a), y = Array(b)
+        let (short, long) = x.count < y.count ? (x, y) : (y, x)
+        guard long.count - short.count == 1 else { return false }
+        var i = 0, j = 0
+        var skipped = false
+        while i < short.count && j < long.count {
+            if short[i] == long[j] {
+                i += 1; j += 1
+            } else {
+                if skipped { return false }   // a second mismatch → distance > 1
+                skipped = true
+                j += 1                         // consume the extra char in `long`
+            }
+        }
+        return true
     }
 
     /// Bidirectional nickname lookup — ported from Python exactly.

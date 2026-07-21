@@ -239,6 +239,18 @@ nonisolated struct RecordScorer {
             return GateResult(gate: .name, outcome: .fail, reason: "surname mismatch: \(recordSurname) vs \(candidates)")
         }
         let surnameScore = bestSurnameScore
+        // DS-16: a surname that matches only weakly — containment (Harris/
+        // Harrison, Wood/Woodward → 0.80), an equal-length single-char diff
+        // (Dale/Gale → 0.70) or an unequal-length transcription variant
+        // (Brookes/Brooks → 0.70) — is ambiguous between a true spelling
+        // variant and a distinct family that co-occurs in the same district.
+        // Only a strong match (exact 1.0, AU/OU normalisation 0.95, or a
+        // user-learned equivalence 0.90) is fact-grade. A weak surname makes
+        // the whole name gate soft-fail so the record lands as a reviewable
+        // .lead rather than auto-promoting to .fact — this both stops the
+        // Harris/Harrison false positive AND recovers the Brookes/Brooks
+        // variant that used to hard-fail to .impossible (DS-06).
+        let surnameStrong = surnameScore >= 0.9
 
         // T1-06 (score side) — initials-indexed casualties. WWI CWGC rows
         // frequently have Forename empty and Initials "E V"; `givenName`
@@ -310,6 +322,9 @@ nonisolated struct RecordScorer {
             }
         }
 
+        if !surnameStrong {
+            return GateResult(gate: .name, outcome: .softFail, reason: String(format: "surname=%.2f weak (variant or distinct family — review), given=%.2f", surnameScore, givenScore))
+        }
         return GateResult(gate: .name, outcome: .pass, reason: String(format: "surname=%.2f, given=%.2f", surnameScore, givenScore))
     }
 
