@@ -226,21 +226,22 @@ This section reads as the build sequence — top to bottom is the intended order
   for UI state. NOT a live bug (idle cost is small; the 2026-07-16 "beachball" was Xcode debug
   instrumentation + an oversized SwiftUI view tree, both since fixed) but a real responsiveness
   smell worth clearing. Detail in memory `project_runrequestwatcher_mainthread_poll`.
-- **Project onboarding + Getting Started** (`PROJECT_ONBOARDING_SPEC.md`, accepted-direction
-  2026-07-17). **[◐ Part A CORE COMPLETE — Slices 1+2 shipped 2026-07-21 `0166815`+`0d1a8b9`]**.
-  Slice 1 = setup-wizard lifecycle + Step 1 (home region): `ProjectSetupWizardView` shown once
-  per project (v50 `setup_completed_at` marker + `offerSetupIfNeeded` gated against the family
-  wizard / import-cleanse review) at GEDCOM/WikiTree/manual entry, re-runnable from Settings for
-  any project type; Step 1 reuses the Settings `UKChapmanCodes` home-county picker. Load-bearing
-  fix: `saveProjectMeta` `INSERT OR REPLACE` → `ON CONFLICT DO UPDATE` so the marker +
-  conflict-layer high-water marks survive a save. Slice 2 = Step 2 (unified enable-local-AI):
-  one consent screen for both models, off by default, download-on-demand with progress + a
-  Settings toggle + auto-use-once-downloaded (never auto-downloads); `MLXTextEmbedder` gained
-  `onProgress` + on-disk presence helpers; only the embedder needed a new `@AppStorage` flag (no
-  reasoning auto-load regression). 14 A-core tests, full suite 2896 green. **Next: Stage 2**
-  (Steps 3 home person + 4 sources), then Stage 3 (Part B — per-view help affordances +
-  overview). Fixes the discoverability gap where capability-affecting settings are found by
-  accident. **Part A (primary) — setup wizard** at new-project / GEDCOM-import / WikiTree-connect:
+- **Project onboarding + Getting Started** (`PROJECT_ONBOARDING_SPEC.md`) — **[✓ COMPLETE — all
+  stages shipped 2026-07-21; spec now git-only]**. Stage 1 = setup-wizard lifecycle + Step 1
+  home region (`0166815`; `ProjectSetupWizardView` shown once per project via a v50
+  `setup_completed_at` marker + `offerSetupIfNeeded` gated against the family wizard /
+  import-cleanse review, re-runnable from Settings; load-bearing fix `saveProjectMeta`
+  `INSERT OR REPLACE` → `ON CONFLICT DO UPDATE` so the marker + conflict-layer high-water marks
+  survive a save). Stage 1 cont. = Step 2 enable-local-AI (`0d1a8b9`; one consent screen both
+  models, off by default, download+progress, auto-use-once-downloaded, never auto-downloads).
+  Stage 2 = Step 3 home person + Step 4 sources (`e34b8f7`; reuses `ProfilePickerField` + the
+  global source toggles + volunteer-etiquette note; fixed `setHomePerson` dropping
+  `homeChapmanCode`). Stage 3 = Part B Getting Started (`6e7816c`; re-openable overview reachable
+  from a toolbar "?" / Settings / end-of-setup tour offer; tab coverage pinned by test). 18
+  onboarding tests, full suite 2900 green. Optional follow-up: a menu-bar Help item (skipped —
+  commands can't reach per-window AppState). **Original spec detail retained below.** Fixes the
+  discoverability gap where capability-affecting settings are found by accident. **Part A
+  (primary) — setup wizard** at new-project / GEDCOM-import / WikiTree-connect:
   minimal-first = Step 1 home region (the highest-value lever — sets `home_chapman_code` /
   `resolvedHomeChapmanCode`, the fallback locality that drives geography gates + source scoping)
   + Step 2 unified "enable local AI" (ONE consent screen for both the Qwen reasoning model and the

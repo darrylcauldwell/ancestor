@@ -1,6 +1,11 @@
 # PROJECT_ONBOARDING_SPEC
 
-**Status:** Part A CORE COMPLETE (Slices 1+2 shipped 2026-07-21, `0166815` + `0d1a8b9`). Stage 2 (Steps 3 home person + 4 sources), Stage 3 (Part B Getting Started) remain.
+**Status:** COMPLETE — all stages shipped 2026-07-21. This spec is now git-only history.
+- **Stage 1 — Part A core** (`0166815` lifecycle + Step 1 home region, `0d1a8b9` Step 2 enable-local-AI).
+- **Stage 2 — Part A rest** (`e34b8f7`): Step 3 home person (reuses `ProfilePickerField`, persisted via the field-preserving `setHomePerson` fix) + Step 4 sources (bundled free sources with their global enable toggles + a volunteer-etiquette note). Fixed `AppState.setHomePerson` dropping `homeChapmanCode` via a partial `Project` rebuild (also repaired the "Set as Home Person" context actions).
+- **Stage 3 — Part B Getting Started** (`6e7816c`): a re-openable overview (flow explainer + one blurb per view) reachable from a toolbar "?" (scrolled to the current tab), Settings, and an end-of-setup "show me a quick tour" offer (opens after the wizard closes via `onDismiss` + a pending latch). Tab coverage pinned by a completeness test.
+
+**Known optional follow-up (not blocking):** a menu-bar Help item (`CommandGroup(replacing: .help)`) — skipped because commands can't cleanly reach the per-window `AppState`; help routes through the per-window toolbar / Settings / wizard instead.
 
 **Slice 1 (`0166815`) — lifecycle + Step 1 (home region):** `ProjectSetupWizardView` (welcome → home region), separate from the family-entry `OnboardingWizardView`. Shown once per project via `AppState.offerSetupIfNeeded()` (gated on a v50 `project_meta.setup_completed_at` marker + no competing onboarding sheet), triggered at GEDCOM import / WikiTree connect / manual (family-wizard dismiss); re-runnable from Settings ("Re-run setup", all project types). Step 1 reuses the Settings home-county `UKChapmanCodes` picker and persists via `AppState.setHomeChapmanCode` → `saveProjectMeta`. **Load-bearing fix:** `saveProjectMeta` was `INSERT OR REPLACE` (DELETE+INSERT, wiping unlisted columns) → converted to `ON CONFLICT DO UPDATE` so the setup marker AND the conflict-layer high-water marks survive a save.
 
