@@ -12,7 +12,7 @@
 | Phase 2 — AncestorKit extraction | Complete 2026-07-04 | (as-built in code) |
 | Phase 3 — CloudKit publisher | Shipped (Changes 1–6; first real publish 2026-07-08) | PUBLISHER_SPEC.md |
 | Phase 4 — viewer apps | Delivered + accepted 2026-07-10; parked | PHASE4_VIEWER_SPEC.md |
-| FamilySearch architecture | Decided 2026-07-11 — six ADRs accepted; e-agreement sent, awaiting AppKey | adr/ · FAMILYSEARCH_SOURCE_SPEC.md · GEDCOMX_CONCEPT_MAPPING.md |
+| FamilySearch architecture | Six ADRs accepted; **Beta AppKey RECEIVED 2026-07-13** (in `.env`, confidential); agreement execution the last-tracked pending item (2026-07-14 — confirm current); **DEMOTED 2026-07-16** to opportunistic contribute-then-enrich (not a records tap). OAuth build Changes 1–4/6/7 shipped, 5/8 gated on redirect-URI registration. Developer-level = non-production, NO end users (can't ship FS in-product until a higher provider level). | adr/ · FAMILYSEARCH_SOURCE_SPEC.md · GEDCOMX_CONCEPT_MAPPING.md |
 | Release ceremony (all phases) | Deferred until every phase complete — user decision 2026-07-10 | — |
 
 **Declared priority (user, 2026-07-10): core research capability before polish.**
