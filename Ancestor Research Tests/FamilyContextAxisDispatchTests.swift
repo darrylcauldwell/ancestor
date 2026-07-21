@@ -709,12 +709,42 @@ struct FamilyContextAxisDispatchTests {
                 "fan-out must probe recorded + maiden spouse surnames; got \(spouseSurnames)")
     }
 
-    // The four FamilySearch axis tests (death-axis region fallback, known-
-    // death-place preference, family-axis + place-axis record-type gating)
-    // and their two FS-only subject helpers were removed with the FS records
-    // plugin (owner pivot 2026-07-21 — FS is no longer a data source). The
-    // FreeBMD family-context fan-out and FreeCEN/FindAGrave axis tests above
-    // exercise the same dispatcher axis-composition path.
+    // FamilySearch axis test restored (owner 2026-07-21: the FS records source
+    // is back). FS's OAuth records API is GLOBAL, so the dispatcher's soft
+    // home-country axis (`q.anyPlace`) must fall back to the project's
+    // home-region nation when the subject itself carries no region — otherwise
+    // a region-less subject pulls worldwide same-surname namesakes (the live
+    // William Holmes finding). Config-derived; never a hardcoded region.
+
+    @MainActor
+    private func familySearchQueries(
+        dispatcher: SearchDispatcher,
+        subject: ResearchSubject,
+        recordType: RecordType
+    ) -> [RecordQuery] {
+        guard let source = dispatcher.registry.allSources().first(where: { $0.sourceID == "familysearch" }) else {
+            return []
+        }
+        return dispatcher.buildQueriesForTest(source: source, subject: subject, recordType: recordType, scope: .county)
+    }
+
+    @MainActor
+    @Test func familySearchAnyPlaceFallsBackToHomeChapmanNation() {
+        // Region-less subject (region: nil) + project home "DBY" → anyPlace "England".
+        let subject = subjectWithMotherSurname("Ward", birthYearFrom: 1887, birthYearTo: 1887)
+        let queries = familySearchQueries(dispatcher: makeDispatcher(), subject: subject, recordType: .birth)
+        #expect(!queries.isEmpty, "FamilySearch should produce queries at county scope")
+        for q in queries {
+            #expect(q.anyPlace == "England",
+                    "region-less subject must still get the home nation as the soft country axis; got \(q.anyPlace ?? "nil")")
+        }
+    }
+
+    @Test func homeCountryFromChapmanCodeDerivesNation() {
+        #expect(SearchDispatcher.homeCountry(fromChapmanCode: "DBY") == "England")
+        #expect(SearchDispatcher.homeCountry(fromChapmanCode: "  ") == nil)
+        #expect(SearchDispatcher.homeCountry(fromChapmanCode: "") == nil)
+    }
 
     @MainActor
     private func findAGraveQueries(

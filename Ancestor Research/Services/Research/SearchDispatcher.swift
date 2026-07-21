@@ -490,6 +490,21 @@ struct SearchDispatcher {
         }
     }
 
+    /// The home NATION for a Chapman county code, from `RegionConfig` (never a
+    /// hardcoded region). This is the fallback soft-country axis for
+    /// FamilySearch when the subject's own region carries no country — e.g. a
+    /// subject with no tree place data (William Holmes, whose region was nil and
+    /// so pulled worldwide same-surname namesakes from FS's global records API).
+    /// Biasing to the project's home nation thins that foreign tail; it stays a
+    /// re-rank (`q.anyPlace`), never a hard filter, so it can't drop a true record.
+    static func homeCountry(fromChapmanCode code: String) -> String? {
+        let trimmed = code.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        let country = RegionConfig.config(forChapmanCode: trimmed)?.country
+            .trimmingCharacters(in: .whitespaces)
+        return (country?.isEmpty == false) ? country : nil
+    }
+
     private func sourceCovers(_ source: any RecordSource, yearRange: (from: Int?, to: Int?)) -> Bool {
         guard let coverage = source.coverageYearRange else { return true }
         let from = yearRange.from ?? Int.min
@@ -1294,8 +1309,14 @@ struct SearchDispatcher {
                     // records from other countries — derived from the
                     // subject's tree place data (the country tail of the
                     // home place string, or the explicit UK-nation region),
-                    // never a hardcoded region.
-                    anyPlace: Self.homeCountry(from: subject.region),
+                    // never a hardcoded region. Falls back to the project's
+                    // home-region nation when the subject itself carries no
+                    // region, so FamilySearch's GLOBAL records API is still
+                    // biased to the home nation (records-source live finding
+                    // 2026-07-21: region-less subjects pulled worldwide
+                    // namesakes) — config-derived, still no hardcoded region.
+                    anyPlace: Self.homeCountry(from: subject.region)
+                        ?? Self.homeCountry(fromChapmanCode: subject.homeChapmanCode),
                     spouseSurname: spouseAxesApply ? context?.spouseSurname : nil,
                     spouseGivenName: spouseAxesApply ? context?.spouseGivenName : nil,
                     fatherSurname: parentAxesApply ? context?.fatherSurname : nil,
