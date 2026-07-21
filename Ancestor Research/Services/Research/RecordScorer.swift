@@ -564,6 +564,17 @@ nonisolated struct RecordScorer {
             // years → impossible. With this branch the same record passes
             // when ageAtDeath is plausible. Spec §22 follow-up.
 
+            // DS-15: the tree's own accepted evidence already places the
+            // subject alive AFTER this record's death year → the record is a
+            // same-name namesake, not them. `aliveAsOf` is derived from
+            // accepted census/residence/occupation life events (never
+            // burial/probate). Strictly-earlier only: a death in the same
+            // year as the last alive-event is compatible (died later that
+            // year), so this fires only when recordYear < aliveAsOf.
+            if let aliveAsOf = subject.aliveAsOf, recordYear < aliveAsOf {
+                return GateResult(gate: .date, outcome: .impossible, reason: "died \(recordYear) but the subject is recorded alive in \(aliveAsOf) — a same-name namesake, not them")
+            }
+
             // First constraint: when subject's death year is known,
             // record year must match it within tolerance. Closes the
             // Ernest-Sr-1959 false positive against Ernest-Victor-died-

@@ -122,6 +122,55 @@ struct ScorerFPFNResidueTests {
         #expect(result.gates.first { $0.gate == .familyContext } == nil)
     }
 
+    // MARK: - DS-15: death contradicted by the tree's own alive-evidence
+
+    @Test func deathBeforeKnownAliveYearIsImpossible() {
+        // Subject recorded alive in a 1911 census (aliveAsOf), no known death
+        // year yet. A "died 1905" record is a same-name namesake.
+        var subject = subjectNamed(given: "William", middle: nil)
+        subject.aliveAsOf = 1911
+        let result = RecordScorer.classify(
+            record: death(given: "William", year: 1905, age: 62),
+            subject: subject, searchType: .death
+        )
+        #expect(result.gates.first { $0.gate == .date }?.outcome == .impossible,
+                "a death before a known-alive year must be impossible")
+        #expect(result.verdict == .impossible)
+    }
+
+    @Test func deathInSameYearAsAliveEvidenceIsAllowed() {
+        // Died the same year as the last alive-event — compatible (died later
+        // that year); the guard is strictly-earlier only.
+        var subject = subjectNamed(given: "William", middle: nil)
+        subject.aliveAsOf = 1911
+        let result = RecordScorer.classify(
+            record: death(given: "William", year: 1911, age: 68),
+            subject: subject, searchType: .death
+        )
+        #expect(result.gates.first { $0.gate == .date }?.outcome != .impossible)
+    }
+
+    @Test func deathAfterAliveEvidenceIsAllowed() {
+        var subject = subjectNamed(given: "William", middle: nil)
+        subject.aliveAsOf = 1911
+        let result = RecordScorer.classify(
+            record: death(given: "William", year: 1915, age: 72),
+            subject: subject, searchType: .death
+        )
+        #expect(result.gates.first { $0.gate == .date }?.outcome != .impossible)
+    }
+
+    @Test func noAliveEvidenceLeavesDeathGateUnchanged() {
+        // aliveAsOf nil (default) → DS-15 doesn't fire; the 1905 death is
+        // scored by the normal age logic (age 62 vs birth 1843–47 is fine).
+        let subject = subjectNamed(given: "William", middle: nil)
+        let result = RecordScorer.classify(
+            record: death(given: "William", year: 1905, age: 62),
+            subject: subject, searchType: .death
+        )
+        #expect(result.gates.first { $0.gate == .date }?.outcome != .impossible)
+    }
+
     // MARK: - Fixtures
 
     private func subjectNamed(given: String, middle: String?) -> ResearchSubject {
@@ -204,6 +253,18 @@ struct ScorerFPFNResidueTests {
             birthYear: 1845, birthDate: nil, birthPlace: nil,
             quarter: "Mar", district: "Belper", volume: "19", page: "438",
             mothersMaidenName: nil
+        ))
+    }
+
+    private func death(given: String, year: Int, age: Int) -> SourceRecord {
+        .death(DeathRecord(
+            common: RecordCommon(
+                id: "d-\(given)-\(year)", sourceID: "freebmd", name: nil,
+                surname: "Cauldwell", givenName: given, detailURL: nil, rawFields: [:]
+            ),
+            deathYear: year, deathDate: nil, deathPlace: nil, age: age,
+            quarter: "Mar", district: "Belper", volume: "7b", page: "412",
+            spouseSurname: nil
         ))
     }
 

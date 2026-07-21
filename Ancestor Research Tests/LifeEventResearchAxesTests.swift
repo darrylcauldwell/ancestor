@@ -162,6 +162,48 @@ struct LifeEventResearchAxesTests {
         #expect(subject.burialChapmanCode == nil)
     }
 
+    // MARK: - DS-15: aliveAsOf derived from accepted alive-events
+
+    @Test func censusEventSetsAliveAsOf() {
+        let p = profile()
+        let census = LifeEvent(id: UUID(), profileID: p.id, type: .census,
+                               date: GenealogicalDate(parsing: "1939"),
+                               location: "Bakewell, Derbyshire")
+        let subject = ResearchSubject.fromProfile(p, snapshot: snapshot(p, events: [census]))
+        #expect(subject.aliveAsOf == 1939)
+    }
+
+    @Test func burialAndProbateNeverImplyAlive() {
+        let p = profile()
+        let burial = LifeEvent(id: UUID(), profileID: p.id, type: .burial,
+                               date: GenealogicalDate(parsing: "2011"), location: "Bakewell")
+        let probate = LifeEvent(id: UUID(), profileID: p.id, type: .probate,
+                                date: GenealogicalDate(parsing: "2012"), location: nil)
+        let subject = ResearchSubject.fromProfile(p, snapshot: snapshot(p, events: [burial, probate]))
+        #expect(subject.aliveAsOf == nil, "post-death events must never set aliveAsOf")
+    }
+
+    @Test func latestAliveEventWins() {
+        let p = profile()
+        let census = LifeEvent(id: UUID(), profileID: p.id, type: .census,
+                               date: GenealogicalDate(parsing: "1939"), location: nil)
+        let residence = LifeEvent(id: UUID(), profileID: p.id, type: .residence,
+                                  date: GenealogicalDate(parsing: "1961"), location: "Bakewell")
+        let subject = ResearchSubject.fromProfile(p, snapshot: snapshot(p, events: [census, residence]))
+        #expect(subject.aliveAsOf == 1961)
+    }
+
+    @Test func sensitiveAliveEventDoesNotSetAliveAsOf() {
+        // The derived year surfaces in the scorer's verdict reason, so a
+        // sensitive event must not originate it (consistent with the axes).
+        let p = profile()
+        let census = LifeEvent(id: UUID(), profileID: p.id, type: .census,
+                               date: GenealogicalDate(parsing: "1939"), location: nil,
+                               sensitive: true)
+        let subject = ResearchSubject.fromProfile(p, snapshot: snapshot(p, events: [census]))
+        #expect(subject.aliveAsOf == nil)
+    }
+
     // MARK: - ResidenceAxis window semantics
 
     @Test func axisWindowSemantics() {

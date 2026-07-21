@@ -136,6 +136,16 @@ nonisolated struct ResearchSubject: Sendable {
     var birthYearTo: Int?
     var deathYearFrom: Int?
     var deathYearTo: Int?
+    /// Latest year the subject is demonstrably ALIVE, derived from accepted
+    /// life events that imply living presence (census, residence, occupation,
+    /// education, military service, immigration/emigration) — never from
+    /// death/burial/probate (DS-15). Lets the death-shape date gate reject a
+    /// death record dated *before* a year the tree already places the subject
+    /// alive: that death is a same-name namesake. Conservative by design —
+    /// only unambiguous alive-events and the earliest (most certain) year of
+    /// each contribute, because an over-high value would wrongly drop a real
+    /// death record. Nil when no such evidence exists.
+    var aliveAsOf: Int? = nil
     /// Original date strings from the profile's GenealogicalDate (e.g.
     /// "DEC 1883", "10 MAR 1937"). Carried for the Level-2 strategist
     /// prompt so the MLX model has a precise anchor for age math
@@ -700,6 +710,24 @@ nonisolated extension ResearchSubject {
         // Deterministic ordering (window start, then place) because
         // snapshot.lifeEvents arrays are unsorted.
         let subjectEvents = snapshot.lifeEvents[profile.id] ?? []
+        // DS-15: latest year the subject is demonstrably alive from accepted
+        // life events that imply living presence — never burial/probate
+        // (post-death) or the ambiguous `.other`. The scorer uses this to
+        // reject a death record dated before a year the tree already places
+        // the subject alive. Conservative: the EARLIEST (most certain) year of
+        // each event, MAX across events — an over-high value would wrongly
+        // drop a real death. Sensitive events are excluded, consistent with
+        // the residence/burial axes above (the derived year surfaces in the
+        // scorer's verdict reason, so it must not originate from sensitive
+        // data); DS-15 still fires on any non-sensitive census/residence.
+        let aliveImplyingTypes: Set<LifeEventType> = [
+            .census, .residence, .occupation, .education,
+            .militaryService, .religion, .immigration, .emigration,
+        ]
+        let derivedAliveAsOf: Int? = subjectEvents
+            .filter { aliveImplyingTypes.contains($0.type) && !$0.sensitive }
+            .compactMap { $0.date?.earliest }
+            .max()
         let derivedResidenceAxes: [ResidenceAxis] = subjectEvents
             .filter { $0.type == .residence && !$0.sensitive }
             .compactMap { event -> ResidenceAxis? in
@@ -776,6 +804,7 @@ nonisolated extension ResearchSubject {
             birthYearTo: birthTo,
             deathYearFrom: profile.deathDate?.earliest,
             deathYearTo: profile.deathDate?.latest,
+            aliveAsOf: derivedAliveAsOf,
             birthDateOriginal: profile.birthDate?.original,
             deathDateOriginal: profile.deathDate?.original,
             gender: profile.gender,
