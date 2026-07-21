@@ -1969,6 +1969,29 @@ final class AppState {
         }
     }
 
+    /// Remove an applied evidence record from a profile — the ledger's
+    /// per-record removal (PROFILE_SOURCES_LEDGER_SPEC Change 3). Reverts the
+    /// record's absorption directionally, feeds rejection memory, then
+    /// rebuilds the snapshot and force-sweeps so any dispute still justified
+    /// by surviving evidence is re-derived (and dissolved ones stay gone).
+    @discardableResult
+    func removeAppliedRecord(_ evidence: EvidenceRecord) -> RecordRemovalReport? {
+        guard let db = currentDatabase else { return nil }
+        do {
+            let report = try db.removeAppliedRecord(evidence)
+            if let tx = report.transactionID {
+                recordSessionEvent(.transactionRecorded(tx))
+            }
+            snapshot = try db.buildSnapshot()
+            runConflictSweep(force: true)
+            runPostLoadAudit()
+            return report
+        } catch {
+            errorMessage = "Failed to remove record: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
     /// Attach (or update) a structured citation and evidence-quality rating
     /// on the most-recent `field_sources` row matching (profileID, field,
     /// origin). Per DESIGN.md §5.12, citations layer onto an existing source

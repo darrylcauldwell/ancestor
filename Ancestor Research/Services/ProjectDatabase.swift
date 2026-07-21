@@ -2095,7 +2095,9 @@ nonisolated final class ProjectDatabase: Sendable {
         }
     }
 
-    private static func profileFieldToColumn(_ field: String) -> String? {
+    // Internal (not private): ProjectDatabase+RecordRemoval reuses the same
+    // field→column mapping for directional column restores.
+    static func profileFieldToColumn(_ field: String) -> String? {
         switch field {
         case "firstName": "first_name"
         case "middleName": "middle_name"

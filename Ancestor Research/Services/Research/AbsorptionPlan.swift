@@ -86,7 +86,7 @@ nonisolated extension SourceRecord {
         //     fall back to the household HEAD when no target marker survives
         //     parsing, and is often abbreviated — never treat it as name
         //     evidence. BMD/parish records name the subject directly.
-        if let profile, !isCensusRecord {
+        if let profile, !isCensus {
             let recordGiven = (self.givenName ?? "").trimmingCharacters(in: .whitespaces)
             let profileGiven = (profile.firstName ?? "").trimmingCharacters(in: .whitespaces)
             if !recordGiven.isEmpty, !profileGiven.isEmpty {
@@ -135,16 +135,13 @@ nonisolated extension SourceRecord {
         return t
     }
 
-    private var isCensusRecord: Bool {
-        if case .census = self { return true }
-        return false
-    }
-
     /// Re-case uniformly-cased source tokens ("GEOFFREY" → "Geoffrey",
     /// "geoffrey" → "Geoffrey") while passing mixed-case forms through
     /// untouched — bare `.capitalized` would degrade properly-cased
     /// interior capitals (McKenzie → Mckenzie, O'Brien → O'brien).
-    private static func recasedName(_ name: String) -> String {
+    /// Internal: record removal re-derives the same emitted values to find
+    /// the field_sources rows a name enrichment wrote.
+    static func recasedName(_ name: String) -> String {
         name.split(separator: " ").map { token in
             let s = String(token)
             return (s == s.uppercased() || s == s.lowercased()) ? s.capitalized : s

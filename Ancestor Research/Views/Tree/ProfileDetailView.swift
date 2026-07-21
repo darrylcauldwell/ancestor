@@ -81,6 +81,9 @@ struct ProfileDetailView: View {
     // read from evidence_records with no research run.
     @State private var ledgerEntries: [ProfileSourcesLedger.Entry] = []
     @State private var ledgerExpanded: Bool = false
+    // PROFILE_SOURCES_LEDGER_SPEC Change 3 — the entry pending removal
+    // confirmation (nil = no dialog).
+    @State private var ledgerRemovalCandidate: ProfileSourcesLedger.Entry?
     // PROFILE_LIFECYCLE_SPEC Change 3 — the derived import→verified stage.
     @State private var lifecycle: ProfileLifecycle?
 
@@ -172,6 +175,24 @@ struct ProfileDetailView: View {
         }
         .sheet(item: $cleansePresentation) { presentation in
             ProfileCleanseWizard(mode: presentation.mode)
+        }
+        // PROFILE_SOURCES_LEDGER_SPEC Change 3 — per-record removal confirm.
+        // presenting: pattern (not isPresented + force-unwrap) per the
+        // sheet(isPresented:)+if-let race memory.
+        .confirmationDialog(
+            "Remove this record?",
+            isPresented: Binding(
+                get: { ledgerRemovalCandidate != nil },
+                set: { if !$0 { ledgerRemovalCandidate = nil } }
+            ),
+            presenting: ledgerRemovalCandidate
+        ) { entry in
+            Button("Remove record", role: .destructive) {
+                removeLedgerRecord(entry)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { entry in
+            Text("Reverts what it established (\(entry.establishes.isEmpty ? "citations" : entry.establishes.joined(separator: ", "))), removes its life events, and remembers the rejection so research won't re-add it. The record stays in research history and can be re-applied later.")
         }
     }
 
@@ -389,6 +410,16 @@ struct ProfileDetailView: View {
                 Text(entry.sourceID.uppercased())
                     .font(AppTypography.badge)
                     .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    ledgerRemovalCandidate = entry
+                } label: {
+                    Image(systemName: "trash")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Remove this record — reverts what it established and remembers the rejection")
             }
             if !entry.establishes.isEmpty {
                 Text("Establishes: \(entry.establishes.joined(separator: " · "))")
@@ -402,6 +433,19 @@ struct ProfileDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(8)
         .background(.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// PROFILE_SOURCES_LEDGER_SPEC Change 3 — confirm-then-remove for one
+    /// applied record: reverts its absorption, feeds rejection memory, and
+    /// refreshes the ledger. The record itself stays in research history, so
+    /// removal is reversible by re-applying from research.
+    private func removeLedgerRecord(_ entry: ProfileSourcesLedger.Entry) {
+        guard let db = appState.currentDatabase,
+              let evidence = (try? db.loadEvidenceForProfile(profile.id))?
+                  .first(where: { $0.sourceRecordID == entry.id && $0.userStatus == .savedAsLead })
+        else { return }
+        appState.removeAppliedRecord(evidence)
+        reloadLedger()
     }
 
     @ViewBuilder

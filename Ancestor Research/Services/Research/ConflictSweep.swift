@@ -130,7 +130,12 @@ nonisolated struct ConflictSweep {
             let spouseEdges = snapshot.relationships.filter {
                 $0.type == .spouse && ($0.from == profile.id || $0.to == profile.id)
             }
+            // User-discarded evidence must not drive conflict detection —
+            // otherwise removing/discarding a record leaves its dispute
+            // resurrectable by every force sweep (the F4b/F5 arms previously
+            // filtered on verdict alone).
             let evidence = try db.loadEvidenceForProfile(profile.id)
+                .filter { $0.userStatus != .discarded }
 
             // F5 (CL4) — same-witness transcription disagreements among
             // fact-grade evidence records.
