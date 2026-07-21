@@ -5,8 +5,8 @@
 > historical-records `/platform/records/personas` scored `RecordSource`
 > (GEDCOM X search + multi-persona parse + collection-pattern trust tiering),
 > and the tree hint enrichment surface (record hints → §18-ordered leads,
-> memories → link-only image pointers) are **built and live-verified on Beta**.
-> See `AncestorApp/FAMILYSEARCH_CLIENT_SPEC.md` (slices S1–S6b) and
+> memories → link-only image pointers) are **built and live-verified on Beta**
+> (client library shipped, git-only). See
 > `Ancestor Research/Services/Sources/FamilySearch/` for the as-built
 > implementation. Git history archives the shipped design detail.
 >
@@ -16,13 +16,12 @@
 > authorities, new `RecordType` cases, and the secondary-metadata roadmap —
 > **plus the load-bearing reference**: the verbatim §16 licensing posture,
 > the GEDCOM X taxonomy pointers, the §17 evidence-identity rules, and the
-> one-line §18 hint invariant.
+> one-line §18 hint invariant. It also carries the FS enrichment-polish
+> follow-ups (§19) absorbed from the retired client spec.
 >
-> **Pivot note (2026-07-11, historical):** cookie-transport scraping was
-> retired as contractually prohibited under the developer agreement's §15
-> scraping ban; the app moved to the official OAuth API. Recorded here in
-> two lines only — git history and `FAMILYSEARCH_CLIENT_SPEC.md` carry the
-> full pivot.
+> **Pivot note (2026-07-11):** cookie-transport scraping was retired as
+> contractually prohibited (dev-agreement §15); the app moved to the official
+> OAuth API. Full pivot is git-only (client library shipped, git-only).
 
 ---
 
@@ -152,12 +151,9 @@ Returns controlled vocabularies. For us the relevant ones are:
 Low priority; we hard-code GEDCOMx URIs in the Swift enum and update
 when FamilySearch publishes new ones. Useful as a future refresh path.
 
-### 6.5 Tree Person Matches
+### 6.5 Tree Person Matches — SHIPPED, see git
 
-`GET /platform/tree/persons/{pid}/matches` (OAuth)
-
-**SHIPPED** — record hints → §18-ordered leads via the enrichment service;
-see `FAMILYSEARCH_CLIENT_SPEC.md` slices S6 / S6b.
+`GET /platform/tree/persons/{pid}/matches` → record hints → §18-ordered leads.
 
 ### 6.7 Place authorities
 
@@ -165,19 +161,11 @@ see `FAMILYSEARCH_CLIENT_SPEC.md` slices S6 / S6b.
 
 FamilySearch maintains a structured place hierarchy with stable IDs.
 
-**Decide once now, integrate later.** Integration of the FS place
-authority into the gazetteer is genuinely V3 work. But the *data-model
-decision* — does the FS place ARK become a canonical side-channel key
-on `RecordCommon`, layer over the existing gazetteer, or stay an
-opaque blob in `rawFields`? — must be made *now*, because per-record
-persistence happens from first cut and migrations cost more than
-forward-thinking columns. Commitment: **the FS place ARK is stored as
-a side-channel key on `RecordCommon` (new field `placeARK: String?`)**;
-gazetteer integration is downstream V3 work that promotes this
-side-channel to a canonical lookup. This way the first-cut parser
-captures the ARK whenever it's present in the response, and
-gazetteer-aware engines can light up against existing data when V3
-ships.
+The data-model side-channel is **shipped**: `RecordCommon.placeARK: String?`
+captures the FS place ARK whenever the response carries one. **Deferred:**
+wire `/platform/places/{placeId}` and promote that side-channel key into a
+canonical gazetteer lookup so gazetteer-aware engines light up against it.
+Genuinely V3 work (rides the gazetteer expansion).
 
 ---
 
@@ -250,17 +238,11 @@ person with 50 edits across 8 contributors over 6 years is a
 *contested attribution* — community-tier with the volatility known is
 meaningfully different from community-tier with the volatility unknown.
 
-Add a `volatilityScore: Double?` field on `RecordCommon`, populated
-from change-history data when available. The scorer downweights
-records with high volatility within their tier — without abandoning
-them entirely. Same field defined for `Couple` and `Child-and-Parents`
-relationship records.
-
-**First-cut commitment**: `volatilityScore` is a nullable column from
-day one even though the change-history endpoint that populates it is
-post-first-cut work. Migrations cost more than forward-thinking
-columns. Adding the column to `RecordCommon` now means the
-change-history work later doesn't require a schema migration.
+The `volatilityScore: Double?` field on `RecordCommon` is **shipped**
+(nullable, pinned by `SecondaryMetadataColumnsTests`). **Deferred:** wire
+the change-history endpoint that fills it, and have the scorer downweight
+high-volatility records within their tier (without abandoning them). Same
+field applies to `Couple` and `Child-and-Parents` relationship records.
 
 ### 7.4 Collection completeness (negative-search evidence)
 
@@ -269,8 +251,9 @@ The GEDCOMx Record spec defines `CollectionContent.completeness`: a
 declared resource type is. This is the structured form of what
 §7.1 tries to derive from title pattern-matching.
 
-Capture from day one when present in the response. Persist as
-`collectionCompleteness: Double?` on `RecordCommon`. Two consumers:
+The `collectionCompleteness: Double?` field on `RecordCommon` is
+**shipped** and parsed from `sourceDescriptions[].coverage[].completeness`
+when present. **Deferred:** wire the two consumers —
 
 1. **`negative_searches` enrichment**: a zero-result search against a
    0.9-completeness collection is materially stronger evidence of
@@ -280,11 +263,6 @@ Capture from day one when present in the response. Persist as
 2. **Pending-fact display**: "from England Parish Registers
    (94% complete coverage 1538–1812)" tells the user how seriously
    to take a fact's absence elsewhere.
-
-**First-cut commitment**: parse and persist whenever
-`sourceDescriptions[].coverage[].completeness` is present in the
-response. The scorer's consumption of this field is post-first-cut,
-but the data flows in from day one — same reasoning as §7.3.
 
 ### 7.5 Convergence engine implication
 
@@ -378,18 +356,16 @@ so it doesn't get forgotten (also flagged in §2.4).
 ### 12.4 The pragmatic recommendation
 
 The Tier 1 endpoint additions (Memories artifacts, source-references,
-change-history) are real deferred work. But the *data-model
-commitments* required to receive their data gracefully —
-`volatilityScore`, `collectionCompleteness`, `placeARK`
-on `RecordCommon`; `result_kind` + `hit_count` on `negative_searches`;
-the attribution sub-band on `SourceTrustTier` — land early. This
-way the deferred endpoint work doesn't need a schema migration;
-the columns already exist, populated to `nil` until the endpoint that
-fills them is wired.
+change-history) are the real deferred work. The *data-model commitments*
+that receive their data gracefully — `volatilityScore`,
+`collectionCompleteness`, `placeARK` on `RecordCommon` — are **shipped**
+(nullable, populated to `nil` until the endpoint that fills each is wired).
+Still owed on the data-model side: `result_kind` + `hit_count` on
+`negative_searches` and the attribution sub-band on `SourceTrustTier`.
 
-Pattern: **data-model commits early, endpoint integration commits
-later.** This is the cheapest way to keep the surface tight without
-foreclosing on the secondary-metadata value.
+Pattern held: **data-model commits early, endpoint integration commits
+later** — the columns exist, so no deferred endpoint needs a schema
+migration.
 
 ---
 
@@ -412,7 +388,7 @@ This spec was synthesised from:
 - **FamilySearch Historical Records**
   - [Collections list (2000+ collections)](https://www.familysearch.org/en/search/collection/list)
 - **In-repo**
-  - `AncestorApp/FAMILYSEARCH_CLIENT_SPEC.md` — the as-built client + records + enrichment spec (slices S1–S6b)
+  - the as-built client + records + enrichment (slices S1–S6b) — client library shipped, git-only
   - `Ancestor Research/Services/Sources/FamilySearch/` — the shipped implementation
   - `Ancestor Research/Services/Research/RecordSource.swift` — protocol contract
   - `Ancestor Research/Services/Research/RecordTypes.swift` — `RecordType` enum + per-type structs
@@ -435,8 +411,8 @@ This spec was synthesised from:
 >    the FamilySearch historical records collection." — confirms the
 >    redirect-to-FS.org rule AND keeps §16.2's tier question live:
 >    whether our key grants records search at all is answered
->    empirically by the Change 8 beta probes
->    (FAMILYSEARCH_READ_LEG_PLAN).
+>    empirically by the Change 8 beta probes (client S4 live-smoke,
+>    shipped, git-only).
 > 2. **Read Compatibility, caching**: "do not store it in local
 >    memory, purge the cache if the back button is used and at the end
 >    of your user session." Memories: "Temporarily stored FamilySearch
@@ -457,18 +433,9 @@ This spec was synthesised from:
 > operative rule, not a placeholder.** The persist row is upgraded from
 > "conservative planning posture" to "compliance requirement".
 
-The paragraph below is retained for the record of how the posture was
-derived before verification:
-
-The governing restriction was originally paraphrase-confirmed only: the
-Compatibility Checklist page resisted direct fetch during the
-2026-07-10/11 research phase, and the substance — third-party apps lack
-privileges to display FamilySearch historical-record content to end
-users; users must be **redirected to FamilySearch.org to view
-records**; framed as a *legal* data-licensing restriction
-(record-holding partners), not a technical gate — converged across 3+
-independent search summaries without being read verbatim
-([compatibility-checklist](https://developers.familysearch.org/main/docs/compatibility-checklist)).
+(Pre-verification derivation is git-only: the posture was originally
+paraphrase-confirmed from 3+ search summaries before the checklist was
+fetched verbatim above; the verified §16.1 posture is what binds.)
 
 ### 16.1 The posture (until wording says otherwise)
 
@@ -611,5 +578,25 @@ never destroys silently.
 `SourceTrustTier`, enters any of the 4 gates or the scorer verdict, or counts
 toward convergence. Enforced in code (the FS match confidence rides in
 `rawFields["fsMatchScore"]`, which `RecordScorer.classify` never reads);
-pinned by the `fsMatchScoreIsInertToTheScorer` invariant test. See
-`FAMILYSEARCH_CLIENT_SPEC.md` §S6b.
+pinned by the `fsMatchScoreIsInertToTheScorer` invariant test (client S6b,
+shipped, git-only).
+
+---
+
+## 19. FS enrichment-polish follow-ups (deferred)
+
+Absorbed from the retired client spec (client library shipped, git-only).
+Small enhancements on the shipped enrichment surface — none is a blocker.
+
+1. **Sort the lead/triage list by `rawFields["fsMatchScore"]`** (§18
+   consumer). Size S; no deps — the score is already stored on the record
+   ("deposited-but-unwired"). Cheapest FS item; completes the §18 story.
+   Do FIRST.
+2. **Map/skip attribute-only FS personas** — Nationality/Occupation-only
+   facts currently become low-value "parish" leads. Size S; after #1.
+3. **Live-confirm + firm up the FS Memories response shape** (minimally
+   modelled today, not live-confirmed). Size S; needs a Beta call against a
+   person that has memories. Low urgency.
+4. **Remove the unused `FamilySearchHint`/`recordHints` DTO surface**,
+   superseded by the `SourceRecord` path. Size XS; opportunistic dead-code
+   cleanup.

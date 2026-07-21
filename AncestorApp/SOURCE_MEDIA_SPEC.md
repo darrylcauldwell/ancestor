@@ -1,10 +1,14 @@
 # Source-Surfaced Media — Specification
 
-> **Deferred (2026-05-25):** This spec is paper-only and stays that
-> way until `ENGINE_FOUNDATION_SPEC.md` ships. Reason: image capture
-> is an output-surface concern; the engine that decides *which*
-> records get media attached needs to be trustworthy first.
-> Foundation first.
+> **Queued (gate cleared).** This spec is paper-only. Its original
+> deferral gate — "wait until `ENGINE_FOUNDATION_SPEC.md` ships" — is
+> **cleared**: the engine foundation shipped 2026-05-25 and that spec
+> was deleted (git-only). The rationale held: image capture is an
+> output-surface concern, and the engine that decides *which* records
+> get media attached had to be trustworthy first. It now is. This
+> work is therefore no longer *blocked* — it is queued behind Epic
+> priority (see ROADMAP Epic 8) and starts whenever it reaches the
+> top of the backlog.
 
 **Status:** Paper-only. No code yet — none of the eight shipping
 source plugins captures any image data, even when the upstream
@@ -51,14 +55,13 @@ should and store them linked to profile."*
 | **Find a Grave** | Headstone photo (`<img id="memPhoto">`), photo gallery (portrait, additional cemetery shots, military emblems), volunteer-uploaded | Drops them entirely — `parseMemorialDetail` extracts inscription/bio/cemetery/plot but never queries any `<img>` tag or photo-gallery div. `BurialRecord` has no image field. | `FindAGraveSource.parseMemorialDetail` |
 | **CWGC** | Cemetery photographs and (for many casualties) a headstone or memorial-panel photo on the casualty-details page; downloadable certificate PDF | Drops them — `parseCSV` (the only ingest path) consumes the CSV export which is text-only. The detail-page HTML at `cwgc.org/find-records/.../casualty-details/{id}/` carries the imagery and is never fetched. | `CWGCSource.parseCSV` |
 | **FamilySearch** | Image waypoints (digitised microfilm scans) referenced from `sourceDescriptions[].links[]`, plus a `RectangleRegion` source-reference qualifier (FAMILYSEARCH_SOURCE_SPEC §5.5) marking *which row on the page* this persona occupies. Also Memories (user-uploaded portraits, certificates, family photos attached to FamilySearch tree persons). | Current parser decodes a narrow subset of GEDCOMx. `GxRoot` decodes `persons`, `relationships`, `sourceDescriptions` but **not** `links`. There is no Memories endpoint integration. | `FamilySearchSource.GxRoot`, `GxSourceDescription` |
-| **Wirksworth** | Pedigree pages occasionally embed scanned images of original pedigree-book pages (HTML `<img>` tags); some pages include parish-register photos | Drops them — the parser is text-only | `WirksworthSource.parsePedigreePage` |
 | **FreeBMD** | None directly (index only). But the index entries carry GRO reference fields (volume / page) that *point to* a registry image obtainable separately. | Parser captures volume/page in `rawFields` but does not synthesise a GRO image link. | `FreeBMDSource` — no image fields on `BirthRecord` / `DeathRecord` / `MarriageRecord` |
 | **FreeCen** | None directly (transcription only). But each entry carries piece/folio/page from the underlying TNA census, which is the address of a TNA digitised page image. | Parser captures piece/folio/page/schedule/house_number/address in `rawFields` but does not link to the TNA image. | `FreeCenSource` |
 | **FreeREG** | None — transcription only. Some parish-register transcriptions reference originals at FamilySearch (cross-source link). | No image handling. | `FreeREGSource` |
 | **Probate** | Modern grants page sometimes links to a will-document PDF (post-1996 digital grants); older calendar entries have no image. The Nuxeo JSON response may carry a document URL. | Parser does not extract any URL beyond the grant text. | `ProbateSource` |
 
 **Direct-evidence sources where we drop images today:** Find a Grave,
-CWGC, FamilySearch, Wirksworth.
+CWGC, FamilySearch.
 
 **Index sources where we have a reference but no synthesised image
 URL:** FreeBMD (GRO volume/page), FreeCen (TNA piece/folio/page).
@@ -270,7 +273,6 @@ download-by-default; no scoring impact; no GEDCOM export.
 
 **Out of scope for first cut:**
 
-- Wirksworth pedigree-page image extraction.
 - FreeBMD GRO image-link synthesis.
 - FreeCen TNA image-link synthesis.
 - Probate will-PDF.

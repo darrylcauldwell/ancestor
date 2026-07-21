@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-ADRs record one architectural decision each — the facts that forced it, the decision, its consequences, and (where applicable) the conditions under which it should be revisited. They are written once and amended only by superseding ADRs. Statuses: **Proposed** (awaiting Darryl's review), **Accepted** (binding), **Superseded** (points at its replacement). All six below arise from the July 2026 FamilySearch/GEDCOM X research round (R1 corpus + R2 synthesis).
+ADRs record one architectural decision each — the facts that forced it, the decision, its consequences, and (where applicable) the conditions under which it should be revisited. They are written once and amended only by superseding ADRs. Statuses: **Proposed** (awaiting Darryl's review), **Accepted** (binding), **Superseded** (points at its replacement). All eight below arise from the July 2026 FamilySearch/GEDCOM X research round (R1 corpus + R2 synthesis) and the source-access-terms review.
 
 | ADR | Title | Status |
 |---|---|---|
@@ -11,3 +11,4 @@ ADRs record one architectural decision each — the facts that forced it, the de
 | [ADR-005](ADR-005-fs-tree-data-is-evidence.md) | FamilySearch-originated tree data is evidence, never conclusions | **Accepted** |
 | [ADR-006](ADR-006-no-general-treeprovider.md) | No general TreeProvider abstraction | **Accepted** |
 | [ADR-007](ADR-007-kinship-joins-core-swift-first.md) | Kinship primitives join the core push, respecced Swift-first | **Rejected** (alternative adopted: sequenced after core) |
+| [ADR-008](ADR-008-source-access-posture.md) | Source access posture: published-terms-first | **Accepted** (tosStatus fixes shipped; outreach/toggle outstanding) |

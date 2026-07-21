@@ -1,246 +1,30 @@
 # Source Weighting — staged dispatch, free-sources-first
 
-**Status: ACCEPTED 2026-07-15 (Darryl: "accepted let build") — building in change order.**
-Shipped: Change 1 `b99ce47` (scope contract + pins) · Change 2 `72de503` (visible skips) ·
-Change 3 `07914e4` (FreeREG umbrella + dead params) · Change 0 `63259a9` (Wirksworth
-retired) · Change 4 `d07a0c5` (FS scope participation — axis-level steering per published
-single-value fuzzy place params; national drops the county axis) · Change 5 `88d526a` +
-`1931d59` (staged dispatch: ladder + stage filter; pipeline walks it with a verdict-aware
-miss test; FS on-miss with visible stage-skip disclosure) · Change 7 `cd78eea` (one adaptive
-research action; Depth picker retired; sheet = subject → Scope → prose → gaps → cost line →
-Run) · Change 8 `7d3bf10` (Sourcing report: per-field contradicted/corroborated/cited/
-uncorroborated(searched:) verdicts in the Sourcing tab). Companion fixes shipped same day:
-`9136aed` sticky source-card errors, `83e38fe` research applies attach citations (Sourcing
-tab gate now earnable by research), Triage/Research tab split `d7e2f32`.
-**Remaining: Change 5/7 LIVE verification (acceptance 1–4 + campaign-fixture query
-comparison) · Change 6 (FT-13 FreeCEN place scoping — gated on ADR-008 resolution) ·
-publisher convergenceByProfile feed (Phase 3 follow-up).** Direction set by Darryl during
-Barbara Ayre triage: "the free UK sources offer us capability to provide localised search to
-parish, district and then region then national… the weighting for our app should be from the
-known free sources."
+**Status: SHIPPED 2026-07-15 — one deferred residue (Change 6).** The staged-dispatch
+design (free-sources-first, FS on-miss), the scope contract + per-source pins, the visible
+skip/miss-test semantics, the one-research-action UX, and the Sourcing report all shipped
+2026-07-15 and are verified in code. See `ROADMAP.md` #7 and git history
+(`63259a9`, `b99ce47`, `72de503`, `07914e4`, `d07a0c5`, `88d526a`, `1931d59`, `cd78eea`,
+`7d3bf10`) for what landed; the live-verification thread lives in ROADMAP #7. Everything
+below is the sole unbuilt residue.
 
-## Problem (verified in code, 2026-07-15)
-
-`SearchDispatcher.dispatch` enumerates every enabled source covering the record type and
-fires them **in one parallel task group** — there is no cross-source ordering or weighting.
-The escalation discipline exists only *within* sources (Chapman-code ladders: parish →
-district → county → adjacent → national). FamilySearch is co-equal with the scoped free
-sources on every axis of every run, and because FS answers **national** name+date queries
-across all its collections, it dominates the evidence set with remote namesakes (live
-evidence: Barbara Ayre's triage haystack — Northumberland parish personas surfaced by FS on
-a Derbyshire-anchored subject; whole-campaign correction-tier noise, 2026-07-14/15).
-
-Cost of the flat fan-out:
-- **Precision** — remote namesake noise becomes leads/clusters the user must triage away.
-- **Volume** — every run spends queries at every source even when the local, high-precision
-  tier would have answered; volunteer sources have hard daily budgets
-  (`feedback_volunteer_sources_rate_limits`), and every source relationship (pending Free UK
-  Genealogy permission per ADR-008, pending FSI agreement) benefits from fewer total calls.
-- **Identity** — the product's home is the free sources; FS is the breadth extender, not the
-  default firehose.
-
-Note on posture (ADR-008): the free sources' *published terms* currently forbid programmatic
-access (permission emails drafted, unsent); the FS cookie path is the operator-authorized
-interim. Staging is therefore justified on precision/volume/identity — not as compliance
-relief — and reduces load on every provider regardless of how ADR-008 resolves.
-
-## Design
-
-Replace the flat fan-out with **staged dispatch**. Stages run sequentially; sources within a
-stage keep today's parallel task-group + per-source strictness ladders + budgets + circuit
-breakers + negative cache untouched.
-
-- **Stage 1 — local free.** All free sources at the subject's local scope (home Chapman code
-  / district / parish where the source supports it). Includes Wirksworth where applicable.
-- **Stage 2 — adjacent free.** Same sources widened to adjacent counties, only for record
-  types Stage 1 left unanswered (see "miss test" below).
-- **Stage 3 — national free.** FreeBMD-class national indexes (already district-coded) and
-  FreeREG/FreeCen national fan-out, again only for unanswered record types.
-- **Stage 4 — FamilySearch breadth.** FS fires last, only for record types still unanswered
-  OR for coverage the free tier structurally lacks (e.g. post-1983 GRO, overseas, FS-only
-  collections). Its query axes are narrowed by everything earlier stages established
-  (birth-year consensus, place axes per #Change9, family axes per #Change10).
-
-**Miss test (per record type):** a stage's result is "answered" when it produced ≥1 record
-with verdict ≥ `.lead` whose geography is consistent with the subject anchor — otherwise the
-next stage fires. The searched-surface honesty envelope must record *skipped* stages the same
-way it records negative searches today (a stage that never fired is not a covered search).
-
-**Explicitly not a hard gate:** the run's scope parameter (user-chosen: parish … national)
-still bounds every stage; a national-scope run still stages free-before-FS but does not skip
-FS. A future per-run toggle ("FS: always / on-miss / never") is an open question below.
-
-## Implementation order (each change gated by full `xcodebuild test`)
-
-**Change 1 — Scope contract + per-source pins (M). FIRST: the regression net.**
-Every `RecordSource` declares its scope handling explicitly (e.g. `scopeHandling:`
-`.scoped` / `.inherentlyNational(reason:)` / `.localCorpus`); the dispatcher's `default:`
-branch stops silently inheriting scope-ignore — undeclared sources refuse at registration.
-One test per source pinning the exact per-scope query shape (the audit's verdict table
-becomes the fixture: FreeBMD 0/county/1/9/1, FreeREG 1/1/1/8/56 for DBY, FS current
-invariance pinned-as-is until Change 4, etc.). Resolves the ResearchScope-header vs
-dispatcher-header doc contradiction in code. [Audit findings 5, 6, 8]
-
-**Change 2 — Visible skips (S/M).** Anchor-less subject at a bounded scope → the dispatcher
-short-circuits (no dead queries) and records a per-source SKIP outcome; searched-surface
-reporting distinguishes answered / negative / skipped (also required by Change 5's miss
-test). Removes FreeCEN's degenerate adjacent fallback. [Finding 3]
-
-**Change 3 — Free-trio defects (S).** FreeREG umbrella-code expansion (YKS → ridings, like
-FreeBMD/FreeCEN); delete dead params (FreeREG `parish`/`registerType`, Wirksworth params go
-with Change 0) or implement from published docs — removal is the default. [Findings 4, 7]
-
-**Change 0 — Retire Wirksworth (S/M).** Independent; slot anywhere before Change 5 (fewer
-sources to stage). Details below.
-
-**Change 4 — FamilySearch scope participation (M).** The FS branch reads scope: place axes
-become adjacency-aware, hard place params where the FS search API supports them (verify
-against published FS search docs, not probing), and the residual invariance is disclosed in
-the searched-surface. Prerequisite for an honest Stage 4. [Findings 1, 2]
-
-**Change 5 — Staged dispatch (L). The core.** Stages 1–4 (local free → adjacent free →
-national free → FS on-miss), miss test per record type, stage progress on the activity bus,
-skipped-stage semantics in the negative cache. Gate additionally: the campaign-fixture
-comparison (acceptance 1–3) and the Kenneth/George no-regression check.
-
-**Change 6 — FreeCEN place scoping (FT-13) (M).** Behind ADR-008 resolution; published-docs
-first. Details below.
-
-**Change 7 — One research action (M/L).** Adaptive strictness ladder, gap-driven stop, Depth
-picker removed, sheet simplified. Companion section below.
-
-**Change 8 — Sourcing report (M).** Per-field corroborated/unsourced/contradicted view from
-persisted state; feeds the publisher `convergenceByProfile` slot. Companion section below.
-
-Order rationale: pin current behaviour before touching it (1), give staging the visibility
-primitives it needs (2), clear the small defects while the files are open (3, 0), make FS
-scope-honest before it becomes the final stage (4), then the restructuring (5), then the
-capability and UX changes that ride on the new dispatcher (6–8). ADR-008 gates only Change 6
-(new free-source query capability); everything else either reduces free-source traffic or
-doesn't change wire shapes.
-
-## Change — FreeCEN place scoping (FT-13 folded in; owner decision 2026-07-15)
+## Change 6 — FreeCEN place scoping (FT-13) — DEFERRED, gated on ADR-008
 
 FreeCEN currently widens `.parish`/`.district` scope to `.county` because `FreeCenParams`
 has no parish field — the freecen2 `place_ids[]` capability was noted and deferred as FT-13
-(dispatcher comment, SearchDispatcher ~§FreeCen). With Scope becoming the app's ONLY fan-out
-control (Depth retired above), silent widening undermines the picker's honesty — fold FT-13
-in: extend `FreeCenParams` with place scoping, resolve place ids from the subject's
-parish/district via the freecen2 API's place search, and honour `.parish`/`.district`
-natively. Keep FT-11's birth-county axis behaviour at `.adjacent`/`.national` unchanged.
+(`SearchDispatcher.swift:927–928`). With Scope now the app's ONLY fan-out control (Depth
+retired), silent widening undermines the picker's honesty. Fold FT-13 in: extend
+`FreeCenParams` with place scoping, resolve place ids from the subject's parish/district via
+the freecen2 API's place search, and honour `.parish`/`.district` natively. Keep FT-11's
+birth-county axis behaviour at `.adjacent`/`.national` unchanged.
 
-Constraints: capability must be built from freecen2's PUBLISHED API surface
+**Constraints:** capability must be built from freecen2's PUBLISHED API surface
 (`feedback_verify_source_terms_first` — fetch and cite the docs, no trial-and-error probing),
-and it ships behind the ADR-008 resolution like all Free UK Genealogy traffic. Acceptance: a
-parish-scope run emits FreeCEN queries carrying place scoping; county-scope queries are
-byte-identical to today's.
+and it ships behind the **ADR-008 resolution** (Free UK Genealogy programmatic-access
+permission) like all Free UK Genealogy traffic.
 
-## Scope audit findings (2026-07-15) — build inputs
+**Acceptance:** a parish-scope run emits FreeCEN queries carrying place scoping; county-scope
+queries are byte-identical to today's.
 
-`SCOPE_AUDIT_2026-07.md` (adversarially-verified, 20 confirmed findings) established that
-the Scope picker currently controls only the free trio: FamilySearch NEVER reads scope
-(broken — global reach, all five levels byte-identical; the remote-namesake mechanism),
-FindAGrave is county-pinned at every level, empty-anchor subjects silently zero the free
-trio below national, FreeREG's parish param is dead, and the dispatcher's `default:` branch
-makes scope-ignore the inheritance for any future source. Additional acceptance criteria for
-this spec's build: (5) every source has a test pinning its per-scope query shape; (6) an
-anchor-less subject at a bounded scope produces a VISIBLE skip record per source, not
-silence; (7) Stage-4 FS queries participate in scope (hard place params where the FS API
-supports them; at minimum adjacency-aware soft axes + explicit scope-invariance disclosure);
-(8) the `default:` dispatcher branch refuses unregistered scope behaviour (new sources must
-declare scope handling explicitly).
-
-## Interactions audited before build
-
-- **Convergence/witness collapse (DS-03)** — staging FS after a FreeBMD hit does not lose
-  corroboration: same-GRO-line transcripts collapse to one witness anyway. Genuinely
-  independent FS collections still arrive at Stage 4.
-- **Negative cache / re-run behaviour** — a Stage-4 skip must not poison later runs into
-  believing FS was searched; skipped ≠ negative.
-- **Watcher campaigns** — per-profile staging multiplies wall-clock (sequential stages);
-  bound each stage with the existing budget/breaker machinery and surface stage progress in
-  the activity bus.
-- **FS self-narrowing follow-ups** (#Change11 rescue, exact-birth-date gates) key off FS
-  result shapes — verify they still fire when FS runs at Stage 4 with narrowed axes.
-
-## Acceptance criteria
-
-1. A Derbyshire-anchored subject whose death is answerable from FreeBMD locally never
-   receives FS national-namesake personas in the same run (Barbara Ayre fixture).
-2. A subject unanswerable from the free tier (e.g. post-1983 death, Kenneth-class) still
-   reaches FS and resolves — no capability regression vs the 2026-07-14 fixes (#Change9–11).
-3. Total outbound queries per campaign run drop measurably (dispatch log comparison on the
-   2026-07-14/15 campaign profile set).
-4. Searched-surface reporting distinguishes answered / negative / stage-skipped per source.
-
-## Companion change — one research action + Sourcing report (DECIDED 2026-07-15)
-
-Origin: Darryl asked whether Verify/Extend/Discover/All is the right way to think about
-research at all. The design settled through three steps, each verified against the code:
-
-1. **The Depth modes only pre-declare what the engine can infer.** They set (a) the
-   strictness ladder (verify `[strict]`, extend `[strict,loose]`, discover
-   `[loose,variant]`) and (b) stopping policy (verify's early-stop; All's extra iterations +
-   fact cap). Query richness is already profile-data-driven in every mode.
-2. **A "check/verify" intent seemed like the un-inferable residue** (user purpose:
-   corroborate-before-trusting vs dig) — but examining what Verify *actually does* dissolved
-   it: strict-only search + stop-as-soon-as-ANY-fact-corroborates. Not an audit; a truncated
-   dig. Its honest deliverable — per-field sourcing verdicts — is a REPORT over persisted
-   state, not a run type.
-3. **Adaptive cost self-bounds where a check would be used**: on a rich profile, strict
-   searches hit immediately, gaps are few, the run stops early — the dig IS the check. The
-   expensive escalation only occurs on thin profiles, where discovery was wanted anyway.
-
-**Decided design:**
-
-- **One research action.** Strictness starts `.strict`, escalates `.loose` → `.variant` only
-  on miss (same on-miss pattern as this spec's source stages). Stops when the profile's open
-  gaps are answered, or stable-point detection / budgets bound it. Depth picker removed;
-  sheet becomes subject → Scope → prose toggle → gaps → Run.
-- **Sourcing report** (successor to what Verify pretended to be): per-field verdict —
-  *corroborated* (level + independent-lineage count from `evidence_convergence`),
-  *unsourced* (with the searched-surface from `negative_searches`, honestly distinguishing
-  "not searched" from "searched, nothing found"), *contradicted* (open dispute, linked).
-  Rendered per profile from persisted state — no run required — and tree-wide, which also
-  feeds the publisher's empty `convergenceByProfile` badge slot (Phase 3 follow-up).
-- **Kept:** Scope (user-owned geographic knowledge); focused runs (record-type focus);
-  prose-extraction opt-in; `ResearchMode` internally + on the MCP `kick_off_research`
-  surface for watcher/campaign compatibility (any explicit mode = override honoured; the
-  in-app sheet always dispatches adaptive).
-
-Validation at build: run the 2026-07-14/15 campaign fixture set under both models — queries
-spent, wall-clock, new facts, junk-lead count must not regress (and total queries should
-drop per this spec's main acceptance criteria).
-
-## Non-goals
-
-Source trust tiers (unchanged, URL-derived); per-source scoring weights in the 4-gate scorer
-(the scorer stays source-blind); removing FS coverage (breadth is a feature — this spec
-sequences it, it does not shrink it).
-
-## Open questions for owner acceptance
-
-1. ~~Stage 4 FS: on-miss only vs always-last?~~ **DECIDED 2026-07-15 (Darryl): on-miss
-   only.** FS fires solely for record types the free tier left unanswered (plus the
-   structural-coverage carve-outs above).
-2. ~~Visible "source strategy" control vs silent engine behaviour?~~ **DECIDED 2026-07-15
-   (Darryl, by pointing at the existing research sheet): no new control.** The sheet already
-   expresses user intent via Depth (Verify/Extend/Discover/All) and Scope (parish …
-   national) — staging runs silently *within* the chosen Scope, escalating stages only up to
-   its bound. Build-time copy tweak only: the Scope/Depth descriptions mention that
-   FamilySearch fires only when the free sources come up empty.
-3. ~~Wirksworth placement?~~ **MOOT — DECIDED 2026-07-15 (Darryl): "Wirksworth was a source
-   added for point in time which we can remove."** Retirement becomes **Change 0** of this
-   spec's build (below); staging designs for the national free sources + FS only.
-
-## Change 0 — retire the Wirksworth source (prerequisite)
-
-Remove the live source: delete `WirksworthSource` + its tests, deregister in
-`SourceBootstrap`, sweep dispatcher/lead-filter/region special-cases (~20 files reference
-it — several are the region-specific carve-outs `feedback_no_hardcoded_regions` has been
-pushing against, which is part of the point). **Keep for historical citations:** the
-`SourceTierRegistry` wirksworth.org.uk URL→tier mapping and the GEDCOM exporter's
-`wirksworth` source-metadata case — evidence rows and applied citations from past runs
-remain valid and must keep resolving trust tier + export metadata. Python `sources/`
-reference implementation untouched. Also closes the outstanding ADR-008 terms-review item
-for wirksworth.org.uk (site was TLS-unreachable for terms fetch; removal moots it).
+**Size:** M. **Deps:** ADR-008 resolution + freecen2 published-API docs. **Order:** after
+ADR-008 clears; independent of Media/Clustering.

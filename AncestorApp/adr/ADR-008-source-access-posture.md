@@ -1,6 +1,6 @@
 # ADR-008 — Source access posture: published-terms-first
 
-**Status:** Proposed 2026-07-15 (awaiting Darryl)
+**Status:** Accepted (tosStatus fixes shipped, commit `9d25875`; outreach/toggle outstanding). Decision (1)'s tosStatus corrections landed as a standalone pre-emptive bug-fix; the ask-first outreach + off-by-default user toggle of Decision (2) remain unbuilt.
 **Depends on:** ADR-002 (FS bounded surfaces — FS access is governed there, not here)
 **Evidence base:** `AncestorApp/SOURCE_ACCESS_COMPLIANCE_2026-07.md` (verbatim terms quotes, fetched 2026-07-14/15)
 

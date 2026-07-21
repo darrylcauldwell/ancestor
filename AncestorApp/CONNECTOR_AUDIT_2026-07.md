@@ -1,490 +1,121 @@
-# CONNECTOR_AUDIT_2026-07 — Free-Trio Connector Audit Findings
+# CONNECTOR_AUDIT_2026-07 — Free-Trio + Tier-1 Connector Audit (deferred residue)
 
-**Status: 56 of 58 findings SHIPPED 2026-07-11/12 (see `git log --grep='#FT-\|#T1-'`). Remaining 3 are the deferred tail: FT-08 is a Python-reference data fix (swift-is-what-ships deprioritised); FT-19 (place-scoping) + FT-21 (witness probes) are L-sized capabilities the audit deferred. The one rationed live probe ran 2026-07-11, discharging FT-06 and FT-27. FT set AND T1 set triaged and ACCEPTED (Darryl, 2026-07-11) — FT-01…FT-29 and T1-01…T1-29 (§6) all approved for implementation; implementation COMPLETE except FT-08/FT-19/FT-21 (all other FT + all 29 T1 shipped 2026-07-11/12). §8 critic additions remain UNVERIFIED and unapproved.** Drafted overnight 2026-07-10/11 from the audit envelope. (§§6–8 appended 2026-07-11 after tier-1 verification completed.)
+**Status: 56 of 58 findings SHIPPED 2026-07-11/13** (`git log --grep='#FT-\|#T1-'` is the archive). This doc is thinned to its still-live residue: the two deferred capabilities (**FT-19** place-scoping, **FT-21** witness-probes), the interrupted-verification batch (**UV-01/02/06/07/08/09**), and the four **UNVERIFIED** tier-1 critic morsels (**T1-C1..C4**). Shipped finding bodies, the Top-5 ranking, the §5.1–§5.6 cross-cutting recommendations, and the refuted lists are compressed to one line each — full text is in git history.
 
----
-
-## 1. Scope, method, date
-
-- **Scope:** the three volunteer-transcription connectors — FreeBMD, FreeCen, FreeREG — plus the shared machinery they ride on (`SearchDispatcher`, `QueryCache`, `SourceHTTPClient`, `SourceQueryResult`). Audited 2026-07-10 against both the Swift connectors (`Ancestor Research/Services/Sources/`) and the Python references (`sources/`).
-- **Method:** find → two-lens adversarial verify. Three find agents (parsing fidelity, form-capability gap, query planning) produced 49 raw findings; after dedup each surviving finding was verified by two independent lenses — a **fact lens** (are the citations and mechanics true?) and a **value lens** (is the recommendation net-positive for this engine's invariants?). Result: **29 confirmed, 11 refuted on value, 9 verification-incomplete** (see §4 — verify agents were lost to stalls and a session limit, *not* to refutation). The critic pass also failed on the session limit, so there are **zero critic additions — meaning the critique step didn't run, not that it found nothing**.
-- **Constraint:** STATIC ANALYSIS ONLY. No live network calls were made, and the audit's ground-truth live-form payload failed to inject (FT-27). Anything that depends on today's exact form encodings is labelled **PLAUSIBLE / unverified** below and needs the one live probe session (§5.6) before being treated as fact.
-- Evidence citations (file:line) are carried from the verified finding text; sizes (S/M/L) are drafting-time guesses, not estimates from code inspection tonight.
-
-### Tier-1 sources — verified
-
-Tier-1 (CWGC / FindAGrave / Probate) verification completed 2026-07-11 morning — method identical (find → two-lens adversarial verify), this time run to completion on the resumed workflow, critic pass included: see §6 (confirmed backlog), §7 (rejected), §8 (critic additions, unverified).
+Scope was the three volunteer-transcription connectors (FreeBMD, FreeCen, FreeREG) plus the shared machinery (`SearchDispatcher`, `QueryCache`, `SourceHTTPClient`, `SourceQueryResult`), and tier-1 (CWGC / FindAGrave / Probate). Method: find → two-lens adversarial verify (fact lens + value lens), static-analysis-only with one rationed live probe (2026-07-11).
 
 ---
 
-## 2. Confirmed fix backlog
+## 1. Shipped — one line each (do not re-open; git-only)
 
-Grouped by source, then impact. IDs are stable — reference them in commits as `fix: … #FT-nn`.
+### Free-trio (FT-nn) — all SHIPPED except FT-19/FT-21
 
-### 2.1 FreeBMD
+- **FT-01** county axis via `countyid`, drop the 12-per-district loop (6732596; live-probed).
+- **FT-02** `.national` collapses to one `districtid=""` query (6732596).
+- **FT-03** same-page spouse recovery via vol/pgno (50e3365).
+- **FT-04** county→national escalation on empty results (50e3365).
+- **FT-05** unsplittable-overflow honesty into the search-outcome envelope (a6e9c6d).
+- **FT-06** soundex field was `sndx=on` not `Phonetic` (never engaged); send `sndx=on` only when enabling — live-probed (bigger than diagnosed).
+- **FT-07** strategist district-name→ID resolution (50e3365).
+- **FT-08** stale Python district IDs corrected in config.yaml + freebmd.py (live smoke-probe half deferred with the rationed budget).
+- **FT-09** era-filtered county fan-out + YKS→WRY/NRY/ERY alias (50e3365).
+- **FT-10** faithful `is_target` household port (subject-not-head bug) (2b3d5e4).
+- **FT-11** birth-county axis (`birth_chapman_codes`) for FreeCen/FreeREG (503cd22).
+- **FT-12** stable URL-derived FreeCen record IDs (2b3d5e4).
+- **FT-13** stale-comment fix (S half); the **L place-scoping half is deferred → FT-19** below.
+- **FT-14** census-year guard (snap to `validYears`) (503cd22).
+- **FT-15** restored dropped household columns (marital_status/birth_county/is_target) (2b3d5e4).
+- **FT-16** launch-stable FreeREG + Wirksworth record IDs + v31 orphan purge (46f9f84/1be4145).
+- **FT-17** name-split fix (surname no longer swallows middle names) (503cd22).
+- **FT-18** FreeREG detail fetch (parent/spouse names) (503cd22).
+- **FT-20** Rails validation-error page triage (503cd22).
+- **FT-22** page-1 truncation → honesty envelope + pagination (a6e9c6d, 503cd22).
+- **FT-23** hit-count/`truncated` on the result envelope (a6e9c6d).
+- **FT-24** QueryCache key carries all wire-affecting params (af24a00).
+- **FT-25** multi-value chapman batching (default-OFF gate) (dispatcher-side).
+- **FT-26** page-state triage fixtures (503cd22 / a6e9c6d).
+- **FT-27** live-form ground truth captured; PLAUSIBLE items discharged (FT-01/FT-06).
+- **FT-28** national fan-out chunked into groups of 10 (default-OFF gate).
+- **FT-29** form-safe x-www-form-urlencoded serializer (78ab374).
 
-**FT-01 · high · inefficiency — `countyid` never used; county scope loops 12 per-district requests where 1 would do**
-`FreeBMDSource` emits only `districtid` (FreeBMDSource.swift:199); nothing in the repo references `countyid`. `SearchDispatcher.buildQueries` enumerates `RegionConfig.districts(forChapmanCode:)` — 12 codes for DBY — one `RecordQuery` per district (SearchDispatcher.swift:282-291, 344-365), multiplied by record types, surname probes, and the spouse-surname fan-out (SearchDispatcher.swift:321-332), all serialized at 500 ms pacing against a source with a 3-trip circuit breaker. The results page carries the district column per row (parsed at FreeBMDSource.swift:714), so the geography gate keeps working at county granularity.
-*Recommendation:* add `countyCode` to `FreeBMDParams`; emit `countyid` and drop the district loop for `.county`/`.adjacent`. Keep per-district queries only for surgical `FocusedQuery` dispatches. **Size: M**
+### Tier-1 (T1-nn) — all 29 SHIPPED 2026-07-11/13
 
-> **DONE 2026-07-11.** Built behind a gate (6732596), then validated by the rationed live probe session (2 searches + captured-form table): the county select uses its OWN ID vocabulary — values captured verbatim into `RegionConfig.freeBMDCountyIDTable`; probe returned 49 rows across 13 Derbyshire-area districts (county definition includes cross-border districts; geography gate handles them per-row). Gate flipped ON. Env-gated re-validation probe: `FreeBMDCountyProbeTests`.
+- **T1-01** engine-wide search-outcome honesty envelope (a6e9c6d).
+- **T1-02** date gate reads CWGC `AgeAtDeath` (1cd73db).
+- **T1-03** skip wire-identical strictness re-fires for FAG/Probate (08a4912).
+- **T1-04** cross-run negative-search cache (08a4912; = §5.2).
+- **T1-05** CWGC geography-gate port (additional_info next-of-kin) (1cd73db).
+- **T1-06** CWGC initials-indexed casualties matchable (1cd73db).
+- **T1-07** CWGC death-year bounds + WarSelect overlap test (cd0eb4d).
+- **T1-08** CWGC eligibility interval-overlap + death-window trigger (cd0eb4d).
+- **T1-09** CWGC CSV parsed via header-keyed DictReader semantics (cd0eb4d).
+- **T1-10** CWGC additional_info deterministic parse → parents/spouse/residence (1cd73db).
+- **T1-11** projection wires honours/countryOfService + FAG plot (cd0eb4d).
+- **T1-12** CWGC dispatched once (`.death` only) (50e3365).
+- **T1-13** CWGC CSV-header sanity check → `.unavailable` (cd0eb4d); detail port deferred.
+- **T1-14** CWGCParams.conflict wired (cd0eb4d).
+- **T1-15** FAG block/error → `.unavailable` (a6e9c6d).
+- **T1-16** FAG year filters plumbed + total/tooMany parsed + limit raised (800e661).
+- **T1-17** FAG detail-fetch cap on the FS bridge + symmetric native enrich (9a6cfcb).
+- **T1-18** FAG `includeNickName=true` (1a4abfc).
+- **T1-19** FAG location scoping + cemetery URL (1a4abfc).
+- **T1-20** FAG memorial family-links → leads (1a4abfc).
+- **T1-21** FAG location into QueryCache key (af24a00).
+- **T1-22** FAG detail-page age captured onto BurialRecord (1a4abfc).
+- **T1-23** FAG structured name fields incl. maidenName (800e661/1a4abfc).
+- **T1-24** Probate pagination to a 500 budget (e186dd7).
+- **T1-25** Probate `hasError` → `.unavailable` (a6e9c6d).
+- **T1-26** Probate `.outsideCoverage` for pre-1996 windows + soldier-wills carve-out (34d0882).
+- **T1-27** stable Probate uid / FAG memorialId IDs (1a4abfc).
+- **T1-28** Probate postcode/title parsed + courtType wired (34d0882).
+- **T1-29** Probate firstnames semantics + date-of-probate probe (34d0882).
 
-**FT-02 · high · inefficiency — national scope fires 632–996 requests where FreeBMD accepts a single all-districts query**
-The `.national` branch emits one query per year-filtered catalogue district (SearchDispatcher.swift:286-291, 344-365) — measured against `freebmd-districts.json` (1121 entries): 632 districts for a birth ±2 window, 996 for a death window, 838 for marriage; 5–8 minutes of pure pacing per record type per surname probe per tier. Python proves the wire accepts `district=""` for one national query (sources/freebmd.py:152-153; agent/discover.py:129-144 runs exactly one), Swift already supports it (`"districtid": params?.districtCode ?? ""`, FreeBMDSource.swift:199), and the overflow interstitial is already handled by adaptive year-splitting (FreeBMDSource.swift:280-344). Given FreeBMD's daily budget burns in ~30 min when hammered, one national run can exhaust it alone.
-*Recommendation:* `.national` = one `districtid=""` query + existing adaptive split; same change in `ResearchPipeline.dispatchMarriageQuery`'s national branch (ResearchPipeline.swift:1749-1752). **Size: S**
+**§3 Top-5 priority** (record-ID integrity → wrong-facts → search-honesty → efficiency) all shipped 2026-07-11/12 — history only.
 
-> **DONE 2026-07-11.** National scope collapses to one all-districts query (commit 6732596, `#FT-01 #FT-02`).
-
-**FT-03 · high · unused-capability — `vol`/`pgno` never sent; same-page spouse recovery burns a full surname sweep and cannot work for unknown spouses**
-`baseFields` has no vol/pgno (FreeBMDSource.swift:191-205). Pre-Sep-1912 partner recovery (SamePageCouplePairing.swift:1-38) dispatches a second full spouse-surname district sweep and joins client-side on (year, quarter, district, vol, page) — which requires already knowing the spouse surname. The form's vol+pgno fields would fetch the 2–4 index entries on a known GRO page in one request (parser already extracts vol/page, FreeBMDSource.swift:715/725), recovering partners deterministically even when *no* spouse is on the tree — the "enumerate page 943's couples" mechanism gestured at in FocusedQuery.swift:44-46.
-*Recommendation:* add volume/page to `FreeBMDParams`; wire a page-lookup step into `annotateMarriagesWithSamePagePartner`; extend to unknown-spouse marriages. **Size: M**
-
-> **DONE 2026-07-11.** Same-page spouse recovery via vol/pgno (commit 50e3365, `#FT-03 #FT-04 #FT-07 #FT-09 #T1-12`).
-
-**FT-04 · high · planning-gap — no county→national escalation on empty results; the Python SCOPE-ESCALATE tier was not ported**
-Python escalates geography when the home county is empty (agent/discover.py:129-144, `_freebmd_national_fallback` — motivated by the Lydia Kenworthy case: twin says Stanton DBY, FreeBMD registered Huddersfield YKS). In Swift, `ResearchScope` is fixed for the run and the only empty-then-broaden axis is name strictness (SearchDispatcher.swift:104-131) — spelling widens, geography never does. A subject registered one county over is invisible at default `.county` scope. The geography gate already down-weights distant hits, so escalation adds recall without noise.
-*Recommendation:* when all strictness tiers for (freebmd, recordType) are empty at `.county`/`.adjacent`, fire one national `districtid=""` query; log it as a distinct escalation step in searchHistory. **Size: M**
-
-> **DONE 2026-07-11.** County-to-national escalation shipped (commit 50e3365, `#FT-04`).
-
-**FT-05 · medium · correctness-bug — unsplittable overflow (single-year window, depth cap, missing bounds) silently returns zero results**
-`fetchWindowWithAdaptiveSplit` recurses only when depth < 3 AND both year bounds exist AND the window spans ≥ 2 years (FreeBMDSource.swift:303-306); every other overflow case falls through to parsing the interstitial and returns `[]` (FreeBMDSource.swift:335-343), indistinguishable from a genuine empty. Python surfaces "Too many results (N)" explicitly (sources/freebmd.py:83-86).
-*Recommendation:* when overflow is detected but the split guard fails, return a distinct outcome (typed overflow → `.unavailable(reason:)` or the truncated envelope from FT-23); parse the entry count for the reason string. **Size: S**
-
-> **DONE 2026-07-11.** Unsplittable overflow honesty landed in the search-outcome honesty envelope (commit a6e9c6d, `#FT-05`).
-
-**FT-06 · medium · correctness-bug — PLAUSIBLE (unverified live): `Phonetic=false` sent on every strict query may enable soundex under checkbox-presence semantics**
-Swift sends `Phonetic="true"` for `.loose` and `"false"` otherwise, unconditionally (FreeBMDSource.swift:164, 200). Python never sends the field (freebmd.py:166-184); real browsers omit unchecked checkboxes; `search.pl` is Perl CGI, where presence checks treat `"false"` as TRUE. If so, every `.strict`/`.variant` query has been running server-side soundex — inflated results, more overflow interstitials, and the strict-vs-loose tiers silently collapse. Cannot be confirmed statically (the ground-truth payload never arrived).
-*Recommendation:* omit the field entirely unless enabling — correct under *both* server interpretations, zero risk. Then live-verify the checked value string. **Size: S**
-
-> **DONE + BIGGER THAN DIAGNOSED (2026-07-11, live-probed).** The field name itself was wrong: the soundex checkbox is `sndx=on`, not `Phonetic`. The old code sent a non-existent `Phonetic` field, so the server ignored it and soundex NEVER engaged on any tier — including `.loose`/`.discover`, whose entire purpose is fuzzy matching (a real recall bug, not just the strict-collapse FT-06 feared). Probe (FreeBMDPhoneticProbeTests, "Cauldwell" DBY 1860–1900): strict=99 exact-only; loose with the fix `sndx=on`=350 rows across Caldwell/Cauldwell/Coldwell/Couldwell. Fix: send `sndx=on` when enabling, omit otherwise.
-
-**FT-07 · medium · correctness-bug — strategist FocusedQuery sends a district NAME as `districtid` (a numeric-ID field)**
-`FocusedQuery.district` is documented as a name the dispatcher "will resolve" (FocusedQuery.swift:56-60), but `toRecordQuery` passes it straight through (FocusedQuery.swift:84-89) and `dispatchOne` does no resolution (SearchDispatcher.swift:78-86) — an MLX query for "Belper" goes out as `districtid=Belper` against numeric options. Either errors or silently searches all districts; the activity summary papers over it (FreeBMDSource.swift:536-537).
-*Recommendation:* resolve via `FreeBMDDistrictCatalogue.shared.district(named:)` (FreeBMDDistrictCatalogue.swift:107-112); fall back to `""` with a logged warning. **Size: S**
-
-> **DONE 2026-07-11.** Strategist district-ID resolution fix (commit 50e3365, `#FT-07`).
-
-**FT-08 · medium · correctness-bug — Python reference still ships five district IDs the Swift side proved wrong; parity tooling compares against silent zeros**
-Swift verified and corrected five codes in 2026-05 (Bakewell 420→691, Chesterfield 621→1102, Derby 710→1016, Basford 676→707, Worksop 765→630 — RegionConfig.swift:27-56, agreeing with the bundled catalogue), but config.yaml:17-24 and sources/freebmd.py:43-50 still carry the stale codes, which "silently produced zero results". Python is the parity reference for `compare_twins.py`/`compare_gaps.py`, so probes in those districts under-report and mask real divergence. Whether the corrected codes remain valid on *today's* form is unverified (no ground-truth payload).
-*Recommendation:* update config.yaml + freebmd.py constants (or have Python read `freebmd-districts.json`); add one live smoke probe per configured district ID to the parity run. **Size: S**
-
-> **DONE 2026-07-13 (#FT-08).** config.yaml `region.districts` and `sources/freebmd.py` constants corrected to the catalogue-verified values (Bakewell 691, Chesterfield 1102, Derby 1016, Basford 707, Worksop 630); each constant carries its old value in a comment. The parity reference no longer masks divergence with silent zero-result districts. The live smoke-probe half stays deferred with the rationed-probe budget (volunteer-source discipline) — the values themselves are catalogue-verified, the probe would only re-confirm the live form still accepts them.
-
-**FT-09 · medium · inefficiency — county district fan-out is not era-filtered; YKS umbrella code resolves to zero districts silently**
-`.district`/`.county`/`.adjacent` scopes use `RegionConfig.districts(forChapmanCode:)` with no year filter (SearchDispatcher.swift:282-285) — for an 1850–1900 subject, 4–5 of 12 DBY queries target post-1974/1994/1997 composites that cannot match; catalogue counties are worse (LAN 72 districts, LND 55). The year filter exists (`FreeBMDDistrictCatalogue.covering(yearFrom:yearTo:)`, FreeBMDDistrictCatalogue.swift:89-94) but only the `.national` branch applies it. Worse: `uk-chapman-codes.json` has "YKS" but every Yorkshire district is tagged WRY/NRY/ERY, so a YKS-derived subject gets **zero** FreeBMD county queries with no warning.
-*Recommendation:* intersect county district sets with catalogue year validity; alias YKS→[WRY, NRY, ERY] (and other umbrellas); warn when a non-empty chapman resolves to zero districts. **Size: M**
-
-> **DONE 2026-07-11.** Era-filtered county fan-out shipped (commit 50e3365, `#FT-09`).
-
-### 2.2 FreeCen
-
-**FT-10 · high · correctness-bug — household enrichment assumes the target is the FIRST household member; Python tracks `is_target`**
-`parseHouseholdDetail` builds the returned `CensusRecord` from `membersWithBirthYear.first` (FreeCenSource.swift:491-517). FreeCen lists households head-first; the "person found in your search" marker identifies the real target, but the Swift marker handling (FreeCenSource.swift:446-455) extracts the surname and discards the row position. Python records `target_row_start` and sets `is_target` per member (sources/freecen.py:297-319). Because `enrichWithHousehold` replaces the top hit with the detail record (FreeCenSource.swift:191-215), whenever the subject is not the head, the enriched record carries the **head's** name, age, birthYear, relationship, and occupation as the subject's. Faithfulness-of-port violation (`feedback_port_from_python.md`).
-*Recommendation:* port `is_target` — remember the marker's index, select that member (first only as no-marker fallback), add `isTarget` to `HouseholdMember`. Coordinate with FT-15 (same struct change). **Size: M**
-
-> **DONE 2026-07-11.** Faithful `is_target` household port (commit 2b3d5e4, `#FT-10 #FT-12 #FT-15`).
-
-**FT-11 · high · unused-capability — `search_query[birth_chapman_codes][]` never used; the one axis that finds migrants is missing while ~90 residence counties get brute-forced**
-The POST field list (FreeCenSource.swift:115-130) has residence `chapman_codes` only; `birth_chapman_codes` appears nowhere in the repo. The dispatcher scopes by where the subject *lived* at census time, but the tree-known stable fact is where they were *born*: a DBY-born subject in a Lancashire mill town is invisible to `.county` scope and reachable nationally only via ~90 codes × up to 8 census years of separate requests (SearchDispatcher.swift:385-387). One request with `birth_chapman_codes=[DBY]` and no residence filter covers the same ground server-side, on exactly the field the scorer trusts most (birth_county column already parsed, FreeCenSource.swift:352) — and matches the engine's chapman-anchor philosophy.
-*Recommendation:* add `birthChapmanCode` to `FreeCenParams`; make it the primary axis for `.adjacent`/`.national` census sweeps, keeping residence codes for `.county`. **Size: M**
-
-> **DONE 2026-07-11.** Birth-county axis for FreeCen/FreeREG (commit 503cd22, `#FT-11 #FT-13 #FT-14 #FT-17 #FT-18 #FT-20 #FT-22 #FT-26`).
-
-**FT-12 · medium · correctness-bug — record IDs neither unique nor stable: name-based ID collides across people and changes when enrichment succeeds**
-Search-row ID is `"freecen_\(censusYear)_\(surname)_\(givenName)"` (FreeCenSource.swift:363) — two John Smiths in one census year collapse to one ID and overwrite each other under `evidence_records`' `"<profile>|<source_record_id>"` primary key (ProjectDatabase.swift:591). The enriched record uses a *different* scheme (`freecen_detail_…`, FreeCenSource.swift:495) swapped in by `enrichWithHousehold`, so the same record's ID depends on whether the detail fetch succeeded that run — a rejection saved against one form fails to suppress the other (rejectionLookup, ResearchPipeline.swift:35-42). The stable unique key is already in hand: the `/search_records/<id>` detail URL (FreeCenSource.swift:342-348).
-*Recommendation:* use the `search_records` path segment as the canonical ID for both search row and enriched record; fall back to the composite only when no link parsed. **Size: S**
-
-> **DONE 2026-07-11.** Stable URL-derived record IDs (commit 2b3d5e4, `#FT-12`).
-
-**FT-13 · medium · unused-capability — `freecen2_place_ids[]`/`search_nearby_places` unused; dispatcher comment points at a `FreeCenParams.parish` field that does not exist**
-Place scoping is never used (`search_nearby_places` hardwired `"0"`, FreeCenSource.swift:123). SearchDispatcher's comment says parish restriction "would happen via FreeCenParams.parish… until birthLocationCode ships" (SearchDispatcher.swift:374-377) — but `FreeCenParams` has no parish field at all (RecordTypes.swift:551-563); the documented seam was never built. Parish knowledge exists today (config `district_parishes`, catalogue parish arrays).
-*Recommendation:* fix the stale comment **now** (S); when parish scoping is scheduled, add `placeIds`+`searchNearbyPlaces` with a cached place-id lookup keyed on (parish, chapman) (L, deferred). **Size: S now / L deferred**
-
-> **DONE (S now) 2026-07-11.** Stale-comment fix shipped (commit 503cd22, `#FT-13`). The **L-deferred** place-scoping half (`placeIds`+`searchNearbyPlaces`) remains OPEN, tracked with FT-19 (overlaps UV-03).
-
-**FT-14 · medium · correctness-bug — `FreeCenParams.censusYear` and the `validYears` guard are both dead; the strategist path can put a non-census year on the wire**
-`FreeCenSource` reads the census year from `query.yearFrom` (FreeCenSource.swift:77), never from `FreeCenParams.censusYear` (write-only); `validYears` (FreeCenSource.swift:61) is never referenced. The main dispatcher filters through `ScoringRules.censusYears`, but `FocusedQuery.toRecordQuery` passes yearFrom straight through (FocusedQuery.swift:90-95, 122) with no validation in `dispatchOne` — an MLX-suggested "FreeCen 1885" emits `record_type=1885`, an option that doesn't exist. Python guards exactly this ("Invalid census year", freecen.py:165-166); the port dropped it. Outcome today: silent zero or a Rails validation page parsed as no-results.
-*Recommendation:* snap `query.yearFrom` to the nearest `validYears` member (or return `.outsideCoverage` naming the set); delete or use the dead param. **Size: S**
-
-> **DONE 2026-07-11.** Census-year guard shipped (commit 503cd22, `#FT-14`).
-
-**FT-15 · low · parsing-gap — household parser drops marital_status, birth_county, disability, notes, and the is_target flag Python captures**
-The household table has 11 columns (Swift's own 11-cell grouping, FreeCenSource.swift:443-459), but only indices 0-2, 4-6, 8 reach `HouseholdMember` (FreeCenSource.swift:459-472); marital_status, birth_county, disability, notes are discarded and the struct has no fields for them (RecordTypes.swift:332-339). Marital status distinguishes wife/widow/unmarried sister on identical relationships; birth_county disambiguates common place strings.
-*Recommendation:* extend `HouseholdMember` with `maritalStatus`, `birthCounty`, `isTarget` (rows 3/7 + marker); disability/notes into per-member rawFields. Do together with FT-10. **Size: S**
-
-> **DONE 2026-07-11.** Dropped columns restored (commit 2b3d5e4, `#FT-15`).
-
-### 2.3 FreeREG
-
-**FT-16 · high · correctness-bug — record IDs use process-randomised `String.hashValue`; unstable across app launches (also Wirksworth)**
-`FreeREGSource.swift:308` builds IDs as `"freereg_\(name.hashValue)_\(date.hashValue)"` — SipHash with a per-process random seed, so the same parish record gets a different ID every launch. These IDs are load-bearing across runs: `record_rejections` is keyed (profile_id, record_id) (ProjectDatabase.swift:171-173, 2179-2184), `evidence_records` preserves `user_status` on its `"<profile>|<source_record_id>"` key (ProjectDatabase.swift:586-594, 2260-2280), and `rejectionLookup` suppresses discards by `SourceRecord.id` (ResearchPipeline.swift:35-42) — so **user discard decisions are silently orphaned every launch**. The repo already knows the rule: FamilySearchSource.swift:569 explicitly avoids hashValue for this reason. WirksworthSource.swift:203/247 has the same defect (out of this audit's scope, same fix).
-*Recommendation:* derive IDs from stable content — prefer the detail-URL path already extracted at FreeREGSource.swift:250-288 (contains a server-stable ID); fall back to a deterministic digest of name|date|parish|county|event_type. Fix Wirksworth too; consider a one-shot cleanup of orphaned `freereg_*` rows. **Size: M**
-
-> **DONE 2026-07-11.** Launch-stable record IDs for FreeREG and Wirksworth (commit 46f9f84, `#FT-16`) plus v31 migration purging orphaned hash-based rows (commit 1be4145, `#FT-16`).
-
-**FT-17 · medium · correctness-bug — name split assigns everything after the first token to the surname; middle names corrupt the surname field**
-`parseResults` splits the Name cell with maxSplits:1 — parts[1] (the whole remainder) becomes the surname (FreeREGSource.swift:300-302): "Sarah Jane Kenworthy" → surname "Jane Kenworthy". Inconsistent with FreeCen (last token = surname, FreeCenSource.swift:358-360); Python keeps the site's own columns (freereg_search.py:259-261). Surname feeds the scorer's identity gates, so any multi-forename FreeREG record carries a wrong surname.
-*Recommendation:* match FreeCen's convention, or better, prefer explicit Surname/Forenames columns from the header map (`row["surname"]` is already consulted at FreeREGSource.swift:292). **Size: S**
-
-> **DONE 2026-07-11.** Name split fix (commit 503cd22, `#FT-17`).
-
-**FT-18 · medium · unused-capability — detail pages (parents for baptisms, spouse/witnesses for marriages) never fetched; fatherName/motherName always nil**
-The connector extracts `detailURL` per row (FreeREGSource.swift:250-251, 284-289) but conforms only to `RecordSource`, not `DetailFetchingSource` (FreeREGSource.swift:10); every `ParishRecord` ships `fatherName: nil, motherName: nil` (FreeREGSource.swift:322-323). Python implements `fetch_record_detail` (freereg_search.py:298-331) and enriches top results. The app-side pattern already exists (FreeCen: `DetailFetchingSource` + cap-1 enrichment, FreeCenSource.swift:9, 156-160). Parent names on baptism rows are exactly the family-context tokens pre-1837 identity work needs, where FreeREG is the only structured source.
-*Recommendation:* mirror the FreeCen pattern — cap 1, existing 1000 ms pacing; populate fatherName/motherName + rawFields; base the stable record ID on the same URL (FT-16). **Size: M**
-
-> **DONE 2026-07-11.** FreeREG detail fetch shipped (commit 503cd22, `#FT-18`).
-
-**FT-19 · medium · unused-capability — `place_ids[]` never used; `FreeREGParams.parish`/`registerType` are dead fields callers populate for nothing**
-`FreeREGSource` reads only `chapmanCode` from its params (FreeREGSource.swift:75); `parish` and `registerType` (RecordTypes.swift:613-614) are populated by callers (FocusedQuery.swift:96-101) but never read, and no `place_ids` field is ever emitted (FreeREGSource.swift:89-116). For an inherently parish-event source, county-wide queries are the bluntest instrument; likely parishes are already known (config.yaml:29-85, catalogue parish arrays).
-*Recommendation:* either wire parish through a place-id resolution step and emit `place_ids[]`, or delete the two dead fields so callers stop populating no-ops. **Size: S (delete) / L (place scoping, deferred)**
-
-**FT-20 · medium · parsing-gap — Rails validation-error pages parse as zero results; the Python error check was dropped in the port**
-Python detects validation failures ("error prohibited", freereg_search.py:182-195); Swift `parseResults` (FreeREGSource.swift:235-328) has no error detection — a rejected POST is indistinguishable from a genuine no-hit and flows into negative-evidence reasoning. Same fragility in FreeCen (`guard html.contains("We found")`, FreeCenSource.swift:315).
-*Recommendation:* port the check — Rails error banner (or neither results-marker nor no-results-marker) → `.unavailable(reason:)`, never `.results([])`. Same rule for FreeCen. Overlaps FT-26. **Size: S**
-
-> **DONE 2026-07-11.** Rails validation-error page triage (commit 503cd22, `#FT-20`; paired with `#FT-26`).
-
-**FT-21 · low · unused-capability — `witness` search unused; marriage-witness probes are an untapped FAN-club channel (deferred)**
-No witness field anywhere in the repo; the form can extend name matching to witnesses. Relatives routinely witness marriages — a collateral-kin signal no configured source exposes (HypothesisEngine+SiblingExists currently infers from birth indexes alone). But witness hits are a different evidence class (subject not the principal) and would pollute identity clustering without a record-role concept.
-*Recommendation:* defer until `SourceRecord` has a record role (witness/informant); then hypothesis-driven probes only, never the default sweep. **Size: L (deferred)**
-
-### 2.4 Cross-source
-
-**FT-22 · high · parsing-gap — FreeCen and FreeREG fetch only page 1 of paginated Rails results; silent truncation**
-Both connectors issue a single POST and parse whatever rows come back (FreeCenSource.swift:132-149, FreeREGSource.swift:118-131); no page/per-page field in either field map, no follow-up GET, no pagination-nav parsing. Any result set larger than one page is silently truncated and returned as complete. Python is identical (freecen.py:188-212, freereg_search.py:161-175). Contrast FreeBMD, which at least detects its overflow interstitial (FreeBMDSource.swift:298-333).
-*Recommendation:* (1) run Python's `probe_form` (freereg_search.py:26-59) once against both live forms for a results-per-page select, and max it in the Swift field maps; (2) parse the pagination nav and fetch subsequent pages through existing pacing — or at minimum detect "more pages exist" and surface it via FT-23. **Size: M**
-
-> **DONE 2026-07-11.** Landed as the shared T1-01 search-outcome honesty envelope (commit a6e9c6d, `#FT-22 #FT-23 #T1-01`); pagination in commit 503cd22 (`#FT-22`).
-
-**FT-23 · high · correctness-bug — sites' own hit counts parsed nowhere; `SourceQueryResult` cannot express "truncated", so negative-evidence reasoning trusts partial pages**
-FreeCen's "We found N Results" is boolean-checked and N dropped (FreeCenSource.swift:315); FreeREG's count text ignored; FreeBMD's interstitial entry count discarded (Python surfaces all three: freecen.py:90-98, freereg_search.py:204-207, freebmd.py:84-86). Structurally, `SourceQueryResult` (AncestorKit RecordTypes.swift:645-656) has no `totalCount`/`isTruncated`, so parsed-rows vs claimed-total can never be checked — and GPS criterion 1 "reasonably exhaustive search" (GPSScorer.swift:12/56/65-77), the per-run QueryCache, and the activity bus all treat a first page as the complete answer.
-*Recommendation:* parse the hit count in all three connectors; extend `SourceQueryResult` (or a result envelope) with `totalCount`/`truncated`. Downstream: never record a negative search and exclude the query from GPS criterion-1 accounting when `truncated == true`; log rows≠total as a parser-drift alarm. **Size: M**
-
-> **DONE 2026-07-11.** Landed as the shared T1-01 search-outcome honesty envelope (commit a6e9c6d, `#FT-22 #FT-23 #T1-01`).
-
-**FT-24 · high · correctness-bug — QueryCache key omits FreeCen/FreeREG chapman code and FreeCen birthYearRange; distinct wire requests collide**
-`QueryCache.cacheKey` (QueryCache.swift:78-109) extracts districtCode from `.freeBMD` params only; `chapmanCode` and `birthYearRange` never enter the key despite changing the outbound POST (FreeCenSource.swift:109-113/129, FreeREGSource.swift:91) — violating the key's own contract comment (QueryCache.swift:74-75). Consequences: under `.adjacent`/`.national`, every post-iteration-1 consumer is served whichever single county's results were written last — county coverage silently collapses to one county; and after `refineSubject` narrows the birth window (ResearchPipeline.swift:250), the narrowed probe is served stale wide results (or vice versa, dropping records).
-*Recommendation:* serialise each params case's wire-affecting fields into the key (chapman, censusYear, birthYearRange); add a test asserting two queries differing only in chapmanCode or birthYearRange produce different keys. **Size: S**
-
-> **DONE 2026-07-11.** Query-cache key carries all wire-affecting source params (commit af24a00, `#FT-24 #T1-21`).
-
-**FT-25 · high · inefficiency — multi-value form fields are structurally impossible: `postForm` takes `[String:String]`, so one county per request forever**
-Both Rails sites accept repeated `search_query[chapman_codes][]` entries (Python builds POST data as a tuple list precisely for this, freereg_search.py:136-149), but the Swift transport signature is `fields: [String: String]` (HTTPClient.swift:7; body assembly SourceHTTPClient.swift:38-40), which cannot encode a repeated key. Hence one request per chapman code: FreeCen `.adjacent` ≈ 6 × up to 8 census years, `.national` ≈ 90 × years; FreeREG `.national` ≈ 70 codes at 1 s pacing.
-*Recommendation:* change `postForm` to `[(String, String)]` (or add an overload); then batch scope counties per request. **Sequence after FT-22/FT-23** — wider queries make first-page truncation more likely, and per-code queries currently double as an accidental result partitioner. **Size: M**
-
-*Implemented 2026-07-11 (dispatcher-side wiring; transport primitive shipped separately):* `FreeCenParams.chapmanCodes` / `FreeREGParams.chapmanCodes` carry a batch; the connectors emit one repeated `search_query[chapman_codes][]` key per code via the `multiFields` primitive (a single code stays one key, byte-identical to before). `QueryCache.residenceChapmanKeyComponent` keys the SET of codes (`DBY+LAN`) so a batched multi-county query is a distinct cache entry from any single-county one; a lone code keys exactly as pre-FT-25. Behind a conservative default-OFF gate (`multiCodeBatchEnabled`, mirroring `FreeBMDParams.countyQueryEnabled`) — the repeated-key idiom is standard Rails but UNVERIFIED against these specific forms (FT-27); gate OFF preserves the proven one-code-per-query wire shape until the one live probe. Tests: `FreeCenFreeREGBatchingTests` (query-shape, cache-key distinctness, batched-response geography, batched-response truncation honesty).
-
-**FT-26 · medium · parsing-gap — zero results, validation errors, too-many-results, layout changes, and login walls all conflate to cacheable `.results([])`**
-FreeREG returns `.results(records)` on any HTTP-200 body (FreeREGSource.swift:130-134); FreeCen's sole guard is `html.contains("We found")` (FreeCenSource.swift:315). Python distinguishes validation errors, no-results text, and login walls (freereg_search.py:183-226; freecen.py:90-94). The empty arrays propagate as legitimate: QueryCache caches them (QueryCache.swift:66-71), the activity feed reports 0, and nothing marks the source unavailable even though `.unavailable` exists precisely for this.
-*Recommendation:* port the page-state triage; distinguish count==0 (genuine empty) from regex-miss (`.unavailable("could not parse results page")`). Add a saved error-page fixture test per site so copy drift fails loudly. Subsumes FT-20's mechanism; ship together. **Size: M**
-
-> **DONE 2026-07-11.** Page-state triage shipped (commit 503cd22, `#FT-26`; envelope pairing in commit a6e9c6d).
-
-**FT-27 · medium · planning-gap — the audit's ground-truth live-form payload was never delivered; PLAUSIBLE items need one confirmation pass**
-The orchestration's GROUND TRUTH block arrived as the literal string `undefined`, and static-analysis-only was mandated, so live-form claims rest on the task's enumerated field names, the Python references, and in-repo scrape artifacts (freebmd-districts.json, 1121 entries, 2026-05 enrichment per FreeBMDDistrictCatalogue.swift:16-20). Anything depending on today's exact encodings — Phonetic value string (FT-06), count semantics, districtid validity (FT-08), per-page selects (FT-22) — is **PLAUSIBLE, not confirmed**.
-*Recommendation:* one budget-conscious live probe session to upgrade/downgrade the PLAUSIBLE items; see §5.6. **Size: S**
-
-> **DONE 2026-07-11 (FT-27).** The live-form ground truth was captured (scratchpad freebmd/freecen/freereg/cwgc form HTML) and the PLAUSIBLE items validated against the real server: FT-01 county axis (49 rows, 13 districts) and FT-06 soundex field (`sndx=on` widens to siblings) both live-probed. Env-gated re-validation lives in FreeBMDCountyProbeTests + FreeBMDPhoneticProbeTests.
-
-**FT-28 · low · inefficiency — national fan-out issues one HTTP request per chapman code (~90 FreeCen / ~70 FreeREG) though the forms accept multiple codes per request**
-One `RecordQuery` per code (SearchDispatcher.swift:385-412, 425-449), each a separate POST with a single `chapman_codes[]` value. At enforced pacing, a national sweep costs ~45–70 s of pure rate-limit sleep per record type per surname variant — ~70-90× volunteer-source load per logical question.
-*Recommendation:* batch codes into regional groups (or one request) — **only after FT-22/FT-23/FT-25**, with automatic re-split on truncation (mirroring FreeBMD's adaptive split). **Size: M**
-
-*Implemented 2026-07-11:* `SearchDispatcher.freeCenResidenceGroups` / `freeREGChapmanGroups` chunk the broad-scope fan-out (FreeCen's `.national`/`.adjacent` residence fallback when no home chapman is derivable; FreeREG's `.adjacent`/`.national`) into groups of `batchGroupSize`. **Group size = 10, NOT all-at-once** — a whole-scope single request maximises the first-page truncation FT-22/FT-23 already flag as more likely under wider queries; 10 cuts a ~90-code national residence sweep to ~9 requests (≈10×) while keeping each result set an order of magnitude below the 500-result / 10-page pagination budget. Automatic re-split on truncation (the runtime feedback loop) is deferred as a follow-up; the static conservative group size keeps the wire safe until then. Same default-OFF gate as FT-25 (gate OFF → one code per query, unchanged). Tests: `ChapmanBatchGroupingTests` in `FreeCenFreeREGBatchingTests`.
-
-**FT-29 · low · correctness-bug — form-body percent-encoding uses `.urlQueryAllowed`; values containing `&`, `+`, or `=` corrupt the POST**
-`SourceHTTPClient.postForm` encodes values with `.urlQueryAllowed` (SourceHTTPClient.swift:38-40), which permits `&`, `=`, `+` inside values — `&` splits the pair, `+` decodes as a space. Names rarely contain these, but parish/place strings can ("Clifton & Compton" exists in the district data), and all three connectors share this transport.
-*Recommendation:* encode with a form-safe set (alphanumerics + `-._*`, space→`+`) or build the body via URLComponents — one shared fix. **Size: S**
-
-> **DONE 2026-07-11.** Form-safe x-www-form-urlencoded serializer (commit 78ab374, `#FT-29`).
+**§5.1–§5.6 cross-cutting recommendations** — truncation/hit-count honesty envelope, persistent negative-search cache, stable content-derived IDs, request-budget discipline, page-state triage fixtures, one live-form confirmation session — all shipped 2026-07-11/12 (T1-01/FT-22/FT-23, T1-04, FT-16/FT-12/T1-27, FT-01/02/11/25/28, FT-20/26, FT-06/FT-27).
 
 ---
 
-## 3. Top-5 priority (COMPLETED — combined FT + T1)
+## 2. Deferred capabilities (OPEN)
 
-> **All five clusters SHIPPED 2026-07-11/12** — FT-16 (46f9f84/1be4145), FT-12+FT-10 (2b3d5e4), T1-05 (1cd73db), T1-01/FT-22/FT-23 (a6e9c6d), FT-24 (af24a00); see the per-finding DONE notes.
+**FT-19 · medium · unused-capability — FreeREG `place_ids[]` never used; parish-level scoping deferred (L)**
+`FreeREGSource` reads only `chapmanCode` from its params (FreeREGSource.swift:75); `parish`/`registerType` (RecordTypes.swift:613-614) are populated by callers (FocusedQuery.swift:96-101) but never read, and no `place_ids` field is ever emitted (FreeREGSource.swift:89-116). For an inherently parish-event source, county-wide queries are the bluntest instrument; likely parishes are already known (config.yaml:29-85, catalogue parish arrays). The S half (delete the dead fields) can ship anytime; the L half — wire parish through a place-id resolution step and emit `place_ids[]` — is the deferred capability. Overlaps **FT-13**'s deferred place-scoping half and **UV-03**. **Size: S (delete) / L (place scoping, deferred).**
 
-*(Re-ranked 2026-07-11 across both audits after tier-1 verification landed; the FT-only table it replaces had FT-16/10/12/24/22+23.)* Ranking principle unchanged: **persisted-data integrity** (user decisions, evidence keys) beats **evidence correctness** (wrong facts attached to subjects) beats **search honesty** (truncation, negative evidence) beats efficiency. The request-storm items (FT-01/02/25/28, T1-07/12) are deliberately *not* top-5: they waste budget but corrupt nothing, and the batching ones are sequenced behind the honesty envelope anyway.
-
-| # | ID | Finding | Why first |
-|---|----|---------|-----------|
-| 1 | FT-16 + FT-12 (+ T1-27 same class) | Record-ID integrity: FreeREG/Wirksworth hashValue IDs, FreeCen name-composite collision + enrichment ID flip, Probate UUID fallback / FAG `findagrave_0` | Every launch/run silently orphans user discard decisions and `user_status` in `evidence_records` — ongoing, compounding data damage; §5.3 makes it one invariant + one test |
-| 2 | FT-10 | FreeCen household-target bug | Enriched census evidence carries the household **head's** name/age/birthYear/occupation as the subject's whenever the subject isn't head — actively wrong facts feeding the scorer |
-| 3 | T1-05 | CWGC geography-gate port violation | The 4-gate scorer unconditionally passes every military record by class while the discriminating next-of-kin line sits parsed and unread — permissive-direction weakening of the deterministic sandwich; Python demotes what Swift passes |
-| 4 | T1-01 (subsumes FT-22 + FT-23; instances T1-15/16/24/25/26) | Engine-wide truncation/availability blindness | Blocks, API errors, era gaps, and page-1 truncation are all recorded as "searched, found nothing" — poisons negative-evidence reasoning and GPS criterion-1 across **all six** audited connectors; one envelope change, precondition for every batching fix and the §5.2 negative cache |
-| 5 | FT-24 (+ T1-21 same class) | QueryCache key omits wire-affecting params (FreeCen chapman/birthYearRange, FAG location) | County coverage silently collapses to one county after iteration 1; strategist probes silently no-op against stale cache entries — invisible recall loss inside a single run; small contained fix |
-
-FT-16 + FT-12 + FT-10 + FT-15 plausibly ship as one "FreeCen/FreeREG integrity" commit series; T1-01/FT-22/FT-23 as the shared envelope change; T1-05 pairs naturally with T1-10 (the additional_info parser feeds the gate). Near-miss worth stealing on any passing commit: T1-02 — a one-line `recordedAge` fix that turns CWGC's strongest parsed field back on.
+**FT-21 · low · unused-capability — FreeREG witness search unused; marriage-witness probes are an untapped FAN-club channel (blocked)**
+No witness field anywhere in the repo; the form can extend name matching to witnesses. Relatives routinely witness marriages — a collateral-kin signal no configured source exposes (`HypothesisEngine+SiblingExists` currently infers from birth indexes alone). But witness hits are a different evidence class (subject not the principal) and would pollute identity clustering **without a record-role concept on `SourceRecord`**. Defer until `SourceRecord` has a record role (witness/informant); then hypothesis-driven probes only, never the default sweep. **Size: L (blocked on SourceRecord record-role).**
 
 ---
 
-## 4. Rejected and unverified findings
+## 3. Finish interrupted verification — UV batch (§5.7)
 
-The verify phase classified 20 findings as not-confirmed, but the envelope conflates two very different things. The logs show verify agents lost to stalls and a session limit ("Verify phase: 29 confirmed, 20 rejected"; multiple `verify:*` failures: connection closed, session limit). Separated honestly:
+The free-trio verify phase lost agents to stalls and a session limit; the critic pass produced zero additions because it *failed*, not because it was satisfied. These findings need their interrupted lens(es) re-run **before** any member is built. Re-verify DS-adjacent scope against current code (several were substantially covered by shipped FT/T1 work — fold, don't rebuild).
 
-### 4.1 Genuinely refuted (11) — do not re-find these
+- **UV-01 · fact-confirmed, value lens never ran** — Subject marriage window ignores known children's birth years (44–55-year windows where 10–12 would do; `FamilyContext` has no childBirthYears field, structurally unreachable at query build).
+- **UV-02 · fact-confirmed, value lens never ran** — Death-search floor never advances from alive-at evidence (census facts / children's births don't tighten the 80-year fallback; `absentFromCensusSuggests` port has zero callers). *(= the DS-27 dead-code residue.)*
+- **UV-06 · never verified (titles only)** — Hypothesis flows bypass the per-run QueryCache; level-2 ladder windows fully contain level-1 (re-downloads).
+- **UV-07 · never verified (titles only)** — No cross-run negative-search memory; `negative_searches` used only as a resume-state hack. **Mostly shipped as T1-04** — re-verify the residue, don't rebuild.
+- **UV-08 · never verified (titles only)** — In `.all` mode the variant tier re-fires the strict tier's exact query wire-for-wire; `wildcardSurname` axis dead.
+- **UV-09 · never verified (titles only)** — Birth-year-candidate census probes are near-duplicates of main-loop census queries.
 
-One line each; full two-lens rejection notes are in the audit envelope.
-
-- **FreeBMD "confidence" column dropped** — the live fixture shows parts[0] alternating 41/40 per row: a row-striping display code, not transcription quality; persisting it as "confidence" would enshrine a misreading; the ID-collision half targets an 8-part row shape never observed live.
-- **`type=All` merged queries** — birth/marriage/death windows are disjoint by construction (ResearchSubject.swift:206-225), so All-mode needs a ~97-year union window, destroying per-type precision; `s_surname` is type-overloaded (spouse vs MMN); negative_searches is keyed per record_type.
-- **`aad`/`agepresent` server-side age filters** — strictly tighter than the scorer's deliberate no-age-pass rule (RecordScorer.swift:388-394): silent recall loss plus corrupted negative evidence; post-1969 the field holds DOB not age.
-- **`count` results-per-page probe** — FreeBMD's over-cap behaviour is a refusal interstitial, not pagination (live-derived, commit 95e4b17); multi-thousand-row pages arrive whole; no truncation "middle band" exists to fix.
-- **Quarter-level `sq`/`eq` narrowing** — saves zero requests (cost is per-request), contradicts the documented ±1-year registration-slip tolerance, and hides same-year namesakes the multi-hypothesis framework needs.
-- **`exactgiven`/`mono`/`spouseidonly` toggles** — bandwidth isn't FreeBMD's constraint; unconfirmed toggles risk the known silent-zero failure class (sq/eq precedent) for zero recall gain; exactgiven's rationale is already documented at the point of change.
-- **FreeCen `start_year`/`end_year` semantics doubt** — birth-year semantics are a deliberate spec decision (archived SOURCE_INTEGRATION_SPEC.md:183/232) and empirically validated by months of live results (harness runs returned so many rows enrichment had to be capped).
-- **occupation/marital_status as narrowing axes** — no deterministic input exists (Profile has no occupation field); marital-status filters wrongly exclude widowed entries; the documented direction is extraction (FT-15), not filtering.
-- **FreeREG `inclusive`/`no_surname`/`region`** — `inclusive` admits undated rows the date gate hard-fails (RecordScorer.swift:317-320): Triage clutter, zero facts; `no_surname` skip is a spec decision; `region` duplicates the built chapman-adjacency machinery.
-- **Discover mode should lead strict-first** — loose-first is spec-mandated (RESEARCH_PIPELINE_SPEC.md:719) and test-enshrined; the ladder stops on *any* non-empty batch, so strict-first would foreclose phonetic reach in the one recall-first mode. Residual kernel already tracked as spec gap G3.
-- **Staged waves (BMD first, then narrowed census)** — designed no-op: the thin-subject verdict cap prevents wave-A index hits from producing `.fact`, so wave B runs with the same window after serializing wall time behind the most breaker-prone source; Python sequences the *opposite* way.
-
-### 4.2 Fact-confirmed, value lens never ran (5) — carry forward, **not rejected**
-
-These passed the fact lens (citations verified, several with endorsing notes) but their value verification died on infrastructure. Treat as strong candidates pending one value pass; do not implement without it, do not discard.
-
-- **UV-01** — Subject marriage window ignores known children's birth years (44–55-year windows where 10–12 would do; `FamilyContext` has no childBirthYears field, structurally unreachable at query build).
-- **UV-02** — Death-search floor never advances from alive-at evidence (census facts / children's births don't tighten the 80-year fallback; `absentFromCensusSuggests` port has zero callers).
-- **UV-03** — `.parish` scope silently degrades to county (FreeCen/FreeREG) or zero queries (FreeBMD) while the UI promises parish scoping (ResearchConfigSheet.swift:211) — overlaps FT-13/FT-19.
-- **UV-04** — chapman_codes multi-value fan-out (fact notes: "finding stands; recommendation is sound") — substantially covered by confirmed FT-25/FT-28; fold in.
-- **UV-05** — FreeBMD `.adjacent` silently equals `.county` on a stale "no per-district chapman data" justification; the catalogue has been 100% chapman-tagged since the 2026-05 enrichment; FreeCen/FreeREG *do* honour `.adjacent` — cross-source inconsistency within one run.
-
-### 4.3 Never verified at all (4) — unverified, titles only
-
-Dropped by the session limit before either lens ran. Candidates for the next audit batch; **treat every claim as unverified**.
-
-- **UV-06** — Hypothesis flows bypass the per-run QueryCache; level-2 ladder windows fully contain level-1 (re-downloads).
-- **UV-07** — No cross-run negative-search memory; `negative_searches` used only as a resume-state hack (feeds §5.2).
-- **UV-08** — In `.all` mode the variant tier re-fires the strict tier's exact query wire-for-wire; `wildcardSurname` axis dead.
-- **UV-09** — Birth-year-candidate census probes are near-duplicates of main-loop census queries.
+*(UV-03 marriage/parish scope-degrade overlaps FT-13/FT-19 above; UV-04 chapman multi-value is covered by shipped FT-25/FT-28; UV-05 FreeBMD `.adjacent`==`.county` — carry forward with the UV batch if the value pass revives it.)*
 
 ---
 
-## 5. Cross-cutting recommendations
+## 4. Refuted — do not re-find (one line each)
 
-> **SHIPPED status 2026-07-11/12:** §5.1 (honesty envelope — T1-01/FT-22/FT-23), §5.2 (persistent negative-search cache — shipped as T1-04, commit 08a4912), §5.3 (stable content-derived IDs — FT-16/FT-12/T1-27), §5.4 (request-budget sequence — FT-01/02/11/25/28), §5.5 (page-state triage fixtures — FT-20/26), and §5.6 (one live-form confirmation session — FT-06/FT-27) all shipped. §5.7 (finish interrupted verification of UV-01…UV-09 + critic pass) remains **OUTSTANDING**.
+Full two-lens rejection notes are in the audit envelopes (git-only).
 
-1. **Truncation/hit-count honesty in `SourceQueryResult` first.** FT-22, FT-23, FT-05, and FT-26 all converge on the same structural hole: connectors cannot say "this answer is partial" or "this page wasn't a results page". One envelope change (`totalCount`, `truncated`, richer `.unavailable` reasons) unblocks all four and is the precondition for every batching change. Negative evidence and GPS criterion-1 must consume the flag from day one.
-2. **Persistent negative-search cache — after (1), never before.** Cross-run memory of "searched X, found nothing" is the natural next step (UV-07 raised it; unverified, but the need is corroborated by confirmed findings): a truncated or unparseable page recorded as a durable negative would be worse than no cache. Key it by the full set of wire-affecting axes — the exact lesson of FT-24 — and respect the existing per-run `record_rejections`/user-discard semantics.
-3. **Stable content-derived record IDs as a connector-wide invariant.** FT-16 and FT-12 are the same defect class in two connectors (plus Wirksworth). Rule: prefer a server-stable URL path segment, else a deterministic digest of normalised content; never `hashValue`, never name-composites. FamilySearchSource already states the rule (FamilySearchSource.swift:569 per finding text) — add a test or lint that greps connectors for `hashValue`-derived IDs so the class can't recur.
-4. **Request-budget discipline, in sequence.** (a) honesty envelope (§5.1) → (b) server-side scoping params that already exist: `countyid` (FT-01), `districtid=""` national (FT-02), `birth_chapman_codes` (FT-11) → (c) multi-value transport + chapman batching with re-split on truncation (FT-25, FT-28). Order matters: batching before truncation-honesty converts silent page-1 truncation from rare to routine.
-5. **Page-state triage fixtures.** Every connector gets saved fixture pages for: results, genuine-empty, validation error, login wall, overflow/too-many-results. Parser must classify all five; anything unclassifiable returns `.unavailable`, never a cacheable `[]` (FT-20, FT-26, FT-05).
-6. **One live-form confirmation session** (FT-27) to discharge the PLAUSIBLE items in one budget-conscious pass: Phonetic value encoding (FT-06), districtid validity on today's form (FT-08), per-page/result-count selects (FT-22), FreeREG place_ids/witness field semantics (FT-19/FT-21). Volunteer sources: one pass, no hammering (`feedback_volunteer_sources_rate_limits.md`).
-7. **Finish the interrupted verification.** Re-run the value lens for UV-01–UV-05 and both lenses for UV-06–UV-09, and re-run the critic pass (it produced zero additions because it *failed*, not because it was satisfied).
+**Free-trio (11):** FreeBMD "confidence" column is a row-striping display code, not transcription quality · `type=All` merged queries destroy per-type precision (disjoint windows) · `aad`/`agepresent` server-side age filters are tighter than the deliberate no-age-pass rule · FreeBMD `count` results-per-page is a refusal interstitial, not pagination · quarter-level `sq`/`eq` narrowing saves zero requests and hides namesakes · `exactgiven`/`mono`/`spouseidonly` toggles risk the silent-zero class for no recall gain · FreeCen `start_year`/`end_year` semantics are a deliberate spec decision, empirically validated · occupation/marital_status narrowing has no deterministic input · FreeREG `inclusive`/`no_surname`/`region` are spec decisions / duplicate machinery · discover-mode strict-first contradicts spec-mandated loose-first · staged BMD-then-census waves are a designed no-op.
+
+**Tier-1 (11):** Probate detailURL nil is the deliberate non-addressable pattern · FAG bio/inscription enrich-native adds Cloudflare load (capped kernel = T1-17) · CWGC AgeOfDeath server-side filter would drop unknown-age casualties (gate half = T1-02) · CWGC AdditionalInfo as a search *input* is unevidenced · CWGC ServedIn/Regiment/Rank/Honours query params are speculative narrowing · Tab=exact drift / delete-500-sniff is documented + graceful · eligibility-excludes-women is spec-pinned (widening = new feature) · `includeMaidenName` request param was invented (real fix = response-side T1-23) · FAG family-relationship query axes don't exist (parsing version = T1-20) · deficit-driven record-type routing already exists at the hypothesis layer · FAG location gazetteer-normalisation is backwards (indexes cemetery location).
 
 ---
 
-## 6. Tier-1 sources — confirmed fix backlog (CWGC / FindAGrave / Probate)
+## 5. Tier-1 critic additions — **UNVERIFIED**
 
-Verification completed 2026-07-11 morning on the resumed workflow, run to completion — both lenses ran for every finding and the critic pass ran (contrast §4's infrastructure losses). The envelope delivered **42 confirmed raw findings, 11 rejected, 4 critic additions**. Parallel find agents independently converged on several defects (three separate reports of the CWGC year-filter drop, four of the Probate 50-cap) — corroborating signal, but duplicates; merged below into **29 distinct findings**. IDs are stable — reference them in commits as `fix: … #T1-nn`. Grouped by source then impact; cross-source first, led by the headliner.
+The tier-1 critic pass ran to completion and produced four additions. **Neither lens has verified them** — candidates for the next verify batch, not backlog entries.
 
-### 6.1 Cross-source
-
-**T1-01 · high · planning-gap — engine-wide truncation/availability blindness: unavailable, throttled, and truncated all collapse to "searched, found nothing"**
-`SourceQueryResult` carries `.unavailable`/`.throttled`/`.requiresAuth` (RecordTypes.swift:645-653) but every pipeline path erases it: `SourceQueryResult.records` returns `[]` for all non-`.results` cases (RecordTypes.swift:655-657), `QueryCache.wrappedSearch` returns `[]` (QueryCache.swift:60-71), and `SearchDispatcher.dispatch` returns a bare `[SourceRecord]`. Search history is one aggregate row per iteration with sourceID "all" (ResearchPipeline.swift:232-240); `negative_searches`' only writer is the whole-tree resume hack (WholeTreeResearchViewModel.swift:192-198); the `isThrottled()` seam is FreeBMD-only. So FAG's limit=20 (T1-16), Probate's 50-cap (T1-24), and any source outage are recorded identically to a true zero-match — negative-evidence reasoning is built on unverifiable negatives. This is the engine-wide statement of the hole FT-22/FT-23 found at the free-trio connectors (§5.1) — now confirmed to span all six.
-*Recommendation:* per-(source, query) search-outcome record `{resultCount, totalAvailable?, truncated, availability: ok|error|throttled|blocked}`; propagate through wrappedSearch/dispatch, persist genuine negatives to `negative_searches`, and stop the empty-then-broaden ladder broadening on error. The single change that makes T1-15/16/24/25/26 and FT-22/23 actionable. **Size: M**
-
-> **DONE 2026-07-11.** Engine-wide search-outcome honesty envelope (commit a6e9c6d, `#T1-01 #T1-15 #T1-25`).
-
-**T1-02 · high · correctness-bug — scorer ignores CWGC's parsed AgeAtDeath; date gate falls to the permissive 15–100 band for every military record**
-AgeAtDeath is parsed into `MilitaryRecord.age` (CWGCSource.swift:157-158, 206) but the date gate's `recordedAge` extraction handles only the `.death` and `.probate` shapes (RecordScorer.swift:376-380); `.military` maps to searchType `.death` (RecordTypes.swift:402) so the branch runs with recordedAge always nil, and the gate passes any record where [15,100] intersects the window (RecordScorer.swift:388-394). Two 'E Cauldwell' casualties aged 19 and 31 in 1918 both pass despite fully-disambiguating ages. (`BiographicalFitEvaluator` *does* consume military age for tie-breaks — which is why the server-side AgeOfDeath-filter finding was rejected, §7 — but the date gate itself never sees it.)
-*Recommendation:* add `if case .military(let mr) = record { return mr.age }` at RecordScorer.swift:376-380; test with two same-name MilitaryRecords differing only by age. Same edit slot as T1-22's burial age. **Size: S**
-
-> **DONE 2026-07-11.** Shipped (commit 1cd73db, `#T1-02 #T1-05 #T1-06 #T1-10`).
-
-**T1-03 · medium · inefficiency — strictness ladder re-fires wire-identical queries at .loose/.variant for FindAGrave and Probate**
-`applyStrictness` merely stamps the tier for FAG/Probate/Wirksworth "so activity-bus events reflect dispatcher intent" (SearchDispatcher.swift:202-207, 244-250); neither `FindAGraveSource.search` (FindAGraveSource.swift:72-155) nor `ProbateSource.search` (ProbateSource.swift:44-90) reads `query.strictness` — but `cacheKey` includes `strictness.rawValue` (QueryCache.swift:106), so the wire-identical re-probe is a cache MISS and goes back to the network: 2 duplicate HTTP requests per empty strict tier in extend/discover mode, 3 in all-mode. CWGC escapes only by luck (.variant collides with the cached .loose key; its .strict→.loose genuinely differs on the wire via Tab=exact, CWGCSource.swift:65-67). Confirms UV-08's class beyond FreeBMD.
-*Recommendation:* declare per-source strictness support (e.g. `supportedStrictness` on `RecordSource`, default `[.strict]`) and skip ladder tiers wire-identical to one already run — equivalently, normalise strictness in cacheKey to the source's effective wire strictness so the duplicate becomes a hit. **Size: S**
-
-> **DONE 2026-07-11.** Shipped (commit 08a4912, `#T1-03 #T1-04`).
-
-**T1-04 · medium · unused-capability — negative_searches is dead: no cross-run memory, so every re-run re-fires all proven-empty CWGC/FAG/Probate queries**
-The table has the right shape and helpers (ProjectDatabase.swift:186-211, 2230-2247) but its only writer stashes whole-tree resume JSON under `"__whole_tree__"` (WholeTreeResearchViewModel.swift:192-198) and its only reader is a placeholder returning false. QueryCache is explicitly per-run (QueryCache.swift:4-5; fresh per research(), ResearchPipeline.swift:118-123). Re-running a profile a day later re-fires the full fan-out — including time-invariant negatives (closed-corpus CWGC probes, probate windows entirely pre-1997); each FAG request also costs a 500 ms slot and a WKWebView fetch. Confirms UV-07; this is §5.2's persistent-negative-cache need, and it must land **after** T1-01 for exactly the reason §5.2 states.
-*Recommendation:* on empty `.results([])` from a healthy source, write a negative_searches row keyed by the cacheKey string; consult before dispatch with a per-source TTL (effectively infinite for closed corpora, ~90 days for growing ones — FindAGrave, FreeBMD); surface "skipped — searched \<date\>, empty" in the activity feed. **Size: M**
-
-> **DONE 2026-07-11.** Cross-run negative-search cache (commit 08a4912, `#T1-04 #T1-03`); this is §5.2.
-
-### 6.2 CWGC
-
-**T1-05 · high · correctness-bug — Python's geography check on additional_info was not ported; Swift passes every military record by class**
-agent/scorer.py:227-272 treats the next-of-kin line ('Son of X and Y, of Turnditch, Derby') as the real geographic signal for CWGC records — pass on a county/district/birth-town mention, fail when it names somewhere else. Swift's geography gate short-circuits instead: RecordScorer.swift:461-475 returns an unconditional pass for any `.military` record ('UK residence not on record by class invariant'). The comment is only half-true — the cemetery can't be checked, but additional_info is parsed and available (CWGCSource.swift:169, 193) and never read in scoring (sole consumer: SourceRecordProjection.swift:56). Two WWI casualties named 'G Brooks', next-of-kin Belper vs Kent: both pass geography in Swift; Python demotes the Kent one. Port-fidelity violation weakening the 4-gate scorer in the permissive direction.
-*Recommendation:* port the fall-through exactly: non-empty additionalInfo → pass on county/district/town mention (derived from tree data/RegionConfig, no hardcoded regions), fail on a non-empty line mentioning none; keep the class-pass only for records with no additional_info at all. Pairs with T1-10. **Size: M**
-
-> **DONE 2026-07-11.** CWGC geography-gate port (commit 1cd73db, `#T1-05`).
-
-**T1-06 · high · correctness-bug — initials-indexed casualties unmatchable: no Initials query param, and initials-only records hard-fail the name gate on a nonsense comparison**
-WWI casualties are frequently indexed with Forename empty and Initials 'E V'. Query side: the form's Initials parameter is never used and no fallback tier retries with an initial when the Forename query returns empty (CWGCSource.swift:62-79); the ladder only toggles Tab. Scoring side: empty forename → `RecordCommon.givenName` nil and name = surname only (CWGCSource.swift:171, 179); the name gate falls back to `record.name` for recordGiven (RecordScorer.swift:205), producing recordGiven == the SURNAME and failing at RecordScorer.swift:239-240 as e.g. 'given name mismatch: CAULDWELL vs ERNEST' — a misleading audit-trail reason. The parsed initials sit unused in rawFields (CWGCSource.swift:156, 183).
-*Recommendation:* score side first (pure win): for `.military` with nil givenName, compare rawFields['initials'] first letters against the subject's given/middle initials instead of failing. Query side: initials fallback probe (Forename dropped, Initials=first letter) when the forename query returns zero. **Size: S (score) / M (query fallback)**
-
-> **DONE 2026-07-11.** Shipped (commit 1cd73db, `#T1-06`).
-
-**T1-07 · high · unused-capability — death-year bounds never sent (DateDeathFromYear/ToYear unported); WarSelect thresholds defeated by the ±2 window padding**
-Python sends DateDeathFromYear/DateDeathToYear (cwgc.py:93-96); Swift emits only Surname/Tab/Forename/WarSelect (CWGCSource.swift:62-79), the year window feeding only the WarSelect mapping — which requires the window entirely inside one war (yearTo≤1918 or yearFrom≥1939, CWGCSource.swift:72-78). `yearRange(for: .death)` pads ±2 (ResearchSubject.swift:211), so a death known to be 1917 → window 1915–1919 → **no filter at all**; only deaths ≤1916 or ≥1941 ever get one. Most queries fetch every same-surname casualty across both wars (1.7M-record corpus), transferring filtering cost to parse+scoring and enlarging T1-09's positional-CSV blast radius; the loose tier additionally drops Tab=exact, firing server soundex. (Merges three independently-confirmed reports of the same drop.)
-*Recommendation:* append DateDeathFromYear/ToYear from query.yearFrom/yearTo clamped to 1914–1947, exactly as cwgc.py; replace the WarSelect threshold test with an overlap test (intersects 1914–1921 only → WW1, 1939–1947 only → WW2, both → omit); add day/month bounds when the death date is precise. **Size: S**
-
-> **DONE 2026-07-11.** Shipped (commit cd0eb4d, `#T1-07 #T1-08 #T1-09 #T1-11 #T1-13 #T1-14`).
-
-**T1-08 · medium · correctness-bug — military-eligibility gate tests only birthYearFrom; straddling birth windows and war-years deaths with no birth year never reach CWGC**
-SearchDispatcher.swift:455-456 gates on `subject.birthYearFrom` alone: (1) a window 1876–1882 ('ABT 1879' widened) has birthYearFrom=1876, outside ww1Eligibility 1880...1900 (ScoringRules.swift:137), so CWGC is skipped even though 1880–1882 lies inside; (2) the `if let` means a subject with NO birth year but a known 1916 death is never routed to CWGC at all — though a death squarely in war years is the single strongest CWGC trigger. Python's `military_eligible` takes a point year (agent/rules.py:219-222); the window semantics are a Swift adaptation never adapted. (Distinct from the rejected women/Civilian-War-Dead widening, §7 — this fixes interval semantics *inside* the existing spec-pinned male military scope.)
-*Recommendation:* interval-overlap test ([birthYearFrom, birthYearTo] intersects 1880–1900 or 1900–1927), plus an independent trigger when the death window overlaps 1914–1921 or 1939–1947 regardless of birth-year knowledge. **Size: S**
-
-> **DONE 2026-07-11.** Shipped (commit cd0eb4d, `#T1-08`).
-
-**T1-09 · medium · parsing-gap — CSV parsed positionally with newline pre-split; embedded newlines split records, column reorders shift every field silently**
-Swift splits the whole body on newlines then indexes fixed positions (CWGCSource.swift:143-151); Python uses header-keyed `csv.DictReader` (cwgc.py:117). Two failure modes: a quoted AdditionalInfo containing an embedded newline splits one record into two lines, both silently dropped by the `fields.count >= 19` guard; a column insert/reorder shifts every field silently (cemetery becomes grave_ref) instead of failing loudly. `parseCSVLine` (217-234) also swallows RFC-4180 doubled quotes rather than unescaping them.
-*Recommendation:* parse the header row into a name→index map (DictReader semantics); quote-aware tokeniser treating newlines-in-quotes as data; loud warning when expected header names are missing. **Size: M**
-
-> **DONE 2026-07-11.** Shipped (commit cd0eb4d, `#T1-09`).
-
-**T1-10 · medium · unused-capability — additional_info kept as an unstructured blob; parents/spouse/hometown never extracted**
-'Son of John and Mary Cauldwell, of 5 Mill St., Belper; husband of Sarah…' is parsed into `MilitaryRecord.additionalInfo` and rawFields (CWGCSource.swift:169, 193, 209), whose only consumer copies it verbatim into a LifeEvent description (SourceRecordProjection.swift:56). It never reaches the scorer (T1-05), the hypothesis engine (parent names are literally printed in the record), or free-text extraction. The line format is highly regular and amenable to a deterministic parse — no LLM needed, stays inside the deterministic sandwich.
-*Recommendation:* deterministic parser (son/daughter of → parent names, husband/wife of → spouse, trailing 'of PLACE' → next-of-kin residence) producing structured fields; feed parents/spouse into ProposedRelative/pending_relationships and residence into the geography gate (T1-05). **Size: M**
-
-> **DONE 2026-07-11.** Shipped (commit 1cd73db, `#T1-10`).
-
-**T1-11 · medium · unused-capability — parsed fields dropped at the projection layer: MilitaryDetails built with honours/countryOfService nil while both sit in the same record's rawFields; FAG plot likewise**
-initials, honours, country_of_service, burial_country land in rawFields (CWGCSource.swift:181-195) with zero consumers; SourceRecordProjection.swift:57-66 constructs MilitaryDetails with `honours: nil, countryOfService: nil` even though the schema fields exist and the values are in hand. FAG mirrors the drop: plot is parsed into rawFields (FindAGraveSource.swift:396, 418-422) but BurialDetails is built with `plot: nil, graveRef: nil` (SourceRecordProjection.swift:35-38). (The age half of this finding is T1-02.)
-*Recommendation:* wire rawFields honours/country_of_service into MilitaryDetails and FAG plot into BurialDetails.plot at projection. **Size: S**
-
-> **DONE 2026-07-11.** Shipped (commit cd0eb4d, `#T1-11`).
-
-**T1-12 · medium · inefficiency — CWGC dispatched twice per run with byte-identical queries (.death and .burial targets), racing past the per-run cache**
-`recordTypes = [.death, .burial]` (CWGCSource.swift:17) and the default activeRecordTypes contains both (ResearchState.swift:38) → two targets; buildQueries' cwgc case ignores the requested type and always emits `.death` (SearchDispatcher.swift:457-467), and .death/.burial share a yearRange (ResearchSubject.swift:211) → identical cache keys. Both tasks run concurrently (SearchDispatcher.swift:39-51) and QueryCache has no in-flight coalescing (QueryCache.swift:55-72), so two identical HTTP requests hit CWGC on iteration 1 of essentially every military-eligible subject; the duplicates are then discarded by deduplicate(). Related dead weight: ResearchPipeline.swift:460 also requests `.military`, which no registered source declares — a silent no-op.
-*Recommendation:* register CWGC for `.death` only (the CSV rows are the same), or dedupe targets by claimed cache keys before spawning; longer term, add in-flight coalescing to QueryCache (store a Task per key) — fixes the general class. **Size: S**
-
-> **DONE 2026-07-11.** Shipped (commit 50e3365, `#T1-12`).
-
-**T1-13 · low · unused-capability — get_casualty detail endpoint not ported; a 200-status HTML outage page parses as zero casualties**
-Python's get_casualty/_parse_casualty_page (cwgc.py:196-341) scrapes country, cemetery_url, and a certificate_url PDF (cwgc.py:332-339); Swift has no CWGC fetchDetail (not a DetailFetchingSource). Loss is limited — the CSV export already carries additional_info — but the certificate URL is a ready-made citation artifact. On the honesty axis: a 200-status HTML body (maintenance page, moved endpoint) falls through the `fields.count >= 19` guard to `[]` and is reported as a genuine zero (CWGCSource.swift:92-95, 143-151); only the branded 500 is handled (97-109).
-*Recommendation:* cheap sanity check (body starts with the expected CSV header) → `.unavailable` on failure. Port get_casualty only if/when certificate URLs are wanted for citations. **Size: S (sanity check) / L (detail port, deferred)**
-
-> **DONE 2026-07-11.** Sanity-check half shipped (commit cd0eb4d, `#T1-13`); the get_casualty detail port stays deferred as flagged.
-
-**T1-14 · low · unused-capability — CWGCParams.conflict is dead plumbing: always constructed nil, and CWGCSource never reads sourceParams at all**
-Every construction site passes `conflict: nil` (SearchDispatcher.swift:465, FocusedQuery.swift:107-108, SourceExplorerView.swift:199) and CWGCSource.search never touches query.sourceParams; WarSelect is derived from the year window inside the connector instead. The MLX strategist cannot pin a war even when its rationale is explicitly war-specific. Same half-wired-param disease as ProbateParams.courtType (T1-28).
-*Recommendation:* wire it (read CWGCParams, prefer explicit conflict over the year-derived WarSelect, let FocusedQuery populate it) or delete the field — half-wired params look like capabilities and silently no-op. **Size: S**
-
-> **DONE 2026-07-11.** Shipped (commit cd0eb4d, `#T1-14`).
-
-### 6.3 FindAGrave
-
-**T1-15 · high · correctness-bug — zero matches indistinguishable from Cloudflare block / API error; both become .results([])**
-parseSearchResults returns `[]` when the body is not JSON, responseCode != 200, or 'records' is absent (FindAGraveSource.swift:268-273); search() then publishes a completed event with resultCount 0 (141-147). A Cloudflare challenge page fetched via the browser fetcher yields non-JSON → `[]` → clean negative. The detail path *detects* the block page (memorialMarkers, 340-349) but maps it to `.results([])` too (202-205), not `.unavailable`. Python at least distinguishes ('Failed to parse response' / 'API error (code N)', findagrave.py:174-179). Anti-bot firing mid-run reads as 'no memorial exists' and the empty-then-broaden ladder walks looser tiers pointlessly.
-*Recommendation:* typed parse outcome (records | blockPage | apiError(code)) → map block/error to `.unavailable` in search(); fetchDetail returns `.unavailable` when the marker guard fails on a body lacking FAG's normal 404 markers. An instance of T1-01's envelope. **Size: S**
-
-> **DONE 2026-07-11.** Shipped as part of the honesty envelope (commit a6e9c6d, `#T1-15`).
-
-**T1-16 · high · correctness-bug — year filters deliberately unsent while responses are hard-capped at limit=20/skip=0; total/tooMany dropped; yearRangeWidth dead — recall loss downstream scoring cannot repair**
-FindAGraveSource.swift:104-116 documents the deliberate removal: the old code wrongly mapped the search window onto birthyear/deathyear (Ernest: birthyear=2015/deathyear=2019) — but the fix removed the params rather than plumbing the right values. The API supports birthyear+birthyearfilter / deathyear+deathyearfilter with tolerances exact/1/2/3/5/10/25 (findagrave.py:152-159); `FindAGraveParams.yearRangeWidth` is populated 5 at every construction site (SearchDispatcher.swift:525, FocusedQuery.swift:104) and read by nothing — the connector reads only location (FindAGraveSource.swift:117). Meanwhile limit=20, skip=0 are pinned with no pagination (84-88) and the response's total/tooMany are never parsed (268-273; Python checks both, findagrave.py:181-188). A common-surname probe against 230M memorials returns the top 20 in relevance order; the right memorial is frequently not among them, and its absence is recorded as a negative — the scorer can reject wrong hits it receives but cannot recover records never returned. (Merges three independently-confirmed reports.)
-*Recommendation:* finish the deferred §23 plumbing: FindAGraveParams gains subject-side birthYear/deathYear (from the subject's birth/death windows, NOT query.yearFrom/To); send deathyear+deathyearfilter=yearRangeWidth (plus birthyear when known); parse total/tooMany, raise limit toward Python's documented ~100 and/or page via skip, and flag truncation into T1-01's envelope. **Size: M**
-
-> **DONE 2026-07-11.** Shipped (commit 800e661, `#T1-16 #T1-23`).
-
-**T1-17 · medium · planning-gap — detail-fetch policy inverted: uncapped fetches for FamilySearch-bridged personas, zero for FAG-native candidates whose discriminating fields live only on the detail page**
-The only fetchDetail caller is the FS→FAG bridge (ResearchPipeline.swift:1862-1893), looping over ALL burial records with sourceID=="familysearch", a memorialID, and nil deathYear — no per-iteration cap, unlike FreeCen's cap-1 pattern (FreeCenSource.swift:191-216) and contrary to the volunteer-budget rule; each fetch is a full WKWebView load at 500 ms spacing. FAG-native hits are never detail-fetched, yet birthPlace/deathPlace exist only on the detail page (FindAGraveSource.swift:313-315 vs 371-376) and inscription/bio year-mining only runs on detail HTML — so the geography gate scores FAG-native candidates without their discriminating fields. The bridge's dedupe (existingIDs) is per-run, so repeat runs re-fetch the same memorial pages. (A broader always-enrich variant was value-rejected for Cloudflare/ToS load, §7 — the missing cap is the load-bearing part.)
-*Recommendation:* cap the bridge at 2–3 fetches per iteration prioritised by name-gate pass; add the symmetric expert move — post-scoring, detail-fetch the top-N FAG-native leads that pass name+date but stall on geography; persist enriched details and skip re-fetch across runs. **Size: M**
-
-> **DONE 2026-07-11.** Shipped (commit 9a6cfcb, `#T1-17`).
-
-**T1-18 · medium · unused-capability — includeNickName never sent: the scorer knows Jack=John but the query can never retrieve the Jack memorial**
-The connector's own comment records that firstname prefix-matches the first registered given name only (FindAGraveSource.swift:93-100), so firstname=John cannot match a memorial registered 'Jack Smith'. The API's includeNickName flag exists for exactly this (live-form ground truth), and the deterministic layer already maintains the equivalence table (ScoringRules.nicknameEquivalents, ScoringRules.swift:241-257) plus user-learned pairs — match logic downstream, no retrieval upstream.
-*Recommendation:* emit includeNickName=true on all queries with a firstname. Zero subject-side plumbing required. **Size: S**
-
-> **DONE 2026-07-11.** Shipped (commit 1a4abfc, `#T1-18 #T1-19 #T1-20 #T1-22 #T1-23 #T1-27`).
-
-**T1-19 · medium · unused-capability — location scoping is free-text only: locationId and cemetery params unused, free-text filtering unverified; detail cemetery URL dropped**
-Location goes out as free text (FindAGraveSource.swift:117-119) from deathLocation or county name (SearchDispatcher.swift:509-513). The live interface resolves locations to a locationId via typeahead and supports cemetery-scoped search; whether bare free text actually constrains the AJAX endpoint is unverified (the Python docstring's claim is 2025-era, pre-Cloudflare front-end changes) — our location narrowing may be a silent no-op. Cemetery scoping would enable a high-precision CWGC→FAG corroboration join we already have the data for (CWGC rows carry the cemetery name, CWGCSource.swift:167, 191), feeding convergence's lineage-independence requirement. Related drop: the detail page's cemetery URL is extracted by Python (findagrave.py:268-270) but Swift takes only the name (FindAGraveSource.swift:379).
-*Recommendation:* live-verify free-text filtering (compare counts with/without); if a no-op, resolve UK counties to locationIds (small static table). Add a cemetery-scoped probe as a CWGC corroboration pass; extract the cemetery href in parseMemorialDetail. **Size: M**
-
-> **DONE 2026-07-11.** Shipped (commit 1a4abfc, `#T1-19`).
-
-**T1-20 · medium · parsing-gap — memorial family links (parents/spouse/children between memorials) never parsed — by either implementation**
-FAG memorial pages carry a Family Members section linking parent/spouse/child memorials by memorial ID — cross-memorial relationship gold. Neither parseMemorialDetail (FindAGraveSource.swift:334-440) nor Python (findagrave.py:192-312) extracts them: a shared gap, not a port miss. The natural consumer exists — HypothesisEngine's parent/sibling/spouse kinds and ProposedRelative plumbing could take 'memorial 123 lists memorial 456 as father' as a lead-tier relationship proposal with a citable URL.
-*Recommendation:* extract the family-members block into structured (relation, name, memorialID, years) tuples; emit as leads/pending relationships through the existing firewall path. Swift first (Swift is what ships); backfill Python only if parity tooling needs it. **Size: M**
-
-> **DONE 2026-07-11.** Shipped (commit 1a4abfc, `#T1-20`).
-
-**T1-21 · low · correctness-bug — FAG location missing from QueryCache key; queries differing only by location collide and serve stale results**
-cacheKey covers top-level RecordQuery fields plus FreeBMD params only (QueryCache.swift:78-109); FindAGraveParams.location never enters the key, violating its own contract (74-75). Concrete collision: the dispatcher's query with location=deathLocation, then an MLX FocusedQuery for the same surname/type/years with location=district (FocusedQuery.swift:102-106) — identical key, different wire request; the strategist's 'surgical' probe silently never runs. Same defect class as FT-24 (FreeCen chapmanCode/birthYearRange), which see.
-*Recommendation:* append FindAGraveParams.location to cacheKey; fold into FT-24's serialise-all-wire-affecting-params fix and audit every sourceParams variant (FreeREG parish, Wirksworth parishHint). **Size: S**
-
-> **DONE 2026-07-11.** Folded into the wire-affecting-params cache-key fix (commit af24a00, `#FT-24 #T1-21`).
-
-**T1-22 · low · parsing-gap — detail page's '(aged NN)' is stripped and discarded; BurialRecord has no age field for the scorer**
-parseMemorialDetail strips the aged suffix from deathDate (FindAGraveSource.swift:370) and BurialRecord has nowhere to keep it (RecordTypes.swift:175-196). The date gate notes 'burial records typically have no recorded age' (RecordScorer.swift:373-375) and falls back to the permissive [15,100] band — but for FAG detail fetches the age was in hand and thrown away. For memorials with a death date and aged value but no birth date (common on older stones), it is the only birth-year evidence unless bio/inscription text-mining happens to recover years.
-*Recommendation:* capture the aged value before stripping, add an optional age to BurialRecord, and extend the scorer's recordedAge extraction to read it (same edit as T1-02). **Size: S**
-
-> **DONE 2026-07-11.** Shipped (commit 1a4abfc, `#T1-22`).
-
-**T1-23 · low · parsing-gap — surname derived by splitting the display name; structured name fields (including maidenName) left unread in rawFields**
-Search parse (FindAGraveSource.swift:287-290) and detail parse (364-366) take the last whitespace token as surname: 'John Smith Jr.' → surname 'Jr.'; FAG's maiden-name-in-display-name convention is absorbed into givenName. The search JSON's structured name fields survive only as stringified rawFields entries (302) and are never consulted — the fixture corpus shows a discrete maidenName field (e.g. lastName 'Brook-Cauldwell', maidenName 'Rollins') that would serve maiden-surname matching directly. The mis-split feeds the name gate. (The rejected includeMaidenName request-param finding, §7, re-scopes to exactly this response-side fix.)
-*Recommendation:* prefer structured name keys when present (confirm actual key names against a live payload), strip common suffixes before last-token fallback, use maidenName as an alternate surname in matching, and flag ambiguous splits so the name gate can widen tolerance. **Size: S**
-
-> **DONE 2026-07-11.** Shipped (commits 800e661 and 1a4abfc, `#T1-23`).
-
-### 6.4 Probate
-
-**T1-24 · high · correctness-bug — hard 50-record silent truncation: no pagination, resultsCount/pageCount dropped; Python paginates to 500**
-ProbateSource.swift:60-61 pins currentPageIndex=0, pageSize=50 and never issues a second request; parseJSON reads only 'entries' (109-113), so the Nuxeo response's resultsCount/pageCount are ignored and the log reports the page size as if it were the result count ('Probate: 50 results for SMITH' when 3,000 exist — line 82). Python pages through the provider to max_results=500 (probate.py:171-191). The fallback death window is birth+15..birth+95 (ResearchSubject.swift:212-213) — ~80 years of grants — so a common surname exceeds 50 matches, ordering is server-default (sortBy/sortOrder sent empty), and the subject's grant silently drops off page 0 as an unlabelled false negative. (Merges four independently-confirmed reports.)
-*Recommendation:* port the paging loop faithfully (read resultsCount/pageCount, loop pages to a 500 budget, stop on an empty page); at minimum mark the result truncated into T1-01's envelope and log 'N of M'. **Size: M**
-
-> **DONE 2026-07-11.** Shipped (commit e186dd7, `#T1-24`).
-
-**T1-25 · high · correctness-bug — Nuxeo hasError/errorMessage ignored; API errors and malformed JSON parse as zero probate records**
-Python checks `data.get('hasError')` and surfaces the error (probate.py:168-169). Swift parseJSON guards only on JSON-decode + presence of 'entries' (ProbateSource.swift:110-113): a 200-status `{"hasError":true,…}` body or any malformed/HTML payload returns `[]`, and search() returns `.results([])` (81-84) — indistinguishable from a genuine no-match; only thrown HTTP errors reach `.unavailable` (85-89). During a service incident every probate probe in the run 'completes' with 0 results and the audit trail records a clean negative for a source that was down.
-*Recommendation:* detect hasError==true / missing 'entries' → `.unavailable(reason: errorMessage)`, mirroring the CWGC branded-500 pattern (CWGCSource.swift:97-109). **Size: S**
-
-> **DONE 2026-07-11.** Shipped as part of the honesty envelope (commit a6e9c6d, `#T1-25`).
-
-**T1-26 · high · correctness-bug — declared coverage 1858–2026 contradicts the recorded ~1996 digital floor; guaranteed-empty queries recorded as false negative evidence for most historical subjects**
-ProbateSource.swift:17 declares `coverageYearRange = 1858...2026`, contradicting both its own header ('~1996+ digital grants, plus WWI/WWII soldier wills', line 8) and the Python reference ('Pre-1996 records are NOT in this system — use The National Archives or physical Probate Calendar volumes', probate.py:23-27). sourceCovers passes any window touching 1858+ (SearchDispatcher.swift:148-153), so a subject who died 1900 fires a query that structurally cannot succeed; the empty result is cached as legitimate (QueryCache.swift:66-71), logged to searchHistory, and fed to the MLX strategist as an already-searched avenue. Nothing distinguishes 'index empty for this person' from 'index does not cover this era'.
-*Recommendation:* verify once against the live API whether the 1858–1996 calendar has since been indexed. If not: return `.outsideCoverage(reason:)` for windows entirely pre-1996 — the case exists for exactly this distinction (RecordSource.swift:57) and is not cached — with a soldier-wills carve-out (male, window overlapping 1914–1921/1939–1947). Optionally surface a 'check physical Probate Calendar' lead. **Size: S**
-
-> **DONE 2026-07-11.** Shipped (commit 34d0882, `#T1-26 #T1-28 #T1-29`).
-
-**T1-27 · low · correctness-bug — record-ID stability: probate uid fallback mints a random UUID; FAG records without a memorialId collapse to 'findagrave_0'**
-IDs are the dedup keys everywhere (SearchDispatcher.swift:555-561; priorRecordIDs, ResearchPipeline.swift:228; rejectionLookup, 263-268; deterministic LifeEvent IDs, SourceRecordProjection.swift:15-17). CWGC and FAG IDs are stable; Probate is stable only while Nuxeo supplies uid — ProbateSource.swift:117 falls back to `UUID().uuidString`, a fresh identity every run: duplicate evidence rows, non-sticking discards, duplicate LifeEvents. Related FAG fragility: `rec["memorialId"] as? Int ?? 0` (FindAGraveSource.swift:276) collapses every id-less record to 'findagrave_0', which dedup reduces to one survivor with a broken detailURL. Same defect class as FT-16/FT-12 — the §5.3 stable-ID invariant covers all of it.
-*Recommendation:* deterministic content hash (surname|firstnames|dateofdeath|probatenumber) or drop-with-logged-warning for probate; skip FAG records lacking a valid memorialId instead of assigning 0. **Size: S**
-
-> **DONE 2026-07-11.** Shipped (commit 1a4abfc, `#T1-27`); part of the §5.3 stable-ID invariant.
-
-**T1-28 · low · unused-capability — estatepostcode/estatetitle dropped; grant-type filter is dead plumbing (grantdocTypeOf always empty, courtType never populated or read)**
-Python parses hmctsgrant:estatepostcode and :estatetitle (probate.py:103-104); Swift parseJSON does not (ProbateSource.swift:119-133) — postcode is the strongest geographic disambiguator the source offers (the gate currently sees only joined address lines), and title ('MRS'/'MISS'/'DR') carries marital-status and gender signal for the married-woman matching pathway. Separately, ProbateParams.courtType ('PROBATE'/'ADMINISTRATION', RecordTypes.swift:590-599) is never populated (FocusedQuery.swift:110 hardcodes nil) and ProbateSource never reads query.sourceParams — hmcts_grant_schema_grantdocTypeOf is always '' (ProbateSource.swift:57), so soldier-wills and intestacy scoping are impossible.
-*Recommendation:* parse postcode/title into rawFields (and consider a postcode field on ProbateRecord; geography gate prefers postcode when present); wire courtType through or delete it (same rule as T1-14). **Size: S**
-
-> **DONE 2026-07-11.** Shipped (commit 34d0882, `#T1-28`).
-
-**T1-29 · low · parsing-gap — full multi-given firstnames sent unverified (the FreeBMD/FAG first-token lesson untested here); no date-of-probate axis**
-hmcts_grant_schema_firstnames gets the whole uppercased given string (ProbateSource.swift:64-66) — 'ERNEST VICTOR' for a subject with a middle name. The codebase has hit this class twice: FreeBMD's given field and FAG's firstname both required first-token coercion (FindAGraveSource.swift:93-101 documents the zero-hit failure mode and cites the precedent). If Nuxeo matches exact/prefix-strict, grants recorded 'ERNEST V' or 'ERNEST' silently miss — indistinguishable from genuine negatives. Python shares the exposure (probate.py:147): an unvalidated axis on both sides, not a port divergence. Also: grants lag death by months-to-years (in-project example: died 15 Jul 2023, grant 2024-09-25); the ±2 tolerance absorbs typical lag, but a date-of-probate param — if the provider accepts one; not evidenced in code — would enable 'recently granted' probes for unknown modern deaths.
-*Recommendation:* in the same live session as T1-26/T1-28's checks: test firstnames semantics with a known multi-given grant, probe for dateofprobate bounds; apply first-token coercion only if strict matching is confirmed; record the outcome as a code comment either way. **Size: S**
-
-> **DONE 2026-07-11.** Shipped (commit 34d0882, `#T1-29`).
-
----
-
-## 7. Tier-1 rejected findings
-
-Eleven findings failed adversarial verification — all with both lenses run to completion (unlike §4, there is no verification-incomplete residue). One line each; full two-lens notes are in the tier-1 envelope. **Do not re-find these.**
-
-- **Probate detailURL nil / "URL-derived trust tier cannot anchor"** — the connector hardcodes trustTier `.primary` (SourceTierRegistry is only on the MCP pending-facts path), and no evidence exists that the Nuxeo SPA has a per-uid deep link; nil detailURL matches the deliberate FreeBMD pattern for non-addressable sources. Salvageable kernel: expose uid as rawFields['document_id'] (Python parity, low cost).
-- **FAG bio/inscription mined only via the FS bridge — enrich FAG-native hits too** — detail-only fields are by design; broadening the detail-fetch surface adds Cloudflare/WKWebView load on a `.restricted`, anti-bot-hardened source against the volunteer-budget rule. The capped-bridge kernel survives as T1-17.
-- **CWGC AgeOfDeath server-side filter never used** — BiographicalFitEvaluator already consumes military age (recordAgeAtDeath; infant-death and back-calculation rules), and a server-side age filter would silently drop unknown-age (age=0) casualties; residual value is a minor wire-efficiency tweak, not the claimed disambiguation fix. (The date-*gate* half is real and is T1-02.)
-- **CWGC AdditionalInfo as a search input (find casualties by parent name)** — no evidence the ExportCasualtySearch endpoint accepts it as a filter param; shipping it unverified risks a silent no-op filter with false confidence. Verify-before-build.
-- **CWGC ServedIn/ServedWith/CountryCommemoratedIn/Regiment/Rank/Honours query params** — speculative narrowing for a single low-volume GET with no truncation problem; regiment vocabulary mismatch risks false negatives; the one sound kernel (regiment-consistency scoring on ties) is a post-hoc scoring change needing no query params.
-- **Tab=exact drift risk / delete the 500-sniff** — the strict/loose Tab split and branded-500 handling are dated, documented, deliberate ('observed 2026-05'); degradation is graceful either way; a live probe would duplicate in-code documentation for no expected value.
-- **Eligibility gate excludes women and unknown-birth-year subjects (Civilian War Dead 1939–45)** — deliberate spec-pinned port (agent/rules.py:149-153, 214-216; spec records CWGC as 'military-only (males)'; regression test pins it). Widening to civilians/women is new-feature scope requiring a spec amendment — distinct from T1-08, which fixes window semantics inside the existing scope.
-- **includeMaidenName never sent** — the request param is not evidenced anywhere (Python's otherwise-exhaustive param enumeration lacks it; the finding invented it). The real, narrower fix is response-side — consume the maidenName field — folded into T1-23.
-- **FAG family-relationship query axes never forwarded** — FAG's search API has no family params (the Python reference enumerates the full set without them; family linking is volunteer-curated memorial-to-memorial data, not a query axis). The retrievable version of this value is T1-20's family-links parsing.
-- **No deficit-driven record-type routing** — deficit routing already exists at the hypothesis layer (deficitQuery kinds) plus ResearchFocus pre-iteration narrowing; spec §11.4 explicitly defers focus-aware gating of secondary dispatch paths pending empirical over-firing evidence, and the stable-point check already eliminated the measured redundancy.
-- **FAG location should be gazetteer-normalised to 'County, England'** — backwards: the location filter indexes *cemetery* location, so deathLocation is a better proxy than home county for relocated subjects; the 'County, England' strings are example convention in the Python script, not a documented API format. A narrower tightening of the raw-birthLocation fallback branch may have merit, but that is not what was recommended.
-
----
-
-## 8. Tier-1 critic additions — **UNVERIFIED**
-
-The critic pass ran to completion this time and produced four additions. **Neither lens has verified them** — treat every claim as unverified; they are candidates for the next verify batch, not backlog entries.
-
-- **T1-C1 · findagrave · unused-capability · medium — dead Cloudflare-clearance path.** `ensureCloudflareClearance()` (FindAGraveSource.swift:222-235), the Keychain-backed FindAGraveCookieStore, and FindAGraveCloudflareClearance.acquire() are never invoked from search()/fetchDetail(), which call FindAGraveBrowserFetcher directly (its WKWebsiteDataStore cookie jar is a separate persistence mechanism). Wire the store into the fetch path or delete the subsystem and its misleading doc comments.
-- **T1-C2 · findagrave · inefficiency · medium — WKWebView fetch has zero retry.** CWGC/Probate ride SourceHTTPClient's withRetry(retries: 3) backoff (SourceHTTPClient.swift:49-60); FAG's browser fetch is a single load() with a 45 s deadline (FindAGraveBrowserFetcher.swift:62, 117-121) — one transient hiccup fails the whole query as `.unavailable`. Bounded retry for timeout/loadFailed only (not challengeUnresolved).
-- **T1-C3 · findagrave · correctness-bug · low — search URL built with `.urlQueryAllowed`** (FindAGraveSource.swift:121): '&', '+', '=' inside values corrupt the query string. Same class as FT-29 but a different call site (FT-29 is scoped to SourceHTTPClient.postForm). Build via URLComponents/URLQueryItem as CWGC/Probate already do.
+- **T1-C1 · findagrave · unused-capability · medium — dead Cloudflare-clearance path.** `ensureCloudflareClearance()` (FindAGraveSource.swift:222-235), the Keychain-backed `FindAGraveCookieStore`, and `FindAGraveCloudflareClearance.acquire()` are never invoked from search()/fetchDetail(), which call `FindAGraveBrowserFetcher` directly (its `WKWebsiteDataStore` cookie jar is a separate persistence mechanism). Wire the store into the fetch path or delete the subsystem and its misleading doc comments.
+- **T1-C2 · findagrave · inefficiency · medium — WKWebView fetch has zero retry.** CWGC/Probate ride `SourceHTTPClient`'s `withRetry(retries: 3)` backoff (SourceHTTPClient.swift:49-60); FAG's browser fetch is a single load() with a 45 s deadline (FindAGraveBrowserFetcher.swift:62, 117-121) — one transient hiccup fails the whole query as `.unavailable`. Bounded retry for timeout/loadFailed only (not challengeUnresolved).
+- **T1-C3 · findagrave · correctness-bug · low — search URL built with `.urlQueryAllowed`** (FindAGraveSource.swift:121): '&', '+', '=' inside values corrupt the query string. Same class as FT-29 but a different call site (FT-29 is scoped to `SourceHTTPClient.postForm`). Build via URLComponents/URLQueryItem as CWGC/Probate already do.
 - **T1-C4 · cross-source · planning-gap · low — zero test coverage for apostrophes/diacritics** (O'Brien, Müller) across all three connectors' fixtures; CWGC's quote-toggle CSV scanner has never been exercised against an apostrophe inside a quoted AdditionalInfo. One fixture/test per connector closes it.

@@ -13,7 +13,7 @@ design rationale, in Claude's memory files. Only living work lives in this folde
 | Doc | Role | Status |
 |---|---|---|
 | `ROADMAP.md` | Routing: phase state, implementation order (Stage 1/2/3), backlog | Living — single source of truth for what's done / next |
-| `adr/` | Architecture decision records (001–006 Accepted; 007 rejected-as-proposed) | Binding |
+| `adr/` | Architecture decision records (001–006 Accepted; 007 rejected-as-proposed; 008 tosStatus fixes shipped, outreach/toggle outstanding) | Binding |
 
 ## Governing / reference (ongoing)
 
@@ -32,8 +32,7 @@ design rationale, in Claude's memory files. Only living work lives in this folde
 | `CONNECTOR_AUDIT_2026-07.md` | Connector fix backlog / as-built record | 56/58 shipped; FT-08/19/21 deferred |
 | `SOURCE_WEIGHTING_SPEC.md` | Staged-dispatch source weighting | Changes 0–5,7,8 shipped; live-verification pending + Change 6 gated on ADR-008 |
 | `SOURCE_ACCESS_COMPLIANCE_2026-07.md` | Connector terms-of-service evidence | Decisions pending ADR-008 |
-| `FAMILYSEARCH_CLIENT_SPEC.md` | FS OAuth client library + records source + hint enrichment | Shipped 2026-07-21 (S1–S6b); small follow-ups open |
-| `FAMILYSEARCH_SOURCE_SPEC.md` | FS deferred work (write leg, ARK detail-fetch, per-collection tiering, place/vocab) + reference (§16 licensing, GEDCOM X taxonomy) | Thinned 2026-07-21 — implemented surface removed |
+| `FAMILYSEARCH_SOURCE_SPEC.md` | FS deferred work (write leg, ARK detail-fetch, per-collection tiering, place/vocab) + reference (§16 licensing, GEDCOM X taxonomy) | Thinned 2026-07-21 — implemented surface removed; small follow-ups open |
 
 ## Proposed — awaiting review
 
@@ -56,8 +55,9 @@ commits are recorded in `ROADMAP.md`.
 
 Removed 2026-07-21 (shipped/superseded): `LEAD_DISCOVERY_SPEC`, `IMPORT_DEDUPE_SPEC`,
 `PROFILE_LIFECYCLE_SPEC`, `PROFILE_SOURCES_LEDGER_SPEC`, `PROJECT_ONBOARDING_SPEC`,
-`POSSIBLE_PEOPLE_CONTEXT_SPEC`, `RETIRE_POPOVER_SPEC`, `FAMILYSEARCH_READ_LEG_PLAN` (superseded
-by the OAuth client library — `FAMILYSEARCH_CLIENT_SPEC`).
+`POSSIBLE_PEOPLE_CONTEXT_SPEC`, `RETIRE_POPOVER_SPEC`, `CLUSTERING_LIFESPAN_LOCATION_SPEC`,
+`FAMILYSEARCH_READ_LEG_PLAN` (cookie read leg), and `FAMILYSEARCH_CLIENT_SPEC` (OAuth client
+library shipped S1–S6b; its deferred work + follow-ups now live in `FAMILYSEARCH_SOURCE_SPEC`).
 
 Removed 2026-07-16: `EVIDENCE_ABSORPTION_SPEC`, `TRIAGE_UX_DATA_QUALITY_SPEC`, `CAMPAIGN_REVIEW_SPEC`,
 `SCOPE_AUDIT_2026-07`, `MODEL_EVOLUTION_SPEC`, `ENGINE_FOUNDATION_SPEC`, `CONFLICT_LAYER_SPEC`,
