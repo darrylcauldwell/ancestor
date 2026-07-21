@@ -10,7 +10,7 @@ against the code. IDs are DS-nn; commits reference `#DS-nn`. Severity = impact o
 
 Suggested repair sequence (Part B 1.3): **(1st)** DS-01 + DS-17 ✅ **shipped `5f91641`** · **(2nd)** shared name-gate ladder
 rework covering DS-16/DS-05/DS-06 ✅ **shipped `aa7fc8b`+`d5ff18e`** · **(3rd)** FP/FN residues ~~DS-12~~/~~DS-10~~ ✅ (`8b9eb78`+`be740db`) · **remaining: DS-02 (census tightening), DS-15 (aliveAsOf threading)** · **(4th)**
-GPS reporting honesty DS-19/~~DS-18~~ ✅ (shipped `5f91641`)/DS-21/DS-22/DS-23 · **(5th)** DS-27 dead-code cleanup. ~~DS-04~~ ✅ (`8b9eb78`) middle-name gate.
+GPS reporting honesty DS-19/~~DS-18~~ ✅ (`5f91641`)/~~DS-21~~ ✅ (`3b1c4ac`)/DS-22/DS-23 · **(5th)** DS-27 dead-code cleanup ~~(a)~~ ✅ (`ffab4e3`), (b) advisory follow-up deferred. ~~DS-04~~ ✅ (`8b9eb78`) middle-name gate.
 
 > **⚠ DS-11 + DS-19 are a coupled PRODUCT DECISION, not autonomous.** The foreign-place short-circuits
 > (`RecordScorer.checkGeography`) hard-fail any foreign place *by explicit design* — the code comment states the
@@ -97,7 +97,9 @@ GPS reporting honesty DS-19/~~DS-18~~ ✅ (shipped `5f91641`)/DS-21/DS-22/DS-23 
 
 **Residue:** CL1/CL6 handle the apply half (ApplyEngine.swift:94 no-op now opens an F4b spouseIdentity dispute); the OPEN scorer half is that a spouse-surname contradiction should `.softFail` familyContext rather than skip to .fact.
 
-### DS-15 · high · (conflict-evidence, prevention half) Scorer accepts death records the tree's own alive-evidence already contradicts — subject.aliveAsOf never derived from LifeEvents
+### DS-15 · high · (conflict-evidence, prevention half) Scorer accepts death records the tree's own alive-evidence already contradicts — subject.aliveAsOf never derived from LifeEvents ✅ RESOLVED `a79d1a6`
+
+**Resolved:** `ResearchSubject.fromProfile` now derives `aliveAsOf` from accepted alive-implying life events (census/residence/occupation/… — never burial/probate, sensitive excluded); the death-shape date gate rules a record impossible when its year is strictly before `aliveAsOf`. Conservative (earliest year per event, max across, strictly-earlier only). Pinned by `ScorerFPFNResidueTests` + `LifeEventResearchAxesTests`. **Note:** this is the *up-front prevention* half; UV-02's death-floor advance (DS-27) is the same underlying signal — reuse `aliveAsOf` when building DS-27.
 
 **Claim:** The census-after-death and death-window checks both depend on subject.deathYearFrom being populated at scoring time; ResearchSubject derives death only from profile.deathDate (:545-546) — accepted census LifeEvents ('alive in 1911') are never consulted, and already-scored records are never re-scored. A subject with an accepted 1911 census but no death date accepts a namesake 'Q1 1905, age 20' death as .fact.
 
@@ -139,7 +141,9 @@ GPS reporting honesty DS-19/~~DS-18~~ ✅ (shipped `5f91641`)/DS-21/DS-22/DS-23 
 
 **Residue:** Consult the subject's own locations before hard-failing foreign places.
 
-### DS-21 · medium · (gps-standard, reporting) GPS Criterion 2 checks only that sourceID is non-empty — effectively 'has any confirmed fact'
+### DS-21 · medium · (gps-standard, reporting) GPS Criterion 2 checks only that sourceID is non-empty — effectively 'has any confirmed fact' ✅ RESOLVED `3b1c4ac`
+
+**Resolved:** `hasCompleteCitation` now requires a resolvable locator (detail URL, or the source's structured reference — BMD volume+page/district, census district/address, memorial/cemetery, probate address/date, parish, military service/grave); a bare sourceID no longer counts. Reporting-only. Pinned by `GPSCitationCompletenessTests`.
 
 **Claim:** criterion2Citations' doc comment promises 'sourceID + detailURL or raw fields' but checks only !sourceID.isEmpty (GPSScorer.swift:119-121). Every plugin stamps its own non-empty sourceID, so the filter passes by construction and the criterion degenerates to 'confirmedFacts non-empty' — no check of detailURL or volume/page/district. A FreeBMD hit missing volume/page still reports 'All N facts have source citations'. Reporting-only (GPS is an audit surface, not an apply gate).
 
@@ -163,7 +167,9 @@ GPS reporting honesty DS-19/~~DS-18~~ ✅ (shipped `5f91641`)/DS-21/DS-22/DS-23 
 
 **Residue:** Decide whether to restore ±2 for the census-derived-year cause, or document the deliberate re-tiering.
 
-### DS-27 · low · (python-parity, dead-code) Missing-from-census follow-up unported; three dead ScoringRules functions
+### DS-27 · low · (python-parity, dead-code) Missing-from-census follow-up unported; three dead ScoringRules functions ✅ (a) RESOLVED `ffab4e3` · (b) deferred
+
+**Resolved (a):** the three dead functions (`absentFromCensusSuggests`, `childGapSuggestsDeath`, `militaryDeathNotInCivilRegister`) are deleted — verified zero call sites/tests; the alive-evidence intent is delivered by DS-15's `aliveAsOf`. **Deferred (b):** porting `_check_missing_from_census` (advisory follow-up questions) is a new feature, not a repair — queue behind the pipeline/hypothesis work.
 
 **Claim:** Python's analyser generates research questions when household children present in one census would be adults by later ones (agent/analyser.py:164-208, live). Swift has no counterpart — absentFromCensusSuggests (ScoringRules.swift:293-305) has zero call sites, as do childGapSuggestsDeath (:279-290) and militaryDeathNotInCivilRegister (:153-158). DiscoveryExtractor fires on census presence, never absence. (The Robert/CWGC "expected-negative death" half of the original claim was refuted — military records are death-shape and the T1-05 carve-out + eval harness satisfy the death axis via CWGC; militaryDeathNotInCivilRegister is equally dead in Python.)
 
