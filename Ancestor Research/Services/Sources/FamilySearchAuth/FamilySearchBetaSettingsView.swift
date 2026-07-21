@@ -132,9 +132,9 @@ struct FamilySearchBetaSettingsView: View {
 
     private var treeProbeSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Tree-API probe (diagnostic)")
+            Text("API probe (diagnostic)")
                 .font(AppTypography.cardTitle)
-            Text("Read-only spike to learn what the Tree API returns — hints/enrichment and image ARKs. The raw response confirms or corrects the endpoint contract.")
+            Text("Read-only calls through the real FamilySearch client. Records search answers whether our key is granted historical records; tree search + record hints exercise the enrichment surface. Shows HTTP status + decoded count + the raw body — a 4xx body is as useful as a 2xx (it reveals the tier wall).")
                 .font(AppTypography.badge)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -143,13 +143,18 @@ struct FamilySearchBetaSettingsView: View {
                 TextField("Given name", text: $probeGiven).textFieldStyle(.roundedBorder)
                 TextField("Surname", text: $probeSurname).textFieldStyle(.roundedBorder)
                 TextField("Birth year", text: $probeYear).textFieldStyle(.roundedBorder).frame(width: 90)
-                Button(treeProbing ? "…" : "Search tree") { searchTree() }
+            }
+            HStack {
+                Button(treeProbing ? "…" : "Records search") { runProbe(.records) }
+                    .buttonStyle(.glass).controlSize(.small)
+                    .disabled(treeProbing || probeSurname.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button(treeProbing ? "…" : "Tree search") { runProbe(.tree) }
                     .buttonStyle(.glass).controlSize(.small)
                     .disabled(treeProbing || probeSurname.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             HStack {
                 TextField("Tree person id (e.g. LZ8X-…)", text: $probePersonID).textFieldStyle(.roundedBorder)
-                Button("Record hints") { recordHints() }
+                Button(treeProbing ? "…" : "Record hints") { runProbe(.hints) }
                     .buttonStyle(.glass).controlSize(.small)
                     .disabled(treeProbing || probePersonID.trimmingCharacters(in: .whitespaces).isEmpty)
             }
@@ -215,32 +220,64 @@ struct FamilySearchBetaSettingsView: View {
         }
     }
 
-    private func searchTree() {
+    private enum ProbeKind { case records, tree, hints }
+
+    /// Fire one read-only call through the real client and show status + a
+    /// decoded summary + the raw body. Uses `execute` (not the throwing typed
+    /// wrappers) so a 4xx body — e.g. an entitlement wall — is displayed, not
+    /// swallowed.
+    private func runProbe(_ kind: ProbeKind) {
         treeProbing = true
-        probeSummary = "Searching…"
+        probeSummary = "Calling…"
+        probeRaw = ""
+        let env = environment
+        let query = buildProbeQuery()
+        let pid = probePersonID.trimmingCharacters(in: .whitespaces)
         Task {
-            let outcome = await FamilySearchTreeProbe.search(
-                environment: environment,
-                givenName: probeGiven.trimmingCharacters(in: .whitespaces),
-                surname: probeSurname.trimmingCharacters(in: .whitespaces),
-                birthYear: Int(probeYear.trimmingCharacters(in: .whitespaces)))
-            treeProbing = false
-            probeSummary = outcome.summary
-            probeRaw = outcome.rawBody
+            let client = FamilySearchClient(
+                environment: env,
+                tokenSource: KeychainFamilySearchTokenSource(environment: env))
+            let url: URL = switch kind {
+            case .records: FamilySearchEndpoints.recordsPersonaSearch(env, query)
+            case .tree:    FamilySearchEndpoints.treeSearch(env, query)
+            case .hints:   FamilySearchEndpoints.personMatches(env, pid: pid, collection: .records)
+            }
+            do {
+                let response = try await client.execute(
+                    FamilySearchRequest(url: url, accept: .gedcomxAtom))
+                let body = String(data: response.body, encoding: .utf8)
+                    ?? "<non-UTF8 body, \(response.body.count) bytes>"
+                treeProbing = false
+                probeSummary = summariseProbe(status: response.statusCode, body: response.body)
+                probeRaw = String(body.prefix(6000))
+            } catch FamilySearchClientError.notAuthenticated {
+                treeProbing = false
+                probeSummary = "Not signed in — sign in first."
+            } catch {
+                treeProbing = false
+                probeSummary = "Transport error: \(error.localizedDescription)"
+            }
         }
     }
 
-    private func recordHints() {
-        treeProbing = true
-        probeSummary = "Fetching hints…"
-        Task {
-            let outcome = await FamilySearchTreeProbe.recordHints(
-                environment: environment,
-                personID: probePersonID.trimmingCharacters(in: .whitespaces))
-            treeProbing = false
-            probeSummary = outcome.summary
-            probeRaw = outcome.rawBody
+    private func buildProbeQuery() -> FamilySearchQuery {
+        var query = FamilySearchQuery()
+        query.givenName = probeGiven.trimmingCharacters(in: .whitespaces)
+        query.surname = probeSurname.trimmingCharacters(in: .whitespaces)
+        if let year = Int(probeYear.trimmingCharacters(in: .whitespaces)) {
+            query.birthDateRange = year...year
         }
+        return query
+    }
+
+    /// Count GEDCOM X Atom entries when the body decodes, else defer to the raw.
+    private func summariseProbe(status: Int, body: Data) -> String {
+        if let feed = try? JSONDecoder().decode(RecordsSearchFeed.self, from: body),
+           let entries = feed.entries {
+            let total = feed.results.map { " of ~\($0)" } ?? ""
+            return "HTTP \(status) — \(entries.count) entr\(entries.count == 1 ? "y" : "ies")\(total) (see raw)"
+        }
+        return "HTTP \(status) — see raw response"
     }
 
     private func refresh() async {

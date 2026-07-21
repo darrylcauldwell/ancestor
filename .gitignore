@@ -101,6 +101,7 @@ fs_*
 # filenames on macOS APFS; the exceptions are explicit.
 !AncestorApp/FAMILYSEARCH_SOURCE_SPEC.md
 !AncestorApp/FAMILYSEARCH_READ_LEG_PLAN.md
+!AncestorApp/FAMILYSEARCH_CLIENT_SPEC.md
 
 # App page cache (fetched web pages)
 page-cache/
