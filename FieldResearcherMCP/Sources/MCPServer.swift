@@ -79,6 +79,18 @@ actor MCPHandler {
             let method = request["method"] as? String ?? ""
             let params = request["params"] as? [String: Any] ?? [:]
 
+            // Re-open the database connection per request so every read reflects
+            // the app's latest committed writes. A single long-lived reader
+            // connection (opened once at launch) goes stale across app
+            // relaunches — the reader freezes on the writer's restart and never
+            // self-heals — which silently served hours-old data. A fresh
+            // connection always reads the current committed state. Falls back to
+            // the existing connection if a transient re-open fails; requests are
+            // handled serially so reassigning `db` here is safe.
+            if let fresh = try? Self.openValidatedDatabase(at: dbPath) {
+                self.db = fresh
+            }
+
             let envelope: [String: Any]
             do {
                 let result = try await handle(method: method, params: params)
