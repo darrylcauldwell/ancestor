@@ -303,6 +303,18 @@ nonisolated struct RecordScorer {
                         format: "surname=%.2f, given '%@' rescued by exact birth-date match",
                         surnameScore, recordGiven))
                 }
+                // DS-04: the subject may be recorded under the name they went
+                // by — their MIDDLE name. When the record's given matches the
+                // subject's middle name, it's plausibly the same person
+                // indexed differently (a census "Victor Cauldwell" for "Ernest
+                // Victor Cauldwell"). Soft-fail to a reviewable .lead rather
+                // than the hard .impossible that drops it from every pool — a
+                // middle-name match is weaker than a given match and could
+                // also fit a differently-named relative, so it wants review.
+                if !personMiddle.isEmpty,
+                   ScoringRules.nameSimilarity(recordFirstGiven, personMiddle) >= 0.7 {
+                    return GateResult(gate: .name, outcome: .softFail, reason: "given '\(recordGiven)' matches subject's middle name '\(personMiddle)' — recorded under middle name, review")
+                }
                 return GateResult(gate: .name, outcome: .fail, reason: "given name mismatch: \(recordGiven) vs \(personGiven)")
             }
         } else if recordGiven.isEmpty {
@@ -1164,6 +1176,23 @@ nonisolated struct RecordScorer {
                         )
                     }
                 }
+            }
+
+            // DS-12: the record names a spouse but it matched neither the
+            // known spouse (name or surname) nor the same-page-inferred
+            // partner above. A contradicting spouse is the strongest
+            // wrong-person signal a marriage can carry — soft-fail rather
+            // than fall through to `.skip`, which (being dropped from the
+            // verdict) would let the record reach `.fact` with the family
+            // gate silently absent. Only fires when the tree actually
+            // records a spouse to compare against.
+            if let recordSpouse = marriage.spouseName?.trimmingCharacters(in: .whitespaces),
+               !recordSpouse.isEmpty,
+               (context.spouseName != nil || context.spouseSurname != nil) {
+                return GateResult(
+                    gate: .familyContext, outcome: .softFail,
+                    reason: "marriage names \(recordSpouse), which doesn't match the subject's known spouse"
+                )
             }
         }
 
