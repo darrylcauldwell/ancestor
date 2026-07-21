@@ -316,7 +316,9 @@ struct ProjectSetupWizardView: View {
     private func downloadReasoning(_ model: ReasoningModel) {
         reasoningProgress = 0
         Task {
-            try? await LocalInferenceService.shared.loadModel(
+            // loadModel returns the container (@discardableResult), but `try?`
+            // wraps it in an optional that must be explicitly discarded.
+            _ = try? await LocalInferenceService.shared.loadModel(
                 configuration: model.configuration,
                 onProgress: { fraction in
                     Task { @MainActor in reasoningProgress = fraction }
