@@ -155,6 +155,13 @@ struct SettingsPlaceholderView: View {
 
             ProseCorporaSettingsView()
 
+            // FamilySearch OAuth (Beta). Not a records source (owner pivot
+            // 2026-07-21) — this is the live sign-in + connection check for the
+            // enrichment/Tree-API integration to build on.
+            Section("FamilySearch (Beta)") {
+                FamilySearchBetaSettingsView()
+            }
+
             // PROJECT_ONBOARDING_SPEC Part A — re-run the project setup wizard
             // (home region etc.), available for ANY project type. Distinct from
             // the manual-only family-entry wizard below.
