@@ -9,9 +9,15 @@ verifier trail. The findings below are the OPEN half: Swift-side scorer/gate rep
 against the code. IDs are DS-nn; commits reference `#DS-nn`. Severity = impact on tree correctness.
 
 Suggested repair sequence (Part B 1.3): **(1st)** DS-01 + DS-17 ✅ **shipped `5f91641`** · **(2nd)** shared name-gate ladder
-rework covering DS-16/DS-05/DS-06 ✅ **shipped `aa7fc8b`+`d5ff18e`** · **(3rd)** FP/FN residues DS-02/DS-12/DS-15/DS-10/DS-11 · **(4th)**
-GPS reporting honesty DS-19/~~DS-18~~ ✅ (shipped `5f91641`)/DS-21/DS-22/DS-23 · **(5th)** DS-27 dead-code cleanup. DS-04 is an
-independent false-negative (middle-name gate).
+rework covering DS-16/DS-05/DS-06 ✅ **shipped `aa7fc8b`+`d5ff18e`** · **(3rd)** FP/FN residues ~~DS-12~~/~~DS-10~~ ✅ (`8b9eb78`+`be740db`) · **remaining: DS-02 (census tightening), DS-15 (aliveAsOf threading)** · **(4th)**
+GPS reporting honesty DS-19/~~DS-18~~ ✅ (shipped `5f91641`)/DS-21/DS-22/DS-23 · **(5th)** DS-27 dead-code cleanup. ~~DS-04~~ ✅ (`8b9eb78`) middle-name gate.
+
+> **⚠ DS-11 + DS-19 are a coupled PRODUCT DECISION, not autonomous.** The foreign-place short-circuits
+> (`RecordScorer.checkGeography`) hard-fail any foreign place *by explicit design* — the code comment states the
+> emigrant/colonial case is "sacrificed to keep Triage clean for the typical UK-rooted research run." DS-11 (expand
+> the marker list to US states / Canadian provinces) *intensifies* that sacrifice; DS-19 (consult the subject's own
+> recorded locations before failing) *reverses* it. Pick a posture before building: **Triage-clean** (do DS-11, close
+> DS-19 won't-fix) vs **emigrant-recall** (do DS-19, then DS-11 is safe). Awaiting Darryl.
 
 ## OPEN findings
 
@@ -33,7 +39,9 @@ independent false-negative (middle-name gate).
 
 **Residue:** CL2 ⟨G13⟩ added a same-enumeration-year split so two same-year census records no longer fuse/corroborate; the OPEN gate half is the ±5 tolerance + spouse-forename endorsement that grades the wrong household .fact in the first place.
 
-### DS-04 · high · (false-negative) Person known by their middle name is classified .impossible — given-name gate compares only the first token, no given/middle swap
+### DS-04 · high · (false-negative) Person known by their middle name is classified .impossible — given-name gate compares only the first token, no given/middle swap ✅ RESOLVED `8b9eb78`
+
+**Resolved:** the given gate now, on a first-token miss, tries the subject's MIDDLE name; a match soft-fails to a reviewable `.lead` rather than the hard `.impossible` that dropped the record. Conservative (soft-fail, not pass — a middle match is weaker and could fit a differently-named relative). Pinned by `ScorerFPFNResidueTests`.
 
 **Claim:** checkName compares the record's first given token against subject.givenName's first token only (RecordScorer.swift:255-265; effective-given at :188-202 splits 'Ernest Victor' into given=ERNEST/middle=VICTOR). There is no swap against the subject's middle name and the name gate has no softFail — score < 0.7 hard-fails → .impossible (:97-98). A census 'Victor Cauldwell' for Ernest Victor Cauldwell scores 0.0 → .impossible, excluded from clustering/convergence/consensus. The learned-equivalence rescue is dormant (no production writer). Partial recovery only: ClusterReviewView surfaces .impossible records in a "Scorer rejected" section with "Save as lead anyway", but the record never re-enters the automated pools.
 
@@ -61,7 +69,9 @@ independent false-negative (middle-name gate).
 
 **Residue:** Needs edit-distance/soundex in the name gate (part of the shared name-gate ladder rework).
 
-### DS-10 · high · (python-parity) Parish/christening parent-name cross-check unported — FreeREG baptism father/mother names fetched but never scored
+### DS-10 · high · (python-parity) Parish/christening parent-name cross-check unported — FreeREG baptism father/mother names fetched but never scored ✅ RESOLVED `be740db`
+
+**Resolved:** a `.parish` arm in `checkFamilyContext` now compares the record's parent GIVEN name against the subject's linked parents (surname is the shared family name, so the given discriminates) — corroborate on match, soft-fail on contradiction, skip on no data. Mirrors the MMN arm. Pinned by `ScorerFPFNResidueTests`.
 
 **Claim:** Python's validate_enrichment_parents (agent/rules.py:525-555) rejects a christening whose named parents match neither linked parent. Swift's checkFamilyContext handles only `.birth` MMN (RecordScorer.swift:929-952); `.parish` records fall through to `.skip` (:954). FreeREGSource deliberately populates ParishRecord.fatherName/motherName (FreeREGSource.swift:759-793) claiming the scorer reads them — no scorer/hypothesis consumer exists (only human-facing ClusterReviewView). A namesake-cousin baptism naming contradicting parents scores .fact and is apply-eligible.
 
@@ -77,7 +87,9 @@ independent false-negative (middle-name gate).
 
 **Residue:** Port NON_ENGLAND_MARKERS and wire a live location guard onto the apply/firewall path.
 
-### DS-12 · high · (conflict-evidence, scorer half) Marriage record naming a DIFFERENT spouse scores .fact instead of softFailing familyContext
+### DS-12 · high · (conflict-evidence, scorer half) Marriage record naming a DIFFERENT spouse scores .fact instead of softFailing familyContext ✅ RESOLVED `8b9eb78`
+
+**Resolved:** a marriage naming a spouse that matches neither the known spouse (name/surname) nor the same-page-inferred partner now soft-fails the family gate → `.lead` (was `.skip` → dropped → `.fact`). Only fires when the tree records a spouse to contradict; a nil spouseName still skips. Pinned by `ScorerFPFNResidueTests`.
 
 **Claim:** A marriage record whose spouseName mismatches the known spouse falls through every familyContext clause and returns .skip (RecordScorer.swift:954) — the skip is dropped, so the verdict sees zero fails → .fact. Contrast the census clause, which correctly softFails a missing member. The strongest wrong-person signal (record names a different spouse) is treated as no-information.
 
