@@ -33,6 +33,9 @@ struct ProjectSetupWizardView: View {
     @State private var homePersonID: String?
     @State private var homePersonSeeded = false
 
+    // Step 4 — offer the Getting Started overview after a completed setup.
+    @State private var showTourOnFinish = true
+
     private enum Step: Int, CaseIterable {
         case welcome        // Step 0 — orientation
         case homeRegion     // Step 1 — Chapman anchor
@@ -293,6 +296,10 @@ struct ProjectSetupWizardView: View {
             }
             Text("Full terms, coverage, and per-source detail are in Settings.")
                 .font(.callout).foregroundStyle(.secondary)
+
+            Divider()
+            Toggle("Show me a quick tour when I finish", isOn: $showTourOnFinish)
+                .toggleStyle(.checkbox)
         }
     }
 
@@ -340,11 +347,11 @@ struct ProjectSetupWizardView: View {
                     .buttonStyle(.glass)
             }
             Spacer()
-            Button("Skip setup") { finish() }
+            Button("Skip setup") { finish(offerTour: false) }
                 .buttonStyle(.glass)
                 .controlSize(.small)
             if step == Step.allCases.last {
-                Button("Done") { finish() }
+                Button("Done") { finish(offerTour: showTourOnFinish) }
                     .buttonStyle(.glassProminent)
                     .keyboardShortcut(.defaultAction)
             } else {
@@ -368,10 +375,13 @@ struct ProjectSetupWizardView: View {
 
     /// Mark setup done (so it never auto-offers again) and close. Both "Done"
     /// and "Skip setup" route here — skipping is a valid completion. The home
-    /// region was already saved live by its picker; any in-flight model
-    /// download continues on its shared service after this closes.
-    private func finish() {
+    /// region / person were saved live; any in-flight model download continues
+    /// on its shared service after this closes. `offerTour` opens Getting
+    /// Started after the sheet dismisses (only from a completed "Done", never
+    /// a mid-flow skip).
+    private func finish(offerTour: Bool) {
         appState.finishSetup()
+        appState.pendingGettingStartedTour = offerTour
         dismiss()
     }
 }

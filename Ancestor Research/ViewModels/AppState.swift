@@ -179,6 +179,16 @@ final class AppState {
     /// it as a sheet. Re-runnable from Settings for any project type.
     var showSetupWizard: Bool = false
 
+    /// PROJECT_ONBOARDING_SPEC Part B — the re-openable "Getting Started"
+    /// overview (how the pieces fit + what each view is for). Opened from the
+    /// toolbar "?", from Settings, and offered at the end of setup. Presented
+    /// as a sheet by ContentView, scrolled to the current tab.
+    var showGettingStarted: Bool = false
+    /// Set by the setup wizard's finish when the user leaves "show me a quick
+    /// tour" on; consumed by the setup sheet's onDismiss so the overview opens
+    /// AFTER the wizard closes (avoids a two-sheet-at-once transition).
+    var pendingGettingStartedTour: Bool = false
+
     // MARK: - Pending person actions (M16.9 — global keyboard shortcuts)
     //
     // Routed via AppState so Cmd+N, Cmd+Shift+N, and Cmd+E fire from any

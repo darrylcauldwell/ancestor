@@ -170,6 +170,16 @@ struct SettingsPlaceholderView: View {
                 Text("Revisit the home region and other project settings. Changes nothing you don't confirm.")
                     .font(AppTypography.badge)
                     .foregroundStyle(.tertiary)
+
+                // PROJECT_ONBOARDING_SPEC Part B — re-open the Getting Started
+                // overview (also on the toolbar "?").
+                Button("Getting Started") {
+                    appState.showGettingStarted = true
+                }
+                .buttonStyle(.glass)
+                Text("How the pieces fit and what each area is for.")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.tertiary)
             }
 
             if isManualProject {

@@ -55,6 +55,25 @@ struct MainView: View {
         )
     }
 
+    // PROJECT_ONBOARDING_SPEC Part A/B — extracted bindings + hooks keep the
+    // MainView body under the SwiftUI type-checker's complexity ceiling.
+    private var setupWizardBinding: Binding<Bool> {
+        Binding(get: { appState.showSetupWizard }, set: { appState.showSetupWizard = $0 })
+    }
+
+    private var gettingStartedBinding: Binding<Bool> {
+        Binding(get: { appState.showGettingStarted }, set: { appState.showGettingStarted = $0 })
+    }
+
+    private func onSetupWizardDismiss() {
+        // If the wizard's end-of-setup "show me a quick tour" was left on,
+        // open Getting Started AFTER the wizard closes (never two at once).
+        if appState.pendingGettingStartedTour {
+            appState.pendingGettingStartedTour = false
+            appState.showGettingStarted = true
+        }
+    }
+
     private var resumableSessionBinding: Binding<Bool> {
         Binding(
             get: { appState.resumableSession != nil },
@@ -128,6 +147,17 @@ struct MainView: View {
         .background { keyboardShortcutsLayer }
         .onAppear { appState.attachSearchRegistry(registry) }
         .toolbar {
+            // PROJECT_ONBOARDING_SPEC Part B — re-openable Getting Started,
+            // scrolled to the current tab. One insertion point in the shared
+            // toolbar rather than a button in each view's (inconsistent) header.
+            ToolbarItem {
+                Button {
+                    appState.showGettingStarted = true
+                } label: {
+                    Label("Getting Started", systemImage: "questionmark.circle")
+                }
+                .help("What is this area for? Open Getting Started")
+            }
             ToolbarItem {
                 Menu {
                     Button("Export GEDCOM...") {
@@ -268,11 +298,13 @@ struct MainView: View {
         // PROJECT_ONBOARDING_SPEC Part A — the project setup wizard (home
         // region now; local-AI later). Offered once per project by
         // offerSetupIfNeeded(), or re-run from Settings.
-        .sheet(isPresented: Binding(
-            get: { appState.showSetupWizard },
-            set: { appState.showSetupWizard = $0 }
-        )) {
+        .sheet(isPresented: setupWizardBinding, onDismiss: onSetupWizardDismiss) {
             ProjectSetupWizardView()
+        }
+        // PROJECT_ONBOARDING_SPEC Part B — the re-openable Getting Started
+        // overview, scrolled to whichever tab is showing.
+        .sheet(isPresented: gettingStartedBinding) {
+            GettingStartedView(focusTab: selectedTab)
         }
         .sheet(isPresented: $showingReportPicker) {
             ReportPickerView()
