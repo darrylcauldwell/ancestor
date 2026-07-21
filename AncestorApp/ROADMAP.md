@@ -213,19 +213,23 @@ This section reads as the build sequence — top to bottom is the intended order
   fields exist, could be `.scoped`), budget policy, per-scope contract pins per
   SOURCE_WEIGHTING Change 1. Note: Findmypast licenses this dataset behind a paywall —
   free-first means the original site, within its terms.
-- **Leads-rework tails** (surfaced 2026-07-16; all optional — the rework is complete without them):
-  (a) group findings per profile — one profile with N conflicts shows as N separate cards today
-  (e.g. George Eric Vaughn Cauldwell ×2); (b) fuzzy transcription-variant folding in lead
-  grouping (Mathews/Matthews, Ida/Ada — exact-identity grouping shipped, fuzzy deferred);
-  (c) apply the lead identity-grouping to the profile's own Leads list (Triage-only today);
-  (d) Change 2 — a profile "Leads (n)" deep-link that jumps into filtered Triage (reuses the
-  Triage search).
-- **RunRequestWatcher off the main thread** (tech-debt, surfaced 2026-07-16). The `@MainActor`
-  watcher runs a SQLite write — and, when a request is queued, a full pipeline `execute()` — on
-  the main thread every 3s. Move the dequeue/execute to a background queue; touch MainActor only
-  for UI state. NOT a live bug (idle cost is small; the 2026-07-16 "beachball" was Xcode debug
-  instrumentation + an oversized SwiftUI view tree, both since fixed) but a real responsiveness
-  smell worth clearing. Detail in memory `project_runrequestwatcher_mainthread_poll`.
+- **Leads-rework tails** (surfaced 2026-07-16; all optional) — **[✓ RESOLVED 2026-07-21 `3d87c26`]**.
+  (a)+(b) shipped: `UnifiedTaskGrouping.groupedByProfile` now buckets by profile IDENTITY
+  (`targetProfileID`) not the display-name string, and grouping defaults ON — so a profile with N
+  findings reads as one section, findings group across name-string wobble, and two distinct
+  same-named people no longer merge (also fixed a latent duplicate-SwiftUI-id in the section
+  list). The toolbar toggle still switches to a flat list. **(c)+(d) already covered, not
+  rebuilt** (recon 2026-07-21): there is no per-profile leads *list* to apply grouping to — the
+  profile card's existing "Possible People (N)" section counts leads and already deep-links into
+  scoped Triage via `requestPossiblePeopleProfileID` + `requestSidebarTab`. 6 grouping tests.
+- **RunRequestWatcher off the main thread** (tech-debt, surfaced 2026-07-16) — **[✓ SHIPPED
+  2026-07-21 `dfeb198`]**. The recurring 3s poll (materialise seeds + the `dequeueOne` SQLite
+  write) now runs off-main: `pollDatabase`/`dequeueOne` are `nonisolated static`, awaited from the
+  MainActor `pollOnce` so the blocking write never sits on the main thread. `execute()` stays
+  MainActor (it reads/writes `appState.snapshot`) but only runs when a request is actually queued,
+  not every 3s. `PendingRequest` made `Sendable`. Behaviour identical (watcher-adjacent suites
+  green). NOT a live bug (the 2026-07-16 "beachball" was Xcode instrumentation) — a responsiveness
+  smell now cleared.
 - **Project onboarding + Getting Started** (`PROJECT_ONBOARDING_SPEC.md`) — **[✓ COMPLETE — all
   stages shipped 2026-07-21; spec now git-only]**. Stage 1 = setup-wizard lifecycle + Step 1
   home region (`0166815`; `ProjectSetupWizardView` shown once per project via a v50
