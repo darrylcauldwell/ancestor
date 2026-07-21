@@ -181,6 +181,7 @@ struct TreeGraphView: View {
                                 .disabled(anchorID == treeVM.rootProfileID)
 
                                 Button("Research") { appState.researchConfigProfile = anchorProfile }
+                                Button("Fetch FamilySearch hints") { appState.requestFetchFSHints = anchorID }
                                 Button("Compare with…") {
                                     comparePickerSource = ComparePickerSource(id: anchorID)
                                 }

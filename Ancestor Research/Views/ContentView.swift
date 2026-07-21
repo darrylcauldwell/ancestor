@@ -261,6 +261,11 @@ struct MainView: View {
         .onChange(of: appState.researchLeadRequest?.id) { _, _ in
             kickOffLeadResearch()
         }
+        .onChange(of: appState.requestFetchFSHints) { _, newID in
+            guard let id = newID else { return }
+            appState.requestFetchFSHints = nil
+            Task { await appState.fetchFamilySearchHints(profileID: id) }
+        }
         .sheet(isPresented: $showResearchProgress) {
             ResearchProgressSheet(
                 vm: researchVM,

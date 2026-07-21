@@ -86,6 +86,61 @@ final class AppState {
     /// sheet — lead research uses discover-mode defaults.
     var researchLeadRequest: Lead?
 
+    /// On-demand FamilySearch hint enrichment for one profile (S6b). Set to a
+    /// profile id by the tree context menu / profile card; drained in
+    /// `ContentView`, which calls `fetchFamilySearchHints(profileID:)`. Sibling
+    /// pattern to `researchLeadRequest`.
+    var requestFetchFSHints: String?
+
+    /// On-demand FamilySearch enrichment for one profile (S6b): fetch record
+    /// hints for the person via the shared FamilySearch tree, route them through
+    /// the SAME deterministic scorer + firewall as records search (deduped on
+    /// the persona id via the `"<profileID>|<id>"` evidence key), and land the
+    /// survivors as leads in Triage. The FS match confidence rides in
+    /// `rawFields["fsMatchScore"]` as a §18 ordering signal only — it never
+    /// enters a gate. Best-effort; empty when the person isn't in FS's tree.
+    func fetchFamilySearchHints(profileID: String) async {
+        guard let db = currentDatabase, let registry = attachedRegistry else {
+            errorMessage = "Open a project first."
+            return
+        }
+        guard await FamilySearchTokenStore.shared.validAccessToken(environment: .beta) != nil else {
+            errorMessage = "Sign in to FamilySearch first (Settings ▸ FamilySearch)."
+            return
+        }
+        do {
+            guard let profile = try db.loadProfile(id: profileID) else {
+                errorMessage = "Profile not found."
+                return
+            }
+            let snapshot = try db.buildSnapshot()
+            let homeChapmanCode = (try? db.loadProjectMeta())?.resolvedHomeChapmanCode ?? ""
+            let subject = ResearchSubject.fromProfile(profile, snapshot: snapshot, homeChapmanCode: homeChapmanCode)
+            guard let surname = subject.surname, !surname.isEmpty else {
+                errorMessage = "This profile has no surname to search FamilySearch with."
+                return
+            }
+            let records = await FamilySearchEnrichmentService(environment: .beta)
+                .recordHintsAsSourceRecords(
+                    surname: surname, givenName: subject.givenName,
+                    birthYear: subject.birthYearFrom, deathYear: subject.deathYearFrom)
+            guard !records.isEmpty else {
+                successMessage = "No FamilySearch hints for this profile — they may not be in FamilySearch's shared tree."
+                return
+            }
+            let result = FamilySearchHintRouting.route(records: records, subject: subject)
+            _ = await ResearchRunService.persist(
+                result: result, mode: .extend,
+                sourceInfoMap: registry.buildSourceInfoMap(), registry: registry,
+                snapshot: snapshot, profileID: profileID, leadToFinalise: nil, db: db)
+            let leadCount = result.leads.count
+            successMessage = "\(records.count) FamilySearch hint\(records.count == 1 ? "" : "s") reviewed — \(leadCount) new lead\(leadCount == 1 ? "" : "s") in Triage."
+            requestSidebarTab = .triage
+        } catch {
+            errorMessage = "FamilySearch enrichment failed: \(error.localizedDescription)"
+        }
+    }
+
     /// Cross-view request: open this profile's Full Detail sheet on the
     /// Tree tab. Set by surfaces that aren't the tree itself — today
     /// the Tasks list's row click. `TreeGraphView` observes via

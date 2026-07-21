@@ -560,6 +560,10 @@ struct ProfileDetailView: View {
                         // in another tab's sheet — otherwise the raise is a
                         // silent no-op and the stale Equatable value would
                         // suppress the next identical request.
+                        // On-demand FamilySearch hint enrichment (S6b) — drained
+                        // in ContentView (always mounted), so no tree-intent hop.
+                        Button("Fetch FamilySearch hints") { appState.requestFetchFSHints = profile.id }
+                        Divider()
                         Button("Add Spouse") { raiseTreeIntent { appState.requestAddRelative = .init(profileID: profile.id, relation: .spouse) } }
                         Button("Add Child") { raiseTreeIntent { appState.requestAddRelative = .init(profileID: profile.id, relation: .child) } }
                         Button("Add Parent") { raiseTreeIntent { appState.requestAddRelative = .init(profileID: profile.id, relation: .parent) } }
