@@ -27,6 +27,12 @@ actor MLXTextEmbedder: TextEmbedder {
     /// texts apart without a multi-GB download.
     static let defaultConfiguration = EmbedderRegistry.minilm_l6
 
+    /// The HuggingFace model id — also the on-disk folder stem (with '/'→'--'),
+    /// mirroring the reasoning model's `sandboxModelDirectory` convention.
+    static let modelID = "sentence-transformers/all-MiniLM-L6-v2"
+    /// Approximate download size, for the setup wizard's consent copy.
+    static let estimatedSizeMB = 90
+
     private var container: EmbedderModelContainer?
     private var loadingTask: Task<EmbedderModelContainer, Error>?
     private let logger = Logger(
@@ -35,8 +41,13 @@ actor MLXTextEmbedder: TextEmbedder {
     var isAvailable: Bool { container != nil }
 
     /// Load (once) the embedding model. Safe to call repeatedly; concurrent
-    /// callers share one in-flight load.
-    func loadModel(configuration: ModelConfiguration = MLXTextEmbedder.defaultConfiguration) async throws {
+    /// callers share one in-flight load. `onProgress` reports the download
+    /// fraction (0…1) — used by the setup wizard so the download isn't silent
+    /// (previously this closure was an empty sink).
+    func loadModel(
+        configuration: ModelConfiguration = MLXTextEmbedder.defaultConfiguration,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws {
         if container != nil { return }
         if let task = loadingTask { _ = try await task.value; return }
         let task = Task<EmbedderModelContainer, Error> {
@@ -44,7 +55,7 @@ actor MLXTextEmbedder: TextEmbedder {
                 from: HuggingFaceDownloader(),
                 using: TransformersTokenizerLoader(),
                 configuration: configuration
-            ) { _ in }
+            ) { progress in onProgress?(progress.fractionCompleted) }
         }
         loadingTask = task
         do {
@@ -57,6 +68,42 @@ actor MLXTextEmbedder: TextEmbedder {
             throw error
         }
     }
+
+    /// The on-disk directory the MLX downloader writes the embedder into —
+    /// same convention as `LocalInferenceService.sandboxModelDirectory(for:)`.
+    nonisolated func sandboxModelDirectory() -> URL? {
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first else { return nil }
+        let bundleID = Bundle.main.bundleIdentifier ?? "dev.dreamfold.Ancestor-Research"
+        let folderName = Self.modelID.replacingOccurrences(of: "/", with: "--")
+        return appSupport
+            .appendingPathComponent(bundleID)
+            .appendingPathComponent("models")
+            .appendingPathComponent(folderName)
+    }
+
+    /// Total bytes of the embedder on disk. 0 when absent.
+    nonisolated func onDiskBytes() -> Int64 {
+        guard let dir = sandboxModelDirectory() else { return 0 }
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: dir, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]
+        ) else { return 0 }
+        var total: Int64 = 0
+        for case let url as URL in enumerator {
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+            if values?.isRegularFile == true, let size = values?.fileSize {
+                total += Int64(size)
+            }
+        }
+        return total
+    }
+
+    /// True when the model is plausibly complete on disk (>10 MB filters
+    /// partial/empty dirs). Drives auto-use-once-downloaded — the launch
+    /// auto-load consults this and NEVER triggers a download.
+    nonisolated func isDownloaded() -> Bool { onDiskBytes() > 10_000_000 }
 
     func embed(_ texts: [String]) async -> [[Float]] {
         guard let container, !texts.isEmpty else { return [] }
