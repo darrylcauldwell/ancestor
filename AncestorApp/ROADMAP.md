@@ -135,6 +135,14 @@ This section reads as the build sequence — top to bottom is the intended order
   tested (`0072c82`). Remaining tails are OBSERVATIONAL, not build: real-run behavioural
   validation, semantic-model + adjudication verdict quality (user, in-app with a model loaded);
   household relationship extraction deliberately deferred to `PROSE_CORPUS_SPEC.md`.
+- **Detached record-review window + clickable family context** — **[✓ shipped 2026-07-21
+  `6c5b16d`]** (owner request, the "Mrs Bown" problem: a thin subject is judged from her
+  family's profiles, so reviewing must not lock the main window). "Open in Window" pops any
+  profile review into its own movable window (ReviewWindowBroker: borrowed AppState +
+  take-once live handoff + generation-keyed re-hydration; fresh vm; disk reconstruction on
+  reopen); About-the-subject spouses/children are tappable and drive the main window's tree.
+  Adversarial review pre-commit caught a critical project-switch cross-database write —
+  fixed with a project-identity guard (=== bound database, no silent re-bind).
 - **Tree popover retired — one inspection surface** — **[✓ shipped 2026-07-21]**
   (`RETIRE_POPOVER_SPEC.md`, raised by the owner 2026-07-20: three surfaces with divergent
   action sets caused repeated mis-adds). Change 1 `1bcc510` (Add Relative + Remove on context
