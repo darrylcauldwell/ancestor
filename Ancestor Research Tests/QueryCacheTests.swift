@@ -160,6 +160,36 @@ struct QueryCacheTests {
                 "expected 1 hit / 1 miss / 1 entry; got \(stats)")
     }
 
+    // MARK: - UV-08 — free-trio variant tier reuses the strict cache entry
+
+    @Test func freeTrioCollapsesStrictAndVariantCacheKeys() {
+        // .variant is soundex-off exactly like .strict on FreeBMD/FreeCen/
+        // FreeREG, so a variant query for the original surname is wire-
+        // identical to strict and must share one cache entry (UV-08).
+        for source in ["freebmd", "freecen", "freereg"] {
+            let strict = QueryCache.cacheKey(sourceID: source, query: strictnessQuery(.strict))
+            let variant = QueryCache.cacheKey(sourceID: source, query: strictnessQuery(.variant))
+            let loose = QueryCache.cacheKey(sourceID: source, query: strictnessQuery(.loose))
+            #expect(strict == variant, "\(source): strict and variant must share a cache key")
+            #expect(strict != loose, "\(source): .loose enables soundex → a distinct wire")
+        }
+    }
+
+    @Test func nonFreeTrioSourceKeepsVariantDistinct() {
+        // Control: CWGC may branch the wire beyond the .loose edge, so its
+        // tiers stay distinct.
+        let strict = QueryCache.cacheKey(sourceID: "cwgc", query: strictnessQuery(.strict))
+        let variant = QueryCache.cacheKey(sourceID: "cwgc", query: strictnessQuery(.variant))
+        #expect(strict != variant)
+    }
+
+    private func strictnessQuery(_ strictness: SearchStrictness) -> RecordQuery {
+        RecordQuery(
+            surname: "Brooks", givenName: "George", recordType: .birth,
+            yearFrom: 1885, yearTo: 1887, gender: .male, region: .englandAndWales,
+            sourceParams: .generic, strictness: strictness)
+    }
+
     // MARK: - #Change6 — residence/marriage place are wire-affecting (FS)
 
     private func fsQuery(residencePlace: String? = nil, marriagePlace: String? = nil,

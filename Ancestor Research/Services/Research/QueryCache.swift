@@ -139,10 +139,20 @@ actor QueryCache {
             // same request. Canonicalise to `.strict` so all tiers share
             // one cache entry.
             return .strict
+        case "freebmd", "freecen", "freereg":
+            // The only wire-affecting flag on these sources is server-side
+            // soundex, and it is enabled ONLY on `.loose` (FreeBMDSource
+            // `enableSoundex`, FreeCenSource `fuzzyFlag`, FreeREGSource). So
+            // `.strict` and `.variant` are both soundex-off, which makes a
+            // `.variant` query for the ORIGINAL (un-fanned) surname
+            // byte-identical to the `.strict` query. Collapse the two to one
+            // key so the variant tier serves the strict cache entry instead of
+            // re-firing the same wire (UV-08). The fanned-out variant surnames
+            // differ on the surname field, so they still key distinctly.
+            return strictness == .loose ? .loose : .strict
         default:
-            // FreeBMD / CWGC / FreeCen / FreeREG / FamilySearch and any
-            // future source: preserve the exact tier — it may change the
-            // wire.
+            // CWGC / FamilySearch and any future source: preserve the exact
+            // tier — it may branch the wire on more than the `.loose` edge.
             return strictness
         }
     }
