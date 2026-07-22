@@ -301,11 +301,19 @@ enum ResearchRunService {
             let inconclusiveCandidates = hypotheses
                 .filter { $0.kind.discriminator == "birthYearCandidate" && $0.verdict == .inconclusive }
                 .count
+            let availableIDs = Set(registry.allSources().map(\.sourceID))
+            let subjectProfile = snapshot.profiles[profileID]
+            let relevantIDs = GPSScorer.relevantSourceIDs(
+                birthYear: subjectProfile?.birthDate?.bestYear,
+                deathYear: subjectProfile?.deathDate?.bestYear,
+                gender: subjectProfile?.gender,
+                available: availableIDs)
             let gps = GPSScorer.score(
                 result: result,
                 sourceInfoMap: sourceInfoMap,
-                searchedSourceCount: searchedSources.count,
-                totalSourceCount: registry.allSources().count,
+                searchedSourceIDs: searchedSources,
+                totalSourceCount: availableIDs.count,
+                relevantSourceIDs: relevantIDs,
                 openDisputes: disputeRows.filter(\.isOpen),
                 resolvedDisputes: disputeRows.filter { !$0.isOpen },
                 inconclusiveValueCandidateCount: inconclusiveCandidates

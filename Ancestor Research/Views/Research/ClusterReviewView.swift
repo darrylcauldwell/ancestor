@@ -189,11 +189,19 @@ struct ClusterReviewView: View {
         // T1-01 / FT-23 — outcome-aware: error-only / truncated-only
         // sources don't count as searched.
         let searchedSources = GPSScorer.searchedSourceIDs(for: result)
+        let availableIDs = Set(registry.allSources().map(\.sourceID))
+        let subject = vm.selectedProfile
+        let relevantIDs = GPSScorer.relevantSourceIDs(
+            birthYear: subject?.birthDate?.bestYear,
+            deathYear: subject?.deathDate?.bestYear,
+            gender: subject?.gender,
+            available: availableIDs)
         return GPSScorer.score(
             result: result,
             sourceInfoMap: sourceInfoMap,
-            searchedSourceCount: searchedSources.count,
-            totalSourceCount: registry.allSources().count
+            searchedSourceIDs: searchedSources,
+            totalSourceCount: availableIDs.count,
+            relevantSourceIDs: relevantIDs
         )
     }
 

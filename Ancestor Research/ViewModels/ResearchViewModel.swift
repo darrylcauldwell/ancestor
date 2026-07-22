@@ -1491,7 +1491,7 @@ final class ResearchViewModel {
             let gps = GPSScorer.score(
                 result: result,
                 sourceInfoMap: [:],
-                searchedSourceCount: searchedSources.count,
+                searchedSourceIDs: searchedSources,
                 totalSourceCount: max(searchedSources.count, 1)
             )
             persist("Save research run") {

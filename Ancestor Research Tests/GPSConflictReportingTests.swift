@@ -69,7 +69,7 @@ struct GPSConflictReportingTests {
             lifespanStart: 1841, lifespanEnd: 1951)
         let gps = GPSScorer.score(
             result: result(facts: [], clusters: [c1840, c1841]),
-            sourceInfoMap: [:], searchedSourceCount: 3, totalSourceCount: 7)
+            sourceInfoMap: [:], searchedSourceIDs: ["freebmd", "freecen", "freereg"], totalSourceCount: 7)
         let c4 = gps.criteria.first { $0.criterion == .conflictResolution }
         #expect(c4?.met == false)
         #expect(c4?.reason.contains("1840") == true)
@@ -79,7 +79,7 @@ struct GPSConflictReportingTests {
     @Test func openDisputeHoldsCriterion4Unmet() {
         let gps = GPSScorer.score(
             result: result(), sourceInfoMap: [:],
-            searchedSourceCount: 3, totalSourceCount: 7,
+            searchedSourceIDs: ["freebmd", "freecen", "freereg"], totalSourceCount: 7,
             openDisputes: [disputeRow()])
         let c4 = gps.criteria.first { $0.criterion == .conflictResolution }
         #expect(c4?.met == false)
@@ -95,7 +95,7 @@ struct GPSConflictReportingTests {
                 origin: SourceOrigin(identifier: "cwgc"), raw: "1917", addedAt: Date())))
         let gps = GPSScorer.score(
             result: result(), sourceInfoMap: [:],
-            searchedSourceCount: 3, totalSourceCount: 7,
+            searchedSourceIDs: ["freebmd", "freecen", "freereg"], totalSourceCount: 7,
             resolvedDisputes: [resolved])
         let c4 = gps.criteria.first { $0.criterion == .conflictResolution }
         #expect(c4?.met == true)
@@ -115,7 +115,7 @@ struct GPSConflictReportingTests {
         ]
         let gps = GPSScorer.score(
             result: result(facts: facts), sourceInfoMap: [:],
-            searchedSourceCount: 3, totalSourceCount: 7)
+            searchedSourceIDs: ["freebmd", "freecen", "freereg"], totalSourceCount: 7)
         let c3 = gps.criteria.first { $0.criterion == .analysisCorrelation }
         #expect(c3?.reason.contains("birth:1881") == true)
         #expect(c3?.reason.contains("birth:1895") == true)

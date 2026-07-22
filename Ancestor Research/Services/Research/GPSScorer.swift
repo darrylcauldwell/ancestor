@@ -44,19 +44,22 @@ nonisolated struct GPSScorer {
     /// - Parameters:
     ///   - result: Research result for this profile (nil if never researched)
     ///   - sourceInfoMap: Source metadata for convergence checks
-    ///   - searchedSourceCount: How many sources were searched
+    ///   - searchedSourceIDs: Which sources were searched (conclusively)
     ///   - totalSourceCount: How many sources are available
+    ///   - relevantSourceIDs: Sources specifically relevant to this subject
+    ///     that must be covered before the search counts as exhaustive (DS-22)
     static func score(
         result: ResearchResult?,
         sourceInfoMap: [String: SourceInfo],
-        searchedSourceCount: Int,
+        searchedSourceIDs: Set<String>,
         totalSourceCount: Int,
+        relevantSourceIDs: Set<String> = [],
         openDisputes: [DisputeRow] = [],
         resolvedDisputes: [DisputeRow] = [],
         inconclusiveValueCandidateCount: Int = 0
     ) -> GPSScore {
         let criteria = [
-            criterion1ExhaustiveSearch(result: result, searched: searchedSourceCount, total: totalSourceCount),
+            criterion1ExhaustiveSearch(result: result, searched: searchedSourceIDs, total: totalSourceCount, relevant: relevantSourceIDs),
             criterion2Citations(result: result),
             criterion3Analysis(result: result, sourceInfoMap: sourceInfoMap),
             criterion4ConflictResolution(
@@ -97,22 +100,59 @@ nonisolated struct GPSScorer {
         return searched
     }
 
-    /// Met if we searched at least 3 of the available sources, or all if fewer than 3 exist.
+    /// Met when at least 3 sources were searched (or all, if fewer exist)
+    /// AND every source that is specifically relevant to THIS subject was
+    /// among them (DS-22). A flat count called a WW1-eligible man who died
+    /// in the war "exhaustively searched" off three unrelated sources while
+    /// CWGC — the one place he'd actually be — was never run.
     private static func criterion1ExhaustiveSearch(
-        result: ResearchResult?, searched: Int, total: Int
+        result: ResearchResult?, searched: Set<String>, total: Int, relevant: Set<String>
     ) -> GPSCriterion {
         guard let result, !result.searchHistory.isEmpty else {
             return GPSCriterion(criterion: .exhaustiveSearch, met: false, reason: "Not yet researched")
         }
         let threshold = min(3, total)
-        let met = searched >= threshold
+        let countMet = searched.count >= threshold
+        // Relevance gate: the subject-specific must-search sources have to be
+        // covered before the search counts as reasonably exhaustive.
+        let missingRelevant = relevant.subtracting(searched)
+        if !missingRelevant.isEmpty {
+            let names = missingRelevant.sorted().joined(separator: ", ")
+            let label = missingRelevant.count == 1 ? "the most relevant source" : "relevant sources"
+            return GPSCriterion(
+                criterion: .exhaustiveSearch, met: false,
+                reason: "Searched \(searched.count) of \(total), but \(label) for this subject not yet searched: \(names)")
+        }
         return GPSCriterion(
             criterion: .exhaustiveSearch,
-            met: met,
-            reason: met
-                ? "Searched \(searched) of \(total) sources"
-                : "Only \(searched) of \(total) sources searched (need \(threshold))"
+            met: countMet,
+            reason: countMet
+                ? "Searched \(searched.count) of \(total) sources"
+                : "Only \(searched.count) of \(total) sources searched (need \(threshold))"
         )
+    }
+
+    /// Sources that SHOULD be searched for a subject given deterministic
+    /// eligibility signals (DS-22), intersected with what the run could
+    /// actually reach so we never demand an unavailable source:
+    ///   • war graves (CWGC) — a non-female subject who was WW1/WW2 service-
+    ///     age OR died inside a war window; the single most probative source
+    ///     for a war-era death;
+    ///   • a census source (FreeCen) — anyone alive across a public census;
+    ///   • a parish source (FreeREG) — a pre-civil-registration (<1837) birth.
+    static func relevantSourceIDs(
+        birthYear: Int?, deathYear: Int?, gender: Gender?, available: Set<String>
+    ) -> Set<String> {
+        var relevant: Set<String> = []
+        let inWarWindow = { (y: Int) in (1914...1918).contains(y) || (1939...1945).contains(y) }
+        let eligibleByBirth = birthYear.map { !ScoringRules.militaryEligible(birthYear: $0, gender: gender).isEmpty } ?? false
+        let diedInWar = deathYear.map(inWarWindow) ?? false
+        if gender != .female, eligibleByBirth || diedInWar {
+            relevant.insert("cwgc")
+        }
+        if let by = birthYear, by <= 1921 { relevant.insert("freecen") }
+        if ScoringRules.preRegistrationBirth(birthYear) { relevant.insert("freereg") }
+        return relevant.intersection(available)
     }
 
     // MARK: - Criterion 2: Complete and Accurate Citations
