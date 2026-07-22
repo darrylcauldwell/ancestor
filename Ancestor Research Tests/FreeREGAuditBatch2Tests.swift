@@ -170,6 +170,26 @@ struct FreeREGNameSplitTests {
         #expect(resolved?.surname == "Kenworthy")
         #expect(resolved?.givenName == nil)
     }
+
+    // T1-C4 (parse half — the transport half rides the shared encoder, covered
+    // by SourceHTTPClientEncodingTests). An apostrophe lives inside a name
+    // token, so the space-split must keep it intact rather than truncating.
+    @Test func apostropheSurnameSurvivesExplicitColumn() {
+        let resolved = FreeREGSource.resolveRowName([
+            "name": "Mary O'Brien", "surname": "O'Brien", "forenames": "Mary",
+        ])
+        #expect(resolved?.surname == "O'Brien")
+        #expect(resolved?.givenName == "Mary")
+    }
+
+    @Test func apostropheSurnameSurvivesDisplayFallback() {
+        // No explicit surname column — the last space-delimited token is the
+        // surname and the apostrophe must not split it.
+        let resolved = FreeREGSource.resolveRowName(["name": "Patrick O'Brien"])
+        #expect(resolved?.surname == "O'Brien")
+        #expect(resolved?.givenName == "Patrick")
+        #expect(resolved?.name == "Patrick O'Brien")
+    }
 }
 
 // MARK: - FT-18: detail fetching
