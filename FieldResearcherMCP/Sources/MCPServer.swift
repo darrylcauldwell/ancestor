@@ -860,11 +860,15 @@ actor MCPHandler {
 
             // Active leads for this profile
             let leadRows = try Row.fetchAll(db, sql: """
-                SELECT name, relationship, status, evidence, birth_year, death_year
+                SELECT id, name, relationship, status, evidence, birth_year, death_year
                 FROM leads WHERE profile_id = ? ORDER BY created_at DESC
                 """, arguments: [id])
             p["leads"] = leadRows.map { lead -> [String: Any] in
                 var l: [String: Any] = [
+                    // `id` is required so an agent that reads a lead here can
+                    // act on it via promote_lead / dismiss_lead without a
+                    // second round-trip through the ancestor://leads resource.
+                    "id": lead["id"] as String? ?? "",
                     "name": lead["name"] as String? ?? "",
                     "status": lead["status"] as String? ?? "",
                     "evidence": lead["evidence"] as String? ?? "",

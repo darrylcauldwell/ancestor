@@ -134,6 +134,23 @@ struct DisputeSurfaceTests {
         #expect(!detail.contains("resolve_dispute"))
     }
 
+    // MARK: - Lead IDs surfaced on get_profile (Batch-1 defect c)
+
+    @Test func getProfileIncludesLeadID() async throws {
+        let dbPath = try makeDB()
+        let queue = try DatabaseQueue(path: dbPath)
+        try await queue.write { db in
+            try db.execute(sql: """
+                INSERT INTO leads (id, profile_id, name, status, evidence, created_at)
+                VALUES ('lead-42', 'P1', 'Robert CAULDWELL', 'new', 'census 1891', ?)
+                """, arguments: [Date()])
+        }
+        let handler = try MCPHandler(dbPath: dbPath)
+        let detail = try await handler.profileDetail(id: "P1")
+        #expect(detail.contains("lead-42"),
+                "get_profile must expose the lead id so an agent can promote/dismiss a lead it just read")
+    }
+
     // MARK: - AC4: §14.3 gate refuses on open disputes
 
     @Test func gateRefusesAutoApprovalOnOpenFieldDispute() async throws {
