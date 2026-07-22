@@ -159,7 +159,9 @@ GPS reporting honesty DS-19/~~DS-18~~ ✅ (`5f91641`)/~~DS-21~~ ✅ (`3b1c4ac`)/
 
 **Residue:** Make criterion 1 relevance-driven using the existing eligibility signals.
 
-### DS-23 · medium · (python-parity) Birth-record date gate tightened Python ±2 → Swift ±1 — a genuine 2-yr-off registration is demoted to .lead
+### DS-23 · medium · (python-parity) Birth-record date gate tightened Python ±2 → Swift ±1 — a genuine 2-yr-off registration is demoted to .lead ✅ RESOLVED `1841eb2`
+
+**Resolved (owner decision 2026-07-22):** `tolerance(.birth)` restored to ±2 (death/military stay ±1). Re-baselined the two tolerance tests + added a ±3 boundary. Shipped alongside the spouse-birth inference (Ethel-class: DOB-less married profile gets a spouse-birth ± 5 search window).
 
 **Claim:** Python passes a birth record within ±2 (agent/rules.py:113-115, rationale covers both registration-quarter slip AND census-age rounding). Swift uses tolerance(.birth)=1 (ScoringRules.swift:117), covering only the quarter slip. The compound 2-year case Python deliberately tolerated now fails → .lead. Conservative (never .impossible), and bites only when a census-derived approximate year is stored as a bare exact (span-0) year, but the divergence is unacknowledged in the Swift comment and leaves the genuine registration in Triage.
 
