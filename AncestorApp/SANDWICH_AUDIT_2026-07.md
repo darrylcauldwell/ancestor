@@ -9,15 +9,17 @@ verifier trail. The findings below are the OPEN half: Swift-side scorer/gate rep
 against the code. IDs are DS-nn; commits reference `#DS-nn`. Severity = impact on tree correctness.
 
 Suggested repair sequence (Part B 1.3): **(1st)** DS-01 + DS-17 ✅ **shipped `5f91641`** · **(2nd)** shared name-gate ladder
-rework covering DS-16/DS-05/DS-06 ✅ **shipped `aa7fc8b`+`d5ff18e`** · **(3rd)** FP/FN residues ~~DS-12~~/~~DS-10~~ ✅ (`8b9eb78`+`be740db`) · **remaining: DS-02 (census tightening), DS-15 (aliveAsOf threading)** · **(4th)**
-GPS reporting honesty DS-19/~~DS-18~~ ✅ (`5f91641`)/~~DS-21~~ ✅ (`3b1c4ac`)/DS-22/DS-23 · **(5th)** DS-27 dead-code cleanup ~~(a)~~ ✅ (`ffab4e3`), (b) advisory follow-up deferred. ~~DS-04~~ ✅ (`8b9eb78`) middle-name gate.
+rework covering DS-16/DS-05/DS-06 ✅ **shipped `aa7fc8b`+`d5ff18e`** · **(3rd)** FP/FN residues ~~DS-12~~/~~DS-10~~/~~DS-02~~/~~DS-15~~/~~DS-04~~ ✅ (`8b9eb78`+`be740db`+`a79d1a6`+`34f8c52`) · **(4th)**
+GPS reporting honesty ~~DS-18~~/~~DS-21~~/~~DS-22~~/~~DS-23~~ ✅ (`5f91641`/`3b1c4ac`/`f3cf120`/`1841eb2`); DS-19 → see below · **(5th)** DS-27 dead-code cleanup ~~(a)~~ ✅ (`ffab4e3`), (b) advisory follow-up deferred.
 
-> **⚠ DS-11 + DS-19 are a coupled PRODUCT DECISION, not autonomous.** The foreign-place short-circuits
-> (`RecordScorer.checkGeography`) hard-fail any foreign place *by explicit design* — the code comment states the
-> emigrant/colonial case is "sacrificed to keep Triage clean for the typical UK-rooted research run." DS-11 (expand
-> the marker list to US states / Canadian provinces) *intensifies* that sacrifice; DS-19 (consult the subject's own
-> recorded locations before failing) *reverses* it. Pick a posture before building: **Triage-clean** (do DS-11, close
-> DS-19 won't-fix) vs **emigrant-recall** (do DS-19, then DS-11 is safe). Awaiting Darryl.
+> **DS-11 + DS-19 — DECIDED 2026-07-22 (owner): the "International" scope tier.** Rather than the Triage-clean vs
+> emigrant-recall dilemma, foreign inclusion becomes an explicit opt-in scope below National. At *International*,
+> the geography gate soft-fails foreign places (→ `.lead`) instead of hard-failing; National and below are unchanged
+> (Triage stays clean). DS-11's expanded marker list (US states / Canadian provinces) is what *identifies* foreign,
+> which National drops and International surfaces. Defaults: foreign → `.lead`; gate-only + FindAGrave dispatch;
+> purely opt-in (default stays County + adjacent). **QUEUED TO BUILD** — the only remaining SANDWICH work besides
+> DS-27(b). Complement (optional, separate): a record whose foreign place matches the subject's OWN recorded
+> location should stop hard-failing even at National (pure corroboration).
 
 ## OPEN findings
 
@@ -31,7 +33,9 @@ GPS reporting honesty DS-19/~~DS-18~~ ✅ (`5f91641`)/~~DS-21~~ ✅ (`3b1c4ac`)/
 
 **Residue:** The gate that lets a no-age death/burial reach .fact is unrepaired; the conflict layer only surfaces the collision *after* apply, it doesn't tighten the gate.
 
-### DS-02 · high · (false-positive, gate residual) Census wrong-household: ±5 tolerance + spouse-forename household match endorses the neighbour's family as .fact
+### DS-02 · high · (false-positive, gate residual) Census wrong-household: ±5 tolerance + spouse-forename household match endorses the neighbour's family as .fact ✅ RESOLVED (spouse half) `34f8c52`
+
+**Resolved (owner: build 2026-07-22):** the census family gate checks a distinctive child match first (still passes), then endorses to `.fact` only on a STRONG spouse match (full given+surname / exact ≥0.90); a forename-only match with no corroborating child soft-fails → `.lead`. The ±5 date tolerance is intentionally left (spec-sanctioned calibration; MCP investigation found census records are landing as leads, not spouse-endorsed facts, in the live tree). Pinned by `ScorerFPFNResidueTests`.
 
 **Claim:** Census date gate accepts implied birth in window±5 (tolerance(.census)=5, ScoringRules.swift:119). familyContext then passes if ANY wife/husband-relation member scores ≥0.7 against the known spouse name (RecordScorer.swift:843-851) — common Victorian forenames + shared surname make the wrong John Smith's household match 1.0. All gates pass → .fact with the family gate actively endorsing the error.
 
@@ -151,7 +155,9 @@ GPS reporting honesty DS-19/~~DS-18~~ ✅ (`5f91641`)/~~DS-21~~ ✅ (`3b1c4ac`)/
 
 **Residue:** Check citation completeness (detailURL / vol-page-district), not just presence.
 
-### DS-22 · medium · (gps-standard, reporting) GPS Criterion 1 is a flat min(3, total) source count, blind to subject relevance
+### DS-22 · medium · (gps-standard, reporting) GPS Criterion 1 is a flat min(3, total) source count, blind to subject relevance ✅ RESOLVED `f3cf120`
+
+**Resolved:** criterion 1 now also requires the subject-relevant sources (via `GPSScorer.relevantSourceIDs` — CWGC for WW1/WW2-eligible or war-window deaths, census for census-era, parish for pre-1837) to have been searched, and names any that are missing. Verified against the live tree: **Robert Cauldwell** (b.~1885, d.1918), researched 3× with CWGC never run, is exactly this case. Pinned by `GPSRelevanceTests`.
 
 **Claim:** criterion1ExhaustiveSearch is met when searched >= min(3, total) (GPSScorer.swift:101-102). With 8 sources, any 3 conclusive sources satisfy it regardless of relevance. The deterministic relevance signals exist (WW1/WW2 eligibility, census years, pre-registration flags in ScoringRules.swift:132-158) but criterion 1 uses none. A WW1-eligible male whose CWGC search was throttled meets criterion 1 without the single most probative source. Reporting-only.
 
