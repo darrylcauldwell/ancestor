@@ -41,6 +41,18 @@ final class FindAGraveBrowserFetcher: NSObject, WKNavigationDelegate {
         case extractionFailed
         case loadFailed(String)
         case challengeUnresolved(title: String)
+
+        /// A transient failure worth retrying (T1-C2): a load deadline or a
+        /// WKWebView load error is often a network blip or a slow challenge
+        /// settle. A challenge that stayed unresolved or a page that loaded
+        /// but couldn't be extracted are NOT transient — retrying re-pays the
+        /// JS-challenge cost or hits the same extraction wall.
+        var isTransient: Bool {
+            switch self {
+            case .timeout, .loadFailed: return true
+            case .challengeUnresolved, .extractionFailed: return false
+            }
+        }
     }
 
     private enum Extract { case html, text }
@@ -67,17 +79,49 @@ final class FindAGraveBrowserFetcher: NSObject, WKNavigationDelegate {
     /// challenge page's content.
     nonisolated static let settleAfterDidFinish: Duration = .seconds(3)
 
+    /// Bounded retry ceiling for a browser fetch (T1-C2). 2 = one retry.
+    /// Deliberately small — Find a Grave sits behind Cloudflare, so a burst
+    /// of retries reads as bot-like and risks a harder block.
+    nonisolated static let maxFetchAttempts = 2
+
+    /// Run `operation`, retrying only on a *transient* `FetchError` up to
+    /// `maxAttempts` total, with a short backoff between tries (T1-C2). Any
+    /// non-transient error (challenge / extraction) propagates immediately.
+    /// A fresh fetcher is created per attempt by the caller's closure.
+    /// Pure and injectable so the policy is unit-testable without a live
+    /// WKWebView.
+    static func withTransientRetry<T>(
+        maxAttempts: Int = maxFetchAttempts,
+        backoff: Duration = .milliseconds(500),
+        operation: () async throws -> T
+    ) async throws -> T {
+        var attempt = 0
+        while true {
+            attempt += 1
+            do {
+                return try await operation()
+            } catch let error as FetchError where error.isTransient && attempt < maxAttempts {
+                try? await Task.sleep(for: backoff)
+                continue
+            }
+        }
+    }
+
     /// Fetch a URL via WKWebView, returning `document.documentElement.outerHTML`.
     /// Use for HTML detail pages (memorials).
     static func fetchHTML(url: URL, timeout: Duration = defaultTimeout) async throws -> String {
-        try await FindAGraveBrowserFetcher().run(url: url, extract: .html, timeout: timeout)
+        try await withTransientRetry {
+            try await FindAGraveBrowserFetcher().run(url: url, extract: .html, timeout: timeout)
+        }
     }
 
     /// Fetch a URL via WKWebView, returning `document.body.innerText`.
     /// Use for AJAX/JSON endpoints — WKWebView's built-in JSON viewer
     /// puts the raw JSON in the body's text content.
     static func fetchText(url: URL, timeout: Duration = defaultTimeout) async throws -> String {
-        try await FindAGraveBrowserFetcher().run(url: url, extract: .text, timeout: timeout)
+        try await withTransientRetry {
+            try await FindAGraveBrowserFetcher().run(url: url, extract: .text, timeout: timeout)
+        }
     }
 
     private func run(url: URL, extract: Extract, timeout: Duration) async throws -> String {
