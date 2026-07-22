@@ -282,6 +282,10 @@ nonisolated struct FamilyContext: Sendable {
     /// imported wife under her maiden name).
     let spouseFatherSurname: String?
     let childNames: [String]
+    /// Birth years of the subject's children (earliest-known per child),
+    /// unsorted. A marriage precedes the first child, so this tightens the
+    /// marriage search window (UV-01). Empty when no child has a known year.
+    let childBirthYears: [Int]
     let fatherName: String?
     let fatherSurname: String?
     let fatherGivenName: String?
@@ -308,13 +312,15 @@ nonisolated struct FamilyContext: Sendable {
         motherName: String?,
         motherSurname: String?,
         motherGivenName: String?,
-        marriageLocation: String? = nil
+        marriageLocation: String? = nil,
+        childBirthYears: [Int] = []
     ) {
         self.spouseName = spouseName
         self.spouseSurname = spouseSurname
         self.spouseGivenName = spouseGivenName
         self.spouseFatherSurname = spouseFatherSurname
         self.childNames = childNames
+        self.childBirthYears = childBirthYears
         self.fatherName = fatherName
         self.fatherSurname = fatherSurname
         self.fatherGivenName = fatherGivenName
@@ -341,8 +347,21 @@ nonisolated extension ResearchSubject {
             if let bf = birthYearFrom { return (bf + 15, (birthYearTo ?? bf) + 95) }
             return (nil, nil)
         case .marriage:
-            if let bf = birthYearFrom { return (bf + 16, (deathYearTo ?? (birthYearTo ?? bf) + 60)) }
-            return (nil, nil)
+            guard let bf = birthYearFrom else { return (nil, nil) }
+            let wideLow = bf + 16
+            let wideHigh = deathYearTo ?? (birthYearTo ?? bf) + 60
+            // UV-01: a marriage precedes the first child, so when the
+            // children's birth years are known, tighten the window around the
+            // earliest — a marriage is rarely more than ~12 years before the
+            // first surviving child and rarely after it. Intersect with the
+            // wide window (never widen); fall back to the wide window when no
+            // child year is known or the intersection would invert.
+            if let firstChild = familyContext?.childBirthYears.min() {
+                let low = max(wideLow, firstChild - 12)
+                let high = min(wideHigh, firstChild + 2)
+                if low <= high { return (low, high) }
+            }
+            return (wideLow, wideHigh)
         case .census:
             let earliest = birthYearFrom ?? 1841
             let latest = deathYearTo ?? (birthYearTo.map { $0 + 80 } ?? 1911)
@@ -614,7 +633,8 @@ nonisolated extension ResearchSubject {
             // generations where mother's identity is partial.
             motherSurname: mother?.lastName ?? profile.mothersMaidenName,
             motherGivenName: mother?.firstName,
-            marriageLocation: marriageLocation
+            marriageLocation: marriageLocation,
+            childBirthYears: children.compactMap { $0.birthDate?.earliest }
         )
 
         // Birth window — hard date wins when present. When absent (common
