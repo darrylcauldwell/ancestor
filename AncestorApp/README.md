@@ -28,8 +28,8 @@ design rationale, in Claude's memory files. Only living work lives in this folde
 
 | Doc | Role | Status |
 |---|---|---|
-| `SANDWICH_AUDIT_2026-07.md` | Adversarial audit of the 4-gate scorer (DS-01..27) | Gate-repair findings open — awaiting triage |
-| `CONNECTOR_AUDIT_2026-07.md` | Connector fix backlog / as-built record | 56/58 shipped; FT-08/19/21 deferred |
+| `SANDWICH_AUDIT_2026-07.md` | Adversarial audit of the 4-gate scorer (DS-01..27) | **COMPLETE 2026-07-22** — all 14 gate repairs shipped; only DS-27(b) advisory feature deferred to Stage 2 |
+| `CONNECTOR_AUDIT_2026-07.md` | Connector fix backlog / as-built record | Core 56/58 + deferred residue shipped 2026-07-22 (UV-01/06/08/09, T1-C2/C3/C4; UV-02 via DS-15); open: FT-19, FT-21 (blocked), T1-C1 (NEEDS-DARRYL) |
 | `SOURCE_WEIGHTING_SPEC.md` | Staged-dispatch source weighting | Changes 0–5,7,8 shipped; live-verification pending + Change 6 gated on ADR-008 |
 | `SOURCE_ACCESS_COMPLIANCE_2026-07.md` | Connector terms-of-service evidence | Decisions pending ADR-008 |
 | `FAMILYSEARCH_SOURCE_SPEC.md` | FS deferred work (write leg, ARK detail-fetch, per-collection tiering, place/vocab) + reference (§16 licensing, GEDCOM X taxonomy) | Thinned 2026-07-21 — implemented surface removed; small follow-ups open |

@@ -1,6 +1,6 @@
 # CONNECTOR_AUDIT_2026-07 — Free-Trio + Tier-1 Connector Audit (deferred residue)
 
-**Status: 56 of 58 findings SHIPPED 2026-07-11/13** (`git log --grep='#FT-\|#T1-'` is the archive). This doc is thinned to its still-live residue: the two deferred capabilities (**FT-19** place-scoping, **FT-21** witness-probes), the interrupted-verification batch (**UV-01/02/06/07/08/09**), and the four **UNVERIFIED** tier-1 critic morsels (**T1-C1..C4**). Shipped finding bodies, the Top-5 ranking, the §5.1–§5.6 cross-cutting recommendations, and the refuted lists are compressed to one line each — full text is in git history.
+**Status: 56 of 58 core findings SHIPPED 2026-07-11/13; the deferred residue is now nearly clear too (2026-07-22).** Shipped this close-out: **UV-01** (marriage window from child births), **UV-06/09** (candidate-probe cache threading), **UV-08** (free-trio variant re-fire), **T1-C2** (FindAGrave browser retry), **T1-C3** (FindAGrave URLComponents), **T1-C4** (FreeREG apostrophe fixtures); **UV-02** is delivered by SANDWICH DS-15's `aliveAsOf`; **UV-07** shipped earlier as T1-04. **Still OPEN: FT-19** (place-scoping-L), **FT-21** (witness-probes-L, blocked on a SourceRecord record-role model), **T1-C1** (dead Cloudflare subsystem — delete-vs-wire, NEEDS-DARRYL). (`git log --grep='#FT-\|#T1-\|#Batch3'` is the archive.) Shipped finding bodies, the Top-5 ranking, the §5.1–§5.6 cross-cutting recommendations, and the refuted lists are compressed to one line each — full text is in git history.
 
 Scope was the three volunteer-transcription connectors (FreeBMD, FreeCen, FreeREG) plus the shared machinery (`SearchDispatcher`, `QueryCache`, `SourceHTTPClient`, `SourceQueryResult`), and tier-1 (CWGC / FindAGrave / Probate). Method: find → two-lens adversarial verify (fact lens + value lens), static-analysis-only with one rationed live probe (2026-07-11).
 
@@ -90,12 +90,12 @@ No witness field anywhere in the repo; the form can extend name matching to witn
 
 The free-trio verify phase lost agents to stalls and a session limit; the critic pass produced zero additions because it *failed*, not because it was satisfied. These findings need their interrupted lens(es) re-run **before** any member is built. Re-verify DS-adjacent scope against current code (several were substantially covered by shipped FT/T1 work — fold, don't rebuild).
 
-- **UV-01 · fact-confirmed, value lens never ran** — Subject marriage window ignores known children's birth years (44–55-year windows where 10–12 would do; `FamilyContext` has no childBirthYears field, structurally unreachable at query build).
-- **UV-02 · fact-confirmed, value lens never ran** — Death-search floor never advances from alive-at evidence (census facts / children's births don't tighten the 80-year fallback; `absentFromCensusSuggests` port has zero callers). *(= the DS-27 dead-code residue.)*
-- **UV-06 · never verified (titles only)** — Hypothesis flows bypass the per-run QueryCache; level-2 ladder windows fully contain level-1 (re-downloads).
-- **UV-07 · never verified (titles only)** — No cross-run negative-search memory; `negative_searches` used only as a resume-state hack. **Mostly shipped as T1-04** — re-verify the residue, don't rebuild.
-- **UV-08 · never verified (titles only)** — In `.all` mode the variant tier re-fires the strict tier's exact query wire-for-wire; `wildcardSurname` axis dead.
-- **UV-09 · never verified (titles only)** — Birth-year-candidate census probes are near-duplicates of main-loop census queries.
+- **UV-01 ✅ SHIPPED `882a982`** — marriage window tightened around the first child's birth (`FamilyContext.childBirthYears`, populated from linked children; `[max(birth+16, firstChild−12), min(wideHigh, firstChild+2)]`).
+- **UV-02 ✅ delivered via SANDWICH DS-15 `a79d1a6`** — the death floor now advances from accepted alive-at evidence: `ResearchSubject.aliveAsOf` (census/residence/occupation life events) rules a death record impossible when it predates a known-alive year. The dead `absentFromCensusSuggests`/`childGapSuggestsDeath` functions were deleted (DS-27(a) `ffab4e3`).
+- **UV-06 ✅ SHIPPED `54a36c7`** — `dispatchSiblingCandidateQuery` now routes through the per-run `QueryCache.wrappedSearch` (no re-download).
+- **UV-07 ✅ done (T1-04)** — cross-run negative-search memory shipped as `NegativeSearchCache`; residue folded, not rebuilt.
+- **UV-08 ✅ SHIPPED `00487c6`** — `normalizedWireStrictness` collapses `.strict`/`.variant` for the free trio (both soundex-off), so the variant tier serves the strict cache entry instead of re-firing.
+- **UV-09 ✅ SHIPPED `54a36c7`** — `dispatchCensusCandidateQuery` now cache-aware (same wrappedSearch path as UV-06).
 
 *(UV-03 marriage/parish scope-degrade overlaps FT-13/FT-19 above; UV-04 chapman multi-value is covered by shipped FT-25/FT-28; UV-05 FreeBMD `.adjacent`==`.county` — carry forward with the UV batch if the value pass revives it.)*
 
@@ -111,11 +111,11 @@ Full two-lens rejection notes are in the audit envelopes (git-only).
 
 ---
 
-## 5. Tier-1 critic additions — **UNVERIFIED**
+## 5. Tier-1 critic additions — three verified + shipped, one OPEN
 
-The tier-1 critic pass ran to completion and produced four additions. **Neither lens has verified them** — candidates for the next verify batch, not backlog entries.
+The tier-1 critic pass produced four additions; C2/C3/C4 were verified and shipped 2026-07-22, **C1 remains a NEEDS-DARRYL delete-vs-wire decision.**
 
-- **T1-C1 · findagrave · unused-capability · medium — dead Cloudflare-clearance path.** `ensureCloudflareClearance()` (FindAGraveSource.swift:222-235), the Keychain-backed `FindAGraveCookieStore`, and `FindAGraveCloudflareClearance.acquire()` are never invoked from search()/fetchDetail(), which call `FindAGraveBrowserFetcher` directly (its `WKWebsiteDataStore` cookie jar is a separate persistence mechanism). Wire the store into the fetch path or delete the subsystem and its misleading doc comments.
-- **T1-C2 · findagrave · inefficiency · medium — WKWebView fetch has zero retry.** CWGC/Probate ride `SourceHTTPClient`'s `withRetry(retries: 3)` backoff (SourceHTTPClient.swift:49-60); FAG's browser fetch is a single load() with a 45 s deadline (FindAGraveBrowserFetcher.swift:62, 117-121) — one transient hiccup fails the whole query as `.unavailable`. Bounded retry for timeout/loadFailed only (not challengeUnresolved).
-- **T1-C3 · findagrave · correctness-bug · low — search URL built with `.urlQueryAllowed`** (FindAGraveSource.swift:121): '&', '+', '=' inside values corrupt the query string. Same class as FT-29 but a different call site (FT-29 is scoped to `SourceHTTPClient.postForm`). Build via URLComponents/URLQueryItem as CWGC/Probate already do.
-- **T1-C4 · cross-source · planning-gap · low — zero test coverage for apostrophes/diacritics** (O'Brien, Müller) across all three connectors' fixtures; CWGC's quote-toggle CSV scanner has never been exercised against an apostrophe inside a quoted AdditionalInfo. One fixture/test per connector closes it.
+- **T1-C1 · findagrave · unused-capability · medium — dead Cloudflare-clearance path. OPEN (NEEDS-DARRYL).** `ensureCloudflareClearance()` (FindAGraveSource.swift:222-235), the Keychain-backed `FindAGraveCookieStore`, and `FindAGraveCloudflareClearance.acquire()` are never invoked from search()/fetchDetail(), which call `FindAGraveBrowserFetcher` directly (its `WKWebsiteDataStore` cookie jar is a separate persistence mechanism). **Decision needed:** wire the store into the fetch path for a future non-WKWebView route, or delete the subsystem + its misleading doc comments (the browser fetcher's own cookie jar already works → deletion recommended).
+- **T1-C2 ✅ SHIPPED `ad60efa`** — the WKWebView fetch now runs through a bounded `withTransientRetry` (retry `.timeout`/`.loadFailed` once, never `.challengeUnresolved`/`.extractionFailed`). Pure, unit-tested policy (`FindAGraveRetryTests`).
+- **T1-C3 ✅ SHIPPED `fb3c56b`** — the search URL is rebuilt via `URLComponents`/`URLQueryItem` (`buildSearchURL`), so `&`/`=`/`+` inside values round-trip. `FindAGraveQueryShapeTests` pins it.
+- **T1-C4 ✅ SHIPPED `f1e89b3`** — the transport half already shipped (`SourceHTTPClientEncodingTests.apostropheIsEncoded`, which FreeREG's last_name rides through); FreeREG's parse half is now fixture-locked (`resolveRowName` keeps O'Brien intact via explicit-column + display-fallback).

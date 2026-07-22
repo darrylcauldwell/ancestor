@@ -1,6 +1,9 @@
-# SANDWICH_AUDIT_2026-07 — gate-repair backlog (OPEN findings)
+# SANDWICH_AUDIT_2026-07 — gate-repair backlog (✅ COMPLETE)
 
-**Status: OPEN gate-repair backlog awaiting triage (Darryl).** This doc has been thinned to the
+**Status: COMPLETE 2026-07-22 — all 14 gate repairs shipped.** The only carry-forward is **DS-27(b)**,
+the advisory "vanished from a later census, ask why" question generator — a new *feature*, not a repair,
+queued to Stage 2. Kept as an as-built record: each finding below is annotated with its fix + commit; the
+finding bodies are retained for the verifier trail. This doc was previously thinned to the
 still-open scorer/gate-repair findings only. The conflict-evidence cluster (DS-03/07/08/09/13/14/20/
 24/25/26, plus the DS-02/12/15 conflict halves) was resolved by the conflict layer (CL1–CL6, shipped
 2026-07-13, git-only) and its finding bodies have been removed — see git history for the full

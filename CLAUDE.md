@@ -116,7 +116,7 @@ These are easy to break and the tests will not always catch them:
 - `AncestorApp/RESEARCH_PIPELINE_SPEC.md` — governing architectural spec. Part I describes the as-built engine (incl. §14 MCP-driven auto-approval); Part II is the accepted V2 hypothesis-framework pivot (T7/T8/T9/T11/T12/T23/T31).
 - `AncestorApp/PROSE_CORPUS_SPEC.md` — unified prose-corpus + bio-synthesis spec (queued; not started).
 - `AncestorApp/FAMILYSEARCH_SOURCE_SPEC.md` — FamilySearch source-plugin coverage.
-- `AncestorApp/SANDWICH_AUDIT_2026-07.md` — adversarial audit of the decision core; gate repairs awaiting triage.
+- `AncestorApp/SANDWICH_AUDIT_2026-07.md` — adversarial audit of the decision core; all 14 gate repairs shipped 2026-07-22 (as-built record now; only DS-27(b) advisory feature deferred).
 
 Completed specs are removed once shipped (git history is the archive — see `AncestorApp/README.md`). What shipped is recorded in `AncestorApp/ROADMAP.md`; the conflict layer (CL1–CL6), model evolution (E1–E4), engine foundation, publisher, and viewers are all shipped and now git-only.
 - `DESIGN.md` (root, 2536 lines) — end-state product design.
