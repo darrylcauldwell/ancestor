@@ -768,6 +768,19 @@ nonisolated struct RecordScorer {
             return checkMilitaryGeography(mr, subject: subject)
         }
 
+        // DS-11/DS-19: on an International-scope run the user has opted in to
+        // foreign records, so an obviously-foreign place soft-fails (→ a
+        // reviewable `.lead`) instead of hard-failing (→ `.impossible` in
+        // focused modes). Every other run stays Triage-clean.
+        func foreignGate(_ label: String, _ value: String) -> GateResult {
+            if subject.includeForeignRecords {
+                return GateResult(gate: .geography, outcome: .softFail,
+                    reason: "\(label): \(String(value.prefix(50))) — outside the UK, surfaced for review (International scope)")
+            }
+            return GateResult(gate: .geography, outcome: .fail,
+                reason: "\(label): \(String(value.prefix(50)))")
+        }
+
         // Foreign-metadata short-circuit. Scan the two strongest scope
         // signals on a FamilySearch record:
         //   1. `collection.title` — identifies which country's
@@ -799,10 +812,7 @@ nonisolated struct RecordScorer {
         for key in foreignMetadataKeys {
             guard let value = record.rawFields[key],
                   Self.isObviouslyForeign(value) else { continue }
-            return GateResult(
-                gate: .geography, outcome: .fail,
-                reason: "non-UK \(key): \(String(value.prefix(50)))"
-            )
+            return foreignGate("non-UK \(key)", value)
         }
 
         // Extract district from record
@@ -845,7 +855,7 @@ nonisolated struct RecordScorer {
             // logic translates geography `.fail` into `.impossible` so the
             // record is filtered out of clustering entirely.
             if !county.isEmpty, Self.isObviouslyForeign(county) {
-                return GateResult(gate: .geography, outcome: .fail, reason: "non-UK location: \(String(county.prefix(50)))")
+                return foreignGate("non-UK location", county)
             }
             // Home-county match. Previously hardcoded `.contains("derby")`,
             // which broke the No-Hardcoded-Regions invariant (DS-17). Derive
@@ -935,7 +945,7 @@ nonisolated struct RecordScorer {
         // covers sources that put a country name in the district slot
         // rather than the dedicated location field.
         if Self.isObviouslyForeign(districtClean) {
-            return GateResult(gate: .geography, outcome: .fail, reason: "non-UK district: \(districtClean)")
+            return foreignGate("non-UK district", districtClean)
         }
 
         if let nonLocal = ScoringRules.isNonLocal(districtClean, forHomeChapman: subject.homeChapmanCode) {
@@ -1086,6 +1096,24 @@ nonisolated struct RecordScorer {
         "france", "spain", "italy", "netherlands", "belgium",
         "norway", "sweden", "denmark", "china", "japan",
         "philippines", "kenya", "nigeria", "jamaica", "barbados",
+        // DS-11 — US states and Canadian provinces so a place naming only
+        // the sub-national region ("Charleston, South Carolina") is caught
+        // without the country. Whole-word matched (see isObviouslyForeign);
+        // UK-colliding names are deliberately omitted — "Washington" (Tyne &
+        // Wear), "Boston" (Lincs), "Lincoln", "Richmond", "Kent" — to avoid
+        // false-flagging a UK place.
+        "ontario", "quebec", "nova scotia", "manitoba", "saskatchewan",
+        "alberta", "newfoundland", "new brunswick", "british columbia",
+        "new york", "new jersey", "new mexico", "new hampshire",
+        "north carolina", "south carolina", "north dakota", "south dakota",
+        "west virginia", "rhode island", "pennsylvania", "massachusetts",
+        "connecticut", "virginia", "maryland", "ohio", "michigan",
+        "illinois", "indiana", "wisconsin", "minnesota", "iowa", "missouri",
+        "kansas", "nebraska", "oklahoma", "texas", "arizona", "colorado",
+        "utah", "nevada", "oregon", "idaho", "montana", "wyoming",
+        "tennessee", "kentucky", "alabama", "mississippi", "louisiana",
+        "arkansas", "florida", "georgia", "vermont", "delaware", "alaska",
+        "hawaii", "california", "maine", "carolina",
     ]
 
     nonisolated private static func isObviouslyForeign(_ text: String) -> Bool {

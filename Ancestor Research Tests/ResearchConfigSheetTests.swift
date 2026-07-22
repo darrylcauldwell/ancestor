@@ -10,8 +10,9 @@ import SwiftUI
 @MainActor
 struct ResearchConfigSheetTests {
 
-    @Test func scopePickerHasFiveOptions() {
-        #expect(ResearchScope.allCases.count == 5)
+    @Test func scopePickerHasSixOptions() {
+        // parish, district, county, adjacent, national, international (DS-11).
+        #expect(ResearchScope.allCases.count == 6)
     }
 
     @Test func defaultScopeMatchesSpecTable() {

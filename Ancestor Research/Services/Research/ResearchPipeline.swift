@@ -169,6 +169,11 @@ final class ResearchPipeline {
         // run), so this cannot leak across subjects.
         runHomeChapmanCode = subject.homeChapmanCode
         var state = ResearchState(subject: subject)
+        // DS-11/DS-19: an International-scope run opts in to foreign records,
+        // so the geography gate soft-fails (not hard-fails) obviously-foreign
+        // places. Set once here — the derived pivot/gap subjects are value
+        // copies of `state.subject`, so they inherit the flag automatically.
+        state.subject.includeForeignRecords = (config.scope == .international)
         // Per-run query cache. Lives for the duration of this profile's
         // pipeline only — discarded when this function returns so cross-
         // profile pollution is impossible. Eliminates the 4× redundancy

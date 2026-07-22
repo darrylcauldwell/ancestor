@@ -86,6 +86,13 @@ nonisolated enum ResearchScope: String, Comparable, Sendable, CaseIterable {
     case county
     case adjacent
     case national
+    /// Widest scope — opt-in inclusion of records outside the UK (DS-11/
+    /// DS-19). Purely additive over `.national`: UK-source dispatch is
+    /// unchanged, FindAGrave lifts its location pin, and the geography gate
+    /// soft-fails (rather than hard-fails) obviously-foreign places so an
+    /// emigrant's overseas records surface as reviewable leads instead of
+    /// being dropped. Never a default — the user selects it deliberately.
+    case international
 
     private var order: Int {
         switch self {
@@ -94,6 +101,7 @@ nonisolated enum ResearchScope: String, Comparable, Sendable, CaseIterable {
         case .county: return 2
         case .adjacent: return 3
         case .national: return 4
+        case .international: return 5
         }
     }
 
@@ -182,6 +190,12 @@ nonisolated struct ResearchSubject: Sendable {
     /// through `fromProfile`'s derivation chain (profile birthLocationCode
     /// → birthLocation → project setting → "").
     var homeChapmanCode: String = ""
+    /// When true, the geography gate soft-fails obviously-foreign places
+    /// (→ `.lead`) instead of hard-failing them. Set by the pipeline only for
+    /// an `.international`-scope run (DS-11/DS-19) — an explicit opt-in to
+    /// surface emigrant/colonial records. Default false keeps every other
+    /// run Triage-clean.
+    var includeForeignRecords: Bool = false
 
     /// Residence search axes derived from the subject's Residence
     /// LifeEvents (Stage 2 roadmap: "life events feed research axes") —

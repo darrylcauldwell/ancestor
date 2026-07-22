@@ -8,15 +8,16 @@ struct ResearchScopeHierarchyTests {
 
     // MARK: - AC3.1 — enum has 5 cases in widening order
 
-    @Test func ac3_1_fiveCasesInWideningOrder() {
-        let all: [ResearchScope] = [.parish, .district, .county, .adjacent, .national]
-        #expect(ResearchScope.allCases.count == 5)
+    @Test func ac3_1_sixCasesInWideningOrder() {
+        let all: [ResearchScope] = [.parish, .district, .county, .adjacent, .national, .international]
+        #expect(ResearchScope.allCases.count == 6)
         #expect(Set(ResearchScope.allCases) == Set(all))
-        // Comparable order: parish < district < county < adjacent < national
+        // Comparable order: parish < district < county < adjacent < national < international
         #expect(ResearchScope.parish < .district)
         #expect(ResearchScope.district < .county)
         #expect(ResearchScope.county < .adjacent)
         #expect(ResearchScope.adjacent < .national)
+        #expect(ResearchScope.national < .international)
     }
 
     // MARK: - AC3.2 — dispatcher fan-out + AC3.3 — parish-unsupported sources

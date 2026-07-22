@@ -615,7 +615,7 @@ struct SearchDispatcher {
                 Self.geoLogger.warning("FreeBMD \(String(describing: scope), privacy: .public) scope resolved chapman '\(homeChapmanCode, privacy: .public)' to ZERO geographic axes (gate=\(countyQueriesEnabled), years=\(yearFrom.map(String.init) ?? "?", privacy: .public)-\(yearTo.map(String.init) ?? "?", privacy: .public)) — no FreeBMD queries will run for this subject")
             }
             return axes
-        case .national:
+        case .national, .international:
             return [(districtCode: nil, countyCode: nil)]
         }
     }
@@ -971,7 +971,7 @@ struct SearchDispatcher {
                 } else {
                     cenGeoAxes = [([], home)]
                 }
-            case .national:
+            case .national, .international:
                 if home.isEmpty {
                     let entries: [UKChapmanCode] = UKChapmanCodes.shared.gbAndChannelIslands()
                     // FT-28 — batch the ~90-code national residence sweep.
@@ -1000,7 +1000,7 @@ struct SearchDispatcher {
             let residenceEventsApply: Bool
             switch scope {
             case .parish, .district, .county: residenceEventsApply = true
-            case .adjacent, .national: residenceEventsApply = false
+            case .adjacent, .national, .international: residenceEventsApply = false
             }
             func residenceEventCodes(coveringCensusYear year: Int) -> [String] {
                 subject.residenceAxes
@@ -1070,7 +1070,7 @@ struct SearchDispatcher {
                     + RegionConfig.adjacentCounties(subject.homeChapmanCode))
                     .flatMap { RegionConfig.expandUmbrellaChapmanCode($0) }
                     .filter { seenReg.insert($0).inserted }
-            case .national:
+            case .national, .international:
                 let entries: [UKChapmanCode] = UKChapmanCodes.shared.englandAndWales()
                 regChapmanCodes = entries.map { $0.code }
             }
@@ -1333,6 +1333,11 @@ struct SearchDispatcher {
             // fall back to region (county name from birthLocation) when
             // death location is unknown. Spec §23.
             let fagLocation: String? = {
+                // DS-11/DS-19: at International scope, drop the location pin so
+                // Find a Grave searches worldwide by name — the whole point is
+                // to surface an emigrant's overseas grave, which a UK-county
+                // pin would exclude.
+                if scope == .international { return nil }
                 // Stage 2 (life events feed research axes) — a Burial
                 // LifeEvent's place IS the burial location FAG filters on;
                 // it beats the deathLocation approximation, which beats the

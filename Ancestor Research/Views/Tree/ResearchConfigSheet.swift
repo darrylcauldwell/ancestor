@@ -88,6 +88,7 @@ struct ResearchConfigSheet: View {
                     Text("County").tag(ResearchScope.county)
                     Text("County + adjacent").tag(ResearchScope.adjacent)
                     Text("National").tag(ResearchScope.national)
+                    Text("International").tag(ResearchScope.international)
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
@@ -203,6 +204,7 @@ struct ResearchConfigSheet: View {
         case .county:   "Home county's registration districts — the current local-scope behaviour."
         case .adjacent: "Home county plus counties bordering it (single hop). Useful for ancestors near a county border."
         case .national: "Every UK registration district (~1,125 districts, year-filtered)."
+        case .international: "National coverage plus records outside the UK. Find a Grave searches worldwide, and overseas places surface as reviewable leads instead of being dropped — for emigrant / colonial ancestors."
         }
     }
 
@@ -244,6 +246,10 @@ struct ResearchConfigSheet: View {
         case (.adaptive, .county):    return "2–4 min (stops when answered)"
         case (.adaptive, .adjacent):  return "3–8 min (stops when answered)"
         case (.adaptive, .national):  return "5–15 min (stops when answered)"
+        // International adds a worldwide Find a Grave pass on top of national.
+        // Adaptive still stops when the gaps are answered.
+        case (.adaptive, .international): return "10–25 min worldwide (stops when answered)"
+        case (_, .international):      return "10–25 min (worldwide)"
         }
     }
 

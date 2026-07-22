@@ -40,7 +40,7 @@ nonisolated enum DispatchStage: Int, Comparable, CaseIterable, Sendable {
     static func ladder(for scope: ResearchScope) -> [DispatchStage] {
         var stages: [DispatchStage] = [.localFree]
         if scope >= .adjacent { stages.append(.adjacentFree) }
-        if scope == .national { stages.append(.nationalFree) }
+        if scope >= .national { stages.append(.nationalFree) }
         stages.append(.familySearch)
         return stages
     }
