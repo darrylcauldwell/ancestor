@@ -42,6 +42,7 @@ struct BulkReviewView: View {
     @State private var searchText = ""
     @State private var processedCount = 0
     @State private var showAcceptAllConfirmation = false
+    @State private var showBulkDismissConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -174,6 +175,32 @@ struct BulkReviewView: View {
                 } message: {
                     Text("Each writes its record's facts to the profile with citations (fill-empty-fields overwrite policy). Conflicts and corrections stay for individual review.")
                 }
+            }
+
+            // Batch-dismiss every currently-visible lead (respects the search
+            // filter). A confirmation guards a large sweep so it isn't a
+            // one-click accident; small batches dismiss immediately.
+            let leadGroupCount = groupedLeads.count
+            if leadGroupCount > 0 {
+                Button("Dismiss \(leadGroupCount) lead\(leadGroupCount == 1 ? "" : "s")") {
+                    if leadGroupCount > 10 {
+                        showBulkDismissConfirmation = true
+                    } else {
+                        dismissAllVisibleLeads()
+                    }
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                .confirmationDialog(
+                    "Dismiss all \(leadGroupCount) visible leads?",
+                    isPresented: $showBulkDismissConfirmation
+                ) {
+                    Button("Dismiss all", role: .destructive) { dismissAllVisibleLeads() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Each moves to the dismissed bucket below and stays restorable this session.")
+                }
+                .help("Dismiss every lead currently shown (respects the search filter).")
             }
 
             Button("Mark reviewed") {
@@ -631,6 +658,15 @@ struct BulkReviewView: View {
     /// lead behind it, so the whole row leaves the active queue.
     private func dismissGroup(_ group: GroupedLead) {
         for member in group.members { dismiss(member) }
+    }
+
+    /// Batch-dismiss every currently-visible lead group in one gesture
+    /// (respects the active search filter, since `groupedLeads` derives from
+    /// `visibleLeads`). Snapshot the groups first because `dismiss` mutates
+    /// `campaignLeads`, which `groupedLeads` recomputes from.
+    private func dismissAllVisibleLeads() {
+        let groups = groupedLeads
+        for group in groups { dismissGroup(group) }
     }
 
     /// "mother"/"father" for a relationship-typed (parent-inference) lead, else
