@@ -865,7 +865,7 @@ final class ResearchPipeline {
         // clustering) → grade. The UI projects supported hypotheses to
         // `SiblingProposal` on demand via
         // `ResearchViewModel.visibleSiblings(snapshot:)`.
-        let siblingHypotheses = await runSiblingHypothesisFlow(state: &state)
+        let siblingHypotheses = await runSiblingHypothesisFlow(state: &state, cache: queryCache)
 
         // DETERMINISTIC: parent hypothesis flow (V2 spec §5.2,
         // T12-parent — engine is the sole source of truth as of
@@ -889,7 +889,7 @@ final class ResearchPipeline {
         // higher ladder levels — currently empty for this kind, but
         // T8 (MLX strategist) is the future home for tie-break cases.
         let birthYearCandidateHypotheses = await runBirthYearCandidateFlow(
-            state: &state
+            state: &state, cache: queryCache
         )
 
         // DETERMINISTIC: user-seeded hypothesis flow (RESEARCH_PIPELINE_SPEC
@@ -913,7 +913,7 @@ final class ResearchPipeline {
         // window came back empty/ambiguous — level-1 retry widens the
         // window by ±10 years.
         let allHypotheses = await runSecondPass(
-            state: &state, hypotheses: firstPassHypotheses, scope: config.scope
+            state: &state, hypotheses: firstPassHypotheses, scope: config.scope, cache: queryCache
         )
 
         // Re-cluster if the second pass appended records that weren't
@@ -1517,7 +1517,8 @@ final class ResearchPipeline {
     /// Levels ≥ 2 return empty, so T7's second-pass is a no-op for
     /// this kind after first-pass dispatch.
     private func runBirthYearCandidateFlow(
-        state: inout ResearchState
+        state: inout ResearchState,
+        cache: QueryCache? = nil
     ) async -> [ResearchHypothesis] {
         let drafts = HypothesisEngine.generate(
             for: .birthYearCandidate, state: state, snapshot: snapshot
@@ -1540,7 +1541,7 @@ final class ResearchPipeline {
                 for: draft, atLevel: 1, state: state
             )
             for query in queries {
-                let newRecords = await dispatchCensusCandidateQuery(query)
+                let newRecords = await dispatchCensusCandidateQuery(query, cache: cache)
                 let fresh = newRecords.filter { !appendedIDs.contains($0.id) }
                 state.scoredRecords.append(contentsOf: fresh)
                 state.enrichmentRecordIDs.formUnion(fresh.map(\.id))
@@ -1569,19 +1570,24 @@ final class ResearchPipeline {
     /// `sameIdentity` check, not via the 4-gate scorer). Tagged as
     /// enrichment by the caller so clustering ignores them.
     private func dispatchCensusCandidateQuery(
-        _ query: RecordQuery
+        _ query: RecordQuery,
+        cache: QueryCache? = nil
     ) async -> [ScoredRecord] {
         guard let freecen = dispatcher.registry.allSources().first(where: { $0.sourceID == "freecen" }) else {
             return []
         }
-        let result = await freecen.search(query)
-        return result.records.map { record in
+        // UV-09: route through the per-run cache so a census-candidate probe
+        // that repeats a wire query already fired this run is served from
+        // cache rather than re-downloading from the volunteer source.
+        let records = await QueryCache.wrappedSearch(source: freecen, query: query, cache: cache)
+        return records.map { record in
             ScoredRecord(id: record.id, record: record, verdict: .lead, gates: [], summary: "")
         }
     }
 
     private func runSiblingHypothesisFlow(
-        state: inout ResearchState
+        state: inout ResearchState,
+        cache: QueryCache? = nil
     ) async -> [ResearchHypothesis] {
         let drafts = HypothesisEngine.generate(
             for: .siblingExists,
@@ -1601,7 +1607,7 @@ final class ResearchPipeline {
                 let priorIDs = Set(state.scoredRecords.map(\.id))
                 var allCandidates: [ScoredRecord] = []
                 for query in queries {
-                    let candidates = await dispatchSiblingCandidateQuery(query)
+                    let candidates = await dispatchSiblingCandidateQuery(query, cache: cache)
                     allCandidates.append(contentsOf: candidates)
                 }
                 let newCandidates = allCandidates.filter { !priorIDs.contains($0.id) }
@@ -1683,13 +1689,17 @@ final class ResearchPipeline {
     /// uses `SiblingInferenceEngine`'s field-equality rule, not the
     /// scorer's verdict, to decide which candidates count.
     private func dispatchSiblingCandidateQuery(
-        _ query: RecordQuery
+        _ query: RecordQuery,
+        cache: QueryCache? = nil
     ) async -> [ScoredRecord] {
         guard let freebmd = dispatcher.registry.allSources().first(where: { $0.sourceID == "freebmd" }) else {
             return []
         }
-        let result = await freebmd.search(query)
-        return result.records.map { record in
+        // UV-06: route through the per-run cache so a sibling-candidate probe
+        // that repeats a wire query already fired this run is served from
+        // cache rather than re-downloading from the volunteer source.
+        let records = await QueryCache.wrappedSearch(source: freebmd, query: query, cache: cache)
+        return records.map { record in
             ScoredRecord(id: record.id, record: record, verdict: .lead, gates: [], summary: "")
         }
     }
@@ -1942,7 +1952,8 @@ final class ResearchPipeline {
     private func runSecondPass(
         state: inout ResearchState,
         hypotheses: [ResearchHypothesis],
-        scope: ResearchScope
+        scope: ResearchScope,
+        cache: QueryCache? = nil
     ) async -> [ResearchHypothesis] {
         let eligible = hypotheses.filter { h in
             guard h.verdict == .inconclusive else { return false }
@@ -1968,7 +1979,7 @@ final class ResearchPipeline {
             var totalNewRecords = 0
             for query in queries {
                 let newRecords = await dispatchHypothesisDeficitQuery(
-                    query: query, hypothesisKind: h.kind, scope: scope
+                    query: query, hypothesisKind: h.kind, scope: scope, cache: cache
                 )
                 totalNewRecords += newRecords.count
                 for r in newRecords where !priorIDs.contains(r.id) && !appendedIDs.contains(r.id) {
@@ -2031,7 +2042,7 @@ final class ResearchPipeline {
     ) async -> [ScoredRecord] {
         switch hypothesisKind {
         case .siblingExists:
-            return await dispatchSiblingCandidateQuery(query)
+            return await dispatchSiblingCandidateQuery(query, cache: cache)
         case .parentMarriage(let motherSurname, let fatherSurname, _):
             // The deficit query for .parentMarriage carries the wider
             // window in yearFrom/yearTo. Fan out groom-side + bride-side
@@ -2110,9 +2121,9 @@ final class ResearchPipeline {
                 // Single focused FreeBMD query (national districtid="" —
                 // FT-02 proven wire behaviour); mirrors the sibling
                 // candidate dispatch shape.
-                return await dispatchSiblingCandidateQuery(query)
+                return await dispatchSiblingCandidateQuery(query, cache: cache)
             case .census:
-                return await dispatchCensusCandidateQuery(query)
+                return await dispatchCensusCandidateQuery(query, cache: cache)
             default:
                 return []
             }
