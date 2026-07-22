@@ -12,14 +12,14 @@ Suggested repair sequence (Part B 1.3): **(1st)** DS-01 + DS-17 ✅ **shipped `5
 rework covering DS-16/DS-05/DS-06 ✅ **shipped `aa7fc8b`+`d5ff18e`** · **(3rd)** FP/FN residues ~~DS-12~~/~~DS-10~~/~~DS-02~~/~~DS-15~~/~~DS-04~~ ✅ (`8b9eb78`+`be740db`+`a79d1a6`+`34f8c52`) · **(4th)**
 GPS reporting honesty ~~DS-18~~/~~DS-21~~/~~DS-22~~/~~DS-23~~ ✅ (`5f91641`/`3b1c4ac`/`f3cf120`/`1841eb2`); DS-19 → see below · **(5th)** DS-27 dead-code cleanup ~~(a)~~ ✅ (`ffab4e3`), (b) advisory follow-up deferred.
 
-> **DS-11 + DS-19 — DECIDED 2026-07-22 (owner): the "International" scope tier.** Rather than the Triage-clean vs
-> emigrant-recall dilemma, foreign inclusion becomes an explicit opt-in scope below National. At *International*,
-> the geography gate soft-fails foreign places (→ `.lead`) instead of hard-failing; National and below are unchanged
-> (Triage stays clean). DS-11's expanded marker list (US states / Canadian provinces) is what *identifies* foreign,
-> which National drops and International surfaces. Defaults: foreign → `.lead`; gate-only + FindAGrave dispatch;
-> purely opt-in (default stays County + adjacent). **QUEUED TO BUILD** — the only remaining SANDWICH work besides
-> DS-27(b). Complement (optional, separate): a record whose foreign place matches the subject's OWN recorded
-> location should stop hard-failing even at National (pure corroboration).
+> **DS-11 + DS-19 — ✅ RESOLVED `eb08281` (the "International" scope tier).** Foreign inclusion is now an explicit
+> opt-in scope below National (`ResearchScope.international`). At International the geography gate soft-fails foreign
+> places (→ `.lead`) and Find a Grave lifts its UK location pin; National and below are unchanged (Triage-clean).
+> DS-11's marker list gained US states / Canadian provinces (UK-colliding names omitted). Flag rides on
+> `ResearchSubject.includeForeignRecords`. Pinned by `InternationalScopeTests`. **The SANDWICH backlog is now fully
+> closed except DS-27(b)** (a deferred advisory feature). Optional follow-up (separate, not built): a record whose
+> foreign place matches the subject's OWN recorded location could stop hard-failing even at National (pure
+> corroboration).
 
 ## OPEN findings
 
@@ -83,7 +83,9 @@ GPS reporting honesty ~~DS-18~~/~~DS-21~~/~~DS-22~~/~~DS-23~~ ✅ (`5f91641`/`3b
 
 **Residue:** Add a `.parish` parent-name cross-check arm to checkFamilyContext. (Python reference is itself uncalled, but the project's own §21.1 audit flagged this as a critical must-port.)
 
-### DS-11 · high · (python-parity) NON_ENGLAND_MARKERS unported + enrichment-location guard is dead code — no live location validation on apply/firewall, bare US-state/Canadian-province places evade the foreign check
+### DS-11 · high · (python-parity) NON_ENGLAND_MARKERS unported + enrichment-location guard is dead code — no live location validation on apply/firewall, bare US-state/Canadian-province places evade the foreign check ✅ RESOLVED (markers) `eb08281`
+
+**Resolved (markers half):** the foreign-token list now covers US states + Canadian provinces (UK-colliding names omitted), so "Charleston, South Carolina" is recognised without its country — see the International-tier note above. The separate apply/firewall location-guard wiring (validateEnrichmentLocation dead-code) is a distinct firewall change, not part of the scope tier; track under firewall work if needed.
 
 **Claim:** Three linked gaps. (1) Python's NON_ENGLAND_MARKERS (all 50 US states + provinces + countries, agent/rules.py:491-519) is absent — Swift's validateEnrichmentLocation (ScoringRules.swift:339-366) ports only the English-county cross-check and returns nil for places naming no English county. (2) That function plus validateEnrichmentDate have ZERO call sites; EvidenceFirewall does no location validation, and location pending facts skip the 4-gate scorer entirely (PendingFactsProcessor returns nil for location fields) — birthLocation is auto-approvable with no geography check. (3) foreignCountryTokens (RecordScorer.swift:810-817) lists countries only, so 'Charleston, South Carolina' isn't foreign → softFail → .lead, not the intended .impossible.
 
@@ -137,7 +139,9 @@ GPS reporting honesty ~~DS-18~~/~~DS-21~~/~~DS-22~~/~~DS-23~~ ✅ (`5f91641`/`3b
 
 **Residue only:** The marriage-switcher work shipped the plural `ResearchSubject.marriedSurnames: [String]` (populated from all spouses, fanned out on the death/burial/probate/census wire), so the original twice-married-women data loss is largely resolved. The remaining OPEN residue: the name-gate widening at `RecordScorer.swift:151` still reads the single `subject.marriedSurname`, so a swept-in second-married-surname record can still fail the name gate. One-line fix: widen acceptableSurnames from the plural set.
 
-### DS-19 · medium · (false-negative) Foreign-place hard-fail is unconditional — never consults the subject's own locations, so colonial-born/emigrant records are lost as .impossible
+### DS-19 · medium · (false-negative) Foreign-place hard-fail is unconditional — never consults the subject's own locations, so colonial-born/emigrant records are lost as .impossible ✅ RESOLVED `eb08281`
+
+**Resolved (via International scope):** foreign hard-fail is now conditional on an opt-in — at `.international` scope the gate soft-fails foreign places (→ `.lead`) so emigrant/colonial records are recoverable. See the International-tier note above. (Chosen over the "auto-consult subject locations" heuristic; that remains an optional National-scope corroboration follow-up.)
 
 **Claim:** The foreign-metadata short-circuit (RecordScorer.swift:548-562) and county foreign check (:603-605) fail geography whenever any place matches foreignCountryTokens, regardless of subject.homeChapmanCode/region/deathLocation — contradicting the code's own comment (:595-598). In Verify/Extend/Discover this maps to .impossible. A subject whose tree itself records 'Bombay, India' birth loses the FamilySearch record corroborating that very birthplace; a 'Toronto, Canada' emigrant loses the matching FindAGrave burial.
 
