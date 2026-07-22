@@ -94,8 +94,7 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
 
         do {
             let params = Self.searchRequestParams(query: query, params: fagParams)
-            let urlString = Self.searchURL + "?" + params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }.joined(separator: "&")
-            guard let url = URL(string: urlString) else {
+            guard let url = Self.buildSearchURL(params) else {
                 // T1-15: an internal failure is not "no memorial exists".
                 await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: "invalid search URL", strictness: query.strictness))
                 return SourceSearchEnvelope(.unavailable(reason: "invalid search URL"))
@@ -218,6 +217,23 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
     /// `query.yearFrom`/`yearTo` are deliberately never consulted for
     /// year params, and each axis carries its own tolerance via
     /// `yearAxis`.
+    /// Build the search URL from query params (T1-C3). Uses `URLComponents`
+    /// so a value containing a sub-delimiter (`&`, `=`) is correctly
+    /// percent-encoded — the old manual `.urlQueryAllowed` join left them
+    /// literal and truncated/corrupted the query. `+` is force-encoded too:
+    /// `URLComponents` leaves it literal, but servers decode a literal `+` in
+    /// a value as a space.
+    nonisolated static func buildSearchURL(_ params: [String: String]) -> URL? {
+        var components = URLComponents(string: Self.searchURL)
+        components?.queryItems = params
+            .sorted { $0.key < $1.key }   // deterministic ordering for tests/logs
+            .map { URLQueryItem(name: $0.key, value: $0.value) }
+        if let encoded = components?.percentEncodedQuery {
+            components?.percentEncodedQuery = encoded.replacingOccurrences(of: "+", with: "%2B")
+        }
+        return components?.url
+    }
+
     nonisolated static func searchRequestParams(
         query: RecordQuery,
         params fagParams: FindAGraveParams

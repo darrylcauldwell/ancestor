@@ -307,4 +307,23 @@ struct FindAGraveQueryShapeTests {
         #expect(wire["firstname"] == nil)
         #expect(wire["includeNickName"] == nil)
     }
+
+    // MARK: - T1-C3: URL encoding of sub-delimiters
+
+    @Test func searchURLEncodesSubDelimitersInValues() {
+        // A location value carrying &, = and + must round-trip intact — the
+        // old .urlQueryAllowed join left these literal and corrupted the query.
+        let raw = "Smith & Sons=Cemetery, East+West"
+        guard let url = FindAGraveSource.buildSearchURL(["location": raw, "lastname": "O'Brien"]) else {
+            Issue.record("buildSearchURL returned nil"); return
+        }
+        // Parse the query back out and confirm the value is exactly what went in.
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        #expect(items.first { $0.name == "location" }?.value == raw,
+                "location value must round-trip; got \(String(describing: items.first { $0.name == "location" }?.value))")
+        #expect(items.first { $0.name == "lastname" }?.value == "O'Brien")
+        // The raw ampersand must be percent-encoded, not a literal separator.
+        #expect(url.absoluteString.contains("%26"), "'&' must be encoded as %26")
+        #expect(url.absoluteString.contains("%2B"), "'+' must be encoded as %2B")
+    }
 }
