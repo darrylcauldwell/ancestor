@@ -1111,21 +1111,11 @@ nonisolated struct RecordScorer {
             return GateResult(gate: .familyContext, outcome: .skip, reason: "no family context available")
         }
 
-        // Check census household for known family members
+        // Check census household for known family members.
         if case .census(let census) = record, let household = census.household {
-            // Spouse match
-            if let spouseName = context.spouseName {
-                let spouseInHousehold = household.contains { member in
-                    let rel = member.relationship.lowercased()
-                    let isSpouse = rel.contains("wife") || rel.contains("husband")
-                    return isSpouse && ScoringRules.nameSimilarity(member.name.uppercased(), spouseName.uppercased()) >= 0.7
-                }
-                if spouseInHousehold {
-                    return GateResult(gate: .familyContext, outcome: .pass, reason: "spouse \(spouseName) found in household")
-                }
-            }
-
-            // Child match
+            // Child match FIRST — a child's given name is distinctive, so a
+            // matching child is a strong identity signal for the household
+            // (unlike a common spouse forename, below).
             for childName in context.childNames {
                 let childInHousehold = household.contains { member in
                     let rel = member.relationship.lowercased()
@@ -1134,6 +1124,26 @@ nonisolated struct RecordScorer {
                 }
                 if childInHousehold {
                     return GateResult(gate: .familyContext, outcome: .pass, reason: "child \(childName) found in household")
+                }
+            }
+
+            // Spouse match. DS-02: a common spouse FORENAME (a weak,
+            // containment-grade match like "Mary" vs "Mary Cauldwell") can
+            // match the wrong household of the same family surname, so it
+            // ENDORSES to .fact only on a STRONG match (full given+surname or
+            // exact, ≥0.90). A weaker spouse-only match with no corroborating
+            // child soft-fails → a reviewable .lead rather than an
+            // auto-accepted wrong household.
+            if let spouseName = context.spouseName {
+                let bestSpouse = household
+                    .filter { let r = $0.relationship.lowercased(); return r.contains("wife") || r.contains("husband") }
+                    .map { ScoringRules.nameSimilarity($0.name.uppercased(), spouseName.uppercased()) }
+                    .max() ?? 0
+                if bestSpouse >= 0.9 {
+                    return GateResult(gate: .familyContext, outcome: .pass, reason: "spouse \(spouseName) found in household")
+                }
+                if bestSpouse >= 0.7 {
+                    return GateResult(gate: .familyContext, outcome: .softFail, reason: "only a weak spouse-name match for \(spouseName) in household — a common forename can match the wrong family; review")
                 }
             }
 

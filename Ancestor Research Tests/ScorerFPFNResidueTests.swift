@@ -171,6 +171,53 @@ struct ScorerFPFNResidueTests {
         #expect(result.gates.first { $0.gate == .date }?.outcome != .impossible)
     }
 
+    // MARK: - DS-02: census wrong-household via a weak spouse-forename match
+
+    @Test func fullNameSpouseMatchEndorsesHousehold() {
+        // Household wife recorded with her full name matching the known
+        // spouse → strong match → family gate passes (endorses).
+        let result = RecordScorer.classify(
+            record: census(household: [
+                ("Ernest Cauldwell", "Head"), ("Mary Cauldwell", "Wife"),
+            ]),
+            subject: subjectWithFamily(spouse: "Mary Cauldwell", children: ["Archibald"]),
+            searchType: .census
+        )
+        #expect(result.gates.first { $0.gate == .familyContext }?.outcome == .pass)
+    }
+
+    @Test func forenameOnlySpouseMatchSoftFails() {
+        // Household wife recorded only as "Mary" — a common forename that
+        // matches "Mary Cauldwell" by containment (0.80). With no
+        // corroborating child, this must soft-fail, not endorse a possibly
+        // wrong household to .fact.
+        let result = RecordScorer.classify(
+            record: census(household: [
+                ("Ernest Cauldwell", "Head"), ("Mary", "Wife"),
+            ]),
+            subject: subjectWithFamily(spouse: "Mary Cauldwell", children: ["Archibald"]),
+            searchType: .census
+        )
+        let family = result.gates.first { $0.gate == .familyContext }
+        #expect(family?.outcome == .softFail,
+                "a forename-only spouse match must not endorse — got \(String(describing: family?.outcome))")
+        #expect(result.verdict != .fact)
+    }
+
+    @Test func forenameSpouseButMatchingChildStillPasses() {
+        // The weak spouse forename is redeemed by a distinctive child in the
+        // household — a much stronger identity signal.
+        let result = RecordScorer.classify(
+            record: census(household: [
+                ("Ernest Cauldwell", "Head"), ("Mary", "Wife"), ("Archibald", "Son"),
+            ]),
+            subject: subjectWithFamily(spouse: "Mary Cauldwell", children: ["Archibald"]),
+            searchType: .census
+        )
+        #expect(result.gates.first { $0.gate == .familyContext }?.outcome == .pass,
+                "a matching child corroborates the household")
+    }
+
     // MARK: - Fixtures
 
     private func subjectNamed(given: String, middle: String?) -> ResearchSubject {
@@ -233,6 +280,34 @@ struct ScorerFPFNResidueTests {
             parish: "Duffield", county: "DBY",
             fatherName: father, motherName: nil
         ))
+    }
+
+    private func subjectWithFamily(spouse: String, children: [String]) -> ResearchSubject {
+        ResearchSubject(
+            surname: "Cauldwell",
+            givenName: "Ernest",
+            birthYearFrom: 1868,
+            birthYearTo: 1872,
+            gender: .male,
+            region: .englandAndWales,
+            mode: .extend,
+            familyContext: FamilyContext(
+                spouseName: spouse, spouseSurname: "Cauldwell", spouseGivenName: nil,
+                spouseFatherSurname: nil, childNames: children,
+                fatherName: nil, fatherSurname: nil, fatherGivenName: nil,
+                motherName: nil, motherSurname: nil, motherGivenName: nil)
+        )
+    }
+
+    private func census(household: [(name: String, rel: String)]) -> SourceRecord {
+        .census(CensusRecord(
+            common: RecordCommon(
+                id: "cen-\(household.count)", sourceID: "freecen", name: nil,
+                surname: "Cauldwell", givenName: "Ernest", detailURL: nil, rawFields: [:]),
+            censusYear: 1901, age: 31, birthYear: 1870,
+            birthPlace: nil, birthCounty: nil, relationship: nil,
+            occupation: nil, address: nil, parish: nil, district: "Belper",
+            household: household.map { HouseholdMember(name: $0.name, relationship: $0.rel) }))
     }
 
     private func emptyContext() -> FamilyContext {
