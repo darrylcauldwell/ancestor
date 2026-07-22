@@ -223,8 +223,12 @@ final class PendingFactsProcessor {
               existingYear != findingYear else { return nil }
 
         let delta = abs(existingYear - findingYear)
+        // Firewall submissions are graded by trust tier (no genealogy-source
+        // identifier survives the pending-fact boundary), so the per-source
+        // §10.3 bands don't apply — pass an empty sourceID to use the tier band.
         let severity = DiscrepancySeverityTable.severity(
-            sourceTier: tierEntry.trustTier, absDelta: delta, convergence: .singleSource
+            sourceID: "", sourceTier: tierEntry.trustTier, recordType: nil,
+            absDelta: delta, convergence: .singleSource
         )
 
         return ResearchDiscrepancy(

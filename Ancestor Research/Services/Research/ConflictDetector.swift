@@ -188,7 +188,9 @@ nonisolated struct ConflictDetector {
         ))
 
         let graded = DiscrepancySeverityTable.severity(
+            sourceID: candidateOrigin.identifier,
             sourceTier: trustTier(forOriginIdentifier: candidateOrigin.identifier),
+            recordType: nil,
             absDelta: maxGap,
             convergence: .singleSource // CL1–CL3 interim (§4.2): witness-counted per-value convergence lands in CL4.
         )

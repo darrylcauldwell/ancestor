@@ -135,7 +135,7 @@ struct ConflictDetectorTests {
             profileID: "p1"
         )
         #expect(delta1?.severity == DiscrepancySeverityTable.severity(
-            sourceTier: .transcription, absDelta: 1, convergence: .singleSource
+            sourceID: "", sourceTier: .transcription, recordType: nil, absDelta: 1, convergence: .singleSource
         ).severity)
 
         // Transcription tier, delta 6 → .conflict.

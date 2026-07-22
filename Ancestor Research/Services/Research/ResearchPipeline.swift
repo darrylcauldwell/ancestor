@@ -2562,7 +2562,9 @@ final class ResearchPipeline {
                 if let existingYear = subject.birthYearFrom, let recordYear = r.birthYear, existingYear != recordYear {
                     let delta = abs(existingYear - recordYear)
                     let severity = DiscrepancySeverityTable.severity(
+                        sourceID: record.record.sourceID,
                         sourceTier: sourceInfo?.trustTier ?? .community,
+                        recordType: .birth,
                         absDelta: delta, convergence: valueConvergence(of: record, among: scored, sourceInfoMap: sourceInfoMap)
                     )
                     discrepancies.append(ResearchDiscrepancy(
@@ -2577,7 +2579,9 @@ final class ResearchPipeline {
                 if let existingYear = subject.deathYearFrom, let recordYear = r.deathYear, existingYear != recordYear {
                     let delta = abs(existingYear - recordYear)
                     let severity = DiscrepancySeverityTable.severity(
+                        sourceID: record.record.sourceID,
                         sourceTier: sourceInfo?.trustTier ?? .community,
+                        recordType: .death,
                         absDelta: delta, convergence: valueConvergence(of: record, among: scored, sourceInfoMap: sourceInfoMap)
                     )
                     discrepancies.append(ResearchDiscrepancy(

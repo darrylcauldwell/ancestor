@@ -70,26 +70,67 @@ struct ConvergenceEngineTests {
 
     @Test func primarySourceZeroDeltaIsNone() {
         let result = DiscrepancySeverityTable.severity(
-            sourceTier: .primary, absDelta: 0, convergence: .singleSource
+            sourceID: "", sourceTier: .primary, recordType: nil, absDelta: 0, convergence: .singleSource
         )
         #expect(result.severity == .none)
     }
 
     @Test func transcriptionLargeDeltaIsConflict() {
         let result = DiscrepancySeverityTable.severity(
-            sourceTier: .transcription, absDelta: 5, convergence: .singleSource
+            sourceID: "", sourceTier: .transcription, recordType: nil, absDelta: 5, convergence: .singleSource
         )
         #expect(result.severity >= .conflict)
     }
 
     @Test func severityNeverDowngrades() {
         let base = DiscrepancySeverityTable.severity(
-            sourceTier: .community, absDelta: 3, convergence: .singleSource
+            sourceID: "", sourceTier: .community, recordType: nil, absDelta: 3, convergence: .singleSource
         )
         let upgraded = DiscrepancySeverityTable.severity(
-            sourceTier: .community, absDelta: 3, convergence: .confirmed
+            sourceID: "", sourceTier: .community, recordType: nil, absDelta: 3, convergence: .confirmed
         )
         #expect(upgraded.severity >= base.severity)
+    }
+
+    // MARK: - Per-source discrepancy tolerances (§10.3)
+
+    @Test func cwgcAnyDisagreementIsCorrection() {
+        // CWGC ±0 — a one-year gap is a correction, not the refinement the
+        // old primary-tier band would have graded it.
+        #expect(sev("cwgc", nil, 0) == DiscrepancySeverity.none)
+        #expect(sev("cwgc", nil, 1) == .correction)
+    }
+
+    @Test func freeBMDBirthTolerancesTwoYearsThenConflicts() {
+        #expect(sev("freebmd", .birth, 1) == DiscrepancySeverity.none)
+        #expect(sev("freebmd", .birth, 2) == .refinement)  // edge of the ±2 quarter slip
+        #expect(sev("freebmd", .birth, 3) == .conflict)
+    }
+
+    @Test func freeBMDDeathIsTighterThanBirth() {
+        // Death is informant-reported (±1), so a 2-year gap already conflicts
+        // where the same gap on a birth would only be a refinement.
+        #expect(sev("freebmd", .death, 1) == .refinement)
+        #expect(sev("freebmd", .death, 2) == .conflict)
+    }
+
+    @Test func freeCenAllowsThreeYears() {
+        #expect(sev("freecen", .census, 2) == DiscrepancySeverity.none)
+        #expect(sev("freecen", .census, 3) == .refinement)
+        #expect(sev("freecen", .census, 4) == .conflict)
+    }
+
+    @Test func unknownSourceFallsBackToTierBand() {
+        // A source without a §10.3 entry uses the trust-tier band unchanged.
+        #expect(sev("freereg", .parish, 1, tier: .transcription) == DiscrepancySeverity.none)
+        #expect(sev("freereg", .parish, 5, tier: .transcription) == .conflict)
+    }
+
+    private func sev(_ id: String, _ rt: RecordType?, _ delta: Int,
+                     tier: SourceTrustTier = .primary) -> DiscrepancySeverity {
+        DiscrepancySeverityTable.severity(
+            sourceID: id, sourceTier: tier, recordType: rt,
+            absDelta: delta, convergence: .singleSource).severity
     }
 
     // MARK: - Citation Renderer
