@@ -114,7 +114,12 @@ nonisolated struct ScoringRules {
     /// subject already has from=1875, to=1885).
     static func tolerance(for recordType: RecordType) -> Int {
         switch recordType {
-        case .birth, .death, .military: return 1
+        // Birth is ±2 (DS-23): a birth record can slip a registration quarter
+        // AND a census-derived approximate year rounds to a different year —
+        // the compound case Python deliberately tolerated. Death/military stay
+        // tight (±1): a death year is a precise anchor.
+        case .birth: return 2
+        case .death, .military: return 1
         case .probate, .burial: return 2
         case .baptism, .christening, .census: return 5
         case .parish: return 3

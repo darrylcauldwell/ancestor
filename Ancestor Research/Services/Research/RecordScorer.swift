@@ -734,11 +734,12 @@ nonisolated struct RecordScorer {
             // re-grades wide-window facts to "weakly supported" so they
             // don't auto-promote on a single record.
             //
-            // Per-type tolerance: .birth is tight (±1 — covers the Q4-
-            // birth/Q1-following-year-registration boundary slip); baptism
-            // and christening are loose (±5 — children can be baptised
-            // years after birth, adult baptism happens). Subject's date
-            // precision is already encoded in the from/to window above.
+            // Per-type tolerance: .birth is ±2 (DS-23 — covers the Q4-
+            // birth/Q1-following-year-registration quarter slip AND a
+            // census-derived approximate year rounding to a neighbouring
+            // year); baptism and christening are loose (±5 — children can be
+            // baptised years after birth, adult baptism happens). Subject's
+            // date precision is already encoded in the from/to window above.
             let tol = ScoringRules.tolerance(for: searchType)
             let inWindow = recordYear >= birthLow - tol && recordYear <= birthHigh + tol
             if inWindow {

@@ -616,6 +616,24 @@ nonisolated extension ResearchSubject {
             if let date = profile.birthDate, date.earliest != nil || date.latest != nil {
                 return (date.earliest, date.latest)
             }
+            // Spouse-birth inference (the "Ethel-class": a married profile with
+            // no birth date and a common name is otherwise unresearchable). Use
+            // a spouse's birth year ± 5 — spouses are typically within a few
+            // years of age — as a SEARCH window only. Own DOB always wins
+            // (handled above); this fires only when the birth date is empty and
+            // is never written back to the profile. Preferred over the wider
+            // children fallback below because ±5 is a tighter, more direct
+            // anchor. The window's width still caps clusters to leads, so an
+            // estimate never auto-promotes. Deterministic spouse pick (by id).
+            let spouseWindow: (Int, Int)? = spouses
+                .sorted { $0.id < $1.id }
+                .lazy
+                .compactMap { spouse -> (Int, Int)? in
+                    guard let earliest = spouse.birthDate?.earliest else { return nil }
+                    return (earliest - 5, (spouse.birthDate?.latest ?? earliest) + 5)
+                }
+                .first
+            if let spouseWindow { return spouseWindow }
             let childYears = children.compactMap { $0.birthDate?.earliest }
             guard let oldestChildYear = childYears.min() else { return (nil, nil) }
             return (oldestChildYear - 45, oldestChildYear - 18)

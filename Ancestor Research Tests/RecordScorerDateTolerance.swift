@@ -79,12 +79,12 @@ struct RecordScorerDateToleranceTests {
 
     @Test func toleranceLookupReturnsExpectedTiers() {
         // Tight tier (civil registrations)
-        #expect(ScoringRules.tolerance(for: .birth) == 1)
         #expect(ScoringRules.tolerance(for: .death) == 1)
         #expect(ScoringRules.tolerance(for: .military) == 1)
         #expect(ScoringRules.tolerance(for: .marriage) == 1)
 
-        // Medium tier (events that lag their underlying date)
+        // Medium tier — ±2 (events that lag or round to a neighbouring year)
+        #expect(ScoringRules.tolerance(for: .birth) == 2)   // DS-23
         #expect(ScoringRules.tolerance(for: .probate) == 2)
         #expect(ScoringRules.tolerance(for: .burial) == 2)
 
@@ -100,7 +100,7 @@ struct RecordScorerDateToleranceTests {
         #expect(ScoringRules.tolerance(for: .pedigree) == 0)
     }
 
-    // MARK: - Birth: tight ±1
+    // MARK: - Birth: ±2 (DS-23)
 
     @Test func birthRecordOneYearOffPasses_atTightBoundary() {
         let result = RecordScorer.classify(
@@ -113,15 +113,28 @@ struct RecordScorerDateToleranceTests {
                 "±1 must pass — covers the Q4-birth/Q1-following-year registration boundary slip")
     }
 
-    @Test func birthRecordTwoYearsOffFails_outsideTightTolerance() {
+    @Test func birthRecordTwoYearsOffPasses_atRestoredTolerance() {
+        // DS-23: ±2 restored (was tightened to ±1). A 2-year-off birth is the
+        // compound registration-quarter-slip + census-age-rounding case Python
+        // deliberately tolerated; it now passes rather than lingering in Triage.
         let result = RecordScorer.classify(
             record: birthRecord(year: 1902),
             subject: subject(birthYear: 1900),
             searchType: .birth
         )
         let date = result.gates.first(where: { $0.gate == .date })
+        #expect(date?.outcome == .pass)
+    }
+
+    @Test func birthRecordThreeYearsOffFails_outsideTolerance() {
+        let result = RecordScorer.classify(
+            record: birthRecord(year: 1903),
+            subject: subject(birthYear: 1900),
+            searchType: .birth
+        )
+        let date = result.gates.first(where: { $0.gate == .date })
         #expect(date?.outcome != .pass,
-                "±2 must not pass for .birth — previous loose ±2 was admitting genuinely-different people")
+                "±3 is outside the restored ±2 tolerance — a genuinely different person")
     }
 
     // MARK: - Census: loose ±5
