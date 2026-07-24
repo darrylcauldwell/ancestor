@@ -181,8 +181,12 @@ struct GEDCOMRoundTripTests {
         let exported = GEDCOMExporter.export(original.snapshot)
         let reimported = GEDCOMParser.parse(content: exported.content)
 
-        // Names
-        #expect(reimported.snapshot.profiles["@I1@"]?.firstName == "John William")
+        // Names — the parser splits "John William" into first + middle, and
+        // the exporter recombines them into GIVN, so the round-trip preserves
+        // both parts (this guards the exporter's recombine against silently
+        // dropping the middle name).
+        #expect(reimported.snapshot.profiles["@I1@"]?.firstName == "John")
+        #expect(reimported.snapshot.profiles["@I1@"]?.middleName == "William")
         #expect(reimported.snapshot.profiles["@I1@"]?.lastName == "Smith")
 
         // Approximate date preserved

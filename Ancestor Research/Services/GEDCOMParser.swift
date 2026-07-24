@@ -470,9 +470,32 @@ nonisolated struct GEDCOMParser {
             i += 1
         }
 
+        // Split a multi-token given string into a first name + middle name(s).
+        // GEDCOM keeps all forenames in one field — the pre-surname NAME
+        // segment or the GIVN tag — with no separate middle-name tag, so a name
+        // like "Lilian Mary" imports as a single given string. Convention: the
+        // first token is the given name, the remainder are middle name(s).
+        // Storing them in the distinct firstName/middleName fields keeps the
+        // data faithful to how the app models names, and lets the middle-name
+        // scorer guard fire on imported profiles directly rather than relying on
+        // RecordScorer's runtime compensation split.
+        var middleName: String?
+        if let fn = firstName {
+            let tokens = fn.split(separator: " ").map(String.init)
+            if tokens.count >= 2 {
+                firstName = tokens.first
+                middleName = tokens.dropFirst().joined(separator: " ")
+            }
+        }
+
         if let fn = firstName {
             sources[.firstName, default: []].append(
                 FieldSource(origin: .gedcom, raw: fn, addedAt: now)
+            )
+        }
+        if let mn = middleName {
+            sources[.middleName, default: []].append(
+                FieldSource(origin: .gedcom, raw: mn, addedAt: now)
             )
         }
         if let ln = lastName {
@@ -485,6 +508,7 @@ nonisolated struct GEDCOMParser {
             id: id,
             externalIDs: ["gedcom": id],
             firstName: firstName,
+            middleName: middleName,
             lastName: lastName,
             gender: gender,
             attributes: nil,

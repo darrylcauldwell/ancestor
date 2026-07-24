@@ -25,9 +25,14 @@ struct GEDCOMParserTests {
     @Test func parsesDarrylCauldwell() throws {
         let result = try GEDCOMParser.parse(fileAt: Self.testFilePath)
         let darryl = result.snapshot.profiles.values.first {
-            $0.firstName == "Darryl James" && $0.lastName == "Cauldwell"
+            $0.displayName == "Darryl James Cauldwell"
         }
         #expect(darryl != nil)
+        // Given/middle split: "Darryl James" imports as firstName="Darryl",
+        // middleName="James" (first token given, remainder middle), not the
+        // whole string in firstName.
+        #expect(darryl?.firstName == "Darryl")
+        #expect(darryl?.middleName == "James")
         #expect(darryl?.gender == .male)
         #expect(darryl?.birthDate?.earliest == 1976)
         #expect(darryl?.birthDate?.latest == 1976)
@@ -39,7 +44,7 @@ struct GEDCOMParserTests {
     @Test func parsesErnestWithDeathDate() throws {
         let result = try GEDCOMParser.parse(fileAt: Self.testFilePath)
         let ernest = result.snapshot.profiles.values.first {
-            $0.firstName == "Ernest Victor" && $0.lastName == "Cauldwell"
+            $0.displayName == "Ernest Victor Cauldwell"
         }
         #expect(ernest != nil)
         #expect(ernest?.birthDate?.earliest == 1919)
@@ -51,7 +56,7 @@ struct GEDCOMParserTests {
         let result = try GEDCOMParser.parse(fileAt: Self.testFilePath)
         // Darryl's parents should be David Cauldwell and Jennifer Holmes
         guard let darryl = result.snapshot.profiles.values.first(where: {
-            $0.firstName == "Darryl James" && $0.lastName == "Cauldwell"
+            $0.displayName == "Darryl James Cauldwell"
         }) else {
             Issue.record("Darryl not found")
             return
@@ -66,7 +71,7 @@ struct GEDCOMParserTests {
     @Test func parsesSpouseRelationship() throws {
         let result = try GEDCOMParser.parse(fileAt: Self.testFilePath)
         guard let darryl = result.snapshot.profiles.values.first(where: {
-            $0.firstName == "Darryl James" && $0.lastName == "Cauldwell"
+            $0.displayName == "Darryl James Cauldwell"
         }) else {
             Issue.record("Darryl not found")
             return
@@ -100,7 +105,7 @@ struct GEDCOMParserTests {
     @Test func sourceProvenanceTracked() throws {
         let result = try GEDCOMParser.parse(fileAt: Self.testFilePath)
         guard let darryl = result.snapshot.profiles.values.first(where: {
-            $0.firstName == "Darryl James" && $0.lastName == "Cauldwell"
+            $0.displayName == "Darryl James Cauldwell"
         }) else {
             Issue.record("Darryl not found")
             return
@@ -116,7 +121,7 @@ struct GEDCOMParserTests {
         let result = try GEDCOMParser.parse(fileAt: Self.testFilePath)
         // Find a family with multiple children and verify siblings work
         guard let darryl = result.snapshot.profiles.values.first(where: {
-            $0.firstName == "Darryl James" && $0.lastName == "Cauldwell"
+            $0.displayName == "Darryl James Cauldwell"
         }) else {
             Issue.record("Darryl not found")
             return
@@ -130,7 +135,7 @@ struct GEDCOMParserTests {
     @Test func completenessComputed() throws {
         let result = try GEDCOMParser.parse(fileAt: Self.testFilePath)
         guard let darryl = result.snapshot.profiles.values.first(where: {
-            $0.firstName == "Darryl James" && $0.lastName == "Cauldwell"
+            $0.displayName == "Darryl James Cauldwell"
         }) else {
             Issue.record("Darryl not found")
             return
@@ -194,7 +199,9 @@ struct GEDCOMParserSyntheticTests {
         """
         let result = GEDCOMParser.parse(content: gedcom)
         let profile = result.snapshot.profiles["@I1@"]
-        #expect(profile?.firstName == "John William")
+        // GIVN "John William" splits into firstName="John", middleName="William".
+        #expect(profile?.firstName == "John")
+        #expect(profile?.middleName == "William")
         #expect(profile?.lastName == "Smith")
     }
 

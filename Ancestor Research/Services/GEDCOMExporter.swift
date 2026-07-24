@@ -256,7 +256,15 @@ nonisolated struct GEDCOMExporter {
         // 7.0 prefers explicit GIVN/SURN substructures alongside it. We
         // emit them in both versions when the parts are available — they
         // were already emitted under 5.5.1 (parser also reads them).
-        let given = profile.firstName ?? ""
+        // GEDCOM has no separate middle-name tag — all forenames live in the
+        // GIVN/NAME given string. The parser splits an imported given string
+        // into firstName + middleName, so recombine them here (first + middle)
+        // or export would silently drop the middle name and break the
+        // import→export→import round-trip.
+        let given = [profile.firstName, profile.middleName]
+            .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
         let surname = profile.lastName ?? ""
         if !given.isEmpty || !surname.isEmpty {
             lines.append("1 NAME \(given) /\(surname)/")
