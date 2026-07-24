@@ -86,7 +86,102 @@ public nonisolated enum AuditRules {
         MarriedSurnameFromSpouseRule(),
         CensusAgeBirthYearRule(),
         GivenNameContainsMiddleRule(),
+        JunkInNameRule(),
+        IncompleteNameRule(),
+        SuspectLocationRule(),
     ]
+}
+
+// MARK: - Junk In Name (import hygiene)
+
+/// Flags a name field carrying placeholder or junk text — a literal "?", a
+/// parenthetical aside/nickname, or a word like "unknown". These are classic
+/// GEDCOM-import residue ("Mary Anne ?", "Elizabeth Maud (Betty) Thompson").
+/// Distinct from a *blank* profile (EmptyProfileRule): the junk sits alongside
+/// an otherwise-real name, so the profile isn't empty. Shares detection with
+/// `Profile.nameFieldJunk` so audit and cleanse agree on what counts as junk.
+public nonisolated struct JunkInNameRule: AuditRuleDefinition {
+    public let id = "junkInName"
+    public let displayName = "Junk In Name"
+    public let description = "A name field contains placeholder or junk text — a \"?\", a parenthetical aside, or a word like \"unknown\"."
+    public let fireCondition = "firstName or lastName contains \"?\", parentheses, or a placeholder word."
+    public let warningCondition: String? = nil
+    public let workedExample = "\"Mary Anne ?\" (surname is a literal \"?\") or \"Elizabeth Maud (Betty) Thompson\" (a nickname folded into the given name)."
+    public let defaultSeverity = Severity.warning
+    public init() {}
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        guard let junk = profile.nameFieldJunk else { return [] }
+        let which = junk.field == .lastName ? "surname" : "given name"
+        let display = profile.displayName.trimmingCharacters(in: .whitespaces).isEmpty
+            ? "(unnamed)" : profile.displayName
+        return [AuditResult(
+            profileID: profile.id, profileName: display,
+            severity: .warning, ruleID: id,
+            message: "\(display) — \(which) \u{201C}\(junk.value)\u{201D} \(junk.reason). Clean it up or replace it with the real name."
+        )]
+    }
+}
+
+// MARK: - Incomplete Name (half a name)
+
+/// Flags a profile with only half a name — a given name and no surname, a
+/// surname and no given name, or a given name that is just an initial. INFO,
+/// not a warning: a surname-only person is frequently a legitimate unknown-
+/// maiden placeholder (an unnamed spouse), so this is a nudge to complete or
+/// research the name, not an error. Shares `Profile.incompleteName`, which
+/// defers empty names to EmptyProfileRule and junk names to JunkInNameRule so
+/// the three never double-fire.
+public nonisolated struct IncompleteNameRule: AuditRuleDefinition {
+    public let id = "incompleteName"
+    public let category: AuditCategory = .gap
+    public let displayName = "Incomplete Name"
+    public let description = "A profile has only part of a name — a given name with no surname, a surname with no given name, or a given name that is only an initial."
+    public let fireCondition = "Exactly one of given/surname present (non-junk), or the given name is a single initial."
+    public let warningCondition: String? = nil
+    public let workedExample = "\" Andrews\" (surname only — likely an unknown-maiden spouse) or \"R Smith\" (given name is only an initial)."
+    public let defaultSeverity = Severity.info
+    public init() {}
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        guard let reason = profile.incompleteName else { return [] }
+        let display = profile.displayName.trimmingCharacters(in: .whitespaces).isEmpty
+            ? "(unnamed)" : profile.displayName.trimmingCharacters(in: .whitespaces)
+        return [AuditResult(
+            profileID: profile.id, profileName: display,
+            severity: .info, category: .gap, ruleID: id,
+            message: "\(display) — \(reason). Add the missing part, or research it (a surname-only spouse often needs a maiden name)."
+        )]
+    }
+}
+
+// MARK: - Suspect Location (malformed place string)
+
+/// Flags a birth/death location string that looks malformed — a stray "?", a
+/// rogue comma, or all-caps / all-lowercase casing. A fast, gazetteer-free
+/// heuristic that surfaces the obvious junk ("Wensley????", "CHESTERFIELD",
+/// "wirksworth", "Sharlston,") as a tree-wide chip; the Cleanse wizard still
+/// does the real gazetteer match and fix. Shares `Profile.suspectLocations`.
+public nonisolated struct SuspectLocationRule: AuditRuleDefinition {
+    public let id = "suspectLocation"
+    public let displayName = "Suspect Location"
+    public let description = "A birth or death place string looks malformed — stray punctuation, a rogue comma, or unusual casing."
+    public let fireCondition = "Location contains \"?\", a stray comma, or is entirely upper- or lower-case."
+    public let warningCondition: String? = nil
+    public let workedExample = "\"Wensley????\", \"CHESTERFIELD\", \"wirksworth\", or \"Sharlston,\" (trailing comma)."
+    public let defaultSeverity = Severity.info
+    public init() {}
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        profile.suspectLocations.map { loc in
+            let which = loc.field == .deathLocation ? "death" : "birth"
+            return AuditResult(
+                profileID: profile.id, profileName: profile.displayName,
+                severity: .info, ruleID: id,
+                message: "\(profile.displayName) — \(which) place \u{201C}\(loc.value)\u{201D} looks malformed (\(loc.reason)). Tidy it in Cleanse."
+            )
+        }
+    }
 }
 
 // MARK: - Given Name Contains Middle Name (import hygiene)
@@ -643,35 +738,39 @@ public nonisolated struct DuplicateDetectionRule: AuditRuleDefinition {
     }
 
     private func similarityScore(_ a: Profile, _ b: Profile) -> Double {
+        let givenA = a.firstName?.trimmingCharacters(in: .whitespaces) ?? ""
+        let givenB = b.firstName?.trimmingCharacters(in: .whitespaces) ?? ""
+        let surnameA = a.lastName?.trimmingCharacters(in: .whitespaces) ?? ""
+        let surnameB = b.lastName?.trimmingCharacters(in: .whitespaces) ?? ""
+
+        let givenSim = (!givenA.isEmpty && !givenB.isEmpty) ? nameSimilarity(givenA, givenB) : 0.0
+
         // A true duplicate shares the given name too. When both profiles have a
         // given name and they're completely dissimilar (e.g. Dorothy vs
         // Florence), they're different people — usually same-surname siblings —
         // so surname (0.4) + birth-year overlap (0.3) alone must NOT reach the
-        // 0.7 threshold. nameSimilarity already credits nicknames, containment,
-        // and single-char typos, so anything genuinely close still scores > 0.
-        if let givenA = a.firstName?.trimmingCharacters(in: .whitespaces), !givenA.isEmpty,
-           let givenB = b.firstName?.trimmingCharacters(in: .whitespaces), !givenB.isEmpty,
-           nameSimilarity(givenA, givenB) == 0 {
-            return 0
-        }
+        // 0.7 threshold. nameSimilarity credits nicknames, containment, and
+        // single-edit typos, so anything genuinely close still scores > 0.
+        if !givenA.isEmpty && !givenB.isEmpty && givenSim == 0 { return 0 }
 
-        var score = 0.0
+        let surnameSim = (!surnameA.isEmpty && !surnameB.isEmpty) ? nameSimilarity(surnameA, surnameB) : 0.0
 
-        // Surname similarity
-        if let surnameA = a.lastName, let surnameB = b.lastName {
-            score += nameSimilarity(surnameA, surnameB) * 0.4
-        }
+        var score = surnameSim * 0.4 + givenSim * 0.3
 
-        // Given name similarity
-        if let givenA = a.firstName, let givenB = b.firstName {
-            score += nameSimilarity(givenA, givenB) * 0.3
-        }
-
-        // Birth year overlap
+        // Birth year overlap corroborates; disjoint years positively DISTINGUISH.
+        var datesConflict = false
         if let birthA = a.birthDate, let birthB = b.birthDate {
-            if rangesOverlap(birthA, birthB) {
-                score += 0.3
-            }
+            if rangesOverlap(birthA, birthB) { score += 0.3 } else { datesConflict = true }
+        }
+
+        // Strong-name duplicate signal without corroborating dates: a near-exact
+        // surname AND a near-identical given name (a typo like GLAYS/GLADYS, or a
+        // nickname / added-middle variant like GEOFF/GEOFFREY) is worth flagging
+        // for review even when neither profile carries a date. Suppressed when
+        // the dates positively conflict — two same-named people with disjoint
+        // birth years are distinct, not duplicates.
+        if surnameSim >= 0.9, givenSim >= 0.7, !datesConflict {
+            score = max(score, 0.7)
         }
 
         return score
@@ -731,13 +830,38 @@ public nonisolated func nameSimilarity(_ a: String, _ b: String) -> Double {
     ]
     if nicknames[a] == b || nicknames[b] == a { return 0.85 }
 
-    // Single character difference (typo/transcription)
+    // A single edit away — a substitution on equal-length names (DALE/GALE) or
+    // one insertion/deletion for names of 4+ letters (GLAYS/GLADYS, a dropped
+    // letter). Both are Levenshtein distance 1; the length floor keeps a
+    // one-edit gap from over-crediting very short names.
     if a.count == b.count {
         let diffs = zip(a, b).filter { $0 != $1 }.count
         if diffs == 1 { return 0.7 }
+    } else if min(a.count, b.count) >= 4, abs(a.count - b.count) == 1, levenshtein(a, b) == 1 {
+        return 0.7
     }
 
     return 0.0
+}
+
+/// Levenshtein edit distance (insertions, deletions, substitutions). Used by
+/// `nameSimilarity` to credit single-character insertion/deletion typos across
+/// unequal-length names. Two-row DP — O(a·b) time, O(b) space.
+nonisolated func levenshtein(_ a: String, _ b: String) -> Int {
+    let a = Array(a), b = Array(b)
+    if a.isEmpty { return b.count }
+    if b.isEmpty { return a.count }
+    var prev = Array(0...b.count)
+    var curr = [Int](repeating: 0, count: b.count + 1)
+    for i in 1...a.count {
+        curr[0] = i
+        for j in 1...b.count {
+            let cost = a[i - 1] == b[j - 1] ? 0 : 1
+            curr[j] = Swift.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+        }
+        swap(&prev, &curr)
+    }
+    return prev[b.count]
 }
 
 // MARK: - Parent Died Before Child (from Python audit.py line 134)

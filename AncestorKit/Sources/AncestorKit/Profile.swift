@@ -167,6 +167,76 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
         return (tokens[0], tokens.dropFirst().joined(separator: " "))
     }
 
+    /// Junk / placeholder cruft sitting inside a name field: a literal "?", a
+    /// parenthetical aside or nickname ("(Betty)"), or a placeholder token like
+    /// "unknown" / "unnamed" / "living" / "private". Returns the first offending
+    /// `(field, value, reason)`, or nil when both name fields are clean. Shared
+    /// by the audit chip and its cleanse fix so they agree on what counts as
+    /// junk. Distinct from a *fully empty* name (that's `isAnonymousStub` /
+    /// EmptyProfileRule) — this catches junk mixed into an otherwise-real name.
+    public var nameFieldJunk: (field: ProfileField, value: String, reason: String)? {
+        func junkReason(_ raw: String) -> String? {
+            let t = raw.trimmingCharacters(in: .whitespaces)
+            guard !t.isEmpty else { return nil }
+            if t.contains("?") { return "contains a \u{201C}?\u{201D}" }
+            if t.contains("(") || t.contains(")") { return "contains a parenthetical aside" }
+            let placeholders: Set<String> = ["unknown", "unnamed", "living", "private", "n.n.", "nn", "unk"]
+            let tokens = t.lowercased().split(separator: " ").map(String.init)
+            if tokens.contains(where: { placeholders.contains($0) }) { return "contains a placeholder word" }
+            return nil
+        }
+        if let fn = firstName, let r = junkReason(fn) { return (.firstName, fn, r) }
+        if let ln = lastName, let r = junkReason(ln) { return (.lastName, ln, r) }
+        return nil
+    }
+
+    /// A name that is present but INCOMPLETE — only a given name, only a
+    /// surname, or a given name that is just an initial. Returns a description
+    /// of what's missing, or nil when the name is complete, fully empty (that's
+    /// EmptyProfileRule's job), or carries junk (`nameFieldJunk`'s job). A
+    /// surname-only person is frequently a legitimate unknown-maiden placeholder
+    /// (an unnamed spouse), so callers surface this at INFO, as a nudge.
+    public var incompleteName: String? {
+        if nameFieldJunk != nil { return nil }
+        let given = (firstName ?? "").trimmingCharacters(in: .whitespaces)
+        let surname = (lastName ?? "").trimmingCharacters(in: .whitespaces)
+        let hasGiven = !given.isEmpty
+        let hasSurname = !surname.isEmpty
+        if !hasGiven && !hasSurname { return nil }          // fully empty → EmptyProfileRule
+        if hasGiven && !hasSurname { return "no surname" }
+        if hasSurname && !hasGiven { return "no given name" }
+        // Both present — flag a given name that is only an initial ("R", "R.").
+        let firstToken = given.split(separator: " ").first.map(String.init) ?? given
+        if firstToken.filter(\.isLetter).count == 1 {
+            return "given name is only an initial (\u{201C}\(firstToken)\u{201D})"
+        }
+        return nil
+    }
+
+    /// Birth/death location strings that look malformed — a fast, gazetteer-free
+    /// heuristic for the audit chip (the Cleanse wizard does the real gazetteer
+    /// resolution). Flags a stray "?", leading/trailing/doubled commas, and case
+    /// anomalies (ALL CAPS or all-lowercase multi-letter place names). Returns
+    /// one entry per offending field.
+    public var suspectLocations: [(field: ProfileField, value: String, reason: String)] {
+        func reason(_ raw: String) -> String? {
+            let t = raw.trimmingCharacters(in: .whitespaces)
+            guard !t.isEmpty else { return nil }
+            if t.contains("?") { return "contains a \u{201C}?\u{201D}" }
+            if t.hasPrefix(",") || t.hasSuffix(",") || t.contains(",,") { return "a stray comma" }
+            let letters = t.filter(\.isLetter)
+            if letters.count >= 2 {
+                if letters == letters.uppercased() && letters != letters.lowercased() { return "all capitals" }
+                if letters == letters.lowercased() && letters != letters.uppercased() { return "all lowercase" }
+            }
+            return nil
+        }
+        var out: [(ProfileField, String, String)] = []
+        if let bl = birthLocation, let r = reason(bl) { out.append((.birthLocation, bl, r)) }
+        if let dl = deathLocation, let r = reason(dl) { out.append((.deathLocation, dl, r)) }
+        return out
+    }
+
     /// A profile carrying no identifying information — the anonymous stub the
     /// sibling shortcut / bad relinks leave behind. `.placeholder` status counts
     /// outright; otherwise a profile with no non-whitespace name field and no
