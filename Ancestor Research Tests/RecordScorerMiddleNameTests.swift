@@ -240,6 +240,54 @@ struct RecordScorerMiddleNameTests {
         )
         #expect(result.verdict != .impossible)
     }
+
+    @Test func givenlessSubjectSoftFailsInsteadOfPassingOnSurnameAlone() {
+        // Regression (Lilian Mary Brooks / "Charles H Holmes"): a male
+        // "Charles H Holmes" 1941 death passed the name gate GREEN for a
+        // female "…Holmes" subject. The record was scored against a subject
+        // built by a surname-only relative/hypothesis axis (givenName: nil),
+        // so the given-name comparison was skipped and the gate passed on
+        // surname=1.00 alone (givenScore stuck at its 0.5 default). With no
+        // given name to confirm identity, the gate must SOFT-FAIL to a
+        // reviewable lead — never a green pass.
+        let givenlessSubject = ResearchSubject(
+            surname: "Holmes",
+            givenName: nil,
+            middleName: nil,
+            birthYearFrom: 1914,
+            birthYearTo: 1914,
+            gender: .female,
+            region: .englandAndWales,
+            mode: .extend
+        )
+        let charles = SourceRecord.death(DeathRecord(
+            common: RecordCommon(
+                id: "charles-h-holmes-1941",
+                sourceID: "freebmd",
+                name: nil,
+                surname: "Holmes",
+                givenName: "Charles H",
+                detailURL: nil,
+                rawFields: [:]
+            ),
+            deathYear: 1941,
+            age: 51,
+            district: "Belper"
+        ))
+        let result = RecordScorer.classify(
+            record: charles,
+            subject: givenlessSubject,
+            searchType: .death
+        )
+        guard let nameGate = result.gates.first(where: { $0.gate == .name }) else {
+            Issue.record("expected a name gate result")
+            return
+        }
+        #expect(nameGate.outcome == .softFail,
+                "given-less subject must not pass the name gate on surname alone; reason=\(nameGate.reason)")
+        #expect(result.verdict != .fact,
+                "a surname-only match with no given name must not be fact-grade")
+    }
 }
 
 // MARK: - Probate / burial death-axis tests

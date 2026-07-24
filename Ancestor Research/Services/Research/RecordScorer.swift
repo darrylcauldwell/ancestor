@@ -319,6 +319,20 @@ nonisolated struct RecordScorer {
             }
         } else if recordGiven.isEmpty {
             return GateResult(gate: .name, outcome: .fail, reason: "no given name in record to compare")
+        } else {
+            // recordGiven is present but the SUBJECT has no known given name —
+            // e.g. a relative/hypothesis search axis that dispatched on surname
+            // alone (`givenName: nil`). We cannot confirm identity on surname
+            // alone: a shared surname — especially a MARRIED surname, which a
+            // whole family carries — is not identity. A record that carries its
+            // own given name we can't check must NOT pass the gate green; it
+            // soft-fails to a reviewable lead instead. Without this, a male
+            // "Charles H Holmes" 1941 death passed the name gate for a female
+            // "Lilian … Holmes" subject purely on surname=1.00 with the given
+            // comparison skipped (givenScore stuck at its 0.5 default).
+            return GateResult(gate: .name, outcome: .softFail, reason: String(
+                format: "surname=%.2f but subject given name unknown — cannot confirm identity on surname alone, review",
+                surnameScore))
         }
 
         // Middle-name guard. When subject has a middle name and the record
