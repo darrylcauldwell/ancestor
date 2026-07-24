@@ -15,99 +15,111 @@ struct HealthView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Toolbar area
-            HStack {
-                Button {
-                    let disabled = (try? JSONDecoder().decode(Set<String>.self, from: disabledRuleIDsData)) ?? []
-                    // Respect per-profile / global snooze overrides on manual
-                    // re-run, matching the auto-audit (AppState.runPostLoadAudit).
-                    auditVM.runAudit(
-                        snapshot: appState.snapshot,
-                        disabledRuleIDs: disabled,
-                        overrides: appState.loadAuditRuleOverrides()
-                    )
-                } label: {
-                    Label("Re-run Audit", systemImage: "arrow.clockwise")
-                }
-                .buttonStyle(.glassProminent)
-                .disabled(appState.snapshot.profiles.isEmpty)
-
-                // CONFLICT_LAYER_SPEC CL2 — manual sweep trigger ("Scan for
-                // conflicts") + open-dispute count. The count queries the
-                // dispute store live so it reflects sweep results without a
-                // full audit re-run.
-                Button {
-                    appState.runConflictSweep(force: true)
-                    openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
-                } label: {
-                    Label("Scan for Conflicts", systemImage: "exclamationmark.triangle")
-                }
-                .disabled(appState.snapshot.profiles.isEmpty)
-
-                Button {
-                    appState.scanForImportDuplicates()
-                } label: {
-                    Label("Find Import Duplicates", systemImage: "person.2.slash")
-                }
-                .disabled(appState.snapshot.profiles.isEmpty)
-                .help("Find orphan duplicate records left by a GEDCOM import (e.g. Ancestry merges)")
-                .onAppear {
-                    openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
-                }
-
-                if let count = openDisputeCount, count > 0 {
+            // Two-row toolbar: actions on top, filters below — keeps the bar
+            // calm and stops the buttons truncating on a single line.
+            VStack(alignment: .leading, spacing: 10) {
+                // Row 1 — actions + search.
+                HStack {
                     Button {
-                        showDisputeList.toggle()
-                        if showDisputeList {
-                            openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
+                        let disabled = (try? JSONDecoder().decode(Set<String>.self, from: disabledRuleIDsData)) ?? []
+                        // Respect per-profile / global snooze overrides on manual
+                        // re-run, matching the auto-audit (AppState.runPostLoadAudit).
+                        auditVM.runAudit(
+                            snapshot: appState.snapshot,
+                            disabledRuleIDs: disabled,
+                            overrides: appState.loadAuditRuleOverrides()
+                        )
+                    } label: {
+                        Label("Re-run Audit", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.glassProminent)
+                    .disabled(appState.snapshot.profiles.isEmpty)
+
+                    // Secondary sweeps tucked into a menu — run occasionally, so
+                    // they don't need to sit out on the bar competing for space.
+                    Menu {
+                        Button {
+                            // CONFLICT_LAYER_SPEC CL2 — manual conflict sweep;
+                            // refreshes the live open-dispute count.
+                            appState.runConflictSweep(force: true)
+                            openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
+                        } label: {
+                            Label("Scan for Conflicts", systemImage: "exclamationmark.triangle")
+                        }
+                        Button {
+                            appState.scanForImportDuplicates()
+                        } label: {
+                            Label("Find Import Duplicates", systemImage: "person.2.slash")
                         }
                     } label: {
-                        Text("\(count) open dispute\(count == 1 ? "" : "s")")
-                            .font(.callout)
-                            .foregroundStyle(.orange)
+                        Label("Tools", systemImage: "wrench.and.screwdriver")
                     }
-                    .buttonStyle(.plain)
-                }
+                    .menuStyle(.button)
+                    .fixedSize()
+                    .disabled(appState.snapshot.profiles.isEmpty)
 
-                Spacer()
-
-                if let summary = auditVM.summary {
-                    HStack(spacing: 12) {
-                        severityBadge(.error, count: summary.errors.count)
-                        severityBadge(.warning, count: summary.warnings.count)
-                        severityBadge(.info, count: summary.info.count)
+                    if let count = openDisputeCount, count > 0 {
+                        Button {
+                            showDisputeList.toggle()
+                            if showDisputeList {
+                                openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
+                            }
+                        } label: {
+                            Text("\(count) open dispute\(count == 1 ? "" : "s")")
+                                .font(.callout)
+                                .foregroundStyle(.orange)
+                        }
+                        .buttonStyle(.plain)
                     }
+
+                    Spacer()
+
+                    TextField("Search...", text: $auditVM.searchText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 200)
                 }
 
-                // Category filter: All | Issues | Gaps
-                Picker("Category", selection: $auditVM.filterCategory) {
-                    Text("All").tag(nil as AuditCategory?)
-                    HStack(spacing: 4) {
-                        Text("Issues")
-                        Text("(\(auditVM.issueCount))").foregroundStyle(.secondary)
-                    }.tag(AuditCategory.issue as AuditCategory?)
-                    HStack(spacing: 4) {
-                        Text("Gaps")
-                        Text("(\(auditVM.gapCount))").foregroundStyle(.secondary)
-                    }.tag(AuditCategory.gap as AuditCategory?)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 240)
+                // Row 2 — category + severity filters, with the severity summary
+                // badges sitting between them.
+                HStack(spacing: 12) {
+                    Picker("Category", selection: $auditVM.filterCategory) {
+                        Text("All").tag(nil as AuditCategory?)
+                        HStack(spacing: 4) {
+                            Text("Issues")
+                            Text("(\(auditVM.issueCount))").foregroundStyle(.secondary)
+                        }.tag(AuditCategory.issue as AuditCategory?)
+                        HStack(spacing: 4) {
+                            Text("Gaps")
+                            Text("(\(auditVM.gapCount))").foregroundStyle(.secondary)
+                        }.tag(AuditCategory.gap as AuditCategory?)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 240)
 
-                Picker("Severity", selection: $auditVM.filterSeverity) {
-                    Text("All").tag(nil as Severity?)
-                    Text("Errors").tag(Severity.error as Severity?)
-                    Text("Warnings").tag(Severity.warning as Severity?)
-                    Text("Info").tag(Severity.info as Severity?)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 280)
+                    Spacer()
 
-                TextField("Search...", text: $auditVM.searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 150)
+                    if let summary = auditVM.summary {
+                        HStack(spacing: 12) {
+                            severityBadge(.error, count: summary.errors.count)
+                            severityBadge(.warning, count: summary.warnings.count)
+                            severityBadge(.info, count: summary.info.count)
+                        }
+                    }
+
+                    Picker("Severity", selection: $auditVM.filterSeverity) {
+                        Text("All").tag(nil as Severity?)
+                        Text("Errors").tag(Severity.error as Severity?)
+                        Text("Warnings").tag(Severity.warning as Severity?)
+                        Text("Info").tag(Severity.info as Severity?)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 280)
+                }
             }
             .padding()
+            .onAppear {
+                openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
+            }
 
             Divider()
 
