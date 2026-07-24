@@ -349,7 +349,7 @@ public nonisolated struct ImpossibleParentageRule: AuditRuleDefinition {
     public let id = "impossibleParentage"
     public let displayName = "Impossible Parentage"
     public let description = "A parent linked to a child born before them, or whose gender contradicts the parent role — usually a reversed or mis-roled edge from a GEDCOM import."
-    public let fireCondition = "a parent's birth year ≥ the child's, or a male parent in a 'mother' role (or vice versa)"
+    public let fireCondition = "a parent's EARLIEST possible birth ≥ the child's LATEST possible birth (so a disputed/estimated date can't fire it from a midpoint), or a male parent in a 'mother' role (or vice versa)"
     public let warningCondition: String? = nil
     public let workedExample = "A parent recorded with a birth year at or after their child's — e.g. an imported edge that reversed parent and child — can't be biologically real; flagged for the user to re-point."
     public let defaultSeverity = Severity.error
@@ -363,7 +363,21 @@ public nonisolated struct ImpossibleParentageRule: AuditRuleDefinition {
             guard let parent = snapshot.profiles[rel.from], !parent.isDeleted else { continue }
 
             // Date impossibility — a parent cannot be born on/after their child.
-            if let cy = childYear, let py = parent.effectiveDate(.birthDate)?.bestYear, py >= cy {
+            // Compare CONSERVATIVE bounds: the parent's earliest possible birth
+            // vs the child's latest possible birth. The edge is truly impossible
+            // only when the parent is born at/after the child under EVERY
+            // interpretation. Using the range bounds (not each date's midpoint)
+            // stops a widely-disputed birth — e.g. a stray census record decades
+            // off, unioned into the effective date — from manufacturing a false
+            // impossibility out of its midpoint. (Real case: Gertrude Cauldwell,
+            // b.1920, carried a mis-attached 1859 census value → effective range
+            // [1859,1920], midpoint ~1889, which collided with her 1889-born
+            // father Samuel and wrongly read as impossible.)
+            if let childLatest = profile.effectiveDate(.birthDate)?.latest,
+               let parentEarliest = parent.effectiveDate(.birthDate)?.earliest,
+               parentEarliest >= childLatest {
+                let py = parent.effectiveDate(.birthDate)?.bestYear ?? parentEarliest
+                let cy = childYear ?? childLatest
                 results.append(AuditResult(
                     id: UUID(), profileID: profile.id, profileName: profile.displayName,
                     severity: .error, category: .issue, ruleID: id,
