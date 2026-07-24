@@ -1,7 +1,11 @@
 import SwiftUI
 
-/// Audit view — run rules, display errors/warnings/info grouped by severity.
-struct AuditPlaceholderView: View {
+/// Health view — the tree's data-quality home. Runs the audit rules and
+/// displays errors / warnings / info grouped by severity, with Issues/Gaps and
+/// severity filters, the conflict sweep, import-duplicate scan, and the open-
+/// disputes list. Wired to the `.health` sidebar tab. (Formerly the tab-less
+/// AuditPlaceholderView.)
+struct HealthView: View {
     @Environment(AppState.self) private var appState
     @State private var auditVM = AuditViewModel()
     @AppStorage("disabledAuditRuleIDs") private var disabledRuleIDsData: Data = Data()
@@ -15,7 +19,13 @@ struct AuditPlaceholderView: View {
             HStack {
                 Button {
                     let disabled = (try? JSONDecoder().decode(Set<String>.self, from: disabledRuleIDsData)) ?? []
-                    auditVM.runAudit(snapshot: appState.snapshot, disabledRuleIDs: disabled)
+                    // Respect per-profile / global snooze overrides on manual
+                    // re-run, matching the auto-audit (AppState.runPostLoadAudit).
+                    auditVM.runAudit(
+                        snapshot: appState.snapshot,
+                        disabledRuleIDs: disabled,
+                        overrides: appState.loadAuditRuleOverrides()
+                    )
                 } label: {
                     Label("Re-run Audit", systemImage: "arrow.clockwise")
                 }

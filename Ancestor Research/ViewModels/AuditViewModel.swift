@@ -9,9 +9,15 @@ final class AuditViewModel {
     var filterCategory: AuditCategory?
     var searchText = ""
 
-    func runAudit(snapshot: FamilyGraphSnapshot, disabledRuleIDs: Set<String> = []) {
+    func runAudit(
+        snapshot: FamilyGraphSnapshot,
+        disabledRuleIDs: Set<String> = [],
+        overrides: [AuditRuleOverride] = []
+    ) {
         isRunning = true
-        summary = AuditEngine.auditGrouped(snapshot, disabledRuleIDs: disabledRuleIDs)
+        summary = AuditEngine.auditGrouped(
+            snapshot, disabledRuleIDs: disabledRuleIDs, overrides: overrides
+        )
         isRunning = false
     }
 

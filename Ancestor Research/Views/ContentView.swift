@@ -135,6 +135,8 @@ struct MainView: View {
                 ResearchView(researchVM: researchVM, role: .research)
             case .triage:
                 ResearchView(researchVM: researchVM, role: .triage)
+            case .health:
+                HealthView()
             case .workbench:
                 WorkbenchView()
             case .settings:
@@ -544,6 +546,11 @@ nonisolated enum SidebarTab: String, CaseIterable {
     /// (clusters, leads, conflicts), accept or discard. Nothing is kicked
     /// off from here.
     case triage = "Triage"
+    /// Health: the data-quality home — audit findings (cruft, impossibilities,
+    /// duplicates, suspect locations, gaps), the completeness/evidenced summary,
+    /// and the entry into Cleanse. Distinct from Tasks (the research worklist):
+    /// Health answers "is my data wrong/dirty?", Tasks answers "what next?".
+    case health = "Health"
     case workbench = "Workbench"
     case settings = "Settings"
 }

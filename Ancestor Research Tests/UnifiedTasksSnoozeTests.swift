@@ -73,60 +73,39 @@ struct UnifiedTasksSnoozeTests {
         )
     }
 
-    /// Drive the full pipeline: AuditEngine + aggregator, exactly the way
-    /// AppState.runPostLoadAudit feeds UnifiedTasksView.
-    private func aggregate(
+    /// Run the audit engine with the given overrides and return the flat result
+    /// list. Audit now lives on the Health tab (AuditViewModel over AuditEngine),
+    /// so snooze — an AuditEngine `overrides:` feature — is asserted at the engine
+    /// layer rather than through the Tasks aggregator (which no longer carries
+    /// audit issues).
+    private func auditResults(
         snapshot: FamilyGraphSnapshot,
         overrides: [AuditRuleOverride],
         now: Date = Date()
-    ) -> [UnifiedTask] {
-        let summary = AuditEngine.auditGrouped(
-            snapshot,
-            overrides: overrides,
-            now: now
-        )
-        return UnifiedTaskAggregator.aggregate(
-            snapshot: snapshot,
-            auditSummary: summary,
-            questions: [],
-            lifeEvents: []
-        )
+    ) -> [AuditResult] {
+        let summary = AuditEngine.auditGrouped(snapshot, overrides: overrides, now: now)
+        return summary.errors + summary.warnings + summary.info
+    }
+
+    private func fires(_ results: [AuditResult], ruleID: String, profileID: String? = nil) -> Bool {
+        results.contains { $0.ruleID == ruleID && (profileID == nil || $0.profileID == profileID) }
     }
 
     // MARK: - Tests
 
-    /// Snoozing a rule for one profile drops the matching audit-issue task
-    /// from the aggregator's output.
-    @Test func snoozedRuleNoLongerAppearsInTasksAggregator() {
+    /// Snoozing a rule for one profile drops it from the audit results.
+    @Test func snoozedRuleNoLongerFiresForProfile() {
         let p = makeProfile(id: "p1")
         let snap = snapshot([p])
 
-        // Sanity — no overrides, the rule fires, so the audit task is present.
-        let baseline = aggregate(snapshot: snap, overrides: [])
-        let firedBefore = baseline.contains { task in
-            if case .auditIssue(let r) = task,
-               r.profileID == "p1", r.ruleID == "unsourcedBio" {
-                return true
-            }
-            return false
-        }
-        #expect(firedBefore, "Baseline: missingBirthLocation should fire on p1")
+        let baseline = auditResults(snapshot: snap, overrides: [])
+        #expect(fires(baseline, ruleID: "unsourcedBio", profileID: "p1"),
+                "Baseline: unsourcedBio should fire on p1")
 
-        // Now snooze it for this person.
-        let snooze = makeSnooze(
-            ruleID: "unsourcedBio",
-            scope: .profile(id: "p1")
-        )
-        let after = aggregate(snapshot: snap, overrides: [snooze])
-
-        let firedAfter = after.contains { task in
-            if case .auditIssue(let r) = task,
-               r.profileID == "p1", r.ruleID == "unsourcedBio" {
-                return true
-            }
-            return false
-        }
-        #expect(!firedAfter, "After snooze: missingBirthLocation must not surface for p1")
+        let snooze = makeSnooze(ruleID: "unsourcedBio", scope: .profile(id: "p1"))
+        let after = auditResults(snapshot: snap, overrides: [snooze])
+        #expect(!fires(after, ruleID: "unsourcedBio", profileID: "p1"),
+                "After snooze: unsourcedBio must not surface for p1")
     }
 
     /// Global-scope snooze drops the rule across every profile.
@@ -136,32 +115,19 @@ struct UnifiedTasksSnoozeTests {
         let snap = snapshot([p1, p2])
 
         // Both profiles should fire baseline.
-        let baseline = aggregate(snapshot: snap, overrides: [])
-        let baselineHits = baseline.filter { task in
-            if case .auditIssue(let r) = task, r.ruleID == "unsourcedBio" {
-                return true
-            }
-            return false
-        }
+        let baseline = auditResults(snapshot: snap, overrides: [])
+        let baselineHits = baseline.filter { $0.ruleID == "unsourcedBio" }
         #expect(baselineHits.count == 2, "Baseline: rule fires on both profiles")
 
-        let snooze = makeSnooze(
-            ruleID: "unsourcedBio",
-            scope: .global
-        )
-        let after = aggregate(snapshot: snap, overrides: [snooze])
-        let remaining = after.filter { task in
-            if case .auditIssue(let r) = task, r.ruleID == "unsourcedBio" {
-                return true
-            }
-            return false
-        }
-        #expect(remaining.isEmpty, "Global snooze should silence the rule on every profile")
+        let snooze = makeSnooze(ruleID: "unsourcedBio", scope: .global)
+        let after = auditResults(snapshot: snap, overrides: [snooze])
+        #expect(!fires(after, ruleID: "unsourcedBio"),
+                "Global snooze should silence the rule on every profile")
     }
 
     /// An override whose `snoozedUntil` is in the past should let the rule
     /// fire again — the snooze has expired.
-    @Test func expiredSnoozeReFiresInTasksAggregator() {
+    @Test func expiredSnoozeReFires() {
         let p = makeProfile(id: "p1")
         let snap = snapshot([p])
 
@@ -176,15 +142,9 @@ struct UnifiedTasksSnoozeTests {
             thresholds: [:]
         )
 
-        let after = aggregate(snapshot: snap, overrides: [expired], now: now)
-        let fired = after.contains { task in
-            if case .auditIssue(let r) = task,
-               r.profileID == "p1", r.ruleID == "unsourcedBio" {
-                return true
-            }
-            return false
-        }
-        #expect(fired, "An expired snooze must let the rule fire again")
+        let after = auditResults(snapshot: snap, overrides: [expired], now: now)
+        #expect(fires(after, ruleID: "unsourcedBio", profileID: "p1"),
+                "An expired snooze must let the rule fire again")
     }
 
     /// Per-profile snooze on P1 leaves the same rule firing on P2 untouched.
@@ -193,28 +153,12 @@ struct UnifiedTasksSnoozeTests {
         let p2 = makeProfile(id: "p2", firstName: "Bob")
         let snap = snapshot([p1, p2])
 
-        let snooze = makeSnooze(
-            ruleID: "unsourcedBio",
-            scope: .profile(id: "p1")
-        )
+        let snooze = makeSnooze(ruleID: "unsourcedBio", scope: .profile(id: "p1"))
+        let after = auditResults(snapshot: snap, overrides: [snooze])
 
-        let after = aggregate(snapshot: snap, overrides: [snooze])
-
-        let firedForP1 = after.contains { task in
-            if case .auditIssue(let r) = task,
-               r.profileID == "p1", r.ruleID == "unsourcedBio" {
-                return true
-            }
-            return false
-        }
-        let firedForP2 = after.contains { task in
-            if case .auditIssue(let r) = task,
-               r.profileID == "p2", r.ruleID == "unsourcedBio" {
-                return true
-            }
-            return false
-        }
-        #expect(!firedForP1, "P1 snooze should suppress the rule for P1")
-        #expect(firedForP2, "P1 snooze must not silence the rule for P2")
+        #expect(!fires(after, ruleID: "unsourcedBio", profileID: "p1"),
+                "P1 snooze should suppress the rule for P1")
+        #expect(fires(after, ruleID: "unsourcedBio", profileID: "p2"),
+                "P1 snooze must not silence the rule for P2")
     }
 }

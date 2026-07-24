@@ -204,38 +204,10 @@ nonisolated enum UnifiedTaskAggregator {
     ) -> [UnifiedTask] {
         var tasks: [UnifiedTask] = []
 
-        // 1. Audit issues — flatten errors + warnings + info, but only the
-        //    ISSUE-class rules (consistency problems, conflicts, structural,
-        //    duplicates, empty-profile). The GAP-class audit rules (Missing
-        //    Bio/Birth/Death/Location/Parents, Completeness Score, End-of-Line)
-        //    are redundant with the per-profile Gaps view below — `Completeness`
-        //    already covers every one of those fields — so they'd otherwise show
-        //    the same missing-data twice. Route them out; Gaps is the one view.
-        if let summary = auditSummary {
-            for r in summary.errors where r.category != .gap { tasks.append(.auditIssue(r)) }
-            for r in summary.warnings where r.category != .gap { tasks.append(.auditIssue(r)) }
-            for r in summary.info where r.category != .gap { tasks.append(.auditIssue(r)) }
-        }
-
-        // 2. Gaps — one task per profile with completeness < maximum. Skip
-        //    nameless / unknown / placeholder profiles: their gaps are inherent
-        //    and un-fillable (same de-noise the audit engine applies).
-        for profile in snapshot.profiles.values where !profile.isDeleted {
-            let nameStatus = profile.attributes?.nameStatus ?? .known
-            let strippedName = profile.displayName
-                .trimmingCharacters(in: CharacterSet(charactersIn: " ?"))
-            if strippedName.isEmpty || nameStatus == .unknown || nameStatus == .placeholder {
-                continue
-            }
-            let comp = snapshot.completeness(for: profile.id)
-            if comp.score < comp.maximum {
-                tasks.append(.gap(
-                    profileID: profile.id,
-                    profileName: profile.displayName.isEmpty ? profile.id : profile.displayName,
-                    completeness: comp
-                ))
-            }
-        }
+        // Audit issues and completeness gaps now live on the Health tab (the
+        // data-quality home). Tasks is the research worklist: open questions and
+        // tentative facts only. `auditSummary` stays in the signature for
+        // call-site stability but is no longer consumed here.
 
         // 3. Open questions — only `.open` status. inProgress / blocked /
         // resolved are filtered out (resolved is the obvious one; the others
@@ -450,14 +422,7 @@ struct UnifiedTasksView: View {
 
     private var actionRow: some View {
         HStack {
-            Button {
-                rerunAudit()
-            } label: {
-                Label("Re-run Audit", systemImage: "arrow.clockwise")
-            }
-            .buttonStyle(.glassProminent)
-            .disabled(appState.snapshot.profiles.isEmpty)
-
+            // Audit lives on the Health tab now; Tasks is the research worklist.
             Spacer()
 
             // M16.10 — toggle between flat list and grouped-by-profile.
@@ -500,7 +465,9 @@ struct UnifiedTasksView: View {
                     category = nil
                     auditRuleFilter = nil
                 }
-                ForEach(TaskCategory.allCases) { c in
+                // Audit + gaps moved to Health; Tasks filters only the research
+                // worklist categories.
+                ForEach([TaskCategory.question, TaskCategory.tentative]) { c in
                     FilterChip(
                         label: c.displayName,
                         count: count(in: c),
@@ -511,47 +478,6 @@ struct UnifiedTasksView: View {
                         auditRuleFilter = nil
                     }
                 }
-                // Structural-error shortcut: >2 parents (or a stray placeholder
-                // parent) is rare but serious, so it gets its own top-level chip
-                // rather than being buried in the frequency-sorted Audit sub-row.
-                // Tapping it jumps straight to those findings (each carries a
-                // "Review parents" action).
-                if excessParentCount > 0 {
-                    let isExcessSelected = category == .audit && auditRuleFilter == "excessParentEdges"
-                    FilterChip(
-                        label: "Excess Parents",
-                        count: excessParentCount,
-                        tint: .red,
-                        isSelected: isExcessSelected
-                    ) {
-                        if isExcessSelected {
-                            category = nil
-                            auditRuleFilter = nil
-                        } else {
-                            category = .audit
-                            auditRuleFilter = "excessParentEdges"
-                        }
-                    }
-                }
-            }
-
-            // Second-level chips: when Audit is selected, break it down by rule
-            // so common findings ("Excess or Placeholder Parents", "Missing
-            // Parents", …) are one tap away. Ordered by frequency.
-            if category == .audit, !auditRuleChips.isEmpty {
-                FlowLayout(spacing: 6, lineSpacing: 6) {
-                    ForEach(auditRuleChips, id: \.id) { chip in
-                        FilterChip(
-                            label: chip.name,
-                            count: chip.count,
-                            tint: .red.opacity(0.75),
-                            isSelected: auditRuleFilter == chip.id
-                        ) {
-                            auditRuleFilter = (auditRuleFilter == chip.id) ? nil : chip.id
-                        }
-                    }
-                }
-                .padding(.leading, 12)
             }
         }
     }

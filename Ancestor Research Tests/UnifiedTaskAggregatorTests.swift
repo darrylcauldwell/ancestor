@@ -2,9 +2,10 @@ import Testing
 import Foundation
 @testable import Ancestor_Research
 
-/// Tests for the M12 Unified Tasks aggregator. Pure-function tests — no view,
-/// no DB. Covers the four input streams (audit, gaps, questions, tentative
-/// facts) and the priority sort order.
+/// Tests for the Unified Tasks aggregator. Pure-function tests — no view, no DB.
+/// Since audit issues and completeness gaps moved to the Health tab, the
+/// aggregator is the research worklist: open questions + tentative facts only.
+/// The first two tests pin that split (no audit / no gap tasks).
 struct UnifiedTaskAggregatorTests {
 
     // MARK: - Helpers
@@ -59,19 +60,17 @@ struct UnifiedTaskAggregatorTests {
         return ([parent, child], [parentRel("parent", "child")])
     }
 
-    // MARK: - Audit issues
+    // MARK: - Audit + gaps moved to Health
 
-    @Test func aggregateProducesAuditIssuesFromSummary() {
+    @Test func aggregateNoLongerProducesAuditTasks() {
+        // Audit issues live on the Health tab now; the Tasks aggregator must not
+        // re-add them, even when handed an audit summary.
         let (profiles, rels) = completeProfileWithParent()
         let r1 = AuditResult(
             profileID: "p1", profileName: "Subject A",
             severity: .error, ruleID: "rule.x", message: "Subject A — boom"
         )
-        let r2 = AuditResult(
-            profileID: "p1", profileName: "Subject B",
-            severity: .warning, ruleID: "rule.y", message: "Subject B — watch"
-        )
-        let summary = AuditSummary(errors: [r1], warnings: [r2], info: [], total: 2, profilesChecked: 2)
+        let summary = AuditSummary(errors: [r1], warnings: [], info: [], total: 1, profilesChecked: 2)
 
         let tasks = UnifiedTaskAggregator.aggregate(
             snapshot: snapshot(profiles, rels),
@@ -79,16 +78,12 @@ struct UnifiedTaskAggregatorTests {
             questions: [],
             lifeEvents: []
         )
-
-        let auditTasks = tasks.filter { $0.category == .audit }
-        #expect(auditTasks.count == 2)
+        #expect(tasks.allSatisfy { $0.category != .audit })
     }
 
-    // MARK: - Gaps
-
-    @Test func aggregateProducesGapsForIncompleteProfiles() {
-        // Two incomplete profiles (no parents, no birthLocation, etc.) and
-        // no audit / questions / events. Should emit two gap tasks.
+    @Test func aggregateNoLongerProducesGapTasks() {
+        // Completeness gaps are represented on Health via the gap-class audit
+        // rules; the Tasks aggregator no longer emits per-profile .gap tasks.
         let p1 = makeProfile(id: "a", birthLocation: nil, deathLocation: nil, bio: nil)
         let p2 = makeProfile(id: "b", birthLocation: nil, deathLocation: nil, bio: nil)
 
@@ -98,31 +93,7 @@ struct UnifiedTaskAggregatorTests {
             questions: [],
             lifeEvents: []
         )
-
-        let gapTasks = tasks.filter { $0.category == .gap }
-        #expect(gapTasks.count == 2)
-    }
-
-    @Test func aggregateSkipsCompleteProfiles() {
-        // A profile that's fully complete + has a parent edge produces no gap.
-        let (profiles, rels) = completeProfileWithParent()
-        let tasks = UnifiedTaskAggregator.aggregate(
-            snapshot: snapshot(profiles, rels),
-            auditSummary: nil,
-            questions: [],
-            lifeEvents: []
-        )
-        // The parent has no parent edge of its own — that's still a gap.
-        // The child has a parent edge and is otherwise complete → no gap.
-        let gaps = tasks.filter { $0.category == .gap }
-        #expect(gaps.contains { task in
-            if case .gap(let pid, _, _) = task { return pid == "parent" }
-            return false
-        })
-        #expect(!gaps.contains { task in
-            if case .gap(let pid, _, _) = task { return pid == "child" }
-            return false
-        })
+        #expect(tasks.allSatisfy { $0.category != .gap })
     }
 
     // MARK: - Questions
@@ -227,52 +198,6 @@ struct UnifiedTaskAggregatorTests {
             return false
         }
         #expect(eventTasks.count == 1)
-    }
-
-    // MARK: - Sort order
-
-    @Test func aggregateSortsErrorsBeforeWarningsBeforeInfo() {
-        let (profiles, rels) = completeProfileWithParent()
-        let err = AuditResult(
-            profileID: "p", profileName: "Errored",
-            severity: .error, ruleID: "r1", message: "boom"
-        )
-        let warn = AuditResult(
-            profileID: "p", profileName: "Warned",
-            severity: .warning, ruleID: "r2", message: "watch"
-        )
-        let info = AuditResult(
-            profileID: "p", profileName: "Inflated",
-            severity: .info, ruleID: "r3", message: "fyi"
-        )
-        let summary = AuditSummary(
-            errors: [err], warnings: [warn], info: [info],
-            total: 3, profilesChecked: 2
-        )
-
-        let tasks = UnifiedTaskAggregator.aggregate(
-            snapshot: snapshot(profiles, rels),
-            auditSummary: summary,
-            questions: [],
-            lifeEvents: []
-        )
-
-        // Find the indexes of the three audit tasks.
-        let errIdx = tasks.firstIndex {
-            if case .auditIssue(let r) = $0 { return r.severity == .error }
-            return false
-        }
-        let warnIdx = tasks.firstIndex {
-            if case .auditIssue(let r) = $0 { return r.severity == .warning }
-            return false
-        }
-        let infoIdx = tasks.firstIndex {
-            if case .auditIssue(let r) = $0 { return r.severity == .info }
-            return false
-        }
-        #expect(errIdx != nil && warnIdx != nil && infoIdx != nil)
-        #expect(errIdx! < warnIdx!)
-        #expect(warnIdx! < infoIdx!)
     }
 
     // MARK: - Leads are NOT tasks (owner decision 2026-07-17)
