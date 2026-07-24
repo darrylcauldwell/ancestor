@@ -16,6 +16,34 @@ struct ImportCleanseSheet: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            // Scrollable content — the phantom-spouse list can run to dozens of
+            // cards on a freshly-imported tree, so it must scroll rather than
+            // grow the sheet off the bottom of the screen.
+            ScrollView {
+                content
+                    .padding(24)
+            }
+
+            Divider()
+
+            // Pinned footer — the dismiss control is always reachable no matter
+            // how long the list is. Also bound to Escape via `.cancelAction`.
+            HStack {
+                Spacer()
+                Button("Keep everything") { appState.dismissImportCleanse(); dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+        }
+        .frame(
+            minWidth: 460, idealWidth: 520, maxWidth: 560,
+            minHeight: 320, idealHeight: 560, maxHeight: 680
+        )
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Duplicate records found")
                 .font(.title2).fontWeight(.bold)
@@ -73,14 +101,7 @@ struct ImportCleanseSheet: View {
                 }
             }
 
-            HStack {
-                Spacer()
-                Button("Keep everything") { appState.dismissImportCleanse(); dismiss() }
-                    .keyboardShortcut(.cancelAction)
-            }
         }
-        .padding(24)
-        .frame(minWidth: 460, maxWidth: 560)
     }
 }
 

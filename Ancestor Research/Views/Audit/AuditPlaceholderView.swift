@@ -213,7 +213,7 @@ struct HealthView: View {
                 }
             }
         }
-        .navigationTitle("Audit")
+        .navigationTitle("Health")
         .onAppear {
             // Use auto-audit from AppState if available and no manual run yet
             if auditVM.summary == nil, let autoSummary = appState.auditSummary {
