@@ -45,7 +45,10 @@ struct CleanseEngineTests {
 
     private func makeProfile(
         id: String,
-        firstName: String? = nil,
+        // Default to a complete name so fixtures for location/date/parent tests
+        // don't spuriously trip the name-completeness rules; tests that want an
+        // incomplete name pass `firstName: nil` explicitly.
+        firstName: String? = "Test",
         lastName: String? = "Smith",
         birthDate: GenealogicalDate? = nil,
         birthLocation: String? = nil,
@@ -279,5 +282,67 @@ struct CleanseEngineTests {
         #expect(!engine2.findings(for: "p1").contains {
             if case .givenNameContainsMiddle = $0 { return true } else { return false }
         }, "Once split, the finding must not reappear")
+    }
+
+    // MARK: - Junk in name
+
+    @Test func junkNameFindingCleansParentheticalToNickname() throws {
+        let db = try makeTempDB()
+        let profile = try persist(
+            makeProfile(id: "p1", firstName: "Elizabeth Maud (Betty)", lastName: "Thompson"),
+            into: db
+        )
+        let snap = makeSnapshot([profile])
+        let engine = makeEngine(db: db, snapshot: snap)
+
+        let finding = engine.findings(for: "p1").first {
+            if case .junkInName = $0 { return true } else { return false }
+        }
+        guard case .junkInName(_, let field, _, let proposed, let nickname)? = finding else {
+            Issue.record("expected a junkInName finding")
+            return
+        }
+        #expect(field == .firstName)
+        #expect(proposed == "Elizabeth Maud")
+        #expect(nickname == "Betty")
+
+        try engine.apply(.applyNameCleanup(field: field, value: proposed, nickname: nickname), to: finding!)
+        let reloaded = try db.buildSnapshot().profiles["p1"]
+        #expect(reloaded?.firstName == "Elizabeth Maud")
+        #expect(reloaded?.nickName == "Betty")
+    }
+
+    @Test func junkNameSuppressesGivenSplit() throws {
+        // "Mary Anne ?" — the "?" surname is junk; the wizard should surface the
+        // junk fix and NOT also offer to split "Mary Anne" until it's cleaned.
+        let db = try makeTempDB()
+        let profile = makeProfile(id: "p1", firstName: "Mary Anne", lastName: "?")
+        let snap = makeSnapshot([profile])
+        let engine = makeEngine(db: db, snapshot: snap)
+        let found = engine.findings(for: "p1")
+        #expect(found.contains { if case .junkInName = $0 { return true } else { return false } })
+        #expect(!found.contains { if case .givenNameContainsMiddle = $0 { return true } else { return false } })
+    }
+
+    // MARK: - Incomplete name
+
+    @Test func incompleteNameFindingFillsMissingGiven() throws {
+        let db = try makeTempDB()
+        // Surname only — an unknown-maiden spouse.
+        let profile = try persist(makeProfile(id: "p1", firstName: nil, lastName: "Andrews"), into: db)
+        let snap = makeSnapshot([profile])
+        let engine = makeEngine(db: db, snapshot: snap)
+
+        let finding = engine.findings(for: "p1").first {
+            if case .incompleteName = $0 { return true } else { return false }
+        }
+        guard case .incompleteName(_, _, let fillField)? = finding else {
+            Issue.record("expected an incompleteName finding")
+            return
+        }
+        #expect(fillField == .firstName)
+
+        try engine.apply(.applyNameField(field: fillField, value: "Ada"), to: finding!)
+        #expect(try db.buildSnapshot().profiles["p1"]?.firstName == "Ada")
     }
 }

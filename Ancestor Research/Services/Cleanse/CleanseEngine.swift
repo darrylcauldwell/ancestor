@@ -49,8 +49,16 @@ final class CleanseEngine {
         }
         var results: [CleanseFinding] = []
 
+        // Name findings, worst first: a junk name blocks everything, so fix it
+        // before splitting given/middle or filling a missing part.
+        if let junkFinding = junkNameFinding(for: profile) {
+            results.append(junkFinding)
+        }
         if let nameFinding = givenNameFinding(for: profile) {
             results.append(nameFinding)
+        }
+        if let incompleteFinding = incompleteNameFinding(for: profile) {
+            results.append(incompleteFinding)
         }
         if let locationFinding = locationFinding(for: profile) {
             results.append(locationFinding)
@@ -150,6 +158,19 @@ final class CleanseEngine {
                 first: first,
                 middle: middle
             )
+
+        case .applyNameCleanup(let field, let value, let nickname):
+            try applyNameCleanup(
+                finding: finding,
+                field: field,
+                value: value,
+                nickname: nickname
+            )
+
+        case .applyNameField(let field, let value):
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }   // nothing typed → no-op
+            try applyNameField(finding: finding, field: field, value: trimmed)
         }
     }
 
@@ -160,13 +181,40 @@ final class CleanseEngine {
     /// is `Profile.impliedGivenMiddleSplit`, shared with `GivenNameContainsMiddleRule`
     /// so the audit chip and the cleanse fix agree on which records are affected.
     private func givenNameFinding(for profile: Profile) -> CleanseFinding? {
-        guard let split = profile.impliedGivenMiddleSplit else { return nil }
+        // A junk name is fixed first (junkNameFinding); don't also propose a
+        // split on a name we're about to clean.
+        guard profile.nameFieldJunk == nil,
+              let split = profile.impliedGivenMiddleSplit else { return nil }
         return .givenNameContainsMiddle(
             profileID: profile.id,
             currentGiven: profile.firstName ?? "",
             proposedFirst: split.first,
             proposedMiddle: split.middle
         )
+    }
+
+    /// Junk in a name field ("?", parenthetical nickname, placeholder word).
+    /// Detection + proposed cleanup are `Profile.nameJunkResolution`, shared
+    /// with `JunkInNameRule`.
+    private func junkNameFinding(for profile: Profile) -> CleanseFinding? {
+        guard let res = profile.nameJunkResolution else { return nil }
+        return .junkInName(
+            profileID: profile.id,
+            field: res.field,
+            current: res.current,
+            proposed: res.proposed,
+            extractedNickname: res.nickname
+        )
+    }
+
+    /// Half a name — a missing given name or surname (or an initial-only given).
+    /// Shares `Profile.incompleteName` with `IncompleteNameRule`. `fillField` is
+    /// the part to supply: a missing surname wants the surname; every other case
+    /// (missing given, initial-only given) wants the given name.
+    private func incompleteNameFinding(for profile: Profile) -> CleanseFinding? {
+        guard let reason = profile.incompleteName else { return nil }
+        let fillField: ProfileField = reason == "no surname" ? .lastName : .firstName
+        return .incompleteName(profileID: profile.id, reason: reason, fillField: fillField)
     }
 
     private func locationFinding(for profile: Profile) -> CleanseFinding? {
@@ -350,6 +398,58 @@ final class CleanseEngine {
             dateChanges: [],
             source: .manual
         )
+    }
+
+    /// Strip junk from a name field, optionally lifting a parenthetical into the
+    /// nickname. Manual-sourced (the user reviewed the cleanup).
+    private func applyNameCleanup(
+        finding: CleanseFinding,
+        field: ProfileField,
+        value: String,
+        nickname: String?
+    ) throws {
+        guard let profile = snapshotProvider().profiles[finding.profileID]
+        else { throw CleanseError.profileNotFound(finding.profileID) }
+
+        let old = existingString(field, of: profile)
+        var changes: [(field: ProfileField, oldValue: String?, newValue: String?)] = [
+            (field: field, oldValue: old, newValue: value)
+        ]
+        if let nickname, !nickname.isEmpty {
+            changes.append((field: .nickName, oldValue: profile.nickName, newValue: nickname))
+        }
+        _ = try database.editProfile(
+            profileID: profile.id, changes: changes, dateChanges: [], source: .manual
+        )
+    }
+
+    /// Write a user-supplied name part (the missing given name or surname).
+    private func applyNameField(
+        finding: CleanseFinding,
+        field: ProfileField,
+        value: String
+    ) throws {
+        guard let profile = snapshotProvider().profiles[finding.profileID]
+        else { throw CleanseError.profileNotFound(finding.profileID) }
+        _ = try database.editProfile(
+            profileID: profile.id,
+            changes: [(field: field, oldValue: existingString(field, of: profile), newValue: value)],
+            dateChanges: [],
+            source: .manual
+        )
+    }
+
+    /// Current string value of a scalar name/location field on a profile.
+    private func existingString(_ field: ProfileField, of profile: Profile) -> String? {
+        switch field {
+        case .firstName:     return profile.firstName
+        case .middleName:    return profile.middleName
+        case .lastName:      return profile.lastName
+        case .nickName:      return profile.nickName
+        case .birthLocation: return profile.birthLocation
+        case .deathLocation: return profile.deathLocation
+        default:             return nil
+        }
     }
 
     private func applyBareYearQuarter(

@@ -197,6 +197,21 @@ struct ProfileCleanseWizard: View {
             }
             .buttonStyle(.glassProminent)
             .controlSize(.small)
+
+        case .junkInName(_, let field, _, let proposed, let nickname):
+            Button("Clean name") {
+                runAction(.applyNameCleanup(field: field, value: proposed, nickname: nickname), on: finding)
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.small)
+
+        case .incompleteName(_, _, let fillField):
+            Button("Save") {
+                runAction(.applyNameField(field: fillField, value: freeformLocationText), on: finding)
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.small)
+            .disabled(freeformLocationText.trimmingCharacters(in: .whitespaces).isEmpty)
         }
     }
 

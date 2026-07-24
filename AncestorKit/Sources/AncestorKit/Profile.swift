@@ -237,6 +237,33 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
         return out
     }
 
+    /// The cleanup a `nameFieldJunk` finding proposes: the offending field with
+    /// its junk stripped (parenthetical spans, "?" characters, and placeholder
+    /// words removed) and any parenthetical content lifted out as a nickname.
+    /// `proposed` may be empty — a bare "?" leaves nothing — in which case
+    /// applying it clears the field and the profile then reads as an incomplete
+    /// name on the next pass. Shared so the cleanse fix and its tests agree.
+    public var nameJunkResolution: (field: ProfileField, current: String, proposed: String, nickname: String?)? {
+        guard let junk = nameFieldJunk else { return nil }
+        let current = junk.value
+        var nickname: String?
+        if let open = current.firstIndex(of: "("),
+           let close = current.firstIndex(of: ")"), open < close {
+            let inner = current[current.index(after: open)..<close]
+                .trimmingCharacters(in: .whitespaces)
+            if !inner.isEmpty { nickname = inner }
+        }
+        var stripped = current.replacingOccurrences(
+            of: #"\([^)]*\)"#, with: " ", options: .regularExpression)
+        stripped = stripped.replacingOccurrences(of: "?", with: " ")
+        let placeholders: Set<String> = ["unknown", "unnamed", "living", "private", "n.n.", "nn", "unk"]
+        let proposed = stripped.split(separator: " ").map(String.init)
+            .filter { !placeholders.contains($0.lowercased()) }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        return (junk.field, current, proposed, nickname)
+    }
+
     /// A profile carrying no identifying information — the anonymous stub the
     /// sibling shortcut / bad relinks leave behind. `.placeholder` status counts
     /// outright; otherwise a profile with no non-whitespace name field and no

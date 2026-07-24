@@ -67,6 +67,27 @@ nonisolated enum CleanseFinding: Identifiable, Sendable {
         proposedMiddle: String
     )
 
+    /// A name field carries junk — a "?", a parenthetical nickname, or a
+    /// placeholder word. `proposed` is the field with the junk stripped (may be
+    /// empty for a bare "?"); `extractedNickname` is any parenthetical content
+    /// to lift out as a nickname. From `Profile.nameJunkResolution`.
+    case junkInName(
+        profileID: String,
+        field: ProfileField,
+        current: String,
+        proposed: String,
+        extractedNickname: String?
+    )
+
+    /// A name is only half-present — `fillField` (firstName or lastName) is the
+    /// part to supply. The user types the missing part; a surname-only spouse
+    /// may instead want researching, which the step view also offers.
+    case incompleteName(
+        profileID: String,
+        reason: String,
+        fillField: ProfileField
+    )
+
     // MARK: - Identity / keys
 
     /// Stable ID combining case kind + profile + field key. Used by SwiftUI
@@ -82,7 +103,9 @@ nonisolated enum CleanseFinding: Identifiable, Sendable {
              .unconfirmedLocation(let id, _, _),
              .missingParentFromBirthRecord(let id, _),
              .bareYearDate(let id, _, _, _),
-             .givenNameContainsMiddle(let id, _, _, _):
+             .givenNameContainsMiddle(let id, _, _, _),
+             .junkInName(let id, _, _, _, _),
+             .incompleteName(let id, _, _):
             return id
         }
     }
@@ -99,6 +122,10 @@ nonisolated enum CleanseFinding: Identifiable, Sendable {
             return field.rawValue
         case .givenNameContainsMiddle:
             return "firstName"
+        case .junkInName(_, let field, _, _, _):
+            return field.rawValue
+        case .incompleteName(_, _, let fillField):
+            return fillField.rawValue
         }
     }
 
@@ -111,6 +138,8 @@ nonisolated enum CleanseFinding: Identifiable, Sendable {
         case .missingParentFromBirthRecord: return "missingParent"
         case .bareYearDate:                return "bareYearDate"
         case .givenNameContainsMiddle:     return "givenNameContainsMiddle"
+        case .junkInName:                  return "junkInName"
+        case .incompleteName:              return "incompleteName"
         }
     }
 
@@ -125,6 +154,8 @@ nonisolated enum CleanseFinding: Identifiable, Sendable {
         case .bareYearDate(_, let field, _, _):
             return field == .birthDate ? "Bare-year birth date" : "Bare-year death date"
         case .givenNameContainsMiddle:     return "Middle name in given name"
+        case .junkInName:                  return "Junk in name"
+        case .incompleteName:              return "Incomplete name"
         }
     }
 
@@ -142,6 +173,14 @@ nonisolated enum CleanseFinding: Identifiable, Sendable {
             return "Year \(year) is set, but no quarter or month. Add a quarter when known."
         case .givenNameContainsMiddle(_, let current, let first, let middle):
             return "\u{201C}\(current)\u{201D} looks like a given name plus a middle name. Split into given \u{201C}\(first)\u{201D} + middle \u{201C}\(middle)\u{201D}, or decline if it's really one name."
+        case .junkInName(_, let field, let current, let proposed, let nickname):
+            let which = field == .lastName ? "surname" : "given name"
+            let to = proposed.isEmpty ? "clear it" : "\u{201C}\(proposed)\u{201D}"
+            let nick = nickname.map { " (keeping \u{201C}\($0)\u{201D} as a nickname)" } ?? ""
+            return "The \(which) \u{201C}\(current)\u{201D} contains junk. Clean it to \(to)\(nick), or decline."
+        case .incompleteName(_, let reason, let fillField):
+            let which = fillField == .lastName ? "surname" : "given name"
+            return "\(reason). Type the \(which), or decline (a surname-only spouse may need researching instead)."
         }
     }
 }
@@ -177,6 +216,14 @@ nonisolated enum CleanseAction: Sendable {
     /// User accepted the given/middle split for a `givenNameContainsMiddle`
     /// finding. Engine writes firstName = `first`, middleName = `middle`.
     case applyGivenMiddleSplit(first: String, middle: String)
+
+    /// User accepted a junk-in-name cleanup. Engine writes `field` = `value`
+    /// (possibly empty, clearing it) and, when present, saves `nickname`.
+    case applyNameCleanup(field: ProfileField, value: String, nickname: String?)
+
+    /// User supplied the missing part of an incomplete name. Engine writes
+    /// `field` = the typed `value` (a no-op when the value is blank).
+    case applyNameField(field: ProfileField, value: String)
 
     /// Leave the field unchanged; the finding may reappear next run.
     case skip

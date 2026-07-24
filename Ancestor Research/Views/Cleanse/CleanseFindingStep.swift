@@ -56,6 +56,8 @@ struct CleanseFindingStep: View {
         case .missingParentFromBirthRecord: return "person.2.badge.plus"
         case .bareYearDate:                 return "calendar.badge.exclamationmark"
         case .givenNameContainsMiddle:      return "textformat.abc"
+        case .junkInName:                   return "exclamationmark.bubble"
+        case .incompleteName:               return "person.text.rectangle"
         }
     }
 
@@ -76,6 +78,10 @@ struct CleanseFindingStep: View {
             bareYearBody(year: year, availableQuarter: available)
         case .givenNameContainsMiddle(_, let current, let first, let middle):
             givenNameSplitBody(current: current, first: first, middle: middle)
+        case .junkInName(_, let field, let current, let proposed, let nickname):
+            junkInNameBody(field: field, current: current, proposed: proposed, nickname: nickname)
+        case .incompleteName(_, let reason, let fillField):
+            incompleteNameBody(reason: reason, fillField: fillField)
         }
     }
 
@@ -277,6 +283,47 @@ struct CleanseFindingStep: View {
             }
 
             Text("The first word becomes the given name; the rest becomes the middle name. If \u{201C}\(current)\u{201D} is really a single (compound) given name, decline with Skip or Mark unresolvable instead.")
+                .font(AppTypography.cardMeta)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: Junk in name
+
+    @ViewBuilder
+    private func junkInNameBody(field: ProfileField, current: String, proposed: String, nickname: String?) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Proposed cleanup")
+                .font(AppTypography.cardTitle)
+            HStack(spacing: 10) {
+                nameChip(label: field == .lastName ? "Current surname" : "Current given",
+                         value: current, tint: .orange)
+                Image(systemName: "arrow.forward").foregroundStyle(.secondary)
+                nameChip(label: "Cleaned", value: proposed.isEmpty ? "(cleared)" : proposed, tint: .green)
+                if let nickname, !nickname.isEmpty {
+                    nameChip(label: "Nickname", value: nickname, tint: .blue)
+                }
+            }
+            Text("Junk — a \u{201C}?\u{201D}, a parenthetical aside, or a placeholder word — is removed. If this looks wrong, decline with Skip or Mark unresolvable.")
+                .font(AppTypography.cardMeta)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: Incomplete name
+
+    @ViewBuilder
+    private func incompleteNameBody(reason: String, fillField: ProfileField) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(reason.prefix(1).uppercased() + reason.dropFirst())
+                .font(AppTypography.cardTitle)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(fillField == .lastName ? "Enter the surname" : "Enter the given name")
+                    .font(AppTypography.cardBody)
+                TextField(fillField == .lastName ? "Surname" : "Given name", text: $freeformText)
+                    .textFieldStyle(.roundedBorder)
+            }
+            Text("If you don't know it, decline — a surname-only spouse usually needs researching (find the maiden name from a marriage or the children's records) rather than typing.")
                 .font(AppTypography.cardMeta)
                 .foregroundStyle(.secondary)
         }

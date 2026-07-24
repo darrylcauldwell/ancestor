@@ -60,6 +60,23 @@ struct GapCruftRulesTests {
         #expect(JunkInNameRule().evaluate(profile: p, snapshot: snapshot(p)).isEmpty)
     }
 
+    @Test func junkResolutionLiftsParentheticalToNickname() {
+        let res = profile(first: "Elizabeth Maud (Betty)", last: "Thompson").nameJunkResolution
+        #expect(res?.field == .firstName)
+        #expect(res?.proposed == "Elizabeth Maud")
+        #expect(res?.nickname == "Betty")
+    }
+
+    @Test func junkResolutionStripsPlaceholderToEmpty() {
+        #expect(profile(first: "Unknown", last: "Andrews").nameJunkResolution?.proposed == "")
+    }
+
+    @Test func junkResolutionOnQuestionMarkSurnameClears() {
+        let res = profile(first: "Mary Anne", last: "?").nameJunkResolution
+        #expect(res?.field == .lastName)
+        #expect(res?.proposed == "")
+    }
+
     // MARK: - IncompleteNameRule
 
     @Test func incompleteFiresOnSurnameOnly() {
