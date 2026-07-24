@@ -31,6 +31,23 @@ final class ResearchViewModel {
     // Pipeline state
     var isResearching = false
     var currentResult: ResearchResult?
+
+    /// True when the last run hit a source's "too broad" wall — e.g. FreeBMD's
+    /// too-many-results overflow, which a surname-only search over a wide
+    /// scope/date range trips. An empty result then means "the search was too
+    /// broad to answer," NOT "the person isn't there" — so the UI guides the
+    /// user to narrow rather than broaden.
+    var lastSearchTruncated: Bool {
+        currentResult?.searchOutcomes.contains { $0.outcome.truncated } ?? false
+    }
+
+    /// Distinct sources that declined as too broad, upper-cased for display.
+    var truncatedSourceNames: [String] {
+        let ids = currentResult?.searchOutcomes
+            .filter { $0.outcome.truncated }
+            .map { $0.sourceID.uppercased() } ?? []
+        return Array(Set(ids)).sorted()
+    }
     var progressMessage: String?
     var sourceStatuses: [SourceStatus] = []
     /// Top-K prose-corpus candidates for the current run. Populated

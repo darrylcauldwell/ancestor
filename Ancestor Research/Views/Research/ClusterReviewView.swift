@@ -1583,32 +1583,44 @@ struct ClusterReviewView: View {
             Label("No Candidates", systemImage: "person.crop.circle.badge.questionmark")
         } description: {
             VStack(spacing: 12) {
-                Text("No matching records were found across the searched sources.")
-                if vm.selectedScope < .national {
-                    Text("Local search covered your home region only.")
+                if vm.lastSearchTruncated {
+                    // A source (typically FreeBMD) declined the query as too
+                    // broad and returned a truncated / interstitial page — so
+                    // "no candidates" here is likely a false negative, not a
+                    // genuine absence. Widening scope makes truncation WORSE,
+                    // so steer toward narrowing and suppress the national button.
+                    Text("\(vm.truncatedSourceNames.joined(separator: ", ")) declined the search — too many results to return.")
+                    Text("This isn't a genuine \"no records\" — the search was too broad. Narrow the scope (try District) or add a birth year / tighter date range, then search again.")
                         .font(AppTypography.cardMeta)
                         .foregroundStyle(.secondary)
-                    Button {
-                        Task {
-                            await vm.restart(
-                                withScope: .national,
-                                snapshot: appState.snapshot,
-                                registry: registry
-                            )
-                        }
-                    } label: {
-                        Label("Search nationally (~10 min)", systemImage: "globe")
-                    }
-                    .buttonStyle(.glassProminent)
-                    .controlSize(.regular)
-                    // No concurrent re-runs — repeat clicks during a live
-                    // run would launch parallel national sweeps against
-                    // budget-capped volunteer sources.
-                    .disabled(vm.isResearching)
                 } else {
-                    Text("National search covered every UK registration district.")
-                        .font(AppTypography.cardMeta)
-                        .foregroundStyle(.secondary)
+                    Text("No matching records were found across the searched sources.")
+                    if vm.selectedScope < .national {
+                        Text("Local search covered your home region only.")
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.secondary)
+                        Button {
+                            Task {
+                                await vm.restart(
+                                    withScope: .national,
+                                    snapshot: appState.snapshot,
+                                    registry: registry
+                                )
+                            }
+                        } label: {
+                            Label("Search nationally (~10 min)", systemImage: "globe")
+                        }
+                        .buttonStyle(.glassProminent)
+                        .controlSize(.regular)
+                        // No concurrent re-runs — repeat clicks during a live
+                        // run would launch parallel national sweeps against
+                        // budget-capped volunteer sources.
+                        .disabled(vm.isResearching)
+                    } else {
+                        Text("National search covered every UK registration district.")
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
