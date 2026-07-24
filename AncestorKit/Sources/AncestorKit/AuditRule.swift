@@ -349,7 +349,7 @@ public nonisolated struct ImpossibleParentageRule: AuditRuleDefinition {
     public let id = "impossibleParentage"
     public let displayName = "Impossible Parentage"
     public let description = "A parent linked to a child born before them, or whose gender contradicts the parent role — usually a reversed or mis-roled edge from a GEDCOM import."
-    public let fireCondition = "a parent's EARLIEST possible birth ≥ the child's LATEST possible birth (so a disputed/estimated date can't fire it from a midpoint), or a male parent in a 'mother' role (or vice versa)"
+    public let fireCondition = "a parent's EARLIEST possible birth + 12 > the child's LATEST possible birth (parent implausibly young / not older — robust to disputed dates, which can't fire it from a midpoint), or a male parent in a 'mother' role (or vice versa)"
     public let warningCondition: String? = nil
     public let workedExample = "A parent recorded with a birth year at or after their child's — e.g. an imported edge that reversed parent and child — can't be biologically real; flagged for the user to re-point."
     public let defaultSeverity = Severity.error
@@ -362,26 +362,30 @@ public nonisolated struct ImpossibleParentageRule: AuditRuleDefinition {
         for rel in snapshot.relationships where rel.type == .parent && rel.to == profile.id {
             guard let parent = snapshot.profiles[rel.from], !parent.isDeleted else { continue }
 
-            // Date impossibility — a parent cannot be born on/after their child.
-            // Compare CONSERVATIVE bounds: the parent's earliest possible birth
-            // vs the child's latest possible birth. The edge is truly impossible
-            // only when the parent is born at/after the child under EVERY
-            // interpretation. Using the range bounds (not each date's midpoint)
-            // stops a widely-disputed birth — e.g. a stray census record decades
-            // off, unioned into the effective date — from manufacturing a false
-            // impossibility out of its midpoint. (Real case: Gertrude Cauldwell,
-            // b.1920, carried a mis-attached 1859 census value → effective range
-            // [1859,1920], midpoint ~1889, which collided with her 1889-born
-            // father Samuel and wrongly read as impossible.)
+            // Date impossibility — a parent must be meaningfully OLDER than the
+            // child. Compare CONSERVATIVE bounds with a minimum parenting age:
+            // the edge is impossible when the LARGEST possible gap (child's
+            // latest birth − parent's earliest birth) is still under the floor.
+            //
+            // Two things this gets right:
+            //  • Disputed/wide dates can't false-fire from a midpoint — using
+            //    the range bounds, a stray record decades off (real case:
+            //    Gertrude Cauldwell, b.1920 with a mis-attached 1859 census →
+            //    effective range [1859,1920]) still leaves a 31-year gap to her
+            //    1889-born father, so it correctly does NOT fire.
+            //  • A parent who is the child's CONTEMPORARY still fires — even
+            //    with a fuzzy near-same-year estimate (real case: Elizabeth
+            //    ~1861, CAL, wired as mother of Joseph 1861: max gap ~1 year).
+            let minParentAge = 12
             if let childLatest = profile.effectiveDate(.birthDate)?.latest,
                let parentEarliest = parent.effectiveDate(.birthDate)?.earliest,
-               parentEarliest >= childLatest {
+               parentEarliest + minParentAge > childLatest {
                 let py = parent.effectiveDate(.birthDate)?.bestYear ?? parentEarliest
                 let cy = childYear ?? childLatest
                 results.append(AuditResult(
                     id: UUID(), profileID: profile.id, profileName: profile.displayName,
                     severity: .error, category: .issue, ruleID: id,
-                    message: "\(parent.displayName) (born ~\(py)) is listed as a parent of \(profile.displayName) (born ~\(cy)) — a parent can't be born after their child; this edge is likely reversed or mis-linked (common GEDCOM import error)"))
+                    message: "\(parent.displayName) (born ~\(py)) is too close in age to be a parent of \(profile.displayName) (born ~\(cy)) — a parent must be meaningfully older; this edge is likely reversed or mis-linked (common GEDCOM import error)"))
                 continue
             }
 

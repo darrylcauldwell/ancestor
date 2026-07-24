@@ -392,7 +392,7 @@ struct AuditEngineTests {
         let results = ImpossibleParentageRule().evaluate(profile: child, snapshot: snapshot)
         #expect(results.count == 1)
         #expect(results.first?.severity == .error)
-        #expect(results.first?.message.contains("can't be born after their child") == true)
+        #expect(results.first?.message.contains("reversed or mis-linked") == true)
     }
 
     @Test func impossibleParentage_genderRoleMismatch_error() {

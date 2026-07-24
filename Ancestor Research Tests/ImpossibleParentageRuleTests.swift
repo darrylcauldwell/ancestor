@@ -64,4 +64,21 @@ struct ImpossibleParentageRuleTests {
         let parent = profile(id: "parent", first: "Parent", birth: exact(1889), gender: .male)
         #expect(evaluateChild(child, parent: parent).isEmpty)
     }
+
+    @Test func contemporaryParentFiresEvenWithFuzzyDate() {
+        // Joseph (1861) with Elizabeth (CAL ~1861, range 1860–1862) as parent:
+        // she can't be his mother — a near-same-age fuzzy estimate must still
+        // fire (the regression the conservative-bounds fix originally lost).
+        let child = profile(id: "child", first: "Joseph", birth: exact(1861))
+        let parent = profile(id: "parent", first: "Elizabeth", birth: range(1860, 1862))
+        #expect(!evaluateChild(child, parent: parent).isEmpty)
+    }
+
+    @Test func plausiblyYoungParentDoesNotFireImpossible() {
+        // A ~15-year gap is young but biologically possible — ParentAgeGap may
+        // warn, but the "impossible" error must not fire.
+        let child = profile(id: "child", first: "Child", birth: exact(1915))
+        let parent = profile(id: "parent", first: "Parent", birth: exact(1900), gender: .male)
+        #expect(evaluateChild(child, parent: parent).isEmpty)
+    }
 }
