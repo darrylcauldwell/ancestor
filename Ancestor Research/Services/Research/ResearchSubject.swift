@@ -563,6 +563,7 @@ nonisolated extension ResearchSubject {
         let spouses = snapshot.spousesOf(profile.id)
         let children = snapshot.childrenOf(profile.id)
         let parents = snapshot.parentsOf(profile.id)
+        let siblings = snapshot.siblingsOf(profile.id)
 
         // Filter implausible biological parents out of pipeline context
         // before building FamilyContext. Mirrors the parent-age-gap
@@ -668,6 +669,19 @@ nonisolated extension ResearchSubject {
                 }
                 .first
             if let spouseWindow { return spouseWindow }
+            // Sibling-cohort inference: a dateless subject is born within the
+            // span of their dated siblings (siblings share parents), so a
+            // ~15-year buffer each side of the cohort covers even a large
+            // family. Tighter than the children fallback below, and — unlike it
+            // — available for a subject who never married or had children. Real
+            // case: dateless "Eve Land" with sibling "Ida Louisa Land" (b.1885)
+            // → window ~1870–1900, which rules out the 1862 and 1923/1924
+            // namesake births that otherwise cluttered her leads. Search-only;
+            // never written back to the profile.
+            let siblingYears = siblings.compactMap { $0.birthDate?.bestYear }
+            if let minSib = siblingYears.min(), let maxSib = siblingYears.max() {
+                return (minSib - 15, maxSib + 15)
+            }
             let childYears = children.compactMap { $0.birthDate?.earliest }
             guard let oldestChildYear = childYears.min() else { return (nil, nil) }
             return (oldestChildYear - 45, oldestChildYear - 18)
