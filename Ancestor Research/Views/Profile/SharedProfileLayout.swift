@@ -112,16 +112,35 @@ struct SharedProfileLayout: View {
                         .foregroundStyle(.secondary)
                 }
                 let comp = snapshot.completeness(for: profile.id)
+                let evidence = evidencedFactCount(potentiallyLiving: comp.potentiallyLiving)
                 HStack(spacing: 8) {
                     HStack(spacing: 4) {
                         Text("\(comp.score)/\(comp.maximum)")
                             .font(.caption)
                             .foregroundStyle(comp.score == comp.maximum ? .green : .orange)
+                            .help("Completeness — how many core fields are filled in. This says nothing about whether a field is backed by a source; a GEDCOM import alone can read full marks.")
                         if comp.potentiallyLiving {
                             Text("(living)")
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
                         }
+                    }
+                    // Evidence metric — the companion to completeness above.
+                    // Counts how many of the FILLED-IN life facts (birth/death
+                    // date + place) have an actual research record behind them
+                    // (a source of tier `.researchSource`), as opposed to only
+                    // a GEDCOM/WikiTree import or a manually typed value. A 7/7
+                    // profile can still be 0/4 evidenced when it's all unsourced
+                    // import — which is the whole point of showing both.
+                    if evidence.present > 0 {
+                        HStack(spacing: 3) {
+                            Image(systemName: evidence.backed == evidence.present ? "checkmark.seal.fill" : "seal")
+                                .font(.caption2)
+                            Text("\(evidence.backed)/\(evidence.present) evidenced")
+                                .font(.caption)
+                        }
+                        .foregroundStyle(evidence.backed == evidence.present ? .green : .secondary)
+                        .help("Evidenced — how many of the filled-in life facts (birth/death date and place) have an actual research record behind them, as opposed to only a GEDCOM/WikiTree import or a manually typed value.")
                     }
                     // Pending-facts badge — small orange pill linking
                     // to the firewall queue for this profile. Hidden
@@ -906,39 +925,90 @@ struct SharedProfileLayout: View {
         }
     }
 
+    /// Companion to the completeness score: of the record-backable life facts
+    /// that are actually FILLED IN (birth date/place always; death date/place
+    /// only for the dead), how many carry a real research source — a
+    /// `FieldSource` whose origin tier is `.researchSource` (FreeBMD, CWGC,
+    /// FindAGrave, FreeReg, FamilySearch, probate, parish, engine-enrichment).
+    /// A bare GEDCOM/WikiTree import (`.initialImport`) or a manual value
+    /// (`.userAuthoritative`) does NOT count — those fill the field without
+    /// providing an inspectable record. Returns (backed, present) so the header
+    /// can render "N/M evidenced".
+    private func evidencedFactCount(potentiallyLiving: Bool) -> (backed: Int, present: Int) {
+        var fields: [ProfileField] = []
+        if profile.birthDate != nil { fields.append(.birthDate) }
+        if profile.birthLocation != nil { fields.append(.birthLocation) }
+        if !potentiallyLiving {
+            if profile.deathDate != nil { fields.append(.deathDate) }
+            if profile.deathLocation != nil { fields.append(.deathLocation) }
+        }
+        let backed = fields.filter { field in
+            (profile.sources[field] ?? []).contains { $0.origin.tier == .researchSource }
+        }
+        return (backed.count, fields.count)
+    }
+
     @ViewBuilder
     private func sourceBadges(for field: ProfileField) -> some View {
         let sources = profile.sources[field] ?? []
         HStack(spacing: 2) {
             ForEach(sources, id: \.raw) { source in
-                HStack(spacing: 3) {
-                    // M24 — colourblind / high-contrast users see a glyph
-                    // (`?` for tentative, `✓` for well evidenced) in place
-                    // of the colour-only dot. Default-contrast users keep
-                    // the existing dot rendering unchanged.
-                    if let dot = sourceConfidenceDotColor(source.confidence) {
-                        if let glyph = sourceConfidenceGlyph(source.confidence),
-                           differentiateWithoutColor {
-                            Image(systemName: glyph)
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(dot)
-                        } else {
-                            Circle()
-                                .fill(dot)
-                                .frame(width: 5, height: 5)
-                        }
+                // Click-through when the source carried a citation URL (e.g. a
+                // FindAGrave memorial or CWGC casualty page). Link-only by
+                // design — we point at the record, never copy its content.
+                // Falls back to a plain, non-clickable badge otherwise.
+                let url = source.citation?.url.flatMap { URL(string: $0) }
+                if let url {
+                    Link(destination: url) {
+                        sourceBadgeLabel(source, clickable: true)
                     }
-                    Text(source.origin.identifier.uppercased())
-                        .font(.system(size: 8, weight: .bold))
+                    .buttonStyle(.plain)
+                    .help("Open the \(source.origin.identifier.uppercased()) record")
+                    .accessibilityLabel("Source \(source.origin.identifier)")
+                    .accessibilityHint("Opens the source record in your browser")
+                } else {
+                    sourceBadgeLabel(source, clickable: false)
+                        .help(sourceConfidenceHelp(source.confidence))
+                        .accessibilityLabel("Source \(source.origin.identifier)")
+                        .accessibilityHint(sourceConfidenceHelp(source.confidence))
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .glassEffect(.regular, in: .capsule)
-                .help(sourceConfidenceHelp(source.confidence))
-                .accessibilityLabel("Source \(source.origin.identifier)")
-                .accessibilityHint(sourceConfidenceHelp(source.confidence))
             }
         }
+    }
+
+    /// The badge chip itself, factored out so the clickable (Link-wrapped) and
+    /// plain variants share one rendering. When `clickable`, a small arrow
+    /// glyph signals the badge opens the source record.
+    @ViewBuilder
+    private func sourceBadgeLabel(_ source: FieldSource, clickable: Bool) -> some View {
+        HStack(spacing: 3) {
+            // M24 — colourblind / high-contrast users see a glyph
+            // (`?` for tentative, `✓` for well evidenced) in place
+            // of the colour-only dot. Default-contrast users keep
+            // the existing dot rendering unchanged.
+            if let dot = sourceConfidenceDotColor(source.confidence) {
+                if let glyph = sourceConfidenceGlyph(source.confidence),
+                   differentiateWithoutColor {
+                    Image(systemName: glyph)
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(dot)
+                } else {
+                    Circle()
+                        .fill(dot)
+                        .frame(width: 5, height: 5)
+                }
+            }
+            Text(source.origin.identifier.uppercased())
+                .font(.system(size: 8, weight: .bold))
+            if clickable {
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .glassEffect(.regular, in: .capsule)
     }
 
     /// SF Symbol glyph paired with the per-source confidence dot when the

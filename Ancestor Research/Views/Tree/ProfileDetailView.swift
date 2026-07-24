@@ -425,6 +425,21 @@ struct ProfileDetailView: View {
                     .font(AppTypography.badge)
                     .foregroundStyle(.secondary)
                 Spacer()
+                // Click-through to the original record at the source (e.g. the
+                // FindAGrave memorial or the CWGC casualty page). The URL is the
+                // record's detailURL, carried on the evidence row's citation —
+                // link-only by design (we never copy the source's content).
+                // Hidden when the record carried no URL.
+                if let urlStr = entry.citationURL, let url = URL(string: urlStr) {
+                    Link(destination: url) {
+                        HStack(spacing: 2) {
+                            Text("View record")
+                            Image(systemName: "arrow.up.right.square")
+                        }
+                        .font(AppTypography.badge)
+                    }
+                    .help("Open the original record at \(url.host ?? "the source")")
+                }
                 Button {
                     ledgerRemovalCandidate = entry
                 } label: {
