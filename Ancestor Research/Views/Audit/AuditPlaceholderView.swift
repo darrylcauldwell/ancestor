@@ -6,6 +6,12 @@ import SwiftUI
 /// disputes list. Wired to the `.health` sidebar tab. (Formerly the tab-less
 /// AuditPlaceholderView.)
 struct HealthView: View {
+    /// Navigate to a finding's profile (Tree → Full Detail). Injected by
+    /// ContentView; nil disables the affordance in previews.
+    var onOpenProfile: ((String) -> Void)? = nil
+    /// Open a finding's profile straight in the editor.
+    var onEditProfile: ((String) -> Void)? = nil
+
     @Environment(AppState.self) private var appState
     @State private var auditVM = AuditViewModel()
     @State private var openDisputeCount: Int?
@@ -166,14 +172,36 @@ struct HealthView: View {
                                         .font(.body)
                                         .frame(width: 24)
                                         .accessibilityLabel("Severity \(result.severity.rawValue)")
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(result.profileName)
-                                            .font(AppTypography.cardTitle)
-                                        Text(strippedMessage(result))
-                                            .font(AppTypography.cardBody)
-                                            .foregroundStyle(.secondary)
+                                    // Clicking the finding jumps to the profile it
+                                    // is about (Tree → Full Detail), so the user can
+                                    // investigate or fix it in context.
+                                    Button {
+                                        onOpenProfile?(result.profileID)
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(result.profileName)
+                                                .font(AppTypography.cardTitle)
+                                            Text(strippedMessage(result))
+                                                .font(AppTypography.cardBody)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .contentShape(Rectangle())
                                     }
-                                    Spacer()
+                                    .buttonStyle(.plain)
+                                    .disabled(onOpenProfile == nil)
+                                    .help("Open \(result.profileName) in the tree")
+
+                                    Button {
+                                        onEditProfile?(result.profileID)
+                                    } label: {
+                                        Label("Edit", systemImage: "pencil")
+                                    }
+                                    .buttonStyle(.glass)
+                                    .controlSize(.mini)
+                                    .disabled(onEditProfile == nil)
+                                    .help("Edit \(result.profileName)")
+
                                     Button {
                                         promoteToQuestion(result)
                                     } label: {

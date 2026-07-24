@@ -136,7 +136,10 @@ struct MainView: View {
             case .triage:
                 ResearchView(researchVM: researchVM, role: .triage)
             case .health:
-                HealthView()
+                HealthView(
+                    onOpenProfile: openProfileDetail,
+                    onEditProfile: openProfileInEdit
+                )
             case .workbench:
                 WorkbenchView()
             case .settings:
@@ -510,6 +513,16 @@ struct MainView: View {
     private func openProfileDetail(_ profileID: String) {
         selectedTab = .tree
         appState.requestOpenProfileDetail = profileID
+    }
+
+    /// Open a profile straight in the editor — used by Health findings so the
+    /// user can jump from an issue to fixing it. Switches to the tree, opens the
+    /// Full Detail, and fires the same edit intent as Cmd+E.
+    private func openProfileInEdit(_ profileID: String) {
+        selectedTab = .tree
+        appState.requestOpenProfileDetail = profileID
+        appState.selectedProfileID = profileID
+        appState.pendingPersonAction = .editSelected(profileID: profileID)
     }
 
     /// Tasks' leads-pointer banner hands off here — leads live in Triage
