@@ -285,6 +285,10 @@ struct ProfileCleanseWizard: View {
             }
             if case .skip = action {} else {
                 actionsApplied += 1
+                // A fix mutates profiles directly (bypassing the AppState edit
+                // paths that refresh the audit), so refresh it here — this keeps
+                // the Health tab's numbers current without a manual re-run.
+                appState.runPostLoadAudit()
             }
         } catch {
             errorMessage = error.localizedDescription

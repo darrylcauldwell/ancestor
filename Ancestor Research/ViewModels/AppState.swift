@@ -438,9 +438,20 @@ final class AppState {
         let overrides = (try? currentDatabase?.loadAuditRuleOverrides()) ?? []
         auditSummary = AuditEngine.auditGrouped(
             snapshot,
+            disabledRuleIDs: Self.disabledAuditRuleIDs(),
             isManualGuidanceMode: isSmallManualProject,
             overrides: overrides
         )
+    }
+
+    /// User-disabled audit rules (AuditRulesView writes the AppStorage-backed
+    /// "disabledAuditRuleIDs" key). Read here so the maintained `auditSummary`
+    /// honours disabled rules — Health now relies solely on this auto-audit, so
+    /// the disabled-rule filter that used to live on the manual "Re-run Audit"
+    /// button must be applied at the source.
+    static func disabledAuditRuleIDs() -> Set<String> {
+        guard let data = UserDefaults.standard.data(forKey: "disabledAuditRuleIDs") else { return [] }
+        return (try? JSONDecoder().decode(Set<String>.self, from: data)) ?? []
     }
 
     // MARK: - Audit rule overrides (M18)

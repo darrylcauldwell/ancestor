@@ -8,7 +8,6 @@ import SwiftUI
 struct HealthView: View {
     @Environment(AppState.self) private var appState
     @State private var auditVM = AuditViewModel()
-    @AppStorage("disabledAuditRuleIDs") private var disabledRuleIDsData: Data = Data()
     @State private var openDisputeCount: Int?
     @State private var showDisputeList = false
     @State private var openDisputeRows: [DisputeRow] = []
@@ -18,23 +17,10 @@ struct HealthView: View {
             // Two-row toolbar: actions on top, filters below — keeps the bar
             // calm and stops the buttons truncating on a single line.
             VStack(alignment: .leading, spacing: 10) {
-                // Row 1 — actions + search.
+                // Row 1 — actions + search. No manual "Re-run Audit": AppState
+                // keeps the audit current after every change, so Health is always
+                // up to date on open.
                 HStack {
-                    Button {
-                        let disabled = (try? JSONDecoder().decode(Set<String>.self, from: disabledRuleIDsData)) ?? []
-                        // Respect per-profile / global snooze overrides on manual
-                        // re-run, matching the auto-audit (AppState.runPostLoadAudit).
-                        auditVM.runAudit(
-                            snapshot: appState.snapshot,
-                            disabledRuleIDs: disabled,
-                            overrides: appState.loadAuditRuleOverrides()
-                        )
-                    } label: {
-                        Label("Re-run Audit", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.glassProminent)
-                    .disabled(appState.snapshot.profiles.isEmpty)
-
                     // Secondary sweeps tucked into a menu — run occasionally, so
                     // they don't need to sit out on the bar competing for space.
                     Menu {
@@ -215,10 +201,11 @@ struct HealthView: View {
         }
         .navigationTitle("Health")
         .onAppear {
-            // Use auto-audit from AppState if available and no manual run yet
-            if auditVM.summary == nil, let autoSummary = appState.auditSummary {
-                auditVM.summary = autoSummary
-            }
+            // Always show the latest maintained summary. AppState keeps
+            // `auditSummary` current after every mutation (import, edit, cleanse,
+            // snooze), so this is free — no per-open recompute needed to be up to
+            // date, which is why there's no manual "Re-run Audit" button.
+            if let auto = appState.auditSummary { auditVM.summary = auto }
         }
     }
 
