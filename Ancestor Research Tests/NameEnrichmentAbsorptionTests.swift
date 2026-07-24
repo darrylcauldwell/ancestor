@@ -211,8 +211,50 @@ struct NameEnrichmentAbsorptionTests {
     @Test func previewLabelsNameItems() {
         let labels = marriage("GEOFFREY W").absorptionPreview(
             profileID: "geoff", profile: profile(first: "Geoff"))
-        #expect(labels.contains("fuller given name Geoffrey (as cited alternative)"))
+        #expect(labels.contains("given name Geoffrey (as cited alternative)"))
         #expect(labels.contains("middle name W"))
+    }
+
+    // MARK: - Blank-fill (owner case 2026-07-24, Oswald J Derbyshire)
+
+    /// A subject with NO given name gets it filled from an applied record —
+    /// first token → firstName, remainder → middleName. The gap the enrichment
+    /// path missed: it required a non-empty profile name and skipped blanks.
+    @Test func blankFirstNameIsFilledFromRecord() {
+        let plan = marriage("OSWALD J").absorptionPlan(
+            profileID: "geoff", profile: profile(first: nil))
+        let strings = stringItems(plan)
+        #expect(strings.contains { $0.field == .firstName && $0.value == "Oswald" })
+        #expect(strings.contains { $0.field == .middleName && $0.value == "J" })
+    }
+
+    /// Blank first name, single-token record → firstName only, no middle.
+    @Test func blankFirstNameFillsWithoutMiddleWhenRecordHasNoMiddle() {
+        let plan = marriage("Oswald").absorptionPlan(
+            profileID: "geoff", profile: profile(first: nil))
+        let strings = stringItems(plan)
+        #expect(strings.contains { $0.field == .firstName && $0.value == "Oswald" })
+        #expect(!strings.contains { $0.field == .middleName })
+    }
+
+    /// Census still never names a blank subject (household-HEAD fallback risk),
+    /// even when there's no existing name to protect.
+    @Test func censusDoesNotFillBlankName() {
+        let census = SourceRecord.census(CensusRecord(
+            common: common("OSWALD J"), censusYear: 1939, birthYear: 1907))
+        let plan = census.absorptionPlan(profileID: "geoff", profile: profile(first: nil))
+        #expect(stringItems(plan).isEmpty)
+    }
+
+    /// End-to-end: applying the marriage fills the blank name through the write
+    /// path (the exact Oswald J Derbyshire regression — "Missing firstName"
+    /// after apply).
+    @Test func applyFillsBlankNameEndToEnd() throws {
+        let db = try makeDB()
+        try db.addProfile(profile(first: nil), source: .gedcom)
+        let after = try apply(marriage("OSWALD J", spouse: nil), db: db)
+        #expect(after.firstName == "Oswald")
+        #expect(after.middleName == "J")
     }
 
     // MARK: - End-to-end apply (through the tier policy)

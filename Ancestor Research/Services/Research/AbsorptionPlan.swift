@@ -89,25 +89,44 @@ nonisolated extension SourceRecord {
         if let profile, !isCensus {
             let recordGiven = (self.givenName ?? "").trimmingCharacters(in: .whitespaces)
             let profileGiven = (profile.firstName ?? "").trimmingCharacters(in: .whitespaces)
-            if !recordGiven.isEmpty, !profileGiven.isEmpty {
+            if !recordGiven.isEmpty {
                 let recordFirst = recordGiven.split(separator: " ").first.map(String.init) ?? recordGiven
-                let firstTokensCompatible = recordFirst.caseInsensitiveCompare(profileGiven) == .orderedSame
-                    || ScoringRules.isFullerGivenForm(record: recordFirst, profile: profileGiven)
-                if firstTokensCompatible {
-                    // First name: only an ATTESTED fuller form is emitted —
-                    // a raw prefix expansion (JOSEPH→JOSEPHINE) is a rename,
-                    // not an enrichment, and would overwrite an import-tier
-                    // name outright.
-                    if ScoringRules.isAttestedFullerGivenForm(record: recordFirst, profile: profileGiven) {
-                        items.append(.stringField(.firstName, Self.recasedName(recordFirst)))
+                if profileGiven.isEmpty {
+                    // Blank-fill (owner case 2026-07-24 — Oswald J Derbyshire's
+                    // marriage carried his forename, but absorption only
+                    // *enriched* an existing given name and never *filled* a
+                    // blank one, so applying the record left "Missing
+                    // firstName"). The subject had no name at all; an applied
+                    // (human- or gate-confirmed) BMD/parish record names them
+                    // directly, so gap-fill firstName from the first token and
+                    // middleName from the rest. Pure blank-fill — never an
+                    // overwrite, so check-before-overwrite is untouched. Census
+                    // is already excluded above (its given name can be a
+                    // household-head fallback).
+                    items.append(.stringField(.firstName, Self.recasedName(recordFirst)))
+                    if let middle = RecordScorer.extractMiddleContent(from: recordGiven),
+                       (profile.middleName ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
+                        items.append(.stringField(.middleName, Self.recasedName(middle)))
                     }
-                    // Middle: gap-fill when empty, otherwise only a STRICT
-                    // expansion of the stored value ("W"→"William" upgrades;
-                    // a record's initial never degrades a stored full middle).
-                    if let middle = RecordScorer.extractMiddleContent(from: recordGiven) {
-                        let profileMiddle = (profile.middleName ?? "").trimmingCharacters(in: .whitespaces)
-                        if profileMiddle.isEmpty || ScoringRules.isFullerMiddleForm(record: middle, stored: profileMiddle) {
-                            items.append(.stringField(.middleName, Self.recasedName(middle)))
+                } else {
+                    let firstTokensCompatible = recordFirst.caseInsensitiveCompare(profileGiven) == .orderedSame
+                        || ScoringRules.isFullerGivenForm(record: recordFirst, profile: profileGiven)
+                    if firstTokensCompatible {
+                        // First name: only an ATTESTED fuller form is emitted —
+                        // a raw prefix expansion (JOSEPH→JOSEPHINE) is a rename,
+                        // not an enrichment, and would overwrite an import-tier
+                        // name outright.
+                        if ScoringRules.isAttestedFullerGivenForm(record: recordFirst, profile: profileGiven) {
+                            items.append(.stringField(.firstName, Self.recasedName(recordFirst)))
+                        }
+                        // Middle: gap-fill when empty, otherwise only a STRICT
+                        // expansion of the stored value ("W"→"William" upgrades;
+                        // a record's initial never degrades a stored full middle).
+                        if let middle = RecordScorer.extractMiddleContent(from: recordGiven) {
+                            let profileMiddle = (profile.middleName ?? "").trimmingCharacters(in: .whitespaces)
+                            if profileMiddle.isEmpty || ScoringRules.isFullerMiddleForm(record: middle, stored: profileMiddle) {
+                                items.append(.stringField(.middleName, Self.recasedName(middle)))
+                            }
                         }
                     }
                 }
@@ -194,7 +213,7 @@ nonisolated extension Absorption {
             switch field {
             case .birthLocation: what = "birth place"
             case .deathLocation: what = "death place"
-            case .firstName:     what = "fuller given name"
+            case .firstName:     what = "given name"
             case .middleName:    what = "middle name"
             default:             what = field.rawValue
             }
