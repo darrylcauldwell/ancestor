@@ -69,6 +69,29 @@ struct ResearchView: View {
                         .controlSize(.small)
                     }
                     Spacer()
+                    // Re-research this same person without leaving the review
+                    // (owner request 2026-07-24 — applying an anchor record
+                    // like Lily May's 1907 birth sharpens the next run, but the
+                    // old flow dead-ended at "Back to queue", forcing a manual
+                    // re-search). Runs on the FRESH profile from the just-
+                    // rebuilt snapshot, so the records you applied are in play.
+                    if let researchID = researchVM.selectedProfile?.id {
+                        Button {
+                            Task {
+                                guard let fresh = appState.snapshot.profiles[researchID] else { return }
+                                await researchVM.startResearch(
+                                    profile: fresh,
+                                    snapshot: appState.snapshot,
+                                    registry: registry
+                                )
+                            }
+                        } label: {
+                            Label("Re-research", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.glass)
+                        .controlSize(.small)
+                        .help("Research this person again — picks up records you just applied")
+                    }
                     // Pop the review out into its own movable window so the
                     // tree stays navigable here (owner request 2026-07-21 —
                     // a thin subject like Mrs Bown is judged from her
