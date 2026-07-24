@@ -287,6 +287,26 @@ nonisolated enum BiographicalFitEvaluator {
             }
         }
 
+        // Rule 5 — district affinity (positive-only ranking signal).
+        //
+        // A candidate whose registration district is one the subject's
+        // immediate family is known to live in gets a corroboration bump.
+        // This is a POSITIVE tie-break only: it surfaces the family-district
+        // candidate among otherwise-equal same-name namesakes (the "Eve
+        // Land" case — a Belper birth outranks a distant namesake), and
+        // rides the same corroboration counter the grader already tie-breaks
+        // on. It NEVER penalises a record outside the family's districts —
+        // a person's real records legitimately span districts (born Belper,
+        // married Belper, died Ilkeston) — and cannot rescue a candidate the
+        // plausibility rules ruled implausible (tie-breaks apply within a
+        // plausibility tier only).
+        if plausibility > 0, !context.familyDistricts.isEmpty,
+           let candidateDistrict = district(of: candidate.record),
+           context.familyDistricts.contains(candidateDistrict) {
+            corroboratingMatches += 1
+            notes.append("district affinity: \(candidateDistrict) is a known family district")
+        }
+
         if notes.isEmpty {
             notes.append("no biographical anchors available — plausibility unchanged")
         }
@@ -308,6 +328,14 @@ nonisolated enum BiographicalFitEvaluator {
     private struct SubjectContext {
         let earliestChildYear: Int?
         let subjectDeathYear: Int?
+        /// Registration districts the subject's immediate family is known to
+        /// live in (lowercased, catalogue-canonical), mined from freeform
+        /// birth/death locations on the subject + parents/spouses/children/
+        /// siblings. A candidate record whose district is in this set gets a
+        /// positive corroboration bump — a tie-break among same-name
+        /// namesakes, never a penalty for records outside it (a person's real
+        /// records legitimately span districts).
+        let familyDistricts: Set<String>
 
         static func build(
             subject: ResearchSubject, snapshot: FamilyGraphSnapshot
@@ -318,8 +346,29 @@ nonisolated enum BiographicalFitEvaluator {
             }
             return SubjectContext(
                 earliestChildYear: earliestChild,
-                subjectDeathYear: subject.deathYearFrom
+                subjectDeathYear: subject.deathYearFrom,
+                familyDistricts: familyDistricts(subject: subject, snapshot: snapshot)
             )
+        }
+
+        /// Union of registration districts across the subject and their
+        /// immediate family, derived from freeform birth/death locations.
+        private static func familyDistricts(
+            subject: ResearchSubject, snapshot: FamilyGraphSnapshot
+        ) -> Set<String> {
+            guard let id = subject.profileID else { return [] }
+            var kin: [Profile] = []
+            if let me = snapshot.profiles[id] { kin.append(me) }
+            kin += snapshot.parentsOf(id)
+            kin += snapshot.spousesOf(id)
+            kin += snapshot.childrenOf(id)
+            kin += snapshot.siblingsOf(id)
+            var districts: Set<String> = []
+            for p in kin {
+                districts.formUnion(districtsInLocation(p.birthLocation))
+                districts.formUnion(districtsInLocation(p.deathLocation))
+            }
+            return districts
         }
     }
 
@@ -450,5 +499,42 @@ nonisolated enum BiographicalFitEvaluator {
         guard let name = district?.trimmingCharacters(in: .whitespaces), !name.isEmpty
         else { return nil }
         return FreeBMDDistrictCatalogue.shared.district(named: name)?.chapmanCode
+    }
+
+    /// The canonical registration-district *name* a record advertises,
+    /// lowercased for set membership. Parallels `chapmanCode(of:)` but
+    /// keeps district granularity (Belper vs Derby, not just DBY) — the
+    /// signal district affinity ranks on. Same coverage policy: BMD and
+    /// census carry a district; burial/probate/military/parish/pedigree
+    /// do not reliably anchor to where the person lived, so return nil.
+    static func district(of record: SourceRecord) -> String? {
+        switch record {
+        case .birth(let r):    return canonicalDistrictName(r.district)
+        case .death(let r):    return canonicalDistrictName(r.district)
+        case .marriage(let r): return canonicalDistrictName(r.district)
+        case .census(let r):   return canonicalDistrictName(r.district)
+        case .burial, .probate, .military, .parish, .pedigree:
+            return nil
+        }
+    }
+
+    /// Resolve a raw district string to its catalogue-canonical name
+    /// (lowercased), or nil if it isn't a recognised FreeBMD district.
+    private static func canonicalDistrictName(_ district: String?) -> String? {
+        guard let name = district?.trimmingCharacters(in: .whitespaces), !name.isEmpty
+        else { return nil }
+        return FreeBMDDistrictCatalogue.shared.district(named: name)?.name.lowercased()
+    }
+
+    /// Registration-district names (lowercased, catalogue-canonical) mined
+    /// from a freeform profile location like "Belper, Derbyshire, England".
+    /// The catalogue matches exact names only, so tokenise on commas and
+    /// test each token; unrecognised tokens are dropped silently.
+    static func districtsInLocation(_ location: String?) -> [String] {
+        guard let location, !location.isEmpty else { return [] }
+        return location
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .compactMap { FreeBMDDistrictCatalogue.shared.district(named: $0)?.name.lowercased() }
     }
 }
