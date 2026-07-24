@@ -48,6 +48,63 @@ struct DisputeSheetItem: Identifiable {
 /// only label-visibility bug `EditPersonView` had. Heavy edit machinery
 /// (per-field source picker, Correct-vs-Alternative, citation entry) stays
 /// out of this view — it belongs above the consumer's `save()` flow.
+/// Identifiable payload for the relationship-unlink confirmation dialog.
+private struct RelationshipRemoval: Identifiable {
+    let id = UUID()
+    let edgeID: UUID
+    let relativeName: String
+    let roleWord: String
+}
+
+/// Editable marriage date + place for one spouse edge. Owns its own local text
+/// (initialised from the edge) and commits explicitly via the Save button, so a
+/// keystroke never triggers a DB write + audit refresh. Empty fields clear the
+/// column.
+private struct SpouseMarriageEditRow: View {
+    @Environment(AppState.self) private var appState
+    let edgeID: UUID
+    @State private var date: String
+    @State private var location: String
+
+    init(edgeID: UUID, initialDate: String, initialLocation: String) {
+        self.edgeID = edgeID
+        _date = State(initialValue: initialDate)
+        _location = State(initialValue: initialLocation)
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("m.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            TextField("date", text: $date)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 130)
+                .onSubmit(commit)
+            TextField("place", text: $location)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(commit)
+            Button(action: commit) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.tint)
+            }
+            .buttonStyle(.plain)
+            .help("Save marriage date and place")
+            .accessibilityLabel("Save marriage")
+        }
+        .font(.caption2)
+    }
+
+    private func commit() {
+        let trimmedDate = date.trimmingCharacters(in: .whitespaces)
+        let trimmedLoc = location.trimmingCharacters(in: .whitespaces)
+        appState.setRelationshipMarriage(
+            id: edgeID,
+            date: trimmedDate.isEmpty ? nil : GenealogicalDate(parsing: trimmedDate),
+            location: trimmedLoc.isEmpty ? nil : trimmedLoc)
+    }
+}
+
 struct SharedProfileLayout: View {
     let profile: Profile
     let snapshot: FamilyGraphSnapshot
@@ -81,6 +138,9 @@ struct SharedProfileLayout: View {
     @State private var structuralDisputes: [DisputeRow] = []
     @State private var candidateGroups: [[ResearchHypothesis]] = []
     @State private var proposals: [ProfileField: ConflictResolutionActions.ProposedResolution] = [:]
+    /// Pending relationship unlink (edit-mode remove on parent/child/spouse
+    /// rows). Confirmed via a dialog so an edge is never dropped on a mis-click.
+    @State private var relationshipRemoval: RelationshipRemoval?
 
     /// True when the consumer has opted into editing and supplied bindings.
     /// Treating these together avoids a class of "editable but no bindings"
@@ -197,14 +257,19 @@ struct SharedProfileLayout: View {
             Divider()
 
             // Relationships
-            relationshipSection("Parents", profiles: snapshot.parentsOf(profile.id))
+            relationshipSection("Parents", profiles: snapshot.parentsOf(profile.id),
+                                roleWord: "parent", edgeIDFor: parentEdgeID,
+                                roleEditFor: parentRoleEdit)
             // Spouses get their own renderer so marriage date / location
             // surface alongside the spouse name. Without this, the
             // marriage enrichment Apply path writes to the spouse edge
             // but the user has no way to see that it happened — the
             // generic relationshipSection only renders profile fields.
             spousesSection(for: profile, snapshot: snapshot)
-            relationshipSection("Children", profiles: snapshot.childrenOf(profile.id))
+            relationshipSection("Children", profiles: snapshot.childrenOf(profile.id),
+                                roleWord: "child", edgeIDFor: childEdgeID)
+            // Siblings are derived from shared parents — no stored edge to
+            // unlink, so no edgeIDFor (removing a parent edge re-derives them).
             relationshipSection("Siblings", profiles: snapshot.siblingsOf(profile.id))
 
             // Disputes — live from CONFLICT_LAYER_SPEC Change 1: the apply
@@ -336,6 +401,22 @@ struct SharedProfileLayout: View {
         }
         .sheet(item: $resolvingDispute) { item in
             ConflictResolutionView(profile: item.profile, dispute: item.dispute)
+        }
+        .confirmationDialog(
+            "Unlink \(relationshipRemoval?.relativeName ?? "")?",
+            isPresented: Binding(
+                get: { relationshipRemoval != nil },
+                set: { if !$0 { relationshipRemoval = nil } }
+            ),
+            presenting: relationshipRemoval
+        ) { removal in
+            Button("Unlink", role: .destructive) {
+                appState.removeRelationship(id: removal.edgeID)
+                relationshipRemoval = nil
+            }
+            Button("Cancel", role: .cancel) { relationshipRemoval = nil }
+        } message: { removal in
+            Text("Removes the \(removal.roleWord) link between \(profile.displayName) and \(removal.relativeName). Neither profile is deleted.")
         }
     }
 
@@ -1188,17 +1269,58 @@ struct SharedProfileLayout: View {
     }
 
     @ViewBuilder
-    private func relationshipSection(_ title: String, profiles: [Profile]) -> some View {
+    private func relationshipSection(
+        _ title: String,
+        profiles: [Profile],
+        roleWord: String? = nil,
+        edgeIDFor: ((Profile) -> UUID?)? = nil,
+        roleEditFor: ((Profile) -> (edgeID: UUID, current: ParentRole?)?)? = nil
+    ) -> some View {
         if !profiles.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 ForEach(profiles) { relative in
-                    relativeRow(relative)
+                    relativeRow(
+                        relative,
+                        removeEdgeID: editable ? edgeIDFor?(relative) : nil,
+                        roleWord: roleWord ?? "relative",
+                        roleEdit: editable ? roleEditFor?(relative) : nil
+                    )
                 }
             }
         }
+    }
+
+    private func roleLabel(_ role: ParentRole?) -> String {
+        switch role {
+        case .father: "father"
+        case .mother: "mother"
+        default: "role?"
+        }
+    }
+
+    /// Stored parent edge where `parent` is a parent of the subject.
+    private func parentEdgeID(_ parent: Profile) -> UUID? {
+        snapshot.relationships.first {
+            $0.type == .parent && $0.from == parent.id && $0.to == profile.id
+        }?.id
+    }
+
+    /// The parent edge's id + current role, for the in-row re-role menu.
+    private func parentRoleEdit(_ parent: Profile) -> (edgeID: UUID, current: ParentRole?)? {
+        guard let edge = snapshot.relationships.first(where: {
+            $0.type == .parent && $0.from == parent.id && $0.to == profile.id
+        }) else { return nil }
+        return (edge.id, edge.role)
+    }
+
+    /// Stored parent edge where the subject is the parent of `child`.
+    private func childEdgeID(_ child: Profile) -> UUID? {
+        snapshot.relationships.first {
+            $0.type == .parent && $0.from == profile.id && $0.to == child.id
+        }?.id
     }
 
     /// One relative line. With `onNavigateToProfile` set it is a Button that
@@ -1206,8 +1328,14 @@ struct SharedProfileLayout: View {
     /// text. Button, not `.onTapGesture` — tap gestures inside a ScrollView
     /// are unreliably delivered on macOS.
     @ViewBuilder
-    private func relativeRow(_ relative: Profile) -> some View {
+    private func relativeRow(
+        _ relative: Profile,
+        removeEdgeID: UUID? = nil,
+        roleWord: String = "relative",
+        roleEdit: (edgeID: UUID, current: ParentRole?)? = nil
+    ) -> some View {
         let switchesMode = navigateSwitchesMode?(relative.id) ?? false
+        let hasTrailing = removeEdgeID != nil || roleEdit != nil
         let label = HStack {
             Text(relative.displayName)
                 .font(.callout)
@@ -1230,14 +1358,46 @@ struct SharedProfileLayout: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        if let navigate = onNavigateToProfile {
-            Button { navigate(relative.id) } label: {
-                label.contentShape(Rectangle())
+        return HStack(spacing: 8) {
+            if let navigate = onNavigateToProfile {
+                Button { navigate(relative.id) } label: {
+                    label.contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Show \(relative.displayName) in the tree")
+            } else {
+                label
             }
-            .buttonStyle(.plain)
-            .help("Show \(relative.displayName) in the tree")
-        } else {
-            label
+            if hasTrailing { Spacer(minLength: 8) }
+            // Edit-mode parent re-role — correct a mis-roled edge (father↔mother).
+            if editable, let re = roleEdit {
+                Menu {
+                    Button("Father") { appState.setRelationshipRole(id: re.edgeID, role: .father) }
+                    Button("Mother") { appState.setRelationshipRole(id: re.edgeID, role: .mother) }
+                    Button("Unspecified") { appState.setRelationshipRole(id: re.edgeID, role: .unspecified) }
+                } label: {
+                    Text(roleLabel(re.current))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Change this parent's role")
+            }
+            // Edit-mode unlink — remove a mis-linked parent/child/spouse edge.
+            // Confirmed before it fires; the relative's own profile is untouched.
+            if let edgeID = removeEdgeID {
+                Button {
+                    relationshipRemoval = RelationshipRemoval(
+                        edgeID: edgeID, relativeName: relative.displayName, roleWord: roleWord)
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .help("Unlink \(relative.displayName) as a \(roleWord)")
+                .accessibilityLabel("Unlink \(relative.displayName)")
+            }
         }
     }
 
@@ -1265,20 +1425,32 @@ struct SharedProfileLayout: View {
                             // Same navigation affordance as relativeRow —
                             // spouses render separately only for the
                             // marriage-metadata lines below.
-                            relativeRow(spouse)
-                            // Marriage metadata, when present. "m." prefix
-                            // mirrors common genealogy abbreviation. Location
-                            // sits on its own line so a long district name
-                            // doesn't crowd the date.
-                            if let date = edge.marriageDate?.original, !date.isEmpty {
-                                Text("m. \(date)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            if let location = edge.marriageLocation, !location.isEmpty {
-                                Text(location)
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
+                            relativeRow(spouse,
+                                        removeEdgeID: editable ? edge.id : nil,
+                                        roleWord: "spouse")
+                            if editable {
+                                // Editable marriage date + place (its own commit —
+                                // relationship metadata isn't part of the profile
+                                // field bindings the parent Save flow writes).
+                                SpouseMarriageEditRow(
+                                    edgeID: edge.id,
+                                    initialDate: edge.marriageDate?.original ?? "",
+                                    initialLocation: edge.marriageLocation ?? "")
+                            } else {
+                                // Marriage metadata, when present. "m." prefix
+                                // mirrors common genealogy abbreviation. Location
+                                // sits on its own line so a long district name
+                                // doesn't crowd the date.
+                                if let date = edge.marriageDate?.original, !date.isEmpty {
+                                    Text("m. \(date)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if let location = edge.marriageLocation, !location.isEmpty {
+                                    Text(location)
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
                             }
                         }
                     }

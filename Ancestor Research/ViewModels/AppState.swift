@@ -2284,6 +2284,32 @@ final class AppState {
         }
     }
 
+    /// Overwrite a spouse edge's marriage date/location (explicit user edit).
+    func setRelationshipMarriage(id: UUID, date: GenealogicalDate?, location: String?) {
+        guard let db = currentDatabase else { return }
+        do {
+            let tx = try db.setRelationshipMarriage(relationshipID: id, date: date, location: location)
+            recordSessionEvent(.transactionRecorded(tx.id))
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+        } catch {
+            errorMessage = "Failed to update marriage: \(error.localizedDescription)"
+        }
+    }
+
+    /// Correct a parent edge's role (father / mother / unspecified).
+    func setRelationshipRole(id: UUID, role: ParentRole?) {
+        guard let db = currentDatabase else { return }
+        do {
+            let tx = try db.setRelationshipRole(relationshipID: id, role: role)
+            recordSessionEvent(.transactionRecorded(tx.id))
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+        } catch {
+            errorMessage = "Failed to update parent role: \(error.localizedDescription)"
+        }
+    }
+
     /// Restore a soft-deleted profile.
     func restoreDeletedProfile(id: String) {
         guard let db = currentDatabase else { return }

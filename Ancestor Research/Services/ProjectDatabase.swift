@@ -2505,6 +2505,68 @@ nonisolated extension ProjectDatabase {
         return transaction
     }
 
+    /// Overwrite the marriage date and/or location on a spouse relationship.
+    /// Unlike `fillRelationshipMarriage` (fill-only, honours Check-Before-
+    /// Overwrite), this is the explicit-user-edit path: it replaces whatever is
+    /// there. A nil `date`/`location` clears that column. Returns the
+    /// transaction for undo / audit chaining.
+    @discardableResult
+    func setRelationshipMarriage(
+        relationshipID: UUID,
+        date: GenealogicalDate?,
+        location: String?
+    ) throws -> Transaction {
+        let now = Date()
+        let transaction = Transaction(
+            id: UUID(), kind: .manualEdit, undoStrategy: .replay,
+            startedAt: now, completedAt: now, changeCount: 1, profileCount: 0)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO transactions (id, kind, undo_strategy, started_at, completed_at, change_count, profile_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    transaction.id.uuidString, Self.encodeJSON(transaction.kind),
+                    transaction.undoStrategy.rawValue, transaction.startedAt, transaction.completedAt,
+                    transaction.changeCount, transaction.profileCount])
+            let trimmed = location?.trimmingCharacters(in: .whitespaces)
+            try db.execute(sql: """
+                UPDATE relationships SET
+                    marriage_date_original = ?,
+                    marriage_date_earliest = ?,
+                    marriage_date_latest = ?,
+                    marriage_date_qualifier = ?,
+                    marriage_location = ?
+                WHERE id = ?
+                """, arguments: [
+                    date?.original, date?.earliest, date?.latest, date?.qualifier.rawValue,
+                    (trimmed?.isEmpty == false) ? trimmed : nil,
+                    relationshipID.uuidString])
+        }
+        return transaction
+    }
+
+    /// Set the parent role (father / mother / unspecified) on a parent
+    /// relationship — used to correct a mis-roled edge from a GEDCOM import.
+    @discardableResult
+    func setRelationshipRole(relationshipID: UUID, role: ParentRole?) throws -> Transaction {
+        let now = Date()
+        let transaction = Transaction(
+            id: UUID(), kind: .manualEdit, undoStrategy: .replay,
+            startedAt: now, completedAt: now, changeCount: 1, profileCount: 0)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO transactions (id, kind, undo_strategy, started_at, completed_at, change_count, profile_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    transaction.id.uuidString, Self.encodeJSON(transaction.kind),
+                    transaction.undoStrategy.rawValue, transaction.startedAt, transaction.completedAt,
+                    transaction.changeCount, transaction.profileCount])
+            try db.execute(sql: "UPDATE relationships SET role = ? WHERE id = ?",
+                           arguments: [role?.rawValue, relationshipID.uuidString])
+        }
+        return transaction
+    }
+
     /// Update a simple string field on a profile. Creates a FieldChange for undo.
     func updateProfileField(
         profileID: String,
