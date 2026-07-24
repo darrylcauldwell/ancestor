@@ -1270,8 +1270,37 @@ struct ClusterReviewView: View {
     /// Clusters with at least one live (non-discarded) record — a cluster
     /// the user fully ruled out disappears; its records sit in the bin.
     private var visibleClusters: [LifeCluster] {
-        result.clusters.filter { cluster in
-            cluster.records.contains { !isDiscarded($0) }
+        result.clusters
+            .filter { cluster in
+                cluster.records.contains { !isDiscarded($0) }
+            }
+            // Best-first ordering so you land on the strongest candidate and
+            // the namesake tail sinks (owner request 2026-07-24 — a thin
+            // subject like "Derbyshire" returns hundreds of leads and the one
+            // family-context marriage match was buried mid-list). Pure display
+            // sort: the scorer/convergence output order is untouched.
+            .sorted { a, b in
+                let qa = matchQualityRank(a.matchQuality)
+                let qb = matchQualityRank(b.matchQuality)
+                if qa != qb { return qa > qb }
+                // Within a quality tier, a marriage whose familyContext gate
+                // matched the KNOWN spouse is the "this really is your family"
+                // signal — float it above ordinary same-tier namesakes.
+                if a.hasKnownSpouseMarriage != b.hasKnownSpouseMarriage {
+                    return a.hasKnownSpouseMarriage
+                }
+                // More corroborating records as the final tiebreak.
+                return a.records.count > b.records.count
+            }
+    }
+
+    /// Display-sort rank for a cluster's aggregate match quality
+    /// (confirmed → possible → wrong/none). Higher sorts first.
+    private func matchQualityRank(_ quality: MatchQuality?) -> Int {
+        switch quality {
+        case .confirmed: return 2
+        case .possible:  return 1
+        default:         return 0   // .wrong or nil (empty)
         }
     }
 
