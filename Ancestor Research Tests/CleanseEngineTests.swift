@@ -222,4 +222,62 @@ struct CleanseEngineTests {
         // Same engine, same snapshot — finding must still be there.
         #expect(!engine.findings(for: "p1").isEmpty, "Skip must not persist anything")
     }
+
+    // MARK: - Given name contains middle name
+
+    @Test func givenContainingMiddleSurfacesFinding() throws {
+        let db = try makeTempDB()
+        // "Lilian Mary" in firstName with no middleName — the folded-import shape.
+        let profile = makeProfile(id: "p1", firstName: "Lilian Mary", lastName: "Brooks")
+        let snap = makeSnapshot([profile])
+        let engine = makeEngine(db: db, snapshot: snap)
+
+        let finding = engine.findings(for: "p1").first {
+            if case .givenNameContainsMiddle = $0 { return true } else { return false }
+        }
+        guard case .givenNameContainsMiddle(_, let current, let first, let middle)? = finding else {
+            Issue.record("expected a givenNameContainsMiddle finding")
+            return
+        }
+        #expect(current == "Lilian Mary")
+        #expect(first == "Lilian")
+        #expect(middle == "Mary")
+    }
+
+    @Test func singleTokenGivenProducesNoNameFinding() throws {
+        let db = try makeTempDB()
+        let profile = makeProfile(id: "p1", firstName: "John", lastName: "Smith")
+        let snap = makeSnapshot([profile])
+        let engine = makeEngine(db: db, snapshot: snap)
+
+        #expect(!engine.findings(for: "p1").contains {
+            if case .givenNameContainsMiddle = $0 { return true } else { return false }
+        }, "A single-token given name must not surface a split finding")
+    }
+
+    @Test func applyGivenMiddleSplitPersists() throws {
+        let db = try makeTempDB()
+        let profile = try persist(
+            makeProfile(id: "p1", firstName: "Lilian Mary", lastName: "Brooks"),
+            into: db
+        )
+        let snap = makeSnapshot([profile])
+        let engine = makeEngine(db: db, snapshot: snap)
+
+        let finding = engine.findings(for: "p1").first {
+            if case .givenNameContainsMiddle = $0 { return true } else { return false }
+        }!
+        try engine.apply(.applyGivenMiddleSplit(first: "Lilian", middle: "Mary"), to: finding)
+
+        // Re-read from the database: the split must have been written.
+        let reloaded = try db.buildSnapshot().profiles["p1"]
+        #expect(reloaded?.firstName == "Lilian")
+        #expect(reloaded?.middleName == "Mary")
+
+        // And the finding must not reappear now that middleName is set.
+        let engine2 = makeEngine(db: db, snapshot: try db.buildSnapshot())
+        #expect(!engine2.findings(for: "p1").contains {
+            if case .givenNameContainsMiddle = $0 { return true } else { return false }
+        }, "Once split, the finding must not reappear")
+    }
 }

@@ -190,6 +190,13 @@ struct ProfileCleanseWizard: View {
             }
             .buttonStyle(.glassProminent)
             .controlSize(.small)
+
+        case .givenNameContainsMiddle(_, _, let first, let middle):
+            Button("Apply split") {
+                runAction(.applyGivenMiddleSplit(first: first, middle: middle), on: finding)
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.small)
         }
     }
 

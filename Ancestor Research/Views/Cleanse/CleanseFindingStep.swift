@@ -55,6 +55,7 @@ struct CleanseFindingStep: View {
         case .unconfirmedLocation:          return "mappin.and.ellipse"
         case .missingParentFromBirthRecord: return "person.2.badge.plus"
         case .bareYearDate:                 return "calendar.badge.exclamationmark"
+        case .givenNameContainsMiddle:      return "textformat.abc"
         }
     }
 
@@ -73,6 +74,8 @@ struct CleanseFindingStep: View {
             missingParentBody(proposals: proposals)
         case .bareYearDate(_, _, let year, let available):
             bareYearBody(year: year, availableQuarter: available)
+        case .givenNameContainsMiddle(_, let current, let first, let middle):
+            givenNameSplitBody(current: current, first: first, middle: middle)
         }
     }
 
@@ -255,5 +258,43 @@ struct CleanseFindingStep: View {
                 .font(AppTypography.cardMeta)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    // MARK: Given / middle split
+
+    @ViewBuilder
+    private func givenNameSplitBody(current: String, first: String, middle: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Proposed split")
+                .font(AppTypography.cardTitle)
+
+            HStack(spacing: 10) {
+                nameChip(label: "Current given", value: current, tint: .orange)
+                Image(systemName: "arrow.forward")
+                    .foregroundStyle(.secondary)
+                nameChip(label: "Given", value: first, tint: .green)
+                nameChip(label: "Middle", value: middle, tint: .green)
+            }
+
+            Text("The first word becomes the given name; the rest becomes the middle name. If \u{201C}\(current)\u{201D} is really a single (compound) given name, decline with Skip or Mark unresolvable instead.")
+                .font(AppTypography.cardMeta)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func nameChip(label: String, value: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label.uppercased())
+                .font(AppTypography.cardMeta)
+                .foregroundStyle(.tertiary)
+            Text(value.isEmpty ? "—" : value)
+                .font(AppTypography.cardBody)
+                .fontWeight(.semibold)
+                .foregroundStyle(tint)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
     }
 }

@@ -147,6 +147,26 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
         [firstName, middleName, lastName].compactMap { $0 }.joined(separator: " ")
     }
 
+    /// When `firstName` holds more than one token and `middleName` is empty, the
+    /// import likely packed the middle name(s) into the given field — GEDCOM has
+    /// no separate middle-name tag, so "Lilian Mary" arrives as a single given
+    /// string. Returns the implied `(first, middle)` split (first token = given,
+    /// remainder = middle), or `nil` when no split applies: a single-token given,
+    /// or a `middleName` that is already set (trust the existing structure).
+    ///
+    /// Single source of truth for the audit rule that flags these records and the
+    /// cleanse finding that fixes them, so the two can never disagree. The split
+    /// is a heuristic — right for "Lilian Mary", wrong for a compound given like
+    /// "Mary Ann" — so callers surface it for review rather than applying blindly.
+    public var impliedGivenMiddleSplit: (first: String, middle: String)? {
+        guard (middleName ?? "").trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        let tokens = (firstName ?? "")
+            .split(separator: " ")
+            .map(String.init)
+        guard tokens.count >= 2 else { return nil }
+        return (tokens[0], tokens.dropFirst().joined(separator: " "))
+    }
+
     /// A profile carrying no identifying information — the anonymous stub the
     /// sibling shortcut / bad relinks leave behind. `.placeholder` status counts
     /// outright; otherwise a profile with no non-whitespace name field and no

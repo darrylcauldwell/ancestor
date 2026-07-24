@@ -85,7 +85,40 @@ public nonisolated enum AuditRules {
         UnlinkedSpouseForFemaleSubjectRule(),
         MarriedSurnameFromSpouseRule(),
         CensusAgeBirthYearRule(),
+        GivenNameContainsMiddleRule(),
     ]
+}
+
+// MARK: - Given Name Contains Middle Name (import hygiene)
+
+/// Flags profiles whose `firstName` holds more than one token while `middleName`
+/// is empty — the signature of an import that packed the middle name into the
+/// given field (GEDCOM has no separate middle-name tag, so "Lilian Mary" lands
+/// wholesale in `firstName`). Left unsplit, the given name reads wrong on the
+/// profile and the record scorer has to compensate at match time. Surfaces as an
+/// info chip; the Cleanse wizard carries the matching one-tap "split into given +
+/// middle" fix (or decline, for a genuine compound given like "Mary Ann"). Shares
+/// its detection with `Profile.impliedGivenMiddleSplit` so audit and cleanse can
+/// never disagree about which records are affected.
+public nonisolated struct GivenNameContainsMiddleRule: AuditRuleDefinition {
+    public let id = "givenNameContainsMiddle"
+    public let category: AuditCategory = .issue
+    public let displayName = "Middle Name In Given Name"
+    public let description = "A profile's given name holds more than one word while the middle name is empty — the middle name was likely folded into the given field on import."
+    public let fireCondition = "firstName has ≥2 tokens AND middleName is empty."
+    public let warningCondition: String? = nil
+    public let workedExample = "Imported \"Lilian Mary\" in firstName with an empty middleName → should be firstName \"Lilian\", middleName \"Mary\"."
+    public let defaultSeverity = Severity.info
+    public init() {}
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        guard let split = profile.impliedGivenMiddleSplit else { return [] }
+        return [AuditResult(
+            profileID: profile.id, profileName: profile.displayName,
+            severity: .info, ruleID: id,
+            message: "Given name \"\(profile.firstName ?? "")\" looks like it contains a middle name — split into given \"\(split.first)\" + middle \"\(split.middle)\" (Cleanse)."
+        )]
+    }
 }
 
 // MARK: - Completeness Score Rule

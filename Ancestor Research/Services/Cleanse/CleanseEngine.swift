@@ -49,6 +49,9 @@ final class CleanseEngine {
         }
         var results: [CleanseFinding] = []
 
+        if let nameFinding = givenNameFinding(for: profile) {
+            results.append(nameFinding)
+        }
         if let locationFinding = locationFinding(for: profile) {
             results.append(locationFinding)
         }
@@ -140,10 +143,31 @@ final class CleanseEngine {
                 year: year,
                 quarter: quarter
             )
+
+        case .applyGivenMiddleSplit(let first, let middle):
+            try applyGivenMiddleSplit(
+                finding: finding,
+                first: first,
+                middle: middle
+            )
         }
     }
 
     // MARK: - Finding generators
+
+    /// Fires when `firstName` holds more than one token while `middleName` is
+    /// empty — the import folded the middle name into the given field. Detection
+    /// is `Profile.impliedGivenMiddleSplit`, shared with `GivenNameContainsMiddleRule`
+    /// so the audit chip and the cleanse fix agree on which records are affected.
+    private func givenNameFinding(for profile: Profile) -> CleanseFinding? {
+        guard let split = profile.impliedGivenMiddleSplit else { return nil }
+        return .givenNameContainsMiddle(
+            profileID: profile.id,
+            currentGiven: profile.firstName ?? "",
+            proposedFirst: split.first,
+            proposedMiddle: split.middle
+        )
+    }
 
     private func locationFinding(for profile: Profile) -> CleanseFinding? {
         guard let raw = profile.birthLocation?
@@ -303,6 +327,28 @@ final class CleanseEngine {
             profileID: profile.id,
             birthCode: code,
             deathCode: profile.deathLocationCode
+        )
+    }
+
+    /// Split a folded given name into firstName + middleName. Manual-sourced
+    /// (the user reviewed and accepted the split), so it takes the standard
+    /// directional-overwrite path like any other manual correction.
+    private func applyGivenMiddleSplit(
+        finding: CleanseFinding,
+        first: String,
+        middle: String
+    ) throws {
+        guard let profile = snapshotProvider().profiles[finding.profileID]
+        else { throw CleanseError.profileNotFound(finding.profileID) }
+
+        _ = try database.editProfile(
+            profileID: profile.id,
+            changes: [
+                (field: .firstName, oldValue: profile.firstName, newValue: first),
+                (field: .middleName, oldValue: profile.middleName, newValue: middle),
+            ],
+            dateChanges: [],
+            source: .manual
         )
     }
 

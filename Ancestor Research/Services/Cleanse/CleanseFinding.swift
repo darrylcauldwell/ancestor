@@ -54,6 +54,19 @@ nonisolated enum CleanseFinding: Identifiable, Sendable {
         availableQuarter: String?
     )
 
+    /// `firstName` holds more than one token while `middleName` is empty — the
+    /// import folded the middle name into the given field (GEDCOM has no
+    /// separate middle-name tag). `proposedFirst` / `proposedMiddle` are the
+    /// implied split (first token / remainder), from
+    /// `Profile.impliedGivenMiddleSplit`. One-tap apply splits them; decline
+    /// (skip / mark unresolvable) leaves a genuine compound given intact.
+    case givenNameContainsMiddle(
+        profileID: String,
+        currentGiven: String,
+        proposedFirst: String,
+        proposedMiddle: String
+    )
+
     // MARK: - Identity / keys
 
     /// Stable ID combining case kind + profile + field key. Used by SwiftUI
@@ -68,7 +81,8 @@ nonisolated enum CleanseFinding: Identifiable, Sendable {
              .unmatchedLocation(let id, _, _),
              .unconfirmedLocation(let id, _, _),
              .missingParentFromBirthRecord(let id, _),
-             .bareYearDate(let id, _, _, _):
+             .bareYearDate(let id, _, _, _),
+             .givenNameContainsMiddle(let id, _, _, _):
             return id
         }
     }
@@ -83,6 +97,8 @@ nonisolated enum CleanseFinding: Identifiable, Sendable {
             return "parents"
         case .bareYearDate(_, let field, _, _):
             return field.rawValue
+        case .givenNameContainsMiddle:
+            return "firstName"
         }
     }
 
@@ -94,6 +110,7 @@ nonisolated enum CleanseFinding: Identifiable, Sendable {
         case .unconfirmedLocation:         return "unconfirmedLocation"
         case .missingParentFromBirthRecord: return "missingParent"
         case .bareYearDate:                return "bareYearDate"
+        case .givenNameContainsMiddle:     return "givenNameContainsMiddle"
         }
     }
 
@@ -107,6 +124,7 @@ nonisolated enum CleanseFinding: Identifiable, Sendable {
         case .missingParentFromBirthRecord: return "Parents missing from birth record"
         case .bareYearDate(_, let field, _, _):
             return field == .birthDate ? "Bare-year birth date" : "Bare-year death date"
+        case .givenNameContainsMiddle:     return "Middle name in given name"
         }
     }
 
@@ -122,6 +140,8 @@ nonisolated enum CleanseFinding: Identifiable, Sendable {
             return "Birth record names parents (\(proposals.count) proposals) but they aren\u{2019}t linked yet."
         case .bareYearDate(_, _, let year, _):
             return "Year \(year) is set, but no quarter or month. Add a quarter when known."
+        case .givenNameContainsMiddle(_, let current, let first, let middle):
+            return "\u{201C}\(current)\u{201D} looks like a given name plus a middle name. Split into given \u{201C}\(first)\u{201D} + middle \u{201C}\(middle)\u{201D}, or decline if it's really one name."
         }
     }
 }
@@ -153,6 +173,10 @@ nonisolated enum CleanseAction: Sendable {
 
     /// User picked a quarter for a bare-year date. `quarter` is "Q1"\u{2013}"Q4".
     case applyBareYearQuarter(String)
+
+    /// User accepted the given/middle split for a `givenNameContainsMiddle`
+    /// finding. Engine writes firstName = `first`, middleName = `middle`.
+    case applyGivenMiddleSplit(first: String, middle: String)
 
     /// Leave the field unchanged; the finding may reappear next run.
     case skip
