@@ -207,7 +207,7 @@ struct HealthView: View {
                                     Button {
                                         onEditProfile?(result.profileID)
                                     } label: {
-                                        Label("Edit", systemImage: "pencil")
+                                        Label("Edit Profile", systemImage: "pencil")
                                     }
                                     .buttonStyle(.glass)
                                     .controlSize(.mini)
@@ -217,12 +217,12 @@ struct HealthView: View {
                                     Button {
                                         promoteToQuestion(result)
                                     } label: {
-                                        Label("Promote", systemImage: "questionmark.bubble")
+                                        Label("Add Question", systemImage: "questionmark.bubble")
                                     }
                                     .buttonStyle(.glass)
                                     .controlSize(.mini)
-                                    .help("Add as an open question on the workbench")
-                                    .accessibilityHint("Add as an open question on the workbench")
+                                    .help("Track this as a research question — it appears in the Tasks tab to look into later")
+                                    .accessibilityHint("Add this finding as an open research question that appears in the Tasks tab")
                                 }
                                 .padding(12)
                                 .glassEffect(.regular, in: .rect(cornerRadius: 12))
