@@ -5,7 +5,7 @@ import Foundation
 /// role — a "John" who is the subject's parent must be the Head/Wife, never a
 /// Son. Absent (name-only matching) the engine stays conservative and skips
 /// ambiguous rows.
-public nonisolated enum CensusRelation: Sendable {
+public nonisolated enum CensusRelation: Sendable, Equatable, Hashable {
     case parent, sibling, spouse, child
 }
 
@@ -56,6 +56,15 @@ public nonisolated struct CensusAgeEnrichment {
         "servant", "boarder", "lodger", "visitor", "nurse", "employee",
         "apprentice", "governess", "housekeeper", "assistant", "worker", "inmate",
     ]
+
+    /// Whether a roster "Relationship to Head" string denotes a co-resident who
+    /// is NOT blood/marriage family (servant, boarder, lodger, visitor, …).
+    /// Exposed so the roster→link path (`CensusFamilyLinker`) applies the exact
+    /// same exclusion this enrichment path uses.
+    public static func isNonFamilyRole(_ role: String) -> Bool {
+        let r = role.lowercased()
+        return nonFamilyRoles.contains { r.contains($0) }
+    }
 
     /// Propose gap-filling birth years for members of `household` that map,
     /// unambiguously and by name, onto a `linkedRelatives` profile whose birth
