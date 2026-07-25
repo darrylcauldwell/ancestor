@@ -93,7 +93,7 @@ python import_twin_to_app.py    # one-shot import .wikitree-twin.json → app sq
 
 Inside the Swift app:
 - `Services/Research/` — pipeline, 4-gate scorer, clustering, convergence, evidence firewall
-- `Services/Sources/` — 7 ported source plugins (FreeBMD, FreeCen, CWGC, FindAGrave, Probate, Wirksworth, FreeREG)
+- `Services/Sources/` — 7 source plugins (FreeBMD, FreeCen, FreeREG, CWGC, FindAGrave, Probate, FamilySearch) + prose corpus. Wirksworth was retired; FamilySearch is a live records source over the official OAuth Platform API (`/platform/records/personas`), registered in `SourceBootstrap`.
 - `Services/Cleanse/` — profile cleanse wizard
 - `Models/` — `Profile`, `Relationship`, `Citation`, `LifeEvent`, `Project`, `Research/*` foundation types
 - `ViewModels/` — `AppState`, `ResearchViewModel`, `WholeTreeResearchViewModel`

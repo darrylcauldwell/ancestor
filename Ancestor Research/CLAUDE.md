@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A macOS SwiftUI genealogy research app. Digital twin of a family tree with automated research pipeline, 8 structured sources (+ prose corpus), and a user-selected local reasoning model (MLX; default Qwen3.5-4B with thinking disabled) for bounded advisory work: next-search suggestion, focused-query strategy, candidate-comparison prose, and prose-fact extraction. The in-app Claude API "Field Researcher" was removed in May 2026 ahead of App Store submission — MLX is the sole reasoning tier, and every AI path has a deterministic fallback (the app is fully functional with no model loaded).
+A macOS SwiftUI genealogy research app. Digital twin of a family tree with automated research pipeline, 7 structured sources (FreeBMD, FreeCen, FreeREG, CWGC, FindAGrave, Probate, FamilySearch) + prose corpus, and a user-selected local reasoning model (MLX; default Qwen3.5-4B with thinking disabled) for bounded advisory work: next-search suggestion, focused-query strategy, candidate-comparison prose, and prose-fact extraction. The in-app Claude API "Field Researcher" was removed in May 2026 ahead of App Store submission — MLX is the sole reasoning tier, and every AI path has a deterministic fallback (the app is fully functional with no model loaded).
 
 ## Tech Stack
 
@@ -64,7 +64,7 @@ cd FieldResearcherMCP && swift build
 
 ```
 Services/Research/     — pipeline, scorer, clustering, convergence, firewall
-Services/Sources/      — 7 source plugins (FreeBMD, FreeCen, CWGC, FindAGrave, Probate, Wirksworth, FreeREG)
+Services/Sources/      — 7 source plugins (FreeBMD, FreeCen, FreeREG, CWGC, FindAGrave, Probate, FamilySearch) + prose corpus  (Wirksworth retired; FamilySearch = official OAuth Platform API records source)
 Models/Research/       — foundation types (Region, SourceTrustTier, ConvergenceLevel, etc.)
 ViewModels/            — AppState, ResearchViewModel, WholeTreeResearchViewModel
 Views/Research/        — ResearchView, ClusterReviewView, PendingFactsReviewView
