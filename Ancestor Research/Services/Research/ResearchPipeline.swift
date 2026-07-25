@@ -234,16 +234,20 @@ final class ResearchPipeline {
             )
         }
 
-        // SOURCE_WEIGHTING Change 5 — staged dispatch. Each active record
-        // type walks the scope-bounded stage ladder: local free sources
-        // first, geographic widening on miss, FamilySearch last and only
-        // for what the free tier left unanswered. Answered types stay at
-        // their stage (refinement re-queries never escalate); the ladder
-        // may need more iterations than the config's default, so the bound
-        // stretches to the ladder length.
+        // SOURCE_WEIGHTING Change 5 — staged dispatch, revised 2026-07-25
+        // (moves 1+2). Each active record type walks the scope-bounded stage
+        // ladder: free sources first with geographic widening ONLY on a
+        // genuine miss, then FamilySearch as the terminal stage — which is
+        // now ALWAYS reached for any type the free tier found a candidate
+        // for (corroborate a single candidate; break a tie among competing
+        // ones). FamilySearch is no longer skipped just because the free
+        // tier returned something. A type is `resolved` (stops dispatching)
+        // once FamilySearch has run for it, or its ladder is exhausted. The
+        // ladder may need more iterations than the config's default, so the
+        // bound stretches to the ladder length.
         let stageLadder = DispatchStage.ladder(for: config.scope)
         var stageIndexPerType: [RecordType: Int] = [:]
-        var answeredTypes: Set<RecordType> = []
+        var resolvedTypes: Set<RecordType> = []
         let effectiveMaxIterations = max(config.maxIterations, stageLadder.count)
 
         for iteration in 1...effectiveMaxIterations {
@@ -262,6 +266,7 @@ final class ResearchPipeline {
             // whose ladder is exhausted no longer dispatches.
             var typesByStageIndex: [Int: Set<RecordType>] = [:]
             for recordType in state.activeRecordTypes {
+                guard !resolvedTypes.contains(recordType) else { continue }
                 let idx = stageIndexPerType[recordType, default: 0]
                 guard idx < stageLadder.count else { continue }
                 typesByStageIndex[idx, default: []].insert(recordType)
@@ -342,14 +347,28 @@ final class ResearchPipeline {
             state.scoredRecords.append(contentsOf: newScored)
             let newRecordCount = newScored.count
 
-            // Change 5 miss test — a stage ANSWERS a record type when it
-            // produced at least one non-impossible record whose geography
-            // gate did not contradict the subject anchor (pass or skip;
-            // softFail is a suspicious mismatch and does not answer).
-            // Unanswered types advance one stage for the next iteration.
+            // Change 5 miss test, revised 2026-07-25 (moves 1+2). A stage
+            // produces a CANDIDATE for a record type when it returned at
+            // least one non-impossible record whose geography gate did not
+            // contradict the subject anchor (pass or skip; softFail is a
+            // suspicious mismatch and does not count). From there:
+            //   • no candidate  → genuine miss: widen geography one stage
+            //     (at the terminal FamilySearch stage this exhausts the
+            //     ladder and the type stops).
+            //   • candidate(s) at a FREE stage → jump straight to
+            //     FamilySearch. A single candidate goes for corroboration;
+            //     competing candidates go for the tie-break (free geographic
+            //     widening cannot disambiguate a namesake collision — FS's
+            //     relational records can). FS is ALWAYS reached this way.
+            //   • candidate(s) at the FamilySearch stage → resolved: FS has
+            //     now run for this type, so it stops dispatching.
+            // "Converged" = exactly one candidate identity
+            // (ConvergenceEngine.valueKey); tracked for visibility, not to
+            // gate whether FS runs (with FS free + unlimited, it always does).
+            let fsStageIndex = stageLadder.count - 1  // familySearch is always last
             for (idx, stageTypes) in typesByStageIndex {
-                for recordType in stageTypes where !answeredTypes.contains(recordType) {
-                    let answered = scored.contains { s in
+                for recordType in stageTypes where !resolvedTypes.contains(recordType) {
+                    let survivors = scored.filter { s in
                         s.record.recordType == recordType
                             && s.verdict != .impossible
                             && !s.gates.contains {
@@ -357,10 +376,19 @@ final class ResearchPipeline {
                                     && ($0.outcome == .fail || $0.outcome == .softFail || $0.outcome == .impossible)
                             }
                     }
-                    if answered {
-                        answeredTypes.insert(recordType)
-                    } else {
+                    let candidateKeys = Set(survivors.map { ConvergenceEngine.valueKey(for: $0.record) })
+                    if candidateKeys.isEmpty {
+                        // Genuine miss — widen (or exhaust at the FS stage).
                         stageIndexPerType[recordType] = idx + 1
+                    } else if idx >= fsStageIndex {
+                        // FamilySearch has run for this type — done.
+                        resolvedTypes.insert(recordType)
+                    } else {
+                        // Free-tier candidate(s) — take it to FamilySearch.
+                        if candidateKeys.count > 1 {
+                            logger.notice("\(recordType.rawValue): \(candidateKeys.count) competing candidates at \(stageLadder[idx].displayName) — escalating to FamilySearch to disambiguate")
+                        }
+                        stageIndexPerType[recordType] = fsStageIndex
                     }
                 }
             }
@@ -554,7 +582,7 @@ final class ResearchPipeline {
             // queries — measured ~53% of FreeBMD requests on a typical
             // extend run come from these redundant iterations.
             let ladderCanAdvance = state.activeRecordTypes.contains { recordType in
-                !answeredTypes.contains(recordType)
+                !resolvedTypes.contains(recordType)
                     && stageIndexPerType[recordType, default: 0] < stageLadder.count
             }
             if records.isEmpty {
@@ -575,24 +603,11 @@ final class ResearchPipeline {
             }
         }
 
-        // Change 5 — searched-surface disclosure: FamilySearch stages that
-        // never fired because the free tier answered are recorded as SKIPS
-        // (availability .skipped: never conclusive, never a negative), so
-        // "FS wasn't needed" is visible and distinct from "FS wasn't
-        // searched".
-        if let fsIndex = stageLadder.firstIndex(of: .familySearch) {
-            for recordType in answeredTypes
-            where stageIndexPerType[recordType, default: 0] < fsIndex {
-                let answeredStage = stageLadder[stageIndexPerType[recordType, default: 0]]
-                state.searchOutcomes.append(SearchOutcomeEntry(
-                    sourceID: "familysearch",
-                    recordType: recordType,
-                    strictness: .strict,
-                    queryKey: "stage-skip|familysearch|\(recordType.rawValue)",
-                    outcome: .scopeSkip(reason: "not needed — answered by \(answeredStage.displayName)")
-                ))
-            }
-        }
+        // (The old Change-5 "FS not needed — answered by the free tier"
+        // skip-disclosure was removed 2026-07-25: FamilySearch is now always
+        // reached for any type with a candidate, so its real dispatch outcome
+        // — records found, a clean 204 negative, or requiresAuth — is the
+        // honest record, not a synthetic skip.)
 
         // Post-iteration spouse-surname expansion. Mirrors Python's
         // agent/pipeline.py:_expand_post_marriage_searches. The

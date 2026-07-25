@@ -327,9 +327,11 @@ struct DispatchStagingTests {
     }
 }
 
-/// SOURCE_WEIGHTING_SPEC Change 5 (pipeline integration) — FamilySearch
-/// fires ONLY for record types the free tier left unanswered, and a run
-/// where the free tier answered records a visible FS stage-skip.
+/// SOURCE_WEIGHTING_SPEC Change 5 (pipeline integration), revised 2026-07-25
+/// (moves 1+2) — FamilySearch is the terminal stage and is ALWAYS reached for
+/// any record type the free tier found a candidate for: a single candidate for
+/// corroboration, competing candidates for the tie-break. Free geographic
+/// widening still happens only on a genuine miss (no candidate at all).
 @MainActor
 struct StagedPipelineTests {
 
@@ -367,22 +369,82 @@ struct StagedPipelineTests {
                                    scope: .county))
     }
 
-    @Test func freeTierAnswerSkipsFamilySearchVisibly() async {
+    // Moves 1+2: even when the free tier hands back a single clean candidate,
+    // FamilySearch is STILL reached — for corroboration — and its record is
+    // captured. (Old on-miss contract: FS was skipped and a visible skip
+    // recorded. That inversion is the whole point of the change.)
+    @Test func freeTierAnswerStillReachesFamilySearchForCorroboration() async {
+        let fsCorroboration = SourceRecord.birth(BirthRecord(
+            common: RecordCommon(id: "b-fs-corrob", sourceID: "familysearch",
+                                 name: "Robert Cauldwell", surname: "Cauldwell",
+                                 givenName: "Robert", detailURL: nil, rawFields: [:]),
+            birthYear: 1880, birthDate: "1880", birthPlace: nil,
+            quarter: nil, district: "Belper", volume: nil, page: nil,
+            mothersMaidenName: nil))
         let fs = StagedScriptedSource(
-            sourceID: "familysearch", displayName: "FamilySearch (test)", results: [])
+            sourceID: "familysearch", displayName: "FamilySearch (test)",
+            results: [fsCorroboration])
         let result = await run(freeResults: [matchingBirth()], fs: fs)
 
         #expect(result.allScoredRecords.contains { $0.record.id == "b-match" })
         let fsCalls = await fs.searchCount
-        #expect(fsCalls == 0,
-                "the free tier answered birth — FS must not fire for it")
-        let fsSkips = result.searchOutcomes.filter { entry in
-            guard entry.sourceID == "familysearch", entry.recordType == .birth else { return false }
-            if case .skipped = entry.outcome.availability { return true }
-            return false
-        }
-        #expect(!fsSkips.isEmpty,
-                "an FS stage that never fired because the free tier answered must be a visible skip")
+        #expect(fsCalls >= 1,
+                "the free tier answered birth, but FS must STILL run for corroboration")
+        #expect(result.allScoredRecords.contains { $0.record.id == "b-fs-corrob" },
+                "FamilySearch's corroborating record must be captured")
+    }
+
+    // Two free-tier birth candidates a year apart (the John Cauldwell namesake
+    // collision) must escalate to FamilySearch to break the tie — free
+    // geographic widening cannot disambiguate, FS's relational records can.
+    @Test func competingFreeCandidatesEscalateToFamilySearch() async {
+        let subject = ResearchSubject(
+            profileID: nil, surname: "Cauldwell", givenName: "John",
+            birthYearFrom: 1859, birthYearTo: 1862,
+            deathYearFrom: nil, deathYearTo: nil,
+            gender: .male, region: .county("Derbyshire"), mode: .extend,
+            familyContext: nil, homeChapmanCode: "DBY")
+        let birth1860 = SourceRecord.birth(BirthRecord(
+            common: RecordCommon(id: "b-1860", sourceID: "freebmd",
+                                 name: "John Cauldwell", surname: "Cauldwell",
+                                 givenName: "John", detailURL: nil, rawFields: [:]),
+            birthYear: 1860, birthDate: "1860", birthPlace: nil,
+            quarter: "Mar", district: "Belper", volume: "7b", page: "5",
+            mothersMaidenName: nil))
+        let birth1861 = SourceRecord.birth(BirthRecord(
+            common: RecordCommon(id: "b-1861", sourceID: "freebmd",
+                                 name: "John Cauldwell", surname: "Cauldwell",
+                                 givenName: "John", detailURL: nil, rawFields: [:]),
+            birthYear: 1861, birthDate: "1861", birthPlace: nil,
+            quarter: "Jun", district: "Belper", volume: "7b", page: "9",
+            mothersMaidenName: nil))
+        let fsBaptism = SourceRecord.parish(ParishRecord(
+            common: RecordCommon(id: "p-fs-baptism", sourceID: "familysearch",
+                                 name: "John Cauldwell", surname: "Cauldwell",
+                                 givenName: "John", detailURL: nil, rawFields: [:]),
+            eventType: "baptism", eventDate: "1860", eventYear: 1860, parish: "Windley"))
+        let fs = StagedScriptedSource(
+            sourceID: "familysearch", displayName: "FamilySearch (test)",
+            results: [fsBaptism])
+
+        let registry = SourceRegistry()
+        registry.register(StagedScriptedSource(
+            sourceID: "freebmd", displayName: "FreeBMD (test)",
+            results: [birth1860, birth1861]))
+        registry.register(fs)
+        let pipeline = ResearchPipeline(
+            dispatcher: SearchDispatcher(registry: registry),
+            snapshot: .empty, sourceInfoMap: [:])
+        let result = await pipeline.research(
+            subject: subject,
+            config: ResearchConfig(maxIterations: 3, maxFacts: 50, mode: .extend,
+                                   scope: .county))
+
+        let fsCalls = await fs.searchCount
+        #expect(fsCalls >= 1,
+                "two competing birth candidates must escalate to FamilySearch")
+        #expect(result.allScoredRecords.contains { $0.record.id == "p-fs-baptism" },
+                "FamilySearch's disambiguating baptism must be surfaced")
     }
 
     @Test func freeTierMissWalksTheLadderToFamilySearch() async {
