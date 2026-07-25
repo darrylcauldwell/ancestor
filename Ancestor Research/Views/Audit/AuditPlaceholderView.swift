@@ -181,62 +181,13 @@ struct HealthView: View {
                     ruleFilterChips
                     ScrollView {
                         LazyVStack(spacing: 10) {
-                            ForEach(shownResults) { result in
-                                HStack(alignment: .top, spacing: 10) {
-                                    Image(systemName: result.severity.iconName)
-                                        .foregroundStyle(result.severity.color)
-                                        .font(.body)
-                                        .frame(width: 24)
-                                        .accessibilityLabel("Severity \(result.severity.rawValue)")
-                                    // Clicking the finding jumps to the profile it
-                                    // is about (Tree → Full Detail), so the user can
-                                    // investigate or fix it in context.
-                                    Button {
-                                        onOpenProfile?(result.profileID)
-                                    } label: {
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(result.profileName)
-                                                .font(AppTypography.cardTitle)
-                                            Text(strippedMessage(result))
-                                                .font(AppTypography.cardBody)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .disabled(onOpenProfile == nil)
-                                    .help("Open \(result.profileName) in the tree")
-
-                                    // One-click fixes, ported back from the
-                                    // Tasks tab when audit moved to Health
-                                    // (owner report 2026-07-25 — the fixes were
-                                    // stranded in Tasks, which no longer shows
-                                    // audit findings).
-                                    fixButton(for: result)
-
-                                    Button {
-                                        onEditProfile?(result.profileID)
-                                    } label: {
-                                        Label("Edit Profile", systemImage: "pencil")
-                                    }
-                                    .buttonStyle(.glass)
-                                    .controlSize(.mini)
-                                    .disabled(onEditProfile == nil)
-                                    .help("Edit \(result.profileName)")
-
-                                    Button {
-                                        promoteToQuestion(result)
-                                    } label: {
-                                        Label("Add Question", systemImage: "questionmark.bubble")
-                                    }
-                                    .buttonStyle(.glass)
-                                    .controlSize(.mini)
-                                    .help("Track this as a research question — it appears in the Tasks tab to look into later")
-                                    .accessibilityHint("Add this finding as an open research question that appears in the Tasks tab")
+                            ForEach(displayRows) { row in
+                                switch row {
+                                case .duplicateCluster(let cluster):
+                                    duplicateClusterRow(cluster)
+                                case .finding(let result):
+                                    findingRow(result)
                                 }
-                                .padding(12)
-                                .glassEffect(.regular, in: .rect(cornerRadius: 12))
                             }
                         }
                         .padding()
@@ -272,6 +223,155 @@ struct HealthView: View {
     private var shownResults: [AuditResult] {
         guard let rule = ruleFilter else { return auditVM.filteredResults }
         return auditVM.filteredResults.filter { $0.ruleID == rule }
+    }
+
+    // MARK: - Duplicate grouping
+
+    enum HealthRow: Identifiable {
+        case finding(AuditResult)
+        case duplicateCluster(DuplicateCluster)
+        var id: String {
+            switch self {
+            case .finding(let r): return "f:\(r.id)"
+            case .duplicateCluster(let c): return "d:\(c.id)"
+            }
+        }
+    }
+
+    struct DuplicateCluster: Identifiable {
+        let id: String
+        let names: [String]
+        let profileIDs: [String]
+        let pairs: [(String, String)]
+    }
+
+    /// Display rows: non-duplicate findings as-is, plus ONE grouped row per
+    /// identity cluster of duplicate-pair findings (union-find over the pairs),
+    /// so a person appearing in several pairwise rows collapses to a single
+    /// entry (owner request 2026-07-25).
+    private var displayRows: [HealthRow] {
+        let results = shownResults
+        let dupes = results.filter { $0.ruleID == "duplicateDetection" }
+        let others = results.filter { $0.ruleID != "duplicateDetection" }
+        var rows = duplicateClusters(from: dupes).map { HealthRow.duplicateCluster($0) }
+        rows.append(contentsOf: others.map { HealthRow.finding($0) })
+        return rows
+    }
+
+    private func duplicateClusters(from results: [AuditResult]) -> [DuplicateCluster] {
+        var parent: [String: String] = [:]
+        func root(_ x: String) -> String {
+            var r = x
+            while let p = parent[r], p != r { r = p }
+            return r
+        }
+        func union(_ a: String, _ b: String) {
+            parent[a] = parent[a] ?? a
+            parent[b] = parent[b] ?? b
+            let ra = root(a), rb = root(b)
+            if ra != rb { parent[ra] = rb }
+        }
+        var allPairs: [(String, String)] = []
+        for r in results {
+            guard let other = r.relatedProfileIDs?.first else { continue }
+            union(r.profileID, other)
+            allPairs.append((r.profileID, other))
+        }
+        var members: [String: Set<String>] = [:]
+        for id in parent.keys { members[root(id), default: []].insert(id) }
+        var pairsByRoot: [String: [(String, String)]] = [:]
+        for (a, b) in allPairs { pairsByRoot[root(a), default: []].append((a, b)) }
+        return members.map { rootID, ids in
+            let names = ids.compactMap { appState.snapshot.profiles[$0]?.displayName }
+                .filter { !$0.isEmpty }.sorted()
+            return DuplicateCluster(id: rootID, names: names,
+                                    profileIDs: Array(ids), pairs: pairsByRoot[rootID] ?? [])
+        }
+        .sorted { ($0.names.first ?? "") < ($1.names.first ?? "") }
+    }
+
+    @ViewBuilder
+    private func duplicateClusterRow(_ cluster: DuplicateCluster) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "person.2.slash")
+                .foregroundStyle(.orange)
+                .font(.body)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(cluster.names.first ?? "Possible duplicates")
+                    .font(AppTypography.cardTitle)
+                Text("\(cluster.profileIDs.count) profiles look like possible duplicates: \(cluster.names.joined(separator: ", "))")
+                    .font(AppTypography.cardBody)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
+            if let pair = cluster.pairs.first {
+                Button {
+                    comparePair = ComparePair(leftID: pair.0, rightID: pair.1)
+                } label: {
+                    Label(cluster.pairs.count == 1 ? "Compare" : "Compare (\(cluster.pairs.count))",
+                          systemImage: "rectangle.on.rectangle")
+                }
+                .buttonStyle(.glassProminent).controlSize(.mini)
+                .help("Compare these profiles side by side, one pair at a time — merge only true duplicates")
+            }
+        }
+        .padding(12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+    }
+
+    @ViewBuilder
+    private func findingRow(_ result: AuditResult) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: result.severity.iconName)
+                .foregroundStyle(result.severity.color)
+                .font(.body)
+                .frame(width: 24)
+                .accessibilityLabel("Severity \(result.severity.rawValue)")
+            // Clicking the finding jumps to the profile it is about
+            // (Tree → Full Detail) so it can be investigated in context.
+            Button {
+                onOpenProfile?(result.profileID)
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(result.profileName)
+                        .font(AppTypography.cardTitle)
+                    Text(strippedMessage(result))
+                        .font(AppTypography.cardBody)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(onOpenProfile == nil)
+            .help("Open \(result.profileName) in the tree")
+
+            fixButton(for: result)
+
+            Button {
+                onEditProfile?(result.profileID)
+            } label: {
+                Label("Edit Profile", systemImage: "pencil")
+            }
+            .buttonStyle(.glass)
+            .controlSize(.mini)
+            .disabled(onEditProfile == nil)
+            .help("Edit \(result.profileName)")
+
+            Button {
+                promoteToQuestion(result)
+            } label: {
+                Label("Add Question", systemImage: "questionmark.bubble")
+            }
+            .buttonStyle(.glass)
+            .controlSize(.mini)
+            .help("Track this as a research question — it appears in the Tasks tab to look into later")
+            .accessibilityHint("Add this finding as an open research question that appears in the Tasks tab")
+        }
+        .padding(12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
     }
 
     /// One chip per distinct rule present, with counts, so the list can be
