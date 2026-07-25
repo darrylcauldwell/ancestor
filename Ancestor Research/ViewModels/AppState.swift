@@ -2622,7 +2622,7 @@ final class AppState {
     /// `CensusBackfill` propose gap-fill birth years for the linked relatives —
     /// so a census the researcher found on ONE person enriches the whole
     /// household. Read-only; the caller applies via `setBirthYearFromCensus`.
-    func censusBackfillProposals() -> [BirthYearProposal] {
+    func censusBackfillProposals() -> [CensusBackfill.Proposal] {
         guard let db = currentDatabase else { return [] }
         var sources: [CensusBackfill.CensusSource] = []
         for profileID in snapshot.profiles.keys {
@@ -2630,14 +2630,38 @@ final class AppState {
             for e in evidence where e.recordType == .census && e.verdict == .fact {
                 guard case .census(let c) = e.record,
                       let household = c.household, !household.isEmpty else { continue }
-                sources.append(CensusBackfill.CensusSource(
-                    subjectID: profileID,
-                    household: household,
-                    censusYear: c.censusYear,
-                    sourceID: c.common.sourceID))
+                _ = household   // presence-checked; the full record travels through
+                sources.append(CensusBackfill.CensusSource(subjectID: profileID, record: c))
             }
         }
         return CensusBackfill.proposals(censuses: sources, snapshot: snapshot)
+    }
+
+    /// Absorb a census-backfill proposal onto the linked relative: run the
+    /// member-scoped census record through the SAME apply path the researched
+    /// subject uses, so their birth year, birthplace, residence and occupation
+    /// land as facts/life-events AND the census is cited on their profile — not
+    /// just a bare birth year. (owner request 2026-07-25.)
+    func absorbCensusForRelative(_ proposal: CensusBackfill.Proposal) {
+        guard let db = currentDatabase,
+              let profile = snapshot.profiles[proposal.targetProfileID] else { return }
+        let scored = ScoredRecord(
+            id: proposal.memberRecord.common.id,
+            record: .census(proposal.memberRecord),
+            verdict: .fact, gates: [], summary: "")
+        do {
+            let fresh = (try? db.loadProfile(id: profile.id)) ?? profile
+            _ = ApplyEngine.applyFactToSubject(scored, profile: fresh, snapshot: snapshot, db: db)
+            for event in scored.record.projectToLifeEvents(profileID: profile.id) {
+                try? db.addLifeEventIfAbsent(event)
+            }
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+            successMessage = "Absorbed the \(proposal.censusYear) census onto \(profile.displayName) — birth, residence and occupation where the record has them."
+            successResearchProfileID = profile.id
+        } catch {
+            errorMessage = "Could not absorb the census: \(error.localizedDescription)"
+        }
     }
 }
 

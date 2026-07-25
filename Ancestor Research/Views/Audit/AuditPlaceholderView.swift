@@ -36,7 +36,7 @@ struct HealthView: View {
     /// Census-backfill proposals — birth years for a census subject's linked
     /// relatives, mined tree-wide. Computed once on appear (the scan reads
     /// evidence per profile, too heavy to recompute per render).
-    @State private var backfillProposals: [BirthYearProposal] = []
+    @State private var backfillProposals: [CensusBackfill.Proposal] = []
     /// Sentinel `ruleFilter` value for the synthetic "Census backfill" chip
     /// (these aren't AuditResults, so they need their own filter slot).
     private let censusBackfillFilterID = "__censusBackfill"
@@ -241,7 +241,7 @@ struct HealthView: View {
     enum HealthRow: Identifiable {
         case finding(AuditResult)
         case duplicateCluster(DuplicateCluster)
-        case censusBackfill(BirthYearProposal)
+        case censusBackfill(CensusBackfill.Proposal)
         var id: String {
             switch self {
             case .finding(let r): return "f:\(r.id)"
@@ -344,34 +344,44 @@ struct HealthView: View {
     }
 
     @ViewBuilder
-    private func censusBackfillRow(_ p: BirthYearProposal) -> some View {
+    private func censusBackfillRow(_ p: CensusBackfill.Proposal) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "calendar.badge.plus")
+            Image(systemName: "person.text.rectangle")
                 .foregroundStyle(.blue)
                 .font(.body)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 3) {
                 Text(p.targetName)
                     .font(AppTypography.cardTitle)
-                Text("Named in a \(String(p.censusYear)) census (as \(p.relationshipLabel)) — birth year ~\(String(p.estimatedBirthYear)) available to backfill")
+                Text(backfillDetail(p))
                     .font(AppTypography.cardBody)
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)
             Button {
-                appState.setBirthYearFromCensus(profileID: p.targetProfileID, year: p.estimatedBirthYear,
-                                                censusYear: p.censusYear, sourceID: p.sourceID)
+                appState.absorbCensusForRelative(p)
                 backfillProposals.removeAll { $0.targetProfileID == p.targetProfileID }
                 refreshAudit()
             } label: {
-                Label("Set birth year ~\(String(p.estimatedBirthYear))", systemImage: "calendar.badge.plus")
+                Label("Absorb census", systemImage: "square.and.arrow.down")
             }
             .buttonStyle(.glassProminent).controlSize(.mini)
-            .help("Record ~\(String(p.estimatedBirthYear)) as \(p.targetName)'s birth year, calculated from their census age")
+            .help("Copy the \(String(p.censusYear)) census onto \(p.targetName) — birth year, birthplace, residence and occupation, cited to the census")
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
+    }
+
+    /// Human summary of what a census backfill will land — the fields the record
+    /// actually carries for this member.
+    private func backfillDetail(_ p: CensusBackfill.Proposal) -> String {
+        var parts: [String] = []
+        if let y = p.estimatedBirthYear { parts.append("birth ~\(String(y))") }
+        if let occ = p.memberRecord.occupation, !occ.isEmpty { parts.append(occ.lowercased()) }
+        if let place = p.memberRecord.birthPlace, !place.isEmpty { parts.append("born \(place)") }
+        let has = parts.isEmpty ? "census details" : parts.joined(separator: " · ")
+        return "In \(p.targetName == p.memberRecord.common.name ? "a" : "the") \(String(p.censusYear)) census as \(p.relationshipLabel) — \(has) available to backfill"
     }
 
     @ViewBuilder
