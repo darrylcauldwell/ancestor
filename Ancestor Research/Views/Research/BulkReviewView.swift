@@ -379,6 +379,15 @@ struct BulkReviewView: View {
                     // in a field dispute and must stay in the rollup.
                     hasConflictSignal: openDisputeCount > 0 && hasFacts
                 )
+                // Open-dispute conflicts belong in the Health tab now, not
+                // Triage. Health surfaces them via its "N open disputes" list,
+                // which deep-links to the same per-field resolution UI, and it's
+                // where standing "things to fix" live (alongside the audit).
+                // Triage stays for research review. Impossible-record conflicts
+                // with NO open dispute are a research judgement, so they remain
+                // here. (owner request 2026-07-25 — conflicts felt like Health,
+                // not Triage.)
+                if tier == .conflict && openDisputeCount > 0 { continue }
                 if tier == .correction {
                     leadOnlyClusters += 1
                     leadOnlyRecords += live.count
