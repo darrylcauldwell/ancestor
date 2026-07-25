@@ -49,7 +49,7 @@ nonisolated struct NameFormTests {
             // With a rich set of name forms attached — displayName must not move.
             let withForms = Profile(
                 id: "p", firstName: f.first, middleName: f.middle, lastName: f.last,
-                marriedSurname: "Jones", nickName: "Nick",
+                nickName: "Nick",
                 nameForms: [
                     NameForm(type: .birth, fullText: f.expected, given: f.first, surname: f.last),
                     NameForm(type: .married, fullText: "Married Name", surname: "Jones"),
@@ -62,16 +62,33 @@ nonisolated struct NameFormTests {
         }
     }
 
-    /// displayName is computed only from firstName/middleName/lastName — a
-    /// married surname, nickname, or mother's maiden name never leaks into it,
-    /// with or without corresponding name forms.
+    /// displayName reads only firstName/middleName/lastName — a nickname or
+    /// mother's maiden name never leaks in, and a married surname does NOT
+    /// leak WHEN a maiden/last name is present (women display under maiden
+    /// name for consistency).
     @Test func displayNameIgnoresNonDisplayNameFieldsAndForms() {
         let p = Profile(
             id: "p", firstName: "Alice", lastName: "Baker",
             marriedSurname: "Carpenter", nickName: "Ally", mothersMaidenName: "Draper",
             nameForms: [NameForm(type: .married, fullText: "Alice Carpenter", surname: "Carpenter")],
             isDeleted: false, sources: [:], disputes: [:])
-        #expect(p.displayName == "Alice Baker")
+        #expect(p.displayName == "Alice Baker", "maiden name wins; married surname does not leak")
+    }
+
+    /// The one case where the married surname DOES surface: when there's no
+    /// maiden/last name at all, it's the fallback rather than rendering blank
+    /// (owner case 2026-07-25 — the "? Land" mother, known only by her married
+    /// surname because her children carry it, showed as "?").
+    @Test func displayNameFallsBackToMarriedSurnameWhenNoLastName() {
+        let motherKnownByMarriage = Profile(
+            id: "m", firstName: "Mary", lastName: nil, marriedSurname: "Land",
+            isDeleted: false, sources: [:], disputes: [:])
+        #expect(motherKnownByMarriage.displayName == "Mary Land")
+
+        let noNameAtAll = Profile(
+            id: "u", lastName: nil, marriedSurname: "Land",
+            isDeleted: false, sources: [:], disputes: [:])
+        #expect(noNameAtAll.displayName == "Land", "surname-only still beats blank")
     }
 
     // MARK: - Flat search keys unchanged (search-axis equivalence)

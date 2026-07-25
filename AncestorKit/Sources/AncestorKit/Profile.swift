@@ -144,7 +144,14 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
     /// identically to new data with `firstName="John"` and `middleName="Robert"`
     /// — both produce "John Robert Smith".
     public var displayName: String {
-        [firstName, middleName, lastName].compactMap { $0 }.joined(separator: " ")
+        // Fall back to the married surname when no maiden/last name is recorded.
+        // A woman known only by her married name — e.g. an unknown-maiden mother
+        // whose children carry the married surname (the "? Land" parents) —
+        // should still display it rather than render blank. Genealogy convention
+        // still prefers the maiden name when it's known, so `lastName` wins when
+        // present; the married surname is only a fallback for a blank last name.
+        let surname = (lastName?.isEmpty == false) ? lastName : marriedSurname
+        return [firstName, middleName, surname].compactMap { $0 }.joined(separator: " ")
     }
 
     /// When `firstName` holds more than one token and `middleName` is empty, the
