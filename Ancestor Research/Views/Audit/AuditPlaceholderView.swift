@@ -17,6 +17,10 @@ struct HealthView: View {
     @State private var openDisputeCount: Int?
     @State private var showDisputeList = false
     @State private var openDisputeRows: [DisputeRow] = []
+    /// Per-audit-rule filter chip selection (e.g. "marriedSurnameFromSpouse").
+    /// nil = all rules. Restores the per-issue-type filtering that lived in the
+    /// Tasks tab before audit moved to Health.
+    @State private var ruleFilter: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -163,9 +167,10 @@ struct HealthView: View {
                         Text("Checked \(summary.profilesChecked) profiles.")
                     }
                 } else {
+                    ruleFilterChips
                     ScrollView {
                         LazyVStack(spacing: 10) {
-                            ForEach(auditVM.filteredResults) { result in
+                            ForEach(shownResults) { result in
                                 HStack(alignment: .top, spacing: 10) {
                                     Image(systemName: result.severity.iconName)
                                         .foregroundStyle(result.severity.color)
@@ -191,6 +196,13 @@ struct HealthView: View {
                                     .buttonStyle(.plain)
                                     .disabled(onOpenProfile == nil)
                                     .help("Open \(result.profileName) in the tree")
+
+                                    // One-click fixes, ported back from the
+                                    // Tasks tab when audit moved to Health
+                                    // (owner report 2026-07-25 — the fixes were
+                                    // stranded in Tasks, which no longer shows
+                                    // audit findings).
+                                    fixButton(for: result)
 
                                     Button {
                                         onEditProfile?(result.profileID)
@@ -241,6 +253,107 @@ struct HealthView: View {
     /// the audit message; provenance is recorded via QuestionOrigin.fromAudit
     /// so the workbench can surface where the question came from. Maps audit
     /// severity to question priority (error → high, warning → medium, info → low).
+    /// Findings after applying the per-rule chip filter (on top of the
+    /// category/severity/search filters AuditViewModel already applies).
+    private var shownResults: [AuditResult] {
+        guard let rule = ruleFilter else { return auditVM.filteredResults }
+        return auditVM.filteredResults.filter { $0.ruleID == rule }
+    }
+
+    /// One chip per distinct rule present, with counts, so the list can be
+    /// narrowed to a single issue type (e.g. married-surname-missing) — the
+    /// per-issue-type filtering that used to live in Tasks.
+    @ViewBuilder private var ruleFilterChips: some View {
+        let counts = Dictionary(grouping: auditVM.filteredResults, by: { $0.ruleID })
+            .mapValues(\.count)
+            .sorted { $0.value > $1.value }
+        if counts.count > 1 {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ruleChip(label: "All (\(auditVM.filteredResults.count))", selected: ruleFilter == nil) {
+                        ruleFilter = nil
+                    }
+                    ForEach(counts, id: \.key) { rule, count in
+                        ruleChip(label: "\(prettyRule(rule)) (\(count))", selected: ruleFilter == rule) {
+                            ruleFilter = (ruleFilter == rule) ? nil : rule
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    @ViewBuilder private func ruleChip(label: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(AppTypography.badge)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(selected ? Color.accentColor.opacity(0.25) : Color.secondary.opacity(0.12), in: .capsule)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// "marriedSurnameFromSpouse" → "Married surname from spouse".
+    private func prettyRule(_ id: String) -> String {
+        var out = ""
+        for ch in id {
+            if ch.isUppercase && !out.isEmpty { out.append(" ") }
+            out.append(ch)
+        }
+        return out.prefix(1).uppercased() + out.dropFirst().lowercased()
+    }
+
+    /// The one-click fix for a finding whose rule has one — married surname,
+    /// census-derived birth year, placeholder-parent cleanup. Rules that need a
+    /// human choice (which parent to unlink, etc.) have no button here and are
+    /// fixed via Edit or in the profile.
+    @ViewBuilder private func fixButton(for r: AuditResult) -> some View {
+        switch r.ruleID {
+        case "marriedSurnameFromSpouse":
+            if let her = appState.snapshot.profiles[r.profileID],
+               let s = MarriedSurnameFromSpouseRule.suggestion(for: her, in: appState.snapshot) {
+                Button {
+                    appState.setMarriedSurname(profileID: r.profileID, surname: s.marriedSurname)
+                    refreshAudit()
+                } label: {
+                    Label("Set “\(s.marriedSurname)”", systemImage: "person.badge.plus")
+                }
+                .buttonStyle(.glassProminent).controlSize(.mini)
+                .help("Record \(s.marriedSurname) as her married surname so research finds her death and probate records")
+            }
+        case "censusAgeBirthYear":
+            if let t = appState.snapshot.profiles[r.profileID],
+               let s = CensusAgeBirthYearRule.suggestion(for: t, in: appState.snapshot) {
+                Button {
+                    appState.setBirthYearFromCensus(profileID: r.profileID, year: s.year, censusYear: s.censusYear, sourceID: s.sourceID)
+                    refreshAudit()
+                } label: {
+                    Label("Set birth year ~\(String(s.year))", systemImage: "calendar.badge.plus")
+                }
+                .buttonStyle(.glassProminent).controlSize(.mini)
+            }
+        case "excessParentEdges" where r.relatedProfileIDs?.isEmpty == false:
+            Button {
+                appState.repairExcessPlaceholderParents(for: r.profileID)
+                refreshAudit()
+            } label: {
+                Label("Remove placeholders", systemImage: "wand.and.stars")
+            }
+            .buttonStyle(.glassProminent).controlSize(.mini)
+            .help("Absorb the blank placeholder parents into the real parents and re-home shared siblings")
+        default:
+            EmptyView()
+        }
+    }
+
+    /// AppState's fix methods re-run the audit and refresh `auditSummary`;
+    /// re-sync the view model so the fixed finding drops off the list.
+    private func refreshAudit() {
+        if let s = appState.auditSummary { auditVM.summary = s }
+    }
+
     private func promoteToQuestion(_ result: AuditResult) {
         let priority: QuestionPriority = switch result.severity {
         case .error: .high
