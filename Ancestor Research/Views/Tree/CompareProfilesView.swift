@@ -115,10 +115,53 @@ struct CompareProfilesView: View {
                     fieldRow(field: field, left: left, right: right, differs: diffs.contains(field))
                     Divider()
                 }
+                // Relationships — parents/spouse/children are the decisive
+                // signal for "same person vs coincidental namesake": two
+                // same-named people with different families are NOT duplicates.
+                HStack {
+                    Text("Relationships")
+                        .font(AppTypography.cardMeta)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.top, 8)
+                relationshipRow(label: "Parents", left: parentNames(left), right: parentNames(right))
+                Divider()
+                relationshipRow(label: "Spouse", left: spouseNames(left), right: spouseNames(right))
+                Divider()
+                relationshipRow(label: "Children", left: childNames(left), right: childNames(right))
+                Divider()
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 8)
         }
+    }
+
+    private func parentNames(_ p: Profile) -> [String] {
+        appState.snapshot.parentsOf(p.id).map(\.displayName).filter { !$0.isEmpty }.sorted()
+    }
+    private func spouseNames(_ p: Profile) -> [String] {
+        appState.snapshot.spousesOf(p.id).map(\.displayName).filter { !$0.isEmpty }.sorted()
+    }
+    private func childNames(_ p: Profile) -> [String] {
+        appState.snapshot.childrenOf(p.id).map(\.displayName).filter { !$0.isEmpty }.sorted()
+    }
+
+    /// A relationship row (parents / spouse / children) — differing families
+    /// tint orange, the same "look here" cue the scalar diff rows use.
+    @ViewBuilder
+    private func relationshipRow(label: String, left: [String], right: [String]) -> some View {
+        let differs = Set(left.map { $0.lowercased() }) != Set(right.map { $0.lowercased() })
+        HStack(alignment: .top, spacing: 16) {
+            Text(label)
+                .font(AppTypography.popoverLabel)
+                .foregroundStyle(.secondary)
+                .frame(width: 110, alignment: .leading)
+            valueCell(value: left.isEmpty ? nil : left.joined(separator: ", "), differs: differs)
+            Divider()
+            valueCell(value: right.isEmpty ? nil : right.joined(separator: ", "), differs: differs)
+        }
+        .padding(.vertical, 8)
     }
 
     @ViewBuilder
