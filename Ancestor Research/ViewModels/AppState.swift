@@ -2191,6 +2191,109 @@ final class AppState {
         }
     }
 
+    /// Create the human-confirmed family members mined from a census roster
+    /// (`CensusFamilyLinker` already excluded the dwelling's boarders/lodgers/
+    /// servants) and wire their edges. Structural rules:
+    ///   • a parent links parent→subject (skipped if the subject already has a
+    ///     parent of that role — never a duplicate father/mother),
+    ///   • a child links subject→child,
+    ///   • a spouse gets a spouse edge,
+    ///   • a sibling attaches as a CHILD of the subject's parents (existing or
+    ///     just-created) — never a direct edge, because siblinghood is shared
+    ///     parentage; skipped if no parent is available to hang it on.
+    /// New people carry a census-age birth estimate (their own attestation) and
+    /// the census as source. Returns (added, skipped) for the caller to report.
+    @discardableResult
+    func addCensusFamily(
+        links: [CensusFamilyLinker.Link],
+        subject: Profile,
+        censusYear: Int?,
+        sourceID: String
+    ) -> (added: Int, skipped: Int) {
+        guard let db = currentDatabase else { return (0, 0) }
+        let source = SourceOrigin(identifier: sourceID)
+
+        func gender(_ sex: String?) -> Gender? {
+            guard let s = sex?.trimmingCharacters(in: .whitespaces).uppercased(), let f = s.first else { return nil }
+            return f == "F" ? .female : (f == "M" ? .male : nil)
+        }
+        func role(for member: HouseholdMember) -> ParentRole {
+            switch gender(member.sex) {
+            case .female: return .mother
+            case .male:   return .father
+            default:      return .unspecified
+            }
+        }
+        func recase(_ token: String) -> String {
+            (token == token.uppercased() || token == token.lowercased()) ? token.capitalized : token
+        }
+        func build(_ m: HouseholdMember) -> Profile {
+            let tokens = m.name.split(separator: " ").map(String.init)
+            let last = tokens.count >= 2 ? recase(tokens.last!) : nil
+            let first = tokens.first.map(recase)
+            let middle = tokens.count > 2 ? tokens[1..<(tokens.count - 1)].map(recase).joined(separator: " ") : nil
+            let year: Int? = m.birthYear ?? (censusYear.flatMap { cy in m.age.map { cy - $0 } })
+            let birth = year.map { GenealogicalDate(parsing: "abt \($0)") }
+            return Profile(id: UUID().uuidString, externalIDs: [:], firstName: first, middleName: middle,
+                           lastName: last, gender: gender(m.sex), attributes: nil,
+                           birthDate: birth, birthLocation: nil, deathDate: nil, deathLocation: nil,
+                           bio: nil, isDeleted: false, sources: [:], disputes: [:])
+        }
+
+        let subjectRole: ParentRole = subject.gender == .male ? .father : (subject.gender == .female ? .mother : .unspecified)
+        // Parents available to hang siblings on: existing edges + ones we add now.
+        var parents: [(id: String, role: ParentRole)] = snapshot.parentsOf(subject.id).map {
+            ($0.id, $0.gender == .male ? .father : ($0.gender == .female ? .mother : .unspecified))
+        }
+
+        var profiles: [Profile] = []
+        var edges: [Relationship] = []
+        var added = 0, skipped = 0
+
+        func parentEdge(from parentID: String, to childID: String, role: ParentRole) -> Relationship {
+            Relationship(id: UUID(), from: parentID, to: childID, type: .parent, role: role,
+                         subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
+        }
+
+        // 1. Parents first, so siblings can reference them.
+        for link in links where link.relation == .parent {
+            let r = role(for: link.member)
+            if r != .unspecified, parents.contains(where: { $0.role == r }) { skipped += 1; continue }
+            let p = build(link.member); profiles.append(p)
+            edges.append(parentEdge(from: p.id, to: subject.id, role: r))
+            parents.append((p.id, r)); added += 1
+        }
+        // 2. Spouse.
+        for link in links where link.relation == .spouse {
+            let p = build(link.member); profiles.append(p)
+            edges.append(Relationship(id: UUID(), from: subject.id, to: p.id, type: .spouse, role: nil,
+                                      subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil))
+            added += 1
+        }
+        // 3. Children.
+        for link in links where link.relation == .child {
+            let p = build(link.member); profiles.append(p)
+            edges.append(parentEdge(from: subject.id, to: p.id, role: subjectRole)); added += 1
+        }
+        // 4. Siblings — as children of the subject's parents, never a direct edge.
+        for link in links where link.relation == .sibling {
+            guard !parents.isEmpty else { skipped += 1; continue }
+            let p = build(link.member); profiles.append(p)
+            for parent in parents { edges.append(parentEdge(from: parent.id, to: p.id, role: parent.role)) }
+            added += 1
+        }
+
+        do {
+            for p in profiles { _ = try db.addProfile(p, source: source) }
+            for e in edges { _ = try db.addRelationship(e) }
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+        } catch {
+            errorMessage = "Add family from census failed: \(error.localizedDescription)"
+        }
+        return (added, skipped)
+    }
+
     /// When a REAL parent is established for a child, retire the blank
     /// placeholder the sibling shortcut created — replacing it, and carrying
     /// every sibling that shared it onto the real parent — instead of letting

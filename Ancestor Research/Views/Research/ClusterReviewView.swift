@@ -578,6 +578,42 @@ struct ClusterReviewView: View {
                             }
                         }
                     }
+                    // Mine the roster into family links — parents, spouse,
+                    // children, siblings only; boarders/lodgers/servants are
+                    // excluded by CensusFamilyLinker. Human-confirmed via the
+                    // dialog before anything is written.
+                    if let ctx = censusFamilyContext(cluster), vm.selectedProfile != nil {
+                        Button {
+                            pendingCensusFamily = PendingCensusFamily(
+                                links: ctx.links, year: ctx.year, sourceID: ctx.sourceID)
+                        } label: {
+                            Label("Add \(ctx.links.count) family member\(ctx.links.count == 1 ? "" : "s")",
+                                  systemImage: "person.2.badge.plus")
+                        }
+                        .buttonStyle(.glass)
+                        .controlSize(.small)
+                        .padding(.top, 4)
+                        .help("Adds only the family rows (parents, spouse, children, siblings). Boarders, lodgers, visitors and servants are left out.")
+                    }
+                }
+                .confirmationDialog(
+                    "Add family from this census?",
+                    isPresented: Binding(
+                        get: { pendingCensusFamily != nil },
+                        set: { if !$0 { pendingCensusFamily = nil } }),
+                    presenting: pendingCensusFamily
+                ) { pending in
+                    Button("Add \(pending.links.count) to tree") {
+                        if let subject = vm.selectedProfile {
+                            _ = appState.addCensusFamily(
+                                links: pending.links, subject: subject,
+                                censusYear: pending.year, sourceID: pending.sourceID)
+                        }
+                        pendingCensusFamily = nil
+                    }
+                    Button("Cancel", role: .cancel) { pendingCensusFamily = nil }
+                } message: { pending in
+                    Text(censusFamilySummary(pending.links))
                 }
             }
 
@@ -1302,6 +1338,45 @@ struct ClusterReviewView: View {
         case .possible:  return 1
         default:         return 0   // .wrong or nil (empty)
         }
+    }
+
+    // MARK: - Add family from census
+
+    /// A pending "add family from census" confirmation.
+    struct PendingCensusFamily: Identifiable {
+        let id = UUID()
+        let links: [CensusFamilyLinker.Link]
+        let year: Int?
+        let sourceID: String
+    }
+
+    @State private var pendingCensusFamily: PendingCensusFamily?
+
+    /// The family links + census provenance for a cluster, or nil when the
+    /// cluster has no census record or the roster yields no family rows.
+    private func censusFamilyContext(_ cluster: LifeCluster) -> (links: [CensusFamilyLinker.Link], year: Int?, sourceID: String)? {
+        for scored in cluster.records {
+            if case .census(let r) = scored.record {
+                let links = CensusFamilyLinker.familyLinks(household: cluster.householdMembers)
+                guard !links.isEmpty else { return nil }
+                return (links, r.censusYear, r.common.sourceID)
+            }
+        }
+        return nil
+    }
+
+    /// A grouped, human-readable summary of what "add family" will create.
+    private func censusFamilySummary(_ links: [CensusFamilyLinker.Link]) -> String {
+        let groups: [(CensusRelation, String)] = [
+            (.parent, "Parents"), (.spouse, "Spouse"), (.child, "Children"), (.sibling, "Siblings"),
+        ]
+        var parts: [String] = []
+        for (rel, label) in groups {
+            let names = links.filter { $0.relation == rel }.map { $0.member.name }
+            if !names.isEmpty { parts.append("\(label): \(names.joined(separator: ", "))") }
+        }
+        parts.append("Boarders, lodgers, visitors and servants are not added.")
+        return parts.joined(separator: "\n")
     }
 
     @ViewBuilder
