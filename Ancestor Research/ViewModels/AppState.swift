@@ -229,6 +229,12 @@ final class AppState {
     var loadingMessage: String?
     var errorMessage: String?
     var successMessage: String?
+    /// When set alongside `successMessage`, the success alert offers a
+    /// "Research" button for this profile — for fixes that add a research-
+    /// unlocking field (married surname, census birth year), so the user can
+    /// immediately check whether the new anchor surfaces evidence. Cleared when
+    /// the alert is dismissed. (owner request 2026-07-25.)
+    var successResearchProfileID: String?
 
     /// Driven by NewProjectView when the user picks "Start From Scratch", and by
     /// the empty-state placeholder. ContentView watches this to present the wizard sheet.
@@ -2552,6 +2558,7 @@ final class AppState {
             snapshot = try db.buildSnapshot()
             runPostLoadAudit()
             successMessage = "Recorded married surname '\(surname)' — research will now search her death and probate records under it."
+            successResearchProfileID = profileID
         } catch {
             errorMessage = "Could not set married surname: \(error.localizedDescription)"
         }
@@ -2576,6 +2583,7 @@ final class AppState {
             snapshot = try db.buildSnapshot()
             runPostLoadAudit()
             successMessage = "Set \(profile.displayName)'s birth year to ~\(year) (calculated from the \(censusYear) census)."
+            successResearchProfileID = profileID
         } catch {
             errorMessage = "Could not set birth year: \(error.localizedDescription)"
         }

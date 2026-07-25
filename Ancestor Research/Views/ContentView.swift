@@ -19,7 +19,21 @@ struct ContentView: View {
             Text(appState.errorMessage ?? "")
         }
         .alert("Success", isPresented: .constant(appState.successMessage != nil)) {
-            Button("OK") { appState.successMessage = nil }
+            // For fixes that add a research-unlocking field (married surname,
+            // birth year), offer to research the just-updated profile right away
+            // — the new anchor may surface death/probate/census evidence
+            // (owner request 2026-07-25).
+            if let researchID = appState.successResearchProfileID {
+                Button("Research \(appState.snapshot.profiles[researchID]?.displayName ?? "profile")") {
+                    appState.successMessage = nil
+                    appState.successResearchProfileID = nil
+                    appState.researchProfileID = researchID   // opens the mode/scope sheet
+                }
+            }
+            Button("OK") {
+                appState.successMessage = nil
+                appState.successResearchProfileID = nil
+            }
         } message: {
             Text(appState.successMessage ?? "")
         }
