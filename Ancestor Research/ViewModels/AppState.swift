@@ -51,7 +51,16 @@ final class AppState {
         runRequestWatcher?.stop()
         runRequestWatcher = nil
     }
-    var snapshot: FamilyGraphSnapshot = .empty
+    var snapshot: FamilyGraphSnapshot = .empty {
+        didSet { treeContentRevision &+= 1 }
+    }
+    /// Bumps on every snapshot assignment — structural AND field-content edits.
+    /// The tree canvas bakes each node's `Profile` at layout time, and because
+    /// `Profile ==` is id-only it can't detect a name/date edit by observing the
+    /// snapshot; it observes this counter to know when to refresh its nodes
+    /// (owner report 2026-07-25: editing an unknown parent's surname didn't
+    /// reflect until the profile count changed). Read-only outside AppState.
+    private(set) var treeContentRevision: Int = 0
     var auditSummary: AuditSummary?
     var availableProjects: [Project] = []
     /// Set to trigger research for a specific profile from the tree view.

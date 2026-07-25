@@ -80,6 +80,16 @@ final class TreeViewModel {
         dragStartOffset = .zero
     }
 
+    /// Refresh the baked node data (names, dates, completeness) from the current
+    /// snapshot WITHOUT resetting the viewport — for reflecting a profile *edit*
+    /// that changed content but not tree structure. The canvas bakes a `Profile`
+    /// into each node at layout time and, because `Profile ==` is id-only, can't
+    /// otherwise notice a field edit. Positions are unchanged for an unedited
+    /// graph, so nothing moves — the name/date just updates in place.
+    func refreshNodeData(snapshot: FamilyGraphSnapshot) {
+        rebuildLayoutOnly(snapshot: snapshot)
+    }
+
     /// Rebuild layout without resetting offset/scale — used during animated recenter.
     private func rebuildLayoutOnly(snapshot: FamilyGraphSnapshot) {
         guard let rootID = rootProfileID else { return }

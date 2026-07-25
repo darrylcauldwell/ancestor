@@ -413,6 +413,13 @@ struct TreeGraphView: View {
             selectInitialRoot()
             treeVM.rebuildLayout(snapshot: appState.snapshot)
         }
+        // Field-content edits (a renamed profile, a new date) don't change the
+        // profile COUNT, so the structural onChange above misses them and the
+        // canvas keeps its stale baked nodes. Observe the content revision and
+        // refresh the nodes in place — no viewport reset, positions unchanged.
+        .onChange(of: appState.treeContentRevision) {
+            treeVM.refreshNodeData(snapshot: appState.snapshot)
+        }
         .sheet(isPresented: $showAddPerson) {
             switch addPersonContext {
             case .freestanding:
