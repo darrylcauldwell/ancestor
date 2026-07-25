@@ -162,6 +162,52 @@ struct FamilySearchSourceTests {
         #expect(result.records.isEmpty)
         guard case .results = result else { Issue.record("expected .results([])"); return }
     }
+
+    // Regression: not signed in must publish a red-cross `sourceError` (so a
+    // run doesn't end with FamilySearch wearing a green tick / "no results").
+    // The 401/403 branch already did this; the no-token branch used to return
+    // requiresAuth silently, leaking the in-flight count and settling green.
+    @Test func notSignedInPublishesSourceErrorTellingUserToSignIn() async {
+        let collector = FSEventCollector()
+        let stream = await ResearchActivityBus.shared.subscribe()
+        let task = Task { for await event in stream { await collector.record(event) } }
+        defer { task.cancel() }
+        await Task.yield()
+
+        let client = FamilySearchClient(environment: .beta, tokenSource: StubTokenSource(bearer: nil), sleeper: { _ in })
+        let source = FamilySearchSource(client: client, environment: .beta)
+        let envelope = await source.searchWithOutcome(query(recordType: .birth, from: 1885, to: 1889))
+
+        #expect(envelope.outcome.availability == .requiresAuth)
+
+        // Poll (bounded) so the background collector can drain the fan-out —
+        // a single yield races the actor and flakes under the batch runner.
+        var signInError = false
+        for _ in 0..<200 {
+            if await collector.hasSignInError { signInError = true; break }
+            await Task.yield()
+        }
+        let seenEvents = await collector.events
+        #expect(signInError,
+                "a not-signed-in FamilySearch must publish a sourceError telling the user to sign in — got \(seenEvents)")
+    }
+}
+
+/// Collects `ResearchActivityBus` events for assertions.
+private actor FSEventCollector {
+    private(set) var events: [ResearchActivityEvent] = []
+    func record(_ event: ResearchActivityEvent) { events.append(event) }
+
+    /// True once a FamilySearch `sourceError` asking the user to sign in has
+    /// been observed.
+    var hasSignInError: Bool {
+        events.contains { event in
+            if case let .sourceError(sourceID, _, reason, _) = event {
+                return sourceID == "familysearch" && reason.lowercased().contains("sign in")
+            }
+            return false
+        }
+    }
 }
 
 /// Minimal token source for the no-network flow tests.

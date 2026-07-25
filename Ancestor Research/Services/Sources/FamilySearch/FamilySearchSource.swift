@@ -118,7 +118,7 @@ actor FamilySearchSource: RecordSource {
                 return SourceSearchEnvelope(.results([]))
 
             case 401, 403:
-                await publishError(summary, "auth/entitlement", query.strictness)
+                await publishError(summary, "Sign in to FamilySearch in Settings to get records from this source (session expired or no records access)", query.strictness)
                 return SourceSearchEnvelope(
                     result: .requiresAuth(message: "FamilySearch access unavailable (HTTP \(response.statusCode)) — re-authenticate in Settings, or this key's tier lacks records access"),
                     outcome: SearchOutcome(resultCount: 0, availability: .requiresAuth))
@@ -136,6 +136,10 @@ actor FamilySearchSource: RecordSource {
                     outcome: SearchOutcome(resultCount: 0, availability: .error(reason: "HTTP \(response.statusCode)")))
             }
         } catch FamilySearchClientError.notAuthenticated {
+            // Not signed in at all — surface a red-cross source error (not a
+            // silent zero-result), so the run doesn't end with FamilySearch
+            // wearing a green tick when the user simply hasn't connected it.
+            await publishError(summary, "Sign in to FamilySearch in Settings to get records from this source", query.strictness)
             return SourceSearchEnvelope(
                 result: .requiresAuth(message: "Sign in to FamilySearch in Settings to enable this source"),
                 outcome: SearchOutcome(resultCount: 0, availability: .requiresAuth))
