@@ -211,7 +211,7 @@ public nonisolated struct GivenNameContainsMiddleRule: AuditRuleDefinition {
         return [AuditResult(
             profileID: profile.id, profileName: profile.displayName,
             severity: .info, ruleID: id,
-            message: "Given name \"\(profile.firstName ?? "")\" looks like it contains a middle name — split into given \"\(split.first)\" + middle \"\(split.middle)\" (Cleanse)."
+            message: "Given name \"\(profile.firstName ?? "")\" looks like it contains a middle name — split into given \"\(split.first)\" + middle \"\(split.middle)\"."
         )]
     }
 }

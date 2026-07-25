@@ -2564,6 +2564,33 @@ final class AppState {
         }
     }
 
+    /// One-click fix for `GivenNameContainsMiddleRule` — split a folded given
+    /// name ("Annie E") into given + middle ("Annie" + "E"), using the same
+    /// `Profile.impliedGivenMiddleSplit` the rule detects with so the button and
+    /// the rule can never disagree. Manual-derived source.
+    func applyGivenMiddleSplit(profileID: String) {
+        guard let db = currentDatabase,
+              let profile = snapshot.profiles[profileID],
+              let split = profile.impliedGivenMiddleSplit else { return }
+        let original = profile.firstName ?? ""
+        do {
+            _ = try db.editProfile(
+                profileID: profileID,
+                changes: [
+                    (.firstName, profile.firstName, split.first),
+                    (.middleName, profile.middleName, split.middle),
+                ],
+                dateChanges: [],
+                source: SourceOrigin(identifier: "manual.derived"))
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+            successMessage = "Split “\(original)” into given “\(split.first)” and middle “\(split.middle)” — a cleaner name helps research match her records."
+            successResearchProfileID = profileID
+        } catch {
+            errorMessage = "Could not split the name: \(error.localizedDescription)"
+        }
+    }
+
     /// Fill an EMPTY birth year on `profileID` from a linked relative's census
     /// age. Written as a `.calculated` (CAL, ±1) date so its provenance reads
     /// "derived from the census", not an asserted precise date. Gap-fill only —

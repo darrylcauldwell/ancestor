@@ -22,6 +22,17 @@ struct HealthView: View {
     /// Tasks tab before audit moved to Health.
     @State private var ruleFilter: String?
 
+    /// A pending "compare two possible-duplicate profiles" sheet — the
+    /// actionable resolution for a `duplicateDetection` finding (side-by-side,
+    /// with CompareProfilesView's own merge-safety confirmation; never a
+    /// one-click merge).
+    struct ComparePair: Identifiable {
+        let id = UUID()
+        let leftID: String
+        let rightID: String
+    }
+    @State private var comparePair: ComparePair?
+
     var body: some View {
         VStack(spacing: 0) {
             // Two-row toolbar: actions on top, filters below — keeps the bar
@@ -240,6 +251,9 @@ struct HealthView: View {
             }
         }
         .navigationTitle("Health")
+        .sheet(item: $comparePair) { pair in
+            CompareProfilesView(leftProfileID: pair.leftID, rightProfileID: pair.rightID)
+        }
         .onAppear {
             // Always show the latest maintained summary. AppState keeps
             // `auditSummary` current after every mutation (import, edit, cleanse,
@@ -333,6 +347,28 @@ struct HealthView: View {
                     Label("Set birth year ~\(String(s.year))", systemImage: "calendar.badge.plus")
                 }
                 .buttonStyle(.glassProminent).controlSize(.mini)
+            }
+        case "duplicateDetection":
+            if let otherID = r.relatedProfileIDs?.first {
+                Button {
+                    comparePair = ComparePair(leftID: r.profileID, rightID: otherID)
+                } label: {
+                    Label("Compare", systemImage: "rectangle.on.rectangle")
+                }
+                .buttonStyle(.glassProminent).controlSize(.mini)
+                .help("Compare the two profiles side by side and merge only if they are truly the same person")
+            }
+        case "givenNameContainsMiddle":
+            if let p = appState.snapshot.profiles[r.profileID],
+               let split = p.impliedGivenMiddleSplit {
+                Button {
+                    appState.applyGivenMiddleSplit(profileID: r.profileID)
+                    refreshAudit()
+                } label: {
+                    Label("Split to “\(split.first)” + “\(split.middle)”", systemImage: "textformat.abc")
+                }
+                .buttonStyle(.glassProminent).controlSize(.mini)
+                .help("Move the extra word out of the given name and into the middle name")
             }
         case "excessParentEdges" where r.relatedProfileIDs?.isEmpty == false:
             Button {
