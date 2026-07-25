@@ -33,6 +33,14 @@ struct HealthView: View {
     }
     @State private var comparePair: ComparePair?
 
+    /// Census-backfill proposals — birth years for a census subject's linked
+    /// relatives, mined tree-wide. Computed once on appear (the scan reads
+    /// evidence per profile, too heavy to recompute per render).
+    @State private var backfillProposals: [BirthYearProposal] = []
+    /// Sentinel `ruleFilter` value for the synthetic "Census backfill" chip
+    /// (these aren't AuditResults, so they need their own filter slot).
+    private let censusBackfillFilterID = "__censusBackfill"
+
     var body: some View {
         VStack(spacing: 0) {
             // Two-row toolbar: actions on top, filters below — keeps the bar
@@ -185,6 +193,8 @@ struct HealthView: View {
                                 switch row {
                                 case .duplicateCluster(let cluster):
                                     duplicateClusterRow(cluster)
+                                case .censusBackfill(let proposal):
+                                    censusBackfillRow(proposal)
                                 case .finding(let result):
                                     findingRow(result)
                                 }
@@ -211,6 +221,7 @@ struct HealthView: View {
             // snooze), so this is free — no per-open recompute needed to be up to
             // date, which is why there's no manual "Re-run Audit" button.
             if let auto = appState.auditSummary { auditVM.summary = auto }
+            backfillProposals = appState.censusBackfillProposals()
         }
     }
 
@@ -230,10 +241,12 @@ struct HealthView: View {
     enum HealthRow: Identifiable {
         case finding(AuditResult)
         case duplicateCluster(DuplicateCluster)
+        case censusBackfill(BirthYearProposal)
         var id: String {
             switch self {
             case .finding(let r): return "f:\(r.id)"
             case .duplicateCluster(let c): return "d:\(c.id)"
+            case .censusBackfill(let p): return "b:\(p.id)"
             }
         }
     }
@@ -250,11 +263,20 @@ struct HealthView: View {
     /// so a person appearing in several pairwise rows collapses to a single
     /// entry (owner request 2026-07-25).
     private var displayRows: [HealthRow] {
+        // The synthetic census-backfill chip shows only those rows.
+        if ruleFilter == censusBackfillFilterID {
+            return backfillProposals.map { HealthRow.censusBackfill($0) }
+        }
         let results = shownResults
         let dupes = results.filter { $0.ruleID == "duplicateDetection" }
         let others = results.filter { $0.ruleID != "duplicateDetection" }
-        var rows = duplicateClusters(from: dupes).map { HealthRow.duplicateCluster($0) }
-        rows.append(contentsOf: others.map { HealthRow.finding($0) })
+        var rows: [HealthRow] = []
+        // Census-backfill proposals surface at the top of the unfiltered view.
+        if ruleFilter == nil {
+            rows += backfillProposals.map { HealthRow.censusBackfill($0) }
+        }
+        rows += duplicateClusters(from: dupes).map { HealthRow.duplicateCluster($0) }
+        rows += others.map { HealthRow.finding($0) }
         return rows
     }
 
@@ -322,6 +344,37 @@ struct HealthView: View {
     }
 
     @ViewBuilder
+    private func censusBackfillRow(_ p: BirthYearProposal) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "calendar.badge.plus")
+                .foregroundStyle(.blue)
+                .font(.body)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(p.targetName)
+                    .font(AppTypography.cardTitle)
+                Text("Named in a \(String(p.censusYear)) census (as \(p.relationshipLabel)) — birth year ~\(String(p.estimatedBirthYear)) available to backfill")
+                    .font(AppTypography.cardBody)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
+            Button {
+                appState.setBirthYearFromCensus(profileID: p.targetProfileID, year: p.estimatedBirthYear,
+                                                censusYear: p.censusYear, sourceID: p.sourceID)
+                backfillProposals.removeAll { $0.targetProfileID == p.targetProfileID }
+                refreshAudit()
+            } label: {
+                Label("Set birth year ~\(String(p.estimatedBirthYear))", systemImage: "calendar.badge.plus")
+            }
+            .buttonStyle(.glassProminent).controlSize(.mini)
+            .help("Record ~\(String(p.estimatedBirthYear)) as \(p.targetName)'s birth year, calculated from their census age")
+        }
+        .padding(12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+    }
+
+    @ViewBuilder
     private func findingRow(_ result: AuditResult) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: result.severity.iconName)
@@ -381,7 +434,7 @@ struct HealthView: View {
         let counts = Dictionary(grouping: auditVM.filteredResults, by: { $0.ruleID })
             .mapValues(\.count)
             .sorted { $0.value > $1.value }
-        if counts.count > 1 {
+        if counts.count > 1 || !backfillProposals.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ruleChip(label: "All (\(auditVM.filteredResults.count))", selected: ruleFilter == nil) {
@@ -390,6 +443,12 @@ struct HealthView: View {
                     ForEach(counts, id: \.key) { rule, count in
                         ruleChip(label: "\(prettyRule(rule)) (\(count))", selected: ruleFilter == rule) {
                             ruleFilter = (ruleFilter == rule) ? nil : rule
+                        }
+                    }
+                    if !backfillProposals.isEmpty {
+                        ruleChip(label: "Census backfill (\(backfillProposals.count))",
+                                 selected: ruleFilter == censusBackfillFilterID) {
+                            ruleFilter = (ruleFilter == censusBackfillFilterID) ? nil : censusBackfillFilterID
                         }
                     }
                 }

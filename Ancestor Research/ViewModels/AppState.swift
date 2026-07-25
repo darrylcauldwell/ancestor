@@ -2615,6 +2615,30 @@ final class AppState {
             errorMessage = "Could not set birth year: \(error.localizedDescription)"
         }
     }
+
+    /// Tree-wide census backfill: every CONFIRMED census (verdict `.fact`) in the
+    /// tree names a household, and some of those people are relatives already on
+    /// the tree without a birth year. Gather those censuses and let
+    /// `CensusBackfill` propose gap-fill birth years for the linked relatives —
+    /// so a census the researcher found on ONE person enriches the whole
+    /// household. Read-only; the caller applies via `setBirthYearFromCensus`.
+    func censusBackfillProposals() -> [BirthYearProposal] {
+        guard let db = currentDatabase else { return [] }
+        var sources: [CensusBackfill.CensusSource] = []
+        for profileID in snapshot.profiles.keys {
+            let evidence = (try? db.loadEvidenceForProfile(profileID)) ?? []
+            for e in evidence where e.recordType == .census && e.verdict == .fact {
+                guard case .census(let c) = e.record,
+                      let household = c.household, !household.isEmpty else { continue }
+                sources.append(CensusBackfill.CensusSource(
+                    subjectID: profileID,
+                    household: household,
+                    censusYear: c.censusYear,
+                    sourceID: c.common.sourceID))
+            }
+        }
+        return CensusBackfill.proposals(censuses: sources, snapshot: snapshot)
+    }
 }
 
 /// Errors raised by `AppState.importGEDCOM`. Currently just one case —
