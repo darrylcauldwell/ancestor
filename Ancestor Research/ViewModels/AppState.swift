@@ -555,6 +555,7 @@ final class AppState {
             // idempotent; latent DS-15/DS-26-shaped damage in existing
             // trees becomes visible on first launch after the migration.
             runConflictSweep(backfillFirst: true)
+            runCorroborationSweep()
             runPostLoadAudit()
             loadWorkbench()
             ensureSession()
@@ -589,6 +590,7 @@ final class AppState {
             currentDatabase = db
             snapshot = try db.buildSnapshot()
             runPostLoadAudit()
+            runCorroborationSweep()
             loadWorkbench()
             ensureSession()
             startRunRequestWatcher()
@@ -626,6 +628,26 @@ final class AppState {
             // log line, not an error sheet. Detection-completeness is
             // restored on the next successful sweep (idempotent).
             sweepLogger.error("Conflict sweep failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// #CPC-Change2 — run the cross-profile corroboration sweep
+    /// (`CROSS_PROFILE_CORROBORATION_SPEC.md` Change 2). Detection only:
+    /// emits pending facts for human review; never writes tree data.
+    /// Best-effort like the conflict sweep — failure logs, never blocks.
+    func runCorroborationSweep(limitToProfileID: String? = nil) {
+        guard let db = currentDatabase else { return }
+        do {
+            let report = try CorroborationSweep.run(
+                db: db, snapshot: snapshot, limitToProfileID: limitToProfileID)
+            if report.findingsEmitted > 0 || report.withdrawnStale > 0 {
+                sweepLogger.info("Corroboration sweep: \(report.findingsEmitted) facts emitted, \(report.withdrawnStale) withdrawn, \(report.nearMisses.count) near-misses over \(report.edgesScanned) edges")
+            }
+            for miss in report.nearMisses {
+                sweepLogger.info("Corroboration near-miss: \(miss)")
+            }
+        } catch {
+            sweepLogger.error("Corroboration sweep failed: \(error.localizedDescription)")
         }
     }
 

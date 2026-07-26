@@ -49,6 +49,15 @@ final class PendingFactsProcessor {
             let reasoning = row["reasoning"] as? String ?? ""
             let confidence = row["confidence"] as? String ?? "medium"
             let agentID = row["agent_id"] as? String ?? "unknown"
+            // #CPC-Change2 — honour the STORED verification status instead
+            // of hardcoding `.pending`: producers that pre-verify (the
+            // corroboration sweep derives from already-scored evidence; the
+            // consensus detector marks its writes verified) get their
+            // Step-2 bypass, which previously never fired.
+            let storedStatus = PendingFact.VerificationStatus(
+                rawValue: row["verification_status"] as? String ?? "pending"
+            ) ?? .pending
+            let payloadJSON = (row["sources_json"] as? String).flatMap { $0 == "{}" ? nil : $0 }
 
             let finding = PendingFact(
                 id: id, profileID: profileID, field: field, value: value,
@@ -56,7 +65,8 @@ final class PendingFactsProcessor {
                 evidenceText: String(evidenceText.prefix(200)),
                 reasoning: reasoning, confidence: confidence,
                 agentID: agentID, submittedAt: Date(),
-                verificationStatus: .pending
+                verificationStatus: storedStatus,
+                payloadJSON: payloadJSON
             )
 
             // Step 1: Hallucination checks (Rule 6)
@@ -76,32 +86,57 @@ final class PendingFactsProcessor {
                 continue
             }
 
-            // Step 2: URL verification (Rule 2)
-            let verification = await EvidenceFirewall.verifyURL(
-                url: finding.sourceURL, evidenceText: finding.evidenceText
-            )
-            switch verification {
-            case .verified(let pageData, let pageHash):
-                logger.info("URL verified: \(finding.sourceURL)")
-                // Cache the page for provenance
-                cachePageData(url: finding.sourceURL, data: pageData, hash: pageHash)
-            case .restricted(let reason):
-                logger.info("Restricted source: \(reason)")
-                // Proceed but mark as restricted
-            case .contentMismatch(let reason):
-                logger.info("Content mismatch: \(reason)")
+            // #CPC-Change2 — corroboration facts skip Steps 2–5 entirely:
+            // they derive from already-scored, already-cited persisted
+            // evidence rows (both underlying records carry full 4-gate
+            // verdicts), the synthetic re-score below would strip the GRO
+            // tuple — the entire evidence — and a live re-fetch would
+            // re-hit volunteer sources on every review load (ToS posture,
+            // `feedback_verify_source_terms_first`).
+            if finding.agentID == CorroborationSweep.agentID {
                 processed.append(ProcessedFinding(
-                    finding: finding, status: .rejected, rejectionReason: "URL content mismatch: \(reason)",
-                    scorerVerdict: nil, discrepancy: nil, sourceTier: nil
+                    finding: finding, status: .readyForReview,
+                    rejectionReason: nil, scorerVerdict: nil,
+                    discrepancy: nil,
+                    sourceTier: SourceTierRegistry.lookup(url: finding.sourceURL)
                 ))
+                citedURLs.insert(finding.sourceURL)
                 continue
-            case .failed(let reason):
-                logger.info("URL verification failed: \(reason)")
-                processed.append(ProcessedFinding(
-                    finding: finding, status: .rejected, rejectionReason: "URL verification failed: \(reason)",
-                    scorerVerdict: nil, discrepancy: nil, sourceTier: nil
-                ))
-                continue
+            }
+
+            // Step 2: URL verification (Rule 2). A stored `.verified`
+            // status short-circuits the live fetch — the value was already
+            // verified at submission time (#CPC-Change2: the processor
+            // previously hardcoded `.pending`, silently defeating the
+            // consensus detector's pre-verified escape hatch and
+            // re-fetching on every review load).
+            if finding.verificationStatus != .verified {
+                let verification = await EvidenceFirewall.verifyURL(
+                    url: finding.sourceURL, evidenceText: finding.evidenceText
+                )
+                switch verification {
+                case .verified(let pageData, let pageHash):
+                    logger.info("URL verified: \(finding.sourceURL)")
+                    // Cache the page for provenance
+                    cachePageData(url: finding.sourceURL, data: pageData, hash: pageHash)
+                case .restricted(let reason):
+                    logger.info("Restricted source: \(reason)")
+                    // Proceed but mark as restricted
+                case .contentMismatch(let reason):
+                    logger.info("Content mismatch: \(reason)")
+                    processed.append(ProcessedFinding(
+                        finding: finding, status: .rejected, rejectionReason: "URL content mismatch: \(reason)",
+                        scorerVerdict: nil, discrepancy: nil, sourceTier: nil
+                    ))
+                    continue
+                case .failed(let reason):
+                    logger.info("URL verification failed: \(reason)")
+                    processed.append(ProcessedFinding(
+                        finding: finding, status: .rejected, rejectionReason: "URL verification failed: \(reason)",
+                        scorerVerdict: nil, discrepancy: nil, sourceTier: nil
+                    ))
+                    continue
+                }
             }
 
             // Step 3: Look up source tier from URL (Rule 5)

@@ -3873,7 +3873,11 @@ nonisolated extension ProjectDatabase {
                 VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
                     fact.id, fact.profileID, fact.field, fact.value,
-                    "{}",  // sources_json placeholder — Evidence Firewall reconstructs from source_url/title columns
+                    // Routing payload for structured accept paths
+                    // (#CPC-Change2); "{}" for every other producer — the
+                    // Evidence Firewall reconstructs its context from the
+                    // source_url/title columns.
+                    fact.payloadJSON ?? "{}",
                     fact.submittedAt,
                     fact.sourceURL, fact.sourceTitle,
                     String(fact.evidenceText.prefix(200)),

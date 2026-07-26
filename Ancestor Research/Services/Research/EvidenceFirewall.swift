@@ -231,6 +231,11 @@ nonisolated struct PendingFact: Identifiable, Sendable {
     let agentID: String              // "claude-code", "field-researcher"
     let submittedAt: Date
     var verificationStatus: VerificationStatus
+    /// #CPC-Change2 — machine-readable routing payload (rides the
+    /// `pending_facts.sources_json` column). Set only by in-app detectors
+    /// whose accept path needs structure (cross-profile corroboration);
+    /// nil for every other producer, preserving the historical "{}".
+    var payloadJSON: String? = nil
 
     enum VerificationStatus: String, Sendable {
         case pending                 // Not yet verified

@@ -380,6 +380,18 @@ enum ResearchRunService {
             }
         }
 
+        // #CPC-Change2 — post-persist corroboration pass scoped to this
+        // profile's spouse edges: fires at the exact moment the SECOND
+        // spouse's run lands, so a freshly-persisted marriage lead meets
+        // its counterpart without waiting for the next project open.
+        // Best-effort like every non-essential persist step.
+        do {
+            _ = try CorroborationSweep.run(
+                db: db, snapshot: snapshot, limitToProfileID: profileID)
+        } catch {
+            failures.append(.init(what: "Corroboration sweep", error: error))
+        }
+
         return PersistOutcome(runID: savedRunID, finalisedLead: finalisedLead, failures: failures)
     }
 

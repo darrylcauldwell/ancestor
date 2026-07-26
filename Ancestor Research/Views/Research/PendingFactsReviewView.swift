@@ -388,11 +388,21 @@ struct PendingFactsReviewView: View {
     }
 
     private func applyFactToProfile(finding: ProcessedFinding, db: ProjectDatabase) {
-        try? db.applyAcceptedPendingFact(
-            profileID: profileID,
-            field: finding.finding.field,
-            value: finding.finding.value
-        )
+        // #CPC-Change2 — corroboration facts route to the spouse EDGE via
+        // their payload (marriage facts have no profile column; the generic
+        // path would silently no-op) and resolve both sides' lead rows.
+        if finding.finding.agentID == CorroborationSweep.agentID {
+            _ = try? db.applyCorroborationFact(
+                field: finding.finding.field,
+                payloadJSON: finding.finding.payloadJSON
+            )
+        } else {
+            try? db.applyAcceptedPendingFact(
+                profileID: profileID,
+                field: finding.finding.field,
+                value: finding.finding.value
+            )
+        }
 
         // Rebuild snapshot to reflect the change
         if let newSnapshot = try? db.buildSnapshot() {
@@ -401,6 +411,11 @@ struct PendingFactsReviewView: View {
     }
 
     private func addFieldSource(finding: ProcessedFinding, db: ProjectDatabase) {
+        // Corroboration facts write relationship-edge data — a profile-level
+        // field_sources row would attach provenance to the wrong entity
+        // (#CPC-Change2; the edge write records its own transaction, and the
+        // payload carries both evidence-record ids).
+        guard finding.finding.agentID != CorroborationSweep.agentID else { return }
         try? db.addFieldResearcherProvenance(
             profileID: profileID,
             field: finding.finding.field,
