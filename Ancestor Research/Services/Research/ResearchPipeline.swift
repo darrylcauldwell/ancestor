@@ -2475,6 +2475,7 @@ final class ResearchPipeline {
 
         let targets = CrossProfileAnnotator.directedFetchTargets(
             subjectHeld: subjectHeld, spouseHeld: spouseHeld, districtResolver: resolver)
+        logger.info("Directed fetch [\(subjectProfileID)]: spouses=\(self.snapshot.spousesOf(subjectProfileID).count) spouseHeldMarriages=\(spouseHeld.count) subjectHeldMarriages=\(subjectHeld.count) targets=\(targets.map { "\($0.volume)/\($0.page)/\($0.year)" }.joined(separator: ","))")
         guard !targets.isEmpty else { return [] }
 
         var out: [SourceRecord] = []
