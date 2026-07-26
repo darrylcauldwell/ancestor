@@ -2517,18 +2517,28 @@ final class ResearchPipeline {
             // the row without the district, which would drift the canonical
             // key and defeat the corroboration join — stamping the spouse's
             // values guarantees the two sides key-match.
+            // The target's reference tuple is authoritative: it is the same
+            // register page, and the page-lookup echoes back BLANK vol/page
+            // (queried by them), so `e.volume`/`e.page` are empty strings —
+            // `??` won't fall back on "", which silently voided the key.
+            // Force year/vol/page/quarter/district from the target; keep the
+            // pulled entry's own name/common/spouseName.
+            func nonEmpty(_ s: String?) -> String? {
+                guard let t = s?.trimmingCharacters(in: .whitespaces), !t.isEmpty else { return nil }
+                return t
+            }
             for e in entries where ScoringRules.nameSimilarity(
                 (e.common.surname ?? "").uppercased(),
                 subjectSurname.uppercased()) >= 0.7 {
                 out.append(.marriage(MarriageRecord(
                     common: e.common,
-                    marriageYear: e.marriageYear ?? t.year,
+                    marriageYear: t.year,
                     marriageDate: e.marriageDate,
                     marriagePlace: e.marriagePlace,
-                    quarter: t.quarter ?? e.quarter,
-                    district: t.district ?? e.district,
-                    volume: e.volume ?? t.volume,
-                    page: e.page ?? t.page,
+                    quarter: nonEmpty(t.quarter) ?? nonEmpty(e.quarter),
+                    district: nonEmpty(t.district) ?? nonEmpty(e.district),
+                    volume: t.volume,
+                    page: t.page,
                     spouseName: e.spouseName
                 )))
             }
