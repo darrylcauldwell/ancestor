@@ -129,6 +129,84 @@ struct SamePageCoupleTests {
                 "Existing annotation must not be overwritten by the pairing pass")
     }
 
+    // MARK: - annotate collision handling (#CPC-Change1, spec Decision 13)
+
+    @Test func annotateCollapsesIdenticalDuplicateSpouseSideEntries() {
+        // The pipeline feeds annotate from two fetch paths with no
+        // cross-path dedup — the same partner row arriving twice at one key
+        // is the NORMAL case and must still annotate.
+        let brooks = marriage(surname: "BROOKS", givenName: "GEORGE H",
+                              year: 1911, quarter: "Dec", district: "Belper",
+                              volume: "7b", page: "1397", spouseName: nil)
+        let land = marriageRaw(surname: "LAND", givenName: "IDA LOUISA",
+                               year: 1911, quarter: "Dec", district: "Belper",
+                               volume: "7b", page: "1397", spouseName: nil)
+        let (annotated, count) = SamePageCouplePairing.annotate(
+            subjectSideRecords: [.marriage(brooks)],
+            spouseSideMarriages: [land, land]
+        )
+        #expect(count == 1)
+        guard case .marriage(let result) = annotated.first else {
+            Issue.record("expected a marriage record back")
+            return
+        }
+        #expect(result.partnerSurnameFromSamePage == "LAND")
+    }
+
+    @Test func annotateCollapsesTranscriptionVariantsOfOneLine() {
+        // FreeBMD holds multiple volunteer transcriptions of one index line
+        // under distinct row ids — same surname at one key must collapse,
+        // not be mistaken for ambiguity.
+        let brooks = marriage(surname: "BROOKS", givenName: "GEORGE H",
+                              year: 1911, quarter: "Dec", district: "Belper",
+                              volume: "7b", page: "1397", spouseName: nil)
+        let landA = marriageRaw(surname: "LAND", givenName: "IDA LOUISA",
+                                year: 1911, quarter: "Dec", district: "Belper",
+                                volume: "7b", page: "1397", spouseName: nil)
+        let landB = MarriageRecord(
+            common: commonFields("land-transcription-2", surname: "LAND", givenName: "IDA L"),
+            marriageYear: 1911, marriageDate: nil, marriagePlace: nil,
+            quarter: "Dec", district: "Belper", volume: "7b", page: "1397",
+            spouseName: nil
+        )
+        let (annotated, count) = SamePageCouplePairing.annotate(
+            subjectSideRecords: [.marriage(brooks)],
+            spouseSideMarriages: [landA, landB]
+        )
+        #expect(count == 1)
+        guard case .marriage(let result) = annotated.first else {
+            Issue.record("expected a marriage record back")
+            return
+        }
+        #expect(result.partnerSurnameFromSamePage == "LAND")
+    }
+
+    @Test func annotateDropsKeyOnConflictingPartnerSurnames() {
+        // Two DIFFERENT surnames at one key — which entry is the partner?
+        // The old dict build silently kept the last write; the key must now
+        // drop entirely (when in doubt, split).
+        let brooks = marriage(surname: "BROOKS", givenName: "GEORGE H",
+                              year: 1911, quarter: "Dec", district: "Belper",
+                              volume: "7b", page: "1397", spouseName: nil)
+        let land = marriageRaw(surname: "LAND", givenName: "IDA",
+                               year: 1911, quarter: "Dec", district: "Belper",
+                               volume: "7b", page: "1397", spouseName: nil)
+        let smith = marriageRaw(surname: "SMITH", givenName: "ANN",
+                                year: 1911, quarter: "Dec", district: "Belper",
+                                volume: "7b", page: "1397", spouseName: nil)
+        let (annotated, count) = SamePageCouplePairing.annotate(
+            subjectSideRecords: [.marriage(brooks)],
+            spouseSideMarriages: [land, smith]
+        )
+        #expect(count == 0)
+        guard case .marriage(let result) = annotated.first else {
+            Issue.record("expected a marriage record back")
+            return
+        }
+        #expect(result.partnerSurnameFromSamePage == nil,
+                "conflicting partner surnames at one key must not annotate")
+    }
+
     @Test func annotatePassesThroughNonMarriageRecords() {
         let nonMarriage = SourceRecord.birth(BirthRecord(
             common: commonFields("birth-1", surname: "BROOKS", givenName: "GEORGE"),

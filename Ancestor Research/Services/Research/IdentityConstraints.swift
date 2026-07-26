@@ -53,6 +53,14 @@ nonisolated enum IdentityConstraints {
     /// dies once.
     static let sameDeathYearTolerance = 1
 
+    /// Youngest legal age at marriage, for REFUSAL guards (#CPC-Change1,
+    /// `CROSS_PROFILE_CORROBORATION_SPEC.md` Decision 12). Pre-1929 England
+    /// & Wales minima were 14 (male) / 12 (female) — Victorian marriages at
+    /// 14–15 are real — so this sits deliberately below the scorer's
+    /// plausibility check (`ScoringRules.checkMarriageAge`, 16): the gate
+    /// scores likelihood; a refusal guard may only refuse impossibility.
+    static let minMarriageAge = 14
+
     // MARK: - Rules (true = contradiction = must split)
 
     /// Both given names present with zero similarity is a real disagreement;
