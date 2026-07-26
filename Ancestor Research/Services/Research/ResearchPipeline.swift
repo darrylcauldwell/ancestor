@@ -2476,6 +2476,15 @@ final class ResearchPipeline {
         let targets = CrossProfileAnnotator.directedFetchTargets(
             subjectHeld: subjectHeld, spouseHeld: spouseHeld, districtResolver: resolver)
         logger.info("Directed fetch [\(subjectProfileID)]: spouses=\(self.snapshot.spousesOf(subjectProfileID).count) spouseHeldMarriages=\(spouseHeld.count) subjectHeldMarriages=\(subjectHeld.count) targets=\(targets.map { "\($0.volume)/\($0.page)/\($0.year)" }.joined(separator: ","))")
+        // DIAG (#CPC live-debug): dump the 7b/1518-class keys on both sides
+        // to pin the exact divergence between the pulled record and the
+        // spouse's record.
+        for m in spouseHeld where (m.page?.trimmingCharacters(in: .whitespaces) == "1518") {
+            logger.info("DIAG spouse-side key=\(SamePageCouplePairing.canonicalReferenceKey(m, districtResolver: resolver) ?? "nil") | y=\(m.marriageYear.map(String.init) ?? "∅") q=\(m.quarter ?? "∅") d=\(m.district ?? "∅") v=\(m.volume ?? "∅") p=\(m.page ?? "∅")")
+        }
+        for m in subjectHeld where (m.page?.trimmingCharacters(in: .whitespaces) == "1518") {
+            logger.info("DIAG subject-side key=\(SamePageCouplePairing.canonicalReferenceKey(m, districtResolver: resolver) ?? "nil") | y=\(m.marriageYear.map(String.init) ?? "∅") q=\(m.quarter ?? "∅") d=\(m.district ?? "∅") v=\(m.volume ?? "∅") p=\(m.page ?? "∅")")
+        }
         guard !targets.isEmpty else { return [] }
 
         var out: [SourceRecord] = []
