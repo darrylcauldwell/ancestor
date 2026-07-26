@@ -2688,6 +2688,95 @@ final class AppState {
             errorMessage = "Could not absorb the census: \(error.localizedDescription)"
         }
     }
+
+    // MARK: - Death-age birth-year backfill (death-side twin of census backfill)
+
+    /// Tree-wide death-age backfill: every person with a FIRM death date but no
+    /// birth year may have their own death-index record (a FreeBMD/GRO death
+    /// lead) whose age column, once the firm date confirms which entry is
+    /// theirs, gives a calculated birth year. Scan the tree, match each firm
+    /// death date to that profile's death evidence at quarter granularity, and
+    /// propose `death − age` where it resolves unambiguously. Read-only; the
+    /// caller applies via `setBirthYearFromDeathAge`. Gap-fill only — mirrors
+    /// `censusBackfillProposals`, but keyed on the death date rather than an
+    /// applied census roster (the death entry is usually an unapplied lead, so
+    /// the scan reads `evidence_records`, not the snapshot's life-events).
+    func deathAgeBackfillProposals() -> [DeathAgeBackfillProposal] {
+        guard let db = currentDatabase else { return [] }
+        var out: [DeathAgeBackfillProposal] = []
+        for (profileID, profile) in snapshot.profiles {
+            // Gap-fill only, and only for a precise death year.
+            guard profile.birthDate?.bestYear == nil,
+                  let deathDate = profile.deathDate,
+                  let firmDeathYear = deathDate.bestYear else { continue }
+            // The GRO quarter the firm death date falls in — only when the date
+            // carries a month (GenealogicalDate keeps just the year; the month
+            // survives in `.original`). A year-only death date matches at year
+            // granularity only.
+            let firmQuarter: String? = {
+                guard let parts = RecordScorer.fullCalendarDate(deathDate.original) else { return nil }
+                return DeathAgeBirthYear.groQuarter(forMonth: parts.month)
+            }()
+            let evidence = (try? db.loadEvidenceForProfile(profileID)) ?? []
+            let candidates: [DeathAgeBirthYear.Candidate] = evidence.compactMap { e in
+                guard e.recordType == .death, e.verdict != .impossible,
+                      e.userStatus != .discarded, case .death(let dr) = e.record else { return nil }
+                return DeathAgeBirthYear.Candidate(
+                    recordID: dr.common.id, sourceID: dr.common.sourceID,
+                    deathYear: dr.deathYear, ageAtDeath: dr.age,
+                    quarter: dr.quarter, district: dr.district)
+            }
+            guard let p = DeathAgeBirthYear.proposal(
+                existingBirthYear: nil,
+                firmDeathYear: firmDeathYear,
+                firmDeathQuarter: firmQuarter,
+                candidates: candidates) else { continue }
+            out.append(DeathAgeBackfillProposal(
+                profileID: profileID, profileName: profile.displayName,
+                estimatedBirthYear: p.estimatedBirthYear, deathYear: p.deathYear,
+                ageAtDeath: p.ageAtDeath, district: p.district, sourceID: p.sourceID))
+        }
+        return out.sorted { $0.profileName < $1.profileName }
+    }
+
+    /// Apply a death-age backfill: write the calculated birth year as a
+    /// `.calculated` (CAL, ±1) date — provenance reads "derived from the death
+    /// record", not an asserted precise date. Gap-fill only, re-checked here so
+    /// a stale one-click can never stomp a birth year that arrived meanwhile.
+    func setBirthYearFromDeathAge(_ proposal: DeathAgeBackfillProposal) {
+        guard let db = currentDatabase,
+              let profile = snapshot.profiles[proposal.profileID],
+              profile.birthDate?.bestYear == nil else { return }
+        do {
+            let newDate = GenealogicalDate(parsing: "CAL \(proposal.estimatedBirthYear)")
+            _ = try db.editProfile(
+                profileID: proposal.profileID,
+                changes: [],
+                dateChanges: [(.birthDate, nil, newDate)],
+                source: SourceOrigin(identifier: proposal.sourceID))
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+            successMessage = "Set \(profile.displayName)'s birth year to ~\(proposal.estimatedBirthYear) (calculated from age \(proposal.ageAtDeath) at death in \(proposal.deathYear))."
+            successResearchProfileID = proposal.profileID
+        } catch {
+            errorMessage = "Could not set birth year: \(error.localizedDescription)"
+        }
+    }
+}
+
+/// A tree-wide death-age backfill available for one profile: a calculated
+/// birth year derived from the age on the death-index record that matches the
+/// profile's firm death date. The death-side analogue of
+/// `CensusBackfill.Proposal`, surfaced in Health with a one-click apply.
+nonisolated struct DeathAgeBackfillProposal: Identifiable, Sendable, Equatable {
+    let profileID: String
+    let profileName: String
+    let estimatedBirthYear: Int
+    let deathYear: Int
+    let ageAtDeath: Int
+    let district: String?
+    let sourceID: String
+    var id: String { profileID }
 }
 
 /// Errors raised by `AppState.importGEDCOM`. Currently just one case —

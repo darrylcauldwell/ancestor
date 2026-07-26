@@ -41,6 +41,13 @@ struct HealthView: View {
     /// (these aren't AuditResults, so they need their own filter slot).
     private let censusBackfillFilterID = "__censusBackfill"
 
+    /// Death-age backfill proposals — birth years derived from a profile's firm
+    /// death date + the matching death-index record's age at death, mined
+    /// tree-wide. Computed once on appear (reads evidence per profile).
+    @State private var deathAgeProposals: [DeathAgeBackfillProposal] = []
+    /// Sentinel `ruleFilter` value for the synthetic "Death-age backfill" chip.
+    private let deathAgeBackfillFilterID = "__deathAgeBackfill"
+
     var body: some View {
         VStack(spacing: 0) {
             // Two-row toolbar: actions on top, filters below — keeps the bar
@@ -195,6 +202,8 @@ struct HealthView: View {
                                     duplicateClusterRow(cluster)
                                 case .censusBackfill(let proposal):
                                     censusBackfillRow(proposal)
+                                case .deathAgeBackfill(let proposal):
+                                    deathAgeBackfillRow(proposal)
                                 case .finding(let result):
                                     findingRow(result)
                                 }
@@ -222,6 +231,7 @@ struct HealthView: View {
             // date, which is why there's no manual "Re-run Audit" button.
             if let auto = appState.auditSummary { auditVM.summary = auto }
             backfillProposals = appState.censusBackfillProposals()
+            deathAgeProposals = appState.deathAgeBackfillProposals()
         }
     }
 
@@ -242,11 +252,13 @@ struct HealthView: View {
         case finding(AuditResult)
         case duplicateCluster(DuplicateCluster)
         case censusBackfill(CensusBackfill.Proposal)
+        case deathAgeBackfill(DeathAgeBackfillProposal)
         var id: String {
             switch self {
             case .finding(let r): return "f:\(r.id)"
             case .duplicateCluster(let c): return "d:\(c.id)"
             case .censusBackfill(let p): return "b:\(p.id)"
+            case .deathAgeBackfill(let p): return "da:\(p.id)"
             }
         }
     }
@@ -267,13 +279,17 @@ struct HealthView: View {
         if ruleFilter == censusBackfillFilterID {
             return backfillProposals.map { HealthRow.censusBackfill($0) }
         }
+        if ruleFilter == deathAgeBackfillFilterID {
+            return deathAgeProposals.map { HealthRow.deathAgeBackfill($0) }
+        }
         let results = shownResults
         let dupes = results.filter { $0.ruleID == "duplicateDetection" }
         let others = results.filter { $0.ruleID != "duplicateDetection" }
         var rows: [HealthRow] = []
-        // Census-backfill proposals surface at the top of the unfiltered view.
+        // Backfill proposals surface at the top of the unfiltered view.
         if ruleFilter == nil {
             rows += backfillProposals.map { HealthRow.censusBackfill($0) }
+            rows += deathAgeProposals.map { HealthRow.deathAgeBackfill($0) }
         }
         rows += duplicateClusters(from: dupes).map { HealthRow.duplicateCluster($0) }
         rows += others.map { HealthRow.finding($0) }
@@ -385,6 +401,44 @@ struct HealthView: View {
     }
 
     @ViewBuilder
+    private func deathAgeBackfillRow(_ p: DeathAgeBackfillProposal) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "calendar.badge.clock")
+                .foregroundStyle(.blue)
+                .font(.body)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(p.profileName)
+                    .font(AppTypography.cardTitle)
+                Text(deathAgeDetail(p))
+                    .font(AppTypography.cardBody)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
+            Button {
+                appState.setBirthYearFromDeathAge(p)
+                deathAgeProposals.removeAll { $0.profileID == p.profileID }
+                refreshAudit()
+            } label: {
+                Label("Set birth ~\(String(p.estimatedBirthYear))", systemImage: "calendar.badge.plus")
+            }
+            .buttonStyle(.glassProminent).controlSize(.mini)
+            .help("Set \(p.profileName)'s birth year to ~\(String(p.estimatedBirthYear)), calculated from age \(String(p.ageAtDeath)) at their \(String(p.deathYear)) death registration")
+        }
+        .padding(12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+    }
+
+    /// Human summary of a death-age backfill — age at death + registration year,
+    /// plus the district when the matched index entry carries one.
+    private func deathAgeDetail(_ p: DeathAgeBackfillProposal) -> String {
+        var s = "Died \(String(p.deathYear)) aged \(String(p.ageAtDeath))"
+        if let d = p.district, !d.isEmpty { s += " (\(d))" }
+        return s + " → calculated birth year ~\(String(p.estimatedBirthYear))"
+    }
+
+    @ViewBuilder
     private func findingRow(_ result: AuditResult) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: result.severity.iconName)
@@ -444,7 +498,7 @@ struct HealthView: View {
         let counts = Dictionary(grouping: auditVM.filteredResults, by: { $0.ruleID })
             .mapValues(\.count)
             .sorted { $0.value > $1.value }
-        if counts.count > 1 || !backfillProposals.isEmpty {
+        if counts.count > 1 || !backfillProposals.isEmpty || !deathAgeProposals.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ruleChip(label: "All (\(auditVM.filteredResults.count))", selected: ruleFilter == nil) {
@@ -459,6 +513,12 @@ struct HealthView: View {
                         ruleChip(label: "Census backfill (\(backfillProposals.count))",
                                  selected: ruleFilter == censusBackfillFilterID) {
                             ruleFilter = (ruleFilter == censusBackfillFilterID) ? nil : censusBackfillFilterID
+                        }
+                    }
+                    if !deathAgeProposals.isEmpty {
+                        ruleChip(label: "Death-age backfill (\(deathAgeProposals.count))",
+                                 selected: ruleFilter == deathAgeBackfillFilterID) {
+                            ruleFilter = (ruleFilter == deathAgeBackfillFilterID) ? nil : deathAgeBackfillFilterID
                         }
                     }
                 }
