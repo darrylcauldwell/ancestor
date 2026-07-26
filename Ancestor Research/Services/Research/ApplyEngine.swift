@@ -238,52 +238,65 @@ nonisolated struct ApplyEngine {
         db: ProjectDatabase,
         failures: inout [WriteFailure]
     ) {
-        // Post-Sep-1912 BMD marriage rows carry the partner surname in
-        // `spouseName`; PRE-1912 rows don't, but the same-page pairing pass
-        // recovers it into `partnerSurnameFromSamePage` — already validated
-        // against the tree spouse by the family-context gate, which is why
-        // this record reached apply. Prefer the stated column; fall back to
-        // the recovered partner. #CPC follow-up (2026-07-26): without this
-        // fallback EVERY pre-1912 marriage silently no-op'd here, leaving the
-        // spouse edge dateless — live-observed on Ida Louisa Land × George
-        // Herbert Brooks, Dec 1911 Belper 7b/1397 (her accepted marriage fact
-        // never reached the edge).
-        let nonEmptyTrimmed: (String?) -> String? = { s in
-            guard let t = s?.trimmingCharacters(in: .whitespaces), !t.isEmpty else { return nil }
-            return t
-        }
-        let statedSpouse = nonEmptyTrimmed(m.spouseName)
-        let inferredSpouse = nonEmptyTrimmed(m.partnerSurnameFromSamePage)
-        guard let recordSpouseRaw = statedSpouse ?? inferredSpouse else { return }
-        let spouseSurnameIsStated = statedSpouse != nil
-        // BMD spouse field is normally just a surname (post-1912 marriages).
-        // Defensive split: pick the trailing token in case it's "GIVEN SURNAME".
-        let recordSpouseSurname = (recordSpouseRaw.split(separator: " ").last.map(String.init)
-            ?? recordSpouseRaw).uppercased()
-
         let spouseEdges = snapshot.relationships.filter { rel in
             rel.type == .spouse && (rel.from == profileID || rel.to == profileID)
         }
-        let matched = spouseEdges.first { rel in
-            let otherID = rel.from == profileID ? rel.to : rel.from
-            guard let other = snapshot.profiles[otherID] else { return false }
-            return (other.lastName ?? "").uppercased() == recordSpouseSurname
+        let otherEnd: (Relationship) -> String = { $0.from == profileID ? $0.to : $0.from }
+
+        // Resolve the target spouse edge, most-reliable signal first.
+        var edge: Relationship?
+
+        // 1. The same-page / cross-profile machinery identified the exact
+        //    partner PROFILE (#CPC `corroboratingSpouseProfileID`). Strongest
+        //    link, and the ONLY one that works for a pre-1912 record carrying
+        //    NEITHER a spouse column NOR a recovered surname — which is
+        //    exactly Ida Louisa Land × George Herbert Brooks, Dec 1911
+        //    7b/1397: her record names no spouse at all, so surname matching
+        //    had nothing to work with and her accepted marriage never reached
+        //    the edge (live-observed 2026-07-26).
+        if let corroboratedID = m.corroboratingSpouseProfileID {
+            edge = spouseEdges.first { otherEnd($0) == corroboratedID }
         }
-        guard let edge = matched else {
-            // A same-page-INFERRED partner that matches no linked spouse is a
-            // weaker signal than a stated spouse column: the family-context
-            // gate already validated the inference against the tree spouse,
-            // so a miss here means clustering placed this record on the wrong
-            // subject, not that the record contradicts a known spouse. Never
-            // manufacture a spouseIdentity dispute from an inference — stay
-            // silent, matching the historical no-op for column-less records.
-            guard spouseSurnameIsStated else { return }
+
+        // 2. Surname match — post-Sep-1912 rows carry the partner surname in
+        //    `spouseName`; pre-1912 rows don't, but the same-page pairing pass
+        //    recovers it into `partnerSurnameFromSamePage` (validated against
+        //    the tree spouse by the family-context gate). Prefer the stated
+        //    column; fall back to the recovered partner.
+        var statedSpouseMismatch: String?
+        if edge == nil {
+            let nonEmptyTrimmed: (String?) -> String? = { s in
+                guard let t = s?.trimmingCharacters(in: .whitespaces), !t.isEmpty else { return nil }
+                return t
+            }
+            let statedSpouse = nonEmptyTrimmed(m.spouseName)
+            let inferredSpouse = nonEmptyTrimmed(m.partnerSurnameFromSamePage)
+            if let recordSpouseRaw = statedSpouse ?? inferredSpouse {
+                // BMD spouse field is normally just a surname (post-1912).
+                // Defensive split: trailing token of "GIVEN SURNAME".
+                let recordSpouseSurname = (recordSpouseRaw.split(separator: " ").last.map(String.init)
+                    ?? recordSpouseRaw).uppercased()
+                edge = spouseEdges.first { rel in
+                    guard let other = snapshot.profiles[otherEnd(rel)] else { return false }
+                    return (other.lastName ?? "").uppercased() == recordSpouseSurname
+                }
+                // A same-page INFERENCE that matches no linked spouse is a
+                // weaker signal than a stated column (the family-context gate
+                // already vetted it) — stay silent, never manufacturing a
+                // dispute. Only a STATED column that misses is DS-12.
+                if edge == nil && statedSpouse != nil {
+                    statedSpouseMismatch = recordSpouseSurname
+                }
+            }
+        }
+
+        guard let edge else {
             // CONFLICT_LAYER_SPEC §4.4 T-A / §6 Change 1 AC2 — DS-12. A
-            // marriage record naming a spouse the tree doesn't know used to
-            // silently no-op here: no write, no failure, no trace. The
-            // strongest wrong-person signal a marriage record can carry now
-            // opens an F4b spouseIdentity dispute AND reports on the
-            // outcome channel.
+            // post-1912 record STATING a spouse the tree doesn't know used to
+            // silently no-op here: no write, no failure, no trace. It now
+            // opens an F4b spouseIdentity dispute AND reports on the outcome
+            // channel.
+            guard let recordSpouseSurname = statedSpouseMismatch else { return }
             let conflict = ConflictDetector.spouseIdentityConflict(
                 marriage: m,
                 recordSpouseSurname: recordSpouseSurname,

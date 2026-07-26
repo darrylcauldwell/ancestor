@@ -68,13 +68,15 @@ struct ApplyEngineConflictHookTests {
 
     private func scoredMarriage(
         id: String = "m1", year: Int = 1921, spouseName: String?,
-        partnerSurnameFromSamePage: String? = nil
+        partnerSurnameFromSamePage: String? = nil,
+        corroboratingSpouseProfileID: String? = nil
     ) -> ScoredRecord {
         let record = SourceRecord.marriage(MarriageRecord(
             common: common(id: id), marriageYear: year,
             marriageDate: nil, marriagePlace: nil, quarter: "Jun",
             district: "Belper", volume: "7b", page: "1402", spouseName: spouseName,
-            partnerSurnameFromSamePage: partnerSurnameFromSamePage
+            partnerSurnameFromSamePage: partnerSurnameFromSamePage,
+            corroboratingSpouseProfileID: corroboratingSpouseProfileID
         ))
         return ScoredRecord(id: record.id, record: record, verdict: .fact, gates: [], summary: "")
     }
@@ -303,6 +305,35 @@ struct ApplyEngineConflictHookTests {
         let edge = try db.buildSnapshot().relationships.first { $0.type == .spouse }
         #expect(edge?.marriageDate?.original == "Jun 1911",
                 "pre-1912 marriage must fill the edge via the recovered same-page partner")
+    }
+
+    @Test func corroborationAnnotationFillsEdgeByProfileIDWithNoSurname() throws {
+        // The pure demonstrator gap: a record naming NO spouse column AND no
+        // recovered surname, but carrying the cross-profile annotation
+        // (`corroboratingSpouseProfileID`). Surname matching has nothing to
+        // work with; the direct profile-id link must fill the edge.
+        let db = try makeDB()
+        let subject = makeProfile(id: "s", firstName: "Ernest", lastName: "Cauldwell")
+        let wife = makeProfile(id: "w", firstName: "Gertrude", lastName: "Jones", gender: .female)
+        _ = try db.addProfile(subject, source: .gedcom)
+        _ = try db.addProfile(wife, source: .gedcom)
+        _ = try db.addRelationship(Relationship(
+            id: UUID(), from: "s", to: "w", type: .spouse, role: nil,
+            subtype: .unknown, marriageDate: nil, marriageLocation: nil, divorceDate: nil
+        ))
+        let snapshot = try db.buildSnapshot()
+
+        let failures = ApplyEngine.applyFactToSubject(
+            scoredMarriage(year: 1911, spouseName: nil,
+                           partnerSurnameFromSamePage: nil,
+                           corroboratingSpouseProfileID: "w"),
+            profile: snapshot.profiles["s"]!, snapshot: snapshot, db: db
+        )
+        #expect(failures.isEmpty)
+        #expect(try db.openDisputeCount() == 0)
+        let edge = try db.buildSnapshot().relationships.first { $0.type == .spouse }
+        #expect(edge?.marriageDate?.original == "Jun 1911",
+                "the cross-profile annotation names the exact partner — fill the edge directly")
     }
 
     @Test func samePageInferredPartnerMismatchStaysSilentWithNoDispute() throws {
