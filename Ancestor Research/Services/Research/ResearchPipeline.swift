@@ -2534,7 +2534,11 @@ final class ResearchPipeline {
             }
         }
         if !out.isEmpty {
-            logger.info("Cross-profile directed fetch: pulled \(out.count) subject-side marriage record(s) from \(targets.count) spouse-held reference(s)")
+            let dump = out.compactMap { rec -> String? in
+                guard case .marriage(let m) = rec else { return nil }
+                return "surname=\(m.common.surname ?? "∅") y=\(m.marriageYear.map(String.init) ?? "∅") q=\(m.quarter ?? "∅") d=\(m.district ?? "∅") v=\(m.volume ?? "∅") p=\(m.page ?? "∅")"
+            }
+            logger.info("Cross-profile directed fetch: pulled \(out.count) [\(dump.joined(separator: " | "))]")
         }
         return out
     }
