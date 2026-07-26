@@ -26,6 +26,51 @@ nonisolated enum CrossProfileAnnotator {
         let trace: [String]
     }
 
+    // MARK: - Directed fetch (multi-marriage completion)
+
+    /// One register page to fetch the SUBJECT's own side from.
+    struct DirectedFetchTarget: Equatable {
+        let volume: String
+        let page: String
+        let year: Int
+        let district: String?
+    }
+
+    /// PURE work-list for cross-profile *directed fetch* (the discovery half
+    /// of corroboration): the marriage references a TREE-LINKED SPOUSE
+    /// already holds but the subject LACKS. Turns corroboration from a JOIN
+    /// (connect two existing records) into DISCOVERY (use one spouse's
+    /// record to go find the other's) — closing the twice-married-person gap
+    /// where a person's second marriage exists only under the spouse who was
+    /// researched. The record is not hidden: it is the same-page neighbour
+    /// of the spouse's own entry.
+    ///
+    /// Deduped by (volume, page, year); returns nothing for references the
+    /// subject already holds, or spouse records without a keyable vol/page.
+    static func directedFetchTargets(
+        subjectHeld: [MarriageRecord],
+        spouseHeld: [MarriageRecord],
+        districtResolver: ((String) -> String?)? = nil
+    ) -> [DirectedFetchTarget] {
+        let subjectKeys = Set(subjectHeld.compactMap {
+            SamePageCouplePairing.canonicalReferenceKey($0, districtResolver: districtResolver)
+        })
+        var seen = Set<String>()
+        var out: [DirectedFetchTarget] = []
+        for m in spouseHeld {
+            guard let key = SamePageCouplePairing.canonicalReferenceKey(m, districtResolver: districtResolver),
+                  !subjectKeys.contains(key),
+                  let vol = m.volume?.trimmingCharacters(in: .whitespaces), !vol.isEmpty,
+                  let page = m.page?.trimmingCharacters(in: .whitespaces), !page.isEmpty,
+                  let year = m.marriageYear
+            else { continue }
+            let dedup = "\(vol.uppercased())/\(page.uppercased())/\(year)"
+            guard seen.insert(dedup).inserted else { continue }
+            out.append(.init(volume: vol, page: page, year: year, district: m.district))
+        }
+        return out
+    }
+
     static func annotate(
         records: [SourceRecord],
         subjectProfileID: String?,

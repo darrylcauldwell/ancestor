@@ -164,6 +164,59 @@ struct CrossProfileAnnotationTests {
                 "both transcription variants of the one index line carry the annotation")
     }
 
+    // MARK: - Directed fetch (multi-marriage completion)
+
+    @Test func directedFetchTargetsTheSpouseHeldReferenceTheSubjectLacks() {
+        // Keyworth holds his 1896 marriage (7b/74); his spouse Elizabeth
+        // holds the 1909 one (7b/1518) he's missing. The work-list must name
+        // exactly the 1909 page to go fetch his side of.
+        let keyworth1896 = marriageAt(vol: "7b", page: "74", year: 1896, quarter: "Mar", surname: "KEYWORTH")
+        let elizabeth1909 = marriageAt(vol: "7b", page: "1518", year: 1909, quarter: "Sep", surname: "WALLACE")
+
+        let targets = CrossProfileAnnotator.directedFetchTargets(
+            subjectHeld: [keyworth1896],
+            spouseHeld: [elizabeth1909])
+        #expect(targets == [.init(volume: "7b", page: "1518", year: 1909, district: "Chesterfield")])
+    }
+
+    @Test func directedFetchSkipsReferencesTheSubjectAlreadyHolds() {
+        // Both sides already hold the same reference → nothing to fetch (the
+        // corroboration JOIN already has both records).
+        let his = marriageAt(vol: "7b", page: "2130a", year: 1915, quarter: "Dec", surname: "HOLMES")
+        let hers = marriageAt(vol: "7b", page: "2130a", year: 1915, quarter: "Dec", surname: "THOMPSON")
+        let targets = CrossProfileAnnotator.directedFetchTargets(
+            subjectHeld: [his], spouseHeld: [hers])
+        #expect(targets.isEmpty)
+    }
+
+    @Test func directedFetchIgnoresSpouseRecordsWithoutVolPage() {
+        let noKey = marriageAt(vol: nil, page: nil, year: 1909, quarter: "Sep", surname: "WALLACE")
+        let targets = CrossProfileAnnotator.directedFetchTargets(
+            subjectHeld: [], spouseHeld: [noKey])
+        #expect(targets.isEmpty)
+    }
+
+    @Test func directedFetchDedupesRepeatedSpouseReferences() {
+        // Two transcriptions of the spouse's one 1909 record → one target.
+        let a = marriageAt(vol: "7b", page: "1518", year: 1909, quarter: "Sep", surname: "WALLACE")
+        let b = marriageAt(vol: "7b", page: "1518", year: 1909, quarter: "Sep", surname: "WALLACE")
+        let targets = CrossProfileAnnotator.directedFetchTargets(
+            subjectHeld: [], spouseHeld: [a, b])
+        #expect(targets.count == 1)
+    }
+
+    private func marriageAt(
+        vol: String?, page: String?, year: Int?, quarter: String, surname: String
+    ) -> MarriageRecord {
+        MarriageRecord(
+            common: RecordCommon(id: "\(surname)-\(vol ?? "x")-\(page ?? "x")", sourceID: "freebmd",
+                                 name: nil, surname: surname, givenName: "X",
+                                 detailURL: nil, rawFields: [:]),
+            marriageYear: year, marriageDate: nil, marriagePlace: nil,
+            quarter: quarter, district: "Chesterfield", volume: vol, page: page,
+            spouseName: nil)
+    }
+
     // MARK: - Fixtures
 
     /// Tree: Mary (name only) ×spouse× William (d.1919), via a temp DB so

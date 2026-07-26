@@ -332,6 +332,24 @@ final class ResearchPipeline {
                 existingIDs: priorRecordIDs
             )
 
+            // #CPC directed fetch — the DISCOVERY half of cross-profile
+            // corroboration. When a tree-linked spouse already holds a
+            // marriage at a GRO reference this subject LACKS (the classic
+            // case: a twice-married person whose second marriage only exists
+            // under the spouse who was researched), fetch the subject's own
+            // side of that exact register page and fold it into the batch.
+            // The record isn't hidden — it's the same-page neighbour of the
+            // spouse's own entry — so a single page-lookup recovers it, and
+            // the same-page pairing + cross-profile annotation + scoring
+            // below then process it exactly like any other candidate.
+            let directed = await fetchSpouseHeldMarriageRecords(
+                subject: state.subject,
+                alreadyHeld: records + state.scoredRecords.map(\.record),
+                scope: config.scope,
+                cache: queryCache
+            )
+            let batch = directed.isEmpty ? records : records + directed
+
             // Same-page-couple pairing: pre-Sep-1912 FreeBMD marriage entries
             // don't carry the spouse-surname column, so a subject-side marriage
             // hit at vol 7b/page 1397 lands with `spouseName=nil`. The other
@@ -340,7 +358,7 @@ final class ResearchPipeline {
             // reference tuple recovers the partner surname. Runs before scoring
             // so the family-context gate can read the recovered partner.
             let pairedRecords = await annotateMarriagesWithSamePagePartner(
-                records,
+                batch,
                 subject: state.subject,
                 scope: config.scope,
                 cache: queryCache
@@ -2413,6 +2431,70 @@ final class ResearchPipeline {
         await enrichFagBridge(records, existingIDs: existingIDs)
     }
 #endif
+
+    // MARK: - Cross-profile directed fetch (multi-marriage completion)
+
+    /// Fetch the SUBJECT's own side of any marriage a tree-linked spouse
+    /// already holds but the subject lacks (#CPC directed fetch). The pure
+    /// work-list (`CrossProfileAnnotator.directedFetchTargets`) names the
+    /// register pages; here we page-lookup each and keep the entries under
+    /// the subject's surname — the mirror of `annotateMarriagesWithSame
+    /// PagePartner`, which keeps the OTHER side.
+    ///
+    /// No-ops for lead / user-input subjects (no `profileID`), subjects
+    /// without a database-backed `spouseEvidenceLookup`, or when the spouse
+    /// holds nothing keyable the subject is missing. Cheap: one page-lookup
+    /// per missing reference, deduped and `QueryCache`-backed, so re-runs and
+    /// repeated iterations don't re-hit the wire.
+    private func fetchSpouseHeldMarriageRecords(
+        subject: ResearchSubject,
+        alreadyHeld: [SourceRecord],
+        scope: ResearchScope,
+        cache: QueryCache?
+    ) async -> [SourceRecord] {
+        guard let subjectProfileID = subject.profileID,
+              let subjectSurname = subject.surname?.trimmingCharacters(in: .whitespaces),
+              !subjectSurname.isEmpty,
+              let evidenceLookup = spouseEvidenceLookup
+        else { return [] }
+
+        let resolver: (String) -> String? = {
+            FreeBMDDistrictCatalogue.shared.district(named: $0)?.name
+        }
+        let subjectHeld: [MarriageRecord] = alreadyHeld.compactMap {
+            if case .marriage(let m) = $0 { return m }
+            return nil
+        }
+        let spouseHeld: [MarriageRecord] = snapshot.spousesOf(subjectProfileID)
+            .flatMap { evidenceLookup($0.id) }
+            .filter { $0.userStatus != .discarded && $0.verdict != .impossible }
+            .compactMap {
+                if case .marriage(let m) = $0.record { return m }
+                return nil
+            }
+
+        let targets = CrossProfileAnnotator.directedFetchTargets(
+            subjectHeld: subjectHeld, spouseHeld: spouseHeld, districtResolver: resolver)
+        guard !targets.isEmpty else { return [] }
+
+        var out: [SourceRecord] = []
+        for t in targets {
+            let entries = await dispatchPageLookupQuery(
+                volume: t.volume, page: t.page, district: t.district,
+                yearFrom: t.year, yearTo: t.year, scope: scope, cache: cache)
+            // Keep the SUBJECT's own row on the spouse's page (surname
+            // matches) — that is the subject's missing side of the marriage.
+            for e in entries where ScoringRules.nameSimilarity(
+                (e.common.surname ?? "").uppercased(),
+                subjectSurname.uppercased()) >= 0.7 {
+                out.append(.marriage(e))
+            }
+        }
+        if !out.isEmpty {
+            logger.info("Cross-profile directed fetch: pulled \(out.count) subject-side marriage record(s) from \(targets.count) spouse-held reference(s)")
+        }
+        return out
+    }
 
     // MARK: - Same-page-couple pairing (pre-1912 marriage partner recovery)
 
