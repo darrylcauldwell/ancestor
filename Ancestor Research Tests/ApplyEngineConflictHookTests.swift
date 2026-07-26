@@ -67,12 +67,14 @@ struct ApplyEngineConflictHookTests {
     }
 
     private func scoredMarriage(
-        id: String = "m1", year: Int = 1921, spouseName: String?
+        id: String = "m1", year: Int = 1921, spouseName: String?,
+        partnerSurnameFromSamePage: String? = nil
     ) -> ScoredRecord {
         let record = SourceRecord.marriage(MarriageRecord(
             common: common(id: id), marriageYear: year,
             marriageDate: nil, marriagePlace: nil, quarter: "Jun",
-            district: "Belper", volume: "7b", page: "1402", spouseName: spouseName
+            district: "Belper", volume: "7b", page: "1402", spouseName: spouseName,
+            partnerSurnameFromSamePage: partnerSurnameFromSamePage
         ))
         return ScoredRecord(id: record.id, record: record, verdict: .fact, gates: [], summary: "")
     }
@@ -258,8 +260,9 @@ struct ApplyEngineConflictHookTests {
     }
 
     @Test func marriageWithNoSpouseNameStaysSilent() throws {
-        // The early guard (no spouse surname on the record) is not the
-        // DS-12 predicate — no data means nothing to conflict with.
+        // The early guard (no spouse surname on the record AND none recovered
+        // from same-page pairing) is not the DS-12 predicate — no data means
+        // nothing to conflict with.
         let db = try makeDB()
         let subject = makeProfile(id: "s", firstName: "Ernest", lastName: "Cauldwell")
         _ = try db.addProfile(subject, source: .gedcom)
@@ -271,6 +274,62 @@ struct ApplyEngineConflictHookTests {
         )
         #expect(failures.isEmpty)
         #expect(try db.openDisputeCount() == 0)
+    }
+
+    // MARK: - #CPC follow-up — pre-1912 same-page partner fills the edge
+
+    @Test func pre1912MarriageWithSamePagePartnerFillsEdge() throws {
+        // Ida × George class: pre-1912 record carries NO spouse column, but
+        // the same-page pairing recovered the partner surname. The edge must
+        // now get its marriage date — previously a silent no-op.
+        let db = try makeDB()
+        let subject = makeProfile(id: "s", firstName: "Ernest", lastName: "Cauldwell")
+        let wife = makeProfile(id: "w", firstName: "Gertrude", lastName: "Jones", gender: .female)
+        _ = try db.addProfile(subject, source: .gedcom)
+        _ = try db.addProfile(wife, source: .gedcom)
+        _ = try db.addRelationship(Relationship(
+            id: UUID(), from: "s", to: "w", type: .spouse, role: nil,
+            subtype: .unknown, marriageDate: nil, marriageLocation: nil, divorceDate: nil
+        ))
+        let snapshot = try db.buildSnapshot()
+
+        let failures = ApplyEngine.applyFactToSubject(
+            scoredMarriage(year: 1911, spouseName: nil, partnerSurnameFromSamePage: "JONES"),
+            profile: snapshot.profiles["s"]!, snapshot: snapshot, db: db
+        )
+        #expect(failures.isEmpty)
+        #expect(try db.openDisputeCount() == 0)
+
+        let edge = try db.buildSnapshot().relationships.first { $0.type == .spouse }
+        #expect(edge?.marriageDate?.original == "Jun 1911",
+                "pre-1912 marriage must fill the edge via the recovered same-page partner")
+    }
+
+    @Test func samePageInferredPartnerMismatchStaysSilentWithNoDispute() throws {
+        // A same-page inference is a WEAKER signal than a stated column: if
+        // it matches no linked spouse it must NOT open a DS-12 dispute (that
+        // would over-claim from an inference the family-context gate already
+        // vetted). Silent no-op.
+        let db = try makeDB()
+        let subject = makeProfile(id: "s", firstName: "Ernest", lastName: "Cauldwell")
+        let wife = makeProfile(id: "w", firstName: "Gertrude", lastName: "Jones", gender: .female)
+        _ = try db.addProfile(subject, source: .gedcom)
+        _ = try db.addProfile(wife, source: .gedcom)
+        _ = try db.addRelationship(Relationship(
+            id: UUID(), from: "s", to: "w", type: .spouse, role: nil,
+            subtype: .unknown, marriageDate: nil, marriageLocation: nil, divorceDate: nil
+        ))
+        let snapshot = try db.buildSnapshot()
+
+        let failures = ApplyEngine.applyFactToSubject(
+            scoredMarriage(year: 1911, spouseName: nil, partnerSurnameFromSamePage: "SMITH"),
+            profile: snapshot.profiles["s"]!, snapshot: snapshot, db: db
+        )
+        #expect(failures.isEmpty)
+        #expect(try db.openDisputeCount() == 0,
+                "an inference mismatch must not manufacture a spouse-identity dispute")
+        let edge = try db.buildSnapshot().relationships.first { $0.type == .spouse }
+        #expect(edge?.marriageDate == nil)
     }
 
     // MARK: - AC3: DS-26 — parent accept onto an occupied role

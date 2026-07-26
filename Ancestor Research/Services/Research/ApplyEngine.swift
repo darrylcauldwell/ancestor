@@ -238,8 +238,24 @@ nonisolated struct ApplyEngine {
         db: ProjectDatabase,
         failures: inout [WriteFailure]
     ) {
-        guard let recordSpouseRaw = m.spouseName?.trimmingCharacters(in: .whitespaces),
-              !recordSpouseRaw.isEmpty else { return }
+        // Post-Sep-1912 BMD marriage rows carry the partner surname in
+        // `spouseName`; PRE-1912 rows don't, but the same-page pairing pass
+        // recovers it into `partnerSurnameFromSamePage` — already validated
+        // against the tree spouse by the family-context gate, which is why
+        // this record reached apply. Prefer the stated column; fall back to
+        // the recovered partner. #CPC follow-up (2026-07-26): without this
+        // fallback EVERY pre-1912 marriage silently no-op'd here, leaving the
+        // spouse edge dateless — live-observed on Ida Louisa Land × George
+        // Herbert Brooks, Dec 1911 Belper 7b/1397 (her accepted marriage fact
+        // never reached the edge).
+        let nonEmptyTrimmed: (String?) -> String? = { s in
+            guard let t = s?.trimmingCharacters(in: .whitespaces), !t.isEmpty else { return nil }
+            return t
+        }
+        let statedSpouse = nonEmptyTrimmed(m.spouseName)
+        let inferredSpouse = nonEmptyTrimmed(m.partnerSurnameFromSamePage)
+        guard let recordSpouseRaw = statedSpouse ?? inferredSpouse else { return }
+        let spouseSurnameIsStated = statedSpouse != nil
         // BMD spouse field is normally just a surname (post-1912 marriages).
         // Defensive split: pick the trailing token in case it's "GIVEN SURNAME".
         let recordSpouseSurname = (recordSpouseRaw.split(separator: " ").last.map(String.init)
@@ -254,6 +270,14 @@ nonisolated struct ApplyEngine {
             return (other.lastName ?? "").uppercased() == recordSpouseSurname
         }
         guard let edge = matched else {
+            // A same-page-INFERRED partner that matches no linked spouse is a
+            // weaker signal than a stated spouse column: the family-context
+            // gate already validated the inference against the tree spouse,
+            // so a miss here means clustering placed this record on the wrong
+            // subject, not that the record contradicts a known spouse. Never
+            // manufacture a spouseIdentity dispute from an inference — stay
+            // silent, matching the historical no-op for column-less records.
+            guard spouseSurnameIsStated else { return }
             // CONFLICT_LAYER_SPEC §4.4 T-A / §6 Change 1 AC2 — DS-12. A
             // marriage record naming a spouse the tree doesn't know used to
             // silently no-op here: no write, no failure, no trace. The
