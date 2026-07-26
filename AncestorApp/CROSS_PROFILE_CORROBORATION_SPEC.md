@@ -1,6 +1,6 @@
 # CROSS_PROFILE_CORROBORATION_SPEC — spouse-pair marriage corroboration across profiles
 
-**Status: Proposed — awaiting review (drafted 2026-07-26 from a 9-subsystem code-verified seam map; revised same day after a 4-lens adversarial review — 21 findings folded, see footer).** Commits will reference `#CPC-Change1`…`#CPC-Change5`. Build shape agreed with owner 2026-07-26: both detection seams in one spec, **sweep ships first**; auto-elevation is the final gated change.
+**Status: Changes 1–4 SHIPPED 2026-07-26** (`f1adb88` corroborator · `3434fc9` sweep — live-verified on the Mary Ellen Thompson × William Holmes demonstrator, cards accepted, edge written, leads resolved · `ae53bf9` in-run annotation · `6fb81c6` verdict elevation + §4.2 amendment). **Change 5 DEFERRED (owner decision 2026-07-26): the machine-commit carve-out waits for the §14.B.2–6 transaction/undo keystone, extended to relationship entities — or for corroboration volume that makes the two-click human path a real cost.** Rationale: §14.2 principle 5 (false auto-approvals are the failure mode; missed ones are throughput loss), the unbuilt §14.B.4 undo, and the §1 couple-namesake residue that only a human eyeball on the card catches today. Change 5's design below remains the build plan when its gate opens. Drafted 2026-07-26 from a 9-subsystem code-verified seam map; revised same day after a 4-lens adversarial review (21 findings folded, see footer).
 
 **Governing invariants:**
 
@@ -159,7 +159,7 @@ Each independently shippable; gate is `xcodebuild test` (serial scheme). Orderin
 
 **Blast radius:** verdict block + date-gate reason + thin-cap exemption + two doc-comment sites + governing-spec text. The heaviest doctrinal gate — ships only after Changes 1–3 are green and the sweep has been observed live on the demonstrator.
 
-### Change 5 — §14 auto-elevation carve-out (M, LAST, default-OFF, own flag)
+### Change 5 — §14 auto-elevation carve-out (M, DEFERRED — gated on §14.B.2–6 extended to relationship entities, or corroboration volume; default-OFF regardless)
 
 **Scope:** the MCP-side sibling carve-out (reciprocal + strong-anchor facts only): single-lineage convergence accepted for `agent_id = 'cross-profile-corroboration'` (generalising the `:3054-3059` precedent text), tier ≥ `.transcription`; Decision-18 commit semantics (fill-nil-only; transactions row; no lead writes; dedicated `ANCESTOR_MCP_AUTO_APPROVE_CROSS_PROFILE` flag on top of the base gate); Decision-8 both-member CL6 check; edge-state re-read at evaluate and commit with dedicated refusal codes (`edge_already_populated`, `tier_or_anchor_insufficient` — never approve-and-no-op); marriage-kind `field_sources` diversion (the shipped commit writes a wrong-entity profile row otherwise, `MCPServer.swift:3119-3128`); date-span parsing for the narrower/nil comparison pinned by a shared test-vector table (the §14.3.2-math cross-package convention). **Governing-spec amendments shipped with it:** §14.3.2 + §4.3 pinned-values table + §14.B.7 (invariant (d)) — the §4.3-pinned ≥2-lineage minimum moves only via this written amendment, exactly as §5.14's carve-out was recorded at `:1017-1020`/`:2091-2098`. §14.B.3/.B.4's undo design covers profile columns only; this change states in the governing text that **the default stays OFF for this carve-out until §14.B.3 is extended to relationship entities.**
 

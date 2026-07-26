@@ -33,13 +33,13 @@ design rationale, in Claude's memory files. Only living work lives in this folde
 | `SOURCE_WEIGHTING_SPEC.md` | Staged-dispatch source weighting | Changes 0–5,7,8 shipped; live-verification pending + Change 6 gated on ADR-008 |
 | `SOURCE_ACCESS_COMPLIANCE_2026-07.md` | Connector terms-of-service evidence | Decisions pending ADR-008 |
 | `FAMILYSEARCH_SOURCE_SPEC.md` | FS deferred work (write leg, ARK detail-fetch, per-collection tiering, place/vocab) + reference (§16 licensing, GEDCOM X taxonomy) | Thinned 2026-07-21 — implemented surface removed; small follow-ups open |
+| `CROSS_PROFILE_CORROBORATION_SPEC.md` | Spouse-pair marriage corroboration across profiles | Changes 1–4 **SHIPPED + live-verified 2026-07-26**; Change 5 (machine-commit carve-out) deferred — gated on §14.B.2–6 extended to relationship entities, or corroboration volume |
 
 ## Proposed — awaiting review
 
 | Doc | Role |
 |---|---|
 | `DOSSIER_SPEC.md` | T9 investigation dossier + bounded adversarial challenge |
-| `CROSS_PROFILE_CORROBORATION_SPEC.md` | Spouse-pair marriage corroboration across profiles (#CPC-Change1..5; owner-declared next work item 2026-07-25) |
 
 ## Sequenced later (Stage 2 — gate: core declared solid)
 
