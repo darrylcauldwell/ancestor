@@ -180,6 +180,28 @@ present in household") drops it to `.lead`. Records become
 `.impossible` when name fails outright, or when date is mathematically
 incompatible (cannot have died in 1920 if married in 1925).
 
+**Amendment (#CPC-Change4, 2026-07-26 —
+`CROSS_PROFILE_CORROBORATION_SPEC.md`):** one bounded elevation clause
+extends the roll-up. A **marriage** record carrying a reciprocal-tier,
+**strong-anchor** cross-profile annotation (a tree-linked spouse's
+persisted record at the same canonical GRO reference, stamped
+pre-scoring by `CrossProfileAnnotator` from persisted evidence only)
+classifies `.fact` when its sole blocker is insufficient SUBJECT
+information: `failed == [date(insufficient-information)]` with zero
+softFails and clean name/geography/family passes, or the
+ENGINE_FOUNDATION #Change1 thin-subject cap (which the same annotation
+exempts). Contradiction-shaped failures — date mismatch, any softFail,
+`.impossible` — are never overridden, and the clause re-checks the
+subject's recorded death against the marriage year itself (margin 0):
+the nil-window guard fires before the date gate's death check, so an
+"insufficient information" fail can mask a marriage-after-death
+contradiction the predicate must refuse on its own inputs. Ordering consequence for the §15
+re-runnability invariant: a subject's verdict is now a deterministic
+function of (subject facts, spouse's persisted evidence state); same
+DB state still yields same output, but whole-tree run ORDER matters
+transiently — cross-profile state converges through the existing
+re-run loop plus the #CPC-Change2 post-persist sweep trigger.
+
 ### 4.3 Key thresholds — pointer policy
 
 **Policy:** the code owns the numbers, the spec owns the shape. Each

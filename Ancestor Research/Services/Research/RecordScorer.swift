@@ -89,6 +89,22 @@ nonisolated struct RecordScorer {
         // All gates pass but has softFails (geography unknown-district /
         // family-context noise) → lead.
         let hasSoftFails = gates.contains { $0.outcome == .softFail }
+
+        // #CPC-Change4 — bounded cross-profile elevation
+        // (CROSS_PROFILE_CORROBORATION_SPEC Decision 10; RESEARCH_PIPELINE
+        // §4.2 amendment). Applies only when a reciprocal-tier,
+        // STRONG-anchor cross-profile annotation identifies this marriage
+        // via a tree-linked spouse's persisted record, every other gate is
+        // a clean pass, and the sole blocker is insufficient SUBJECT
+        // information (the nil-window date fail, or the thin-subject cap
+        // below). Contradiction-shaped failures are never overridden —
+        // date `.impossible` short-circuited long before this point. The
+        // annotation derives exclusively from persisted evidence rows
+        // (`CrossProfileAnnotator`), so the elevation is reproduced
+        // deterministically on every run.
+        let crossProfileElevates = crossProfileElevationApplies(
+            record: record, subject: subject, gates: gates, hasSoftFails: hasSoftFails)
+
         let baseVerdict: RecordVerdict
         if failed.isEmpty && !hasSoftFails {
             baseVerdict = .fact
@@ -98,6 +114,8 @@ nonisolated struct RecordScorer {
             baseVerdict = .impossible
         } else if failed.contains(.geography) {
             baseVerdict = subject.mode == .all ? .lead : .impossible
+        } else if failed.count == 1 && failed.contains(.date) && crossProfileElevates {
+            baseVerdict = .fact
         } else {
             baseVerdict = .lead
         }
@@ -108,8 +126,15 @@ nonisolated struct RecordScorer {
         // record is one of many surname-sharers. Refuse to assert .fact;
         // demote to .lead so convergence (or placeholder write-back per
         // #Change2) decides. Hard fails (.impossible) flow through.
+        // #CPC-Change4 exemption: a reciprocal-tier strong-anchor
+        // cross-profile corroboration is exactly the external
+        // discrimination the thin cap exists to demand — the tree-linked
+        // spouse's own record singles this marriage out of the
+        // surname-sharer cohort — so it lifts the cap (the ENGINE_
+        // FOUNDATION #Change1 contract as amended by CPC Change 4).
         let verdict: RecordVerdict
-        if baseVerdict == .fact && InformationDensity.from(subject: subject) == .thin {
+        if baseVerdict == .fact && InformationDensity.from(subject: subject) == .thin
+            && !crossProfileElevates {
             verdict = .lead
         } else {
             verdict = baseVerdict
@@ -119,6 +144,56 @@ nonisolated struct RecordScorer {
             id: record.id, record: record, verdict: verdict,
             gates: gates, summary: summarise(record: record, searchType: searchType)
         )
+    }
+
+    // MARK: - #CPC-Change4 elevation predicate
+
+    /// The date gate's insufficient-INFORMATION fail reason — shared by the
+    /// nil-subject-window and no-record-year guards, and matched by
+    /// identity in the elevation predicate so a genuine date MISMATCH
+    /// (different reason string) can never be mistaken for mere absence of
+    /// information. Pinned by `CrossProfileElevationTests`.
+    static let insufficientDateInfoReason = "insufficient date information"
+
+    /// Decision 10's bounding conditions, exactly enumerated. True only
+    /// when: the record carries a RECIPROCAL-tier, STRONG-anchor
+    /// cross-profile annotation (stamped by `CrossProfileAnnotator` from a
+    /// tree-linked spouse's persisted evidence — tier/anchor vocabulary
+    /// documented on `MarriageRecord`); name, geography, and family gates
+    /// are all clean passes with zero softFails anywhere; and the date
+    /// gate either passed (the thin-cap-exemption case) or failed
+    /// SPECIFICALLY with the insufficient-information reason. Everything
+    /// else — softFails, mismatch fails, `.impossible` (short-circuited
+    /// upstream), absent gates — refuses.
+    private static func crossProfileElevationApplies(
+        record: SourceRecord, subject: ResearchSubject,
+        gates: [GateResult], hasSoftFails: Bool
+    ) -> Bool {
+        guard !hasSoftFails,
+              case .marriage(let m) = record,
+              m.corroboratingSpouseProfileID != nil,
+              m.corroborationTier == "reciprocal",
+              m.corroborationAnchor == "strong",
+              let marriageYear = m.marriageYear
+        else { return false }
+        // Defence-in-depth: the date gate's nil-window guard fires BEFORE
+        // its own death check, so an "insufficient information" fail can
+        // mask a marriage-after-death contradiction on a birth-windowless
+        // subject. The corroborator's guard ladder refuses such pairs from
+        // profile data, but the scorer must be sound on its OWN inputs
+        // (deterministic sandwich) — re-check here, margin 0 (marriages
+        // are indexed in the ceremony's quarter).
+        if let death = subject.deathYearTo ?? subject.deathYearFrom,
+           marriageYear > death {
+            return false
+        }
+        guard gates.first(where: { $0.gate == .name })?.outcome == .pass,
+              gates.first(where: { $0.gate == .geography })?.outcome == .pass,
+              gates.first(where: { $0.gate == .familyContext })?.outcome == .pass
+        else { return false }
+        guard let dateGate = gates.first(where: { $0.gate == .date }) else { return false }
+        if dateGate.outcome == .pass { return true }
+        return dateGate.outcome == .fail && dateGate.reason == insufficientDateInfoReason
     }
 
     // MARK: - Gate 1: Name
@@ -536,7 +611,7 @@ nonisolated struct RecordScorer {
 
     private static func checkDate(record: SourceRecord, subject: ResearchSubject, searchType: RecordType) -> GateResult {
         guard let birthLow = subject.birthYearFrom else {
-            return GateResult(gate: .date, outcome: .fail, reason: "insufficient date information")
+            return GateResult(gate: .date, outcome: .fail, reason: insufficientDateInfoReason)
         }
         // Birth-year *window* — when subject is an accepted proposed relative,
         // `birthYearFrom`/`birthYearTo` form a range (e.g. 1931–1958, derived
@@ -552,7 +627,7 @@ nonisolated struct RecordScorer {
 
         let recordYear = extractYear(from: record)
         guard let recordYear else {
-            return GateResult(gate: .date, outcome: .fail, reason: "insufficient date information")
+            return GateResult(gate: .date, outcome: .fail, reason: insufficientDateInfoReason)
         }
 
         let deathYear = subject.deathYearFrom

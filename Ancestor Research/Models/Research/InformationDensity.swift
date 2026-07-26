@@ -5,6 +5,11 @@ import Foundation
 /// verdict-cap per ENGINE_FOUNDATION_SPEC #Change1: when density is
 /// `.thin`, no record from a scoring pass can land `.fact` — the
 /// scorer caps at `.lead`. Hard fails still emit `.impossible`.
+/// ONE exemption, amended by CROSS_PROFILE_CORROBORATION #CPC-Change4:
+/// a marriage record carrying a reciprocal-tier STRONG-anchor
+/// cross-profile annotation lifts the cap — a tree-linked spouse's own
+/// persisted record supplies precisely the external discrimination the
+/// cap exists to demand.
 ///
 /// Rationale: with no given name, the name gate cannot discriminate a
 /// single match from the cohort of surname-sharers; with a 25-plus
