@@ -38,6 +38,7 @@ enum ResearchRunService {
             snapshot: snapshot,
             sourceInfoMap: map,
             childEvidenceMMNLookup: ResearchPipeline.makeChildEvidenceMMNLookup(database: database),
+            spouseEvidenceLookup: ResearchPipeline.makeSpouseEvidenceLookup(database: database),
             pendingFactWriter: ResearchPipeline.makePendingFactWriter(database: database),
             rejectionLookup: ResearchPipeline.makeRejectionLookup(database: database),
             userHypothesisLookup: ResearchPipeline.makeUserHypothesisLookup(database: database),

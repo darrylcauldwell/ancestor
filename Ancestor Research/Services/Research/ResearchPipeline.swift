@@ -24,6 +24,13 @@ final class ResearchPipeline {
     /// catch the "researched but not accepted" gap.
     let childEvidenceMMNLookup: ((String) -> String?)?
 
+    /// #CPC-Change3 — per-profile persisted-evidence lookup for the
+    /// cross-profile annotation step (`CrossProfileAnnotator`). The one
+    /// other place a run reads a RELATIVE's persisted rows, exactly the
+    /// `childEvidenceMMNLookup` shape. Nil means no database — the
+    /// annotation step is a deterministic no-op.
+    let spouseEvidenceLookup: ((String) -> [EvidenceRecord])?
+
     /// Firewall-respecting pending-fact writer (§5.14.5). Nil means no
     /// persistence — `state.subject.givenName` still mutates in memory
     /// so the iteration loop sees the rich subject for this run, but
@@ -69,6 +76,7 @@ final class ResearchPipeline {
         snapshot: FamilyGraphSnapshot,
         sourceInfoMap: [String: SourceInfo],
         childEvidenceMMNLookup: ((String) -> String?)? = nil,
+        spouseEvidenceLookup: ((String) -> [EvidenceRecord])? = nil,
         pendingFactWriter: ((PendingFact) -> Void)? = nil,
         rejectionLookup: ((String) -> Set<String>)? = nil,
         userHypothesisLookup: ((String) -> [ResearchHypothesis])? = nil,
@@ -78,6 +86,7 @@ final class ResearchPipeline {
         self.snapshot = snapshot
         self.sourceInfoMap = sourceInfoMap
         self.childEvidenceMMNLookup = childEvidenceMMNLookup
+        self.spouseEvidenceLookup = spouseEvidenceLookup
         self.pendingFactWriter = pendingFactWriter
         self.rejectionLookup = rejectionLookup
         self.userHypothesisLookup = userHypothesisLookup
@@ -102,6 +111,17 @@ final class ResearchPipeline {
                 }
             }
             return nil
+        }
+    }
+
+    /// Build a `spouseEvidenceLookup` closure backed by
+    /// `ProjectDatabase.loadEvidenceForProfile(_:)` (#CPC-Change3).
+    /// Read-only and defensive — load failures fall through to an empty
+    /// list, so the annotation step simply finds nothing.
+    static func makeSpouseEvidenceLookup(database: ProjectDatabase?) -> ((String) -> [EvidenceRecord])? {
+        guard let database else { return nil }
+        return { profileID in
+            (try? database.loadEvidenceForProfile(profileID)) ?? []
         }
     }
 
@@ -326,7 +346,22 @@ final class ResearchPipeline {
                 cache: queryCache
             )
 
-            let scored = pairedRecords.map { record in
+            // #CPC-Change3 — cross-profile corroboration annotation: where
+            // a TREE-LINKED SPOUSE's persisted evidence holds the same
+            // canonical GRO reference as a candidate marriage record, stamp
+            // the record before scoring so the family-context gate (and,
+            // from Change 4, the verdict layer) reads it deterministically.
+            // Persisted-state read only — no wire dispatch.
+            let corroborated = CrossProfileAnnotator.annotate(
+                records: pairedRecords,
+                subjectProfileID: state.subject.profileID,
+                snapshot: snapshot,
+                evidenceLookup: spouseEvidenceLookup,
+                childMMNLookup: childEvidenceMMNLookup,
+                districtResolver: { FreeBMDDistrictCatalogue.shared.district(named: $0)?.name }
+            ).records
+
+            let scored = corroborated.map { record in
                 RecordScorer.classify(
                     record: record,
                     subject: state.subject,

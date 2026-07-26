@@ -1242,6 +1242,25 @@ nonisolated struct RecordScorer {
                 }
             }
 
+            // #CPC-Change3 — cross-profile corroboration arm. Fires only
+            // when no earlier arm claimed the record (spouse column absent
+            // or unmatched): the pipeline's annotation step stamped this
+            // record because a TREE-LINKED SPOUSE's persisted evidence
+            // holds the same canonical GRO reference (the annotation
+            // derives exclusively from persisted evidence rows — no AI
+            // path can produce it, and the corroborator refuses records
+            // whose spouse column contradicts the pair, so this arm never
+            // masks a DS-12 contradiction). A pass here affects only
+            // `wouldApply` in this Change; the Change-4 verdict rule keys
+            // on the ANNOTATION (tier + anchor), not on which arm passed.
+            if let corroboratingSpouse = marriage.corroboratingSpouseProfileID {
+                let tier = marriage.corroborationTier ?? "unknown"
+                return GateResult(
+                    gate: .familyContext, outcome: .pass,
+                    reason: "cross-profile: tree-linked spouse \(corroboratingSpouse) holds the same GRO reference (\(tier) tier)"
+                )
+            }
+
             // DS-12: the record names a spouse but it matched neither the
             // known spouse (name or surname) nor the same-page-inferred
             // partner above. A contradicting spouse is the strongest

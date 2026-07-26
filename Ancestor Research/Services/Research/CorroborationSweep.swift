@@ -191,7 +191,9 @@ nonisolated struct CorroborationSweep {
     /// Surname set (spec §1): recorded surname + explicit married surname +
     /// the father-derived maiden axis. Birth window is PROFILE-RECORDED
     /// only — never relative-derived fallbacks (anchor-vacuity guard).
-    private static func pairMember(
+    /// Internal (not private): the in-run `CrossProfileAnnotator` builds
+    /// its members through the same single definition (#CPC-Change3).
+    static func pairMember(
         _ profile: Profile, snapshot: FamilyGraphSnapshot
     ) -> SpousePairCorroborator.PairMember {
         var surnames: Set<String> = []
@@ -212,7 +214,8 @@ nonisolated struct CorroborationSweep {
             profileID: profile.id,
             surnames: surnames,
             recordedBirthYearRange: birthRange,
-            deathYear: profile.deathDate?.latest ?? profile.deathDate?.earliest
+            deathYear: profile.deathDate?.latest ?? profile.deathDate?.earliest,
+            displayLabel: profile.displayName
         )
     }
 
@@ -347,11 +350,12 @@ nonisolated struct CorroborationSweep {
         finding: SpousePairCorroborator.Finding, db: ProjectDatabase
     ) throws -> Int {
         var tidied = 0
-        for (profileID, recordID) in [
-            (finding.subjectProfileID, finding.subjectRecordID),
-            (finding.partnerProfileID, finding.partnerRecordID),
+        for (profileID, recordIDs) in [
+            (finding.subjectProfileID, finding.subjectCollapsedRecordIDs),
+            (finding.partnerProfileID, finding.partnerCollapsedRecordIDs),
         ] {
-            if try db.resolveCorroboratedLead(profileID: profileID, sourceRecordID: recordID) {
+            for recordID in recordIDs
+            where try db.resolveCorroboratedLead(profileID: profileID, sourceRecordID: recordID) {
                 tidied += 1
             }
         }
@@ -370,6 +374,12 @@ nonisolated struct CorroborationPayload: Codable, Sendable {
     let partnerProfileID: String
     let subjectRecordID: String
     let partnerRecordID: String
+    /// ALL collapsed record ids per side (transcription variants of the one
+    /// index line — the live demonstrator surfaced a duplicate whose lead
+    /// stayed open). Optional for decode-compatibility with payloads
+    /// written before #CPC-Change3; fall back to the singular ids.
+    let subjectRecordIDs: [String]?
+    let partnerRecordIDs: [String]?
     let canonicalKey: String
     let tier: String
     let anchorKind: String
@@ -385,6 +395,8 @@ nonisolated struct CorroborationPayload: Codable, Sendable {
         self.partnerProfileID = finding.partnerProfileID
         self.subjectRecordID = finding.subjectRecordID
         self.partnerRecordID = finding.partnerRecordID
+        self.subjectRecordIDs = finding.subjectCollapsedRecordIDs
+        self.partnerRecordIDs = finding.partnerCollapsedRecordIDs
         self.canonicalKey = finding.canonicalKey
         self.tier = finding.tier.rawValue
         switch finding.anchor {
@@ -496,10 +508,16 @@ nonisolated extension ProjectDatabase {
             return false
         }
 
-        try resolveCorroboratedLead(
-            profileID: payload.subjectProfileID, sourceRecordID: payload.subjectRecordID)
-        try resolveCorroboratedLead(
-            profileID: payload.partnerProfileID, sourceRecordID: payload.partnerRecordID)
+        // Walk EVERY collapsed transcription variant's lead, not just the
+        // representative's (pre-Change-3 payloads carry only the singular).
+        for recordID in payload.subjectRecordIDs ?? [payload.subjectRecordID] {
+            try resolveCorroboratedLead(
+                profileID: payload.subjectProfileID, sourceRecordID: recordID)
+        }
+        for recordID in payload.partnerRecordIDs ?? [payload.partnerRecordID] {
+            try resolveCorroboratedLead(
+                profileID: payload.partnerProfileID, sourceRecordID: recordID)
+        }
         return true
     }
 }

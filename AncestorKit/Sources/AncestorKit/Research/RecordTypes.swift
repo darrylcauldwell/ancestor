@@ -135,8 +135,26 @@ public nonisolated struct MarriageRecord: Codable, Sendable {
     /// pairing pass is the only writer; sources default to nil.
     public let partnerSurnameFromSamePage: String?
 
-    /// Custom init so `partnerSurnameFromSamePage` can default to nil
-    /// without forcing every existing source/test constructor to pass it.
+    /// #CPC-Change3 — cross-profile corroboration annotation
+    /// (`CROSS_PROFILE_CORROBORATION_SPEC.md` Change 3). Stamped by the
+    /// pipeline's pre-scoring annotation step when a TREE-LINKED SPOUSE's
+    /// persisted evidence holds a record at the same canonical GRO
+    /// reference; the family-context gate reads it deterministically, and
+    /// (Change 4) the verdict layer elevates on reciprocal-tier +
+    /// strong-anchor annotations. Derived only from persisted evidence
+    /// rows — no AI path can produce these. Codable-additive: absent in
+    /// old `record_json`, decodes as nil.
+    public let corroboratingSpouseProfileID: String?
+    public let corroboratingSpouseRecordID: String?
+    /// `"reciprocal"` | `"samePagePrior"` (SpousePairCorroborator.Tier).
+    public let corroborationTier: String?
+    /// `"strong"` | `"weak"` | `"none"` (anchor kind only; the detail
+    /// string lives in the corroboration trace, not on the record).
+    public let corroborationAnchor: String?
+
+    /// Custom init so `partnerSurnameFromSamePage` (and the #CPC-Change3
+    /// corroboration fields) can default to nil without forcing every
+    /// existing source/test constructor to pass them.
     /// Same pattern as `RecordQuery.init`.
     public init(
         common: RecordCommon,
@@ -148,7 +166,11 @@ public nonisolated struct MarriageRecord: Codable, Sendable {
         volume: String?,
         page: String?,
         spouseName: String?,
-        partnerSurnameFromSamePage: String? = nil
+        partnerSurnameFromSamePage: String? = nil,
+        corroboratingSpouseProfileID: String? = nil,
+        corroboratingSpouseRecordID: String? = nil,
+        corroborationTier: String? = nil,
+        corroborationAnchor: String? = nil
     ) {
         self.common = common
         self.marriageYear = marriageYear
@@ -160,6 +182,10 @@ public nonisolated struct MarriageRecord: Codable, Sendable {
         self.page = page
         self.spouseName = spouseName
         self.partnerSurnameFromSamePage = partnerSurnameFromSamePage
+        self.corroboratingSpouseProfileID = corroboratingSpouseProfileID
+        self.corroboratingSpouseRecordID = corroboratingSpouseRecordID
+        self.corroborationTier = corroborationTier
+        self.corroborationAnchor = corroborationAnchor
     }
 }
 

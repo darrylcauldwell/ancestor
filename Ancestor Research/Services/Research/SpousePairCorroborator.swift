@@ -39,12 +39,18 @@ nonisolated enum SpousePairCorroborator {
         /// any marriage year and make the strong anchor vacuous; spec §1).
         let recordedBirthYearRange: ClosedRange<Int>?
         let deathYear: Int?
+        /// Human-readable name for trace/card text (a raw profile id on a
+        /// review card is unreadable). Falls back to the id.
+        let displayLabel: String?
+
+        var label: String { displayLabel ?? profileID }
 
         init(
             profileID: String,
             surnames: Set<String>,
             recordedBirthYearRange: ClosedRange<Int>? = nil,
-            deathYear: Int? = nil
+            deathYear: Int? = nil,
+            displayLabel: String? = nil
         ) {
             self.profileID = profileID
             self.surnames = Set(surnames.map {
@@ -52,6 +58,7 @@ nonisolated enum SpousePairCorroborator {
             }.filter { !$0.isEmpty })
             self.recordedBirthYearRange = recordedBirthYearRange
             self.deathYear = deathYear
+            self.displayLabel = displayLabel
         }
     }
 
@@ -102,6 +109,13 @@ nonisolated enum SpousePairCorroborator {
         let anchor: Anchor
         let subjectRecordID: String
         let partnerRecordID: String
+        /// ALL record ids that collapsed into each representative
+        /// (transcription variants / re-fetches of one index line,
+        /// representative included). Lead resolution must walk these — a
+        /// duplicate transcription's lead staying open after acceptance was
+        /// observed live on the demonstrator (Mary's second 2130a row).
+        let subjectCollapsedRecordIDs: [String]
+        let partnerCollapsedRecordIDs: [String]
         /// Year-granularity event span. GRO quarterly indexes include late
         /// clergy returns, so `earliest` is widened by one quarter — a MAR
         /// quarter opens into the prior year (spec §1).
@@ -196,14 +210,14 @@ nonisolated enum SpousePairCorroborator {
         // window's most permissive reading).
         for member in [subject, partner] {
             if let death = member.deathYear, marriageYear > death {
-                return .none(reason: "marriage \(marriageYear) after \(member.profileID)'s death \(death)")
+                return .none(reason: "marriage \(marriageYear) after \(member.label)'s death \(death)")
             }
             if let birth = member.recordedBirthYearRange {
                 if marriageYear - birth.lowerBound < IdentityConstraints.minMarriageAge {
-                    return .none(reason: "marriage \(marriageYear) before \(member.profileID) could be \(IdentityConstraints.minMarriageAge)")
+                    return .none(reason: "marriage \(marriageYear) before \(member.label) could be \(IdentityConstraints.minMarriageAge)")
                 }
                 if marriageYear - birth.upperBound > IdentityConstraints.maxAdultAgeYears {
-                    return .none(reason: "marriage \(marriageYear) beyond \(member.profileID)'s plausible adult span")
+                    return .none(reason: "marriage \(marriageYear) beyond \(member.label)'s plausible adult span")
                 }
             }
         }
@@ -248,6 +262,8 @@ nonisolated enum SpousePairCorroborator {
             anchor: anchor,
             subjectRecordID: subjectEntry.id,
             partnerRecordID: partnerEntry.id,
+            subjectCollapsedRecordIDs: subjectEntry.allIDs,
+            partnerCollapsedRecordIDs: partnerEntry.allIDs,
             proposedEarliestYear: earliest,
             proposedLatestYear: marriageYear,
             registrationLabel: label,
@@ -265,7 +281,7 @@ nonisolated enum SpousePairCorroborator {
         _ side: [(id: String, record: MarriageRecord)],
         districtResolver: ((String) -> String?)?,
         trace: inout [String]
-    ) -> [String: (id: String, record: MarriageRecord)]? {
+    ) -> [String: (id: String, record: MarriageRecord, allIDs: [String])]? {
         var grouped: [String: [(id: String, record: MarriageRecord)]] = [:]
         var keyedAny = false
         for entry in side {
@@ -277,9 +293,11 @@ nonisolated enum SpousePairCorroborator {
         }
         guard keyedAny else { return nil }
 
-        var byKey: [String: (id: String, record: MarriageRecord)] = [:]
+        var byKey: [String: (id: String, record: MarriageRecord, allIDs: [String])] = [:]
         for (key, entries) in grouped {
-            // Dedup re-fetches of the same row id.
+            // Dedup re-fetches of the same row id — but keep every DISTINCT
+            // caller id (evidence rows carry their own ids for the same
+            // underlying row) so lead resolution can walk all of them.
             var seen = Set<String>()
             var unique: [(id: String, record: MarriageRecord)] = []
             for e in entries where seen.insert(e.record.common.id).inserted {
@@ -295,7 +313,10 @@ nonisolated enum SpousePairCorroborator {
                 trace.append("dropped key \(key): conflicting identities on one side")
                 continue
             }
-            byKey[key] = unique[0]
+            let allIDs = entries.map(\.id).reduce(into: [String]()) {
+                if !$0.contains($1) { $0.append($1) }
+            }
+            byKey[key] = (id: unique[0].id, record: unique[0].record, allIDs: allIDs)
         }
         return byKey
     }
@@ -387,7 +408,7 @@ nonisolated enum SpousePairCorroborator {
         // year. Guard 4 already refused impossibilities, so presence of a
         // recorded window IS validation.
         for member in [subject, partner] where member.recordedBirthYearRange != nil {
-            let detail = "birth-window(\(member.profileID))"
+            let detail = "birth-window(\(member.label))"
             trace.append("strong anchor: \(detail)")
             return .strong(detail)
         }
@@ -413,7 +434,7 @@ nonisolated enum SpousePairCorroborator {
         // Weak: a death year the marriage actually precedes (guard 4 passed).
         for member in [subject, partner] {
             if let death = member.deathYear {
-                let detail = "death-year precedence (\(member.profileID) d.\(death))"
+                let detail = "death-year precedence (\(member.label) d.\(death))"
                 trace.append("weak anchor: \(detail)")
                 return .weak(detail)
             }
