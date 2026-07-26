@@ -39,6 +39,7 @@ design rationale, in Claude's memory files. Only living work lives in this folde
 | Doc | Role |
 |---|---|
 | `DOSSIER_SPEC.md` | T9 investigation dossier + bounded adversarial challenge |
+| `CROSS_PROFILE_CORROBORATION_SPEC.md` | Spouse-pair marriage corroboration across profiles (#CPC-Change1..5; owner-declared next work item 2026-07-25) |
 
 ## Sequenced later (Stage 2 — gate: core declared solid)
 
