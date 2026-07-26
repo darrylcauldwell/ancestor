@@ -176,7 +176,10 @@ struct CrossProfileAnnotationTests {
         let targets = CrossProfileAnnotator.directedFetchTargets(
             subjectHeld: [keyworth1896],
             spouseHeld: [elizabeth1909])
-        #expect(targets == [.init(volume: "7b", page: "1518", year: 1909, district: "Chesterfield")])
+        // Quarter + district carry from the spouse's record so the pulled
+        // side keys identically (same register page → same district/quarter).
+        #expect(targets == [.init(volume: "7b", page: "1518", year: 1909,
+                                  quarter: "Sep", district: "Chesterfield")])
     }
 
     @Test func directedFetchSkipsReferencesTheSubjectAlreadyHolds() {

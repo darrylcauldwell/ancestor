@@ -28,11 +28,18 @@ nonisolated enum CrossProfileAnnotator {
 
     // MARK: - Directed fetch (multi-marriage completion)
 
-    /// One register page to fetch the SUBJECT's own side from.
+    /// One register page to fetch the SUBJECT's own side from. `quarter` and
+    /// `district` come from the spouse's record — a `(year, volume, page)`
+    /// identifies one register page, which belongs to exactly one district
+    /// and quarter, so the subject's row on that page shares both. Stamping
+    /// them onto the pulled record guarantees the canonical keys match
+    /// (otherwise a page-lookup that drops the district drifts the key and
+    /// the corroboration can't join the two sides).
     struct DirectedFetchTarget: Equatable {
         let volume: String
         let page: String
         let year: Int
+        let quarter: String?
         let district: String?
     }
 
@@ -66,7 +73,8 @@ nonisolated enum CrossProfileAnnotator {
             else { continue }
             let dedup = "\(vol.uppercased())/\(page.uppercased())/\(year)"
             guard seen.insert(dedup).inserted else { continue }
-            out.append(.init(volume: vol, page: page, year: year, district: m.district))
+            out.append(.init(volume: vol, page: page, year: year,
+                             quarter: m.quarter, district: m.district))
         }
         return out
     }
