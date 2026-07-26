@@ -28,11 +28,14 @@ nonisolated struct CorroborationSweep {
     /// future §14 carve-out (Change 5) all match on.
     static let agentID = "cross-profile-corroboration"
 
-    /// Diagnostic logger (#CPC live-debug 2026-07-26). Logs every edge that
-    /// clears the marriage-evidence pre-filter and the run summary, so a
-    /// stuck pair (Ida Louisa Land × George Herbert Brooks) is visible in the
-    /// Xcode console without guessing. Trim to failures-only once the live
-    /// repair path is confirmed.
+    /// Diagnostic logger. Keeps the "why didn't this pair corroborate"
+    /// signals at `.info` (near-miss district drift, non-keyable stale
+    /// records, contradictions, ambiguity) plus the run summary; routine
+    /// success and no-evidence edges drop to `.debug`. Cheap — info/debug
+    /// aren't persisted to disk — and it paid for itself once already: it
+    /// pinned the Ida × George stall to a July-18 record persisted before
+    /// the parser captured structured vol/page/year (`no keyable marriage
+    /// records`), fixed by re-researching that side.
     private static let logger = Logger(
         subsystem: "dev.dreamfold.Ancestor-Research", category: "CorroborationSweep")
 
@@ -97,12 +100,17 @@ nonisolated struct CorroborationSweep {
             case .found(let finding):
                 let bothAccepted = factRecordIDs.contains(finding.subjectRecordID)
                     && factRecordIDs.contains(finding.partnerRecordID)
-                logger.info("edge \(pairLabel): FOUND tier=\(finding.tier.rawValue) key=\(finding.canonicalKey) bothAccepted=\(bothAccepted) edgeHasDate=\(edgeHasDate)")
+                logger.debug("edge \(pairLabel): FOUND tier=\(finding.tier.rawValue) key=\(finding.canonicalKey) bothAccepted=\(bothAccepted) edgeHasDate=\(edgeHasDate)")
                 claims.append((edge, finding, bothAccepted))
             case .none(let reason) where reason.hasPrefix("near-miss"):
                 logger.info("edge \(pairLabel): NEAR-MISS \(reason)")
                 report.nearMisses.append("\(pairLabel): \(reason)")
+            case .none(let reason) where reason.contains("no scorable marriage evidence"):
+                // Routine: most edges simply lack marriage evidence on a side.
+                logger.debug("edge \(pairLabel): NONE (\(reason))")
             case .none(let reason):
+                // Actionable: non-keyable stale records, no shared key,
+                // contradictions — the "why didn't it corroborate" cases.
                 logger.info("edge \(pairLabel): NONE (\(reason))")
             case .ambiguous(let reason):
                 logger.info("edge \(pairLabel): AMBIGUOUS (\(reason))")
