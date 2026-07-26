@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import AncestorKit
+import os
 
 /// #CPC-Change2 — the post-run cross-profile corroboration sweep
 /// (`AncestorApp/CROSS_PROFILE_CORROBORATION_SPEC.md` §4, Change 2).
@@ -26,6 +27,14 @@ nonisolated struct CorroborationSweep {
     /// `PendingFactsProcessor` exemption, the review-card routing, and the
     /// future §14 carve-out (Change 5) all match on.
     static let agentID = "cross-profile-corroboration"
+
+    /// Diagnostic logger (#CPC live-debug 2026-07-26). Logs every edge that
+    /// clears the marriage-evidence pre-filter and the run summary, so a
+    /// stuck pair (Ida Louisa Land × George Herbert Brooks) is visible in the
+    /// Xcode console without guessing. Trim to failures-only once the live
+    /// repair path is confirmed.
+    private static let logger = Logger(
+        subsystem: "dev.dreamfold.Ancestor-Research", category: "CorroborationSweep")
 
     struct Report: Sendable {
         var edgesScanned = 0
@@ -82,15 +91,21 @@ nonisolated struct CorroborationSweep {
                 edge: edge, profileA: profileA, profileB: profileB,
                 db: db, snapshot: snapshot, districtResolver: resolver
             )
+            let pairLabel = "\(profileA.displayName) × \(profileB.displayName)"
+            let edgeHasDate = edge.marriageDate != nil
             switch outcome {
             case .found(let finding):
                 let bothAccepted = factRecordIDs.contains(finding.subjectRecordID)
                     && factRecordIDs.contains(finding.partnerRecordID)
+                logger.info("edge \(pairLabel): FOUND tier=\(finding.tier.rawValue) key=\(finding.canonicalKey) bothAccepted=\(bothAccepted) edgeHasDate=\(edgeHasDate)")
                 claims.append((edge, finding, bothAccepted))
             case .none(let reason) where reason.hasPrefix("near-miss"):
-                report.nearMisses.append("\(profileA.displayName) × \(profileB.displayName): \(reason)")
-            case .none, .ambiguous:
-                break
+                logger.info("edge \(pairLabel): NEAR-MISS \(reason)")
+                report.nearMisses.append("\(pairLabel): \(reason)")
+            case .none(let reason):
+                logger.info("edge \(pairLabel): NONE (\(reason))")
+            case .ambiguous(let reason):
+                logger.info("edge \(pairLabel): AMBIGUOUS (\(reason))")
             }
         }
 
@@ -121,6 +136,7 @@ nonisolated struct CorroborationSweep {
             report.withdrawnStale += 1
         }
 
+        logger.info("summary: scanned=\(report.edgesScanned) emitted=\(report.findingsEmitted) repaired=\(report.edgesRepaired) skippedPopulated=\(report.skippedEdgePopulated) skippedConflict=\(report.skippedEdgeConflict) refusedKeyClaims=\(report.refusedSharedKeyClaims) withdrawn=\(report.withdrawnStale) scope=\(limitToProfileID ?? "all")")
         return report
     }
 
