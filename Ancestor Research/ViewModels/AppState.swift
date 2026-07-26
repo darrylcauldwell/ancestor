@@ -640,8 +640,11 @@ final class AppState {
         do {
             let report = try CorroborationSweep.run(
                 db: db, snapshot: snapshot, limitToProfileID: limitToProfileID)
-            if report.findingsEmitted > 0 || report.withdrawnStale > 0 {
-                sweepLogger.info("Corroboration sweep: \(report.findingsEmitted) facts emitted, \(report.withdrawnStale) withdrawn, \(report.nearMisses.count) near-misses over \(report.edgesScanned) edges")
+            if report.findingsEmitted > 0 || report.edgesRepaired > 0 || report.withdrawnStale > 0 {
+                sweepLogger.info("Corroboration sweep: \(report.findingsEmitted) facts emitted, \(report.edgesRepaired) edges repaired, \(report.withdrawnStale) withdrawn, \(report.nearMisses.count) near-misses over \(report.edgesScanned) edges")
+                if report.edgesRepaired > 0 || report.findingsEmitted > 0 {
+                    snapshot = try db.buildSnapshot()
+                }
             }
             for miss in report.nearMisses {
                 sweepLogger.info("Corroboration near-miss: \(miss)")

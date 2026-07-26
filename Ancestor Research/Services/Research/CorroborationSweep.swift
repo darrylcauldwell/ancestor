@@ -30,6 +30,7 @@ nonisolated struct CorroborationSweep {
     struct Report: Sendable {
         var edgesScanned = 0
         var findingsEmitted = 0
+        var edgesRepaired = 0
         var skippedEdgePopulated = 0
         var skippedEdgeConflict = 0
         var refusedSharedKeyClaims = 0
@@ -59,7 +60,10 @@ nonisolated struct CorroborationSweep {
 
         // Phase 1 — corroborate every in-scope edge (no writes yet: the
         // key→edge claim ledger below needs the full pass, Decision 11).
-        var claims: [(edge: Relationship, finding: SpousePairCorroborator.Finding)] = []
+        // `bothAccepted` = both matched records are already fact-verdict
+        // (human-accepted), which routes an EMPTY edge to repair rather than
+        // review (see emit()).
+        var claims: [(edge: Relationship, finding: SpousePairCorroborator.Finding, bothAccepted: Bool)] = []
         var scannedEdgeIDs = Set<String>()
 
         for edge in spouseEdges {
@@ -74,13 +78,15 @@ nonisolated struct CorroborationSweep {
                   try db.marriageEvidenceCount(profileID: profileB.id) > 0
             else { continue }
 
-            let outcome = try corroborateEdge(
+            let (outcome, factRecordIDs) = try corroborateEdge(
                 edge: edge, profileA: profileA, profileB: profileB,
                 db: db, snapshot: snapshot, districtResolver: resolver
             )
             switch outcome {
             case .found(let finding):
-                claims.append((edge, finding))
+                let bothAccepted = factRecordIDs.contains(finding.subjectRecordID)
+                    && factRecordIDs.contains(finding.partnerRecordID)
+                claims.append((edge, finding, bothAccepted))
             case .none(let reason) where reason.hasPrefix("near-miss"):
                 report.nearMisses.append("\(profileA.displayName) × \(profileB.displayName): \(reason)")
             case .none, .ambiguous:
@@ -127,12 +133,19 @@ nonisolated struct CorroborationSweep {
         db: ProjectDatabase,
         snapshot: FamilyGraphSnapshot,
         districtResolver: @escaping (String) -> String?
-    ) throws -> SpousePairCorroborator.Outcome {
+    ) throws -> (outcome: SpousePairCorroborator.Outcome, factRecordIDs: Set<String>) {
         // Evidence, minus user-discarded rows (rejection-memory layer ii).
         let evidenceA = try db.loadEvidenceForProfile(profileA.id)
             .filter { $0.userStatus != .discarded }
         let evidenceB = try db.loadEvidenceForProfile(profileB.id)
             .filter { $0.userStatus != .discarded }
+
+        // Fact-verdict (already human-accepted) record ids across both sides —
+        // an empty edge whose both matched records are fact is a repair, not a
+        // discovery (emit()).
+        let factRecordIDs = Set((evidenceA + evidenceB)
+            .filter { $0.verdict == .fact }
+            .map(\.sourceRecordID))
 
         func marriages(_ evidence: [EvidenceRecord]) -> [(id: String, record: MarriageRecord)] {
             evidence.compactMap { row in
@@ -143,7 +156,7 @@ nonisolated struct CorroborationSweep {
         let marriagesA = marriages(evidenceA)
         let marriagesB = marriages(evidenceB)
         guard !marriagesA.isEmpty, !marriagesB.isEmpty else {
-            return .none(reason: "no scorable marriage evidence on both sides")
+            return (.none(reason: "no scorable marriage evidence on both sides"), factRecordIDs)
         }
 
         // Rejection-memory layer i: a DISMISSED lead's underlying record is
@@ -176,7 +189,7 @@ nonisolated struct CorroborationSweep {
             return .init(mothersMaidenName: mmn, birthYear: child.birthDate?.earliest)
         }
 
-        return SpousePairCorroborator.corroborate(
+        let outcome = SpousePairCorroborator.corroborate(
             subjectMarriages: marriagesA,
             partnerMarriages: marriagesB,
             subject: pairMember(profileA, snapshot: snapshot),
@@ -186,6 +199,7 @@ nonisolated struct CorroborationSweep {
             exclusions: exclusions,
             districtResolver: districtResolver
         )
+        return (outcome, factRecordIDs)
     }
 
     /// Surname set (spec §1): recorded surname + explicit married surname +
@@ -249,7 +263,7 @@ nonisolated struct CorroborationSweep {
     // MARK: - Emission
 
     private static func emit(
-        claim: (edge: Relationship, finding: SpousePairCorroborator.Finding),
+        claim: (edge: Relationship, finding: SpousePairCorroborator.Finding, bothAccepted: Bool),
         db: ProjectDatabase,
         snapshot: FamilyGraphSnapshot,
         validFactIDs: inout Set<String>,
@@ -261,7 +275,7 @@ nonisolated struct CorroborationSweep {
         // Decision 9 — the edge's existing marriage date decides the route:
         // conflicting (non-overlapping) → skip, the conflict layer owns
         // disputes; equal-or-narrower → nothing to gain, tidy the leads;
-        // wider/absent → emit.
+        // wider/absent → repair or emit.
         if let existing = edge.marriageDate,
            let ee = existing.earliest, let el = existing.latest {
             let overlaps = !(finding.proposedLatestYear < ee || finding.proposedEarliestYear > el)
@@ -274,6 +288,35 @@ nonisolated struct CorroborationSweep {
                 report.leadsTidied += try tidyLeads(finding: finding, db: db)
                 return
             }
+        }
+
+        // REPAIR (#CPC follow-up 2026-07-26): the edge carries no marriage
+        // date, yet BOTH spouses already hold this marriage as an accepted
+        // (fact-verdict) record. That is an accept whose edge write silently
+        // failed under the pre-fix apply path (Ida Louisa Land × George
+        // Herbert Brooks) — complete it mechanically. This is NOT a machine
+        // decision skipping review: the human already accepted these exact
+        // marriage facts on both profiles; the sweep only finishes the
+        // absorption. Check-Before-Overwrite (fillRelationshipMarriage) means
+        // it can only fill emptiness, and it fires solely for a tree-linked
+        // spouse pair sharing the exact GRO reference. Discovery-grade pairs
+        // (either side still a lead) fall through to human review below.
+        if edge.marriageDate == nil, claim.bothAccepted {
+            let date = GenealogicalDate(
+                original: finding.registrationLabel,
+                earliest: finding.proposedEarliestYear,
+                latest: finding.proposedLatestYear,
+                isApproximate: false,
+                qualifier: .exact
+            )
+            _ = try db.fillRelationshipMarriage(
+                relationshipID: edge.id,
+                candidateDate: date,
+                candidateLocation: finding.proposedLocation
+            )
+            report.leadsTidied += try tidyLeads(finding: finding, db: db)
+            report.edgesRepaired += 1
+            return
         }
 
         let subjectName = snapshot.profiles[finding.subjectProfileID]?.displayName

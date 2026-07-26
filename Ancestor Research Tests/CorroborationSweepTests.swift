@@ -229,10 +229,50 @@ struct CorroborationSweepTests {
         #expect(scopedHere.findingsEmitted == 2, "post-persist trigger sees the pair")
     }
 
+    // MARK: - Repair: both sides already accepted, edge empty
+
+    @Test func acceptedPairWithEmptyEdgeIsRepairedNotReviewed() throws {
+        // Ida × George class: the marriage was accepted on both profiles
+        // (fact verdict) but the edge write silently failed under the old
+        // apply path. The sweep must COMPLETE the edge directly — no pending
+        // fact, no review — the human already accepted these facts.
+        let db = try makeDemonstratorDB(recordVerdict: .fact)
+        let report = try CorroborationSweep.run(db: db, snapshot: try db.buildSnapshot())
+
+        #expect(report.edgesRepaired == 1)
+        #expect(report.findingsEmitted == 0, "an accepted pair is repaired, not re-reviewed")
+        #expect(try db.loadPendingFacts(profileID: "@MARY@").isEmpty)
+        #expect(try db.loadPendingFacts(profileID: "@WILLIAM@").isEmpty)
+
+        let edge = try #require(try db.buildSnapshot().relationships.first { $0.type == .spouse })
+        #expect(edge.marriageDate?.original == "registered Dec quarter 1915")
+        #expect(edge.marriageLocation == "BAKEWELL")
+        // Both leads resolved.
+        for profileID in ["@MARY@", "@WILLIAM@"] {
+            #expect(try db.loadLeads(profileID: profileID).first?.status == .promoted)
+        }
+
+        // Idempotent: a second pass sees the populated edge and does nothing.
+        let second = try CorroborationSweep.run(db: db, snapshot: try db.buildSnapshot())
+        #expect(second.edgesRepaired == 0)
+        #expect(second.skippedEdgePopulated == 1)
+    }
+
+    @Test func leadVerdictPairStillGoesToReviewNotRepair() throws {
+        // Regression: a discovery-grade pair (either side still a lead) must
+        // NOT be auto-written — it goes through human review.
+        let db = try makeDemonstratorDB(recordVerdict: .lead)
+        let report = try CorroborationSweep.run(db: db, snapshot: try db.buildSnapshot())
+        #expect(report.edgesRepaired == 0)
+        #expect(report.findingsEmitted == 2)
+        #expect(try db.buildSnapshot().relationships.first { $0.type == .spouse }?.marriageDate == nil)
+    }
+
     // MARK: - Fixtures
 
     private func makeDemonstratorDB(
-        edgeMarriageDate: GenealogicalDate? = nil
+        edgeMarriageDate: GenealogicalDate? = nil,
+        recordVerdict: RecordVerdict = .lead
     ) throws -> ProjectDatabase {
         let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
         let db = try ProjectDatabase(path: path)
@@ -243,9 +283,11 @@ struct CorroborationSweepTests {
             subtype: .biological, marriageDate: edgeMarriageDate,
             marriageLocation: nil, divorceDate: nil))
         try seedMarriageEvidence(db, profileID: "@MARY@", recordID: "mary-2130a",
-                                 surname: "THOMPSON", givenName: "MARY ELLEN", spouseName: "Holmes")
+                                 surname: "THOMPSON", givenName: "MARY ELLEN", spouseName: "Holmes",
+                                 verdict: recordVerdict)
         try seedMarriageEvidence(db, profileID: "@WILLIAM@", recordID: "william-2130a",
-                                 surname: "HOLMES", givenName: "WILLIAM", spouseName: "Thompson")
+                                 surname: "HOLMES", givenName: "WILLIAM", spouseName: "Thompson",
+                                 verdict: recordVerdict)
         return db
     }
 
@@ -269,7 +311,8 @@ struct CorroborationSweepTests {
     /// research run's persist leaves behind for a held marriage lead.
     private func seedMarriageEvidence(
         _ db: ProjectDatabase, profileID: String, recordID: String,
-        surname: String, givenName: String, spouseName: String?
+        surname: String, givenName: String, spouseName: String?,
+        verdict: RecordVerdict = .lead
     ) throws {
         let record = SourceRecord.marriage(MarriageRecord(
             common: RecordCommon(
@@ -283,7 +326,7 @@ struct CorroborationSweepTests {
             spouseName: spouseName
         ))
         let scored = ScoredRecord(
-            id: recordID, record: record, verdict: .lead,
+            id: recordID, record: record, verdict: verdict,
             gates: [GateResult(gate: .name, outcome: .pass, reason: "surname=1.00")],
             summary: "\(givenName) \(surname), Dec 1915 Bakewell 7b/2130a"
         )
