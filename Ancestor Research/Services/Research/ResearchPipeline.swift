@@ -400,23 +400,6 @@ final class ResearchPipeline {
             state.scoredRecords.append(contentsOf: newScored)
             let newRecordCount = newScored.count
 
-            // DIAG (#CPC live-debug): where does the directed-fetched 1518
-            // record go? Log every stage it should be present in.
-            if !directed.isEmpty {
-                func has1518(_ recs: [SourceRecord]) -> Int {
-                    recs.filter { if case .marriage(let m) = $0 { return m.page?.trimmingCharacters(in: .whitespaces) == "1518" }; return false }.count
-                }
-                func has1518scored(_ recs: [ScoredRecord]) -> String {
-                    recs.compactMap { r -> String? in
-                        if case .marriage(let m) = r.record, m.page?.trimmingCharacters(in: .whitespaces) == "1518" {
-                            return "\(r.verdict.rawValue)|\(SamePageCouplePairing.canonicalReferenceKey(m, districtResolver: { FreeBMDDistrictCatalogue.shared.district(named: $0)?.name }) ?? "nilkey")"
-                        }
-                        return nil
-                    }.joined(separator: ",")
-                }
-                logger.info("DIAG flow 1518: directed=\(has1518(directed)) batch=\(has1518(batch)) paired=\(has1518(pairedRecords)) corroborated=\(has1518(corroborated)) scored=[\(has1518scored(scored))] newScored=[\(has1518scored(newScored))] stateTotal=\(has1518scored(state.scoredRecords))")
-            }
-
             // Change 5 miss test, revised 2026-07-25 (moves 1+2). A stage
             // produces a CANDIDATE for a record type when it returned at
             // least one non-impossible record whose geography gate did not
@@ -2492,16 +2475,6 @@ final class ResearchPipeline {
 
         let targets = CrossProfileAnnotator.directedFetchTargets(
             subjectHeld: subjectHeld, spouseHeld: spouseHeld, districtResolver: resolver)
-        logger.info("Directed fetch [\(subjectProfileID)]: spouses=\(self.snapshot.spousesOf(subjectProfileID).count) spouseHeldMarriages=\(spouseHeld.count) subjectHeldMarriages=\(subjectHeld.count) targets=\(targets.map { "\($0.volume)/\($0.page)/\($0.year)" }.joined(separator: ","))")
-        // DIAG (#CPC live-debug): dump the 7b/1518-class keys on both sides
-        // to pin the exact divergence between the pulled record and the
-        // spouse's record.
-        for m in spouseHeld where (m.page?.trimmingCharacters(in: .whitespaces) == "1518") {
-            logger.info("DIAG spouse-side key=\(SamePageCouplePairing.canonicalReferenceKey(m, districtResolver: resolver) ?? "nil") | y=\(m.marriageYear.map(String.init) ?? "∅") q=\(m.quarter ?? "∅") d=\(m.district ?? "∅") v=\(m.volume ?? "∅") p=\(m.page ?? "∅")")
-        }
-        for m in subjectHeld where (m.page?.trimmingCharacters(in: .whitespaces) == "1518") {
-            logger.info("DIAG subject-side key=\(SamePageCouplePairing.canonicalReferenceKey(m, districtResolver: resolver) ?? "nil") | y=\(m.marriageYear.map(String.init) ?? "∅") q=\(m.quarter ?? "∅") d=\(m.district ?? "∅") v=\(m.volume ?? "∅") p=\(m.page ?? "∅")")
-        }
         guard !targets.isEmpty else { return [] }
 
         var out: [SourceRecord] = []
@@ -2544,11 +2517,7 @@ final class ResearchPipeline {
             }
         }
         if !out.isEmpty {
-            let dump = out.compactMap { rec -> String? in
-                guard case .marriage(let m) = rec else { return nil }
-                return "surname=\(m.common.surname ?? "∅") y=\(m.marriageYear.map(String.init) ?? "∅") q=\(m.quarter ?? "∅") d=\(m.district ?? "∅") v=\(m.volume ?? "∅") p=\(m.page ?? "∅")"
-            }
-            logger.info("Cross-profile directed fetch: pulled \(out.count) [\(dump.joined(separator: " | "))]")
+            logger.info("Cross-profile directed fetch: pulled \(out.count) subject-side marriage record(s) from \(targets.count) spouse-held reference(s)")
         }
         return out
     }
