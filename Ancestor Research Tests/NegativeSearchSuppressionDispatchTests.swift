@@ -94,7 +94,7 @@ struct NegativeSearchSuppressionDispatchTests {
     // MARK: - Helpers
 
     private static func makeDispatcher(source: any RecordSource) -> SearchDispatcher {
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         registry.register(source)
         return SearchDispatcher(registry: registry)
     }

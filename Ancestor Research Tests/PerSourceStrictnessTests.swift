@@ -128,7 +128,7 @@ struct PerSourceStrictnessTests {
     }
 
     @Test func ac5_3_freeBMDVariantFansOutByN_plus_1() {
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         bootstrapSources(registry: registry)
         guard let freebmd = registry.allSources().first(where: { $0.sourceID == "freebmd" }) else {
             Issue.record("FreeBMD source not in registry")
@@ -225,7 +225,7 @@ struct PerSourceStrictnessTests {
     // in this list until SOURCE_WEIGHTING Change 0 retired the plugin.)
 
     @Test func ac5_4_strictOnlySourcesDoNotFanOutAndIgnoreStrictnessOnTheWire() {
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         bootstrapSources(registry: registry)
 
         for sourceID in ["probate", "findagrave"] {

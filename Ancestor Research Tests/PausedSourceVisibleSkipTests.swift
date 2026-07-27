@@ -22,7 +22,7 @@ struct PausedSourceVisibleSkipTests {
 
     @Test func pausedSourceProducesVisibleSkipEntry() async {
         let source = BudgetedCountingSource(sourceID: "freebmd")
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         registry.register(source)
 
         // A tracker whose FreeBMD window is already at its 1/day ceiling, so

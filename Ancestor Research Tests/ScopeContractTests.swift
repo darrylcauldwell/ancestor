@@ -17,7 +17,7 @@ struct ScopeContractTests {
     private let allScopes: [ResearchScope] = [.parish, .district, .county, .adjacent, .national]
 
     private func makeDispatcher() -> SearchDispatcher {
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         bootstrapSources(registry: registry)
         return SearchDispatcher(registry: registry)
     }
@@ -180,7 +180,7 @@ struct ScopeContractTests {
 struct ScopeSkipVisibilityTests {
 
     private func makeDispatcher(sources: [any RecordSource]) -> SearchDispatcher {
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         for source in sources { registry.register(source) }
         return SearchDispatcher(registry: registry)
     }
@@ -312,7 +312,7 @@ struct DispatchStagingTests {
     @Test func stagedDispatchExcludesNonStageSources() async {
         // Only FreeBMD registered; at the FS stage it is not a target —
         // nothing fires, nothing touches the wire.
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         registry.register(FreeBMDSource())
         let dispatcher = SearchDispatcher(registry: registry)
         let subject = ResearchSubject(
@@ -356,7 +356,7 @@ struct StagedPipelineTests {
 
     private func run(freeResults: [SourceRecord], fs: StagedScriptedSource)
     async -> ResearchResult {
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         registry.register(StagedScriptedSource(
             sourceID: "freebmd", displayName: "FreeBMD (test)", results: freeResults))
         registry.register(fs)
@@ -427,7 +427,7 @@ struct StagedPipelineTests {
             sourceID: "familysearch", displayName: "FamilySearch (test)",
             results: [fsBaptism])
 
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         registry.register(StagedScriptedSource(
             sourceID: "freebmd", displayName: "FreeBMD (test)",
             results: [birth1860, birth1861]))

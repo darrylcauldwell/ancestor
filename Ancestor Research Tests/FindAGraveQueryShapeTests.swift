@@ -20,7 +20,7 @@ struct FindAGraveQueryShapeTests {
     private let fag = FindAGraveSource()
 
     private func dispatcher() -> SearchDispatcher {
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         registry.register(fag)
         return SearchDispatcher(registry: registry)
     }

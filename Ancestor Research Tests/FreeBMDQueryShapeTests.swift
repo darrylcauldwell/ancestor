@@ -152,7 +152,7 @@ struct FreeBMDQueryShapeTests {
         // FT-01 gate is ON (probe-validated 2026-07-11) — the default
         // .county path is now ONE county-level query carrying the
         // captured live-form countyid value.
-        let dispatcher = SearchDispatcher(registry: SourceRegistry())
+        let dispatcher = SearchDispatcher(registry: SourceRegistry(defaults: .ephemeralSuite()))
         let queries = dispatcher.buildQueriesForTest(
             source: FreeBMDSource(), subject: Self.makeSubject(),
             recordType: .birth, scope: .county
@@ -173,7 +173,7 @@ struct FreeBMDQueryShapeTests {
         // post-1974/1994/1997 composite districts (High Peak, Ilkeston,
         // Amber Valley, South Derbyshire) can't hold a match and are
         // dropped, so the count is the year-valid subset, not the full 12.
-        let dispatcher = SearchDispatcher(registry: SourceRegistry())
+        let dispatcher = SearchDispatcher(registry: SourceRegistry(defaults: .ephemeralSuite()))
         let queries = dispatcher.buildQueriesForTest(
             source: FreeBMDSource(), subject: Self.makeSubject(),
             recordType: .birth, scope: .county,
@@ -199,7 +199,7 @@ struct FreeBMDQueryShapeTests {
 
     @MainActor
     @Test func dispatcherCountyScopeGateOnEmitsOneCountyQuery() {
-        let dispatcher = SearchDispatcher(registry: SourceRegistry())
+        let dispatcher = SearchDispatcher(registry: SourceRegistry(defaults: .ephemeralSuite()))
         let queries = dispatcher.buildQueriesForTest(
             source: FreeBMDSource(), subject: Self.makeSubject(),
             recordType: .birth, scope: .county,
@@ -219,7 +219,7 @@ struct FreeBMDQueryShapeTests {
         // FT-02 at the dispatcher level: one query, both geo axes empty
         // (→ districtid="" on the wire), instead of one per catalogue
         // district (632 for a birth ±2 window).
-        let dispatcher = SearchDispatcher(registry: SourceRegistry())
+        let dispatcher = SearchDispatcher(registry: SourceRegistry(defaults: .ephemeralSuite()))
         let queries = dispatcher.buildQueriesForTest(
             source: FreeBMDSource(), subject: Self.makeSubject(),
             recordType: .birth, scope: .national
@@ -239,7 +239,7 @@ struct FreeBMDQueryShapeTests {
         // collapse — an inverted-wife subject still probes both recorded
         // and maiden spouse surnames, just once each instead of once per
         // district.
-        let dispatcher = SearchDispatcher(registry: SourceRegistry())
+        let dispatcher = SearchDispatcher(registry: SourceRegistry(defaults: .ephemeralSuite()))
         let queries = dispatcher.buildQueriesForTest(
             source: FreeBMDSource(), subject: Self.makeSubjectWithInvertedWife(),
             recordType: .marriage, scope: .national

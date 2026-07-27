@@ -5,26 +5,32 @@ import SwiftUI
 final class SourceRegistry {
     private(set) var sources: [String: any RecordSource] = [:]
 
-    // General sources are opt-OUT (default enabled). Explicit disable persists here.
-    @ObservationIgnored
-    @AppStorage("disabledSourceIDs") private var disabledSourceIDsRaw: String = ""
+    /// Backing store for the enabled/disabled source preferences. Defaults to
+    /// `.standard` — the app's real preferences, so production behaviour is
+    /// unchanged. Tests inject a fresh ephemeral suite so a developer's
+    /// disabled-source preference (e.g. a disabled FreeBMD, over its rate
+    /// limits) never leaks into the test host and silently drops a source from
+    /// dispatch. Replaces the former `@AppStorage`, which is hardwired to
+    /// `.standard` and cannot be isolated. Keys are unchanged
+    /// ("disabledSourceIDs" / "enabledLocalPluginIDs").
+    @ObservationIgnored private let defaults: UserDefaults
 
-    // Local plugins are opt-IN (default disabled). Explicit enable persists here.
-    // Default is empty — the last bundled local plugin (Wirksworth) was
-    // available to existing trees without the user having to re-enable it.
-    @ObservationIgnored
-    // retired by SOURCE_WEIGHTING Change 0. Users' persisted values are
-    // harmless: an enabled ID with no registered source is simply inert.
-    @AppStorage("enabledLocalPluginIDs") private var enabledLocalPluginIDsRaw: String = ""
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
+    // General sources are opt-OUT (default enabled). Explicit disable persists
+    // under "disabledSourceIDs". Local plugins are opt-IN under
+    // "enabledLocalPluginIDs" — retired by SOURCE_WEIGHTING Change 0; a persisted
+    // enabled ID with no registered source is simply inert.
     private var disabledSourceIDs: Set<String> {
-        get { Set(disabledSourceIDsRaw.split(separator: ",").map(String.init)) }
-        set { disabledSourceIDsRaw = newValue.sorted().joined(separator: ",") }
+        get { Set((defaults.string(forKey: "disabledSourceIDs") ?? "").split(separator: ",").map(String.init)) }
+        set { defaults.set(newValue.sorted().joined(separator: ","), forKey: "disabledSourceIDs") }
     }
 
     private var enabledLocalPluginIDs: Set<String> {
-        get { Set(enabledLocalPluginIDsRaw.split(separator: ",").map(String.init)) }
-        set { enabledLocalPluginIDsRaw = newValue.sorted().joined(separator: ",") }
+        get { Set((defaults.string(forKey: "enabledLocalPluginIDs") ?? "").split(separator: ",").map(String.init)) }
+        set { defaults.set(newValue.sorted().joined(separator: ","), forKey: "enabledLocalPluginIDs") }
     }
 
     func register(_ source: any RecordSource) {

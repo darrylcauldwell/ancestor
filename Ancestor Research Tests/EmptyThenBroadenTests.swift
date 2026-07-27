@@ -158,7 +158,7 @@ struct EmptyThenBroadenTests {
 
     @Test(.disabled("Network-gated; enable manually to verify against live CWGC."))
     func ac6_5_williamCauldwellDiscoverFindsCWGCVariants() async {
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         bootstrapSources(registry: registry)
         let dispatcher = SearchDispatcher(registry: registry)
         let subject = ResearchSubject(
@@ -268,7 +268,7 @@ struct EmptyThenBroadenTests {
         // a conclusive clean empty at county scope is re-walked at national
         // scope (districtid="" → both geo axes nil).
         let stub = ScopeRecordingFreeBMD(emptyEverywhere: true)
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         registry.register(stub)
         let dispatcher = SearchDispatcher(registry: registry)
         _ = await dispatcher.dispatch(
@@ -282,7 +282,7 @@ struct EmptyThenBroadenTests {
     @Test func dispatch_doesNotEscalateWhenCountyErrors() async {
         // An errored county answer must NOT escalate (honesty envelope).
         let stub = ScopeRecordingFreeBMD(emptyEverywhere: true, errorEverywhere: true)
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         registry.register(stub)
         let dispatcher = SearchDispatcher(registry: registry)
         _ = await dispatcher.dispatch(
@@ -300,7 +300,7 @@ struct EmptyThenBroadenTests {
         // identical CWGC queries must collapse to a single dispatch — no
         // duplicate HTTP request racing past the per-run cache.
         let cwgc = CountingCWGC()
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         registry.register(cwgc)
         let dispatcher = SearchDispatcher(registry: registry)
         _ = await dispatcher.dispatch(
@@ -335,7 +335,7 @@ struct EmptyThenBroadenTests {
     }
 
     private func makeDispatcher(stub: TierRecordingSource) -> SearchDispatcher {
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         registry.register(stub)
         return SearchDispatcher(registry: registry)
     }

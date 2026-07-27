@@ -18,7 +18,7 @@ struct CWGCMilitaryEligibilityTests {
     private let cwgc = CWGCSource()
 
     private func dispatcher() -> SearchDispatcher {
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         registry.register(cwgc)
         return SearchDispatcher(registry: registry)
     }

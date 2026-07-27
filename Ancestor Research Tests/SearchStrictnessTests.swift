@@ -56,7 +56,7 @@ struct SearchStrictnessTests {
 
     @MainActor
     @Test func ac4_3_dispatcherAcceptsModeParameter() async {
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         bootstrapSources(registry: registry)
         let dispatcher = SearchDispatcher(registry: registry)
 

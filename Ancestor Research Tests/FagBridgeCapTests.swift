@@ -139,7 +139,7 @@ struct FagBridgeCapTests {
     }
 
     private func makePipeline(fag: CountingFAGDetailSource) -> ResearchPipeline {
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         registry.register(fag)
         let dispatcher = SearchDispatcher(registry: registry)
         return ResearchPipeline(

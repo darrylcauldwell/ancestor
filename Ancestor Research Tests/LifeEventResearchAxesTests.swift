@@ -222,7 +222,7 @@ struct LifeEventResearchAxesTests {
     // MARK: - Dispatcher: query shapes
 
     private func makeDispatcher() -> SearchDispatcher {
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         bootstrapSources(registry: registry)
         return SearchDispatcher(registry: registry)
     }

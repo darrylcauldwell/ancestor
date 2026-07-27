@@ -337,7 +337,7 @@ struct SearchOutcomeEnvelopeTests {
 
     @MainActor
     private static func makeDispatcher(source: ScriptedOutcomeSource) -> SearchDispatcher {
-        let registry = SourceRegistry()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
         registry.register(source)
         return SearchDispatcher(registry: registry)
     }
