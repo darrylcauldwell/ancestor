@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import AncestorKit
+@testable import Ancestor_Research
 
 /// The census-relationship reconciliation engine (`CensusRelationshipReconciler`)
 /// and its audit rule (`CensusRelationshipRule`). A census records
@@ -22,6 +23,11 @@ struct CensusRelationshipReconcilerTests {
             birthDate: birthYear.map { GenealogicalDate(parsing: String($0)) },
             birthLocation: nil, deathDate: nil, deathLocation: nil,
             bio: nil, isDeleted: false, sources: [:], disputes: [:])
+    }
+
+    private func makeTempDB() throws -> ProjectDatabase {
+        let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
+        return try ProjectDatabase(path: path)
     }
 
     private func parentEdge(_ parent: String, _ child: String) -> Relationship {
@@ -192,5 +198,40 @@ struct CensusRelationshipReconcilerTests {
         #expect(findings.allSatisfy { $0.kind != .contradiction })
         // It should instead be reported as a missing sibling.
         #expect(findings.contains { $0.kind == .missing && $0.member.name == "George Cauldwell" && $0.censusRelation == .sibling })
+    }
+
+    // MARK: - One-click "Add from census" (the mutating write, Stage 2b)
+
+    /// End-to-end for `AppState.addMissingCensusRelatives`: a subject whose census
+    /// lists a sibling absent from the tree → the sibling is created fresh and
+    /// wired through the subject's existing parent (never a direct sibling edge),
+    /// and the already-present father is NOT duplicated (only the missing links
+    /// are fed to `addCensusFamily`).
+    @MainActor
+    @Test func addMissingCensusRelativesCreatesAndWiresSibling() throws {
+        let db = try makeTempDB()
+        _ = try db.addProfile(person("samuel", "Samuel", "Wheeldon", birthYear: 1853), source: .gedcom)
+        _ = try db.addProfile(person("john", "John", "Wheeldon", birthYear: 1824), source: .gedcom)
+        _ = try db.addRelationship(parentEdge("john", "samuel"))
+
+        let base = try db.buildSnapshot()
+        let household = [
+            member("John Wheeldon", "Head", age: 37),
+            member("Samuel Wheeldon", "Son", age: 8, isTarget: true),
+            member("Mary Wheeldon", "Daughter", age: 5)]        // census sibling, missing from tree
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = FamilyGraphSnapshot(
+            profiles: base.profiles, relationships: base.relationships,
+            lifeEvents: ["samuel": [censusEvent("samuel", year: 1861, household: household)]])
+
+        appState.addMissingCensusRelatives(for: "samuel")
+
+        let snap = appState.snapshot
+        let mary = try #require(snap.profiles.values.first { $0.firstName == "Mary" }, "Mary was created")
+        #expect(snap.childrenOf("john").contains { $0.id == mary.id }, "wired through the subject's parent John")
+        #expect(snap.siblingsOf("samuel").contains { $0.id == mary.id }, "now surfaces as Samuel's sibling")
+        // Fed only the missing link → the existing father John is not re-created.
+        #expect(snap.profiles.values.filter { $0.firstName == "John" }.count == 1)
     }
 }

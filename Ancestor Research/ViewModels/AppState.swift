@@ -2334,6 +2334,27 @@ final class AppState {
         return (added, skipped)
     }
 
+    /// One-click "Add from census" for a subject flagged by `CensusRelationshipRule`
+    /// with census relatives missing from the tree. Recomputes the missing set,
+    /// then feeds ONLY those links to `addCensusFamily` (which creates fresh — not
+    /// placeholder — profiles, wires siblings through the subject's parents, and
+    /// skips a sibling when the subject has no parents to attach it to). Grouped
+    /// by census year so each relative derives its birth year + source from the
+    /// right schedule. A namesake wrongly created here is a later merge — "when in
+    /// doubt, split" — never a wrong auto-link.
+    func addMissingCensusRelatives(for subjectID: String) {
+        guard let subject = snapshot.profiles[subjectID] else { return }
+        let missing = CensusRelationshipReconciler.findings(for: subject, in: snapshot)
+            .filter { $0.kind == .missing }
+        guard !missing.isEmpty else { return }
+        for (year, group) in Dictionary(grouping: missing, by: { $0.censusYear }) {
+            let links = group.map { CensusFamilyLinker.Link(member: $0.member, relation: $0.censusRelation) }
+            _ = addCensusFamily(links: links, subject: subject,
+                                censusYear: year,
+                                sourceID: year.map { "census.\($0)" } ?? "census")
+        }
+    }
+
     /// When a REAL parent is established for a child, retire the blank
     /// placeholder the sibling shortcut created — replacing it, and carrying
     /// every sibling that shared it onto the real parent — instead of letting

@@ -608,6 +608,15 @@ struct HealthView: View {
             }
             .buttonStyle(.glassProminent).controlSize(.mini)
             .help("Absorb the blank placeholder parents into the real parents and re-home shared siblings")
+        case "censusRelationship" where r.severity == .info:
+            Button {
+                appState.addMissingCensusRelatives(for: r.profileID)
+                refreshAudit()
+            } label: {
+                Label("Add from census", systemImage: "person.badge.plus")
+            }
+            .buttonStyle(.glassProminent).controlSize(.mini)
+            .help("Create the census relatives missing from the tree and link them, citing the census")
         default:
             EmptyView()
         }
