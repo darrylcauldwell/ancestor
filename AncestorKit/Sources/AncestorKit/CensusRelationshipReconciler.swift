@@ -53,9 +53,51 @@ public nonisolated struct CensusRelationshipReconciler {
     /// birth year and a profile birth year are known.
     public static let yearTolerance = 3
 
-    /// All census-vs-tree relationship findings for `subject`, across every
-    /// census life-event on the subject's profile.
-    public static func findings(for subject: Profile, in snapshot: FamilyGraphSnapshot) -> [Finding] {
+    /// A full, per-census classification of a subject's household roster against
+    /// the tree — the review-facing report the audit UI renders (the roster, who
+    /// is already in the tree, who conflicts, who is missing, and who is not a
+    /// reconcilable family relation). `findings` is derived from this so the two
+    /// can never diverge.
+    public struct CensusReconciliation: Sendable, Equatable {
+        public struct RosterEntry: Sendable, Equatable {
+            public enum Status: Sendable, Equatable {
+                /// The target row — the subject themselves.
+                case subject
+                /// Already an edge in the tree, in the role the census implies.
+                case inTree(profileID: String)
+                /// In the tree, but linked in a DIFFERENT role than the census.
+                case contradiction(treeRelativeID: String, treeRelation: CensusRelation)
+                /// A census family relative with no edge in the tree.
+                case missing
+                /// Not a reconcilable family relation (lodger, servant, in-law,
+                /// grand-, step-, foster, adopted) — `CensusFamilyLinker` drops it.
+                case outOfScope
+            }
+            public let member: HouseholdMember
+            /// The member's relation TO THE SUBJECT, when they are a family
+            /// relation (`nil` for the subject row and out-of-scope co-residents).
+            public let censusRelation: CensusRelation?
+            public let status: Status
+
+            public init(member: HouseholdMember, censusRelation: CensusRelation?, status: Status) {
+                self.member = member
+                self.censusRelation = censusRelation
+                self.status = status
+            }
+        }
+        public let censusYear: Int?
+        public let entries: [RosterEntry]
+
+        public init(censusYear: Int?, entries: [RosterEntry]) {
+            self.censusYear = censusYear
+            self.entries = entries
+        }
+    }
+
+    /// Per-census roster classification for `subject`, across every census
+    /// life-event on the subject's profile. Only censuses whose target row is
+    /// actually this subject are reconciled (see the anchor guard below).
+    public static func reconciliations(for subject: Profile, in snapshot: FamilyGraphSnapshot) -> [CensusReconciliation] {
         // The subject's existing tree relatives, each tagged with its tree role.
         var treeRelatives: [(profile: Profile, relation: CensusRelation)] = []
         for p in snapshot.parentsOf(subject.id)  { treeRelatives.append((p, .parent)) }
@@ -63,9 +105,7 @@ public nonisolated struct CensusRelationshipReconciler {
         for p in snapshot.spousesOf(subject.id)  { treeRelatives.append((p, .spouse)) }
         for p in snapshot.siblingsOf(subject.id) { treeRelatives.append((p, .sibling)) }
 
-        var findings: [Finding] = []
-        var seen = Set<String>()   // dedupe a member seen across multiple censuses
-
+        var result: [CensusReconciliation] = []
         let censusEvents = (snapshot.lifeEvents[subject.id] ?? []).filter { $0.type == .census }
         for event in censusEvents {
             guard case .census(let details) = event.details else { continue }
@@ -79,25 +119,64 @@ public nonisolated struct CensusRelationshipReconciler {
             guard let target = details.household.first(where: { $0.isTarget == true }),
                   Self.matches(member: target, profile: subject, censusYear: year)
             else { continue }
-            for link in CensusFamilyLinker.familyLinks(household: details.household) {
-                let member = link.member
-                let key = "\(member.name.lowercased())|\(link.relation)"
-                if !seen.insert(key).inserted { continue }
 
+            // The in-scope family relations, keyed by roster member name.
+            var relationByName: [String: CensusRelation] = [:]
+            for link in CensusFamilyLinker.familyLinks(household: details.household) {
+                relationByName[link.member.name] = link.relation
+            }
+
+            var entries: [CensusReconciliation.RosterEntry] = []
+            for member in details.household {
+                // The subject's own row first, so it is never read as a relative.
+                if member.isTarget == true, Self.matches(member: member, profile: subject, censusYear: year) {
+                    entries.append(.init(member: member, censusRelation: nil, status: .subject))
+                    continue
+                }
+                guard let relation = relationByName[member.name] else {
+                    entries.append(.init(member: member, censusRelation: nil, status: .outOfScope))
+                    continue
+                }
                 if let match = treeRelatives.first(where: {
                     Self.matches(member: member, profile: $0.profile, censusYear: year)
                 }) {
-                    // Same person is in the tree — flag only when the role disagrees.
-                    if match.relation != link.relation {
-                        findings.append(Finding(
-                            kind: .contradiction, subjectID: subject.id,
-                            censusRelation: link.relation, member: member, censusYear: year,
-                            treeRelativeID: match.profile.id, treeRelation: match.relation))
-                    }
+                    let status: CensusReconciliation.RosterEntry.Status =
+                        match.relation == relation
+                        ? .inTree(profileID: match.profile.id)
+                        : .contradiction(treeRelativeID: match.profile.id, treeRelation: match.relation)
+                    entries.append(.init(member: member, censusRelation: relation, status: status))
                 } else {
+                    entries.append(.init(member: member, censusRelation: relation, status: .missing))
+                }
+            }
+            result.append(.init(censusYear: year, entries: entries))
+        }
+        return result
+    }
+
+    /// All census-vs-tree relationship findings for `subject` — the `.missing`
+    /// and `.contradiction` rows distilled from `reconciliations`, deduped for a
+    /// member seen across multiple censuses.
+    public static func findings(for subject: Profile, in snapshot: FamilyGraphSnapshot) -> [Finding] {
+        var findings: [Finding] = []
+        var seen = Set<String>()
+        for recon in reconciliations(for: subject, in: snapshot) {
+            for entry in recon.entries {
+                guard let relation = entry.censusRelation else { continue }   // skip subject / out-of-scope
+                let key = "\(entry.member.name.lowercased())|\(relation)"
+                if !seen.insert(key).inserted { continue }
+                switch entry.status {
+                case .missing:
                     findings.append(Finding(
                         kind: .missing, subjectID: subject.id,
-                        censusRelation: link.relation, member: member, censusYear: year))
+                        censusRelation: relation, member: entry.member, censusYear: recon.censusYear))
+                case .contradiction(let treeRelativeID, let treeRelation):
+                    findings.append(Finding(
+                        kind: .contradiction, subjectID: subject.id,
+                        censusRelation: relation, member: entry.member, censusYear: recon.censusYear,
+                        treeRelativeID: treeRelativeID, treeRelation: treeRelation))
+                case .subject, .inTree, .outOfScope:
+                    break
                 }
             }
         }

@@ -2355,6 +2355,17 @@ final class AppState {
         }
     }
 
+    /// Add a SINGLE census relative — the per-row "Add" in the census-reconciliation
+    /// panel, so the user can take one household member at a time rather than the
+    /// whole missing set. Same create-fresh + wire-through-parents + cite-the-census
+    /// path as `addMissingCensusRelatives`, for one link.
+    func addCensusRelative(subjectID: String, member: HouseholdMember, relation: CensusRelation, censusYear: Int?) {
+        guard let subject = snapshot.profiles[subjectID] else { return }
+        _ = addCensusFamily(links: [CensusFamilyLinker.Link(member: member, relation: relation)],
+                            subject: subject, censusYear: censusYear,
+                            sourceID: censusYear.map { "census.\($0)" } ?? "census")
+    }
+
     /// When a REAL parent is established for a child, retire the blank
     /// placeholder the sibling shortcut created — replacing it, and carrying
     /// every sibling that shared it onto the real parent — instead of letting

@@ -200,6 +200,34 @@ struct CensusRelationshipReconcilerTests {
         #expect(findings.contains { $0.kind == .missing && $0.member.name == "George Cauldwell" && $0.censusRelation == .sibling })
     }
 
+    /// The review-facing roster report classifies every row: the subject, a
+    /// relative already in the tree, a role conflict, a missing relative, and a
+    /// non-family co-resident — the data the audit panel renders.
+    @Test func reconciliationClassifiesEveryRosterRow() {
+        let samuel = person("samuel", "Samuel", "Wheeldon", birthYear: 1853)
+        let john = person("john", "John", "Wheeldon", birthYear: 1824)
+        let mary = person("mary", "Mary", "Wheeldon", birthYear: 1856)
+        var household = wheeldonHousehold()                       // John, Ruth, Samuel(target), Mary
+        household.append(member("Jane Smith", "Servant", age: 20))
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["samuel": samuel, "john": john, "mary": mary],
+            relationships: [parentEdge("john", "samuel"),         // John is a real parent → in tree
+                            parentEdge("samuel", "mary")],        // tree says Samuel fathers Mary → conflict
+            lifeEvents: ["samuel": [censusEvent("samuel", year: 1861, household: household)]])
+
+        let recons = CensusRelationshipReconciler.reconciliations(for: samuel, in: snapshot)
+        let recon = try! #require(recons.first)
+        #expect(recon.censusYear == 1861)
+        func status(_ name: String) -> CensusRelationshipReconciler.CensusReconciliation.RosterEntry.Status? {
+            recon.entries.first { $0.member.name == name }?.status
+        }
+        #expect(status("Samuel Wheeldon") == .subject)
+        #expect(status("John Wheeldon") == .inTree(profileID: "john"))
+        #expect(status("Ruth Wheeldon") == .missing)
+        #expect(status("Mary Wheeldon") == .contradiction(treeRelativeID: "mary", treeRelation: .child))
+        #expect(status("Jane Smith") == .outOfScope)
+    }
+
     // MARK: - One-click "Add from census" (the mutating write, Stage 2b)
 
     /// End-to-end for `AppState.addMissingCensusRelatives`: a subject whose census

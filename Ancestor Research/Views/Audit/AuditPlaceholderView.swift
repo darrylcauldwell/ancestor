@@ -440,6 +440,7 @@ struct HealthView: View {
 
     @ViewBuilder
     private func findingRow(_ result: AuditResult) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: result.severity.iconName)
                 .foregroundStyle(result.severity.color)
@@ -487,8 +488,165 @@ struct HealthView: View {
             .help("Track this as a research question — it appears in the Tasks tab to look into later")
             .accessibilityHint("Add this finding as an open research question that appears in the Tasks tab")
         }
+        if result.ruleID == "censusRelationship", result.severity == .info {
+            censusReconciliationDetail(for: result)
+        }
+        }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
+    }
+
+    // MARK: - Census reconciliation detail panel
+
+    private struct TreeRelativeChip: Identifiable {
+        let id: String
+        let name: String
+        let relation: String
+    }
+
+    /// The rich panel beneath a census missing-relatives finding: the subject's
+    /// current tree relatives (tappable to open), then each census household
+    /// classified row-by-row — who is the subject, who is already in the tree,
+    /// who conflicts, who is missing (with a per-row Add), and who is not family.
+    @ViewBuilder
+    private func censusReconciliationDetail(for result: AuditResult) -> some View {
+        if let subject = appState.snapshot.profiles[result.profileID] {
+            let recons = CensusRelationshipReconciler.reconciliations(for: subject, in: appState.snapshot)
+            let relatives = currentTreeRelatives(of: result.profileID)
+            VStack(alignment: .leading, spacing: 10) {
+                if !relatives.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Already in the tree").font(AppTypography.badge).foregroundStyle(.secondary)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(relatives) { rel in
+                                    Button { onOpenProfile?(rel.id) } label: {
+                                        Text("\(rel.name) · \(rel.relation)")
+                                            .font(AppTypography.cardMeta)
+                                            .padding(.horizontal, 8).padding(.vertical, 3)
+                                            .background(Color.secondary.opacity(0.12), in: .capsule)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(onOpenProfile == nil)
+                                    .help("Open \(rel.name) in the tree")
+                                }
+                            }
+                        }
+                    }
+                }
+                ForEach(Array(recons.enumerated()), id: \.offset) { _, recon in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(recon.censusYear.map { "\($0) census household" } ?? "Census household")
+                            .font(AppTypography.badge).foregroundStyle(.secondary)
+                        ForEach(Array(recon.entries.enumerated()), id: \.offset) { _, entry in
+                            censusRosterRow(entry, subjectID: result.profileID, censusYear: recon.censusYear)
+                        }
+                    }
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.06), in: .rect(cornerRadius: 8))
+        }
+    }
+
+    @ViewBuilder
+    private func censusRosterRow(_ entry: CensusRelationshipReconciler.CensusReconciliation.RosterEntry,
+                                 subjectID: String, censusYear: Int?) -> some View {
+        HStack(spacing: 8) {
+            Text(entry.member.name).font(AppTypography.cardMeta)
+            Text(entry.member.relationship).font(AppTypography.cardMeta).foregroundStyle(.secondary)
+            if let age = entry.member.age {
+                Text("age \(age)").font(AppTypography.cardMeta).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            censusRosterStatus(entry, subjectID: subjectID, censusYear: censusYear)
+        }
+    }
+
+    @ViewBuilder
+    private func censusRosterStatus(_ entry: CensusRelationshipReconciler.CensusReconciliation.RosterEntry,
+                                    subjectID: String, censusYear: Int?) -> some View {
+        switch entry.status {
+        case .subject:
+            rosterBadge("this person", "person.fill", .secondary)
+        case .inTree(let pid):
+            Button { onOpenProfile?(pid) } label: { rosterBadge("in tree", "checkmark.circle.fill", .green) }
+                .buttonStyle(.plain).disabled(onOpenProfile == nil)
+        case .contradiction(let tid, let treeRelation):
+            Button { onOpenProfile?(tid) } label: {
+                rosterBadge("conflicts · tree says \(relationWord(treeRelation, sex: entry.member.sex))",
+                            "exclamationmark.triangle.fill", .orange)
+            }
+            .buttonStyle(.plain).disabled(onOpenProfile == nil)
+            .help("The census makes this a \(relationWord(entry.censusRelation, sex: entry.member.sex)); the tree records a \(relationWord(treeRelation, sex: entry.member.sex)). Open to reconcile.")
+        case .missing:
+            if let relation = entry.censusRelation {
+                Button {
+                    appState.addCensusRelative(subjectID: subjectID, member: entry.member,
+                                               relation: relation, censusYear: censusYear)
+                    refreshAudit()
+                } label: {
+                    Label("Add \(relationWord(relation, sex: entry.member.sex))", systemImage: "person.badge.plus")
+                }
+                .buttonStyle(.glassProminent).controlSize(.mini)
+                .help("Create \(entry.member.name) and link as \(subjectName(subjectID))\(relationWord(relation, sex: entry.member.sex)), citing the census")
+            }
+        case .outOfScope:
+            rosterBadge("not family", "minus.circle", .secondary)
+        }
+    }
+
+    private func rosterBadge(_ text: String, _ systemImage: String, _ color: Color) -> some View {
+        Label(text, systemImage: systemImage)
+            .labelStyle(.titleAndIcon)
+            .font(AppTypography.badge)
+            .foregroundStyle(color)
+    }
+
+    /// "Samuel Wheeldon's " (possessive, trailing space) or a neutral fallback.
+    private func subjectName(_ subjectID: String) -> String {
+        appState.snapshot.profiles[subjectID].map { "\($0.displayName)'s " } ?? "the subject's "
+    }
+
+    /// The subject's current tree relatives as tappable chips.
+    private func currentTreeRelatives(of subjectID: String) -> [TreeRelativeChip] {
+        let snap = appState.snapshot
+        var out: [TreeRelativeChip] = []
+        for p in snap.parentsOf(subjectID) {
+            out.append(.init(id: p.id, name: p.displayName, relation: relationWord(.parent, sex: sexString(p))))
+        }
+        for p in snap.spousesOf(subjectID) {
+            out.append(.init(id: p.id, name: p.displayName, relation: "spouse"))
+        }
+        for p in snap.siblingsOf(subjectID) {
+            out.append(.init(id: p.id, name: p.displayName, relation: relationWord(.sibling, sex: sexString(p))))
+        }
+        for p in snap.childrenOf(subjectID) {
+            out.append(.init(id: p.id, name: p.displayName, relation: relationWord(.child, sex: sexString(p))))
+        }
+        return out
+    }
+
+    private func sexString(_ p: Profile) -> String? {
+        switch p.gender {
+        case .male: return "M"
+        case .female: return "F"
+        default: return nil
+        }
+    }
+
+    /// Gender-aware relationship noun for a census relation.
+    private func relationWord(_ relation: CensusRelation?, sex: String?) -> String {
+        let s = (sex ?? "").uppercased()
+        let male = s.hasPrefix("M"), female = s.hasPrefix("F")
+        switch relation {
+        case .parent:  return male ? "father" : (female ? "mother" : "parent")
+        case .child:   return male ? "son" : (female ? "daughter" : "child")
+        case .sibling: return male ? "brother" : (female ? "sister" : "sibling")
+        case .spouse:  return "spouse"
+        case .none:    return "relative"
+        }
     }
 
     /// One chip per distinct rule present, with counts, so the list can be
@@ -609,14 +767,22 @@ struct HealthView: View {
             .buttonStyle(.glassProminent).controlSize(.mini)
             .help("Absorb the blank placeholder parents into the real parents and re-home shared siblings")
         case "censusRelationship" where r.severity == .info:
-            Button {
-                appState.addMissingCensusRelatives(for: r.profileID)
-                refreshAudit()
-            } label: {
-                Label("Add from census", systemImage: "person.badge.plus")
+            // Per-row Add lives in the detail panel below; the header only offers
+            // a bulk "Add all" when there is more than one to take at once.
+            let missingCount = appState.snapshot.profiles[r.profileID].map { subject in
+                CensusRelationshipReconciler.findings(for: subject, in: appState.snapshot)
+                    .filter { $0.kind == .missing }.count
+            } ?? 0
+            if missingCount > 1 {
+                Button {
+                    appState.addMissingCensusRelatives(for: r.profileID)
+                    refreshAudit()
+                } label: {
+                    Label("Add all \(missingCount)", systemImage: "person.2.badge.plus")
+                }
+                .buttonStyle(.glassProminent).controlSize(.mini)
+                .help("Create all \(missingCount) census relatives missing from the tree and link them, citing the census")
             }
-            .buttonStyle(.glassProminent).controlSize(.mini)
-            .help("Create the census relatives missing from the tree and link them, citing the census")
         default:
             EmptyView()
         }
