@@ -782,7 +782,7 @@ actor MCPHandler {
 
     func profileDetail(id: String) throws -> String {
         try db.read { db in
-            guard let row = try Row.fetchOne(db, sql: "SELECT * FROM profiles WHERE id = ?", arguments: [id]) else {
+            guard let row = try Row.fetchOne(db, sql: "SELECT * FROM profiles WHERE id = ? AND is_deleted = 0", arguments: [id]) else {
                 return "{\"error\": \"profile not found\"}"
             }
 
@@ -927,7 +927,7 @@ actor MCPHandler {
             let rows = try Row.fetchAll(db, sql: """
                 SELECT id, first_name, last_name, birth_date_original, death_date_original, birth_location
                 FROM profiles
-                WHERE first_name LIKE ? OR last_name LIKE ?
+                WHERE (first_name LIKE ? OR last_name LIKE ?) AND is_deleted = 0
                 ORDER BY last_name, first_name
                 """, arguments: [q, q])
 
