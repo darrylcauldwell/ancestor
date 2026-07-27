@@ -2366,6 +2366,67 @@ final class AppState {
                             sourceID: censusYear.map { "census.\($0)" } ?? "census")
     }
 
+    /// Link a census relative who ALREADY EXISTS in the tree (matched by name +
+    /// year) into their relationship with the subject — instead of creating a
+    /// duplicate. Wires the same edges as the create path but reuses the existing
+    /// profile: a sibling is linked through the subject's parents (skipping any
+    /// parent-role the existing person already has, so no excess parents), and
+    /// every edge is skipped if it already exists. Cites the census.
+    func linkCensusRelative(subjectID: String, existingID: String,
+                            relation: CensusRelation, censusYear: Int?) {
+        guard let db = currentDatabase,
+              snapshot.profiles[subjectID] != nil,
+              let existing = snapshot.profiles[existingID] else { return }
+        let source = SourceOrigin(identifier: censusYear.map { "census.\($0)" } ?? "census")
+        let note = "Census household — linked existing profile \(existing.displayName)"
+
+        func parentRole(_ id: String) -> ParentRole {
+            switch snapshot.profiles[id]?.gender {
+            case .male: return .father
+            case .female: return .mother
+            default: return .unspecified
+            }
+        }
+        func linkParent(parent: String, child: String) throws {
+            guard !snapshot.parentsOf(child).contains(where: { $0.id == parent }) else { return }
+            _ = try db.addRelationship(
+                Relationship(id: UUID(), from: parent, to: child, type: .parent, role: parentRole(parent),
+                             subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil),
+                existenceEvidence: .origin(source, note: note))
+        }
+
+        do {
+            switch relation {
+            case .parent:
+                try linkParent(parent: existingID, child: subjectID)
+            case .child:
+                try linkParent(parent: subjectID, child: existingID)
+            case .spouse:
+                if !snapshot.spousesOf(subjectID).contains(where: { $0.id == existingID }) {
+                    _ = try db.addRelationship(
+                        Relationship(id: UUID(), from: subjectID, to: existingID, type: .spouse, role: nil,
+                                     subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil),
+                        existenceEvidence: .origin(source, note: note))
+                }
+            case .sibling:
+                // Link through the subject's parents, but don't fill a parent-role
+                // the existing person already has (no second mother/father).
+                let existingRoles = Set(snapshot.parentsOf(existingID).map { parentRole($0.id) })
+                for parent in snapshot.parentsOf(subjectID) {
+                    let role = parentRole(parent.id)
+                    if role != .unspecified, existingRoles.contains(role) { continue }
+                    try linkParent(parent: parent.id, child: existingID)
+                }
+            }
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+            successMessage = "Linked \(existing.displayName) from the census."
+            successResearchProfileID = existingID
+        } catch {
+            errorMessage = "Link from census failed: \(error.localizedDescription)"
+        }
+    }
+
     /// Follow up a census parent-in-law row (the head's mother-/father-in-law).
     /// One census line yields the whole previous generation on the spouse's side:
     /// it creates the in-law (`Martha Barker`), links them as the SPOUSE's parent

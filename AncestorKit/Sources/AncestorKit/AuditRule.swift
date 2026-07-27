@@ -1335,12 +1335,14 @@ public nonisolated struct CensusRelationshipRule: AuditRuleDefinition {
         // surface here on the strength of an in-law lead alone (a mother-in-law
         // pins the spouse's maiden name and parent — a lot from one line).
         let missing = findings.filter { $0.kind == .missing }
+        let unlinked = CensusRelationshipReconciler.unlinkedRelatives(for: profile, in: snapshot)
         let inLawLeads = CensusRelationshipReconciler.inLawLeads(for: profile, in: snapshot)
-        if !missing.isEmpty || !inLawLeads.isEmpty {
+        if !missing.isEmpty || !unlinked.isEmpty || !inLawLeads.isEmpty {
             results.append(AuditResult(
                 profileID: profile.id, profileName: profile.displayName,
                 severity: .info, category: .gap, ruleID: id,
-                message: Self.gapMessage(subject: profile, missing: missing, inLaw: inLawLeads)))
+                message: Self.gapMessage(subject: profile, missing: missing,
+                                         unlinked: unlinked, inLaw: inLawLeads)))
         }
         return results
     }
@@ -1358,15 +1360,27 @@ public nonisolated struct CensusRelationshipRule: AuditRuleDefinition {
 
     /// "A census lists 2 of Samuel's relatives not in the tree: Hannah Wheeldon
     /// (sibling), Alice Wheeldon (sibling)."
-    /// Combined gap summary: the missing blood relatives (if any) and the
-    /// parent-in-law leads (if any), each as its own sentence.
+    /// Combined gap summary: missing blood relatives to create, relatives already
+    /// in the tree but unlinked, and parent-in-law leads — each its own sentence.
     static func gapMessage(subject: Profile,
                            missing: [CensusRelationshipReconciler.Finding],
+                           unlinked: [CensusRelationshipReconciler.UnlinkedRelative],
                            inLaw: [CensusRelationshipReconciler.InLawLead]) -> String {
         var parts: [String] = []
         if !missing.isEmpty { parts.append(missingMessage(subject: subject, missing: missing)) }
+        if !unlinked.isEmpty { parts.append(unlinkedMessage(subject: subject, unlinked: unlinked)) }
         if !inLaw.isEmpty { parts.append(inLawMessage(subject: subject, inLaw: inLaw)) }
         return parts.joined(separator: " ")
+    }
+
+    /// "A census names 1 of Kezia's relatives already in the tree but not linked:
+    /// Mary Lizzy Wheeldon (sibling)."
+    static func unlinkedMessage(subject: Profile,
+                                unlinked: [CensusRelationshipReconciler.UnlinkedRelative]) -> String {
+        let subjectName = subject.firstName ?? subject.displayName
+        let list = unlinked.map { "\($0.member.name) (\(relationPhrase($0.relation)))" }.joined(separator: ", ")
+        let n = unlinked.count
+        return "A census names \(n) of \(subjectName)'s relatives already in the tree but not linked: \(list)."
     }
 
     /// "A census names Martha Barker (mother-in-law) — she pins Elizabeth's

@@ -71,8 +71,14 @@ public nonisolated struct CensusRelationshipReconciler {
                 case inTree(profileID: String)
                 /// In the tree, but linked in a DIFFERENT role than the census.
                 case contradiction(treeRelativeID: String, treeRelation: CensusRelation)
-                /// A census family relative with no edge in the tree.
+                /// A census family relative with no edge in the tree AND no
+                /// matching profile anywhere — a genuinely new person to create.
                 case missing
+                /// A census family relative who already EXISTS elsewhere in the
+                /// tree (matched by name + year) but is not linked to the subject
+                /// in this role — offer to LINK the existing profile rather than
+                /// ADD a duplicate. Carries that existing profile.
+                case unlinkedInTree(profileID: String)
                 /// A parent-in-law of the household head (subject): the mother or
                 /// father of the head's spouse. Not a blood relative of the
                 /// subject, but pins the spouse's parent — and hence the spouse's
@@ -201,6 +207,16 @@ public nonisolated struct CensusRelationshipReconciler {
                     // stays a distinct, missing person.
                     entries.append(.init(member: member, censusRelation: relation,
                                          status: .inTree(profileID: sameRole.profile.id)))
+                } else if let existing = snapshot.profiles.values.first(where: {
+                    !$0.isDeleted && $0.id != subject.id
+                        && Self.matches(member: member, profile: $0, censusYear: year)
+                }) {
+                    // Not linked to the subject, but this person already EXISTS
+                    // elsewhere in the tree (name + year) — offer to link them
+                    // rather than spawn a duplicate. Year corroboration required
+                    // (a tree-wide name-only search would over-match namesakes).
+                    entries.append(.init(member: member, censusRelation: relation,
+                                         status: .unlinkedInTree(profileID: existing.id)))
                 } else {
                     entries.append(.init(member: member, censusRelation: relation, status: .missing))
                 }
@@ -231,7 +247,7 @@ public nonisolated struct CensusRelationshipReconciler {
                         kind: .contradiction, subjectID: subject.id,
                         censusRelation: relation, member: entry.member, censusYear: recon.censusYear,
                         treeRelativeID: treeRelativeID, treeRelation: treeRelation))
-                case .subject, .inTree, .inLawOfSpouse, .outOfScope:
+                case .subject, .inTree, .inLawOfSpouse, .unlinkedInTree, .outOfScope:
                     break
                 }
             }
@@ -313,6 +329,39 @@ public nonisolated struct CensusRelationshipReconciler {
             self.kind = kind
             self.censusYear = censusYear
         }
+    }
+
+    /// A census family member who already exists in the tree but isn't linked to
+    /// the subject — a link, not an add.
+    public struct UnlinkedRelative: Sendable, Equatable {
+        public let member: HouseholdMember
+        public let existingID: String
+        public let relation: CensusRelation
+        public let censusYear: Int?
+        public init(member: HouseholdMember, existingID: String, relation: CensusRelation, censusYear: Int?) {
+            self.member = member
+            self.existingID = existingID
+            self.relation = relation
+            self.censusYear = censusYear
+        }
+    }
+
+    /// Every unlinked-but-in-tree relative for `subject`, deduped by existing
+    /// profile + relation. Distilled from `reconciliations` so rule and panel agree.
+    public static func unlinkedRelatives(for subject: Profile, in snapshot: FamilyGraphSnapshot) -> [UnlinkedRelative] {
+        var out: [UnlinkedRelative] = []
+        var seen = Set<String>()
+        for recon in reconciliations(for: subject, in: snapshot) {
+            for entry in recon.entries {
+                guard case .unlinkedInTree(let existingID) = entry.status,
+                      let relation = entry.censusRelation else { continue }
+                if seen.insert("\(existingID)|\(relation)").inserted {
+                    out.append(.init(member: entry.member, existingID: existingID,
+                                     relation: relation, censusYear: recon.censusYear))
+                }
+            }
+        }
+        return out
     }
 
     /// Every parent-in-law lead for `subject`, deduped by member name across

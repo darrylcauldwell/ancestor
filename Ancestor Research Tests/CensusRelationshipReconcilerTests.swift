@@ -459,4 +459,59 @@ struct CensusRelationshipReconcilerTests {
         #expect(eliza.lastName == "Barker")
         #expect(eliza.marriedSurname == "Cauldwell")
     }
+
+    // MARK: - Link existing instead of add duplicate
+
+    /// A census relative who already EXISTS elsewhere in the tree (matched by
+    /// name + year) but is not linked to the subject is offered as a LINK, not an
+    /// add — so a second profile is never spawned. (Kezia's census names Mary, who
+    /// exists as the orphaned Mary b.1856.)
+    @Test func unlinkedExistingRelativeIsOfferedAsLinkNotAdd() {
+        let ruth = person("ruth", "Ruth", "Wheeldon", birthYear: 1824)
+        let kezia = person("kezia", "Kezia", "Wheeldon", birthYear: 1862)
+        let maryLizzy = person("maryLizzy", "Mary", "Wheeldon", birthYear: 1856)   // exists, unlinked
+        let household = [
+            member("Ruth Wheeldon", "Head", age: 67),
+            member("Kezia Wheeldon", "Dau", age: 29, isTarget: true),
+            member("Mary Wheeldon", "Dau", age: 35)]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["ruth": ruth, "kezia": kezia, "maryLizzy": maryLizzy],
+            relationships: [parentEdge("ruth", "kezia")],                         // Mary NOT linked
+            lifeEvents: ["kezia": [censusEvent("kezia", year: 1891, household: household)]])
+
+        let recon = try! #require(CensusRelationshipReconciler.reconciliations(for: kezia, in: snapshot).first)
+        let mary = try! #require(recon.entries.first { $0.member.name == "Mary Wheeldon" })
+        #expect(mary.censusRelation == .sibling)
+        #expect(mary.status == .unlinkedInTree(profileID: "maryLizzy"))
+        let unlinked = CensusRelationshipReconciler.unlinkedRelatives(for: kezia, in: snapshot)
+        #expect(unlinked.count == 1)
+        #expect(unlinked.first?.existingID == "maryLizzy")
+        #expect(unlinked.first?.relation == .sibling)
+        // She is NOT reported as a missing (create-new) relative.
+        #expect(!CensusRelationshipReconciler.findings(for: kezia, in: snapshot)
+            .contains { $0.kind == .missing && $0.member.name == "Mary Wheeldon" })
+    }
+
+    /// Linking wires the EXISTING profile through the subject's parents — no
+    /// duplicate created, and the orphan gains her family.
+    @MainActor
+    @Test func linkCensusRelativeWiresExistingWithoutDuplicate() throws {
+        let db = try makeTempDB()
+        _ = try db.addProfile(person("ruth", "Ruth", "Wheeldon", birthYear: 1824), source: .gedcom)
+        _ = try db.addProfile(person("kezia", "Kezia", "Wheeldon", birthYear: 1862), source: .gedcom)
+        _ = try db.addProfile(person("maryLizzy", "Mary", "Wheeldon", birthYear: 1856), source: .gedcom)
+        _ = try db.addRelationship(parentEdge("ruth", "kezia"))
+
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = try db.buildSnapshot()
+
+        appState.linkCensusRelative(subjectID: "kezia", existingID: "maryLizzy",
+                                    relation: .sibling, censusYear: 1891)
+
+        let snap = appState.snapshot
+        #expect(snap.profiles.values.filter { $0.firstName == "Mary" }.count == 1)   // no duplicate
+        #expect(snap.childrenOf("ruth").contains { $0.id == "maryLizzy" })           // wired through the parent
+        #expect(snap.siblingsOf("kezia").contains { $0.id == "maryLizzy" })
+    }
 }

@@ -575,6 +575,19 @@ struct HealthView: View {
             }
             .buttonStyle(.glassProminent).controlSize(.mini)
             .help("Create \(entry.member.name), link as \(spouseName)'s \(word), and record \(spouseName)'s maiden name\(surname.map { " (\($0))" } ?? "") — all from this census line")
+        case .unlinkedInTree(let existingID):
+            let name = appState.snapshot.profiles[existingID]?.displayName ?? "existing profile"
+            Button {
+                if let relation = entry.censusRelation {
+                    appState.linkCensusRelative(subjectID: subjectID, existingID: existingID,
+                                                relation: relation, censusYear: censusYear)
+                    refreshAudit()
+                }
+            } label: {
+                Label("Link \(name)", systemImage: "link")
+            }
+            .buttonStyle(.glassProminent).controlSize(.mini)
+            .help("\(name) is already in the tree — link them as \(subjectName(subjectID))\(relationWord(entry.censusRelation, sex: entry.member.sex)) instead of adding a duplicate")
         case .outOfScope:
             rosterBadge("not family", "minus.circle", .secondary)
         }
