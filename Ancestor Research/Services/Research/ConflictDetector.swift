@@ -231,19 +231,10 @@ nonisolated struct ConflictDetector {
     /// each comma component. **No hardcoded regions** — everything comes
     /// from the bundled catalogue.
     static func chapmanCode(forPlaceText text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return nil }
-        if let code = FreeBMDDistrictCatalogue.shared.district(named: trimmed)?.chapmanCode {
-            return code
-        }
-        for component in trimmed.split(separator: ",") {
-            let part = component.trimmingCharacters(in: .whitespaces)
-            guard !part.isEmpty else { continue }
-            if let code = FreeBMDDistrictCatalogue.shared.district(named: part)?.chapmanCode {
-                return code
-            }
-        }
-        return nil
+        // Delegates to the single canonical resolver (Stage 1 of the
+        // location-model pass) — previously a divergent copy that lacked the
+        // county-name fallback ResearchSubject had.
+        ChapmanCodeResolver.chapmanCode(forPlaceText: text)
     }
 
     /// F2 — normalised inequality after collapse (case, whitespace,

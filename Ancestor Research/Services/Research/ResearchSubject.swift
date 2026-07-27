@@ -932,20 +932,10 @@ nonisolated extension ResearchSubject {
     ///      usually the last-but-one component, so scan from the end.
     /// Nil when neither tier resolves (bare village, no county suffix).
     static func chapmanCode(forPlaceText raw: String) -> String? {
-        let name = raw.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { return nil }
-        if let code = FreeBMDDistrictCatalogue.shared
-            .district(named: name)?.chapmanCode {
-            return code
-        }
-        let components = name.split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-        for component in components.reversed() {
-            if let code = UKChapmanCodes.shared.chapmanCode(forCountyName: component) {
-                return code
-            }
-        }
-        return nil
+        // Delegates to the single canonical resolver (Stage 1 of the
+        // location-model pass). Kept as a thin wrapper so existing call sites
+        // (`Self.chapmanCode(forPlaceText:)`) are unchanged.
+        ChapmanCodeResolver.chapmanCode(forPlaceText: raw)
     }
 
     /// Parse a 3-letter Chapman code prefix from a gazetteer ID like
