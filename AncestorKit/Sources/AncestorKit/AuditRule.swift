@@ -493,9 +493,9 @@ public nonisolated struct MarriageAgeRule: AuditRuleDefinition {
     public let id = "marriageAge"
     public let displayName = "Marriage Age"
     public let description = "A person must be at least 16 to marry."
-    public let fireCondition = "marriage.earliest < birth.latest + 16"
-    public let warningCondition: String? = "marriage.bestYear < birth.bestYear + 16"
-    public let workedExample = "Birth 'ABT 1870' (latest=1875), Marriage '1880': 1880 < 1875+16=1891 → ok. Marriage '1882': bestYear check → WARNING"
+    public let fireCondition = "marriage.latest - birth.earliest < 16 (even the OLDEST possible age at marriage is under 16)"
+    public let warningCondition: String? = "marriage.bestYear - birth.bestYear < 16 (best-estimate age under 16)"
+    public let workedExample = "Born ABT 1860 (earliest 1855), married 1879: oldest age 1879−1855=24 → no error. Born 1870, married 1884: 1884−1870=14 → ERROR."
     public let defaultSeverity = Severity.error
 
     public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
@@ -509,17 +509,23 @@ public nonisolated struct MarriageAgeRule: AuditRuleDefinition {
         for rel in spouseRels {
             guard let marriage = rel.marriageDate else { continue }
 
-            if let me = marriage.earliest, let bl = birth.latest, me < bl + 16 {
+            // Hard error only when even the OLDEST possible age at marriage is
+            // under 16 (latest marriage − earliest birth). The old bound used the
+            // MINIMUM age (earliest marriage − latest birth), so a wide or
+            // conflicting birth range tripped the error even when the best
+            // estimate was well over 16 — producing contradictions like "born
+            // 1855, married 1879 → before age 16" (24 at marriage).
+            if let ml = marriage.latest, let be = birth.earliest, ml - be < 16 {
                 results.append(AuditResult(
                     id: UUID(), profileID: profile.id, profileName: profile.displayName,
                     severity: .error, ruleID: id,
-                    message: "\(profile.displayName) married \(marriage.original) but born \(birth.original) — married before age 16"
+                    message: "\(profile.displayName) married \(marriage.original) but born \(birth.original) — that is only \(max(0, ml - be)) at marriage, under the age of 16"
                 ))
-            } else if let mby = marriage.bestYear, let bby = birth.bestYear, mby < bby + 16 {
+            } else if let mby = marriage.bestYear, let bby = birth.bestYear, mby - bby < 16 {
                 results.append(AuditResult(
                     id: UUID(), profileID: profile.id, profileName: profile.displayName,
                     severity: .warning, ruleID: id,
-                    message: "\(profile.displayName) may have married (~\(mby)) before age 16 (born ~\(bby))"
+                    message: "\(profile.displayName) may have married (~\(mby)) at about \(max(0, mby - bby)), before age 16 (born ~\(bby))"
                 ))
             }
         }

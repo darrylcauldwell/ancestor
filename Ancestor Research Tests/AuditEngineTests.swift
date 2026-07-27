@@ -461,6 +461,24 @@ struct AuditEngineTests {
         #expect(results.first?.severity == .error)
     }
 
+    /// Regression: an adult marriage with an APPROXIMATE birth must NOT flag as
+    /// married-under-16. Born ABT 1860 (earliest 1855, latest 1865), married 1879
+    /// → ~19 at marriage. The old bound (earliest-marriage < latest-birth + 16 →
+    /// 1879 < 1881) tripped a false error; the fixed bound uses the oldest
+    /// possible age (latest-marriage − earliest-birth = 24). This is Sarah
+    /// Gilbert's real case ("born 1855, married 1879 → before age 16").
+    @Test func marriageAge_adultWithApproxBirth_noFalseError() {
+        let profile = makeProfile(id: "sarah", birthDate: "ABT 1860")
+        let spouse = makeProfile(id: "samuel")
+        let rel = Relationship(
+            id: UUID(), from: "sarah", to: "samuel",
+            type: .spouse, role: nil, subtype: .unknown,
+            marriageDate: GenealogicalDate(parsing: "Jun 1879"), marriageLocation: nil, divorceDate: nil
+        )
+        let snapshot = makeSnapshot(profiles: [profile, spouse], relationships: [rel])
+        #expect(MarriageAgeRule().evaluate(profile: profile, snapshot: snapshot).isEmpty)
+    }
+
     // MARK: - No Marriage After Death
 
     @Test func noMarriageAfterDeath_error() {
