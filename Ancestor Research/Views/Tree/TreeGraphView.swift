@@ -62,6 +62,12 @@ struct TreeGraphView: View {
 
     @State private var dismissedDisconnectedBanner: Bool = false
 
+    /// Drives the "connect which group?" picker (item-based to avoid the
+    /// isPresented empty-rectangle race). Set when the disconnected banner's
+    /// "Connect them?" is tapped.
+    @State private var connectPicker: ConnectPickerToken?
+    struct ConnectPickerToken: Identifiable { let id = UUID() }
+
     // M19 — comparison sheet state. `comparePickerSource` carries the profile
     // the user right-clicked on; `compareSheetIDs` carries both once the
     // counterpart is picked.
@@ -440,6 +446,23 @@ struct TreeGraphView: View {
         }
         .sheet(item: $relationshipAnchorID) { sheetID in
             AddRelationshipView(anchorID: sheetID.id)
+        }
+        // Disconnected-tree "Connect them?" → pick which group, then anchor
+        // AddRelationship on that group's head. The anchor sheet is deferred one
+        // tick so the picker's dismiss animation completes cleanly first.
+        .sheet(item: $connectPicker) { _ in
+            ConnectGroupPickerView(
+                summaries: GraphConnectivity.componentSummaries(appState.snapshot),
+                profiles: appState.snapshot.profiles,
+                onSelect: { representativeID in
+                    connectPicker = nil
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(150))
+                        relationshipAnchorID = SheetID(id: representativeID)
+                    }
+                },
+                onCancel: { connectPicker = nil }
+            )
         }
         // M19 — pick the right-hand profile, then present the comparison.
         // `.sheet(item:)` (not `isPresented: + if let`) so the picker only
@@ -1027,24 +1050,15 @@ struct TreeGraphView: View {
             // changeable in-sheet.
             let componentCount = GraphConnectivity.connectedComponents(appState.snapshot).count
             if componentCount > 1, !dismissedDisconnectedBanner {
-                let suggestion = GraphConnectivity.suggestConnectionAnchors(snapshot: appState.snapshot)
                 DisconnectedBannerView(
                     componentCount: componentCount,
-                    canConnect: suggestion != nil,
-                    onConnect: {
-                        // Anchor on the person the user is currently focused on
-                        // (connect FROM where they are in the tree) rather than a
-                        // fixed smallest-component pick — with 3+ real groups the
-                        // old suggestion always landed on the same arbitrary
-                        // person regardless of what the user was viewing. Fall
-                        // back to the suggestion only when nothing is selected;
-                        // the anchor stays changeable in-sheet either way.
-                        if let selected = treeVM.selectedProfileID {
-                            relationshipAnchorID = SheetID(id: selected)
-                        } else if let (primary, _) = suggestion {
-                            relationshipAnchorID = SheetID(id: primary)
-                        }
-                    },
+                    canConnect: true,
+                    // Open a picker of the separate groups (head + size) so the
+                    // user chooses which island to connect — rather than the app
+                    // guessing an arbitrary anchor (which, with 3+ groups, always
+                    // landed on the same person or on the main-tree root, neither
+                    // of which is what you want to move).
+                    onConnect: { connectPicker = ConnectPickerToken() },
                     onDismiss: { dismissedDisconnectedBanner = true }
                 )
                 .padding(.horizontal)

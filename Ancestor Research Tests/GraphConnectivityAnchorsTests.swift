@@ -49,6 +49,29 @@ struct GraphConnectivityAnchorsTests {
                 "reference must come from the largest component; got \(mainMember)")
     }
 
+    /// `componentSummaries` — the data behind the "connect which group?" picker:
+    /// one summary per component, largest first, each with the most-connected
+    /// member as the representative and the full member list.
+    @Test func componentSummariesRankBySizeAndConnectedness() {
+        // {p1-p2-p3} size 3 (p2 is the hub, degree 2), {p4-p5} size 2, {p6} alone.
+        let profiles = ["p1", "p2", "p3", "p4", "p5", "p6"].map(makeProfile)
+        let dict = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
+        let rels = [
+            parentEdge("p1", "p2"),
+            parentEdge("p2", "p3"),
+            parentEdge("p4", "p5"),
+        ]
+        let snapshot = FamilyGraphSnapshot(profiles: dict, relationships: rels)
+
+        let summaries = GraphConnectivity.componentSummaries(snapshot)
+        #expect(summaries.count == 3)
+        #expect(summaries.map(\.count) == [3, 2, 1])                 // largest first
+        #expect(summaries[0].representativeID == "p2")              // the hub of the big group
+        #expect(summaries[2].representativeID == "p6")              // singleton is its own rep
+        // Every profile appears exactly once across all groups.
+        #expect(Set(summaries.flatMap(\.memberIDs)) == Set(["p1", "p2", "p3", "p4", "p5", "p6"]))
+    }
+
     @Test func suggestConnectionAnchorsReturnsNilWhenSingleComponent() {
         let profiles = ["p1", "p2", "p3"].map(makeProfile)
         let dict = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
