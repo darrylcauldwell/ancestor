@@ -13,7 +13,14 @@ func bootstrapSources(registry: SourceRegistry) {
     // Tier 2: CSRF token (session per search batch)
     registry.register(FreeBMDSource())
     registry.register(FreeCenSource())
-    registry.register(FreeREGSource())
+    // FreeREG is DELIBERATELY NOT registered (2026-07-27, owner decision): its
+    // terms forbid programmatic searching ("front-end programs strictly
+    // forbidden", permission pending ADR-008), so the app must not scrape it.
+    // Its rich baptism records (which name both parents) stay reachable via the
+    // human-permitted route — the "Search FreeREG" link-out on the profile
+    // (SharedProfileLayout). The `freereg` source ID is retained in the trust-tier
+    // registry for existing FreeREG citations. FreeREGSource.swift is kept for
+    // reference / possible re-enable if Free UK Genealogy grants permission.
 
     // FamilySearch historical records over the official OAuth Platform API
     // (owner 2026-07-21: records ARE granted at our Beta tier — live-verified,

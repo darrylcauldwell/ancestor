@@ -211,11 +211,13 @@ struct SharedProfileLayout: View {
 
             Divider()
 
-            // (Removed 2026-07-27, owner request: the per-gap "Missing facts"
-            // and "Explore" research entry points went unused — the user runs
-            // the single Research action at the foot of the profile instead, and
-            // the two sections just ate vertical space. The `missingFactsSection`
-            // / `exploreSection` builders are retired below with them.)
+            // FreeREG parish-register lookup — LINK-ONLY by design (2026-07-27):
+            // FreeREG's terms forbid programmatic searching, so the app can't
+            // search it for you, but its baptisms (which name BOTH parents) are
+            // the richest free parentage source — so this opens their search for
+            // the permitted human lookup. (The old scraper connector was retired
+            // the same day; the per-gap "Missing facts"/"Explore" sections too.)
+            searchFreeREGRow
 
             // Editable name fields + gender Picker, only when the consumer
             // opted into edit mode. Inserted above the date rows so users
@@ -411,6 +413,30 @@ struct SharedProfileLayout: View {
             Button("Cancel", role: .cancel) { relationshipRemoval = nil }
         } message: { removal in
             Text("Removes the \(removal.roleWord) link between \(profile.displayName) and \(removal.relativeName). Neither profile is deleted.")
+        }
+    }
+
+    /// FreeREG is link-only (its terms forbid programmatic search): a button that
+    /// opens FreeREG's parish-register search so the user runs the permitted human
+    /// lookup — the direct route to a baptism naming both parents.
+    @ViewBuilder
+    private var searchFreeREGRow: some View {
+        if let url = URL(string: "https://www.freereg.org.uk/search_queries/new") {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.tertiary)
+                    .font(.callout)
+                Text("Parish registers — baptism, marriage, burial")
+                    .font(.callout)
+                Spacer()
+                Link(destination: url) {
+                    Label("Search FreeREG", systemImage: "arrow.up.right.square")
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                .help("Opens FreeREG's parish-register search in your browser. Look up \(profile.lastName.map { "\($0) " } ?? "")baptisms — they name both parents, the direct route to a person's mother and father. FreeREG's terms don't allow the app to search on your behalf, so this hands off to the site.")
+            }
+            Divider()
         }
     }
 
