@@ -50,87 +50,66 @@ struct HealthView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Two-row toolbar: actions on top, filters below — keeps the bar
-            // calm and stops the buttons truncating on a single line.
-            VStack(alignment: .leading, spacing: 10) {
-                // Row 1 — actions + search. No manual "Re-run Audit": AppState
-                // keeps the audit current after every change, so Health is always
-                // up to date on open.
-                HStack {
-                    // Secondary sweeps tucked into a menu — run occasionally, so
-                    // they don't need to sit out on the bar competing for space.
-                    Menu {
-                        Button {
-                            // CONFLICT_LAYER_SPEC CL2 — manual conflict sweep;
-                            // refreshes the live open-dispute count.
-                            appState.runConflictSweep(force: true)
-                            openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
-                        } label: {
-                            Label("Scan for Conflicts", systemImage: "exclamationmark.triangle")
-                        }
-                        Button {
-                            appState.scanForImportDuplicates()
-                        } label: {
-                            Label("Find Import Duplicates", systemImage: "person.2.slash")
-                        }
+            // Single toolbar row: sweeps + dispute status on the left, the two
+            // filter axes + search on the right. One control per axis — the
+            // severity counts ARE the severity filter, and disputes are a pill
+            // matching them, so nothing is shown twice.
+            HStack(spacing: 12) {
+                // Secondary sweeps tucked into a menu — run occasionally, so
+                // they don't need to sit out on the bar competing for space.
+                Menu {
+                    Button {
+                        // CONFLICT_LAYER_SPEC CL2 — manual conflict sweep;
+                        // refreshes the live open-dispute count.
+                        appState.runConflictSweep(force: true)
+                        openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
                     } label: {
-                        Label("Tools", systemImage: "wrench.and.screwdriver")
+                        Label("Scan for Conflicts", systemImage: "exclamationmark.triangle")
                     }
-                    .menuStyle(.button)
-                    .fixedSize()
-                    .disabled(appState.snapshot.profiles.isEmpty)
-
-                    if let count = openDisputeCount, count > 0 {
-                        Button {
-                            showDisputeList.toggle()
-                            if showDisputeList {
-                                openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
-                            }
-                        } label: {
-                            Text("\(count) open dispute\(count == 1 ? "" : "s")")
-                                .font(.callout)
-                                .foregroundStyle(.orange)
-                        }
-                        .buttonStyle(.plain)
+                    Button {
+                        appState.scanForImportDuplicates()
+                    } label: {
+                        Label("Find Import Duplicates", systemImage: "person.2.slash")
                     }
+                } label: {
+                    Label("Tools", systemImage: "wrench.and.screwdriver")
+                }
+                .menuStyle(.button)
+                .fixedSize()
+                .disabled(appState.snapshot.profiles.isEmpty)
 
-                    Spacer()
-
-                    TextField("Search...", text: $auditVM.searchText)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 200)
+                if let count = openDisputeCount, count > 0 {
+                    disputesPill(count: count)
                 }
 
-                // Row 2 — two filter axes: category (issue vs gap) on the left,
-                // severity on the right. The severity counts ARE the filter — tap
-                // a count to show only that level, tap again to clear — so there
-                // is one control per axis, not a summary plus a duplicate picker.
-                HStack(spacing: 12) {
-                    Picker("Category", selection: $auditVM.filterCategory) {
-                        Text("All").tag(nil as AuditCategory?)
-                        HStack(spacing: 4) {
-                            Text("Issues")
-                            Text("(\(auditVM.issueCount))").foregroundStyle(.secondary)
-                        }.tag(AuditCategory.issue as AuditCategory?)
-                        HStack(spacing: 4) {
-                            Text("Gaps")
-                            Text("(\(auditVM.gapCount))").foregroundStyle(.secondary)
-                        }.tag(AuditCategory.gap as AuditCategory?)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 240)
+                Spacer()
 
-                    Spacer()
-
-                    if let summary = auditVM.summary {
-                        HStack(spacing: 8) {
-                            severityFilterPill(.error, count: summary.errors.count)
-                            severityFilterPill(.warning, count: summary.warnings.count)
-                            severityFilterPill(.info, count: summary.info.count)
-                        }
-                        .accessibilityLabel("Filter by severity")
-                    }
+                Picker("Category", selection: $auditVM.filterCategory) {
+                    Text("All").tag(nil as AuditCategory?)
+                    HStack(spacing: 4) {
+                        Text("Issues")
+                        Text("(\(auditVM.issueCount))").foregroundStyle(.secondary)
+                    }.tag(AuditCategory.issue as AuditCategory?)
+                    HStack(spacing: 4) {
+                        Text("Gaps")
+                        Text("(\(auditVM.gapCount))").foregroundStyle(.secondary)
+                    }.tag(AuditCategory.gap as AuditCategory?)
                 }
+                .pickerStyle(.segmented)
+                .frame(width: 220)
+
+                if let summary = auditVM.summary {
+                    HStack(spacing: 8) {
+                        severityFilterPill(.error, count: summary.errors.count)
+                        severityFilterPill(.warning, count: summary.warnings.count)
+                        severityFilterPill(.info, count: summary.info.count)
+                    }
+                    .accessibilityLabel("Filter by severity")
+                }
+
+                TextField("Search...", text: $auditVM.searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 170)
             }
             .padding()
             .onAppear {
@@ -832,6 +811,38 @@ struct HealthView: View {
         }
         // Capitalize first letter
         return msg.prefix(1).uppercased() + msg.dropFirst()
+    }
+
+    /// Open-disputes status as a pill matching the severity counts, so the bar
+    /// reads as one coherent set rather than a stray orange text link. Toggles
+    /// the inline dispute list; ringed while the list is open.
+    private func disputesPill(count: Int) -> some View {
+        Button {
+            showDisputeList.toggle()
+            if showDisputeList {
+                openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .accessibilityHidden(true)
+                Text("\(count) dispute\(count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .glassEffect(.regular, in: .capsule)
+            .overlay(
+                Capsule().strokeBorder(showDisputeList ? Color.orange : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(count) open disputes")
+        .accessibilityAddTraits(showDisputeList ? [.isSelected] : [])
+        .help(showDisputeList ? "Hide the open-disputes list" : "Show the \(count) open disputes")
     }
 
     /// A severity count that IS the severity filter: tap to show only that
