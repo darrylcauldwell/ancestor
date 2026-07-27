@@ -112,4 +112,60 @@ struct PlaceholderReconciliationTests {
         appState.reconcilePlaceholderParent(childID: "elsie", realParentID: "abraham", role: .father)
         #expect(appState.snapshot.parentsOf("elsie").map(\.id) == ["abraham"])
     }
+
+    /// A placeholder that has since been EDITED INTO A REAL PERSON keeps its
+    /// `.placeholder` flag but now carries a real name — establishing a SECOND
+    /// parent must NOT soft-delete it. Regression: Ruth Wheeldon b.1824 (a
+    /// sibling-shortcut placeholder fleshed out into the real mother) was
+    /// repeatedly auto-retired with her child edges stripped (2026-07-27).
+    @MainActor
+    @Test func namedPlaceholderSurvivesSecondParent() throws {
+        let db = try makeTempDB()
+        _ = try db.addProfile(person("kezia", "Kezia", gender: .female), source: .gedcom)
+        // Ruth: created as a placeholder, then edited into a real named person —
+        // she KEEPS the `.placeholder` flag but now has a real name.
+        let ruth = Profile(
+            id: "ruth", externalIDs: [:],
+            firstName: "Ruth", lastName: "Wheeldon", gender: .female,
+            attributes: PersonAttributes(nameStatus: .placeholder, lifeStatus: .normal, privacy: .normal),
+            birthDate: nil, birthLocation: nil, deathDate: nil, deathLocation: nil,
+            bio: nil, isDeleted: false, sources: [:], disputes: [:])
+        _ = try db.addProfile(ruth, source: .manual)
+        _ = try db.addProfile(person("john", "John", gender: .male), source: .gedcom)
+        _ = try db.addRelationship(parentEdge("ruth", "kezia", role: .mother))
+
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = try db.buildSnapshot()
+
+        // Establish John as Kezia's father, then reconcile. The pre-fix code
+        // treated still-flagged Ruth as a blank placeholder and retired her.
+        appState.addRelationship(parentEdge("john", "kezia", role: .father))
+        appState.reconcilePlaceholderParent(childID: "kezia", realParentID: "john", role: .father)
+
+        let snap = appState.snapshot
+        #expect(snap.profiles["ruth"] != nil,
+                "the named (real) placeholder must NOT be soft-deleted")
+        #expect(snap.parentsOf("kezia").contains { $0.id == "ruth" },
+                "Ruth must remain Kezia's mother")
+        #expect(snap.parentsOf("kezia").contains { $0.id == "john" },
+                "John added as father")
+    }
+
+    /// `isAnonymousStub` is about MISSING DATA, not the raw flag: a `.placeholder`
+    /// profile that has gained a real name is no longer a stub, while a genuinely
+    /// blank profile still is (flagged or not).
+    @Test func isAnonymousStubIgnoresFlagWhenRealDataPresent() {
+        func p(_ first: String?, _ last: String?, _ status: NameStatus) -> Profile {
+            Profile(
+                id: UUID().uuidString, externalIDs: [:],
+                firstName: first, lastName: last, gender: nil,
+                attributes: PersonAttributes(nameStatus: status, lifeStatus: .normal, privacy: .normal),
+                birthDate: nil, birthLocation: nil, deathDate: nil, deathLocation: nil,
+                bio: nil, isDeleted: false, sources: [:], disputes: [:])
+        }
+        #expect(p(nil, nil, .placeholder).isAnonymousStub)          // blank placeholder → stub
+        #expect(!p("Ruth", "Wheeldon", .placeholder).isAnonymousStub) // named placeholder → NOT a stub
+        #expect(p(nil, nil, .known).isAnonymousStub)                // blank non-placeholder → stub
+    }
 }

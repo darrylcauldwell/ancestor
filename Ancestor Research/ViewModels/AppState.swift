@@ -2345,8 +2345,12 @@ final class AppState {
     /// establishing a father then a mother cleanly retires both blanks.
     func reconcilePlaceholderParent(childID: String, realParentID: String, role: ParentRole) {
         // Capture everything up front — each mutation rebuilds the snapshot.
+        // A "blank placeholder" is one still flagged `.placeholder` AND carrying
+        // no real data (`isAnonymousStub`). A placeholder edited into a real
+        // person keeps the flag but gains a name/dates — it is a real parent now
+        // and must NOT be soft-deleted here (Ruth Wheeldon b.1824, 2026-07-27).
         let placeholders = snapshot.parentsOf(childID).filter {
-            $0.attributes?.nameStatus == .placeholder
+            $0.attributes?.nameStatus == .placeholder && $0.isAnonymousStub
         }
         guard !placeholders.isEmpty else { return }
 

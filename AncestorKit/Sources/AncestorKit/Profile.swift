@@ -272,15 +272,20 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
     }
 
     /// A profile carrying no identifying information — the anonymous stub the
-    /// sibling shortcut / bad relinks leave behind. `.placeholder` status counts
-    /// outright; otherwise a profile with no non-whitespace name field and no
-    /// birth or death date qualifies (the sibling-shortcut regression produced
-    /// blank stubs that are NOT flagged `.placeholder`). Checked against the raw
-    /// name fields, not `displayName`, so a stray joining space can't mask a
-    /// blank name. Single source of truth for `ExcessParentEdgesRule` and
-    /// `PlaceholderParentRepair` — they must agree on what counts as junk.
+    /// sibling shortcut / bad relinks leave behind: no non-whitespace name field
+    /// and no birth or death date. Checked against the raw name fields, not
+    /// `displayName`, so a stray joining space can't mask a blank name.
+    ///
+    /// A lingering `.placeholder` name-status does NOT by itself make a profile a
+    /// stub. A sibling-shortcut placeholder that has since been edited into a real
+    /// person (given a name or dates) keeps the flag but is a real person, not
+    /// junk. Keying off the raw flag here used to auto-retire such profiles —
+    /// soft-deleting them and stripping their edges (Ruth Wheeldon b.1824,
+    /// 2026-07-27). Real identifying data wins over a stale flag.
+    ///
+    /// Single source of truth for `ExcessParentEdgesRule`, `PlaceholderParentRepair`,
+    /// and `AppState.reconcilePlaceholderParent` — they must agree on what is junk.
     public var isAnonymousStub: Bool {
-        if attributes?.nameStatus == .placeholder { return true }
         let hasName = [firstName, middleName, lastName]
             .contains { !($0 ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
         return !hasName && birthDate == nil && deathDate == nil
