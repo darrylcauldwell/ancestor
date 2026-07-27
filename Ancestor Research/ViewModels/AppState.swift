@@ -2310,10 +2310,22 @@ final class AppState {
                                       subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil))
             added += 1
         }
-        // 3. Children.
+        // The subject's co-parent for any children added here: the lone spouse,
+        // if any. A census child of the Wife is equally the Head's child, so link
+        // BOTH — otherwise a child added from one parent's census keeps only that
+        // parent, leaving the co-parent unlinked.
+        let coParent: (id: String, role: ParentRole)? = {
+            let spouses = snapshot.spousesOf(subject.id)
+            guard spouses.count == 1, let s = spouses.first else { return nil }
+            return (s.id, s.gender == .male ? .father : (s.gender == .female ? .mother : .unspecified))
+        }()
+
+        // 3. Children — linked to the subject and their co-parent (the spouse).
         for link in links where link.relation == .child {
             let p = build(link.member); profiles.append(p)
-            edges.append(parentEdge(from: subject.id, to: p.id, role: subjectRole)); added += 1
+            edges.append(parentEdge(from: subject.id, to: p.id, role: subjectRole))
+            if let coParent { edges.append(parentEdge(from: coParent.id, to: p.id, role: coParent.role)) }
+            added += 1
         }
         // 4. Siblings — as children of the subject's parents, never a direct edge.
         for link in links where link.relation == .sibling {
@@ -2401,6 +2413,12 @@ final class AppState {
                 try linkParent(parent: existingID, child: subjectID)
             case .child:
                 try linkParent(parent: subjectID, child: existingID)
+                // Link the co-parent too — a census child of the subject is
+                // equally a child of the subject's (lone) spouse.
+                let spouses = snapshot.spousesOf(subjectID)
+                if spouses.count == 1, let coParent = spouses.first {
+                    try linkParent(parent: coParent.id, child: existingID)
+                }
             case .spouse:
                 if !snapshot.spousesOf(subjectID).contains(where: { $0.id == existingID }) {
                     _ = try db.addRelationship(

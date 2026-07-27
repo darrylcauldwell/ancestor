@@ -460,6 +460,32 @@ struct CensusRelationshipReconcilerTests {
         #expect(eliza.marriedSurname == "Cauldwell")
     }
 
+    /// Adding a census CHILD to a subject who has a spouse links the child to
+    /// BOTH parents — a census child of the Wife is equally the Head's child, so
+    /// it must not keep only the one parent. (The Wheeldon daughters added from
+    /// Ruth's census had lost John as father.)
+    @MainActor
+    @Test func addingCensusChildLinksBothCoParents() throws {
+        let db = try makeTempDB()
+        _ = try db.addProfile(person("ruth", "Ruth", "Wheeldon", birthYear: 1824), source: .gedcom)
+        _ = try db.addProfile(person("john", "John", "Wheeldon", birthYear: 1824), source: .gedcom)
+        _ = try db.addRelationship(spouseEdge("ruth", "john"))
+
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = try db.buildSnapshot()
+
+        appState.addCensusRelative(subjectID: "ruth",
+                                   member: member("Hannah Wheeldon", "Dau", age: 8),
+                                   relation: .child, censusYear: 1861)
+
+        let snap = appState.snapshot
+        let hannah = try #require(snap.profiles.values.first { $0.firstName == "Hannah" })
+        let parentIDs = Set(snap.parentsOf(hannah.id).map(\.id))
+        #expect(parentIDs.contains("ruth"))
+        #expect(parentIDs.contains("john"), "the co-parent (subject's spouse) is linked too")
+    }
+
     // MARK: - Link existing instead of add duplicate
 
     /// A census relative who already EXISTS elsewhere in the tree (matched by
