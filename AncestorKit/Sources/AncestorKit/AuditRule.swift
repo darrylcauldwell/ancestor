@@ -164,7 +164,16 @@ public nonisolated struct MissingCoParentRule: AuditRuleDefinition {
         let role = s.coParent.gender == .male ? "father"
             : (s.coParent.gender == .female ? "mother" : "other parent")
         let who = subject.firstName ?? subject.displayName
-        return "\(who) has only \(s.knownParent.displayName) as a parent, but their sibling \(s.corroboratingSibling.displayName) also has \(s.coParent.displayName) — likely \(who)'s \(role)."
+        // Surface the birth years so the chronology can be sanity-checked before
+        // accepting (e.g. the child must be born after the parents married). The
+        // co-parent's year, when known, frames the childbearing window.
+        func born(_ p: Profile) -> String { p.birthDate?.bestYear.map { "b.\($0)" } ?? "no birth date" }
+        let momBorn = s.coParent.birthDate?.bestYear.map { " (b.\($0))" } ?? ""
+        let base = "\(who) (\(born(subject))) has only \(s.knownParent.displayName) as a parent, but their sibling \(s.corroboratingSibling.displayName) (\(born(s.corroboratingSibling))) also has \(s.coParent.displayName)\(momBorn) — likely \(who)'s \(role)."
+        // No birth year → the date check can't be made here; nudge to confirm one.
+        return subject.birthDate?.bestYear == nil
+            ? base + " Confirm \(who)'s birth year before accepting."
+            : base
     }
 }
 

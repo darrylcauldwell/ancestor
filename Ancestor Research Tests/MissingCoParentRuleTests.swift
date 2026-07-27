@@ -9,12 +9,13 @@ import AncestorKit
 /// parents or step-relationships; ambiguous remarriage cases stay silent.
 struct MissingCoParentRuleTests {
 
-    private func person(_ id: String, _ first: String, gender: Gender) -> Profile {
+    private func person(_ id: String, _ first: String, gender: Gender, birthYear: Int? = nil) -> Profile {
         Profile(
             id: id, externalIDs: [:],
             firstName: first, lastName: "Wheeldon", gender: gender,
             attributes: PersonAttributes(nameStatus: .known, lifeStatus: .normal, privacy: .normal),
-            birthDate: nil, birthLocation: nil, deathDate: nil, deathLocation: nil,
+            birthDate: birthYear.map { GenealogicalDate(parsing: String($0)) },
+            birthLocation: nil, deathDate: nil, deathLocation: nil,
             bio: nil, isDeleted: false, sources: [:], disputes: [:])
     }
 
@@ -60,6 +61,34 @@ struct MissingCoParentRuleTests {
         #expect(results.first?.relatedProfileIDs == ["john"])
         #expect(results.first?.severity == .warning)
         #expect(results.first?.category == .issue)
+    }
+
+    /// The finding surfaces the child's and sibling's birth years so the
+    /// chronology can be checked before accepting; a dated child needs no nudge.
+    @Test func messageSurfacesBirthYears() {
+        let ruth = person("ruth", "Ruth", gender: .female)
+        let john = person("john", "John", gender: .male, birthYear: 1824)
+        let kezia = person("kezia", "Kezia", gender: .female, birthYear: 1862)
+        let hannah = person("hannah", "Hannah", gender: .female, birthYear: 1853)
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["ruth": ruth, "john": john, "kezia": kezia, "hannah": hannah],
+            relationships: [spouseEdge("ruth", "john"),
+                            parentEdge("ruth", "kezia"), parentEdge("john", "kezia"),
+                            parentEdge("ruth", "hannah")],
+            lifeEvents: [:])
+        let message = try! #require(MissingCoParentRule().evaluate(profile: hannah, snapshot: snapshot).first?.message)
+        #expect(message.contains("b.1853"))       // the child's year
+        #expect(message.contains("b.1862"))       // the corroborating sibling's year
+        #expect(!message.contains("Confirm"))     // dated → no nudge
+    }
+
+    /// When the child has NO birth year, the finding says so and nudges the user
+    /// to confirm one first — the date check can't be made from the finding alone.
+    @Test func messageNudgesWhenChildUndated() {
+        let (snapshot, hannah) = lopsidedFamily()   // undated people
+        let message = try! #require(MissingCoParentRule().evaluate(profile: hannah, snapshot: snapshot).first?.message)
+        #expect(message.contains("no birth date"))
+        #expect(message.contains("Confirm Hannah's birth year before accepting"))
     }
 
     @Test func doesNotFireWhenBothParentsPresent() {
