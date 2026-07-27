@@ -514,4 +514,28 @@ struct CensusRelationshipReconcilerTests {
         #expect(snap.childrenOf("ruth").contains { $0.id == "maryLizzy" })           // wired through the parent
         #expect(snap.siblingsOf("kezia").contains { $0.id == "maryLizzy" })
     }
+
+    /// Sibling linking is symmetric: from the ORPHAN's own panel — the subject
+    /// having no parents but the existing sibling having them — the orphan is
+    /// attached to the sibling's parents, not a silent no-op.
+    @MainActor
+    @Test func linkSiblingFromParentlessSubjectAttachesToSiblingsParents() throws {
+        let db = try makeTempDB()
+        _ = try db.addProfile(person("ruth", "Ruth", "Wheeldon", birthYear: 1824), source: .gedcom)
+        _ = try db.addProfile(person("kezia", "Kezia", "Wheeldon", birthYear: 1862), source: .gedcom)
+        _ = try db.addProfile(person("maryLizzy", "Mary", "Wheeldon", birthYear: 1856), source: .gedcom)
+        _ = try db.addRelationship(parentEdge("ruth", "kezia"))          // Kezia has a parent; Mary is an orphan
+
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = try db.buildSnapshot()
+
+        // Subject is the parentless orphan; the existing sibling Kezia has parents.
+        appState.linkCensusRelative(subjectID: "maryLizzy", existingID: "kezia",
+                                    relation: .sibling, censusYear: 1891)
+
+        let snap = appState.snapshot
+        #expect(snap.childrenOf("ruth").contains { $0.id == "maryLizzy" }, "orphan attached to sibling's parent")
+        #expect(snap.siblingsOf("kezia").contains { $0.id == "maryLizzy" })
+    }
 }

@@ -2409,13 +2409,20 @@ final class AppState {
                         existenceEvidence: .origin(source, note: note))
                 }
             case .sibling:
-                // Link through the subject's parents, but don't fill a parent-role
-                // the existing person already has (no second mother/father).
-                let existingRoles = Set(snapshot.parentsOf(existingID).map { parentRole($0.id) })
-                for parent in snapshot.parentsOf(subjectID) {
+                // Siblings share parents. Attach whichever of the two LACKS
+                // parents to the other's parents — so "Link" works from the
+                // orphan's own panel too, not only from the connected sibling's.
+                // Skip any parent-role the attachee already has (no second
+                // mother/father); if neither has parents there is nothing to
+                // attach to.
+                let subjectParents = snapshot.parentsOf(subjectID)
+                let parents = subjectParents.isEmpty ? snapshot.parentsOf(existingID) : subjectParents
+                let childID = subjectParents.isEmpty ? subjectID : existingID
+                let childRoles = Set(snapshot.parentsOf(childID).map { parentRole($0.id) })
+                for parent in parents {
                     let role = parentRole(parent.id)
-                    if role != .unspecified, existingRoles.contains(role) { continue }
-                    try linkParent(parent: parent.id, child: existingID)
+                    if role != .unspecified, childRoles.contains(role) { continue }
+                    try linkParent(parent: parent.id, child: childID)
                 }
             }
             snapshot = try db.buildSnapshot()
