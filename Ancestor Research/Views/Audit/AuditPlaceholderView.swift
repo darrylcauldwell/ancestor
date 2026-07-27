@@ -84,19 +84,17 @@ struct HealthView: View {
 
                 Spacer()
 
+                // Each segment MUST be a single view: a `.segmented` picker
+                // flattens an HStack into separate cells and scrambles the tag
+                // bindings (so "(63)" ended up filtering Gaps). Fold the count
+                // into one Text per segment → exactly three buttons, correct tags.
                 Picker("Category", selection: $auditVM.filterCategory) {
                     Text("All").tag(nil as AuditCategory?)
-                    HStack(spacing: 4) {
-                        Text("Issues")
-                        Text("(\(auditVM.issueCount))").foregroundStyle(.secondary)
-                    }.tag(AuditCategory.issue as AuditCategory?)
-                    HStack(spacing: 4) {
-                        Text("Gaps")
-                        Text("(\(auditVM.gapCount))").foregroundStyle(.secondary)
-                    }.tag(AuditCategory.gap as AuditCategory?)
+                    Text("Issues (\(auditVM.issueCount))").tag(AuditCategory.issue as AuditCategory?)
+                    Text("Gaps (\(auditVM.gapCount))").tag(AuditCategory.gap as AuditCategory?)
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 220)
+                .fixedSize()
 
                 if let summary = auditVM.summary {
                     HStack(spacing: 8) {
