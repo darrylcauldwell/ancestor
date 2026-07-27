@@ -74,6 +74,7 @@ public nonisolated enum AuditRules {
         MissingBioRule(),
         DuplicateDetectionRule(),
         ExcessParentEdgesRule(),
+        CensusRelationshipRule(),
         EmptyProfileRule(),
         CompletenessScoreRule(),
         ParentDiedBeforeChildRule(),
@@ -1292,6 +1293,58 @@ public nonisolated struct ExcessParentEdgesRule: AuditRuleDefinition {
         }
 
         return []
+    }
+}
+
+/// Reconciles the family relationships a CENSUS HOUSEHOLD implies against the
+/// tree. Surfaces CONTRADICTIONS — the census names a relative already in the
+/// tree, but in a different role (e.g. two people the census lists as siblings
+/// are linked in the tree as parent and child). Detection is delegated to the
+/// pure `CensusRelationshipReconciler`; that engine also detects census
+/// relatives entirely MISSING from the tree, which a later stage will surface
+/// alongside a one-click "add from census" so they are actionable rather than
+/// noise. Heuristic (name + age matching, scoped to the subject's own
+/// relatives) → a reviewable warning, never an auto-fix.
+public nonisolated struct CensusRelationshipRule: AuditRuleDefinition {
+    public let id = "censusRelationship"
+    public let displayName = "Census Relationship Mismatch"
+    public let description = "A census household implies a family relationship that the tree records differently — e.g. two people a census lists as siblings are linked in the tree as parent and child."
+    public let fireCondition = "A census household names a relative of the subject who is already in the tree, but in a different role than the census implies."
+    public let warningCondition: String? = "Census-implied role (parent/child/spouse/sibling) disagrees with the tree edge for the same person."
+    public let workedExample = "Samuel Wheeldon's 1861 census lists Mary as a daughter alongside him (a son) — making them siblings — but the tree records Samuel as Mary's father → contradiction."
+    public let defaultSeverity = Severity.warning
+    public init() {}
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        CensusRelationshipReconciler.findings(for: profile, in: snapshot)
+            .filter { $0.kind == .contradiction }
+            .map { finding in
+                AuditResult(
+                    profileID: profile.id, profileName: profile.displayName,
+                    severity: .warning, category: .issue, ruleID: id,
+                    message: Self.message(subject: profile, finding: finding),
+                    relatedProfileIDs: finding.treeRelativeID.map { [$0] })
+            }
+    }
+
+    /// "The 1861 census records Mary Wheeldon as Samuel's sibling, but the tree
+    /// has them as Samuel's child. Reconcile before trusting either."
+    static func message(subject: Profile, finding: CensusRelationshipReconciler.Finding) -> String {
+        let who = finding.member.name
+        let subjectName = subject.firstName ?? subject.displayName
+        let censusWord = relationPhrase(finding.censusRelation)
+        let treeWord = finding.treeRelation.map(relationPhrase) ?? "a different relative"
+        let lead = finding.censusYear.map { "The \($0) census" } ?? "A census"
+        return "\(lead) records \(who) as \(subjectName)'s \(censusWord), but the tree has them as \(subjectName)'s \(treeWord). Reconcile before trusting either."
+    }
+
+    private static func relationPhrase(_ r: CensusRelation) -> String {
+        switch r {
+        case .parent:  return "parent"
+        case .child:   return "child"
+        case .spouse:  return "spouse"
+        case .sibling: return "sibling"
+        }
     }
 }
 
