@@ -89,16 +89,16 @@ struct HealthView: View {
                 // tap again to clear (the cleared state IS "all", so no separate
                 // All button). Same interaction as the severity pills beside it.
                 HStack(spacing: 8) {
-                    categoryFilterPill(.issue, label: "Issues", count: auditVM.issueCount)
-                    categoryFilterPill(.gap, label: "Gaps", count: auditVM.gapCount)
+                    categoryFilterPill(.issue, label: "Issues", count: auditVM.categoryCount(.issue))
+                    categoryFilterPill(.gap, label: "Gaps", count: auditVM.categoryCount(.gap))
                 }
                 .accessibilityLabel("Filter by category")
 
-                if let summary = auditVM.summary {
+                if auditVM.summary != nil {
                     HStack(spacing: 8) {
-                        severityFilterPill(.error, count: summary.errors.count)
-                        severityFilterPill(.warning, count: summary.warnings.count)
-                        severityFilterPill(.info, count: summary.info.count)
+                        severityFilterPill(.error, count: auditVM.severityCount(.error))
+                        severityFilterPill(.warning, count: auditVM.severityCount(.warning))
+                        severityFilterPill(.info, count: auditVM.severityCount(.info))
                     }
                     .accessibilityLabel("Filter by severity")
                 }

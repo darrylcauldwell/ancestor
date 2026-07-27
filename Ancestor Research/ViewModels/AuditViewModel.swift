@@ -21,25 +21,12 @@ final class AuditViewModel {
         isRunning = false
     }
 
-    var filteredResults: [AuditResult] {
+    /// All results after the text search only — the universe the two facet
+    /// toggles (category, severity) then narrow.
+    private var searchedResults: [AuditResult] {
         guard let summary else { return [] }
-
-        var all: [AuditResult]
-        if let severity = filterSeverity {
-            switch severity {
-            case .error: all = summary.errors
-            case .warning: all = summary.warnings
-            case .info: all = summary.info
-            }
-        } else {
-            all = summary.errors + summary.warnings + summary.info
-        }
-
-        if let category = filterCategory {
-            all = all.filter { $0.category == category }
-        }
-
-        if searchText.isEmpty { return all }
+        let all = summary.errors + summary.warnings + summary.info
+        guard !searchText.isEmpty else { return all }
         let query = searchText.lowercased()
         return all.filter {
             $0.profileName.lowercased().contains(query) ||
@@ -47,13 +34,33 @@ final class AuditViewModel {
         }
     }
 
-    var issueCount: Int {
-        guard let summary else { return 0 }
-        return (summary.errors + summary.warnings + summary.info).filter { $0.category == .issue }.count
+    /// The list actually shown: both facets AND'd together (category × severity).
+    var filteredResults: [AuditResult] {
+        searchedResults.filter {
+            (filterCategory == nil || $0.category == filterCategory) &&
+            (filterSeverity == nil || $0.severity == filterSeverity)
+        }
     }
 
-    var gapCount: Int {
-        guard let summary else { return 0 }
-        return (summary.errors + summary.warnings + summary.info).filter { $0.category == .gap }.count
+    /// Faceted count for a CATEGORY pill — respects the active severity filter,
+    /// so tapping a severity re-counts Issues/Gaps to that severity (and the
+    /// numbers always match what tapping the pill would show).
+    func categoryCount(_ category: AuditCategory) -> Int {
+        searchedResults.filter {
+            $0.category == category && (filterSeverity == nil || $0.severity == filterSeverity)
+        }.count
     }
+
+    /// Faceted count for a SEVERITY pill — respects the active category filter,
+    /// so tapping Issues re-counts Errors/Warnings/Info to issues only.
+    func severityCount(_ severity: Severity) -> Int {
+        searchedResults.filter {
+            $0.severity == severity && (filterCategory == nil || $0.category == filterCategory)
+        }.count
+    }
+
+    /// Unfaceted totals (whole tree), for headings/summaries that want the raw
+    /// category split regardless of the current severity selection.
+    var issueCount: Int { searchedResults.filter { $0.category == .issue }.count }
+    var gapCount: Int { searchedResults.filter { $0.category == .gap }.count }
 }
