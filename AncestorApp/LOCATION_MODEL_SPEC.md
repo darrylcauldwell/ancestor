@@ -1,6 +1,6 @@
 # LOCATION_MODEL_SPEC
 
-**Status:** in progress (Stage 0–1 shipped; 2–3 the unblocked core; 4 gated).
+**Status:** Stages 0–2 SHIPPED. Stage 3 (decision-core geography-gate rebuild) DEFERRED to a future focused session (2026-07-27 decision — land the safe primitives, give the sandwich change its own test-first session). Stage 4 gated on FS production-verify + village→district data.
 **Origin:** the 2026-07-25 location audit + the 2026-07-27 "full pass" decision.
 
 ## Problem
@@ -84,8 +84,9 @@ bare Chapman (`DBY`), RD = `DBY:Belper-RD`, place = `DBY:Turnditch`, parish =
   birthplaces resolve at county granularity while records that carry a
   `district` field (BMD/census) resolve at RD granularity via `resolveDistrict`.
   No gate change — Stage 3 composes this resolver.
-- **Stage 3 — rebuild the geography gate (decision-core, test-first).**
-  Characterization corpus first. Replace only the county-substring block with a
+- **Stage 3 — rebuild the geography gate (decision-core, test-first). DEFERRED — next focused session.**
+  Its enabling primitive (`PlaceResolver`) is shipped and tested, so this stage
+  is self-contained and ready to pick up. Characterization corpus first. Replace only the county-substring block with a
   hierarchy-containment + temporal-validity walk when both sides resolve; fall
   back to substring otherwise. Keep the military + foreign-metadata branches.
   De-Derbyshires the resolved path (registry covers all counties).
