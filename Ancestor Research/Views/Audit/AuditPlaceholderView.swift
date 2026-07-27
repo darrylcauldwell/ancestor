@@ -101,8 +101,10 @@ struct HealthView: View {
                         .frame(width: 200)
                 }
 
-                // Row 2 — category + severity filters, with the severity summary
-                // badges sitting between them.
+                // Row 2 — two filter axes: category (issue vs gap) on the left,
+                // severity on the right. The severity counts ARE the filter — tap
+                // a count to show only that level, tap again to clear — so there
+                // is one control per axis, not a summary plus a duplicate picker.
                 HStack(spacing: 12) {
                     Picker("Category", selection: $auditVM.filterCategory) {
                         Text("All").tag(nil as AuditCategory?)
@@ -121,21 +123,13 @@ struct HealthView: View {
                     Spacer()
 
                     if let summary = auditVM.summary {
-                        HStack(spacing: 12) {
-                            severityBadge(.error, count: summary.errors.count)
-                            severityBadge(.warning, count: summary.warnings.count)
-                            severityBadge(.info, count: summary.info.count)
+                        HStack(spacing: 8) {
+                            severityFilterPill(.error, count: summary.errors.count)
+                            severityFilterPill(.warning, count: summary.warnings.count)
+                            severityFilterPill(.info, count: summary.info.count)
                         }
+                        .accessibilityLabel("Filter by severity")
                     }
-
-                    Picker("Severity", selection: $auditVM.filterSeverity) {
-                        Text("All").tag(nil as Severity?)
-                        Text("Errors").tag(Severity.error as Severity?)
-                        Text("Warnings").tag(Severity.warning as Severity?)
-                        Text("Info").tag(Severity.info as Severity?)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 280)
                 }
             }
             .padding()
@@ -840,20 +834,39 @@ struct HealthView: View {
         return msg.prefix(1).uppercased() + msg.dropFirst()
     }
 
-    private func severityBadge(_ severity: Severity, count: Int) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: severity.iconName)
-                .foregroundStyle(severity.color)
-                .accessibilityHidden(true)
-            Text("\(count)")
-                .font(.caption)
-                .fontWeight(.semibold)
+    /// A severity count that IS the severity filter: tap to show only that
+    /// level, tap again to clear. Replaces the old display-only badge + separate
+    /// severity Picker (one control per axis, no duplication). When a filter is
+    /// active the other levels dim, so the current filter state reads at a glance.
+    private func severityFilterPill(_ severity: Severity, count: Int) -> some View {
+        let selected = auditVM.filterSeverity == severity
+        let filtering = auditVM.filterSeverity != nil
+        return Button {
+            auditVM.filterSeverity = selected ? nil : severity
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: severity.iconName)
+                    .foregroundStyle(severity.color)
+                    .accessibilityHidden(true)
+                Text("\(count)")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .glassEffect(.regular, in: .capsule)
+            .overlay(
+                Capsule().strokeBorder(selected ? severity.color : Color.clear, lineWidth: 2)
+            )
+            .opacity(!filtering || selected ? 1 : 0.5)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .glassEffect(.regular, in: .capsule)
+        .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(count) \(severity.rawValue) issues")
+        .accessibilityLabel("\(count) \(severity.rawValue)")
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .help(selected
+              ? "Showing only \(severity.rawValue). Tap to show all severities."
+              : "Show only \(severity.rawValue)")
     }
 }
 
