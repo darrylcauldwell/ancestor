@@ -121,11 +121,36 @@ nonisolated final class LocationGazetteer: Sendable {
     /// All entries.
     func all() -> [GazetteerEntry] { places }
 
+    /// Normalise a location string for matching by dropping trailing noise that
+    /// stored freeform values carry but gazetteer terms don't: a Chapman-code
+    /// parenthetical ("Turnditch, Derbyshire (DBY)") and a trailing country
+    /// qualifier after a comma ("Loscoe, Derbyshire, England"). Reduces both to
+    /// "place, county" so they resolve to the same entry as a clean value would.
+    /// Input and output are lower-cased. The country strip REQUIRES a preceding
+    /// comma so a single-token place literally named for a country (e.g. a
+    /// village "Wales") is never emptied out.
+    static func normalizeForMatch(_ lowercasedQuery: String) -> String {
+        var s = lowercasedQuery
+        // Trailing Chapman parenthetical: " (dby)", "(ntt)".
+        if let r = s.range(of: #"\s*\([a-z]{2,3}\)\s*$"#, options: .regularExpression) {
+            s.removeSubrange(r)
+        }
+        // Trailing country qualifier, comma-anchored.
+        if let r = s.range(
+            of: #",\s*(england|wales|scotland|northern ireland|united kingdom|uk|great britain|gb)\.?\s*$"#,
+            options: .regularExpression
+        ) {
+            s.removeSubrange(r)
+        }
+        return s.trimmingCharacters(in: CharacterSet(charactersIn: " ,"))
+    }
+
     /// Typeahead match. Returns up to `limit` entries whose name, displayName,
     /// or any alias contains the query (case-insensitive). Sorted with exact
     /// prefix-of-name matches first, then alphabetically.
     func match(_ query: String, limit: Int = 10) -> [GazetteerEntry] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let raw = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let q = Self.normalizeForMatch(raw)
         guard !q.isEmpty else { return [] }
 
         let matches = places.filter { entry in

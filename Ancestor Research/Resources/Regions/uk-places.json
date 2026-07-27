@@ -34,7 +34,7 @@
   { "id": "DBY:Holbrook", "name": "Holbrook", "county": "Derbyshire", "country": "England", "aliases": [] },
   { "id": "DBY:Kilburn", "name": "Kilburn", "county": "Derbyshire", "country": "England", "aliases": [] },
   { "id": "DBY:Duffield", "name": "Duffield", "county": "Derbyshire", "country": "England", "aliases": [] },
-  { "id": "DBY:Mugginton", "name": "Mugginton", "county": "Derbyshire", "country": "England", "aliases": [] },
+  { "id": "DBY:Mugginton", "name": "Mugginton", "county": "Derbyshire", "country": "England", "aliases": ["Muggington", "Muggington, Derbyshire"] },
   { "id": "DBY:KirkIreton", "name": "Kirk Ireton", "county": "Derbyshire", "country": "England", "aliases": [] },
   { "id": "DBY:Spondon", "name": "Spondon", "county": "Derbyshire", "country": "England", "aliases": [] },
   { "id": "DBY:Mickleover", "name": "Mickleover", "county": "Derbyshire", "country": "England", "aliases": [] },
@@ -297,5 +297,20 @@
   { "id": "IOM:Douglas", "name": "Douglas", "county": "Isle of Man", "country": "Isle of Man", "aliases": [] },
   { "id": "IOM:IsleOfMan", "name": "Isle of Man", "county": "Isle of Man", "country": "Isle of Man", "aliases": [], "kind": "county" },
   { "id": "JSY:Jersey", "name": "Jersey", "county": "Jersey", "country": "Channel Islands", "aliases": [], "kind": "county" },
-  { "id": "GSY:Guernsey", "name": "Guernsey", "county": "Guernsey", "country": "Channel Islands", "aliases": [], "kind": "county" }
+  { "id": "GSY:Guernsey", "name": "Guernsey", "county": "Guernsey", "country": "Channel Islands", "aliases": [], "kind": "county" },
+
+  { "id": "DBY:Turnditch", "name": "Turnditch", "county": "Derbyshire", "country": "England", "aliases": [] },
+  { "id": "DBY:Windley", "name": "Windley", "county": "Derbyshire", "country": "England", "aliases": [] },
+  { "id": "DBY:Hognaston", "name": "Hognaston", "county": "Derbyshire", "country": "England", "aliases": [] },
+  { "id": "DBY:Carsington", "name": "Carsington", "county": "Derbyshire", "country": "England", "aliases": [] },
+  { "id": "DBY:Loscoe", "name": "Loscoe", "county": "Derbyshire", "country": "England", "aliases": [] },
+  { "id": "DBY:Bonsall", "name": "Bonsall", "county": "Derbyshire", "country": "England", "aliases": [] },
+  { "id": "DBY:Unstone", "name": "Unstone", "county": "Derbyshire", "country": "England", "aliases": [] },
+  { "id": "DBY:Wensley", "name": "Wensley", "county": "Derbyshire", "country": "England", "aliases": [] },
+  { "id": "DBY:Pleasley", "name": "Pleasley", "county": "Derbyshire", "country": "England", "aliases": [] },
+  { "id": "DBY:MiddletonByWirksworth", "name": "Middleton by Wirksworth", "county": "Derbyshire", "country": "England", "aliases": ["Middleton-by-Wirksworth"] },
+  { "id": "NTT:Farnsfield", "name": "Farnsfield", "county": "Nottinghamshire", "country": "England", "aliases": [] },
+  { "id": "NTT:Shireoaks", "name": "Shireoaks", "county": "Nottinghamshire", "country": "England", "aliases": [] },
+  { "id": "NTT:Teversal", "name": "Teversal", "county": "Nottinghamshire", "country": "England", "aliases": [] },
+  { "id": "NTT:Radford", "name": "Radford", "county": "Nottinghamshire", "country": "England", "aliases": ["Radford, Nottingham"] }
 ]
