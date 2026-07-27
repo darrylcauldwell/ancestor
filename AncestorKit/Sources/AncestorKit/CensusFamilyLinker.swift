@@ -107,7 +107,21 @@ public nonisolated struct CensusFamilyLinker {
         if r.contains("grand") || r.contains("step") || r.contains("foster") || r.contains("adopt") { return nil }
         // Non-family co-residents (reuse the enrichment path's vetted list).
         if CensusAgeEnrichment.isNonFamilyRole(r) { return nil }
-        // Base nuclear roles.
+
+        // Standard census abbreviations. Short forms are matched EXACTLY (not via
+        // `contains`) so a grand-/in-law form or a name can't trip them — e.g.
+        // "Dau" is a daughter but "Gdau" (granddaughter) must stay out of scope,
+        // and "Dau" would never be caught by the `contains("daughter")` below.
+        let exact: [String: Category] = [
+            "hd": .head,
+            "wf": .spouse, "hus": .spouse, "husb": .spouse,
+            "dau": .child, "daur": .child, "daug": .child, "daughtr": .child,
+            "fa": .parent, "fathr": .parent, "mo": .parent, "mothr": .parent,
+            "bro": .sibling, "brothr": .sibling, "sis": .sibling, "sistr": .sibling,
+        ]
+        if let category = exact[r] { return category }
+
+        // Base nuclear roles (spelled-out forms).
         if r.contains("head") { return .head }
         if r.contains("wife") || r.contains("husband") { return .spouse }
         if r.contains("son") || r.contains("daughter") { return .child }

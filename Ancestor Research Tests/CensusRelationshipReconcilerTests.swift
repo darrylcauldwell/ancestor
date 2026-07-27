@@ -253,6 +253,26 @@ struct CensusRelationshipReconcilerTests {
             .contains { $0.member.name == "George Cauldwell" })
     }
 
+    /// Census abbreviations: "Dau" must read as a daughter (child), not dropped
+    /// as "not family" — while "Gdau" (granddaughter) stays out of nuclear scope.
+    @Test func daughterAbbreviationIsRecognisedButGranddaughterIsNot() {
+        let john = person("john", "John", "Wheeldon", birthYear: 1824)
+        let household = [
+            member("John Wheeldon", "Head", age: 37, isTarget: true),
+            member("Hannah Wheeldon", "Dau", age: 8),
+            member("Baby Wheeldon", "Gdau", age: 1)]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["john": john],
+            relationships: [],
+            lifeEvents: ["john": [censusEvent("john", year: 1861, household: household)]])
+
+        let recon = try! #require(CensusRelationshipReconciler.reconciliations(for: john, in: snapshot).first)
+        let hannah = try! #require(recon.entries.first { $0.member.name == "Hannah Wheeldon" })
+        #expect(hannah.censusRelation == .child)         // Dau → the head's child
+        #expect(hannah.status == .missing)               // not yet in the tree → offered
+        #expect(recon.entries.first { $0.member.name == "Baby Wheeldon" }?.status == .outOfScope)
+    }
+
     // MARK: - Parent-in-law leads (Martha Barker)
 
     /// A "Ma-Law" (mother-in-law) row on the HEAD's census pins the head's
