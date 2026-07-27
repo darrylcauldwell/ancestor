@@ -422,19 +422,36 @@ struct SharedProfileLayout: View {
     @ViewBuilder
     private var searchFreeREGRow: some View {
         if let url = URL(string: "https://www.freereg.org.uk/search_queries/new") {
+            // What to type into FreeREG's own form. We can't pre-fill it — their
+            // terms forbid a front-end "entering search parameters" — so we show
+            // the criteria for a read-and-type hand-off instead.
+            let surname = (profile.lastName ?? "").trimmingCharacters(in: .whitespaces)
+            let county = profile.birthLocation?
+                .split(separator: ",").last
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .map { $0.replacingOccurrences(of: #"\s*\([A-Z]{2,3}\)$"#, with: "", options: .regularExpression) }
+            let criteria = [surname.isEmpty ? nil : surname, county, "Baptism"]
+                .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.tertiary)
                     .font(.callout)
-                Text("Parish registers — baptism, marriage, burial")
-                    .font(.callout)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Parish registers — FreeREG")
+                        .font(.callout)
+                    if !criteria.isEmpty {
+                        Text("enter: \(criteria)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Spacer()
                 Link(destination: url) {
                     Label("Search FreeREG", systemImage: "arrow.up.right.square")
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)
-                .help("Opens FreeREG's parish-register search in your browser. Look up \(profile.lastName.map { "\($0) " } ?? "")baptisms — they name both parents, the direct route to a person's mother and father. FreeREG's terms don't allow the app to search on your behalf, so this hands off to the site.")
+                .help("Opens FreeREG's parish-register search in your browser. Type in \(criteria.isEmpty ? "the surname, county and Baptism" : criteria) — baptisms name both parents. FreeREG's terms only allow manual searching, so the app can't pre-fill the form or search for you.")
             }
             Divider()
         }
