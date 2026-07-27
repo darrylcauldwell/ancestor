@@ -1328,15 +1328,19 @@ public nonisolated struct CensusRelationshipRule: AuditRuleDefinition {
                 relatedProfileIDs: finding.treeRelativeID.map { [$0] }))
         }
 
-        // Missing relatives — one info summary per subject (a `.gap`), carrying
-        // the one-click "add from census" affordance in the Health view. Grouped
-        // so a big household is one row, not one row per absent relative.
+        // Missing relatives + parent-in-law leads — one info summary per subject
+        // (a `.gap`), carrying the census-reconciliation panel (per-row "Add") in
+        // the Health view. Grouped so a big household is one row, not one per
+        // absent relative. A household with no missing blood relative can still
+        // surface here on the strength of an in-law lead alone (a mother-in-law
+        // pins the spouse's maiden name and parent — a lot from one line).
         let missing = findings.filter { $0.kind == .missing }
-        if !missing.isEmpty {
+        let inLawLeads = CensusRelationshipReconciler.inLawLeads(for: profile, in: snapshot)
+        if !missing.isEmpty || !inLawLeads.isEmpty {
             results.append(AuditResult(
                 profileID: profile.id, profileName: profile.displayName,
                 severity: .info, category: .gap, ruleID: id,
-                message: Self.missingMessage(subject: profile, missing: missing)))
+                message: Self.gapMessage(subject: profile, missing: missing, inLaw: inLawLeads)))
         }
         return results
     }
@@ -1354,6 +1358,32 @@ public nonisolated struct CensusRelationshipRule: AuditRuleDefinition {
 
     /// "A census lists 2 of Samuel's relatives not in the tree: Hannah Wheeldon
     /// (sibling), Alice Wheeldon (sibling)."
+    /// Combined gap summary: the missing blood relatives (if any) and the
+    /// parent-in-law leads (if any), each as its own sentence.
+    static func gapMessage(subject: Profile,
+                           missing: [CensusRelationshipReconciler.Finding],
+                           inLaw: [CensusRelationshipReconciler.InLawLead]) -> String {
+        var parts: [String] = []
+        if !missing.isEmpty { parts.append(missingMessage(subject: subject, missing: missing)) }
+        if !inLaw.isEmpty { parts.append(inLawMessage(subject: subject, inLaw: inLaw)) }
+        return parts.joined(separator: " ")
+    }
+
+    /// "A census names Martha Barker (mother-in-law) — she pins Elizabeth's
+    /// parent and maiden name (Barker)."
+    static func inLawMessage(subject: Profile,
+                             inLaw: [CensusRelationshipReconciler.InLawLead]) -> String {
+        let subjectName = subject.firstName ?? subject.displayName
+        let list = inLaw.map { lead -> String in
+            let word = lead.kind == .mother ? "mother-in-law" : "father-in-law"
+            let surname = lead.member.name.split(separator: " ").last.map(String.init)
+            let maiden = surname.map { ", maiden name \($0)" } ?? ""
+            return "\(lead.member.name) (\(word)\(maiden))"
+        }.joined(separator: ", ")
+        let n = inLaw.count
+        return "A census names \(subjectName)'s \(n == 1 ? "" : "\(n) ")in-law\(n == 1 ? "" : "s") who pin a spouse's parent: \(list)."
+    }
+
     static func missingMessage(subject: Profile, missing: [CensusRelationshipReconciler.Finding]) -> String {
         let subjectName = subject.firstName ?? subject.displayName
         let list = missing.map { f -> String in

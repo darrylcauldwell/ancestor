@@ -592,6 +592,20 @@ struct HealthView: View {
                 .buttonStyle(.glassProminent).controlSize(.mini)
                 .help("Create \(entry.member.name) and link as \(subjectName(subjectID))\(relationWord(relation, sex: entry.member.sex)), citing the census")
             }
+        case .inLawOfSpouse(let spouseID, let kind):
+            let spouseName = appState.snapshot.profiles[spouseID]?.displayName ?? "spouse"
+            let word = kind == .mother ? "mother" : "father"
+            let surname = entry.member.name.split(separator: " ").last.map(String.init)
+            Button {
+                appState.addSpouseParentFromInLaw(subjectID: subjectID, spouseID: spouseID,
+                                                  member: entry.member, kind: kind, censusYear: censusYear)
+                refreshAudit()
+            } label: {
+                Label("Add \(spouseName)'s \(word)\(surname.map { " (\($0))" } ?? "")",
+                      systemImage: "person.badge.plus")
+            }
+            .buttonStyle(.glassProminent).controlSize(.mini)
+            .help("Create \(entry.member.name), link as \(spouseName)'s \(word), and record \(spouseName)'s maiden name\(surname.map { " (\($0))" } ?? "") — all from this census line")
         case .outOfScope:
             rosterBadge("not family", "minus.circle", .secondary)
         }

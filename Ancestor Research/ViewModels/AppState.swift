@@ -2366,6 +2366,82 @@ final class AppState {
                             sourceID: censusYear.map { "census.\($0)" } ?? "census")
     }
 
+    /// Follow up a census parent-in-law row (the head's mother-/father-in-law).
+    /// One census line yields the whole previous generation on the spouse's side:
+    /// it creates the in-law (`Martha Barker`), links them as the SPOUSE's parent
+    /// (`Elizabeth`), fills the spouse's MAIDEN NAME from the in-law's surname
+    /// (`Barker`), and dates the in-law from their census age. The maiden-name
+    /// fill is guarded — it only writes when the spouse's maiden slot is blank or
+    /// merely echoes the married surname, never over a distinct maiden name
+    /// already recorded (check before overwrite).
+    func addSpouseParentFromInLaw(subjectID: String, spouseID: String,
+                                  member: HouseholdMember,
+                                  kind: CensusRelationshipReconciler.CensusParentInLaw,
+                                  censusYear: Int?) {
+        guard let db = currentDatabase,
+              let spouse = snapshot.profiles[spouseID] else { return }
+        let head = snapshot.profiles[subjectID]
+        let sourceID = censusYear.map { "census.\($0)" } ?? "census"
+        let source = SourceOrigin(identifier: sourceID)
+
+        func recase(_ t: String) -> String {
+            (t == t.uppercased() || t == t.lowercased()) ? t.capitalized : t
+        }
+        let tokens = member.name.split(separator: " ").map(String.init).filter { !$0.isEmpty }
+        let inLawSurname = tokens.count >= 2 ? recase(tokens.last!) : nil
+        let inLawFirst = tokens.first.map(recase)
+        let year = member.birthYear ?? censusYear.flatMap { cy in member.age.map { cy - $0 } }
+        let inLaw = Profile(
+            id: UUID().uuidString, externalIDs: [:], firstName: inLawFirst, middleName: nil,
+            lastName: inLawSurname, gender: kind == .mother ? .female : .male, attributes: nil,
+            birthDate: year.map { GenealogicalDate(parsing: "abt \($0)") },
+            birthLocation: nil, deathDate: nil, deathLocation: nil,
+            bio: nil, isDeleted: false, sources: [:], disputes: [:])
+        let role: ParentRole = kind == .mother ? .mother : .father
+        let word = kind == .mother ? "mother" : "father"
+
+        do {
+            _ = try db.addProfile(inLaw, source: source)
+            _ = try db.addRelationship(
+                Relationship(id: UUID(), from: inLaw.id, to: spouseID, type: .parent, role: role,
+                             subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil),
+                existenceEvidence: .origin(source,
+                    note: "Census names \(member.name) as the household's \(word)-in-law → \(spouse.displayName)'s \(word)"))
+
+            // Spouse's maiden name = the in-law's surname (check before overwrite).
+            if let maiden = inLawSurname, !maiden.isEmpty {
+                let currentMaiden = (spouse.lastName ?? "").trimmingCharacters(in: .whitespaces)
+                let headSurname = (head?.lastName ?? "").trimmingCharacters(in: .whitespaces)
+                var changes: [(ProfileField, String?, String?)] = []
+                if currentMaiden.isEmpty {
+                    changes.append((.lastName, spouse.lastName, maiden))
+                    if (spouse.marriedSurname ?? "").isEmpty, !headSurname.isEmpty {
+                        changes.append((.marriedSurname, spouse.marriedSurname, headSurname))
+                    }
+                } else if !headSurname.isEmpty,
+                          currentMaiden.caseInsensitiveCompare(headSurname) == .orderedSame {
+                    // The maiden slot actually holds the married surname → move it
+                    // across, then record the true maiden name.
+                    if (spouse.marriedSurname ?? "").isEmpty {
+                        changes.append((.marriedSurname, spouse.marriedSurname, currentMaiden))
+                    }
+                    changes.append((.lastName, spouse.lastName, maiden))
+                }
+                if !changes.isEmpty {
+                    _ = try db.editProfile(profileID: spouseID, changes: changes,
+                                           dateChanges: [], source: source)
+                }
+            }
+
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+            successMessage = "Added \(inLaw.displayName) as \(spouse.displayName)'s \(word) from the census."
+            successResearchProfileID = spouseID
+        } catch {
+            errorMessage = "Add in-law from census failed: \(error.localizedDescription)"
+        }
+    }
+
     /// When a REAL parent is established for a child, retire the blank
     /// placeholder the sibling shortcut created — replacing it, and carrying
     /// every sibling that shared it onto the real parent — instead of letting

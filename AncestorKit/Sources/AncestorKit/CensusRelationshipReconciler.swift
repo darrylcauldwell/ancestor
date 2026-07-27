@@ -22,6 +22,10 @@ import Foundation
 /// "AI/heuristic proposes, human decides" boundary.
 public nonisolated struct CensusRelationshipReconciler {
 
+    /// Which parent-in-law a roster row names — the mother or father of the
+    /// household head's spouse. Their surname is that spouse's maiden name.
+    public enum CensusParentInLaw: Sendable, Equatable { case mother, father }
+
     public struct Finding: Sendable, Equatable {
         public enum Kind: Sendable, Equatable { case missing, contradiction }
         public let kind: Kind
@@ -69,8 +73,13 @@ public nonisolated struct CensusRelationshipReconciler {
                 case contradiction(treeRelativeID: String, treeRelation: CensusRelation)
                 /// A census family relative with no edge in the tree.
                 case missing
-                /// Not a reconcilable family relation (lodger, servant, in-law,
-                /// grand-, step-, foster, adopted) — `CensusFamilyLinker` drops it.
+                /// A parent-in-law of the household head (subject): the mother or
+                /// father of the head's spouse. Not a blood relative of the
+                /// subject, but pins the spouse's parent — and hence the spouse's
+                /// maiden name. Carries the spouse to attach the parent to.
+                case inLawOfSpouse(spouseID: String, kind: CensusParentInLaw)
+                /// Not a reconcilable family relation (lodger, servant, other
+                /// in-law, grand-, step-, foster, adopted) — nothing to act on.
                 case outOfScope
             }
             public let member: HouseholdMember
@@ -126,6 +135,14 @@ public nonisolated struct CensusRelationshipReconciler {
                 relationByName[link.member.name] = link.relation
             }
 
+            // A parent-in-law is meaningful only when the subject is the HEAD
+            // (the roster's "-in-law" is relative to the head): the head's
+            // mother/father-in-law is the head's SPOUSE's parent. Requires a lone
+            // spouse in the tree to attach that parent to.
+            let subjectIsHead = target.relationship.lowercased().contains("head")
+            let spouses = snapshot.spousesOf(subject.id)
+            let loneSpouse: Profile? = spouses.count == 1 ? spouses.first : nil
+
             var entries: [CensusReconciliation.RosterEntry] = []
             for member in details.household {
                 // The subject's own row first, so it is never read as a relative.
@@ -134,7 +151,16 @@ public nonisolated struct CensusRelationshipReconciler {
                     continue
                 }
                 guard let relation = relationByName[member.name] else {
-                    entries.append(.init(member: member, censusRelation: nil, status: .outOfScope))
+                    // Not a nuclear relation of the subject. A parent-in-law of
+                    // the head, though, identifies the head's spouse's parent —
+                    // surface it as an actionable lead rather than a dead row.
+                    if subjectIsHead, let spouse = loneSpouse,
+                       let kind = Self.parentInLawKind(member.relationship) {
+                        entries.append(.init(member: member, censusRelation: nil,
+                                             status: .inLawOfSpouse(spouseID: spouse.id, kind: kind)))
+                    } else {
+                        entries.append(.init(member: member, censusRelation: nil, status: .outOfScope))
+                    }
                     continue
                 }
                 if let match = treeRelatives.first(where: {
@@ -190,7 +216,7 @@ public nonisolated struct CensusRelationshipReconciler {
                         kind: .contradiction, subjectID: subject.id,
                         censusRelation: relation, member: entry.member, censusYear: recon.censusYear,
                         treeRelativeID: treeRelativeID, treeRelation: treeRelation))
-                case .subject, .inTree, .outOfScope:
+                case .subject, .inTree, .inLawOfSpouse, .outOfScope:
                     break
                 }
             }
@@ -242,5 +268,52 @@ public nonisolated struct CensusRelationshipReconciler {
     /// `nil` when the roster gives neither (an undateable row).
     static func memberBirthYear(_ member: HouseholdMember, censusYear: Int?) -> Int? {
         member.birthYear ?? censusYear.flatMap { y in member.age.map { y - $0 } }
+    }
+
+    /// Classify a "relationship to head" string as a PARENT-in-law (mother/father
+    /// of the head's spouse), or nil. Handles both spelled-out ("Mother-in-Law",
+    /// "Mother in law") and the abbreviated census forms ("Ma-Law", "Fa-Law",
+    /// "Pa-Law"). Deliberately excludes son-/daughter-/brother-/sister-in-law —
+    /// those are not a spouse's parent.
+    public static func parentInLawKind(_ relationship: String) -> CensusParentInLaw? {
+        let letters = relationship.lowercased().filter { $0.isLetter }
+        guard letters.hasSuffix("law") else { return nil }              // must be an in-law form
+        if letters.hasPrefix("son") || letters.hasPrefix("dau")
+            || letters.hasPrefix("bro") || letters.hasPrefix("sis") { return nil }
+        if letters.hasPrefix("mother") || letters.hasPrefix("ma") { return .mother }
+        if letters.hasPrefix("father") || letters.hasPrefix("fa") || letters.hasPrefix("pa") { return .father }
+        return nil
+    }
+
+    /// A surfaced parent-in-law lead: a roster row that pins the subject's
+    /// spouse's parent (and thereby the spouse's maiden name).
+    public struct InLawLead: Sendable, Equatable {
+        public let member: HouseholdMember
+        public let spouseID: String
+        public let kind: CensusParentInLaw
+        public let censusYear: Int?
+        public init(member: HouseholdMember, spouseID: String, kind: CensusParentInLaw, censusYear: Int?) {
+            self.member = member
+            self.spouseID = spouseID
+            self.kind = kind
+            self.censusYear = censusYear
+        }
+    }
+
+    /// Every parent-in-law lead for `subject`, deduped by member name across
+    /// censuses. Distilled from `reconciliations` so the rule and the panel agree.
+    public static func inLawLeads(for subject: Profile, in snapshot: FamilyGraphSnapshot) -> [InLawLead] {
+        var leads: [InLawLead] = []
+        var seen = Set<String>()
+        for recon in reconciliations(for: subject, in: snapshot) {
+            for entry in recon.entries {
+                guard case .inLawOfSpouse(let spouseID, let kind) = entry.status else { continue }
+                if seen.insert(entry.member.name.lowercased()).inserted {
+                    leads.append(.init(member: entry.member, spouseID: spouseID,
+                                       kind: kind, censusYear: recon.censusYear))
+                }
+            }
+        }
+        return leads
     }
 }

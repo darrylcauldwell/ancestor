@@ -253,6 +253,71 @@ struct CensusRelationshipReconcilerTests {
             .contains { $0.member.name == "George Cauldwell" })
     }
 
+    // MARK: - Parent-in-law leads (Martha Barker)
+
+    /// A "Ma-Law" (mother-in-law) row on the HEAD's census pins the head's
+    /// spouse's mother — surfaced as an in-law lead against the spouse, not a
+    /// dead "not family" row. (John Cauldwell head, Elizabeth wife ⇒ Martha
+    /// Barker is Elizabeth's mother; Elizabeth née Barker.)
+    @Test func motherInLawOfHeadSurfacesAsSpouseParentLead() {
+        let john = person("john", "John", "Cauldwell", birthYear: 1861)
+        let eliza = person("eliza", "Elizabeth", "Cauldwell", birthYear: 1862)
+        let household = [
+            member("John Cauldwell", "Head", age: 30, isTarget: true),
+            member("Elizabeth Cauldwell", "Wife", age: 29),
+            member("Martha Barker", "Ma-Law", age: 66)]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["john": john, "eliza": eliza],
+            relationships: [spouseEdge("john", "eliza")],
+            lifeEvents: ["john": [censusEvent("john", year: 1891, household: household)]])
+
+        let recon = try! #require(CensusRelationshipReconciler.reconciliations(for: john, in: snapshot).first)
+        let martha = try! #require(recon.entries.first { $0.member.name == "Martha Barker" })
+        #expect(martha.status == .inLawOfSpouse(spouseID: "eliza", kind: .mother))
+
+        let leads = CensusRelationshipReconciler.inLawLeads(for: john, in: snapshot)
+        #expect(leads.count == 1)
+        #expect(leads.first?.spouseID == "eliza")
+        #expect(leads.first?.kind == .mother)
+        #expect(leads.first?.member.name == "Martha Barker")
+    }
+
+    /// The same Ma-Law row is meaningless from a SON's viewpoint (the roster's
+    /// "-in-law" is relative to the head, not the son) → it stays out of scope,
+    /// never mis-attached to the son's own spouse.
+    @Test func motherInLawIsNotSurfacedFromNonHeadViewpoint() {
+        let ernest = person("ernest", "Ernest", "Cauldwell", birthYear: 1887)
+        let wife = person("wife", "Ada", "Cauldwell", birthYear: 1889)
+        let household = [
+            member("John Cauldwell", "Head", age: 30),
+            member("Ernest Cauldwell", "Son", age: 4, isTarget: true),
+            member("Ada Cauldwell", "Daughter-in-Law", age: 2),
+            member("Martha Barker", "Ma-Law", age: 66)]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["ernest": ernest, "wife": wife],
+            relationships: [spouseEdge("ernest", "wife")],
+            lifeEvents: ["ernest": [censusEvent("ernest", year: 1891, household: household)]])
+
+        #expect(CensusRelationshipReconciler.inLawLeads(for: ernest, in: snapshot).isEmpty)
+        let recon = try! #require(CensusRelationshipReconciler.reconciliations(for: ernest, in: snapshot).first)
+        #expect(recon.entries.first { $0.member.name == "Martha Barker" }?.status == .outOfScope)
+    }
+
+    /// `parentInLawKind` reads spelled-out and abbreviated forms, and excludes
+    /// child/sibling in-laws.
+    @Test func parentInLawKindParsesFormsAndExcludesOthers() {
+        #expect(CensusRelationshipReconciler.parentInLawKind("Ma-Law") == .mother)
+        #expect(CensusRelationshipReconciler.parentInLawKind("Mother-in-Law") == .mother)
+        #expect(CensusRelationshipReconciler.parentInLawKind("Mother in law") == .mother)
+        #expect(CensusRelationshipReconciler.parentInLawKind("Fa-Law") == .father)
+        #expect(CensusRelationshipReconciler.parentInLawKind("Father-in-Law") == .father)
+        #expect(CensusRelationshipReconciler.parentInLawKind("Son-in-Law") == nil)
+        #expect(CensusRelationshipReconciler.parentInLawKind("Daughter-in-Law") == nil)
+        #expect(CensusRelationshipReconciler.parentInLawKind("Brother-in-Law") == nil)
+        #expect(CensusRelationshipReconciler.parentInLawKind("Head") == nil)
+        #expect(CensusRelationshipReconciler.parentInLawKind("Wife") == nil)
+    }
+
     // MARK: - One-click "Add from census" (the mutating write, Stage 2b)
 
     /// End-to-end for `AppState.addMissingCensusRelatives`: a subject whose census
@@ -286,5 +351,36 @@ struct CensusRelationshipReconcilerTests {
         #expect(snap.siblingsOf("samuel").contains { $0.id == mary.id }, "now surfaces as Samuel's sibling")
         // Fed only the missing link → the existing father John is not re-created.
         #expect(snap.profiles.values.filter { $0.firstName == "John" }.count == 1)
+    }
+
+    /// The Martha payoff end-to-end: a mother-in-law census row creates the
+    /// in-law, links her as the spouse's mother, dates her from her census age,
+    /// and fills the spouse's maiden name (moving the married surname across).
+    @MainActor
+    @Test func addSpouseParentFromInLawCreatesMotherAndSetsMaidenName() throws {
+        let db = try makeTempDB()
+        _ = try db.addProfile(person("john", "John", "Cauldwell", birthYear: 1861), source: .gedcom)
+        // Elizabeth stored under her MARRIED surname — the common GEDCOM state.
+        _ = try db.addProfile(person("eliza", "Elizabeth", "Cauldwell", birthYear: 1862), source: .gedcom)
+        _ = try db.addRelationship(spouseEdge("john", "eliza"))
+
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = try db.buildSnapshot()
+
+        appState.addSpouseParentFromInLaw(
+            subjectID: "john", spouseID: "eliza",
+            member: member("Martha Barker", "Ma-Law", age: 66), kind: .mother, censusYear: 1891)
+
+        let snap = appState.snapshot
+        let martha = try #require(snap.profiles.values.first { $0.firstName == "Martha" }, "Martha created")
+        #expect(martha.lastName == "Barker")
+        #expect(martha.gender == .female)
+        #expect(martha.birthDate?.bestYear == 1825)                       // 1891 − 66
+        #expect(snap.parentsOf("eliza").contains { $0.id == martha.id }, "linked as Elizabeth's mother")
+        // Elizabeth née Barker; the married surname is preserved, not lost.
+        let eliza = try #require(snap.profiles["eliza"])
+        #expect(eliza.lastName == "Barker")
+        #expect(eliza.marriedSurname == "Cauldwell")
     }
 }
