@@ -140,12 +140,12 @@ struct CensusRelationshipReconcilerTests {
             lifeEvents: ["samuel": [censusEvent("samuel", year: 1861, household: wheeldonHousehold())]])
 
         let results = CensusRelationshipRule().evaluate(profile: samuel, snapshot: snapshot)
-        #expect(results.count == 1)
-        let r = try! #require(results.first)
-        #expect(r.severity == .warning)
-        #expect(r.ruleID == "censusRelationship")
-        #expect(r.relatedProfileIDs == ["mary"])
-        #expect(r.message.contains("sibling") && r.message.contains("child"))
+        // A contradiction warning (Mary) plus a missing-summary info (John + Ruth).
+        let warning = try! #require(results.first { $0.severity == .warning })
+        #expect(warning.ruleID == "censusRelationship")
+        #expect(warning.relatedProfileIDs == ["mary"])
+        #expect(warning.message.contains("sibling") && warning.message.contains("child"))
+        #expect(results.contains { $0.severity == .info && $0.category == .gap && $0.message.contains("not in the tree") })
     }
 
     /// A household attached to a subject but whose `isTarget` row is SOMEONE

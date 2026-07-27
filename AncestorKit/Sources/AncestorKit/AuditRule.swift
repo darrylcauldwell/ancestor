@@ -1316,26 +1316,53 @@ public nonisolated struct CensusRelationshipRule: AuditRuleDefinition {
     public init() {}
 
     public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
-        CensusRelationshipReconciler.findings(for: profile, in: snapshot)
-            .filter { $0.kind == .contradiction }
-            .map { finding in
-                AuditResult(
-                    profileID: profile.id, profileName: profile.displayName,
-                    severity: .warning, category: .issue, ruleID: id,
-                    message: Self.message(subject: profile, finding: finding),
-                    relatedProfileIDs: finding.treeRelativeID.map { [$0] })
-            }
+        let findings = CensusRelationshipReconciler.findings(for: profile, in: snapshot)
+        var results: [AuditResult] = []
+
+        // Contradictions — one reviewable warning each; never auto-fixed.
+        for finding in findings where finding.kind == .contradiction {
+            results.append(AuditResult(
+                profileID: profile.id, profileName: profile.displayName,
+                severity: .warning, category: .issue, ruleID: id,
+                message: Self.contradictionMessage(subject: profile, finding: finding),
+                relatedProfileIDs: finding.treeRelativeID.map { [$0] }))
+        }
+
+        // Missing relatives — one info summary per subject (a `.gap`), carrying
+        // the one-click "add from census" affordance in the Health view. Grouped
+        // so a big household is one row, not one row per absent relative.
+        let missing = findings.filter { $0.kind == .missing }
+        if !missing.isEmpty {
+            results.append(AuditResult(
+                profileID: profile.id, profileName: profile.displayName,
+                severity: .info, category: .gap, ruleID: id,
+                message: Self.missingMessage(subject: profile, missing: missing)))
+        }
+        return results
     }
 
     /// "The 1861 census records Mary Wheeldon as Samuel's sibling, but the tree
     /// has them as Samuel's child. Reconcile before trusting either."
-    static func message(subject: Profile, finding: CensusRelationshipReconciler.Finding) -> String {
+    static func contradictionMessage(subject: Profile, finding: CensusRelationshipReconciler.Finding) -> String {
         let who = finding.member.name
         let subjectName = subject.firstName ?? subject.displayName
         let censusWord = relationPhrase(finding.censusRelation)
         let treeWord = finding.treeRelation.map(relationPhrase) ?? "a different relative"
         let lead = finding.censusYear.map { "The \($0) census" } ?? "A census"
         return "\(lead) records \(who) as \(subjectName)'s \(censusWord), but the tree has them as \(subjectName)'s \(treeWord). Reconcile before trusting either."
+    }
+
+    /// "A census lists 2 of Samuel's relatives not in the tree: Hannah Wheeldon
+    /// (sibling), Alice Wheeldon (sibling)."
+    static func missingMessage(subject: Profile, missing: [CensusRelationshipReconciler.Finding]) -> String {
+        let subjectName = subject.firstName ?? subject.displayName
+        let list = missing.map { f -> String in
+            let yr = f.member.birthYear ?? f.censusYear.flatMap { y in f.member.age.map { y - $0 } }
+            let yrText = yr.map { ", b.\($0)" } ?? ""
+            return "\(f.member.name) (\(relationPhrase(f.censusRelation))\(yrText))"
+        }.joined(separator: ", ")
+        let n = missing.count
+        return "A census lists \(n) of \(subjectName)'s relative\(n == 1 ? "" : "s") not in the tree: \(list)."
     }
 
     private static func relationPhrase(_ r: CensusRelation) -> String {
