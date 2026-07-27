@@ -211,17 +211,11 @@ struct SharedProfileLayout: View {
 
             Divider()
 
-            // Per-gap research entry points (Task #39 +
-            // RESEARCH_PIPELINE_SPEC §11.4). The buttons fire focused
-            // pipeline runs scoped to the deficit's record types.
-            missingFactsSection
-
-            // Discovery-shaped research opportunities — siblings,
-            // children, occupation. These aren't gap-driven (the
-            // profile may look complete and still have undiscovered
-            // siblings or census occupation entries) so they live in
-            // their own section.
-            exploreSection
+            // (Removed 2026-07-27, owner request: the per-gap "Missing facts"
+            // and "Explore" research entry points went unused — the user runs
+            // the single Research action at the foot of the profile instead, and
+            // the two sections just ate vertical space. The `missingFactsSection`
+            // / `exploreSection` builders are retired below with them.)
 
             // Editable name fields + gender Picker, only when the consumer
             // opted into edit mode. Inserted above the date rows so users
@@ -417,121 +411,6 @@ struct SharedProfileLayout: View {
             Button("Cancel", role: .cancel) { relationshipRemoval = nil }
         } message: { removal in
             Text("Removes the \(removal.roleWord) link between \(profile.displayName) and \(removal.relativeName). Neither profile is deleted.")
-        }
-    }
-
-    /// Per-gap research entry points (Task #39 + RESEARCH_PIPELINE_SPEC
-    /// §11.4). Each missing fact maps to a `ResearchFocus` via
-    /// `CompletenessCheck.researchFocus`; gaps with a focus get a
-    /// scoped action label ("Research parents", "Research death") and
-    /// fire a focus-narrowed pipeline run via the standard config sheet.
-    /// Gaps with no engine-researchable answer (firstName, gender,
-    /// bio) get a disabled placeholder so the row still appears in the
-    /// list but the user isn't promised an action that wouldn't help.
-    @ViewBuilder
-    private var missingFactsSection: some View {
-        let comp = snapshot.completeness(for: profile.id)
-        if !comp.missing.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Missing facts")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
-                ForEach(comp.missing, id: \.self) { gap in
-                    HStack(spacing: 8) {
-                        Image(systemName: "questionmark.circle")
-                            .foregroundStyle(.tertiary)
-                            .font(.callout)
-                        Text(gap.label)
-                            .font(.callout)
-                        Spacer()
-                        if let focus = gap.researchFocus {
-                            let recordTypeList = focus.recordTypes
-                                .map(\.rawValue).sorted()
-                                .joined(separator: ", ")
-                            Button(focus.actionLabel) {
-                                appState.researchConfigFocus = focus
-                                appState.researchConfigProfile = profile
-                            }
-                            .buttonStyle(.glass)
-                            .controlSize(.small)
-                            .help("Narrows the dispatch to \(recordTypeList)")
-                        } else {
-                            Text("Manual")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                }
-            }
-            Divider()
-        }
-    }
-
-    /// Discovery-shaped focus buttons (RESEARCH_PIPELINE_SPEC §11.4).
-    /// These three focuses don't correspond to a missing-fact deficit
-    /// — even a fully-populated profile may have siblings the engine
-    /// hasn't surfaced yet, children not yet linked, or census-derived
-    /// occupations that aren't in the tree. The section appears once
-    /// the profile has enough basic data for any focus to plausibly
-    /// return results (given name + birth year); without those the
-    /// engine has nothing to gate searches on.
-    @ViewBuilder
-    private var exploreSection: some View {
-        let hasGivenName = (profile.firstName ?? "").isEmpty == false
-        let hasBirthYear = profile.birthDate?.earliest != nil
-        let hasSpouse = snapshot.spousesOf(profile.id).isEmpty == false
-        // Sibling discovery (RESEARCH_PIPELINE_SPEC §11.6) gates on
-        // "both parents linked + identity resolved", but the engine's
-        // MMN derivation in ResearchSubject.fromProfile falls back to
-        // `profile.mothersMaidenName` when a mother isn't linked. So
-        // the surface gate is: a linked parent OR a populated MMN.
-        // Without either, the FreeBMD MMN match has nothing to key on
-        // and the search would return empty.
-        let hasParent = snapshot.parentsOf(profile.id).isEmpty == false
-        let hasMMN = (profile.mothersMaidenName ?? "").isEmpty == false
-        let siblingsActionable = hasParent || hasMMN
-
-        if hasGivenName && hasBirthYear {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Explore")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
-                if siblingsActionable {
-                    exploreRow(label: "Siblings", focus: .siblings,
-                               hint: "MMN-based discovery of brothers and sisters via FreeBMD birth index.")
-                }
-                // Children gated on a known spouse — without a marriage
-                // anchor the dispatcher has nothing useful to chase. An
-                // adult-but-unmarried profile would just return empty.
-                if hasSpouse {
-                    exploreRow(label: "Children", focus: .children,
-                               hint: "Marriage records + census household to find unlinked children.")
-                }
-                exploreRow(label: "Occupation history", focus: .occupation,
-                           hint: "Census and probate records across the subject's lifetime.")
-            }
-            Divider()
-        }
-    }
-
-    @ViewBuilder
-    private func exploreRow(label: String, focus: ResearchFocus, hint: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "sparkle")
-                .foregroundStyle(.tertiary)
-                .font(.callout)
-            Text(label)
-                .font(.callout)
-            Spacer()
-            Button(focus.actionLabel) {
-                appState.researchConfigFocus = focus
-                appState.researchConfigProfile = profile
-            }
-            .buttonStyle(.glass)
-            .controlSize(.small)
-            .help(hint)
         }
     }
 
