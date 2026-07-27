@@ -273,6 +273,40 @@ struct CensusRelationshipReconcilerTests {
         #expect(recon.entries.first { $0.member.name == "Baby Wheeldon" }?.status == .outOfScope)
     }
 
+    /// Two household members sharing a name — a father "John" (Head) and his son
+    /// "John" (Son) — must not be conflated. From the wife's viewpoint the Head is
+    /// her spouse (in tree); the son is a missing child. Keying relations by name
+    /// stamped both with the son's `.child`, so the husband read as a missing
+    /// child ("Add son" on the Head, a phantom "child b.1824"). Live repro 2026-07-27.
+    @Test func sameNamedHeadAndSonAreNotConflated() {
+        let ruth = person("ruth", "Ruth", "Wheeldon", birthYear: 1824)
+        let johnSr = person("johnSr", "John", "Wheeldon", birthYear: 1824)   // the husband
+        let household = [
+            member("John Wheeldon", "Head", age: 37),
+            member("Ruth Wheeldon", "Wife", age: 37, isTarget: true),
+            member("John Wheeldon", "Son", age: 12),                         // same name, the son
+            member("Samuel Wheeldon", "Son", age: 9)]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["ruth": ruth, "johnSr": johnSr],
+            relationships: [spouseEdge("ruth", "johnSr")],
+            lifeEvents: ["ruth": [censusEvent("ruth", year: 1861, household: household)]])
+
+        let recon = try! #require(CensusRelationshipReconciler.reconciliations(for: ruth, in: snapshot).first)
+        // The Head John (age 37 → 1824) is Ruth's spouse, already in the tree.
+        let head = try! #require(recon.entries.first { $0.member.relationship == "Head" })
+        #expect(head.censusRelation == .spouse)
+        #expect(head.status == .inTree(profileID: "johnSr"))
+        // The Son John (age 12) is a distinct, missing child — not the Head.
+        let sonJohn = try! #require(recon.entries.first {
+            $0.member.relationship == "Son" && $0.member.name == "John Wheeldon"
+        })
+        #expect(sonJohn.censusRelation == .child)
+        #expect(sonJohn.status == .missing)
+        // No finding describes the 37-year-old Head as a missing child.
+        let missing = CensusRelationshipReconciler.findings(for: ruth, in: snapshot).filter { $0.kind == .missing }
+        #expect(!missing.contains { $0.censusRelation == .child && $0.member.age == 37 })
+    }
+
     // MARK: - Parent-in-law leads (Martha Barker)
 
     /// A "Ma-Law" (mother-in-law) row on the HEAD's census pins the head's

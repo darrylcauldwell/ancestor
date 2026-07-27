@@ -129,10 +129,15 @@ public nonisolated struct CensusRelationshipReconciler {
                   Self.matches(member: target, profile: subject, censusYear: year)
             else { continue }
 
-            // The in-scope family relations, keyed by roster member name.
-            var relationByName: [String: CensusRelation] = [:]
+            // The in-scope family relations, keyed by the roster MEMBER (not by
+            // name): a household can list two people with the same name — a father
+            // "John" (Head) and his son "John" (Son) — and keying by name collides,
+            // stamping both with one relation (the son's `.child`), so the father
+            // read as a missing child. HouseholdMember is Hashable and the two rows
+            // differ (age/role), so keying by the member keeps them distinct.
+            var relationByMember: [HouseholdMember: CensusRelation] = [:]
             for link in CensusFamilyLinker.familyLinks(household: details.household) {
-                relationByName[link.member.name] = link.relation
+                relationByMember[link.member] = link.relation
             }
 
             // A parent-in-law is meaningful only when the subject is the HEAD
@@ -150,7 +155,7 @@ public nonisolated struct CensusRelationshipReconciler {
                     entries.append(.init(member: member, censusRelation: nil, status: .subject))
                     continue
                 }
-                guard let relation = relationByName[member.name] else {
+                guard let relation = relationByMember[member] else {
                     // Not a nuclear relation of the subject. A parent-in-law of
                     // the head, though, identifies the head's spouse's parent —
                     // surface it as an actionable lead rather than a dead row.
