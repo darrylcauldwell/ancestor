@@ -1362,7 +1362,8 @@ public nonisolated struct CensusRelationshipRule: AuditRuleDefinition {
             return "\(f.member.name) (\(relationPhrase(f.censusRelation))\(yrText))"
         }.joined(separator: ", ")
         let n = missing.count
-        return "A census lists \(n) of \(subjectName)'s relative\(n == 1 ? "" : "s") not in the tree: \(list)."
+        // "N of X's relatives" is plural regardless of N (one OF a plural pool).
+        return "A census lists \(n) of \(subjectName)'s relatives not in the tree: \(list)."
     }
 
     private static func relationPhrase(_ r: CensusRelation) -> String {

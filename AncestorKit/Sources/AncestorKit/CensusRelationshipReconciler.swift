@@ -145,6 +145,21 @@ public nonisolated struct CensusRelationshipReconciler {
                         ? .inTree(profileID: match.profile.id)
                         : .contradiction(treeRelativeID: match.profile.id, treeRelation: match.relation)
                     entries.append(.init(member: member, censusRelation: relation, status: status))
+                } else if Self.memberBirthYear(member, censusYear: year) == nil,
+                          let sameRole = treeRelatives.first(where: {
+                              $0.relation == relation && Self.namesMatch(member: member, profile: $0.profile)
+                          }) {
+                    // Undateable roster row (no age, no stated year) already
+                    // present in the SAME household role — the same person seen
+                    // from another relative's viewpoint (a household lists each
+                    // member once, so same census + same role + same name = same
+                    // person). Classify as in-tree so we neither re-offer the add
+                    // nor spawn a duplicate. Namesake safety is unaffected: this
+                    // fires only when the census cannot date the row at all — a
+                    // datable namesake still takes the year-corroborated path and
+                    // stays a distinct, missing person.
+                    entries.append(.init(member: member, censusRelation: relation,
+                                         status: .inTree(profileID: sameRole.profile.id)))
                 } else {
                     entries.append(.init(member: member, censusRelation: relation, status: .missing))
                 }
@@ -194,6 +209,18 @@ public nonisolated struct CensusRelationshipReconciler {
     /// unknown on either side the pair is left unmatched (treated as "missing"
     /// rather than a wrongly-confident contradiction).
     static func matches(member: HouseholdMember, profile: Profile, censusYear: Int?) -> Bool {
+        guard namesMatch(member: member, profile: profile) else { return false }
+        guard let memberYear = memberBirthYear(member, censusYear: censusYear),
+              let profileYear = profile.birthDate?.bestYear else { return false }
+        return abs(memberYear - profileYear) <= yearTolerance
+    }
+
+    /// Name-only agreement: first given-name token + a surname (birth or
+    /// married), case-insensitive. The weaker half of `matches` — used ALONE
+    /// only to recognise a member the census can't date (no age, no stated
+    /// year) against a relative already in the SAME household role, never to
+    /// assert a cross-role contradiction (that still requires year corroboration).
+    static func namesMatch(member: HouseholdMember, profile: Profile) -> Bool {
         let memberTokens = member.name.lowercased()
             .split(whereSeparator: { $0 == " " || $0 == "," })
             .map(String.init)
@@ -208,11 +235,12 @@ public nonisolated struct CensusRelationshipReconciler {
             .compactMap { $0?.lowercased().trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         guard !profileGiven.isEmpty, !profileSurnames.isEmpty else { return false }
+        return memberGiven == profileGiven && profileSurnames.contains(memberSurname)
+    }
 
-        guard memberGiven == profileGiven, profileSurnames.contains(memberSurname) else { return false }
-
-        guard let memberYear = member.birthYear ?? censusYear.flatMap({ y in member.age.map { y - $0 } }),
-              let profileYear = profile.birthDate?.bestYear else { return false }
-        return abs(memberYear - profileYear) <= yearTolerance
+    /// The member's birth year — stated, or derived from census-year − age.
+    /// `nil` when the roster gives neither (an undateable row).
+    static func memberBirthYear(_ member: HouseholdMember, censusYear: Int?) -> Int? {
+        member.birthYear ?? censusYear.flatMap { y in member.age.map { y - $0 } }
     }
 }

@@ -228,6 +228,31 @@ struct CensusRelationshipReconcilerTests {
         #expect(status("Jane Smith") == .outOfScope)
     }
 
+    /// The SAME missing person seen from two household viewpoints must not
+    /// double-add. George is a Son the roster cannot date (no age); once he
+    /// exists as the head's child, the head's own finding recognises him — same
+    /// census, same role, same name — so no duplicate is offered, even though
+    /// year corroboration is impossible.
+    @Test func undateableMemberAlreadyInRoleIsNotReofferedAsMissing() {
+        let john = person("john", "John", "Cauldwell", birthYear: 1861)
+        let ernest = person("ernest", "Ernest", "Cauldwell", birthYear: 1887)
+        let george = person("george", "George", "Cauldwell", birthYear: nil)  // added earlier, undateable
+        let household = [
+            member("John Cauldwell", "Head", age: 30, isTarget: true),
+            member("Ernest Cauldwell", "Son", age: 4),
+            member("George Cauldwell", "Son", age: nil)]                        // no age on the roster
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["john": john, "ernest": ernest, "george": george],
+            relationships: [parentEdge("john", "ernest"), parentEdge("john", "george")],
+            lifeEvents: ["john": [censusEvent("john", year: 1891, household: household)]])
+
+        let recon = try! #require(CensusRelationshipReconciler.reconciliations(for: john, in: snapshot).first)
+        let georgeStatus = recon.entries.first { $0.member.name == "George Cauldwell" }?.status
+        #expect(georgeStatus == .inTree(profileID: "george"))
+        #expect(!CensusRelationshipReconciler.findings(for: john, in: snapshot)
+            .contains { $0.member.name == "George Cauldwell" })
+    }
+
     // MARK: - One-click "Add from census" (the mutating write, Stage 2b)
 
     /// End-to-end for `AppState.addMissingCensusRelatives`: a subject whose census

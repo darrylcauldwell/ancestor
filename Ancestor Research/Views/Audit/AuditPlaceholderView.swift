@@ -536,7 +536,7 @@ struct HealthView: View {
                 }
                 ForEach(Array(recons.enumerated()), id: \.offset) { _, recon in
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(recon.censusYear.map { "\($0) census household" } ?? "Census household")
+                        Text(recon.censusYear.map { "\(String($0)) census household" } ?? "Census household")
                             .font(AppTypography.badge).foregroundStyle(.secondary)
                         ForEach(Array(recon.entries.enumerated()), id: \.offset) { _, entry in
                             censusRosterRow(entry, subjectID: result.profileID, censusYear: recon.censusYear)
@@ -557,7 +557,7 @@ struct HealthView: View {
             Text(entry.member.name).font(AppTypography.cardMeta)
             Text(entry.member.relationship).font(AppTypography.cardMeta).foregroundStyle(.secondary)
             if let age = entry.member.age {
-                Text("age \(age)").font(AppTypography.cardMeta).foregroundStyle(.secondary)
+                Text("age \(String(age))").font(AppTypography.cardMeta).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             censusRosterStatus(entry, subjectID: subjectID, censusYear: censusYear)
