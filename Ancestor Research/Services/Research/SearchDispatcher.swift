@@ -476,7 +476,7 @@ struct SearchDispatcher {
     /// subject's tree region — the country tail of a place string
     /// ("Loscoe, Derbyshire, England" → "England"), or the explicit
     /// UK-nation region. nil when no country is derivable (never hardcoded).
-    static func homeCountry(from region: Region?) -> String? {
+    nonisolated static func homeCountry(from region: Region?) -> String? {
         switch region {
         case .englandAndWales: return "England"
         case .scotland: return "Scotland"
@@ -497,12 +497,28 @@ struct SearchDispatcher {
     /// so pulled worldwide same-surname namesakes from FS's global records API).
     /// Biasing to the project's home nation thins that foreign tail; it stays a
     /// re-rank (`q.anyPlace`), never a hard filter, so it can't drop a true record.
-    static func homeCountry(fromChapmanCode code: String) -> String? {
+    nonisolated static func homeCountry(fromChapmanCode code: String) -> String? {
         let trimmed = code.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
         let country = RegionConfig.config(forChapmanCode: trimmed)?.country
             .trimmingCharacters(in: .whitespaces)
         return (country?.isEmpty == false) ? country : nil
+    }
+
+    /// Compose a jurisdiction string (e.g., "Derbyshire, England") for FamilySearch's
+    /// place-axis parameters. FS's documented default behavior is to restrict records
+    /// to "within three jurisdiction levels", so "Derbyshire, England" triggers that
+    /// bound and excludes USA records. Returns the county if country is nil/empty.
+    /// No-op if county is nil/empty.
+    nonisolated static func jurisdictionString(
+        county: String?,
+        region: Region?,
+        homeChapmanCode: String
+    ) -> String? {
+        guard let county, !county.isEmpty else { return nil }
+        let country = homeCountry(from: region)
+            ?? homeCountry(fromChapmanCode: homeChapmanCode)
+        return country.map { "\(county), \($0)" } ?? county
     }
 
     private func sourceCovers(_ source: any RecordSource, yearRange: (from: Int?, to: Int?)) -> Bool {
@@ -1209,7 +1225,9 @@ struct SearchDispatcher {
                 let scopedCounty: String? = scope == .national ? nil : homeCounty
                 let fsBirthPlace: String?
                 switch recordType {
-                case .birth, .baptism, .christening: fsBirthPlace = scopedCounty
+                case .birth, .baptism, .christening: fsBirthPlace = Self.jurisdictionString(
+                    county: scopedCounty, region: subject.region, homeChapmanCode: subject.homeChapmanCode
+                )
                 default: fsBirthPlace = nil
                 }
                 let fsDeathPlace: String?
@@ -1227,7 +1245,9 @@ struct SearchDispatcher {
                     } else if let dl = subject.deathLocation, !dl.isEmpty {
                         fsDeathPlace = dl
                     } else {
-                        fsDeathPlace = scopedCounty
+                        fsDeathPlace = Self.jurisdictionString(
+                            county: scopedCounty, region: subject.region, homeChapmanCode: subject.homeChapmanCode
+                        )
                     }
                 default:
                     fsDeathPlace = nil
@@ -1276,7 +1296,9 @@ struct SearchDispatcher {
                             fsResidencePlace = axis.place
                         }
                     } else {
-                        fsResidencePlace = scopedCounty
+                        fsResidencePlace = Self.jurisdictionString(
+                            county: scopedCounty, region: subject.region, homeChapmanCode: subject.homeChapmanCode
+                        )
                     }
                 } else {
                     fsResidencePlace = nil

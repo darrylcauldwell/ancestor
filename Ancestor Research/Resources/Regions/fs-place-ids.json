@@ -1,0 +1,2154 @@
+{
+ "counties": {
+  "BDF": {
+   "fsId": "3493",
+   "fsName": "Bedfordshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Bedfordshire, England, United Kingdom"
+  },
+  "BRK": {
+   "fsId": "3494",
+   "fsName": "Berkshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Berkshire, England, United Kingdom"
+  },
+  "BKM": {
+   "fsId": "3497",
+   "fsName": "Buckinghamshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Buckinghamshire, England, United Kingdom"
+  },
+  "CAM": {
+   "fsId": "3498",
+   "fsName": "Cambridgeshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Cambridgeshire, England, United Kingdom"
+  },
+  "CHS": {
+   "fsId": "3504",
+   "fsName": "Cheshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Cheshire, England, United Kingdom"
+  },
+  "CON": {
+   "fsId": "3654",
+   "fsName": "Cornwall",
+   "fsType": "County (Top level)",
+   "fsFullName": "Cornwall, England, United Kingdom"
+  },
+  "CUL": {
+   "fsId": "1106",
+   "fsName": "Cumberland",
+   "fsType": "County (Top level)",
+   "fsFullName": "Cumberland, England, United Kingdom"
+  },
+  "DBY": {
+   "fsId": "3651",
+   "fsName": "Derbyshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Derbyshire, England, United Kingdom"
+  },
+  "DEV": {
+   "fsId": "3652",
+   "fsName": "Devon",
+   "fsType": "County (Top level)",
+   "fsFullName": "Devon, England, United Kingdom"
+  },
+  "DOR": {
+   "fsId": "3653",
+   "fsName": "Dorset",
+   "fsType": "County (Top level)",
+   "fsFullName": "Dorset, England, United Kingdom"
+  },
+  "DUR": {
+   "fsId": "3649",
+   "fsName": "Durham",
+   "fsType": "County (Top level)",
+   "fsFullName": "Durham, England, United Kingdom"
+  },
+  "ESS": {
+   "fsId": "3677",
+   "fsName": "Essex",
+   "fsType": "County (Top level)",
+   "fsFullName": "Essex, England, United Kingdom"
+  },
+  "GLS": {
+   "fsId": "3669",
+   "fsName": "Gloucestershire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Gloucestershire, England, United Kingdom"
+  },
+  "HAM": {
+   "fsId": "3666",
+   "fsName": "Hampshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Hampshire, England, United Kingdom"
+  },
+  "HEF": {
+   "fsId": "3698",
+   "fsName": "Herefordshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Herefordshire, England, United Kingdom"
+  },
+  "HRT": {
+   "fsId": "3693",
+   "fsName": "Hertfordshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Hertfordshire, England, United Kingdom"
+  },
+  "HUN": {
+   "fsId": "3924",
+   "fsName": "Huntingdonshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Huntingdonshire, England, United Kingdom"
+  },
+  "KEN": {
+   "fsId": "4551",
+   "fsName": "Kent",
+   "fsType": "County (Top level)",
+   "fsFullName": "Kent, England, United Kingdom"
+  },
+  "LAN": {
+   "fsId": "3688",
+   "fsName": "Lancashire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Lancashire, England, United Kingdom"
+  },
+  "LEI": {
+   "fsId": "3686",
+   "fsName": "Leicestershire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Leicestershire, England, United Kingdom"
+  },
+  "LIN": {
+   "fsId": "3684",
+   "fsName": "Lincolnshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Lincolnshire, England, United Kingdom"
+  },
+  "MDX": {
+   "fsId": "1115",
+   "fsName": "Middlesex",
+   "fsType": "County (Top level)",
+   "fsFullName": "Middlesex, England, United Kingdom"
+  },
+  "NFK": {
+   "fsId": "3705",
+   "fsName": "Norfolk",
+   "fsType": "County (Top level)",
+   "fsFullName": "Norfolk, England, United Kingdom"
+  },
+  "NTH": {
+   "fsId": "3704",
+   "fsName": "Northamptonshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Northamptonshire, England, United Kingdom"
+  },
+  "NBL": {
+   "fsId": "3702",
+   "fsName": "Northumberland",
+   "fsType": "County (Top level)",
+   "fsFullName": "Northumberland, England, United Kingdom"
+  },
+  "NTT": {
+   "fsId": "3699",
+   "fsName": "Nottinghamshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Nottinghamshire, England, United Kingdom"
+  },
+  "OXF": {
+   "fsId": "3588",
+   "fsName": "Oxfordshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Oxfordshire, England, United Kingdom"
+  },
+  "RUT": {
+   "fsId": "3593",
+   "fsName": "Rutland",
+   "fsType": "County (Top level)",
+   "fsFullName": "Rutland, England, United Kingdom"
+  },
+  "SAL": {
+   "fsId": "3594",
+   "fsName": "Shropshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Shropshire, England, United Kingdom"
+  },
+  "SOM": {
+   "fsId": "3578",
+   "fsName": "Somerset",
+   "fsType": "County (Top level)",
+   "fsFullName": "Somerset, England, United Kingdom"
+  },
+  "STS": {
+   "fsId": "3582",
+   "fsName": "Staffordshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Staffordshire, England, United Kingdom"
+  },
+  "SFK": {
+   "fsId": "3606",
+   "fsName": "Suffolk",
+   "fsType": "County (Top level)",
+   "fsFullName": "Suffolk, England, United Kingdom"
+  },
+  "SRY": {
+   "fsId": "3605",
+   "fsName": "Surrey",
+   "fsType": "County (Top level)",
+   "fsFullName": "Surrey, England, United Kingdom"
+  },
+  "SSX": {
+   "fsId": "1084",
+   "fsName": "Sussex",
+   "fsType": "County (Top level)",
+   "fsFullName": "Sussex, England, United Kingdom"
+  },
+  "WAR": {
+   "fsId": "3612",
+   "fsName": "Warwickshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Warwickshire, England, United Kingdom"
+  },
+  "WES": {
+   "fsId": "1085",
+   "fsName": "Westmorland",
+   "fsType": "County (Top level)",
+   "fsFullName": "Westmorland, England, United Kingdom"
+  },
+  "WIL": {
+   "fsId": "3604",
+   "fsName": "Wiltshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Wiltshire, England, United Kingdom"
+  },
+  "WOR": {
+   "fsId": "3624",
+   "fsName": "Worcestershire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Worcestershire, England, United Kingdom"
+  },
+  "YKS": {
+   "fsId": "1088",
+   "fsName": "Yorkshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Yorkshire, England, United Kingdom"
+  },
+  "ERY": {
+   "fsId": "3675",
+   "fsName": "Yorkshire East Riding",
+   "fsType": "County (Top level)",
+   "fsFullName": "Yorkshire East Riding, England, United Kingdom"
+  },
+  "NRY": {
+   "fsId": "10903896",
+   "fsName": "Yorkshire North Riding",
+   "fsType": "County (Top level)",
+   "fsFullName": "Yorkshire North Riding, England, United Kingdom"
+  },
+  "WRY": {
+   "fsId": "1086",
+   "fsName": "Yorkshire West Riding",
+   "fsType": "County (Top level)",
+   "fsFullName": "Yorkshire West Riding, England, United Kingdom"
+  },
+  "AGY": {
+   "fsId": "10578660",
+   "fsName": "Anglesey",
+   "fsType": "County (Top level)",
+   "fsFullName": "Anglesey, Wales, United Kingdom"
+  },
+  "CGN": {
+   "fsId": "10578685",
+   "fsName": "Cardiganshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Cardiganshire, Wales, United Kingdom"
+  },
+  "CMN": {
+   "fsId": "10578665",
+   "fsName": "Carmarthenshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Carmarthenshire, Wales, United Kingdom"
+  },
+  "DEN": {
+   "fsId": "10578686",
+   "fsName": "Denbighshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Denbighshire, Wales, United Kingdom"
+  },
+  "FLN": {
+   "fsId": "10581041",
+   "fsName": "Flintshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Flintshire, Wales, United Kingdom"
+  },
+  "GLA": {
+   "fsId": "10578666",
+   "fsName": "Glamorgan",
+   "fsType": "County (Top level)",
+   "fsFullName": "Glamorgan, Wales, United Kingdom"
+  },
+  "MER": {
+   "fsId": "10581251",
+   "fsName": "Merionethshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Merionethshire, Wales, United Kingdom"
+  },
+  "MGY": {
+   "fsId": "10581859",
+   "fsName": "Montgomeryshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Montgomeryshire, Wales, United Kingdom"
+  },
+  "MON": {
+   "fsId": "10581404",
+   "fsName": "Monmouthshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Monmouthshire, Wales, United Kingdom"
+  },
+  "PEM": {
+   "fsId": "10578164",
+   "fsName": "Pembrokeshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Pembrokeshire, Wales, United Kingdom"
+  },
+  "RAD": {
+   "fsId": "10582193",
+   "fsName": "Radnorshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Radnorshire, Wales, United Kingdom"
+  },
+  "ABD": {
+   "fsId": "10582377",
+   "fsName": "Aberdeenshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Aberdeenshire, Scotland, United Kingdom"
+  },
+  "ANS": {
+   "fsId": "10593721",
+   "fsName": "Angus",
+   "fsType": "County (Top level)",
+   "fsFullName": "Angus, Scotland, United Kingdom"
+  },
+  "ARL": {
+   "fsId": "10583102",
+   "fsName": "Argyll",
+   "fsType": "County (Top level)",
+   "fsFullName": "Argyll, Scotland, United Kingdom"
+  },
+  "AYR": {
+   "fsId": "10583738",
+   "fsName": "Ayrshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Ayrshire, Scotland, United Kingdom"
+  },
+  "BAN": {
+   "fsId": "10584053",
+   "fsName": "Banffshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Banffshire, Scotland, United Kingdom"
+  },
+  "BEW": {
+   "fsId": "10584144",
+   "fsName": "Berwickshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Berwickshire, Scotland, United Kingdom"
+  },
+  "CAI": {
+   "fsId": "10584303",
+   "fsName": "Caithness",
+   "fsType": "County (Top level)",
+   "fsFullName": "Caithness, Scotland, United Kingdom"
+  },
+  "CLK": {
+   "fsId": "10594578",
+   "fsName": "Clackmannanshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Clackmannanshire, Scotland, United Kingdom"
+  },
+  "DFS": {
+   "fsId": "10584383",
+   "fsName": "Dumfriesshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Dumfriesshire, Scotland, United Kingdom"
+  },
+  "DNB": {
+   "fsId": "10584804",
+   "fsName": "Dunbartonshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Dunbartonshire, Scotland, United Kingdom"
+  },
+  "ELN": {
+   "fsId": "10703357",
+   "fsName": "East Lothian",
+   "fsType": "County (Top level)",
+   "fsFullName": "East Lothian, Scotland, United Kingdom"
+  },
+  "FIF": {
+   "fsId": "10584944",
+   "fsName": "Fife",
+   "fsType": "County (Top level)",
+   "fsFullName": "Fife, Scotland, United Kingdom"
+  },
+  "INV": {
+   "fsId": "10585431",
+   "fsName": "Inverness-shire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Inverness-shire, Scotland, United Kingdom"
+  },
+  "KCD": {
+   "fsId": "10586174",
+   "fsName": "Kincardineshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Kincardineshire, Scotland, United Kingdom"
+  },
+  "KRS": {
+   "fsId": "10586265",
+   "fsName": "Kinross-shire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Kinross-shire, Scotland, United Kingdom"
+  },
+  "KKD": {
+   "fsId": "10586288",
+   "fsName": "Kirkcudbrightshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Kirkcudbrightshire, Scotland, United Kingdom"
+  },
+  "LKS": {
+   "fsId": "10586637",
+   "fsName": "Lanarkshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Lanarkshire, Scotland, United Kingdom"
+  },
+  "MLN": {
+   "fsId": "10594638",
+   "fsName": "Midlothian",
+   "fsType": "County (Top level)",
+   "fsFullName": "Midlothian, Scotland, United Kingdom"
+  },
+  "NAI": {
+   "fsId": "10588152",
+   "fsName": "Nairnshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Nairnshire, Scotland, United Kingdom"
+  },
+  "OKI": {
+   "fsId": "10596207",
+   "fsName": "Orkney",
+   "fsType": "County (Top level)",
+   "fsFullName": "Orkney, Scotland, United Kingdom"
+  },
+  "PEE": {
+   "fsId": "10588210",
+   "fsName": "Peeblesshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Peeblesshire, Scotland, United Kingdom"
+  },
+  "PER": {
+   "fsId": "10588366",
+   "fsName": "Perthshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Perthshire, Scotland, United Kingdom"
+  },
+  "RFW": {
+   "fsId": "10596759",
+   "fsName": "Renfrewshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Renfrewshire, Scotland, United Kingdom"
+  },
+  "ROX": {
+   "fsId": "10589318",
+   "fsName": "Roxburghshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Roxburghshire, Scotland, United Kingdom"
+  },
+  "SEL": {
+   "fsId": "10589798",
+   "fsName": "Selkirkshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Selkirkshire, Scotland, United Kingdom"
+  },
+  "SHI": {
+   "fsId": "10590300",
+   "fsName": "Shetland",
+   "fsType": "County (Top level)",
+   "fsFullName": "Shetland, Scotland, United Kingdom"
+  },
+  "STI": {
+   "fsId": "10597156",
+   "fsName": "Stirlingshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Stirlingshire, Scotland, United Kingdom"
+  },
+  "SUT": {
+   "fsId": "10593334",
+   "fsName": "Sutherland",
+   "fsType": "County (Top level)",
+   "fsFullName": "Sutherland, Scotland, United Kingdom"
+  },
+  "WLN": {
+   "fsId": "10703359",
+   "fsName": "West Lothian",
+   "fsType": "County (Top level)",
+   "fsFullName": "West Lothian, Scotland, United Kingdom"
+  },
+  "WIG": {
+   "fsId": "10589926",
+   "fsName": "Wigtownshire",
+   "fsType": "County (Top level)",
+   "fsFullName": "Wigtownshire, Scotland, United Kingdom"
+  }
+ },
+ "districts": {
+  "CGN:Aberayron": {
+   "fsId": "10579232",
+   "fsName": "Aberayron",
+   "fsType": "Town"
+  },
+  "CGN:Aberystwyth": {
+   "fsId": "10579239",
+   "fsName": "Aberystwyth",
+   "fsType": "Town"
+  },
+  "NFK:Acle": {
+   "fsId": "2971619",
+   "fsName": "Acle",
+   "fsType": "Town"
+  },
+  "HAM:Aldershot": {
+   "fsId": "2975279",
+   "fsName": "Aldershot",
+   "fsType": "Town"
+  },
+  "CUL:Alston": {
+   "fsId": "3041128",
+   "fsName": "Alston",
+   "fsType": "Civil Registration District"
+  },
+  "DBY:Amber Valley": {
+   "fsId": "12265489",
+   "fsName": "Amber Valley",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Amounderness": {
+   "fsId": "12265828",
+   "fsName": "Amounderness",
+   "fsType": "Civil Registration District"
+  },
+  "AGY:Anglesey": {
+   "fsId": "3040213",
+   "fsName": "Anglesey",
+   "fsType": "Poor Law Union"
+  },
+  "WES:Appleby": {
+   "fsId": "1648478",
+   "fsName": "Appleby",
+   "fsType": "Town"
+  },
+  "KEN:Ashford": {
+   "fsId": "2974298",
+   "fsName": "Ashford",
+   "fsType": "Town"
+  },
+  "KEN:Ashford with Shepway": {
+   "fsId": "12266031",
+   "fsName": "Ashford with Shepway",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Ashton": {
+   "fsId": "12265830",
+   "fsName": "Ashton",
+   "fsType": "Civil Registration District"
+  },
+  "NRY:Askrigg": {
+   "fsId": "12265492",
+   "fsName": "Askrigg",
+   "fsType": "Civil Registration District"
+  },
+  "BKM:Aylesbury Vale": {
+   "fsId": "428053",
+   "fsName": "Aylesbury Vale",
+   "fsType": "Civil Registration District"
+  },
+  "NRY:Aysgarth": {
+   "fsId": "12265493",
+   "fsName": "Aysgarth",
+   "fsType": "Civil Registration District"
+  },
+  "MER:Bala": {
+   "fsId": "10581256",
+   "fsName": "Bala",
+   "fsType": "Poor Law Union"
+  },
+  "LAN:Barrow in Furness": {
+   "fsId": "1647818",
+   "fsName": "Barrow in Furness",
+   "fsType": "Town"
+  },
+  "LAN:Barton": {
+   "fsId": "3041291",
+   "fsName": "Barton",
+   "fsType": "Civil Registration District"
+  },
+  "GLS:Barton Regis": {
+   "fsId": "12265831",
+   "fsName": "Barton Regis",
+   "fsType": "Civil Registration District"
+  },
+  "ESS:Basildon": {
+   "fsId": "2976632",
+   "fsName": "Basildon",
+   "fsType": "Town"
+  },
+  "SOM:Bathavon": {
+   "fsId": "12265495",
+   "fsName": "Bathavon",
+   "fsType": "Civil Registration District"
+  },
+  "GLS:Bedminster": {
+   "fsId": "12265498",
+   "fsName": "Bedminster",
+   "fsType": "Civil Registration District"
+  },
+  "DUR:Belford": {
+   "fsId": "2967820",
+   "fsName": "Belford",
+   "fsType": "Parish"
+  },
+  "HRT:Berkhamsted": {
+   "fsId": "1649931",
+   "fsName": "Berkhamsted",
+   "fsType": "Town"
+  },
+  "ERY:Beverley": {
+   "fsId": "12265502",
+   "fsName": "Beverley",
+   "fsType": "Civil Registration District"
+  },
+  "STS:Bilston": {
+   "fsId": "2976914",
+   "fsName": "Bilston",
+   "fsType": "Town"
+  },
+  "CHS:Birkenhead": {
+   "fsId": "13585462",
+   "fsName": "Birkenhead",
+   "fsType": "Civil Registration District"
+  },
+  "WAR:Birmingham North": {
+   "fsId": "12265503",
+   "fsName": "Birmingham North",
+   "fsType": "Civil Registration District"
+  },
+  "WAR:Birmingham South": {
+   "fsId": "12265504",
+   "fsName": "Birmingham South",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Blackpool": {
+   "fsId": "2242514",
+   "fsName": "Blackpool",
+   "fsType": "Town"
+  },
+  "SFK:Blyth": {
+   "fsId": "11025058",
+   "fsName": "Blyth",
+   "fsType": "Civil Registration District"
+  },
+  "CUL:Border": {
+   "fsId": "12265507",
+   "fsName": "Border",
+   "fsType": "Civil Registration District"
+  },
+  "SFK:Bosmere": {
+   "fsId": "3041540",
+   "fsName": "Bosmere",
+   "fsType": "Civil Registration District"
+  },
+  "DOR:Bournemouth": {
+   "fsId": "7345066",
+   "fsName": "Bournemouth",
+   "fsType": "Town"
+  },
+  "BRK:Bracknell": {
+   "fsId": "2242512",
+   "fsName": "Bracknell",
+   "fsType": "Town"
+  },
+  "MDX:Brent": {
+   "fsId": "2245079",
+   "fsName": "Brent",
+   "fsType": "Village"
+  },
+  "ESS:Brentwood": {
+   "fsId": "634250",
+   "fsName": "Brentwood",
+   "fsType": "Civil Registration District"
+  },
+  "GLA:Bridgend": {
+   "fsId": "10580343",
+   "fsName": "Bridgend",
+   "fsType": "Town"
+  },
+  "ERY:Bridlington": {
+   "fsId": "12265513",
+   "fsName": "Bridlington",
+   "fsType": "Civil Registration District"
+  },
+  "HRT:Broxbourne": {
+   "fsId": "2974084",
+   "fsName": "Broxbourne",
+   "fsType": "Town"
+  },
+  "CHS:Bucklow": {
+   "fsId": "3397948",
+   "fsName": "Bucklow",
+   "fsType": "Civil Registration District"
+  },
+  "OXF:Bullingdon": {
+   "fsId": "12265834",
+   "fsName": "Bullingdon",
+   "fsType": "Civil Registration District"
+  },
+  "NRY:Bulmer": {
+   "fsId": "12265520",
+   "fsName": "Bulmer",
+   "fsType": "Civil Registration District"
+  },
+  "HRT:Buntingford": {
+   "fsId": "3040059",
+   "fsName": "Buntingford",
+   "fsType": "Poor Law Union"
+  },
+  "STS:Cannock Chase": {
+   "fsId": "12265835",
+   "fsName": "Cannock Chase",
+   "fsType": "Civil Registration District"
+  },
+  "GLA:Cardiff": {
+   "fsId": "3040120",
+   "fsName": "Cardiff",
+   "fsType": "Poor Law Union"
+  },
+  "CGN:Cardigan": {
+   "fsId": "10579271",
+   "fsName": "Cardigan",
+   "fsType": "Poor Law Union"
+  },
+  "CMN:Carmarthen": {
+   "fsId": "10579588",
+   "fsName": "Carmarthen",
+   "fsType": "Poor Law Union"
+  },
+  "SSX:Chailey": {
+   "fsId": "3040747",
+   "fsName": "Chailey",
+   "fsType": "Poor Law Union"
+  },
+  "SSX:Chanctonbury": {
+   "fsId": "12139522",
+   "fsName": "Chanctonbury",
+   "fsType": "Civil Registration District"
+  },
+  "KEN:Chatham": {
+   "fsId": "2974269",
+   "fsName": "Chatham",
+   "fsType": "Town"
+  },
+  "GLS:Chepstow": {
+   "fsId": "3041206",
+   "fsName": "Chepstow",
+   "fsType": "Civil Registration District"
+  },
+  "CHS:Cheshire East": {
+   "fsId": "12265839",
+   "fsName": "Cheshire East",
+   "fsType": "Civil Registration District"
+  },
+  "CHS:Chester": {
+   "fsId": "3040237",
+   "fsName": "Chester",
+   "fsType": "Poor Law Union"
+  },
+  "LIN:Cleethorpes": {
+   "fsId": "1612474",
+   "fsName": "Cleethorpes",
+   "fsType": "Town"
+  },
+  "NRY:Cleveland": {
+   "fsId": "12265536",
+   "fsName": "Cleveland",
+   "fsType": "Civil Registration District"
+  },
+  "LEI:Coalville": {
+   "fsId": "2975881",
+   "fsName": "Coalville",
+   "fsType": "Town"
+  },
+  "DEN:Corwen": {
+   "fsId": "10580001",
+   "fsName": "Corwen",
+   "fsType": "Town"
+  },
+  "SSX:Crawley": {
+   "fsId": "1609507",
+   "fsName": "Crawley",
+   "fsType": "Parish"
+  },
+  "CHS:Crewe": {
+   "fsId": "10576203",
+   "fsName": "Crewe",
+   "fsType": "Town"
+  },
+  "WIL:Cricklade": {
+   "fsId": "3041550",
+   "fsName": "Cricklade",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Crosby": {
+   "fsId": "2382748",
+   "fsName": "Crosby",
+   "fsType": "Town"
+  },
+  "HRT:Dacorum": {
+   "fsId": "12265843",
+   "fsName": "Dacorum",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Darwen": {
+   "fsId": "1610968",
+   "fsName": "Darwen",
+   "fsType": "Town"
+  },
+  "SFK:Deben": {
+   "fsId": "11027646",
+   "fsName": "Deben",
+   "fsType": "Civil Registration District"
+  },
+  "DEN:Delyn": {
+   "fsId": "10580010",
+   "fsName": "Delyn",
+   "fsType": "Division"
+  },
+  "DEV:Devon Central": {
+   "fsId": "12265544",
+   "fsName": "Devon Central",
+   "fsType": "Civil Registration District"
+  },
+  "DEV:Devonport": {
+   "fsId": "12265844",
+   "fsName": "Devonport",
+   "fsType": "Civil Registration District"
+  },
+  "MER:Dolgelly": {
+   "fsId": "10581297",
+   "fsName": "Dolgelly",
+   "fsType": "Town"
+  },
+  "CAM:Downham": {
+   "fsId": "1610536",
+   "fsName": "Downham",
+   "fsType": "Village"
+  },
+  "ERY:Driffield": {
+   "fsId": "2969433",
+   "fsName": "Driffield",
+   "fsType": "Town"
+  },
+  "STS:Dudley": {
+   "fsId": "3041529",
+   "fsName": "Dudley",
+   "fsType": "Civil Registration District"
+  },
+  "BDF:Dunstable": {
+   "fsId": "2968845",
+   "fsName": "Dunstable",
+   "fsType": "Town"
+  },
+  "DUR:Durham Central": {
+   "fsId": "12266216",
+   "fsName": "Durham Central",
+   "fsType": "Civil Registration District"
+  },
+  "DUR:Durham Eastern": {
+   "fsId": "12265550",
+   "fsName": "Durham Eastern",
+   "fsType": "Civil Registration District"
+  },
+  "DUR:Durham North Eastern": {
+   "fsId": "12265551",
+   "fsName": "Durham North Eastern",
+   "fsType": "Civil Registration District"
+  },
+  "DUR:Durham North Western": {
+   "fsId": "12265552",
+   "fsName": "Durham North Western",
+   "fsType": "Civil Registration District"
+  },
+  "DUR:Durham Northern": {
+   "fsId": "12265553",
+   "fsName": "Durham Northern",
+   "fsType": "Civil Registration District"
+  },
+  "DUR:Durham South Eastern": {
+   "fsId": "12265554",
+   "fsName": "Durham South Eastern",
+   "fsType": "Civil Registration District"
+  },
+  "DUR:Durham South Western": {
+   "fsId": "12265555",
+   "fsName": "Durham South Western",
+   "fsType": "Civil Registration District"
+  },
+  "DUR:Durham Western": {
+   "fsId": "12265556",
+   "fsName": "Durham Western",
+   "fsType": "Civil Registration District"
+  },
+  "MDX:Ealing": {
+   "fsId": "12265848",
+   "fsName": "Ealing",
+   "fsType": "Civil Registration District"
+  },
+  "NFK:East Dereham": {
+   "fsId": "12263346",
+   "fsName": "East Dereham",
+   "fsType": "Civil Registration District"
+  },
+  "DOR:East Dorset": {
+   "fsId": "12265560",
+   "fsName": "East Dorset",
+   "fsType": "Civil Registration District"
+  },
+  "LIN:East Elloe": {
+   "fsId": "12265561",
+   "fsName": "East Elloe",
+   "fsType": "Civil Registration District"
+  },
+  "ESS:East Ham": {
+   "fsId": "12265849",
+   "fsName": "East Ham",
+   "fsType": "Civil Registration District"
+  },
+  "STS:East Staffordshire": {
+   "fsId": "12265851",
+   "fsName": "East Staffordshire",
+   "fsType": "Civil Registration District"
+  },
+  "HAM:Eastleigh": {
+   "fsId": "1615406",
+   "fsName": "Eastleigh",
+   "fsType": "Town"
+  },
+  "KEN:Eastry": {
+   "fsId": "3041314",
+   "fsName": "Eastry",
+   "fsType": "Civil Registration District"
+  },
+  "MDX:Enfield": {
+   "fsId": "2242347",
+   "fsName": "Enfield",
+   "fsType": "Town"
+  },
+  "ESS:Epping Forest": {
+   "fsId": "3397694",
+   "fsName": "Epping Forest",
+   "fsType": "Civil Registration District"
+  },
+  "DBY:Erewash": {
+   "fsId": "12265570",
+   "fsName": "Erewash",
+   "fsType": "Civil Registration District"
+  },
+  "SOM:Exmoor": {
+   "fsId": "12265852",
+   "fsName": "Exmoor",
+   "fsType": "Civil Registration District"
+  },
+  "NFK:Fakenham": {
+   "fsId": "12265853",
+   "fsName": "Fakenham",
+   "fsType": "Civil Registration District"
+  },
+  "CAM:Fenland": {
+   "fsId": "12265854",
+   "fsName": "Fenland",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Fleetwood": {
+   "fsId": "1616486",
+   "fsName": "Fleetwood",
+   "fsType": "Town"
+  },
+  "NFK:Flegg": {
+   "fsId": "3041421",
+   "fsName": "Flegg",
+   "fsType": "Civil Registration District"
+  },
+  "GLS:Forest of Dean": {
+   "fsId": "12265856",
+   "fsName": "Forest of Dean",
+   "fsType": "Civil Registration District"
+  },
+  "SFK:Gipping": {
+   "fsId": "2973521",
+   "fsName": "Gipping",
+   "fsType": "Village"
+  },
+  "DBY:Glossop": {
+   "fsId": "3040182",
+   "fsName": "Glossop",
+   "fsType": "Poor Law Union"
+  },
+  "GLS:Gloucester Rural": {
+   "fsId": "12265578",
+   "fsName": "Gloucester Rural",
+   "fsType": "Civil Registration District"
+  },
+  "DEN:Glyndwr": {
+   "fsId": "10580052",
+   "fsName": "Glyndwr",
+   "fsType": "District"
+  },
+  "ERY:Goole": {
+   "fsId": "12263349",
+   "fsName": "Goole",
+   "fsType": "Civil Registration District"
+  },
+  "HAM:Gosport": {
+   "fsId": "2976103",
+   "fsName": "Gosport",
+   "fsType": "Town"
+  },
+  "GLA:Gower": {
+   "fsId": "10580517",
+   "fsName": "Gower",
+   "fsType": "Poor Law Union"
+  },
+  "KEN:Gravesend": {
+   "fsId": "3041311",
+   "fsName": "Gravesend",
+   "fsType": "Civil Registration District"
+  },
+  "NFK:Great Yarmouth": {
+   "fsId": "2966437",
+   "fsName": "Great Yarmouth",
+   "fsType": "Town"
+  },
+  "LIN:Grimsby": {
+   "fsId": "3040612",
+   "fsName": "Grimsby",
+   "fsType": "Poor Law Union"
+  },
+  "NRY:Guisborough": {
+   "fsId": "12265582",
+   "fsName": "Guisborough",
+   "fsType": "Civil Registration District"
+  },
+  "MDX:Haringey": {
+   "fsId": "2244957",
+   "fsName": "Haringey",
+   "fsType": "Populated Place"
+  },
+  "MDX:Harrow": {
+   "fsId": "2242451",
+   "fsName": "Harrow",
+   "fsType": "Town"
+  },
+  "ESS:Harwich": {
+   "fsId": "1614604",
+   "fsName": "Harwich",
+   "fsType": "Town"
+  },
+  "PEM:Haverfordwest": {
+   "fsId": "10578303",
+   "fsName": "Haverfordwest",
+   "fsType": "Town"
+  },
+  "FLN:Hawarden": {
+   "fsId": "10581130",
+   "fsName": "Hawarden",
+   "fsType": "Village"
+  },
+  "HEF:Hay": {
+   "fsId": "3041230",
+   "fsName": "Hay",
+   "fsType": "Civil Registration District"
+  },
+  "SSX:Haywards Heath": {
+   "fsId": "1614455",
+   "fsName": "Haywards Heath",
+   "fsType": "Populated Place"
+  },
+  "NRY:Helmsley": {
+   "fsId": "12265590",
+   "fsName": "Helmsley",
+   "fsType": "Civil Registration District"
+  },
+  "HRT:Hemel Hempstead": {
+   "fsId": "3041277",
+   "fsName": "Hemel Hempstead",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Heywood": {
+   "fsId": "1614227",
+   "fsName": "Heywood",
+   "fsType": "Town"
+  },
+  "DBY:High Peak": {
+   "fsId": "542973",
+   "fsName": "High Peak",
+   "fsType": "Civil Registration District"
+  },
+  "MDX:Hillingdon": {
+   "fsId": "2971585",
+   "fsName": "Hillingdon",
+   "fsType": "Neighborhood or suburb"
+  },
+  "AGY:Holyhead": {
+   "fsId": "3040214",
+   "fsName": "Holyhead",
+   "fsType": "Poor Law Union"
+  },
+  "FLN:Holywell": {
+   "fsId": "10581133",
+   "fsName": "Holywell",
+   "fsType": "Poor Law Union"
+  },
+  "LAN:Horwich": {
+   "fsId": "1619275",
+   "fsName": "Horwich",
+   "fsType": "Town"
+  },
+  "MDX:Hounslow": {
+   "fsId": "2242400",
+   "fsName": "Hounslow",
+   "fsType": "Town"
+  },
+  "SSX:Hove": {
+   "fsId": "2979084",
+   "fsName": "Hove",
+   "fsType": "Town"
+  },
+  "ERY:Howden": {
+   "fsId": "1619200",
+   "fsName": "Howden",
+   "fsType": "Parish"
+  },
+  "ERY:Hull": {
+   "fsId": "12265599",
+   "fsName": "Hull",
+   "fsType": "Civil Registration District"
+  },
+  "HUN:Huntingdonshire North": {
+   "fsId": "12265601",
+   "fsName": "Huntingdonshire North",
+   "fsType": "Civil Registration District"
+  },
+  "HAM:Hursley": {
+   "fsId": "3040023",
+   "fsName": "Hursley",
+   "fsType": "Poor Law Union"
+  },
+  "CHS:Hyde": {
+   "fsId": "2975962",
+   "fsName": "Hyde",
+   "fsType": "Town"
+  },
+  "ESS:Ilford": {
+   "fsId": "2242399",
+   "fsName": "Ilford",
+   "fsType": "Town"
+  },
+  "DBY:Ilkeston": {
+   "fsId": "2968464",
+   "fsName": "Ilkeston",
+   "fsType": "Town"
+  },
+  "LAN:Ince": {
+   "fsId": "12265857",
+   "fsName": "Ince",
+   "fsType": "Civil Registration District"
+  },
+  "HAM:Isle of Wight": {
+   "fsId": "3041252",
+   "fsName": "Isle of Wight",
+   "fsType": "Civil Registration District"
+  },
+  "CON:Isles of Scilly": {
+   "fsId": "3040155",
+   "fsName": "Isles of Scilly",
+   "fsType": "Poor Law Union"
+  },
+  "DUR:Jarrow": {
+   "fsId": "2970581",
+   "fsName": "Jarrow",
+   "fsType": "Town"
+  },
+  "RUT:Ketton": {
+   "fsId": "2971684",
+   "fsName": "Ketton",
+   "fsType": "Village"
+  },
+  "GLS:Keynsham": {
+   "fsId": "12265607",
+   "fsName": "Keynsham",
+   "fsType": "Civil Registration District"
+  },
+  "NFK:Kings Lynn": {
+   "fsId": "3041413",
+   "fsName": "Kings Lynn",
+   "fsType": "Civil Registration District"
+  },
+  "SRY:Kingston upon Thames": {
+   "fsId": "2242413",
+   "fsName": "Kingston upon Thames",
+   "fsType": "Town"
+  },
+  "STS:Kingswinford": {
+   "fsId": "12265859",
+   "fsName": "Kingswinford",
+   "fsType": "Civil Registration District"
+  },
+  "HEF:Kington": {
+   "fsId": "2966073",
+   "fsName": "Kington",
+   "fsType": "Town"
+  },
+  "HEF:Knighton": {
+   "fsId": "12265612",
+   "fsName": "Knighton",
+   "fsType": "Civil Registration District"
+  },
+  "CGN:Lampeter": {
+   "fsId": "10579353",
+   "fsName": "Lampeter",
+   "fsType": "Poor Law Union"
+  },
+  "DUR:Lanchester": {
+   "fsId": "3040079",
+   "fsName": "Lanchester",
+   "fsType": "Poor Law Union"
+  },
+  "LEI:Leicestershire Central": {
+   "fsId": "12265618",
+   "fsName": "Leicestershire Central",
+   "fsType": "Civil Registration District"
+  },
+  "ESS:Lexden": {
+   "fsId": "3041215",
+   "fsName": "Lexden",
+   "fsType": "Civil Registration District"
+  },
+  "NRY:Leyburn": {
+   "fsId": "12265623",
+   "fsName": "Leyburn",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Littleborough": {
+   "fsId": "2967676",
+   "fsName": "Littleborough",
+   "fsType": "Town"
+  },
+  "LAN:Liverpool North": {
+   "fsId": "12265625",
+   "fsName": "Liverpool North",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Liverpool South": {
+   "fsId": "12265626",
+   "fsName": "Liverpool South",
+   "fsType": "Civil Registration District"
+  },
+  "CMN:Llandilofawr": {
+   "fsId": "10579733",
+   "fsName": "Llandilofawr",
+   "fsType": "Town"
+  },
+  "CMN:Llanelly": {
+   "fsId": "10579753",
+   "fsName": "Llanelly",
+   "fsType": "Poor Law Union"
+  },
+  "NFK:Loddon": {
+   "fsId": "3041392",
+   "fsName": "Loddon",
+   "fsType": "Civil Registration District"
+  },
+  "SOM:Long Ashton": {
+   "fsId": "2978462",
+   "fsName": "Long Ashton",
+   "fsType": "Village"
+  },
+  "SFK:Lothingland": {
+   "fsId": "12265628",
+   "fsName": "Lothingland",
+   "fsType": "Civil Registration District"
+  },
+  "BRK:Maidenhead": {
+   "fsId": "13636266",
+   "fsName": "Maidenhead",
+   "fsType": "Civil Registration District"
+  },
+  "WOR:Malvern": {
+   "fsId": "12265863",
+   "fsName": "Malvern",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Manchester": {
+   "fsId": "3041297",
+   "fsName": "Manchester",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Manchester North": {
+   "fsId": "12265633",
+   "fsName": "Manchester North",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Manchester South": {
+   "fsId": "12265634",
+   "fsName": "Manchester South",
+   "fsType": "Civil Registration District"
+  },
+  "SAL:Market Drayton": {
+   "fsId": "3041446",
+   "fsName": "Market Drayton",
+   "fsType": "Civil Registration District"
+  },
+  "DBY:Matlock": {
+   "fsId": "2242728",
+   "fsName": "Matlock",
+   "fsType": "Town"
+  },
+  "SOM:Mendip": {
+   "fsId": "10960796",
+   "fsName": "Mendip",
+   "fsType": "Civil Registration District"
+  },
+  "GLA:Merthyr Tydfil": {
+   "fsId": "10580703",
+   "fsName": "Merthyr Tydfil",
+   "fsType": "Poor Law Union"
+  },
+  "SRY:Merton": {
+   "fsId": "2979185",
+   "fsName": "Merton",
+   "fsType": "Parish"
+  },
+  "DEV:Mid Devon": {
+   "fsId": "12265638",
+   "fsName": "Mid Devon",
+   "fsType": "Civil Registration District"
+  },
+  "SRY:Mid Surrey": {
+   "fsId": "12265639",
+   "fsName": "Mid Surrey",
+   "fsType": "Civil Registration District"
+  },
+  "WAR:Mid Warwickshire": {
+   "fsId": "12265640",
+   "fsName": "Mid Warwickshire",
+   "fsType": "Civil Registration District"
+  },
+  "NRY:Middlesbrough": {
+   "fsId": "12265641",
+   "fsName": "Middlesbrough",
+   "fsType": "Civil Registration District"
+  },
+  "MDX:Middlesex South": {
+   "fsId": "12265642",
+   "fsName": "Middlesex South",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Middleton": {
+   "fsId": "1623889",
+   "fsName": "Middleton",
+   "fsType": "Village"
+  },
+  "CUL:Millom": {
+   "fsId": "1623530",
+   "fsName": "Millom",
+   "fsType": "Town"
+  },
+  "BKM:Milton Keynes": {
+   "fsId": "2968894",
+   "fsName": "Milton Keynes",
+   "fsType": "City"
+  },
+  "NFK:Mitford": {
+   "fsId": "3041412",
+   "fsName": "Mitford",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Nelson": {
+   "fsId": "1624195",
+   "fsName": "Nelson",
+   "fsType": "Town"
+  },
+  "LIN:Newark": {
+   "fsId": "3041329",
+   "fsName": "Newark",
+   "fsType": "Civil Registration District"
+  },
+  "CGN:Newcastle in Emlyn": {
+   "fsId": "10579462",
+   "fsName": "Newcastle in Emlyn",
+   "fsType": "Poor Law Union"
+  },
+  "ESS:Newham": {
+   "fsId": "13836484",
+   "fsName": "Newham",
+   "fsType": "Borough"
+  },
+  "SSX:Newhaven": {
+   "fsId": "3040752",
+   "fsName": "Newhaven",
+   "fsType": "Poor Law Union"
+  },
+  "SRY:Newington": {
+   "fsId": "3041510",
+   "fsName": "Newington",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Newton": {
+   "fsId": "12265867",
+   "fsName": "Newton",
+   "fsType": "Civil Registration District"
+  },
+  "BKM:North Bucks": {
+   "fsId": "12265646",
+   "fsName": "North Bucks",
+   "fsType": "Civil Registration District"
+  },
+  "GLS:North Cotswold": {
+   "fsId": "12265648",
+   "fsName": "North Cotswold",
+   "fsType": "Civil Registration District"
+  },
+  "DEV:North Devon": {
+   "fsId": "12265649",
+   "fsName": "North Devon",
+   "fsType": "Civil Registration District"
+  },
+  "DOR:North Dorset": {
+   "fsId": "12265650",
+   "fsName": "North Dorset",
+   "fsType": "Civil Registration District"
+  },
+  "CHS:North East Cheshire": {
+   "fsId": "12265651",
+   "fsName": "North East Cheshire",
+   "fsType": "Civil Registration District"
+  },
+  "LIN:North East Lincolnshire": {
+   "fsId": "12265868",
+   "fsName": "North East Lincolnshire",
+   "fsType": "Civil Registration District"
+  },
+  "LIN:North Kesteven": {
+   "fsId": "12265869",
+   "fsName": "North Kesteven",
+   "fsType": "Civil Registration District"
+  },
+  "LIN:North Lincolnshire": {
+   "fsId": "12265870",
+   "fsName": "North Lincolnshire",
+   "fsType": "Civil Registration District"
+  },
+  "SAL:North Shropshire": {
+   "fsId": "12265871",
+   "fsName": "North Shropshire",
+   "fsType": "Civil Registration District"
+  },
+  "SOM:North Somerset": {
+   "fsId": "12265872",
+   "fsName": "North Somerset",
+   "fsType": "Civil Registration District"
+  },
+  "SRY:North Surrey": {
+   "fsId": "12265653",
+   "fsName": "North Surrey",
+   "fsType": "Civil Registration District"
+  },
+  "NFK:North Walsham": {
+   "fsId": "10599684",
+   "fsName": "North Walsham",
+   "fsType": "Civil Registration District"
+  },
+  "WAR:North Warwickshire": {
+   "fsId": "12265656",
+   "fsName": "North Warwickshire",
+   "fsType": "Civil Registration District"
+  },
+  "NRY:Northallerton": {
+   "fsId": "12265659",
+   "fsName": "Northallerton",
+   "fsType": "Civil Registration District"
+  },
+  "NBL:Northumberland Central": {
+   "fsId": "12265662",
+   "fsName": "Northumberland Central",
+   "fsType": "Civil Registration District"
+  },
+  "NBL:Northumberland North First": {
+   "fsId": "12265663",
+   "fsName": "Northumberland North First",
+   "fsType": "Civil Registration District"
+  },
+  "NBL:Northumberland North Second": {
+   "fsId": "12265664",
+   "fsName": "Northumberland North Second",
+   "fsType": "Civil Registration District"
+  },
+  "NBL:Northumberland South": {
+   "fsId": "12265665",
+   "fsName": "Northumberland South",
+   "fsType": "Civil Registration District"
+  },
+  "NBL:Northumberland West": {
+   "fsId": "12265666",
+   "fsName": "Northumberland West",
+   "fsType": "Civil Registration District"
+  },
+  "SOM:Norton Radstock": {
+   "fsId": "12265667",
+   "fsName": "Norton Radstock",
+   "fsType": "Civil Registration District"
+  },
+  "NFK:Norwich Outer": {
+   "fsId": "11888288",
+   "fsName": "Norwich Outer",
+   "fsType": "Civil Registration District"
+  },
+  "GLA:Ogwr": {
+   "fsId": "12388838",
+   "fsName": "Ogwr",
+   "fsType": "Borough"
+  },
+  "WOR:Oldbury": {
+   "fsId": "2242738",
+   "fsName": "Oldbury",
+   "fsType": "Town"
+  },
+  "ERY:Patrington": {
+   "fsId": "1621888",
+   "fsName": "Patrington",
+   "fsType": "Parish"
+  },
+  "PEM:Pembroke": {
+   "fsId": "10578482",
+   "fsName": "Pembroke",
+   "fsType": "Poor Law Union"
+  },
+  "CAM:Peterborough": {
+   "fsId": "12265673",
+   "fsName": "Peterborough",
+   "fsType": "Civil Registration District"
+  },
+  "NRY:Pickering": {
+   "fsId": "12265675",
+   "fsName": "Pickering",
+   "fsType": "Civil Registration District"
+  },
+  "OXF:Ploughley": {
+   "fsId": "12265876",
+   "fsName": "Ploughley",
+   "fsType": "Civil Registration District"
+  },
+  "ERY:Pocklington": {
+   "fsId": "12265677",
+   "fsName": "Pocklington",
+   "fsType": "Civil Registration District"
+  },
+  "MON:Pontypool": {
+   "fsId": "10581749",
+   "fsName": "Pontypool",
+   "fsType": "Poor Law Union"
+  },
+  "GLA:Pontypridd": {
+   "fsId": "10580838",
+   "fsName": "Pontypridd",
+   "fsType": "Civil Registration District"
+  },
+  "HAM:Portsmouth": {
+   "fsId": "449386",
+   "fsName": "Portsmouth",
+   "fsType": "City"
+  },
+  "HEF:Presteigne": {
+   "fsId": "3041232",
+   "fsName": "Presteigne",
+   "fsType": "Civil Registration District"
+  },
+  "WOR:Redditch": {
+   "fsId": "2965908",
+   "fsName": "Redditch",
+   "fsType": "Town"
+  },
+  "NRY:Reeth": {
+   "fsId": "12265685",
+   "fsName": "Reeth",
+   "fsType": "Civil Registration District"
+  },
+  "DBY:Repton": {
+   "fsId": "2968350",
+   "fsName": "Repton",
+   "fsType": "Village"
+  },
+  "DEN:Rhuddlan": {
+   "fsId": "10580219",
+   "fsName": "Rhuddlan",
+   "fsType": "Town"
+  },
+  "LAN:Ribble Valley": {
+   "fsId": "12265686",
+   "fsName": "Ribble Valley",
+   "fsType": "Civil Registration District"
+  },
+  "NRY:Ripon": {
+   "fsId": "12265690",
+   "fsName": "Ripon",
+   "fsType": "Civil Registration District"
+  },
+  "STS:Rowley Regis": {
+   "fsId": "2975487",
+   "fsName": "Rowley Regis",
+   "fsType": "Town"
+  },
+  "NTT:Rushcliffe": {
+   "fsId": "12265881",
+   "fsName": "Rushcliffe",
+   "fsType": "Civil Registration District"
+  },
+  "DEN:Ruthin": {
+   "fsId": "10580220",
+   "fsName": "Ruthin",
+   "fsType": "Town"
+  },
+  "LEI:Rutland": {
+   "fsId": "12265693",
+   "fsName": "Rutland",
+   "fsType": "Civil Registration District"
+  },
+  "NRY:Ryedale": {
+   "fsId": "12265930",
+   "fsName": "Ryedale",
+   "fsType": "Civil Registration District"
+  },
+  "ESS:Saffron Walden": {
+   "fsId": "3040122",
+   "fsName": "Saffron Walden",
+   "fsType": "Poor Law Union"
+  },
+  "CON:Scilly Islands": {
+   "fsId": "3041116",
+   "fsName": "Scilly Islands",
+   "fsType": "Civil Registration District"
+  },
+  "LIN:Scunthorpe": {
+   "fsId": "2242591",
+   "fsName": "Scunthorpe",
+   "fsType": "Town"
+  },
+  "DUR:Sedgefield": {
+   "fsId": "3040080",
+   "fsName": "Sedgefield",
+   "fsType": "Poor Law Union"
+  },
+  "SOM:Sedgemoor": {
+   "fsId": "3396740",
+   "fsName": "Sedgemoor",
+   "fsType": "Populated Place"
+  },
+  "SAL:Shifnal": {
+   "fsId": "2978516",
+   "fsName": "Shifnal",
+   "fsType": "Town"
+  },
+  "KEN:Sidcup": {
+   "fsId": "1626009",
+   "fsName": "Sidcup",
+   "fsType": "Village"
+  },
+  "KEN:Sittingbourne": {
+   "fsId": "1626073",
+   "fsName": "Sittingbourne",
+   "fsType": "Town"
+  },
+  "BRK:Slough": {
+   "fsId": "449371",
+   "fsName": "Slough",
+   "fsType": "Town"
+  },
+  "NFK:Smallburgh": {
+   "fsId": "2973605",
+   "fsName": "Smallburgh",
+   "fsType": "Village"
+  },
+  "STS:Smethwick": {
+   "fsId": "2975428",
+   "fsName": "Smethwick",
+   "fsType": "Town"
+  },
+  "GLS:Sodbury": {
+   "fsId": "12265885",
+   "fsName": "Sodbury",
+   "fsType": "Civil Registration District"
+  },
+  "CHS:South Cheshire": {
+   "fsId": "12265709",
+   "fsName": "South Cheshire",
+   "fsType": "Civil Registration District"
+  },
+  "DBY:South Derbyshire": {
+   "fsId": "12265710",
+   "fsName": "South Derbyshire",
+   "fsType": "Civil Registration District"
+  },
+  "DOR:South Dorset": {
+   "fsId": "12265711",
+   "fsName": "South Dorset",
+   "fsType": "Civil Registration District"
+  },
+  "HAM:South East Hampshire": {
+   "fsId": "12265712",
+   "fsName": "South East Hampshire",
+   "fsType": "Civil Registration District"
+  },
+  "SRY:South East Surrey": {
+   "fsId": "12265713",
+   "fsName": "South East Surrey",
+   "fsType": "Civil Registration District"
+  },
+  "GLS:South Gloucestershire": {
+   "fsId": "12265886",
+   "fsName": "South Gloucestershire",
+   "fsType": "Civil Registration District"
+  },
+  "DEV:South Hams": {
+   "fsId": "12265887",
+   "fsName": "South Hams",
+   "fsType": "Civil Registration District"
+  },
+  "STS:South Staffordshire": {
+   "fsId": "12265716",
+   "fsName": "South Staffordshire",
+   "fsType": "Civil Registration District"
+  },
+  "WAR:South Warwickshire": {
+   "fsId": "12265718",
+   "fsName": "South Warwickshire",
+   "fsType": "Civil Registration District"
+  },
+  "ESS:Southend on Sea": {
+   "fsId": "449360",
+   "fsName": "Southend-on-Sea",
+   "fsType": "Town"
+  },
+  "LAN:Southport": {
+   "fsId": "2242576",
+   "fsName": "Southport",
+   "fsType": "Town"
+  },
+  "DEN:St Asaph": {
+   "fsId": "10580240",
+   "fsName": "St Asaph",
+   "fsType": "Poor Law Union"
+  },
+  "CON:St Columb": {
+   "fsId": "3041117",
+   "fsName": "St Columb",
+   "fsType": "Civil Registration District"
+  },
+  "NFK:St Faiths": {
+   "fsId": "3041409",
+   "fsName": "St Faiths",
+   "fsType": "Civil Registration District"
+  },
+  "MDX:St George in the East": {
+   "fsId": "3041379",
+   "fsName": "St George in the East",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:St Helens": {
+   "fsId": "2966812",
+   "fsName": "St Helens",
+   "fsType": "Town"
+  },
+  "SRY:St Saviour Southwark": {
+   "fsId": "3041495",
+   "fsName": "St Saviour Southwark",
+   "fsType": "Civil Registration District"
+  },
+  "STS:Staffordshire Moorlands": {
+   "fsId": "12265889",
+   "fsName": "Staffordshire Moorlands",
+   "fsType": "Civil Registration District"
+  },
+  "HRT:Stevenage": {
+   "fsId": "2974111",
+   "fsName": "Stevenage",
+   "fsType": "Town"
+  },
+  "STS:Stoke and Wolstanton": {
+   "fsId": "12265729",
+   "fsName": "Stoke and Wolstanton",
+   "fsType": "Civil Registration District"
+  },
+  "STS:Stoke on Trent": {
+   "fsId": "3040299",
+   "fsName": "Stoke on Trent",
+   "fsType": "Poor Law Union"
+  },
+  "STS:Stoke upon Trent": {
+   "fsId": "3041518",
+   "fsName": "Stoke upon Trent",
+   "fsType": "Civil Registration District"
+  },
+  "NRY:Stokesley": {
+   "fsId": "12265730",
+   "fsName": "Stokesley",
+   "fsType": "Civil Registration District"
+  },
+  "KEN:Strood": {
+   "fsId": "13674901",
+   "fsName": "Strood",
+   "fsType": "Civil Registration District"
+  },
+  "SRY:Surrey Mid Eastern": {
+   "fsId": "12265737",
+   "fsName": "Surrey Mid Eastern",
+   "fsType": "Civil Registration District"
+  },
+  "SRY:Surrey North Eastern": {
+   "fsId": "12265738",
+   "fsName": "Surrey North Eastern",
+   "fsType": "Civil Registration District"
+  },
+  "SRY:Surrey North Western": {
+   "fsId": "12265739",
+   "fsName": "Surrey North Western",
+   "fsType": "Civil Registration District"
+  },
+  "SRY:Surrey Northern": {
+   "fsId": "12265740",
+   "fsName": "Surrey Northern",
+   "fsType": "Civil Registration District"
+  },
+  "SRY:Surrey South Eastern": {
+   "fsId": "12265741",
+   "fsName": "Surrey South Eastern",
+   "fsType": "Civil Registration District"
+  },
+  "SRY:Surrey South Western": {
+   "fsId": "12265742",
+   "fsName": "Surrey South Western",
+   "fsType": "Civil Registration District"
+  },
+  "SRY:Sutton": {
+   "fsId": "11870247",
+   "fsName": "Sutton",
+   "fsType": "Town"
+  },
+  "WAR:Sutton Coldfield": {
+   "fsId": "2970431",
+   "fsName": "Sutton Coldfield",
+   "fsType": "Town"
+  },
+  "DBY:Swadlincote": {
+   "fsId": "2975619",
+   "fsName": "Swadlincote",
+   "fsType": "Town"
+  },
+  "KEN:Swale": {
+   "fsId": "11743041",
+   "fsName": "Swale",
+   "fsType": "Civil Registration District"
+  },
+  "GLA:Swansea": {
+   "fsId": "10580934",
+   "fsName": "Swansea",
+   "fsType": "Poor Law Union"
+  },
+  "WIL:Swindon": {
+   "fsId": "2969002",
+   "fsName": "Swindon",
+   "fsType": "Town"
+  },
+  "SOM:Taunton Deane": {
+   "fsId": "12266223",
+   "fsName": "Taunton Deane",
+   "fsType": "Civil Registration District"
+  },
+  "NRY:Teesside": {
+   "fsId": "12265743",
+   "fsName": "Teesside",
+   "fsType": "Civil Registration District"
+  },
+  "NRY:Teesside North": {
+   "fsId": "12265744",
+   "fsName": "Teesside North",
+   "fsType": "Civil Registration District"
+  },
+  "NRY:Teesside South": {
+   "fsId": "12265745",
+   "fsName": "Teesside South",
+   "fsType": "Civil Registration District"
+  },
+  "DEV:Teignbridge": {
+   "fsId": "12265893",
+   "fsName": "Teignbridge",
+   "fsType": "Civil Registration District"
+  },
+  "KEN:Thanet with Dover": {
+   "fsId": "12265747",
+   "fsName": "Thanet with Dover",
+   "fsType": "Civil Registration District"
+  },
+  "NRY:Thirsk": {
+   "fsId": "12265749",
+   "fsName": "Thirsk",
+   "fsType": "Civil Registration District"
+  },
+  "LIN:Thorne": {
+   "fsId": "3041325",
+   "fsName": "Thorne",
+   "fsType": "Civil Registration District"
+  },
+  "ESS:Thurrock": {
+   "fsId": "12265895",
+   "fsName": "Thurrock",
+   "fsType": "Civil Registration District"
+  },
+  "DEV:Torridge": {
+   "fsId": "12265896",
+   "fsName": "Torridge",
+   "fsType": "Civil Registration District"
+  },
+  "WIL:Trowbridge": {
+   "fsId": "12265913",
+   "fsName": "Trowbridge",
+   "fsType": "Civil Registration District"
+  },
+  "NFK:Tunstead": {
+   "fsId": "3041391",
+   "fsName": "Tunstead",
+   "fsType": "Civil Registration District"
+  },
+  "WOR:Upton upon Severn": {
+   "fsId": "3040677",
+   "fsName": "Upton upon Severn",
+   "fsType": "Poor Law Union"
+  },
+  "ESS:Uttlesford": {
+   "fsId": "12265899",
+   "fsName": "Uttlesford",
+   "fsType": "Civil Registration District"
+  },
+  "CHS:Vale Royal": {
+   "fsId": "12265900",
+   "fsName": "Vale Royal",
+   "fsType": "Civil Registration District"
+  },
+  "SFK:Wainford": {
+   "fsId": "11748432",
+   "fsName": "Wainford",
+   "fsType": "Civil Registration District"
+  },
+  "CHS:Wallasey": {
+   "fsId": "2964496",
+   "fsName": "Wallasey",
+   "fsType": "Town"
+  },
+  "ESS:Waltham Forest": {
+   "fsId": "3397627",
+   "fsName": "Waltham Forest",
+   "fsType": "Populated Place"
+  },
+  "DOR:Wareham": {
+   "fsId": "3041179",
+   "fsName": "Wareham",
+   "fsType": "Civil Registration District"
+  },
+  "WOR:Warley": {
+   "fsId": "3360489",
+   "fsName": "Warley",
+   "fsType": "Village"
+  },
+  "WOR:Warley East": {
+   "fsId": "12265762",
+   "fsName": "Warley East",
+   "fsType": "Civil Registration District"
+  },
+  "WOR:Warley West": {
+   "fsId": "12265763",
+   "fsName": "Warley West",
+   "fsType": "Civil Registration District"
+  },
+  "CHS:Warrington": {
+   "fsId": "12265764",
+   "fsName": "Warrington",
+   "fsType": "Civil Registration District"
+  },
+  "SFK:Waveney": {
+   "fsId": "11697466",
+   "fsName": "Waveney",
+   "fsType": "Civil Registration District"
+  },
+  "STS:Wednesbury": {
+   "fsId": "1629257",
+   "fsName": "Wednesbury",
+   "fsType": "Town"
+  },
+  "MGY:Welshpool": {
+   "fsId": "10582184",
+   "fsName": "Welshpool",
+   "fsType": "Town"
+  },
+  "SAL:Wenlock": {
+   "fsId": "12265902",
+   "fsName": "Wenlock",
+   "fsType": "Civil Registration District"
+  },
+  "NRY:Wensleydale": {
+   "fsId": "12265770",
+   "fsName": "Wensleydale",
+   "fsType": "Civil Registration District"
+  },
+  "CHS:West Cheshire": {
+   "fsId": "12265904",
+   "fsName": "West Cheshire",
+   "fsType": "Civil Registration District"
+  },
+  "DEV:West Devon": {
+   "fsId": "12265772",
+   "fsName": "West Devon",
+   "fsType": "Civil Registration District"
+  },
+  "DOR:West Dorset": {
+   "fsId": "12265773",
+   "fsName": "West Dorset",
+   "fsType": "Civil Registration District"
+  },
+  "SSX:West Firle": {
+   "fsId": "3040731",
+   "fsName": "West Firle",
+   "fsType": "Poor Law Union"
+  },
+  "DUR:West Hartlepool": {
+   "fsId": "1629127",
+   "fsName": "West Hartlepool",
+   "fsType": "Town"
+  },
+  "LAN:West Lancashire": {
+   "fsId": "12265905",
+   "fsName": "West Lancashire",
+   "fsType": "Civil Registration District"
+  },
+  "OXF:West Oxfordshire": {
+   "fsId": "12265777",
+   "fsName": "West Oxfordshire",
+   "fsType": "Civil Registration District"
+  },
+  "SOM:West Somerset": {
+   "fsId": "12265778",
+   "fsName": "West Somerset",
+   "fsType": "Civil Registration District"
+  },
+  "SRY:West Surrey": {
+   "fsId": "12265779",
+   "fsName": "West Surrey",
+   "fsType": "Civil Registration District"
+  },
+  "WIL:Westbury": {
+   "fsId": "3041559",
+   "fsName": "Westbury",
+   "fsType": "Civil Registration District"
+  },
+  "WES:Westmorland North": {
+   "fsId": "12265783",
+   "fsName": "Westmorland North",
+   "fsType": "Civil Registration District"
+  },
+  "WES:Westmorland South": {
+   "fsId": "12265784",
+   "fsName": "Westmorland South",
+   "fsType": "Civil Registration District"
+  },
+  "SOM:Weston super Mare": {
+   "fsId": "2978407",
+   "fsName": "Weston-super-Mare",
+   "fsType": "Town"
+  },
+  "NRY:Whitby": {
+   "fsId": "12265787",
+   "fsName": "Whitby",
+   "fsType": "Civil Registration District"
+  },
+  "LAN:Widnes": {
+   "fsId": "2242633",
+   "fsName": "Widnes",
+   "fsType": "Town"
+  },
+  "MDX:Willesden": {
+   "fsId": "12265906",
+   "fsName": "Willesden",
+   "fsType": "Civil Registration District"
+  },
+  "WIL:Wilton": {
+   "fsId": "3040702",
+   "fsName": "Wilton",
+   "fsType": "Poor Law Union"
+  },
+  "DOR:Wimborne": {
+   "fsId": "3041184",
+   "fsName": "Wimborne",
+   "fsType": "Civil Registration District"
+  },
+  "DOR:Wincanton": {
+   "fsId": "12265795",
+   "fsName": "Wincanton",
+   "fsType": "Civil Registration District"
+  },
+  "GLS:Winchcomb": {
+   "fsId": "3041207",
+   "fsName": "Winchcomb",
+   "fsType": "Civil Registration District"
+  },
+  "HAM:Winchester": {
+   "fsId": "3041255",
+   "fsName": "Winchester",
+   "fsType": "Civil Registration District"
+  },
+  "STS:Wolstanton": {
+   "fsId": "3041549",
+   "fsName": "Wolstanton",
+   "fsType": "Civil Registration District"
+  },
+  "MDX:Wood Green": {
+   "fsId": "12265907",
+   "fsName": "Wood Green",
+   "fsType": "Civil Registration District"
+  },
+  "KEN:Woolwich": {
+   "fsId": "2242665",
+   "fsName": "Woolwich",
+   "fsType": "Town"
+  },
+  "LAN:Worsley": {
+   "fsId": "1628100",
+   "fsName": "Worsley",
+   "fsType": "Town"
+  },
+  "SSX:Worthing": {
+   "fsId": "3041506",
+   "fsName": "Worthing",
+   "fsType": "Civil Registration District"
+  },
+  "SAL:Wrekin": {
+   "fsId": "12265805",
+   "fsName": "Wrekin",
+   "fsType": "Civil Registration District"
+  }
+ }
+}
