@@ -20,9 +20,17 @@ struct AddRelationshipView: View {
     /// and changeable in the sheet — an invisible selection-derived anchor
     /// nearly welded two unrelated families (owner report 2026-07-15).
     @State private var anchorID: String
+    /// Optional mirror of `anchorID` bound to the picker. `ProfilePickerField`
+    /// reveals its search field only when the selection is `nil`, so the anchor
+    /// needs an optional to be re-selectable. `anchorID` stays the non-optional
+    /// source of truth used everywhere below; a real pick syncs back into it.
+    /// (Previously the anchor bound a hand-rolled `Binding<String?>` whose setter
+    /// dropped `nil`, so "Change" could never open the search field.)
+    @State private var anchorSelection: String?
 
     init(anchorID: String, initialKind: Kind = .parent, newPerson: NewPerson? = nil) {
         self._anchorID = State(initialValue: anchorID)
+        self._anchorSelection = State(initialValue: anchorID)
         self._kind = State(initialValue: initialKind)
         self._newPerson = State(initialValue: newPerson)
     }
@@ -105,11 +113,14 @@ struct AddRelationshipView: View {
             ProfilePickerField(
                 label: "Anchor",
                 snapshot: appState.snapshot,
-                selectedID: Binding(
-                    get: { anchorID },
-                    set: { if let id = $0 { anchorID = id } }
-                )
+                selectedID: $anchorSelection
             )
+            .onChange(of: anchorSelection) { _, newValue in
+                // Only a real pick updates the anchor. Clearing (Change → nil)
+                // leaves `anchorID` intact and flips the field to its search
+                // box; Add stays disabled until a person is chosen (see footer).
+                if let id = newValue { anchorID = id }
+            }
         }
     }
 
@@ -286,7 +297,7 @@ struct AddRelationshipView: View {
             Button("Add") { save() }
                 .buttonStyle(.glassProminent)
                 .keyboardShortcut(.defaultAction)
-                .disabled((targetID == nil && newPerson == nil) || (requiresThirdParentConfirmation && !thirdParentSubtypeConfirmed) || siblingBlockedBothHaveParents)
+                .disabled(anchorSelection == nil || (targetID == nil && newPerson == nil) || (requiresThirdParentConfirmation && !thirdParentSubtypeConfirmed) || siblingBlockedBothHaveParents)
         }
         .padding(16)
     }
