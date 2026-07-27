@@ -2787,6 +2787,31 @@ final class AppState {
         }
     }
 
+    /// One-click fix for `MissingCoParentRule` — link the sibling-corroborated
+    /// co-parent to the child (the parent the child's siblings have but they lack).
+    /// Role from the co-parent's gender; refuses if the edge already exists.
+    func addCoParent(childID: String, coParentID: String) {
+        guard let db = currentDatabase,
+              snapshot.profiles[childID] != nil,
+              let coParent = snapshot.profiles[coParentID],
+              !snapshot.parentsOf(childID).contains(where: { $0.id == coParentID }) else { return }
+        let role: ParentRole = coParent.gender == .male ? .father
+            : (coParent.gender == .female ? .mother : .unspecified)
+        do {
+            _ = try db.addRelationship(
+                Relationship(id: UUID(), from: coParentID, to: childID, type: .parent, role: role,
+                             subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil),
+                existenceEvidence: .origin(SourceOrigin(identifier: "audit.coParent"),
+                                           note: "Co-parent matching the child's siblings"))
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+            successMessage = "Linked \(coParent.displayName) as a parent."
+            successResearchProfileID = childID
+        } catch {
+            errorMessage = "Could not add the co-parent: \(error.localizedDescription)"
+        }
+    }
+
     /// One-click fix for `GivenNameContainsMiddleRule` — split a folded given
     /// name ("Annie E") into given + middle ("Annie" + "E"), using the same
     /// `Profile.impliedGivenMiddleSplit` the rule detects with so the button and

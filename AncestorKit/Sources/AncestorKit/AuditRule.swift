@@ -75,6 +75,7 @@ public nonisolated enum AuditRules {
         DuplicateDetectionRule(),
         ExcessParentEdgesRule(),
         CensusRelationshipRule(),
+        MissingCoParentRule(),
         EmptyProfileRule(),
         CompletenessScoreRule(),
         ParentDiedBeforeChildRule(),
@@ -91,6 +92,80 @@ public nonisolated enum AuditRules {
         IncompleteNameRule(),
         SuspectLocationRule(),
     ]
+}
+
+// MARK: - Missing Co-Parent (sibling-corroborated)
+
+/// A child recorded with exactly ONE parent, whose sibling has a SECOND parent
+/// they lack — and that second parent is the known parent's spouse. The classic
+/// case: children added from one parent's census kept only that parent (the
+/// Wheeldon daughters had Ruth but not John, while their siblings had both).
+///
+/// Sibling-corroboration is what makes this safe: it fires only when the known
+/// parent's spouse ALREADY parents one of the child's siblings, so it won't
+/// misfire on genuine single parents or step-relationships. It stays a
+/// suggestion (the human links), so remarriage cases can be declined; and it
+/// only fires on a single unambiguous candidate (two spouses each parenting a
+/// different sibling → a possible remarriage → stay silent).
+public nonisolated struct MissingCoParentRule: AuditRuleDefinition {
+    public let id = "missingCoParent"
+    // `.issue`, not `.gap`: a lopsided family (siblings not sharing parents) is a
+    // structural inconsistency, and `.issue` keeps this actionable finding out of
+    // the 800-strong Gaps bucket where it would be buried.
+    public let category: AuditCategory = .issue
+    public let displayName = "Missing Co-Parent"
+    public let description = "A child has only one parent recorded, but a sibling also has a second parent (the known parent's spouse) — so the child is very likely missing that co-parent too."
+    public let fireCondition = "Profile has exactly one parent E; E has a spouse S who already parents one of the profile's siblings but not the profile; S is the only such candidate."
+    public let warningCondition: String? = nil
+    public let workedExample = "Hannah Wheeldon has only Ruth as a parent, but her siblings Kezia and Samuel also have John Wheeldon — John is very likely Hannah's father too."
+    public let defaultSeverity = Severity.warning
+    public init() {}
+
+    public struct Suggestion {
+        public let coParent: Profile
+        public let knownParent: Profile
+        public let corroboratingSibling: Profile
+    }
+
+    /// The single, sibling-corroborated co-parent to suggest — nil when the rule
+    /// doesn't apply or the candidate is ambiguous. Shared by the rule and the
+    /// one-click fix so the finding and the action can never disagree.
+    public static func suggestion(for profile: Profile, in snapshot: FamilyGraphSnapshot) -> Suggestion? {
+        let parents = snapshot.parentsOf(profile.id)
+        guard parents.count == 1, let known = parents.first else { return nil }
+        let parentIDs = Set(parents.map(\.id))
+        let siblings = snapshot.childrenOf(known.id).filter { $0.id != profile.id }
+        guard !siblings.isEmpty else { return nil }
+
+        var candidate: Suggestion?
+        var count = 0
+        for spouse in snapshot.spousesOf(known.id) where !parentIDs.contains(spouse.id) {
+            // Only a spouse who ALREADY parents one of the profile's siblings.
+            if let sib = siblings.first(where: { sib in
+                snapshot.parentsOf(sib.id).contains { $0.id == spouse.id }
+            }) {
+                count += 1
+                candidate = Suggestion(coParent: spouse, knownParent: known, corroboratingSibling: sib)
+            }
+        }
+        return count == 1 ? candidate : nil
+    }
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        guard let s = Self.suggestion(for: profile, in: snapshot) else { return [] }
+        return [AuditResult(
+            profileID: profile.id, profileName: profile.displayName,
+            severity: .warning, category: .issue, ruleID: id,
+            message: Self.message(subject: profile, suggestion: s),
+            relatedProfileIDs: [s.coParent.id])]
+    }
+
+    static func message(subject: Profile, suggestion s: Suggestion) -> String {
+        let role = s.coParent.gender == .male ? "father"
+            : (s.coParent.gender == .female ? "mother" : "other parent")
+        let who = subject.firstName ?? subject.displayName
+        return "\(who) has only \(s.knownParent.displayName) as a parent, but their sibling \(s.corroboratingSibling.displayName) also has \(s.coParent.displayName) — likely \(who)'s \(role)."
+    }
 }
 
 // MARK: - Junk In Name (import hygiene)

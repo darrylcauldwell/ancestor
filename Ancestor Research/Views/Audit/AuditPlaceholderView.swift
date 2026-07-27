@@ -753,6 +753,17 @@ struct HealthView: View {
                 .buttonStyle(.glassProminent).controlSize(.mini)
                 .help("Move the extra word out of the given name and into the middle name")
             }
+        case "missingCoParent":
+            if let coID = r.relatedProfileIDs?.first, let co = appState.snapshot.profiles[coID] {
+                Button {
+                    appState.addCoParent(childID: r.profileID, coParentID: coID)
+                    refreshAudit()
+                } label: {
+                    Label("Add \(co.displayName)", systemImage: "person.badge.plus")
+                }
+                .buttonStyle(.glassProminent).controlSize(.mini)
+                .help("Link \(co.displayName) as the other parent — matching this child's siblings")
+            }
         case "excessParentEdges" where r.relatedProfileIDs?.isEmpty == false:
             Button {
                 appState.repairExcessPlaceholderParents(for: r.profileID)
