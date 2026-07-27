@@ -29,6 +29,11 @@ struct CensusRelationshipReconcilerTests {
                      subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
     }
 
+    private func spouseEdge(_ a: String, _ b: String) -> Relationship {
+        Relationship(id: UUID(), from: a, to: b, type: .spouse, role: nil,
+                     subtype: .unknown, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
+    }
+
     private func member(_ name: String, _ relationship: String, age: Int?, isTarget: Bool = false) -> HouseholdMember {
         HouseholdMember(name: name, relationship: relationship, age: age, isTarget: isTarget)
     }
@@ -141,5 +146,51 @@ struct CensusRelationshipReconcilerTests {
         #expect(r.ruleID == "censusRelationship")
         #expect(r.relatedProfileIDs == ["mary"])
         #expect(r.message.contains("sibling") && r.message.contains("child"))
+    }
+
+    /// A household attached to a subject but whose `isTarget` row is SOMEONE
+    /// ELSE (a shared household / stale target) must produce NO findings — else
+    /// the relations are computed in the wrong reference frame. Here the census
+    /// sits on John (the Head, b.1861) but flags his son Ernest as the target;
+    /// without the anchor guard this yielded phantom contradictions (Elizabeth
+    /// read as John's parent, the sons as his siblings). Live repro 2026-07-27.
+    @Test func misAnchoredHouseholdProducesNoFindings() {
+        let john = person("john", "John", "Cauldwell", birthYear: 1861)       // the Head
+        let eliza = person("eliza", "Elizabeth", "Cauldwell", birthYear: 1861)
+        let ernest = person("ernest", "Ernest", "Cauldwell", birthYear: 1887)
+        let household = [
+            member("John Cauldwell", "Head", age: 30),                        // John's own row — NOT flagged
+            member("Elizabeth Cauldwell", "Wife", age: 30),
+            member("Ernest Cauldwell", "Son", age: 4, isTarget: true)]        // wrong anchor: a son
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["john": john, "eliza": eliza, "ernest": ernest],
+            relationships: [spouseEdge("john", "eliza"), parentEdge("john", "ernest")], // correct Head family
+            lifeEvents: ["john": [censusEvent("john", year: 1891, household: household)]])
+
+        // isTarget row ("Ernest", age 4 → 1887) does not match John (1861) → skip.
+        #expect(CensusRelationshipReconciler.findings(for: john, in: snapshot).isEmpty)
+    }
+
+    /// A census sibling and a tree child that merely SHARE A NAME (different
+    /// people, decades apart) must NOT be matched — so no phantom contradiction.
+    /// Ernest's census sibling George (b.1889) vs Ernest's son George (b.1915).
+    /// Live repro 2026-07-27 (name-only matching paired the two Georges).
+    @Test func namesakeWithDivergentYearIsNotAContradiction() {
+        let ernest = person("ernest", "Ernest", "Cauldwell", birthYear: 1886)
+        let georgeSon = person("georgeSon", "George", "Cauldwell", birthYear: 1915)  // Ernest's real son
+        let household = [
+            member("John Cauldwell", "Head", age: 30),
+            member("Ernest Cauldwell", "Son", age: 5, isTarget: true),        // b.1886
+            member("George Cauldwell", "Son", age: 2)]                        // census sibling, b.1889
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["ernest": ernest, "georgeSon": georgeSon],
+            relationships: [parentEdge("ernest", "georgeSon")],               // Ernest is George(1915)'s father
+            lifeEvents: ["ernest": [censusEvent("ernest", year: 1891, household: household)]])
+
+        let findings = CensusRelationshipReconciler.findings(for: ernest, in: snapshot)
+        // The b.1889 census-sibling George must NOT match the b.1915 son George.
+        #expect(findings.allSatisfy { $0.kind != .contradiction })
+        // It should instead be reported as a missing sibling.
+        #expect(findings.contains { $0.kind == .missing && $0.member.name == "George Cauldwell" && $0.censusRelation == .sibling })
     }
 }

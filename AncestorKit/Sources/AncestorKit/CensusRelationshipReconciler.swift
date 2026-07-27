@@ -70,6 +70,15 @@ public nonisolated struct CensusRelationshipReconciler {
         for event in censusEvents {
             guard case .census(let details) = event.details else { continue }
             let year = event.date?.bestYear
+            // Only reconcile when the roster's target row is actually THIS
+            // subject. A household can be attached to several profiles (or carry
+            // a stale `isTarget`); if the flagged row is someone else,
+            // `familyLinks` anchors on them and every relation lands in the
+            // wrong reference frame — phantom contradictions (e.g. a Head's own
+            // census read as if he were one of his sons). Verified by name+age.
+            guard let target = details.household.first(where: { $0.isTarget == true }),
+                  Self.matches(member: target, profile: subject, censusYear: year)
+            else { continue }
             for link in CensusFamilyLinker.familyLinks(household: details.household) {
                 let member = link.member
                 let key = "\(member.name.lowercased())|\(link.relation)"
@@ -97,9 +106,14 @@ public nonisolated struct CensusRelationshipReconciler {
 
     /// Conservative name + birth-year match between a census roster member and a
     /// tree profile. Requires the surname (birth or married) and the first
-    /// given-name token to match, case-insensitively; when both birth years are
-    /// known they must be within `yearTolerance`. A known-year mismatch rejects;
-    /// an unknown year on either side falls back to the name match.
+    /// given-name token to match case-insensitively, AND birth-year
+    /// corroboration: both a roster year (stated, or census year − age) and a
+    /// profile year must be known and within `yearTolerance`. Year corroboration
+    /// is mandatory, not a fallback — a name-only match too readily pairs
+    /// namesakes (a census-sibling "George" b.1889 with a tree-child "George"
+    /// b.1915), which would surface as a phantom contradiction. When a year is
+    /// unknown on either side the pair is left unmatched (treated as "missing"
+    /// rather than a wrongly-confident contradiction).
     static func matches(member: HouseholdMember, profile: Profile, censusYear: Int?) -> Bool {
         let memberTokens = member.name.lowercased()
             .split(whereSeparator: { $0 == " " || $0 == "," })
@@ -118,10 +132,8 @@ public nonisolated struct CensusRelationshipReconciler {
 
         guard memberGiven == profileGiven, profileSurnames.contains(memberSurname) else { return false }
 
-        let memberYear = member.birthYear ?? censusYear.flatMap { y in member.age.map { y - $0 } }
-        if let my = memberYear, let py = profile.birthDate?.bestYear {
-            return abs(my - py) <= yearTolerance
-        }
-        return true   // names matched; a birth year is unknown — accept
+        guard let memberYear = member.birthYear ?? censusYear.flatMap({ y in member.age.map { y - $0 } }),
+              let profileYear = profile.birthDate?.bestYear else { return false }
+        return abs(memberYear - profileYear) <= yearTolerance
     }
 }
