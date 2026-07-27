@@ -84,17 +84,15 @@ struct HealthView: View {
 
                 Spacer()
 
-                // Each segment MUST be a single view: a `.segmented` picker
-                // flattens an HStack into separate cells and scrambles the tag
-                // bindings (so "(63)" ended up filtering Gaps). Fold the count
-                // into one Text per segment → exactly three buttons, correct tags.
-                Picker("Category", selection: $auditVM.filterCategory) {
-                    Text("All").tag(nil as AuditCategory?)
-                    Text("Issues (\(auditVM.issueCount))").tag(AuditCategory.issue as AuditCategory?)
-                    Text("Gaps (\(auditVM.gapCount))").tag(AuditCategory.gap as AuditCategory?)
+                // Category as two toggle pills matching the severity counts: one
+                // button per category carrying its own name + count, tap to filter,
+                // tap again to clear (the cleared state IS "all", so no separate
+                // All button). Same interaction as the severity pills beside it.
+                HStack(spacing: 8) {
+                    categoryFilterPill(.issue, label: "Issues", count: auditVM.issueCount)
+                    categoryFilterPill(.gap, label: "Gaps", count: auditVM.gapCount)
                 }
-                .pickerStyle(.segmented)
-                .fixedSize()
+                .accessibilityLabel("Filter by category")
 
                 if let summary = auditVM.summary {
                     HStack(spacing: 8) {
@@ -841,6 +839,36 @@ struct HealthView: View {
         .accessibilityLabel("\(count) open disputes")
         .accessibilityAddTraits(showDisputeList ? [.isSelected] : [])
         .help(showDisputeList ? "Hide the open-disputes list" : "Show the \(count) open disputes")
+    }
+
+    /// A category (Issues / Gaps) as a single toggle pill carrying its name +
+    /// count — tap to filter, tap again to clear. Mirrors `severityFilterPill`
+    /// so both filter axes behave identically; the cleared state is "all", so
+    /// there is no separate All button. The other category dims while a filter
+    /// is active.
+    private func categoryFilterPill(_ category: AuditCategory, label: String, count: Int) -> some View {
+        let selected = auditVM.filterCategory == category
+        let filtering = auditVM.filterCategory != nil
+        return Button {
+            auditVM.filterCategory = selected ? nil : category
+        } label: {
+            Text("\(label) (\(count))")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .glassEffect(.regular, in: .capsule)
+                .overlay(
+                    Capsule().strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 2)
+                )
+                .opacity(!filtering || selected ? 1 : 0.5)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(count) \(label)")
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .help(selected
+              ? "Showing only \(label). Tap to show all findings."
+              : "Show only \(label)")
     }
 
     /// A severity count that IS the severity filter: tap to show only that
