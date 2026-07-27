@@ -1032,7 +1032,16 @@ struct TreeGraphView: View {
                     componentCount: componentCount,
                     canConnect: suggestion != nil,
                     onConnect: {
-                        if let (primary, _) = suggestion {
+                        // Anchor on the person the user is currently focused on
+                        // (connect FROM where they are in the tree) rather than a
+                        // fixed smallest-component pick — with 3+ real groups the
+                        // old suggestion always landed on the same arbitrary
+                        // person regardless of what the user was viewing. Fall
+                        // back to the suggestion only when nothing is selected;
+                        // the anchor stays changeable in-sheet either way.
+                        if let selected = treeVM.selectedProfileID {
+                            relationshipAnchorID = SheetID(id: selected)
+                        } else if let (primary, _) = suggestion {
                             relationshipAnchorID = SheetID(id: primary)
                         }
                     },
