@@ -70,13 +70,20 @@ bare Chapman (`DBY`), RD = `DBY:Belper-RD`, place = `DBY:Turnditch`, parish =
   ADR-003) replacing the divergent `ResearchSubject` / `ConflictDetector`
   copies (both now thin wrappers). Strictly more resolution than either old
   parser — a deliberate correctness gain, characterization-tested.
-- **Stage 2 — resolve-at-ingest (additive).** Build `PlaceResolver.resolve(freeText:) → PlaceAuthority.id?`
-  (normalize → split → gazetteer/district/parish → registry). Add a
-  `PlaceAnnotator` pre-scoring step in `ResearchPipeline` (mirroring
-  `CrossProfileAnnotator`) that stamps the resolved id; populate the already-
-  migrated `v36` `*_place_authority_id` columns. Set gazetteer `parentID`
-  (village → RD) resolved against `FreeBMDDistrictCatalogue` — never
-  hand-guessed. Nothing consumes the id for decisions yet.
+- **Stage 2 — the resolver primitive. SHIPPED.** `PlaceResolver.resolve(placeText:)`
+  (free-text → PlaceAuthority id via the gazetteer + a strict disambiguation
+  rule: single match, or an exact name/"name, county" hit, else decline) and
+  `resolveDistrict(name:chapman:year:)` (district name → `DBY:Belper-RD` via
+  `RegionConfig.districtAuthority`). Pure, ambiguity-declining; `PlaceResolverTests`.
+  **Scope corrections found during build** (deviating from the original bullet):
+  (a) the `v36` `*_place_authority_id` columns are the landing slot for an
+  EXTERNAL FS id → **Stage 4**, not the internal id (a coded place already
+  carries its internal id as `birthLocationCode`), so no column-population here;
+  (b) village→RD `parentID` backfill is **blocked** on a village→district data
+  source (the FS full tree / GENUKI import → Stage 4), so bare-village
+  birthplaces resolve at county granularity while records that carry a
+  `district` field (BMD/census) resolve at RD granularity via `resolveDistrict`.
+  No gate change — Stage 3 composes this resolver.
 - **Stage 3 — rebuild the geography gate (decision-core, test-first).**
   Characterization corpus first. Replace only the county-substring block with a
   hierarchy-containment + temporal-validity walk when both sides resolve; fall
