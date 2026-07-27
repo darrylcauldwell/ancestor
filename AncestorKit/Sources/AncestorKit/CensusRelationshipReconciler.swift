@@ -156,8 +156,18 @@ public nonisolated struct CensusRelationshipReconciler {
                     // surface it as an actionable lead rather than a dead row.
                     if subjectIsHead, let spouse = loneSpouse,
                        let kind = Self.parentInLawKind(member.relationship) {
-                        entries.append(.init(member: member, censusRelation: nil,
-                                             status: .inLawOfSpouse(spouseID: spouse.id, kind: kind)))
+                        // Already captured? If the spouse already has a
+                        // name-matching parent, the in-law is in the tree — show
+                        // that, don't re-offer the add (which would duplicate).
+                        if let existing = snapshot.parentsOf(spouse.id).first(where: {
+                            Self.namesMatch(member: member, profile: $0)
+                        }) {
+                            entries.append(.init(member: member, censusRelation: nil,
+                                                 status: .inTree(profileID: existing.id)))
+                        } else {
+                            entries.append(.init(member: member, censusRelation: nil,
+                                                 status: .inLawOfSpouse(spouseID: spouse.id, kind: kind)))
+                        }
                     } else {
                         entries.append(.init(member: member, censusRelation: nil, status: .outOfScope))
                     }

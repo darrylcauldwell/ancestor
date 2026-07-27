@@ -303,6 +303,28 @@ struct CensusRelationshipReconcilerTests {
         #expect(recon.entries.first { $0.member.name == "Martha Barker" }?.status == .outOfScope)
     }
 
+    /// Once the in-law is actually in the tree (the spouse now has a
+    /// name-matching parent), the row must read "in tree" and drop off the
+    /// leads — not keep offering an add that would duplicate her. (Martha Barker
+    /// added as Elizabeth's mother ⇒ no longer a gap.)
+    @Test func inLawAlreadyInTreeIsNotReoffered() {
+        let john = person("john", "John", "Cauldwell", birthYear: 1861)
+        let eliza = person("eliza", "Elizabeth", "Barker", birthYear: 1862)   // now née Barker
+        let martha = person("martha", "Martha", "Barker", birthYear: 1825)    // added as her mother
+        let household = [
+            member("John Cauldwell", "Head", age: 30, isTarget: true),
+            member("Elizabeth Cauldwell", "Wife", age: 29),
+            member("Martha Barker", "Ma-Law", age: 66)]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["john": john, "eliza": eliza, "martha": martha],
+            relationships: [spouseEdge("john", "eliza"), parentEdge("martha", "eliza")],
+            lifeEvents: ["john": [censusEvent("john", year: 1891, household: household)]])
+
+        let recon = try! #require(CensusRelationshipReconciler.reconciliations(for: john, in: snapshot).first)
+        #expect(recon.entries.first { $0.member.name == "Martha Barker" }?.status == .inTree(profileID: "martha"))
+        #expect(CensusRelationshipReconciler.inLawLeads(for: john, in: snapshot).isEmpty)
+    }
+
     /// `parentInLawKind` reads spelled-out and abbreviated forms, and excludes
     /// child/sibling in-laws.
     @Test func parentInLawKindParsesFormsAndExcludesOthers() {
