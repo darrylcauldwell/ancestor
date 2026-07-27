@@ -892,6 +892,36 @@ struct ClusterReviewView: View {
                         }
                     }
 
+                    // Census household — surface the full roster in the record
+                    // detail so who is on the schedule is visible in-app, not only
+                    // via the source link. Mirrors the applied-event census view.
+                    if case .census(let censusRec) = scored.record,
+                       let household = censusRec.household, !household.isEmpty {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Household (\(household.count))")
+                                .font(AppTypography.cardMeta)
+                                .foregroundStyle(.secondary)
+                            ForEach(household, id: \.name) { member in
+                                HStack(alignment: .top, spacing: 6) {
+                                    Text(member.name)
+                                        .font(AppTypography.badge)
+                                        .foregroundStyle(.primary)
+                                    if !member.relationship.isEmpty {
+                                        Text("(\(member.relationship))")
+                                            .font(AppTypography.badge)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if let age = member.age {
+                                        Text("age \(age)")
+                                            .font(AppTypography.badge)
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    Spacer()
+                                }
+                            }
+                        }
+                    }
+
                     // EVIDENCE_ABSORPTION_SPEC Change 5 — show every off-agenda
                     // fact this record will land on the profile BEFORE the user
                     // accepts it, so a lead's nuggets (birthplace, occupation,
