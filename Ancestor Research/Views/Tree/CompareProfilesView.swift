@@ -310,13 +310,20 @@ struct CompareProfilesView: View {
                 if canMerge {
                     // Which profile survives — the other folds into it and is
                     // removed (undoable). Default is the more-complete one.
-                    Picker("Keep", selection: $keepLeft) {
-                        Text(shortName(leftProfile, leftProfileID)).tag(true)
-                        Text(shortName(rightProfile, rightProfileID)).tag(false)
+                    // The caption is essential: the segmented control alone gives
+                    // no cue that the highlighted one is the record that's KEPT.
+                    VStack(alignment: .leading, spacing: 3) {
+                        Label("Keep this one — the other merges into it", systemImage: "checkmark.circle")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.secondary)
+                        Picker("Keep", selection: $keepLeft) {
+                            Text(shortName(leftProfile, leftProfileID)).tag(true)
+                            Text(shortName(rightProfile, rightProfileID)).tag(false)
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(maxWidth: 360)
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(maxWidth: 320)
                 }
                 Spacer()
                 if fromDuplicateReview {
@@ -376,7 +383,32 @@ struct CompareProfilesView: View {
 
     private func shortName(_ p: Profile?, _ fallback: String) -> String {
         guard let p, !p.displayName.isEmpty else { return fallback }
-        return p.displayName
+        let name = p.displayName
+        // When both sides share a display name (a duplicate merge), the Keep
+        // picker and the merge dialog would otherwise read "X → X" with no way
+        // to tell them apart. Append the first attribute that differs so the
+        // user knows which profile survives and which is removed.
+        guard let l = leftProfile, let r = rightProfile, l.id != r.id,
+              l.displayName.caseInsensitiveCompare(r.displayName) == .orderedSame,
+              let extra = distinguisher(p, vs: p.id == l.id ? r : l)
+        else { return name }
+        return "\(name) · \(extra)"
+    }
+
+    /// The first attribute that distinguishes `p` from `other`, for labelling
+    /// two same-named profiles in the merge UI.
+    private func distinguisher(_ p: Profile, vs other: Profile) -> String? {
+        if let y = p.birthDate?.bestYear, y != other.birthDate?.bestYear { return "b. \(y)" }
+        if let y = p.deathDate?.bestYear, y != other.deathDate?.bestYear { return "d. \(y)" }
+        let pc = childNames(p).count, oc = childNames(other).count
+        if pc != oc { return pc == 0 ? "no children" : "\(pc) child\(pc == 1 ? "" : "ren")" }
+        if Set(spouseNames(p)) != Set(spouseNames(other)) {
+            return spouseNames(p).first.map { "m. \($0)" } ?? "no spouse"
+        }
+        let psrc = p.sources.values.reduce(0) { $0 + $1.count }
+        let osrc = other.sources.values.reduce(0) { $0 + $1.count }
+        if psrc != osrc { return "\(psrc) source\(psrc == 1 ? "" : "s")" }
+        return "id …\(p.id.suffix(4))"
     }
 
     /// Default the survivor to whichever profile is more complete (a stub
@@ -401,6 +433,11 @@ struct CompareProfilesView: View {
                 snapshot: appState.snapshot, db: db
             )
             appState.snapshot = try db.buildSnapshot()
+            // Re-audit + re-sweep on the post-merge tree: the removed profile is
+            // gone, so its stale duplicate/conflict findings must clear (else
+            // Health shows a "duplicate" with nothing left to compare).
+            appState.runConflictSweep(force: true)
+            appState.runPostLoadAudit()
             dismiss()
         } catch {
             mergeError = "Merge failed: \(error.localizedDescription)"
