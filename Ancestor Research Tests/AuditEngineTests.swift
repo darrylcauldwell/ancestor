@@ -44,7 +44,8 @@ struct AuditEngineTests {
         let results = MuddledIdentityRule().evaluate(profile: abraham, snapshot: snapshot)
         #expect(results.count == 1)
         #expect(results.first?.severity == .warning)
-        #expect(results.first?.message.contains("spans 27 years") == true)
+        #expect(results.first?.message.contains("27 years") == true)
+        #expect(results.first?.message.contains("1882–1909") == true)
     }
 
     @Test func muddledIdentityFlagsImpossibleDeathSpan() {

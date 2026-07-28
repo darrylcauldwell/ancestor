@@ -550,7 +550,7 @@ public nonisolated struct MuddledIdentityRule: AuditRuleDefinition {
 
     public let id = "muddledIdentity"
     public let displayName = "Muddled Identity"
-    public let description = "A profile whose birth or death date spans more years than one person's could — usually two same-named relatives (a patronymic muddle) merged into one profile."
+    public let description = "A profile whose birth or death evidence spans more years than one person's could — usually a conflicting or namesake date has been applied (sometimes two same-named relatives were merged onto one node)."
     public let fireCondition = "birthDate or deathDate range wider than the span threshold (default 15 years)"
     public let warningCondition: String? = nil
     public let workedExample = "Abraham Twyford, birth 'BET 1882 AND 1909' — a 27-year span: the 1888-born father and a second Abraham collapsed onto one node."
@@ -581,7 +581,7 @@ public nonisolated struct MuddledIdentityRule: AuditRuleDefinition {
             results.append(AuditResult(
                 id: UUID(), profileID: profile.id, profileName: profile.displayName,
                 severity: .warning, category: .issue, ruleID: id,
-                message: "\(profile.displayName) — \(label.lowercased()) recorded as '\(date.original)' spans \(latest - earliest) years; likely two same-named people (a patronymic muddle) merged into one profile"
+                message: "\(profile.displayName) — \(label.lowercased()) date needs checking: attestations span \(earliest)–\(latest) (\(latest - earliest) years), recorded as '\(date.original)'. That's too wide for one person — a conflicting or namesake \(label.lowercased()) record is likely applied."
             ))
         }
         return results
