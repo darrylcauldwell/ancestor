@@ -337,8 +337,33 @@ struct ClusterReviewView: View {
             if let name = vm.subjectDisplayName {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(name)
-                            .font(AppTypography.cardTitle)
+                        // Clickable through to the profile so the reviewer can
+                        // jump to the person and see the changes they just
+                        // applied. Only a materialised subject has a profile to
+                        // open — a not-yet-promoted lead stays plain text.
+                        if let subject = vm.selectedProfile {
+                            Button {
+                                // Set the target first, then switch to the Tree
+                                // tab — TreeGraphView drains the request in its
+                                // onAppear. Without the tab switch the Tree view
+                                // never mounts to consume it (Triage-tab no-op).
+                                appState.requestOpenProfileDetail = subject.id
+                                appState.requestSidebarTab = .tree
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(name)
+                                        .font(AppTypography.cardTitle)
+                                    Image(systemName: "arrow.up.forward.square")
+                                        .font(AppTypography.badge)
+                                }
+                                .foregroundStyle(.blue)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Open \(name)'s profile to see the changes you've applied")
+                        } else {
+                            Text(name)
+                                .font(AppTypography.cardTitle)
+                        }
                         if vm.selectedLead != nil {
                             Text("lead")
                                 .font(AppTypography.badge)
@@ -555,11 +580,15 @@ struct ClusterReviewView: View {
                 recordRow(scored, soleRecord: liveRecords.count == 1)
             }
 
-            // Household members
+            // Household members — this roster is mined from the cluster's CENSUS
+            // record but renders at the bottom of the card, so without the census
+            // provenance in the heading it reads as belonging to the last record
+            // (a death, here). Label it so the source is unambiguous.
             if !cluster.householdMembers.isEmpty {
                 Divider()
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Household members")
+                    Text(householdCensusYear(cluster).map { "Household members · \($0) census" }
+                         ?? "Household members")
                         .font(AppTypography.cardMeta)
                         .foregroundStyle(.secondary)
                     ForEach(cluster.householdMembers, id: \.name) { member in
@@ -675,7 +704,7 @@ struct ClusterReviewView: View {
                             switch vm.recordDecisions[rec.id] {
                             case .accepted: return true
                             case .rejected: return false
-                            default:        return RecordScorer.wouldApply(rec)
+                            default:        return RecordScorer.wouldApply(rec, subject: vm.selectedProfile)
                             }
                         }.count
                         let total = liveRecords.count
@@ -747,6 +776,21 @@ struct ClusterReviewView: View {
     // set of EXPANDED ids (empty = all collapsed).
     @State private var expandedRecords: Set<String> = []
 
+    private func toggleExpanded(_ id: String) {
+        if expandedRecords.contains(id) { expandedRecords.remove(id) }
+        else { expandedRecords.insert(id) }
+    }
+
+    /// Census year the cluster's household roster came from — used to label the
+    /// household section with its provenance (it renders at the card bottom and
+    /// otherwise looks like it belongs to whatever record sits above it).
+    private func householdCensusYear(_ cluster: LifeCluster) -> Int? {
+        for scored in cluster.records {
+            if case .census(let census) = scored.record { return census.censusYear }
+        }
+        return nil
+    }
+
     private func recordRow(_ scored: ScoredRecord, soleRecord: Bool = false) -> some View {
         let citation = CitationRenderer.cite(scored.record)
         // A lone record in its own cluster stays expanded — it IS the focus
@@ -762,17 +806,11 @@ struct ClusterReviewView: View {
         let alreadyApplied = vm.userStatusForRecord(scored.record.id) == .savedAsLead
 
         return VStack(alignment: .leading, spacing: 4) {
-            // Disclosure is a Button, not `.onTapGesture`: on macOS a tap
-            // gesture on a view inside a ScrollView/LazyVStack is unreliably
-            // delivered, so clicking the row/chevron often did nothing. A
-            // Button's click handling is reliable (as the footer buttons are).
-            Button {
-                if expandedRecords.contains(scored.id) {
-                    expandedRecords.remove(scored.id)
-                } else {
-                    expandedRecords.insert(scored.id)
-                }
-            } label: {
+            // Disclosure: a DEDICATED chevron Button (guaranteed-reliable,
+            // isolated hit target) plus a whole-row `.onTapGesture`. A single
+            // Button wrapping the entire row previously ate the click on macOS
+            // 26 — a `.glassEffect` capsule in its label intercepts hit-testing
+            // under Liquid Glass — so clicking the row/chevron did nothing.
             HStack(spacing: 8) {
                 verdictIcon(scored.verdict)
 
@@ -812,8 +850,14 @@ struct ClusterReviewView: View {
                 // force-applied record reads as will-apply even if it didn't
                 // clear the gates.
                 let recordDecision = vm.recordDecisions[scored.id]
+                // A birth record that contradicts the subject's confirmed birth
+                // is a namesake — surface it as its own state rather than a bare
+                // "Skipped", so the reason is legible (not everyone will expand
+                // the gates). User force-accept still wins.
+                let birthConflict = recordDecision != .accepted
+                    && (vm.selectedProfile.map { RecordScorer.conflictsWithConfirmedBirth(scored, subject: $0) } ?? false)
                 let effectiveWillApply = recordDecision == .accepted
-                    || (recordDecision != .rejected && RecordScorer.wouldApply(scored))
+                    || (recordDecision != .rejected && RecordScorer.wouldApply(scored, subject: vm.selectedProfile))
                 // PROFILE_LIFECYCLE_SPEC Change 2 — applied vs selected, legible
                 // WITHOUT hovering, and green reserved for "done/on the profile".
                 // Previously both states were `.iconOnly` green checkmarks
@@ -824,6 +868,13 @@ struct ClusterReviewView: View {
                     statusPill("Applied", icon: "checkmark.seal.fill", tint: .green)
                         .help("This record is already on the profile (applied in a previous run). No new action needed.")
                         .accessibilityLabel("Applied — already on the profile")
+                } else if birthConflict {
+                    // Amber = deliberately withheld. A different-year/district
+                    // birth than the one confirmed on the profile — almost
+                    // certainly a same-named different person.
+                    statusPill("Different birth", icon: "exclamationmark.triangle.fill", tint: .orange)
+                        .help("This birth conflicts with the birth already confirmed on the profile (different year or registration district), so it won't be applied — a person has only one birth, and this is almost certainly a same-named different person. Force-apply it from the record menu if you're sure it's him.")
+                        .accessibilityLabel("Withheld — conflicts with the confirmed birth")
                 } else if effectiveWillApply {
                     // Blue (not green) = a pending SELECTION: included in the next
                     // Apply, but NOT written yet. The colour break is the fix —
@@ -843,13 +894,16 @@ struct ClusterReviewView: View {
                     .padding(.vertical, 2)
                     .glassEffect(.regular, in: .capsule)
 
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(AppTypography.badge)
-                    .foregroundStyle(.secondary)
+                Button { toggleExpanded(scored.id) } label: {
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+            .onTapGesture { toggleExpanded(scored.id) }
 
             // Collapsed to summary by default. Click row to expand full detail.
             if isExpanded {
@@ -975,16 +1029,11 @@ struct ClusterReviewView: View {
                             .font(AppTypography.badge)
                             .foregroundStyle(.primary)
                             .textSelection(.enabled)
-                        if let urlString = citation.url, let url = URL(string: urlString) {
-                            Link(destination: url) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "arrow.up.right.square")
-                                    Text("Open in source")
-                                }
-                                .font(AppTypography.badge)
-                                .foregroundStyle(.blue)
-                            }
-                        }
+                        // Deep-links when the record carries a URL (FreeCEN,
+                        // FamilySearch, Find a Grave, CWGC); otherwise a compliant
+                        // search hand-off (FreeBMD, FreeREG) — read the reference
+                        // above and type it.
+                        SourceVerifyLink(sourceID: scored.record.sourceID, citationURL: citation.url)
                     }
 
                     // Per-record overrides — let the user opt-in to applying

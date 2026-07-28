@@ -799,7 +799,11 @@ final class ResearchViewModel {
             // decides. Session-rejected and prior-session-discarded
             // records were already removed by the veto above.
             if recordDecisions[scored.id] != .accepted {
-                guard RecordScorer.wouldApply(scored) else { continue }
+                // `subject: profile` = the confirmed vitals as they stood BEFORE
+                // this batch, so a namesake birth is skipped no matter its order
+                // in the cluster (checking the live post-write state would let
+                // whichever birth applied first lock out the true one).
+                guard RecordScorer.wouldApply(scored, subject: profile) else { continue }
             }
 
             // Stale-profile guard: each apply can change name/date fields

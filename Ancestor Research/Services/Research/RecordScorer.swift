@@ -1,4 +1,5 @@
 import Foundation
+import AncestorKit
 
 // MARK: - Accept policy
 
@@ -28,6 +29,61 @@ extension RecordScorer {
     /// Would applying this record write its data to the profile?
     nonisolated static func wouldApply(_ scored: ScoredRecord) -> Bool {
         scored.verdict == .fact || recognisesKnownSpouse(scored)
+    }
+
+    /// Subject-aware variant used by the review UI and `applyCluster`. Same bar
+    /// as `wouldApply`, plus a REVIEW-LAYER guard: a record that contradicts a
+    /// vital the subject has ALREADY confirmed is a same-named different person
+    /// (a namesake) and must not be auto-applied — even though the scoring gates
+    /// classed it `.fact`. This does NOT touch the deterministic gates (the
+    /// record stays `.fact`); it only refuses to write it and lets the UI say
+    /// why. The user can still force-apply a single record if they disagree.
+    ///
+    /// Guards the observed failure: after a firm birth is confirmed (George
+    /// Wheeldon b.1894 Chesterfield), re-research kept offering namesake births
+    /// (1892 Bakewell, 1895 Basford) as "will apply" — a person has ONE birth,
+    /// so a conflicting-year or wrong-district birth is impossible for him.
+    nonisolated static func wouldApply(_ scored: ScoredRecord, subject: Profile?) -> Bool {
+        guard wouldApply(scored) else { return false }
+        if let subject, conflictsWithConfirmedBirth(scored, subject: subject) { return false }
+        return true
+    }
+
+    /// True when `scored` is a BIRTH record that can't be the subject's own
+    /// birth because the subject already has a confirmed birth it contradicts —
+    /// a different year (beyond the ±1 a registration quarter can straddle) or a
+    /// different registration district. No confirmed birth, or a non-birth
+    /// record, → not a conflict (nothing to contradict).
+    nonisolated static func conflictsWithConfirmedBirth(_ scored: ScoredRecord, subject: Profile) -> Bool {
+        guard case .birth(let birth) = scored.record else { return false }
+        guard let confirmedYear = subject.birthDate?.bestYear,
+              let recordYear = birth.birthYear else { return false }
+
+        // A birth registered late can cross the new year, so allow ±1.
+        if abs(recordYear - confirmedYear) > 1 { return true }
+
+        // Same-ish year but a different registration district is a different
+        // birth event (Chesterfield confirmed vs Basford on the record).
+        if let recDistrict = birth.district?.trimmingCharacters(in: .whitespaces), !recDistrict.isEmpty,
+           let subjectPlace = subject.birthLocation?.trimmingCharacters(in: .whitespaces), !subjectPlace.isEmpty,
+           !districtsCompatible(recDistrict, subjectPlace) {
+            return true
+        }
+        return false
+    }
+
+    /// Loose place match: a bare registration district ("Chesterfield") against
+    /// a fuller stored place ("Chesterfield, Derbyshire") — compatible when the
+    /// leading tokens match or either string contains the other's. Deliberately
+    /// permissive so only a clearly-different district (Basford vs Chesterfield)
+    /// trips the guard.
+    private nonisolated static func districtsCompatible(_ a: String, _ b: String) -> Bool {
+        let na = a.lowercased(), nb = b.lowercased()
+        func leadToken(_ s: String) -> String {
+            (s.split(separator: ",").first.map(String.init) ?? s).trimmingCharacters(in: .whitespaces)
+        }
+        let ta = leadToken(na), tb = leadToken(nb)
+        return ta == tb || na.contains(tb) || nb.contains(ta)
     }
 }
 

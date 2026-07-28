@@ -4,6 +4,11 @@ import SwiftUI
 /// Shows source status cards, iteration progress, and result counts.
 struct ResearchProgressView: View {
     @Bindable var vm: ResearchViewModel
+    /// Fired when the user taps a source card whose failure is fixable in
+    /// Settings (today: FamilySearch needs sign-in). ContentView routes this to
+    /// dismiss the sheet and switch to the Settings tab. Optional so callers
+    /// that can't navigate simply render the card as non-interactive.
+    var onOpenSettings: (() -> Void)? = nil
     @State private var clockTick: Int = 0  // forces 1-Hz re-render of dev clocks
 
     /// Per-phase latency budgets used by the dev-build dual-clock display.
@@ -183,8 +188,10 @@ struct ResearchProgressView: View {
     }
     #endif
 
+    @ViewBuilder
     private func sourceStatusCard(_ status: ResearchViewModel.SourceStatus) -> some View {
-        HStack(spacing: 8) {
+        let actionable = isSignInActionable(status)
+        let card = HStack(spacing: 8) {
             statusIcon(status.state)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -197,16 +204,23 @@ struct ResearchProgressView: View {
                     // explode the card height and break grid alignment.
                     Text(reason)
                         .font(AppTypography.badge)
-                        .foregroundStyle(.tertiary)
+                        // Tint the sign-in prompt like a link so it reads as
+                        // "tap me" rather than a dead error string.
+                        .foregroundStyle(actionable ? AnyShapeStyle(.blue) : AnyShapeStyle(.tertiary))
                         .lineLimit(1)
                         .truncationMode(.tail)
-                        .help(reason)
+                        .help(actionable ? "Open Settings to sign in to FamilySearch" : reason)
                 }
             }
 
             Spacer()
 
-            if status.resultCount > 0 {
+            if actionable {
+                Image(systemName: "chevron.right")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.blue)
+                    .accessibilityHidden(true)
+            } else if status.resultCount > 0 {
                 Text("\(status.resultCount)")
                     .font(AppTypography.cardMeta)
                     .fontWeight(.semibold)
@@ -214,6 +228,27 @@ struct ResearchProgressView: View {
         }
         .padding(10)
         .glassEffect(.regular, in: .rect(cornerRadius: 10))
+
+        if actionable, let onOpenSettings {
+            Button(action: onOpenSettings) { card }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Sign in to FamilySearch in Settings")
+        } else {
+            card
+        }
+    }
+
+    /// A source card is tappable when its failure is one the user can fix in
+    /// Settings. Today that's FamilySearch needing sign-in — every such message
+    /// (session expired, no records access, not configured) is authored to say
+    /// "…in Settings", so we key off that rather than thread a separate flag
+    /// through the whole activity bus. Degrades safely: a FS error without that
+    /// wording (e.g. a transient network blip) stays non-interactive.
+    private func isSignInActionable(_ status: ResearchViewModel.SourceStatus) -> Bool {
+        onOpenSettings != nil
+            && status.state == .error
+            && status.id == "familysearch"
+            && (status.reason?.localizedCaseInsensitiveContains("Settings") ?? false)
     }
 
     @ViewBuilder

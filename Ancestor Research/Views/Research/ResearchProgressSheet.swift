@@ -39,7 +39,7 @@ struct ResearchProgressSheet: View {
             .padding(20)
             Divider()
 
-            ResearchProgressView(vm: vm)
+            ResearchProgressView(vm: vm, onOpenSettings: onOpenSettings)
                 .frame(minWidth: 560, minHeight: 420)
 
             Divider()
