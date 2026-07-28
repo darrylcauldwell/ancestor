@@ -131,6 +131,12 @@ actor FamilySearchClient {
     private let tokenSource: any FamilySearchTokenSource
     private let session: URLSession
     private let maxThrottleRetries: Int
+    /// Undocumented HTTP 409: a request caught mid-token-refresh. There is no
+    /// refresh token, so a fresh sign-in rotates the bearer while a fan-out of
+    /// requests is in flight — the ones that raced the rotation come back 409 and
+    /// succeed once retried with the settled token. Bounded so a genuine
+    /// persistent 409 still surfaces. (Memory: reference_familysearch_409_token_race.)
+    private let maxConflictRetries: Int
     private let sleeper: @Sendable (TimeInterval) async -> Void
     private let redirectBlocker = FamilySearchRedirectBlocker()
     private let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "FamilySearchClient")
@@ -140,6 +146,7 @@ actor FamilySearchClient {
         tokenSource: any FamilySearchTokenSource,
         session: URLSession = .shared,
         maxThrottleRetries: Int = 5,
+        maxConflictRetries: Int = 3,
         sleeper: @escaping @Sendable (TimeInterval) async -> Void = { seconds in
             try? await Task.sleep(for: .seconds(seconds))
         }
@@ -148,6 +155,7 @@ actor FamilySearchClient {
         self.tokenSource = tokenSource
         self.session = session
         self.maxThrottleRetries = maxThrottleRetries
+        self.maxConflictRetries = maxConflictRetries
         self.sleeper = sleeper
     }
 
@@ -161,6 +169,7 @@ actor FamilySearchClient {
         }
         var didRefresh = false
         var throttleRetries = 0
+        var conflictRetries = 0
 
         while true {
             let response = try await send(request, bearer: bearer)
@@ -171,6 +180,14 @@ actor FamilySearchClient {
                     throw FamilySearchClientError.notAuthenticated
                 }
                 bearer = refreshed
+
+            case 409 where conflictRetries < maxConflictRetries:
+                // Token-rotation race (see `maxConflictRetries`): back off briefly
+                // to let the new bearer settle, then re-read it — the rotation is
+                // usually done by the time the first retry fires.
+                conflictRetries += 1
+                await sleeper(TimeInterval(conflictRetries))   // 1s, 2s, 3s
+                if let settled = await tokenSource.currentBearer() { bearer = settled }
 
             case 429 where throttleRetries < maxThrottleRetries:
                 throttleRetries += 1

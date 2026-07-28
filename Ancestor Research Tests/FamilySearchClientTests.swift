@@ -86,6 +86,32 @@ struct FamilySearchClientTests {
         #expect(FSMockURLProtocol.recordedRequests.count == 3)   // initial + 2 retries
     }
 
+    @Test func retriesOn409TokenRaceThenSucceeds() async throws {
+        // The undocumented post-sign-in token-rotation race: first request 409s,
+        // the retry (with the settled bearer) succeeds.
+        FSMockURLProtocol.reset()
+        FSMockURLProtocol.enqueue(status: 409)
+        FSMockURLProtocol.enqueue(status: 200, body: Data("ok".utf8))
+        let slept = SleepRecorder()
+        let client = FamilySearchClient(tokenSource: FakeFSTokenSource(bearer: "T"),
+                                        session: mockSession(), sleeper: { slept.record($0) })
+        let response = try await client.execute(FamilySearchRequest(url: url))
+        #expect(response.statusCode == 200)
+        #expect(FSMockURLProtocol.recordedRequests.count == 2)
+        #expect(slept.values == [1])   // first backoff = 1s
+    }
+
+    @Test func exhausts409RetriesThenSurfacesTheConflict() async throws {
+        // A persistent 409 (not a transient race) must still surface, not loop.
+        FSMockURLProtocol.reset()
+        for _ in 0..<4 { FSMockURLProtocol.enqueue(status: 409) }
+        let client = FamilySearchClient(tokenSource: FakeFSTokenSource(bearer: "T"),
+                                        session: mockSession(), maxConflictRetries: 2, sleeper: { _ in })
+        let response = try await client.execute(FamilySearchRequest(url: url))
+        #expect(response.statusCode == 409)                      // surfaced, not thrown into a loop
+        #expect(FSMockURLProtocol.recordedRequests.count == 3)   // initial + 2 retries
+    }
+
     @Test func surfaces301MergeWithForwardedId() async throws {
         FSMockURLProtocol.reset()
         FSMockURLProtocol.enqueue(status: 301, headers: [
