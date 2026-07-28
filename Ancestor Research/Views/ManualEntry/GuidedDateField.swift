@@ -31,8 +31,15 @@ struct GuidedDateField: View {
     @State private var month: Int = 0   // 0 = none
     @State private var year: String = ""
     @State private var year2: String = ""
-    /// Guards the fields→text→fields loop: true while we write text ourselves.
-    @State private var emitting = false
+    /// The exact value we last wrote into `text` ourselves. An incoming `text`
+    /// change equal to this is our own fields→text echo and must NOT be fed back
+    /// through `decompose` — that would wipe partially-typed input, because
+    /// `decompose` only recognises complete 4-digit years. Only genuinely
+    /// external `text` changes (≠ this) get decomposed back into the fields.
+    /// (A plain Bool flag can't do this: it would have to be reset synchronously
+    /// inside `emit()`, but the `onChange(of: text)` echo fires a cycle later,
+    /// by which point the flag is already back to false and guards nothing.)
+    @State private var lastEmitted: String?
 
     private static let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -53,7 +60,7 @@ struct GuidedDateField: View {
             interpretation
         }
         .onAppear { decompose(text) }
-        .onChange(of: text) { _, new in if !emitting { decompose(new) } }
+        .onChange(of: text) { _, new in if new != lastEmitted { decompose(new) } }
         .onChange(of: mode) { _, _ in emit() }
         .onChange(of: day) { _, _ in emit() }
         .onChange(of: month) { _, _ in emit() }
@@ -106,9 +113,9 @@ struct GuidedDateField: View {
     // MARK: - Compose (fields → canonical string)
 
     private func emit() {
-        emitting = true
-        text = compose()
-        emitting = false
+        let composed = compose()
+        lastEmitted = composed
+        text = composed
     }
 
     private func compose() -> String {
