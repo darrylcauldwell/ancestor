@@ -578,6 +578,9 @@ struct ProfileDetailView: View {
                         // On-demand FamilySearch hint enrichment (S6b) — drained
                         // in ContentView (always mounted), so no tree-intent hop.
                         Button("Fetch FamilySearch hints") { appState.requestFetchFSHints = profile.id }
+                        if let freeREG = URL(string: "https://www.freereg.org.uk/search_queries/new") {
+                            Link("Search FreeREG", destination: freeREG)
+                        }
                         Divider()
                         Button("Add Spouse") { raiseTreeIntent { appState.requestAddRelative = .init(profileID: profile.id, relation: .spouse) } }
                         Button("Add Child") { raiseTreeIntent { appState.requestAddRelative = .init(profileID: profile.id, relation: .child) } }

@@ -188,6 +188,9 @@ struct TreeGraphView: View {
 
                                 Button("Research") { appState.researchConfigProfile = anchorProfile }
                                 Button("Fetch FamilySearch hints") { appState.requestFetchFSHints = anchorID }
+                                if let freeREG = URL(string: "https://www.freereg.org.uk/search_queries/new") {
+                                    Link("Search FreeREG", destination: freeREG)
+                                }
                                 Button("Compare with…") {
                                     comparePickerSource = ComparePickerSource(id: anchorID)
                                 }
