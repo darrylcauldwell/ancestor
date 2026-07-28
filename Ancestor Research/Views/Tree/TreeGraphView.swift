@@ -29,9 +29,16 @@ struct TreeGraphView: View {
     @State private var showCoachMark: Bool = false
 
     // Manual entry sheets
-    @State private var showAddPerson: Bool = false
     @State private var showAddFamily: Bool = false
-    @State private var addPersonContext: AddPersonContext = .freestanding
+    /// Drives the Add Person sheet via `.sheet(item:)` — non-nil presents, and
+    /// the content closure receives the exact context as its unwrapped argument.
+    /// This replaces the old `(showAddPerson: Bool, addPersonContext: State)`
+    /// pair, where `.sheet(isPresented:)` could evaluate its content against a
+    /// STALE `addPersonContext` (defaulting to `.freestanding`) when both were
+    /// set in one update — presenting the sheet with `relatedToID == nil`, so
+    /// the new person was created UNLINKED. Same EmptyView-race family the
+    /// edit/relationship sheets below were already converted to fix.
+    @State private var addPersonContext: AddPersonContext?
     /// Edit-person and add-relationship sheets are driven by Identifiable
     /// wrappers via `.sheet(item:)` rather than (Bool, String?) pairs. The
     /// old pattern — `.sheet(isPresented: $showEditPerson) { if let id = editProfileID { … } }`
@@ -91,9 +98,21 @@ struct TreeGraphView: View {
         let rightID: String
     }
 
-    private enum AddPersonContext {
+    private enum AddPersonContext: Identifiable {
         case freestanding
         case relative(id: String, relation: AutoSuggestService.RelationContext)
+
+        /// Keys `.sheet(item:)`. A nil→non-nil transition always re-presents
+        /// (SwiftUI clears the binding on dismiss), so repeat "Add sibling of X"
+        /// actions still work even though they share an id.
+        var id: String {
+            switch self {
+            case .freestanding:
+                return "freestanding"
+            case .relative(let id, let relation):
+                return "relative-\(id)-\(String(describing: relation))"
+            }
+        }
     }
 
     var body: some View {
@@ -429,8 +448,8 @@ struct TreeGraphView: View {
         .onChange(of: appState.treeContentRevision) {
             treeVM.refreshNodeData(snapshot: appState.snapshot)
         }
-        .sheet(isPresented: $showAddPerson) {
-            switch addPersonContext {
+        .sheet(item: $addPersonContext) { ctx in
+            switch ctx {
             case .freestanding:
                 AddPersonView()
             case .relative(let id, let relation):
@@ -515,7 +534,6 @@ struct TreeGraphView: View {
             switch action {
             case .add:
                 addPersonContext = .freestanding
-                showAddPerson = true
             case .addFamily:
                 showAddFamily = true
             case .editSelected(let profileID):
@@ -673,7 +691,6 @@ struct TreeGraphView: View {
     /// Open the "add relative" flow for `id` with a preselected relation kind.
     private func beginAddRelative(_ id: String, _ relation: AutoSuggestService.RelationContext) {
         addPersonContext = .relative(id: id, relation: relation)
-        showAddPerson = true
     }
 
     /// Open the "connect to an existing person" relationship sheet for `id`.
@@ -1199,7 +1216,6 @@ struct TreeGraphView: View {
         ToolbarItemGroup {
             Button {
                 addPersonContext = .freestanding
-                showAddPerson = true
             } label: {
                 Label("Add Person", systemImage: "person.badge.plus")
             }
