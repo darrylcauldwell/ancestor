@@ -160,4 +160,77 @@ nonisolated struct FreeBMDParseSearchResultsTests {
         #expect(b.common.rawFields["district"] == "Belper")
         #expect(b.common.rawFields["vol"] == "7b")
     }
+
+    // MARK: - Detail link + mother's maiden name (real FreeBMD HAR fixture)
+
+    /// The exact `search.pl` payload FreeBMD returned for a
+    /// `Births / Beresford / Chesterfield / 1920` search (captured HAR
+    /// 2026-07-28): the per-search `var dbId` and one post-1911 birth row whose
+    /// 4th column carries the mother's maiden name and whose 9th column carries
+    /// the full `<recordID>:<scanID>` reference.
+    private static let beresfordBirthPayload = """
+    <html><body><script>
+    var dbId = "bmd_1784770807";
+    var searchData = new Array (
+      " ;0;1;1920",
+      "41;Beresford;Norah;Lees;0;Chesterfield;7b;1902;143220917:8511"
+    );
+    </script></body></html>
+    """
+
+    @Test func birthCapturesMothersMaidenName() {
+        let records = FreeBMDSource.parseSearchResults(
+            Self.beresfordBirthPayload, recordType: .birth, querySurname: "Beresford")
+        #expect(records.count == 1)
+        guard case let .birth(b) = records[0] else { Issue.record("expected birth"); return }
+        #expect(b.mothersMaidenName == "Lees")
+    }
+
+    /// information.pl?r=<full recordRef incl scan suffix>&d=<dbId>, built exactly
+    /// as FreeBMD's own results JS does. The full "143220917:8511" ref must
+    /// survive — a bare pre-colon recordID 403s (verified against live FreeBMD).
+    @Test func birthBuildsPermanentDetailURLFromRefAndDbId() {
+        let records = FreeBMDSource.parseSearchResults(
+            Self.beresfordBirthPayload, recordType: .birth, querySurname: "Beresford")
+        guard case let .birth(b) = records[0] else { Issue.record("expected birth"); return }
+        #expect(b.common.detailURL ==
+                "https://www.freebmd.org.uk/cgi/information.pl?r=143220917:8511&d=bmd_1784770807")
+    }
+
+    /// No `dbId` on the page → no link half → detailURL stays nil (graceful),
+    /// never a malformed `d=` URL.
+    @Test func detailURLNilWhenPageHasNoDbId() {
+        let noDbId = """
+        <html><body><script>
+        var searchData = new Array (
+          " ;0;1;1920",
+          "41;Beresford;Norah;Lees;0;Chesterfield;7b;1902;143220917:8511"
+        );
+        </script></body></html>
+        """
+        let records = FreeBMDSource.parseSearchResults(
+            noDbId, recordType: .birth, querySurname: "Beresford")
+        guard case let .birth(b) = records[0] else { Issue.record("expected birth"); return }
+        #expect(b.common.detailURL == nil)
+    }
+
+    /// The link lives on RecordCommon, so every record type gets it — this is
+    /// the universal citation-link fix, not a births-only one.
+    @Test func marriageAlsoGetsDetailURL() {
+        let payload = """
+        <html><body><script>
+        var dbId = "bmd_1784770807";
+        var searchData = new Array (
+          " ;0;4;1947",
+          "41;Beresford;Norah;Rose;0;Chesterfield;3a;88;196270216:1"
+        );
+        </script></body></html>
+        """
+        let records = FreeBMDSource.parseSearchResults(
+            payload, recordType: .marriage, querySurname: "Beresford")
+        guard case let .marriage(m) = records[0] else { Issue.record("expected marriage"); return }
+        #expect(m.common.detailURL ==
+                "https://www.freebmd.org.uk/cgi/information.pl?r=196270216:1&d=bmd_1784770807")
+        #expect(m.spouseName == "Rose")
+    }
 }

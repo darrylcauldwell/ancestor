@@ -819,6 +819,19 @@ actor FreeBMDSource: RecordSource {
 
         let arrayContent = String(html[range])
 
+        // FreeBMD's per-search database id (`var dbId = "bmd_<version>"`) — the
+        // `d=` half of a record's permanent detail link. Shared by every record
+        // in the search and stable (it's the BMD database-version id, the same
+        // number that cache-busts the county JS), so it makes a durable link.
+        // Empty when absent → no detailURL is built.
+        let dbId: String = {
+            let pattern = #"var dbId = "([^"]+)""#
+            guard let re = try? NSRegularExpression(pattern: pattern),
+                  let m = re.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                  let r = Range(m.range(at: 1), in: html) else { return "" }
+            return String(html[r])
+        }()
+
         // Extract individual quoted strings
         let rowPattern = #""([^"]*)""#
         guard let rowRegex = try? NSRegularExpression(pattern: rowPattern) else { return [] }
@@ -879,7 +892,19 @@ actor FreeBMDSource: RecordSource {
                 let district = currentDistrict
                 let vol = currentVol
                 let page = parts[7]
-                let recordID = parts.count > 8 ? parts[8].components(separatedBy: ":").first ?? "" : ""
+                // Full record reference (`<recordID>:<scanID>`) — the `r=` half
+                // of the permanent entry link. We previously kept only the
+                // pre-colon recordID and dropped the scan suffix, which loses the
+                // deep-link (a bare `?r=<recordID>` 403s). Keep the recordID for
+                // the internal record id; keep the full ref for the URL.
+                let recordRef = parts.count > 8 ? parts[8] : ""
+                let recordID = recordRef.components(separatedBy: ":").first ?? ""
+                // Permanent FreeBMD entry link, built exactly as FreeBMD's own
+                // results JS does: information.pl?r=<recordRef>&d=<dbId>. nil when
+                // either half is missing.
+                let detailURL: String? = (!recordRef.isEmpty && !dbId.isEmpty)
+                    ? "https://www.freebmd.org.uk/cgi/information.pl?r=\(recordRef)&d=\(dbId)"
+                    : nil
 
                 let common = RecordCommon(
                     id: "freebmd_\(recordType.rawValue)_\(vol)_\(page)_\(recordID)",
@@ -887,7 +912,7 @@ actor FreeBMDSource: RecordSource {
                     name: "\(firstname) \(surname)",
                     surname: surname,
                     givenName: firstname,
-                    detailURL: nil,
+                    detailURL: detailURL,
                     rawFields: [
                         "quarter": currentQuarter ?? "",
                         "year": currentYear.map(String.init) ?? "",
