@@ -1,6 +1,8 @@
 # FreeBMD Citation Link + MMN Backfill
 
-Status: **Change 1 shipped** (forward parser fix, commit `c194066`); Changes 2–4 queued.
+Status: **Changes 1–3 shipped** (`c194066` forward capture, `ee5ccd9` audit,
+`803fdd8` enrich-on-re-research); **Change 4 gated** on the breaker-aware
+throttle harness.
 
 ## Problem
 
