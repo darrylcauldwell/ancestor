@@ -205,6 +205,19 @@ struct HealthView: View {
             // snooze), so this is free — no per-open recompute needed to be up to
             // date, which is why there's no manual "Re-run Audit" button.
             if let auto = appState.auditSummary { auditVM.summary = auto }
+            // Merge DB-derived FreeBMD citation-gap findings (Change 2) into the
+            // displayed summary. Computed here — once per open, not on the hot
+            // audit path. Idempotent: the summary is reset to the maintained
+            // base immediately above before we fold these in.
+            let citationGaps = appState.freeBMDCitationGapFindings()
+            if !citationGaps.isEmpty, let base = auditVM.summary {
+                auditVM.summary = AuditSummary(
+                    errors: base.errors,
+                    warnings: base.warnings,
+                    info: base.info + citationGaps,
+                    total: base.total + citationGaps.count,
+                    profilesChecked: base.profilesChecked)
+            }
             backfillProposals = appState.censusBackfillProposals()
             deathAgeProposals = appState.deathAgeBackfillProposals()
         }

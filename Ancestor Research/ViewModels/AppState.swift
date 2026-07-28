@@ -3027,6 +3027,26 @@ final class AppState {
         return CensusBackfill.proposals(censuses: sources, snapshot: snapshot)
     }
 
+    /// FREEBMD_CITATION_BACKFILL_SPEC Change 2 — applied FreeBMD evidence that
+    /// predates the detail-link capture: records with no entry link (all types)
+    /// and births missing the mother's maiden name. One info-gap finding per
+    /// profile. DB-derived, so computed on demand (Health `onAppear`) rather
+    /// than on the hot `runPostLoadAudit` path. Read-only.
+    func freeBMDCitationGapFindings() -> [AuditResult] {
+        guard let db = currentDatabase else { return [] }
+        var out: [AuditResult] = []
+        for (pid, profile) in snapshot.profiles where !profile.isDeleted {
+            let evidence = (try? db.loadEvidenceForProfile(pid)) ?? []
+            if let finding = FreeBMDCitationAudit.finding(
+                profileID: pid, profileName: profile.displayName, evidence: evidence) {
+                out.append(finding)
+            }
+        }
+        return out.sorted {
+            $0.profileName.localizedCaseInsensitiveCompare($1.profileName) == .orderedAscending
+        }
+    }
+
     /// Absorb a census-backfill proposal onto the linked relative: run the
     /// member-scoped census record through the SAME apply path the researched
     /// subject uses, so their birth year, birthplace, residence and occupation
