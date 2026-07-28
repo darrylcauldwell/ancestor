@@ -27,6 +27,10 @@ struct ResearchView: View {
     var role: Role = .triage
 
     @State private var profileSearchText = ""
+    /// How many profiles the FreeBMD citation audit flags — drives the
+    /// "Backfill FreeBMD links" affordance. A DB scan, so computed off the
+    /// tree-content revision, never per render.
+    @State private var freeBMDGapCount = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -238,10 +242,36 @@ struct ResearchView: View {
                 } message: {
                     Text("This runs for a long time and consumes daily source budgets (FreeBMD allows one careful pass per day). You can cancel mid-run.")
                 }
+
+                // FREEBMD_CITATION_BACKFILL_SPEC Change 4 — a scoped, throttled
+                // backfill of the entry links the citation audit flags. Reuses
+                // the whole-tree engine (breaker-aware pipeline + Change 3
+                // enrichment), auto-continuing over just the flagged profiles.
+                // Shown only when there's a gap and no run is active.
+                if freeBMDGapCount > 0 && !wholeTreeVM.isRunning {
+                    Button("Backfill FreeBMD links (\(freeBMDGapCount))") {
+                        let ids = Set(appState.freeBMDCitationGapFindings().map(\.profileID))
+                        Task {
+                            await wholeTreeVM.start(
+                                snapshot: appState.snapshot,
+                                registry: registry,
+                                database: appState.currentDatabase,
+                                restrictedTo: ids,
+                                autoContinue: true)
+                            freeBMDGapCount = appState.freeBMDCitationGapFindings().count
+                        }
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+                    .help("Re-research the \(freeBMDGapCount) profile(s) whose applied FreeBMD records lack a direct entry link, one at a time, to capture the links. Gentle on FreeBMD — the pipeline's daily budget and circuit-breaker apply; cancellable mid-run.")
+                }
             }
             .padding(.horizontal)
             .padding(.top)
             .padding(.bottom, 8)
+            .task(id: appState.treeContentRevision) {
+                freeBMDGapCount = appState.freeBMDCitationGapFindings().count
+            }
             Divider()
 
             // Profile list — the research launcher: real people ranked

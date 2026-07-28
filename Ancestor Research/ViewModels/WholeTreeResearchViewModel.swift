@@ -22,6 +22,13 @@ final class WholeTreeResearchViewModel {
     var timeLimitMinutes: Int = 30
     var noFactsStreakLimit: Int = 3
 
+    /// Backfill mode (FREEBMD_CITATION_BACKFILL_SPEC Change 4): a scoped,
+    /// auto-continuing sweep of the citation-flagged profiles. It finds links,
+    /// not facts, so the no-facts streak-stop must not apply. Defaults off —
+    /// "Research All" is unchanged.
+    var isBackfill = false
+    var autoContinueReview = false
+
     // Current research
     var currentResult: ResearchResult?
     var waitingForReview = false
@@ -38,9 +45,15 @@ final class WholeTreeResearchViewModel {
     /// Priority: least complete first, skip already-complete profiles. Per-source
     /// coverage is enforced by the dispatcher — profiles outside any source's
     /// declared range simply return zero results rather than being pre-excluded.
-    func buildQueue(snapshot: FamilyGraphSnapshot) {
+    /// `restrictedTo` (non-nil) scopes the queue to a specific set of profile
+    /// ids — the FreeBMD citation backfill (FREEBMD_CITATION_BACKFILL_SPEC
+    /// Change 4) passes the audit-flagged profiles and takes them all,
+    /// regardless of completeness. nil keeps the default "every incomplete
+    /// profile, least-complete first" behaviour.
+    func buildQueue(snapshot: FamilyGraphSnapshot, restrictedTo: Set<String>? = nil) {
         profileQueue = snapshot.profiles.values
             .filter { profile in
+                if let restrictedTo { return restrictedTo.contains(profile.id) }
                 let comp = snapshot.completeness(for: profile.id)
                 return comp.score < comp.maximum
             }
@@ -58,13 +71,22 @@ final class WholeTreeResearchViewModel {
     func start(
         snapshot: FamilyGraphSnapshot,
         registry: SourceRegistry,
-        database: ProjectDatabase?
+        database: ProjectDatabase?,
+        restrictedTo: Set<String>? = nil,
+        autoContinue: Bool = false
     ) async {
-        buildQueue(snapshot: snapshot)
+        isBackfill = restrictedTo != nil
+        autoContinueReview = autoContinue
+        buildQueue(snapshot: snapshot, restrictedTo: restrictedTo)
         guard !profileQueue.isEmpty else {
-            errorMessage = "No incomplete profiles to research."
+            errorMessage = isBackfill ? "No FreeBMD links to backfill." : "No incomplete profiles to research."
             return
         }
+        // A scoped backfill takes the whole flagged set (bounded by its own
+        // count), not the default 20-profile cap; the time limit + cancel stay
+        // as the safety net, and the pipeline's per-source breaker throttles
+        // FreeBMD so this never hammers the volunteer servers.
+        if isBackfill { maxProfiles = profileQueue.count }
 
         isRunning = true
         isCancelled = false
@@ -136,8 +158,10 @@ final class WholeTreeResearchViewModel {
 
             profilesCompleted += 1
 
-            // Pause for user review if there are clusters to review
-            if !result.clusters.isEmpty {
+            // Pause for user review if there are clusters to review — but a
+            // backfill sweep auto-continues (it's unattended maintenance; new
+            // clusters still land in Triage as usual).
+            if !result.clusters.isEmpty && !autoContinueReview {
                 waitingForReview = true
                 // Wait until user continues
                 while waitingForReview && !isCancelled {
@@ -174,7 +198,9 @@ final class WholeTreeResearchViewModel {
         if isCancelled { return true }
         if Task.isCancelled { return true }
         if profilesCompleted >= maxProfiles { return true }
-        if consecutiveNoFacts >= noFactsStreakLimit { return true }
+        // Backfill finds links, not facts — the no-facts streak must not cut it
+        // short before it has walked the whole flagged set.
+        if !isBackfill && consecutiveNoFacts >= noFactsStreakLimit { return true }
         if let start = startTime, Date().timeIntervalSince(start) > Double(timeLimitMinutes * 60) { return true }
         return false
     }
@@ -182,7 +208,7 @@ final class WholeTreeResearchViewModel {
     var stopReason: String? {
         if isCancelled { return "Cancelled by user" }
         if profilesCompleted >= maxProfiles { return "Max profiles reached (\(maxProfiles))" }
-        if consecutiveNoFacts >= noFactsStreakLimit { return "No new facts for \(noFactsStreakLimit) consecutive profiles" }
+        if !isBackfill && consecutiveNoFacts >= noFactsStreakLimit { return "No new facts for \(noFactsStreakLimit) consecutive profiles" }
         if let start = startTime, Date().timeIntervalSince(start) > Double(timeLimitMinutes * 60) { return "Time limit reached (\(timeLimitMinutes) min)" }
         return nil
     }
