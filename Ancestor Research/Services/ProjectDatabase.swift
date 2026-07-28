@@ -3626,6 +3626,28 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// FREEBMD_CITATION_BACKFILL_SPEC Change 3 — enrich-in-place. After a run,
+    /// copy a citation link onto any link-less applied FreeBMD record from a
+    /// freshly-saved sibling transcription of the same GRO entry (vol/page).
+    /// `saveEvidence`'s ON CONFLICT already handles a re-scraped *same*
+    /// transcription; this covers the cross-transcription case. Updates only the
+    /// `citation_url` column (what SourceVerifyLink reads) — no record_json
+    /// surgery. Zero extra FreeBMD load. Returns the number enriched.
+    @discardableResult
+    func reconcileFreeBMDCitationLinks(profileID: String) throws -> Int {
+        let evidence = try loadEvidenceForProfile(profileID)
+        let updates = FreeBMDCitationAudit.linkReconciliation(evidence: evidence)
+        guard !updates.isEmpty else { return 0 }
+        try dbQueue.write { db in
+            for update in updates {
+                try db.execute(
+                    sql: "UPDATE evidence_records SET citation_url = ? WHERE id = ?",
+                    arguments: [update.citationURL, update.evidenceID])
+            }
+        }
+        return updates.count
+    }
+
     /// Load all evidence records for a profile, newest first.
     func loadEvidenceForProfile(_ profileID: String) throws -> [EvidenceRecord] {
         try dbQueue.read { db in

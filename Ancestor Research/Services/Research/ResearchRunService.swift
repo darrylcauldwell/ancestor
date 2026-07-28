@@ -166,6 +166,15 @@ enum ResearchRunService {
             }
             logger.info("Persisted \(saved)/\(result.allScoredRecords.count) evidence records for \(profileID)")
 
+            // FREEBMD_CITATION_BACKFILL_SPEC Change 3 — enrich-in-place: a run
+            // that re-found a FreeBMD entry with its link now heals any
+            // link-less applied record of the same GRO entry (cross-transcription
+            // case; the same-transcription case self-heals via saveEvidence's
+            // ON CONFLICT). Zero extra FreeBMD load.
+            if let enriched = try? db.reconcileFreeBMDCitationLinks(profileID: profileID), enriched > 0 {
+                logger.info("Enriched \(enriched) FreeBMD citation link(s) for \(profileID) from re-found siblings")
+            }
+
             // CAMPAIGN_REVIEW_SPEC Change 3 — persist the evidence chain's
             // convergence per asserted fact value. Upsert per
             // (profile, value_key): the level upgrades as independent

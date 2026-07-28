@@ -9,10 +9,12 @@ struct FreeBMDCitationAuditTests {
 
     private func evidence(sourceID: String, citationURL: String?,
                           status: UserReviewStatus = .savedAsLead,
-                          mmn: String? = "Lees") -> EvidenceRecord {
-        let common = RecordCommon(id: "\(sourceID)_birth_7b_1902_\(UUID().uuidString)",
+                          mmn: String? = "Lees",
+                          vol: String = "7b", page: String = "1902") -> EvidenceRecord {
+        let common = RecordCommon(id: "\(sourceID)_birth_\(vol)_\(page)_\(UUID().uuidString)",
                                   sourceID: sourceID, rawFields: [:])
         let record: SourceRecord = .birth(BirthRecord(common: common, birthYear: 1920,
+                                                       volume: vol, page: page,
                                                        mothersMaidenName: mmn))
         return EvidenceRecord(
             id: EvidenceRecord.compositeID(profileID: "@P1@", sourceRecordID: common.id),
@@ -78,5 +80,42 @@ struct FreeBMDCitationAuditTests {
                        evidence(sourceID: "freebmd", citationURL: nil),
                        evidence(sourceID: "freebmd", citationURL: "https://x")])
         #expect(f?.message.contains("2 FreeBMD records") == true)  // the linked one excluded
+    }
+
+    // MARK: - Change 3 — cross-transcription link reconciliation
+
+    @Test func reconcilesLinkFromSiblingTranscriptionSameGROEntry() {
+        // Applied record (no link) + a sibling for the SAME vol/page that has a
+        // link → the applied one adopts it.
+        let applied = evidence(sourceID: "freebmd", citationURL: nil, vol: "7b", page: "1902")
+        let sibling = evidence(sourceID: "freebmd",
+                               citationURL: "https://www.freebmd.org.uk/cgi/information.pl?r=143220917:8511&d=bmd_1",
+                               status: .unreviewed, vol: "7b", page: "1902")
+        let updates = FreeBMDCitationAudit.linkReconciliation(evidence: [applied, sibling])
+        #expect(updates.count == 1)
+        #expect(updates.first?.evidenceID == applied.id)
+        #expect(updates.first?.citationURL.contains("143220917:8511") == true)
+    }
+
+    @Test func doesNotReconcileAcrossDifferentGROEntries() {
+        let applied = evidence(sourceID: "freebmd", citationURL: nil, vol: "7b", page: "1902")
+        let other = evidence(sourceID: "freebmd", citationURL: "https://x",
+                             status: .unreviewed, vol: "3a", page: "88")   // different entry
+        #expect(FreeBMDCitationAudit.linkReconciliation(evidence: [applied, other]).isEmpty)
+    }
+
+    @Test func noReconciliationWhenNoDonorHasLink() {
+        let a = evidence(sourceID: "freebmd", citationURL: nil, vol: "7b", page: "1902")
+        let b = evidence(sourceID: "freebmd", citationURL: nil, vol: "7b", page: "1902")
+        #expect(FreeBMDCitationAudit.linkReconciliation(evidence: [a, b]).isEmpty)
+    }
+
+    @Test func reconciliationOnlyTargetsAppliedRecords() {
+        // An unreviewed link-less record is not a recipient — only applied ones.
+        let unreviewed = evidence(sourceID: "freebmd", citationURL: nil, status: .unreviewed,
+                                  vol: "7b", page: "1902")
+        let donor = evidence(sourceID: "freebmd", citationURL: "https://x",
+                             status: .savedAsLead, vol: "7b", page: "1902")
+        #expect(FreeBMDCitationAudit.linkReconciliation(evidence: [unreviewed, donor]).isEmpty)
     }
 }
