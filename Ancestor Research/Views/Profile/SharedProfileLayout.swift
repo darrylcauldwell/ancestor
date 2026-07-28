@@ -145,6 +145,8 @@ struct SharedProfileLayout: View {
     @State private var expandedEvidenceKeys: Set<String> = []
     /// "<contextKey>|<standing>" for each open nested research bucket.
     @State private var expandedEvidenceBuckets: Set<String> = []
+    /// An applied record the user is confirming removal of (un-apply inline).
+    @State private var recordRemovalCandidate: ProfileSourcesLedger.RecordDetail?
     @State private var candidateGroups: [[ResearchHypothesis]] = []
     @State private var proposals: [ProfileField: ConflictResolutionActions.ProposedResolution] = [:]
     /// Pending relationship unlink (edit-mode remove on parent/child/spouse
@@ -395,6 +397,27 @@ struct SharedProfileLayout: View {
             reloadInvestigations()
             reloadFactRecords()
         }
+        // Any snapshot mutation (applying a record, adding a verified record)
+        // should refresh the per-fact evidence — profile.id is unchanged, so the
+        // task above won't re-fire on its own.
+        .onChange(of: appState.treeContentRevision) { _, _ in
+            reloadFactRecords()
+        }
+        .confirmationDialog(
+            "Remove this record?",
+            isPresented: Binding(
+                get: { recordRemovalCandidate != nil },
+                set: { if !$0 { recordRemovalCandidate = nil } }),
+            presenting: recordRemovalCandidate
+        ) { rec in
+            Button("Remove", role: .destructive) {
+                removeAppliedRecord(rec)
+                recordRemovalCandidate = nil
+            }
+            Button("Cancel", role: .cancel) { recordRemovalCandidate = nil }
+        } message: { rec in
+            Text("Reverts the fields this \(rec.recordType.rawValue) record set (where they still hold its value), removes its life events, and remembers the rejection so research won't re-add it. It stays in history and can be re-applied.")
+        }
         .sheet(isPresented: $showingNoteComposer) {
             NoteComposerView(initial: nil, attachedTo: .profile(id: profile.id))
         }
@@ -562,6 +585,7 @@ struct SharedProfileLayout: View {
                     .foregroundStyle(.tertiary)
             } else {
                 ForEach(events) { event in
+                    VStack(alignment: .leading, spacing: 2) {
                     Button {
                         editingLifeEvent = event
                     } label: {
@@ -606,9 +630,28 @@ struct SharedProfileLayout: View {
                         .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
+                    // Source link (e.g. a Find a Grave memorial) — outside the
+                    // edit Button so it's a reliable, separate tap.
+                    if let url = eventSourceURL(event) {
+                        Link(destination: url) {
+                            Label("View source ↗", systemImage: "arrow.up.right.square")
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.blue)
+                        }
+                        .padding(.leading, 26)
+                    }
+                    }
                 }
             }
         }
+    }
+
+    /// The first source URL a life event carries, for the "View source" link.
+    private func eventSourceURL(_ event: LifeEvent) -> URL? {
+        for src in event.sources {
+            if let u = src.citation?.url, !u.isEmpty, let url = URL(string: u) { return url }
+        }
+        return nil
     }
 
     /// Photos / PDFs / typed transcriptions attached to this profile (M13).
@@ -724,7 +767,7 @@ struct SharedProfileLayout: View {
         if let b = editableBindings {
             VStack(alignment: .leading, spacing: 8) {
                 editableFieldRow("Birth date", field: .birthDate) {
-                    DateParsePreviewField(label: "Birth date", text: b.birthDateText)
+                    GuidedDateField(label: "", text: b.birthDateText)
                 }
                 editableFieldRow("Birth location", field: .birthLocation) {
                     LocationPicker(
@@ -734,7 +777,7 @@ struct SharedProfileLayout: View {
                     )
                 }
                 editableFieldRow("Death date", field: .deathDate) {
-                    DateParsePreviewField(label: "Death date", text: b.deathDateText)
+                    GuidedDateField(label: "", text: b.deathDateText)
                 }
                 editableFieldRow("Death location", field: .deathLocation) {
                     LocationPicker(
@@ -931,6 +974,18 @@ struct SharedProfileLayout: View {
         factRecords = (try? ProfileSourcesLedger.allRecords(for: profile.id, db: db, profile: profile)) ?? []
     }
 
+    private func removeAppliedRecord(_ rec: ProfileSourcesLedger.RecordDetail) {
+        guard let db = appState.currentDatabase else { return }
+        let ids = Set(rec.duplicateIDs)
+        let evidence = (try? db.loadEvidenceForProfile(profile.id)) ?? []
+        // Remove every underlying row this card collapsed (duplicate re-scrapes),
+        // so a de-duplicated applied record is fully cleared, not left orphaned.
+        for ev in evidence where ids.contains(ev.sourceRecordID) && ev.userStatus == .savedAsLead {
+            _ = appState.removeAppliedRecord(ev)
+        }
+        reloadFactRecords()
+    }
+
     private func toggleEvidenceKey(_ key: String) {
         if expandedEvidenceKeys.contains(key) { expandedEvidenceKeys.remove(key) }
         else { expandedEvidenceKeys.insert(key) }
@@ -1076,6 +1131,16 @@ struct SharedProfileLayout: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.green)
                     .help("Apply this record: fills any blank fields, refines where allowed, and attaches its citation — your existing more-precise values are kept.")
+                } else {
+                    // Un-apply a record applied in error — reverts the fields it
+                    // set, removes its life events, and remembers the rejection.
+                    Button { recordRemovalCandidate = rec } label: {
+                        Label("Remove", systemImage: "arrow.uturn.backward")
+                            .font(AppTypography.badge)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.red)
+                    .help("Remove this applied record — reverts what it wrote (where the value is still its own), removes its life events, and won't be re-added by research. It stays in history and can be re-applied.")
                 }
             }
         }

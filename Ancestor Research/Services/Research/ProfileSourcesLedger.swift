@@ -69,13 +69,17 @@ enum ProfileSourcesLedger {
         /// Higher = stronger match. Ranks a bucket best-first so a capped
         /// "Showing 20 of 486" shows the plausible candidates, not a random slice.
         let matchRank: Int
+        /// Every underlying evidence source-record id collapsed into this row —
+        /// the same entry can be saved more than once across runs (different
+        /// scrape ids, same vol/page). Removal cleans them all.
+        var duplicateIDs: [String]
     }
 
     /// EVERY evidence record for the profile (applied, pending, rejected),
     /// classified by standing. The per-fact expander filters these by record
     /// type. Ordered by standing (applied first), then record type, then id.
     static func allRecords(for profileID: String, db: ProjectDatabase, profile: Profile? = nil) throws -> [RecordDetail] {
-        try db.loadEvidenceForProfile(profileID)
+        let details = try db.loadEvidenceForProfile(profileID)
             .map { rec in
                 RecordDetail(
                     id: rec.sourceRecordID,
@@ -87,14 +91,42 @@ enum ProfileSourcesLedger {
                     citationURL: rec.citationURL,
                     ageDetail: ageDetail(rec.record),
                     reconcileNote: reconcileNote(rec.record, profile: profile),
-                    matchRank: matchRank(verdict: rec.verdict, gates: rec.gates))
+                    matchRank: matchRank(verdict: rec.verdict, gates: rec.gates),
+                    duplicateIDs: [rec.sourceRecordID])
             }
+
+        // Collapse the same underlying entry saved more than once across runs
+        // (a re-scrape yields a new source-record id but an identical citation
+        // bar the access date). One card per real record; removal cleans them all.
+        var byIdentity: [String: RecordDetail] = [:]
+        var order: [String] = []
+        for d in details {
+            let key = identityKey(d)
+            if let existing = byIdentity[key] {
+                var rep = existing.standing.sortOrder <= d.standing.sortOrder ? existing : d
+                rep.duplicateIDs = existing.duplicateIDs + d.duplicateIDs
+                byIdentity[key] = rep
+            } else {
+                byIdentity[key] = d
+                order.append(key)
+            }
+        }
+
+        return order.compactMap { byIdentity[$0] }
             .sorted { a, b in
                 if a.standing.sortOrder != b.standing.sortOrder { return a.standing.sortOrder < b.standing.sortOrder }
                 if a.matchRank != b.matchRank { return a.matchRank > b.matchRank }  // best match first
                 if a.recordType.rawValue != b.recordType.rawValue { return a.recordType.rawValue < b.recordType.rawValue }
                 return a.id < b.id
             }
+    }
+
+    /// Identity of a record independent of the run that saved it — source, type,
+    /// and the citation with the trailing "; accessed <date>" trimmed off (the
+    /// only part that differs between re-scrapes of the same entry).
+    private static func identityKey(_ d: RecordDetail) -> String {
+        let base = d.citation.range(of: "; accessed").map { String(d.citation[..<$0.lowerBound]) } ?? d.citation
+        return "\(d.sourceID)|\(d.recordType.rawValue)|\(base.trimmingCharacters(in: .whitespaces))"
     }
 
     /// Plain-English reconciliation for a BMD-index record against the applied

@@ -1,5 +1,17 @@
 import SwiftUI
 import os
+import AncestorKit
+
+/// A human-verified record entered by the user (e.g. a Find a Grave memorial),
+/// captured in the Life Event editor's Source fields.
+struct VerifiedRecordInput {
+    var type: RecordType
+    var sourceName: String
+    var sourceURL: String
+    var date: String
+    var place: String
+    var detail: String
+}
 
 /// Root application state — tracks current project and snapshot.
 @MainActor @Observable
@@ -101,6 +113,10 @@ final class AppState {
     /// pattern to `researchLeadRequest`.
     var requestFetchFSHints: String?
 
+    /// Raised when a FamilySearch action needs sign-in. ContentView presents an
+    /// alert with a one-click "Open Settings" instead of a dead-end OK.
+    var familySearchSignInPrompt = false
+
     /// On-demand FamilySearch enrichment for one profile (S6b): fetch record
     /// hints for the person via the shared FamilySearch tree, route them through
     /// the SAME deterministic scorer + firewall as records search (deduped on
@@ -114,7 +130,7 @@ final class AppState {
             return
         }
         guard await FamilySearchTokenStore.shared.validAccessToken(environment: .beta) != nil else {
-            errorMessage = "Sign in to FamilySearch first (Settings ▸ FamilySearch)."
+            familySearchSignInPrompt = true
             return
         }
         do {
@@ -531,7 +547,7 @@ final class AppState {
             _ = ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: snapshot, db: db)
             try db.updateEvidenceUserStatus(evidenceID: evidence.id, status: .savedAsLead)
             for event in scored.record.projectToLifeEvents(profileID: profileID) {
-                try? db.addLifeEventIfAbsent(event)
+                _ = try? db.addLifeEventIfAbsent(event)
             }
             snapshot = try db.buildSnapshot()
             runConflictSweep(force: true)
@@ -539,6 +555,90 @@ final class AppState {
         } catch {
             errorMessage = "Failed to apply record: \(error.localizedDescription)"
         }
+    }
+
+    /// A human-verified external record the research pipeline can't discover
+    /// (e.g. a Find a Grave memorial whose name is misrecorded, so the name gate
+    /// rejects it). Recorded as an APPLIED, cited evidence record — it shows in
+    /// the profile's per-fact evidence expander like any other applied source,
+    /// with a deep-link to the URL — and its facts are written to the profile.
+    func addVerifiedRecord(profileID: String, input: VerifiedRecordInput, projectLifeEvent: Bool = true) {
+        guard let db = currentDatabase, let profile = snapshot.profiles[profileID] else { return }
+        let url = input.sourceURL.trimmingCharacters(in: .whitespaces)
+        let recordID = "manual-\(UUID().uuidString)"
+        let common = RecordCommon(
+            id: recordID,
+            sourceID: Self.sourceSlug(input.sourceName),
+            name: profile.displayName,
+            surname: profile.lastName,
+            givenName: profile.firstName,
+            detailURL: url.isEmpty ? nil : url,
+            rawFields: [:])
+        let year = Self.parseYear(input.date)
+        let date = Self.trimmedNil(input.date)
+        let place = Self.trimmedNil(input.place)
+        let detail = Self.trimmedNil(input.detail)
+        let record: SourceRecord = {
+            switch input.type {
+            case .birth:
+                return .birth(BirthRecord(common: common, birthYear: year, birthDate: date, birthPlace: place))
+            case .death:
+                return .death(DeathRecord(common: common, deathYear: year, deathDate: date, deathPlace: place))
+            default: // burial — the Find a Grave case
+                return .burial(BurialRecord(
+                    common: common, deathDate: date, deathYear: year,
+                    burialLocation: place, cemetery: detail,
+                    memorialID: Self.findAGraveMemorialID(url), inscription: nil, bio: nil, isVeteran: false))
+            }
+        }()
+        let scored = ScoredRecord(
+            id: recordID, record: record, verdict: .fact,
+            gates: [GateResult(gate: .name, outcome: .pass, reason: "You verified this record")],
+            summary: "\(input.sourceName) — verified by you")
+        do {
+            let citation = url.isEmpty ? input.sourceName : "\(input.sourceName) — \(url)"
+            try db.saveEvidence(profileID: profileID, scored: scored, citationFull: citation,
+                                citationURL: url.isEmpty ? nil : url)
+            try db.updateEvidenceUserStatus(
+                evidenceID: EvidenceRecord.compositeID(profileID: profileID, sourceRecordID: recordID),
+                status: .savedAsLead)
+            _ = ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: snapshot, db: db)
+            // Skipped when the caller (the Life Event editor) has already
+            // created the rich life event and only wants the cited evidence.
+            if projectLifeEvent {
+                for event in scored.record.projectToLifeEvents(profileID: profileID) {
+                    _ = try? db.addLifeEventIfAbsent(event)
+                }
+            }
+            snapshot = try db.buildSnapshot()
+            runConflictSweep(force: true)
+            runPostLoadAudit()
+        } catch {
+            errorMessage = "Failed to add record: \(error.localizedDescription)"
+        }
+    }
+
+    /// A lowercase alphanumeric slug for a user-entered source name, so a known
+    /// source ("Find a Grave" → "findagrave") deep-links and names correctly.
+    private static func sourceSlug(_ name: String) -> String {
+        let slug = name.lowercased().filter { $0.isLetter || $0.isNumber }
+        return slug.isEmpty ? "manual" : slug
+    }
+
+    private static func trimmedNil(_ s: String) -> String? {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+
+    private static func parseYear(_ text: String) -> Int? {
+        guard let match = text.range(of: #"\b(1[5-9]\d\d|20\d\d)\b"#, options: .regularExpression) else { return nil }
+        return Int(text[match])
+    }
+
+    private static func findAGraveMemorialID(_ url: String) -> Int? {
+        guard url.lowercased().contains("findagrave"),
+              let match = url.range(of: #"memorial/(\d+)"#, options: .regularExpression) else { return nil }
+        return Int(url[match].replacingOccurrences(of: "memorial/", with: ""))
     }
 
     /// Record that two profiles flagged as a possible duplicate are actually

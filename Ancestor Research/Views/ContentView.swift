@@ -18,6 +18,15 @@ struct ContentView: View {
         } message: {
             Text(appState.errorMessage ?? "")
         }
+        .alert("Sign in to FamilySearch", isPresented: .constant(appState.familySearchSignInPrompt)) {
+            Button("Open Settings") {
+                appState.familySearchSignInPrompt = false
+                appState.requestSidebarTab = .settings
+            }
+            Button("Cancel", role: .cancel) { appState.familySearchSignInPrompt = false }
+        } message: {
+            Text("FamilySearch hints need you to be signed in. Open Settings ▸ FamilySearch to sign in, then try again.")
+        }
         .alert("Success", isPresented: .constant(appState.successMessage != nil)) {
             // For fixes that add a research-unlocking field (married surname,
             // birth year), offer to research the just-updated profile right away

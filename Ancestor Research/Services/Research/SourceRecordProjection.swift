@@ -17,6 +17,20 @@ import CryptoKit
 /// (INSERT OR IGNORE) is the matching write side.
 nonisolated extension SourceRecord {
 
+    /// A citation source carrying a burial record's memorial URL (its stored
+    /// `detailURL`, else built from a Find a Grave `memorialID`), so the
+    /// projected life event links back to the source.
+    private static func burialSource(_ r: BurialRecord) -> [FieldSource] {
+        let url = r.common.detailURL ?? r.memorialID.map { "https://www.findagrave.com/memorial/\($0)" }
+        guard let url, !url.isEmpty else { return [] }
+        return [FieldSource(
+            origin: SourceOrigin(identifier: r.common.sourceID),
+            raw: r.common.sourceID,
+            addedAt: Date(),
+            citation: Citation(url: url),
+            quality: nil, confidence: nil)]
+    }
+
     func projectToLifeEvent(profileID: String) -> LifeEvent? {
         switch self {
         case .birth, .death, .marriage, .pedigree:
@@ -39,7 +53,10 @@ nonisolated extension SourceRecord {
                     graveRef: nil,
                     inscription: r.inscription,
                     isVeteran: r.isVeteran
-                ))
+                )),
+                // Carry the memorial URL onto the life event so it shows a
+                // "View source" link (previously the projection dropped it).
+                sources: Self.burialSource(r)
             )
 
         case .military(let r):

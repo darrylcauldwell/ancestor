@@ -25,6 +25,12 @@ struct LifeEventEditorView: View {
     @State private var eventDescription: String = ""
     @State private var confidence: FactConfidence = .standard
     @State private var sensitive: Bool = false
+    // Provenance — a source name + link for a record you're recording by hand
+    // (e.g. a Find a Grave memorial the pipeline can't find). Kept as a citation
+    // on the event; for a burial it also lands as a cited record in the
+    // evidence expander with a link back.
+    @State private var sourceName: String = ""
+    @State private var sourceURL: String = ""
 
     // Task #54 — typed-detail subforms. Each type has its own collection of
     // @State fields so SwiftUI can keep entries while the user clicks back
@@ -96,24 +102,10 @@ struct LifeEventEditorView: View {
                     }
                     .pickerStyle(.menu)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Date")
-                            .font(AppTypography.badge)
-                            .foregroundStyle(.secondary)
-                            .textCase(.uppercase)
-                        TextField("e.g. 1887, ABT 1880, BEF 1890", text: $dateText)
-                            .textFieldStyle(.roundedBorder)
-                    }
+                    GuidedDateField(label: "Date", text: $dateText)
 
                     if selectedType.hasDuration {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("End Date")
-                                .font(AppTypography.badge)
-                                .foregroundStyle(.secondary)
-                                .textCase(.uppercase)
-                            TextField("e.g. 1895, ABT 1900", text: $endDateText)
-                                .textFieldStyle(.roundedBorder)
-                        }
+                        GuidedDateField(label: "End date", text: $endDateText)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -147,6 +139,20 @@ struct LifeEventEditorView: View {
                     case .burial:          burialSubform
                     case .census:          censusSubform
                     default:               EmptyView()
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Source")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                        TextField("Source (e.g. Find a Grave)", text: $sourceName)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Source URL (https://…)", text: $sourceURL)
+                            .textFieldStyle(.roundedBorder)
+                        Text("A link to the record — kept as a citation. For a burial it also appears in the evidence, with a link back to the source.")
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.tertiary)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -437,6 +443,19 @@ struct LifeEventEditorView: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// A citation FieldSource for a user-entered source name + URL, or empty.
+    private func manualSource(name: String, url: String) -> [FieldSource] {
+        guard !name.isEmpty || !url.isEmpty else { return [] }
+        let slug = name.lowercased().filter { $0.isLetter || $0.isNumber }
+        return [FieldSource(
+            origin: SourceOrigin(identifier: slug.isEmpty ? "manual" : slug),
+            raw: name.isEmpty ? url : name,
+            addedAt: Date(),
+            citation: Citation(title: name.isEmpty ? nil : name, url: url.isEmpty ? nil : url),
+            quality: nil,
+            confidence: confidence)]
+    }
+
     private func save() {
         guard hasSignal else { return }
         let date = parsedDate(dateText)
@@ -444,6 +463,9 @@ struct LifeEventEditorView: View {
         let loc = nilIfEmpty(location)
         let desc = nilIfEmpty(eventDescription)
         let details = buildDetails()
+        let name = sourceName.trimmingCharacters(in: .whitespaces)
+        let url = sourceURL.trimmingCharacters(in: .whitespaces)
+        let sources = manualSource(name: name, url: url)
 
         switch mode {
         case .add(let profileID):
@@ -456,9 +478,21 @@ struct LifeEventEditorView: View {
                 locationCode: locationCode,
                 description: desc,
                 details: details,
+                sources: sources,
                 confidence: confidence,
                 sensitive: sensitive
             )
+            // A burial with a source URL (e.g. Find a Grave) also lands as a
+            // cited record in the evidence expander, with a link back — without
+            // creating a second life event (this one already exists).
+            if selectedType == .burial, !url.isEmpty {
+                appState.addVerifiedRecord(
+                    profileID: profileID,
+                    input: VerifiedRecordInput(
+                        type: .burial, sourceName: name.isEmpty ? "Source" : name, sourceURL: url,
+                        date: dateText, place: location, detail: burialCemetery),
+                    projectLifeEvent: false)
+            }
         case .edit(let existing):
             var updated = existing
             updated.type = selectedType
@@ -470,6 +504,7 @@ struct LifeEventEditorView: View {
             updated.details = details
             updated.confidence = confidence
             updated.sensitive = sensitive
+            updated.sources = existing.sources + sources
             appState.updateLifeEvent(updated)
         }
         dismiss()
