@@ -43,20 +43,21 @@ actor FreeBMDSource: RecordSource {
         summary: "Terms forbid programmatic search (\"front end programs… strictly forbidden\") — permission request to Free UK Genealogy pending, ADR-008"
     )
 
-    /// Self-imposed politeness cap — NOT a documented quota (compliance
-    /// review 2026-07, SOURCE_ACCESS_COMPLIANCE_2026-07.md). FreeBMD
-    /// publishes NO per-day search allowance; a prior version of this
-    /// comment claimed a "documented daily quota", which was false. What
-    /// IS documented (freebmd.org.uk/terms.html) is that programmatic
-    /// search is forbidden outright — access posture is governed by
-    /// ADR-008 (ask-first; permission request to Free UK Genealogy
-    /// pending). Empirically the server's limiter trips well before a
-    /// full-corpus sweep (memory: `feedback_volunteer_sources_rate_limits.md`
-    /// — the day's budget burns in ~30 min of hammering); 200/day is our
-    /// conservative floor so a runaway run parks until UTC midnight
-    /// instead of laddering the 60s/300s/900s breaker. Reset clock is
-    /// likewise undocumented — UTC-midnight is the conservative fallback.
-    nonisolated let budgetPolicy = SourceBudgetPolicy(dailyLimit: 200, reset: .utcMidnight)
+    /// No pre-emptive request cap — the real control is the live 429 breaker.
+    ///
+    /// FreeBMD publishes NO per-day search allowance. The former `200/day` here
+    /// was an invention: SOURCE_ACCESS_COMPLIANCE_2026-07.md flagged the
+    /// "documented daily quota" claim as false, and it never bound in practice —
+    /// the server's live 429 trips far lower and *variably* (observed ~50–60
+    /// requests 2026-07-28). A made-up number can only be wrong in both
+    /// directions, so we don't guess one: the budget is `.unlimited`, and runs
+    /// are governed by the 429 circuit breaker below (and, at the run level, a
+    /// throttle-stop that halts the whole run when the server pushes back).
+    ///
+    /// (Separately, freebmd.org.uk/terms.html forbids programmatic search
+    /// outright — access posture is ADR-008 ask-first, permission pending. That
+    /// is a terms question, not a request-count one.)
+    nonisolated let budgetPolicy = SourceBudgetPolicy.unlimited
 
     // MARK: - State
 

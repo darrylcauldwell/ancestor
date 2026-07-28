@@ -28,6 +28,10 @@ final class WholeTreeResearchViewModel {
     /// "Research All" is unchanged.
     var isBackfill = false
     var autoContinueReview = false
+    /// Set when a profile's research hit a real server throttle (429 →
+    /// SearchAvailability.throttled). Halts the whole run — trust the live 429,
+    /// don't keep hammering a parked source (owner direction 2026-07-28).
+    var hitThrottle = false
 
     // Current research
     var currentResult: ResearchResult?
@@ -93,6 +97,7 @@ final class WholeTreeResearchViewModel {
         profilesCompleted = 0
         totalFacts = 0
         consecutiveNoFacts = 0
+        hitThrottle = false
         startTime = Date()
         currentResult = nil
         waitingForReview = false
@@ -124,6 +129,15 @@ final class WholeTreeResearchViewModel {
 
             let result = await pipeline.research(subject: subject, config: config)
             currentResult = result
+
+            // Run-level throttle-stop (owner direction 2026-07-28): when the
+            // server actually pushes back (a real 429 → SearchAvailability
+            // .throttled), stop the WHOLE run rather than churn the rest of the
+            // queue against a source that's now parked. Trust the live signal,
+            // not a guessed quota. `shouldStop` reads this after this profile.
+            if result.searchOutcomes.contains(where: { $0.outcome.availability == .throttled }) {
+                hitThrottle = true
+            }
 
             let newFacts = result.confirmedFacts.count
             totalFacts += newFacts
@@ -197,6 +211,7 @@ final class WholeTreeResearchViewModel {
     private var shouldStop: Bool {
         if isCancelled { return true }
         if Task.isCancelled { return true }
+        if hitThrottle { return true }
         if profilesCompleted >= maxProfiles { return true }
         // Backfill finds links, not facts — the no-facts streak must not cut it
         // short before it has walked the whole flagged set.
@@ -207,6 +222,7 @@ final class WholeTreeResearchViewModel {
 
     var stopReason: String? {
         if isCancelled { return "Cancelled by user" }
+        if hitThrottle { return "FreeBMD throttled (429) — stopped to respect the server; resume when it clears." }
         if profilesCompleted >= maxProfiles { return "Max profiles reached (\(maxProfiles))" }
         if !isBackfill && consecutiveNoFacts >= noFactsStreakLimit { return "No new facts for \(noFactsStreakLimit) consecutive profiles" }
         if let start = startTime, Date().timeIntervalSince(start) > Double(timeLimitMinutes * 60) { return "Time limit reached (\(timeLimitMinutes) min)" }
