@@ -136,6 +136,15 @@ struct SharedProfileLayout: View {
     /// `.sheet(isPresented:) + if let` — the EmptyView-rectangle race).
     @State private var resolvingDispute: DisputeSheetItem?
     @State private var structuralDisputes: [DisputeRow] = []
+    /// All evidence records for this profile (applied / researched / rejected),
+    /// so a fact, marriage, or census row can expand to its complete evidence
+    /// picture in context.
+    @State private var factRecords: [ProfileSourcesLedger.RecordDetail] = []
+    /// Context keys ("birthDate", "spouse:<edgeID>", "census") whose top-level
+    /// evidence expander is open.
+    @State private var expandedEvidenceKeys: Set<String> = []
+    /// "<contextKey>|<standing>" for each open nested research bucket.
+    @State private var expandedEvidenceBuckets: Set<String> = []
     @State private var candidateGroups: [[ResearchHypothesis]] = []
     @State private var proposals: [ProfileField: ConflictResolutionActions.ProposedResolution] = [:]
     /// Pending relationship unlink (edit-mode remove on parent/child/spouse
@@ -268,6 +277,11 @@ struct SharedProfileLayout: View {
             // unlink, so no edgeIDFor (removing a parent edge re-derives them).
             relationshipSection("Siblings", profiles: snapshot.siblingsOf(profile.id))
 
+            // Census evidence sits by the family — a census IS the household,
+            // and it carries the age that pins a birth year. Applied on top,
+            // then researched / rejected candidates nested.
+            censusEvidenceRow
+
             // Disputes — live from CONFLICT_LAYER_SPEC Change 1: the apply
             // path now produces rows, and each open dispute offers the
             // resolution flow (ConflictResolutionView → AppState.resolveDispute).
@@ -379,6 +393,7 @@ struct SharedProfileLayout: View {
             structuralDisputes = ((try? appState.currentDatabase?.openDisputes(profileID: profile.id)) ?? [])
                 .filter { $0.kind != .fieldValue }
             reloadInvestigations()
+            reloadFactRecords()
         }
         .sheet(isPresented: $showingNoteComposer) {
             NoteComposerView(initial: nil, attachedTo: .profile(id: profile.id))
@@ -446,6 +461,17 @@ struct SharedProfileLayout: View {
                     }
                 }
                 Spacer()
+                // FamilySearch hints sits beside Search FreeREG so both
+                // find-more-evidence actions live on the profile face, matching
+                // the tree/■■■ context menu (owner request: both in both places).
+                Button {
+                    appState.requestFetchFSHints = profile.id
+                } label: {
+                    Label("FamilySearch hints", systemImage: "sparkle.magnifyingglass")
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                .help("Fetch FamilySearch's record hints for this person (queries FamilySearch in-app). Sign in to FamilySearch in Settings first.")
                 Link(destination: url) {
                     Label("Search FreeREG", systemImage: "arrow.up.right.square")
                 }
@@ -834,9 +860,13 @@ struct SharedProfileLayout: View {
 
     @ViewBuilder
     private func fieldRow(_ label: String, value: String?, place: String?, field: ProfileField) -> some View {
-        if value != nil || place != nil {
+        let records = evidenceRecords(for: field)
+        // Render when there's a value/place OR research surfaced records for it
+        // (so a not-yet-applied fact still shows its researched candidates).
+        if value != nil || place != nil || !records.isEmpty {
             let sources = profile.sources[field] ?? []
             let confidence = effectiveConfidence(sources)
+            let key = field.rawValue
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(label)
@@ -844,6 +874,7 @@ struct SharedProfileLayout: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     sourceBadges(for: field)
+                    evidenceTrigger(key: key, records: records)
                 }
                 if let v = value {
                     HStack(spacing: 4) {
@@ -857,14 +888,214 @@ struct SharedProfileLayout: View {
                                 .accessibilityHint("Multiple independent sources agree.")
                         }
                     }
+                } else if !records.isEmpty {
+                    Text("Not recorded — \(records.count) researched")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .italic()
                 }
                 if let p = place {
                     Text(p)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                if expandedEvidenceKeys.contains(key) {
+                    evidenceDisclosure(key: key, records: records)
+                }
             }
         }
+    }
+
+    // MARK: - Per-fact evidence expander (applied on top; researched buckets nested)
+
+    /// Which record types feed a given fact row, so its expander shows the
+    /// relevant evidence. Census/baptism corroborate a birth; burial/probate a
+    /// death — and both carry the age that discriminates namesakes.
+    private func recordTypes(for field: ProfileField) -> Set<RecordType> {
+        switch field {
+        case .birthDate, .birthLocation: return [.birth, .census, .baptism, .christening]
+        case .deathDate, .deathLocation: return [.death, .burial, .probate]
+        case .marriedSurname:            return [.marriage]
+        default:                          return []
+        }
+    }
+
+    private func evidenceRecords(for field: ProfileField) -> [ProfileSourcesLedger.RecordDetail] {
+        let types = recordTypes(for: field)
+        guard !types.isEmpty else { return [] }
+        return factRecords.filter { types.contains($0.recordType) }
+    }
+
+    private func reloadFactRecords() {
+        guard let db = appState.currentDatabase else { factRecords = []; return }
+        factRecords = (try? ProfileSourcesLedger.allRecords(for: profile.id, db: db, profile: profile)) ?? []
+    }
+
+    private func toggleEvidenceKey(_ key: String) {
+        if expandedEvidenceKeys.contains(key) { expandedEvidenceKeys.remove(key) }
+        else { expandedEvidenceKeys.insert(key) }
+    }
+
+    private func toggleEvidenceBucket(_ key: String) {
+        if expandedEvidenceBuckets.contains(key) { expandedEvidenceBuckets.remove(key) }
+        else { expandedEvidenceBuckets.insert(key) }
+    }
+
+    /// The chevron + count that opens a context's evidence. Shared by the fact
+    /// rows, the spouse rows (marriage), and the census row.
+    @ViewBuilder
+    private func evidenceTrigger(key: String, records: [ProfileSourcesLedger.RecordDetail]) -> some View {
+        if !records.isEmpty {
+            let open = expandedEvidenceKeys.contains(key)
+            Button { toggleEvidenceKey(key) } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                    Text("\(records.count)")
+                    Image(systemName: open ? "chevron.up" : "chevron.down")
+                }
+                .font(AppTypography.badge)
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Records behind this — applied on top, then researched / rejected")
+        }
+    }
+
+    /// Applied record(s) on top, then the three research buckets as nested
+    /// disclosures: researched-not-applied, user-rejected, scorer-rejected.
+    @ViewBuilder
+    private func evidenceDisclosure(key: String, records: [ProfileSourcesLedger.RecordDetail]) -> some View {
+        let applied = records.filter { $0.standing == .applied }
+        VStack(alignment: .leading, spacing: 6) {
+            if applied.isEmpty {
+                Text("Nothing applied yet")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.tertiary)
+                    .italic()
+            } else {
+                ForEach(applied) { recordLine($0, showPill: true) }
+            }
+            evidenceBucket(key: key, label: "Researched — not applied",
+                           standing: .researched, tint: .blue,
+                           records: records.filter { $0.standing == .researched })
+            evidenceBucket(key: key, label: "You rejected",
+                           standing: .userRejected, tint: .gray,
+                           records: records.filter { $0.standing == .userRejected })
+            evidenceBucket(key: key, label: "Scorer rejected (impossible)",
+                           standing: .scorerRejected, tint: .orange,
+                           records: records.filter { $0.standing == .scorerRejected })
+        }
+        .padding(.top, 4)
+        .padding(.leading, 4)
+    }
+
+    /// One nested, collapsible research bucket. Hidden entirely when empty.
+    @ViewBuilder
+    private func evidenceBucket(key: String, label: String,
+                                standing: ProfileSourcesLedger.Standing, tint: Color,
+                                records: [ProfileSourcesLedger.RecordDetail]) -> some View {
+        if !records.isEmpty {
+            let bkey = "\(key)|\(standing.rawValue)"
+            let open = expandedEvidenceBuckets.contains(bkey)
+            VStack(alignment: .leading, spacing: 4) {
+                Button { toggleEvidenceBucket(bkey) } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: open ? "chevron.down" : "chevron.right")
+                        Text("\(label) (\(records.count))")
+                    }
+                    .font(AppTypography.badge)
+                    .foregroundStyle(tint)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if open {
+                    let cap = 20
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(records.prefix(cap)) { recordLine($0, showPill: false) }
+                        // A pending bucket can hold hundreds of namesake leads —
+                        // capping keeps the view tree bounded, and bulk-review
+                        // belongs in Triage, not this in-context expander.
+                        if records.count > cap {
+                            Button { appState.requestSidebarTab = .triage } label: {
+                                Text("Showing \(cap) of \(records.count) — review all in Triage →")
+                                    .font(AppTypography.badge)
+                                    .foregroundStyle(.blue)
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.top, 2)
+                        }
+                    }
+                    .padding(.leading, 12)
+                }
+            }
+        }
+    }
+
+    /// One record: type · source · (age→birth year) over its citation.
+    @ViewBuilder
+    private func recordLine(_ rec: ProfileSourcesLedger.RecordDetail, showPill: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                if showPill { standingPill(rec.standing) }
+                Text(rec.recordType.rawValue.capitalized)
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.secondary)
+                Text(rec.sourceID.uppercased())
+                    .font(AppTypography.sourceBadge)
+                    .foregroundStyle(.tertiary)
+                if let age = rec.ageDetail {
+                    Text(age)
+                        .font(AppTypography.badge.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
+            }
+            Text(rec.citation)
+                .font(AppTypography.badge)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            if let note = rec.reconcileNote {
+                Text(note)
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.tertiary)
+                    .italic()
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 10) {
+                SourceVerifyLink(sourceID: rec.sourceID, citationURL: rec.citationURL)
+                // Apply in context — for records not already on the profile.
+                if rec.standing != .applied {
+                    Button {
+                        appState.applyEvidenceRecord(sourceRecordID: rec.id, profileID: profile.id)
+                        reloadFactRecords()
+                    } label: {
+                        Label("Apply", systemImage: "checkmark.circle")
+                            .font(AppTypography.badge)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.green)
+                    .help("Apply this record: fills any blank fields, refines where allowed, and attaches its citation — your existing more-precise values are kept.")
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func standingPill(_ standing: ProfileSourcesLedger.Standing) -> some View {
+        let (text, tint): (String, Color) = switch standing {
+        case .applied:        ("Applied", .green)
+        case .researched:     ("Researched", .blue)
+        case .userRejected:   ("You rejected", .gray)
+        case .scorerRejected: ("Impossible", .orange)
+        }
+        Text(text)
+            .font(AppTypography.badge)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(tint.opacity(0.15), in: .capsule)
     }
 
     /// Render the field value with confidence styling. Tentative fields get a
@@ -1330,16 +1561,48 @@ struct SharedProfileLayout: View {
     /// `applyMarriageToSubjectSpouseEdge` — show up on each spouse line.
     /// Without this, the enrichment Apply path silently writes to the edge
     /// but the user has no visible confirmation it happened.
+    /// Census evidence, rendered by the family (a census is the household).
+    /// Only appears when census records exist for the profile.
+    @ViewBuilder
+    private var censusEvidenceRow: some View {
+        let census = factRecords.filter { $0.recordType == .census }
+        if !census.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("Census")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    evidenceTrigger(key: "census", records: census)
+                }
+                if expandedEvidenceKeys.contains("census") {
+                    evidenceDisclosure(key: "census", records: census)
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private func spousesSection(for subject: Profile, snapshot: FamilyGraphSnapshot) -> some View {
         let spouseEdges = snapshot.relationships.filter { rel in
             rel.type == .spouse && (rel.from == subject.id || rel.to == subject.id)
         }
+        let marriageRecords = factRecords.filter { $0.recordType == .marriage }
         if !spouseEdges.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Spouses")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("Spouses")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    // Marriage evidence for the whole section (one person's
+                    // marriage records; kept section-level to avoid guessing
+                    // which record belongs to which spouse on remarriages).
+                    evidenceTrigger(key: "marriage", records: marriageRecords)
+                }
+                if expandedEvidenceKeys.contains("marriage") {
+                    evidenceDisclosure(key: "marriage", records: marriageRecords)
+                }
                 ForEach(spouseEdges, id: \.id) { edge in
                     let otherID = edge.from == subject.id ? edge.to : edge.from
                     if let spouse = snapshot.profiles[otherID] {
