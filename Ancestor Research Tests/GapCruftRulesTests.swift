@@ -280,4 +280,64 @@ struct GapCruftRulesTests {
         let b = profile(id: "b", first: "George", last: "Cauldwell")
         #expect(!DuplicateDetectionRule().evaluate(profile: a, snapshot: snapshot(a, b)).isEmpty)
     }
+
+    // MARK: - InvalidDateRule
+
+    @Test func invalidDateFiresWhenNoYearReadable() {
+        let p = profile(first: "Test", last: "Person", birth: "nineteenth century")
+        let r = InvalidDateRule().evaluate(profile: p, snapshot: snapshot(p))
+        #expect(r.count == 1)
+        #expect(r.first?.severity == .warning)
+    }
+
+    @Test func invalidDateFiresOnUnrecognisedMonthOrDay() {
+        // The year (1987) reads fine, but "Julie"/"Seventeenth" were dropped —
+        // the wider coverage this rule is meant to catch.
+        let p = profile(first: "Test", last: "Person", birth: "Seventeenth of Julie 1987")
+        #expect(!InvalidDateRule().evaluate(profile: p, snapshot: snapshot(p)).isEmpty)
+    }
+
+    @Test func invalidDateFiresOnFutureYear() {
+        let p = profile(first: "Test", last: "Person", birth: "2099")
+        #expect(!InvalidDateRule().evaluate(profile: p, snapshot: snapshot(p)).isEmpty)
+    }
+
+    @Test func invalidDateSilentOnCleanFullDate() {
+        for good in ["21 Jul 1916", "18 July 2006", "1 January 1900", "29 Feb 1904"] {
+            let p = profile(first: "Test", last: "Person", birth: good)
+            #expect(InvalidDateRule().evaluate(profile: p, snapshot: snapshot(p)).isEmpty, "“\(good)” should be clean")
+        }
+    }
+
+    @Test func invalidDateFiresOnImpossibleDay() {
+        for bad in ["31 Feb 1900", "45 Jul 2006", "0 Jan 1900"] {
+            let p = profile(first: "Test", last: "Person", birth: bad)
+            #expect(!InvalidDateRule().evaluate(profile: p, snapshot: snapshot(p)).isEmpty, "“\(bad)” should flag")
+        }
+    }
+
+    @Test func invalidDateSilentOnValidYear() {
+        let p = profile(first: "Test", last: "Person", birth: "1887")
+        #expect(InvalidDateRule().evaluate(profile: p, snapshot: snapshot(p)).isEmpty)
+    }
+
+    @Test func invalidDateSilentOnQualifiedYear() {
+        let p = profile(first: "Test", last: "Person", birth: "ABT 1880")
+        #expect(InvalidDateRule().evaluate(profile: p, snapshot: snapshot(p)).isEmpty)
+    }
+
+    @Test func invalidDateSilentWhenNoDate() {
+        let p = profile(first: "Test", last: "Person")
+        #expect(InvalidDateRule().evaluate(profile: p, snapshot: snapshot(p)).isEmpty)
+    }
+
+    // MARK: - GuidedDateField canonical output
+
+    @Test func guidedDateCanonicalFormsAllParse() {
+        // Every string the guided picker emits must read back as a year — else
+        // it would trip UnparseableDateRule the moment it's entered.
+        for s in ["21 Jul 1916", "Jul 1916", "1916", "abt 1880", "bef 1890", "aft 1890", "1865-1867"] {
+            #expect(GenealogicalDate(parsing: s).bestYear != nil, "“\(s)” should read as a year")
+        }
+    }
 }

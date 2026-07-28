@@ -72,6 +72,7 @@ public nonisolated enum AuditRules {
         MissingDeathDateRule(),
         MissingBirthLocationRule(),
         MissingBioRule(),
+        InvalidDateRule(),
         DuplicateDetectionRule(),
         ExcessParentEdgesRule(),
         CensusRelationshipRule(),
@@ -810,6 +811,119 @@ public nonisolated struct MissingBioRule: AuditRuleDefinition {
             )]
         }
         return []
+    }
+}
+
+// MARK: - Invalid or Unclear Date
+
+/// A date is filled in but can't be fully, sensibly understood — no readable
+/// year, a year in the future, or leftover text (a misspelt month, a word-form
+/// day) the parser didn't recognise. Such dates are silently ignored or
+/// misread by every year-range check, so they look like evidence but aren't.
+/// Covers the profile's birth/death and every life event's date.
+public nonisolated struct InvalidDateRule: AuditRuleDefinition {
+    public init() {}
+
+    public let id = "invalidDate"
+    public let displayName = "Invalid or unclear date"
+    public let description = "A date is filled in but can't be fully understood — no readable year, a future year, or unrecognised text — so date checks ignore or misread it."
+    public let fireCondition = "A date field's text doesn't resolve to a sensible, fully-recognised date."
+    public let warningCondition: String? = nil
+    public let workedExample = "\"Seventeenth of Julie 1987\" — the year reads as 1987 but the day/month are unrecognised."
+    public let defaultSeverity = Severity.warning
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        var results: [AuditResult] = []
+
+        func check(_ date: GenealogicalDate?, _ label: String) {
+            guard let date, let reason = Self.problem(with: date) else { return }
+            results.append(AuditResult(
+                id: UUID(), profileID: profile.id, profileName: profile.displayName,
+                severity: .warning, category: .issue, ruleID: id,
+                message: "\(profile.displayName) — \(label) date \(reason)"))
+        }
+
+        check(profile.birthDate, "birth")
+        check(profile.deathDate, "death")
+        for event in snapshot.lifeEvents[profile.id] ?? [] {
+            let kind = event.type.displayName.lowercased()
+            check(event.date, kind)
+            check(event.endDate, "\(kind) end")
+        }
+        return results
+    }
+
+    /// Why a date is invalid/unclear, or nil when it reads cleanly. Public so
+    /// the guided date field and tests can share the exact same judgement.
+    public static func problem(with date: GenealogicalDate) -> String? {
+        let text = date.original.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        guard let year = date.bestYear else {
+            return "“\(text)” couldn’t be read as a year, so research and date checks ignore it."
+        }
+        let currentYear = Calendar.current.component(.year, from: Date())
+        if year > currentYear + 1 {
+            return "“\(text)” reads as a future year (\(year)) — likely a typo."
+        }
+        if let stray = firstUnrecognisedWord(text) {
+            return "“\(text)” contains text that wasn’t understood (“\(stray)”) — only the year (\(year)) was read; check the day and month."
+        }
+        if let dayIssue = impossibleDay(text) {
+            return "“\(text)” — \(dayIssue)"
+        }
+        return nil
+    }
+
+    private static let monthNames: [String: Int] = [
+        "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
+        "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7, "july": 7,
+        "aug": 8, "august": 8, "sep": 9, "sept": 9, "september": 9,
+        "oct": 10, "october": 10, "nov": 11, "november": 11, "dec": 12, "december": 12,
+    ]
+    private static let monthAbbrev = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    private static let daysInMonth = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+    /// When a month name and a day number are both present, flag a day that
+    /// can't exist for that month (31 Feb, 45 Jul, day 0) — the kind of typo a
+    /// human resolves at a glance.
+    private static func impossibleDay(_ text: String) -> String? {
+        let words = text.lowercased().split { !$0.isLetter }.map(String.init)
+        guard let month = words.compactMap({ monthNames[$0] }).first else { return nil }
+        let ns = text as NSString
+        let re = try? NSRegularExpression(pattern: #"\b(\d{1,2})\b"#)
+        let days = (re?.matches(in: text, range: NSRange(location: 0, length: ns.length)) ?? [])
+            .compactMap { Int(ns.substring(with: $0.range)) }
+        guard let day = days.first else { return nil }
+        if day < 1 || day > daysInMonth[month - 1] {
+            return "the day (\(day)) is impossible for \(monthAbbrev[month - 1])."
+        }
+        return nil
+    }
+
+    /// Words the parser legitimately understands in a date — months (abbrev +
+    /// full), qualifiers, and filler. Anything else purely-alphabetic is a
+    /// misspelt month or a word-form day the parser silently dropped.
+    private static let knownWords: Set<String> = [
+        "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec",
+        "january", "february", "march", "april", "june", "july", "august",
+        "september", "october", "november", "december",
+        "abt", "about", "c", "ca", "cal", "calc", "circa", "est", "estimated",
+        "bef", "before", "aft", "after", "bet", "between", "btw", "and", "to", "from",
+        "around", "approx", "approximately", "q1", "q2", "q3", "q4", "quarter", "qtr",
+        "of", "the", "on", "in",
+    ]
+
+    /// The first purely-alphabetic token that isn't a recognised date word.
+    /// Only judges pure-letter tokens — anything with a digit ("17th", "1880s",
+    /// "c1900", the year itself) is ambiguous and deliberately left alone to
+    /// avoid false positives.
+    private static func firstUnrecognisedWord(_ text: String) -> String? {
+        let tokens = text.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        for tok in tokens where !tok.isEmpty && tok.allSatisfy(\.isLetter) {
+            if !knownWords.contains(tok) { return tok }
+        }
+        return nil
     }
 }
 
