@@ -10,14 +10,15 @@ struct CensusParentUnlockAuditTests {
     /// A census evidence row for the subject, as research surfaces it.
     private func census(id: String = UUID().uuidString, year: Int, age: Int?,
                         birthYear: Int? = nil, birthCounty: String? = nil,
-                        birthPlace: String? = nil, district: String? = nil) -> EvidenceRecord {
+                        birthPlace: String? = nil, district: String? = nil,
+                        verdict: RecordVerdict = .lead) -> EvidenceRecord {
         let common = RecordCommon(id: "freecen_census_\(id)", sourceID: "freecen", rawFields: [:])
         let rec = CensusRecord(common: common, censusYear: year, age: age, birthYear: birthYear,
                                birthPlace: birthPlace, birthCounty: birthCounty, district: district)
         return EvidenceRecord(
             id: EvidenceRecord.compositeID(profileID: "@G@", sourceRecordID: common.id),
             profileID: "@G@", sourceID: "freecen", sourceRecordID: common.id,
-            recordType: .census, verdict: .lead, record: .census(rec),
+            recordType: .census, verdict: verdict, record: .census(rec),
             citationFull: "cite", citationURL: nil,
             scoredAt: Date(timeIntervalSince1970: 0), userStatus: .unreviewed)
     }
@@ -84,6 +85,23 @@ struct CensusParentUnlockAuditTests {
         let f = CensusParentUnlockAudit.finding(
             profileID: "@G@", profileName: "George Keyworth",
             birthYear: 1838, birthLocation: "Nottinghamshire", hasParents: false, evidence: [])
+        #expect(f == nil)
+    }
+
+    @Test func excludesRecordsTheScorerRuledImpossible() {
+        // A same-county childhood-window census that would otherwise WIN, but the
+        // scorer already killed it as .impossible → it must not be a candidate.
+        let cands = CensusParentUnlockAudit.candidates(from: [
+            census(id: "killed", year: 1851, age: 13, birthYear: 1835,
+                   birthCounty: "Nottinghamshire", verdict: .impossible)])
+        #expect(cands.isEmpty)
+
+        // And the finding falls silent when the only in-window census is impossible.
+        let f = CensusParentUnlockAudit.finding(
+            profileID: "@G@", profileName: "George Keyworth",
+            birthYear: 1838, birthLocation: "Nottinghamshire", hasParents: false,
+            evidence: [census(id: "killed", year: 1851, age: 13, birthYear: 1835,
+                              birthCounty: "Nottinghamshire", verdict: .impossible)])
         #expect(f == nil)
     }
 

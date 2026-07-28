@@ -18,9 +18,14 @@ nonisolated enum CensusParentUnlockAudit {
     /// where the person was *born*, so the census-stated birth county is the
     /// county-match signal (fall back to birthplace, then residence). The implied
     /// birth year comes from the census's own birth year or `censusYear − age`.
+    ///
+    /// Records the scorer already ruled `.impossible` (wrong sex/era/geography
+    /// namesakes — the bulk of a frontier ancestor's census leads) are excluded:
+    /// the ranker disambiguates among the *survivors*, it does not re-litigate
+    /// what the four-gate scorer already killed.
     static func candidates(from evidence: [EvidenceRecord]) -> [ChildhoodCensusRanker.Candidate] {
         evidence.compactMap { e in
-            guard case .census(let c) = e.record else { return nil }
+            guard e.verdict != .impossible, case .census(let c) = e.record else { return nil }
             let implied = c.birthYear ?? c.age.map { c.censusYear - $0 }
             let place = c.birthCounty ?? c.birthPlace ?? c.district ?? c.parish
             return ChildhoodCensusRanker.Candidate(
