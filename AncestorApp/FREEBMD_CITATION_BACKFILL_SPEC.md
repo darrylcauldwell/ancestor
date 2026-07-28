@@ -93,6 +93,45 @@ For records the user wants filled now without a full re-research:
    demonstrably breaker-aware and resumable. Do not ship a "backfill all" that
    can burn the daily FreeBMD budget in one run.
 
+## Change 5 — Targeted per-item enrichment (queued; supersedes Change 4's approach)
+
+**Live learning (2026-07-28).** Change 4's bulk button (whole-tree re-research
+scoped to the flagged profiles) did **14 of 54** before FreeBMD **429-throttled**
+and the circuit-breaker walked to **trip #3 (900s pause)**. Root cause: full
+re-research **fans out** — ~4 FreeBMD requests per profile (birth/marriage/death +
+surname-variant + spouse axes) because it's *discovering* records. That burns the
+daily FreeBMD budget in ~14 profiles.
+
+But a backfill isn't discovery — **we already hold the exact record** (surname,
+given, quarter/year, district, vol, page are all in the stored evidence). So we
+can **re-locate, not discover**: **one narrow FreeBMD query per link-less record**
+(surname + given + exact year + type), match on **vol/page**, take the link + MMN.
+No year-windows, no variants, no axes, no clustering — **~1 request/record vs
+~4/profile**, the 3–4× saving that clears all 40 in one daily window.
+
+**Surface it in Health, per-item (owner direction 2026-07-28).** The gap is a
+data-quality gap and belongs among Health's findings, not buried as a Research
+button. List the flagged records as **per-item Health tasks** the user works
+through one by one, each with an **"Enrich from FreeBMD"** action that fires the
+single targeted query.
+
+**The cascade is the point, not just the link.** Enriching a *birth* captures the
+**mother's maiden name**, which feeds `HypothesisEngine+ParentInferred` — so a
+one-click enrichment can surface **"/Lees/ → /Beresford/" parent leads → new
+relatives → new findings** (the Nora chain). So each Health item is a small
+research unlock, not cosmetic link-tidying.
+
+Shape:
+- **Pure core** (`FreeBMDCitationAudit.enrichmentUpdates(flagged:results:)`):
+  given a profile's link-less applied records and a fresh FreeBMD result set,
+  produce the `(evidenceID, url, mmn)` updates by vol/page match. Fully testable,
+  no I/O — built now.
+- **Live lookup + Health action + cascade trigger**: one narrow `RecordQuery` per
+  record via `FreeBMDSource`, apply the updates, then run parent inference on the
+  enriched birth. **Built in the FreeBMD window where each query can be verified**
+  against a live 200 — blind scraper code is what this whole spec exists to undo.
+- Retire Change 4's whole-tree bulk button once this lands (keep the audit).
+
 ## Non-goals
 
 - Upgrading `r=&d=` links to the "official permanent" `cite=` token form (only

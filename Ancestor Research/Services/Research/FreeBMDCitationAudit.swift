@@ -92,4 +92,58 @@ nonisolated enum FreeBMDCitationAudit {
         }
         return updates
     }
+
+    // MARK: - Change 5 — targeted enrichment from a fresh FreeBMD lookup
+
+    /// One record's enrichment from a targeted FreeBMD re-lookup: the citation
+    /// link and, for births, the mother's maiden name.
+    struct EnrichmentUpdate: Equatable, Sendable {
+        let evidenceID: String
+        let citationURL: String
+        /// The MMN the freshly-fetched birth row carried — feeds parent
+        /// inference. nil for non-births or when the row had none.
+        let mothersMaidenName: String?
+    }
+
+    /// The heart of the targeted backfill (Change 5): given a profile's
+    /// link-less applied FreeBMD records and the `[SourceRecord]` a *narrow*
+    /// FreeBMD re-lookup returned (parsed by the current source, so each carries
+    /// `detailURL` + MMN), match each flagged record to its fresh sibling by GRO
+    /// entry (recordType + vol + page) and produce the updates. Pure — no I/O;
+    /// the caller runs the query and persists. Because we already hold the exact
+    /// record, the query is a re-location, not a fan-out discovery.
+    static func enrichmentUpdates(
+        flagged: [EvidenceRecord],
+        results: [SourceRecord]
+    ) -> [EnrichmentUpdate] {
+        func groKey(type: String, _ record: SourceRecord) -> String? {
+            let (vol, page) = volPage(record)
+            guard let vol = vol?.trimmingCharacters(in: .whitespaces), !vol.isEmpty,
+                  let page = page?.trimmingCharacters(in: .whitespaces), !page.isEmpty
+            else { return nil }
+            return "\(type)|\(vol)|\(page)"
+        }
+
+        // Index the fresh results that actually carry a link, by GRO entry.
+        var link: [String: (url: String, mmn: String?)] = [:]
+        for r in results {
+            guard let url = r.common.detailURL?.trimmingCharacters(in: .whitespaces), !url.isEmpty,
+                  let k = groKey(type: r.recordType.rawValue, r) else { continue }
+            if link[k] == nil {
+                let mmn: String? = { if case .birth(let b) = r { return b.mothersMaidenName }; return nil }()
+                link[k] = (url, mmn)
+            }
+        }
+
+        var updates: [EnrichmentUpdate] = []
+        for e in flagged
+        where e.sourceID == "freebmd"
+            && e.userStatus == .savedAsLead
+            && (e.citationURL?.trimmingCharacters(in: .whitespaces).isEmpty ?? true) {
+            guard let k = groKey(type: e.recordType.rawValue, e.record), let hit = link[k] else { continue }
+            updates.append(EnrichmentUpdate(
+                evidenceID: e.id, citationURL: hit.url, mothersMaidenName: hit.mmn))
+        }
+        return updates
+    }
 }

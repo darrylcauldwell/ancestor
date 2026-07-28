@@ -118,4 +118,46 @@ struct FreeBMDCitationAuditTests {
                              status: .savedAsLead, vol: "7b", page: "1902")
         #expect(FreeBMDCitationAudit.linkReconciliation(evidence: [unreviewed, donor]).isEmpty)
     }
+
+    // MARK: - Change 5 — targeted enrichment from a fresh FreeBMD lookup
+
+    /// A fresh FreeBMD result row (as the current parser produces it): carries a
+    /// detailURL + MMN + vol/page.
+    private func result(vol: String = "7b", page: String = "1902",
+                        url: String?, mmn: String? = "Lees") -> SourceRecord {
+        let common = RecordCommon(id: "freebmd_birth_\(vol)_\(page)_\(UUID().uuidString)",
+                                  sourceID: "freebmd", detailURL: url, rawFields: [:])
+        return .birth(BirthRecord(common: common, birthYear: 1920, volume: vol, page: page,
+                                  mothersMaidenName: mmn))
+    }
+
+    @Test func enrichmentMatchesByVolPageAndTakesLinkAndMMN() {
+        let flagged = evidence(sourceID: "freebmd", citationURL: nil, vol: "7b", page: "1902")
+        let fresh = result(vol: "7b", page: "1902",
+                           url: "https://www.freebmd.org.uk/cgi/information.pl?r=143220917:8511&d=bmd_1",
+                           mmn: "Lees")
+        let updates = FreeBMDCitationAudit.enrichmentUpdates(flagged: [flagged], results: [fresh])
+        #expect(updates.count == 1)
+        #expect(updates.first?.evidenceID == flagged.id)
+        #expect(updates.first?.citationURL.contains("143220917:8511") == true)
+        #expect(updates.first?.mothersMaidenName == "Lees")   // the cascade seed
+    }
+
+    @Test func enrichmentIgnoresResultsForADifferentGROEntry() {
+        let flagged = evidence(sourceID: "freebmd", citationURL: nil, vol: "7b", page: "1902")
+        let wrongEntry = result(vol: "3a", page: "88", url: "https://x")
+        #expect(FreeBMDCitationAudit.enrichmentUpdates(flagged: [flagged], results: [wrongEntry]).isEmpty)
+    }
+
+    @Test func enrichmentIgnoresResultsWithNoLink() {
+        let flagged = evidence(sourceID: "freebmd", citationURL: nil, vol: "7b", page: "1902")
+        let linkless = result(vol: "7b", page: "1902", url: nil)
+        #expect(FreeBMDCitationAudit.enrichmentUpdates(flagged: [flagged], results: [linkless]).isEmpty)
+    }
+
+    @Test func enrichmentSkipsRecordsThatAlreadyHaveALink() {
+        let alreadyLinked = evidence(sourceID: "freebmd", citationURL: "https://have", vol: "7b", page: "1902")
+        let fresh = result(vol: "7b", page: "1902", url: "https://new")
+        #expect(FreeBMDCitationAudit.enrichmentUpdates(flagged: [alreadyLinked], results: [fresh]).isEmpty)
+    }
 }
