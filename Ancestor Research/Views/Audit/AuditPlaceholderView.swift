@@ -654,10 +654,26 @@ struct HealthView: View {
     /// One chip per distinct rule present, with counts, so the list can be
     /// narrowed to a single issue type (e.g. married-surname-missing) — the
     /// per-issue-type filtering that used to live in Tasks.
+    /// Worst severity per rule id, for tinting the filter chips (error > warning
+    /// > info). Plain (non-ViewBuilder) so the loop is legal.
+    private var worstSeverityByRule: [String: Severity] {
+        var out: [String: Severity] = [:]
+        for r in auditVM.filteredResults {
+            if let cur = out[r.ruleID], cur.rank >= r.severity.rank { continue }
+            out[r.ruleID] = r.severity
+        }
+        return out
+    }
+
     @ViewBuilder private var ruleFilterChips: some View {
         let counts = Dictionary(grouping: auditVM.filteredResults, by: { $0.ruleID })
             .mapValues(\.count)
             .sorted { $0.value > $1.value }
+        // Worst severity per rule → tints its chip, so the filter bar reads as a
+        // severity legend rather than a wall of identical grey capsules: a .info
+        // gap ("Missing bio") shows blue, an amber warning shows orange, an error
+        // shows red — the severity is legible before you even select the chip.
+        let severityByRule = worstSeverityByRule
         if counts.count > 1 || !backfillProposals.isEmpty || !deathAgeProposals.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -665,7 +681,7 @@ struct HealthView: View {
                         ruleFilter = nil
                     }
                     ForEach(counts, id: \.key) { rule, count in
-                        ruleChip(label: "\(prettyRule(rule)) (\(count))", selected: ruleFilter == rule) {
+                        ruleChip(label: "\(prettyRule(rule)) (\(count))", severity: severityByRule[rule], selected: ruleFilter == rule) {
                             ruleFilter = (ruleFilter == rule) ? nil : rule
                         }
                     }
@@ -688,12 +704,25 @@ struct HealthView: View {
         }
     }
 
-    @ViewBuilder private func ruleChip(label: String, selected: Bool, action: @escaping () -> Void) -> some View {
+    /// A filter chip. `severity` tints it by the worst finding the rule holds
+    /// (blue = info, orange = warning, red = error); nil (the "All" and synthetic
+    /// backfill chips) falls back to the accent colour.
+    @ViewBuilder private func ruleChip(label: String, severity: Severity? = nil, selected: Bool, action: @escaping () -> Void) -> some View {
+        let tint = severity?.color ?? Color.accentColor
         Button(action: action) {
-            Text(label)
-                .font(AppTypography.badge)
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(selected ? Color.accentColor.opacity(0.25) : Color.secondary.opacity(0.12), in: .capsule)
+            HStack(spacing: 5) {
+                if let severity {
+                    Circle().fill(severity.color).frame(width: 6, height: 6)
+                }
+                Text(label)
+                    .font(AppTypography.badge)
+                    .foregroundStyle(selected ? tint : .primary)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(selected ? tint.opacity(0.22) : tint.opacity(0.10), in: .capsule)
+            .overlay {
+                if selected { Capsule().strokeBorder(tint.opacity(0.55), lineWidth: 1) }
+            }
         }
         .buttonStyle(.plain)
     }
@@ -951,6 +980,16 @@ nonisolated extension Severity {
         case .error: .red
         case .warning: .orange
         case .info: .blue
+        }
+    }
+
+    /// error > warning > info — for picking the worst severity in a group
+    /// (e.g. tinting a rule's filter chip by the most serious finding it holds).
+    var rank: Int {
+        switch self {
+        case .error: 2
+        case .warning: 1
+        case .info: 0
         }
     }
 }
