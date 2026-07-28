@@ -13,6 +13,7 @@ struct HealthView: View {
     var onEditProfile: ((String) -> Void)? = nil
 
     @Environment(AppState.self) private var appState
+    @Environment(SourceRegistry.self) private var registry
     @State private var auditVM = AuditViewModel()
     @State private var openDisputeCount: Int?
     @State private var showDisputeList = false
@@ -204,20 +205,10 @@ struct HealthView: View {
             // `auditSummary` current after every mutation (import, edit, cleanse,
             // snooze), so this is free — no per-open recompute needed to be up to
             // date, which is why there's no manual "Re-run Audit" button.
-            if let auto = appState.auditSummary { auditVM.summary = auto }
-            // Merge DB-derived FreeBMD citation-gap findings (Change 2) into the
-            // displayed summary. Computed here — once per open, not on the hot
-            // audit path. Idempotent: the summary is reset to the maintained
-            // base immediately above before we fold these in.
-            let citationGaps = appState.freeBMDCitationGapFindings()
-            if !citationGaps.isEmpty, let base = auditVM.summary {
-                auditVM.summary = AuditSummary(
-                    errors: base.errors,
-                    warnings: base.warnings,
-                    info: base.info + citationGaps,
-                    total: base.total + citationGaps.count,
-                    profilesChecked: base.profilesChecked)
-            }
+            // Show the maintained summary with the DB-derived FreeBMD
+            // citation-gap findings (Change 2) folded in — computed here, once
+            // per open, off the hot audit path.
+            syncAuditSummary()
             backfillProposals = appState.censusBackfillProposals()
             deathAgeProposals = appState.deathAgeBackfillProposals()
         }
@@ -779,6 +770,32 @@ struct HealthView: View {
                 }
                 .buttonStyle(.glassProminent).controlSize(.mini)
             }
+        case "freebmdLinkMissing":
+            // Change 5 — targeted, budget-light: re-locate this person's FreeBMD
+            // entries by vol/page (one narrow query each) to capture the link +
+            // mother's maiden name. Stops the moment FreeBMD throttles.
+            if let db = appState.currentDatabase {
+                Button {
+                    Task {
+                        let outcome = await FreeBMDCitationEnricher.enrich(
+                            profileID: r.profileID, registry: registry, db: db)
+                        appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
+                        appState.runPostLoadAudit()
+                        refreshAudit()
+                        if outcome.throttled {
+                            appState.errorMessage = "FreeBMD is rate-limiting — enriched \(outcome.enriched) here; resume when the daily budget resets."
+                        } else if outcome.enriched > 0 {
+                            appState.successMessage = "Enriched \(outcome.enriched) FreeBMD link\(outcome.enriched == 1 ? "" : "s") for \(r.profileName) — re-research to surface any parents from the mother's maiden name."
+                        } else {
+                            appState.errorMessage = "No matching FreeBMD entry found for \(r.profileName)."
+                        }
+                    }
+                } label: {
+                    Label("Enrich from FreeBMD", systemImage: "link.badge.plus")
+                }
+                .buttonStyle(.glassProminent).controlSize(.mini)
+                .help("One narrow vol/page query per record — captures the citation link and the mother's maiden name (which can surface new parents on the next research). Gentle on FreeBMD; stops if throttled.")
+            }
         case "duplicateDetection":
             if let otherID = r.relatedProfileIDs?.first {
                 Button {
@@ -846,7 +863,22 @@ struct HealthView: View {
     /// AppState's fix methods re-run the audit and refresh `auditSummary`;
     /// re-sync the view model so the fixed finding drops off the list.
     private func refreshAudit() {
-        if let s = appState.auditSummary { auditVM.summary = s }
+        syncAuditSummary()
+    }
+
+    /// Set the displayed summary to the maintained base with the DB-derived
+    /// FreeBMD citation-gap findings (Change 2) folded in. Used by both onAppear
+    /// and every refresh, so the gaps stay visible after an enrich/merge/dismiss
+    /// rather than vanishing on the next reset.
+    private func syncAuditSummary() {
+        guard let base = appState.auditSummary else { auditVM.summary = nil; return }
+        let citationGaps = appState.freeBMDCitationGapFindings()
+        guard !citationGaps.isEmpty else { auditVM.summary = base; return }
+        auditVM.summary = AuditSummary(
+            errors: base.errors, warnings: base.warnings,
+            info: base.info + citationGaps,
+            total: base.total + citationGaps.count,
+            profilesChecked: base.profilesChecked)
     }
 
     private func promoteToQuestion(_ result: AuditResult) {

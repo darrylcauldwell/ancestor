@@ -3648,6 +3648,38 @@ nonisolated extension ProjectDatabase {
         return updates.count
     }
 
+    /// FREEBMD_CITATION_BACKFILL_SPEC Change 5 — apply a targeted enrichment to
+    /// one evidence row: set the citation link, and (for a link-less birth)
+    /// inject the mother's maiden name into `record_json` so it seeds parent
+    /// inference on the next run — the "/Lees/ → /Beresford/" cascade. The MMN
+    /// is only written when the stored birth lacks one; never overwrites.
+    func applyFreeBMDEnrichment(evidenceID: String, citationURL: String,
+                                mothersMaidenName: String?) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE evidence_records SET citation_url = ? WHERE id = ?",
+                           arguments: [citationURL, evidenceID])
+
+            guard let mmn = mothersMaidenName?.trimmingCharacters(in: .whitespaces), !mmn.isEmpty,
+                  let row = try Row.fetchOne(db,
+                      sql: "SELECT record_json FROM evidence_records WHERE id = ?",
+                      arguments: [evidenceID]),
+                  let json = row["record_json"] as String?,
+                  let data = json.data(using: .utf8),
+                  let record = try? JSONDecoder().decode(SourceRecord.self, from: data),
+                  case .birth(let b) = record,
+                  (b.mothersMaidenName ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+            else { return }
+
+            let enriched = SourceRecord.birth(BirthRecord(
+                common: b.common, birthYear: b.birthYear, birthDate: b.birthDate,
+                birthPlace: b.birthPlace, quarter: b.quarter, district: b.district,
+                volume: b.volume, page: b.page, mothersMaidenName: mmn))
+            let newJSON = Self.encodeJSON(enriched)
+            try db.execute(sql: "UPDATE evidence_records SET record_json = ? WHERE id = ?",
+                           arguments: [newJSON, evidenceID])
+        }
+    }
+
     /// Load all evidence records for a profile, newest first.
     func loadEvidenceForProfile(_ profileID: String) throws -> [EvidenceRecord] {
         try dbQueue.read { db in
