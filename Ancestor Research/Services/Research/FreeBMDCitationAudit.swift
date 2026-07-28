@@ -39,9 +39,15 @@ nonisolated enum FreeBMDCitationAudit {
         }
         message += " — re-research to backfill."
 
+        // Severity by consequence, not by tidiness: a link-only gap is cosmetic
+        // provenance (info), but a birth missing its MMN GATES new data —
+        // enriching it seeds parent inference (mother's maiden name -> parents ->
+        // new relatives), so it's an actionable warning (owner call 2026-07-28).
+        let severity: Severity = mmnMissing > 0 ? .warning : .info
+
         return AuditResult(
             profileID: profileID, profileName: profileName,
-            severity: .info, category: .gap,
+            severity: severity, category: .gap,
             ruleID: ruleID, message: message)
     }
 

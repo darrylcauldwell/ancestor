@@ -34,6 +34,16 @@ struct HealthView: View {
     }
     @State private var comparePair: ComparePair?
 
+    /// A just-completed FreeBMD enrichment — drives the launchpad dialog
+    /// (research now / open profile) instead of a dead-end "OK".
+    struct EnrichResult: Identifiable {
+        let id = UUID()
+        let profileID: String
+        let profileName: String
+        let count: Int
+    }
+    @State private var enrichResult: EnrichResult?
+
     /// Census-backfill proposals — birth years for a census subject's linked
     /// relatives, mined tree-wide. Computed once on appear (the scan reads
     /// evidence per profile, too heavy to recompute per render).
@@ -199,6 +209,29 @@ struct HealthView: View {
         }) { pair in
             CompareProfilesView(leftProfileID: pair.leftID, rightProfileID: pair.rightID,
                                 fromDuplicateReview: true)
+        }
+        // A completed enrichment is a launchpad, not a dead end: research now to
+        // see if the mother's maiden name opens new doors, or open the profile.
+        .confirmationDialog(
+            enrichResult.map { "Enriched \($0.count) FreeBMD link\($0.count == 1 ? "" : "s") for \($0.profileName)" } ?? "",
+            isPresented: Binding(get: { enrichResult != nil },
+                                 set: { if !$0 { enrichResult = nil } }),
+            titleVisibility: .visible,
+            presenting: enrichResult
+        ) { result in
+            Button("Research \(result.profileName)") {
+                // Opens the research mode/scope sheet for them — chase the MMN
+                // straight into parent inference.
+                appState.researchProfileID = result.profileID
+                enrichResult = nil
+            }
+            Button("Open \(result.profileName)") {
+                onOpenProfile?(result.profileID)
+                enrichResult = nil
+            }
+            Button("Done", role: .cancel) { enrichResult = nil }
+        } message: { _ in
+            Text("The mother's maiden name may unlock new parents — research to see if it opens doors.")
         }
         .onAppear {
             // Always show the latest maintained summary. AppState keeps
@@ -783,9 +816,14 @@ struct HealthView: View {
                         appState.runPostLoadAudit()
                         refreshAudit()
                         if outcome.throttled {
-                            appState.errorMessage = "FreeBMD is rate-limiting — enriched \(outcome.enriched) here; resume when the daily budget resets."
+                            appState.errorMessage = "FreeBMD is rate-limiting — enriched \(outcome.enriched) here; resume when it clears."
                         } else if outcome.enriched > 0 {
-                            appState.successMessage = "Enriched \(outcome.enriched) FreeBMD link\(outcome.enriched == 1 ? "" : "s") for \(r.profileName) — re-research to surface any parents from the mother's maiden name."
+                            // Not a dead-end "OK" — a launchpad: research now to see
+                            // if the mother's maiden name opens doors, or open the
+                            // profile.
+                            enrichResult = EnrichResult(
+                                profileID: r.profileID, profileName: r.profileName,
+                                count: outcome.enriched)
                         } else {
                             appState.errorMessage = "No matching FreeBMD entry found for \(r.profileName)."
                         }

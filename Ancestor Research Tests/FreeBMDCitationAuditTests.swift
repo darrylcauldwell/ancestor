@@ -73,6 +73,23 @@ struct FreeBMDCitationAuditTests {
         #expect(f?.message.contains("mother's maiden name") == false)
     }
 
+    @Test func warningSeverityWhenABirthLacksMMN() {
+        // A missing MMN gates parent inference — it unlocks new data, so it's an
+        // actionable warning, not cosmetic info.
+        let f = FreeBMDCitationAudit.finding(
+            profileID: "@P1@", profileName: "Nora",
+            evidence: [evidence(sourceID: "freebmd", citationURL: nil, mmn: nil)])
+        #expect(f?.severity == .warning)
+    }
+
+    @Test func infoSeverityWhenLinkOnlyGap() {
+        // A link gap with the MMN already present unlocks nothing new — info.
+        let f = FreeBMDCitationAudit.finding(
+            profileID: "@P1@", profileName: "Nora",
+            evidence: [evidence(sourceID: "freebmd", citationURL: nil, mmn: "Lees")])
+        #expect(f?.severity == .info)
+    }
+
     @Test func aggregatesMultipleRecordsIntoOneFinding() {
         let f = FreeBMDCitationAudit.finding(
             profileID: "@P1@", profileName: "Nora",
