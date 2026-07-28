@@ -26,8 +26,14 @@ nonisolated enum FreeBMDCitationAudit {
         guard !missing.isEmpty else { return nil }
 
         let n = missing.count
+        // The mother's maiden name only entered the GRO birth index from Sep
+        // 1911 (`ScoringRules.mothersMaidenNameStart`). A pre-1911 birth never
+        // carried one, so its absence is not a "missing" field and unlocks
+        // nothing — don't flag it (and don't let it inflate the severity below).
+        // Unknown birth year → treat conservatively as not-missing.
         let mmnMissing = missing.filter { e in
-            if case .birth(let b) = e.record {
+            if case .birth(let b) = e.record,
+               let year = b.birthYear, year >= ScoringRules.mothersMaidenNameStart {
                 return (b.mothersMaidenName ?? "").trimmingCharacters(in: .whitespaces).isEmpty
             }
             return false

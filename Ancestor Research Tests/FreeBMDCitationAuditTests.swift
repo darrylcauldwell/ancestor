@@ -9,11 +9,11 @@ struct FreeBMDCitationAuditTests {
 
     private func evidence(sourceID: String, citationURL: String?,
                           status: UserReviewStatus = .savedAsLead,
-                          mmn: String? = "Lees",
+                          mmn: String? = "Lees", birthYear: Int = 1920,
                           vol: String = "7b", page: String = "1902") -> EvidenceRecord {
         let common = RecordCommon(id: "\(sourceID)_birth_\(vol)_\(page)_\(UUID().uuidString)",
                                   sourceID: sourceID, rawFields: [:])
-        let record: SourceRecord = .birth(BirthRecord(common: common, birthYear: 1920,
+        let record: SourceRecord = .birth(BirthRecord(common: common, birthYear: birthYear,
                                                        volume: vol, page: page,
                                                        mothersMaidenName: mmn))
         return EvidenceRecord(
@@ -88,6 +88,17 @@ struct FreeBMDCitationAuditTests {
             profileID: "@P1@", profileName: "Nora",
             evidence: [evidence(sourceID: "freebmd", citationURL: nil, mmn: "Lees")])
         #expect(f?.severity == .info)
+    }
+
+    @Test func pre1911BirthWithoutMMNStaysInfo() {
+        // MMN entered the GRO index only in Sep 1911 — a Victorian birth (John
+        // Cauldwell, 1861) never carried one, so it isn't "missing" and unlocks
+        // nothing: link-only, info, no MMN claim in the message.
+        let f = FreeBMDCitationAudit.finding(
+            profileID: "@P1@", profileName: "John Cauldwell",
+            evidence: [evidence(sourceID: "freebmd", citationURL: nil, mmn: nil, birthYear: 1861)])
+        #expect(f?.severity == .info)
+        #expect(f?.message.contains("mother's maiden name") == false)
     }
 
     @Test func aggregatesMultipleRecordsIntoOneFinding() {
