@@ -1,8 +1,9 @@
 # FreeBMD Citation Link + MMN Backfill
 
-Status: **Changes 1–3 shipped** (`c194066` forward capture, `ee5ccd9` audit,
-`803fdd8` enrich-on-re-research); **Change 4 gated** on the breaker-aware
-throttle harness.
+Status: **Changes 1–4 shipped** (`c194066` forward capture, `ee5ccd9` audit,
+`803fdd8` enrich-on-re-research, `1f37c54` throttled backfill). Change 4 reuses
+the whole-tree engine, so it inherits the breaker-aware harness the gate
+required — **pending one live run to confirm end-to-end rate-limit behaviour.**
 
 ## Problem
 
