@@ -1463,6 +1463,23 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // v51 — "Not a duplicate" dismissals. DuplicateDetectionRule flags on
+        // name+birth-year similarity and over-fires on dense single-surname
+        // trees (most flagged pairs are distinct namesakes). This table records
+        // the user's per-pair "these two are different people" verdict so the
+        // rule stops re-surfacing it on every re-audit. IDs are stored
+        // canonically (a < b, enforced by the writer) so the composite primary
+        // key dedupes the two orderings of the same pair. A merge later removes
+        // one of the two profiles, at which point the row is harmlessly inert.
+        migrator.registerMigration("v51_dismissed_duplicates") { db in
+            try db.create(table: "dismissed_duplicates") { t in
+                t.column("profile_id_a", .text).notNull()
+                t.column("profile_id_b", .text).notNull()
+                t.column("dismissed_at", .datetime).notNull()
+                t.primaryKey(["profile_id_a", "profile_id_b"])
+            }
+        }
+
         return migrator
     }
 
@@ -1562,8 +1579,19 @@ nonisolated final class ProjectDatabase: Sendable {
                 lifeEvents[event.profileID, default: []].append(event)
             }
 
+            // "Not a duplicate" verdicts (v51) — carried on the snapshot so
+            // DuplicateDetectionRule skips reviewed pairs on every re-audit.
+            let dismissedRows = try Row.fetchAll(
+                db, sql: "SELECT profile_id_a, profile_id_b FROM dismissed_duplicates")
+            let dismissedPairs = Set(dismissedRows.compactMap { row -> DuplicatePairKey? in
+                guard let a: String = row["profile_id_a"],
+                      let b: String = row["profile_id_b"] else { return nil }
+                return DuplicatePairKey(a, b)
+            })
+
             return FamilyGraphSnapshot(profiles: profiles, relationships: relationships,
-                                       lifeEvents: lifeEvents)
+                                       lifeEvents: lifeEvents,
+                                       dismissedDuplicatePairs: dismissedPairs)
         }
     }
 

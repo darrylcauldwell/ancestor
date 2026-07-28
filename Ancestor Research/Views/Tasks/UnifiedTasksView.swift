@@ -635,6 +635,10 @@ private struct TaskRow: View {
         let id = UUID()
         let leftID: String
         let rightID: String
+        /// True for a duplicateDetection pair (shows "Not a duplicate"); false
+        /// for orphanStub, where the side-by-side is a stub-merge, not a
+        /// duplicate verdict.
+        var fromDuplicateReview: Bool = false
     }
 
     /// The profile whose parent links are being reviewed in the sheet.
@@ -681,10 +685,11 @@ private struct TaskRow: View {
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
-        .sheet(item: $comparePair) { pair in
+        .sheet(item: $comparePair, onDismiss: { onAuditChanged() }) { pair in
             CompareProfilesView(
                 leftProfileID: pair.leftID,
-                rightProfileID: pair.rightID
+                rightProfileID: pair.rightID,
+                fromDuplicateReview: pair.fromDuplicateReview
             )
         }
         .sheet(item: $reviewParentsTarget) { target in
@@ -774,7 +779,8 @@ private struct TaskRow: View {
                    appState.snapshot.profiles[candidateID] != nil,
                    appState.snapshot.profiles[r.profileID] != nil {
                     Button {
-                        comparePair = ComparePair(leftID: r.profileID, rightID: candidateID)
+                        comparePair = ComparePair(leftID: r.profileID, rightID: candidateID,
+                                                  fromDuplicateReview: r.ruleID == "duplicateDetection")
                     } label: {
                         Label("Compare", systemImage: "rectangle.split.2x1")
                     }

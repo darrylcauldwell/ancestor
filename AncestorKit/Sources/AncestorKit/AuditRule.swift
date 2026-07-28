@@ -833,6 +833,25 @@ public nonisolated struct DuplicateDetectionRule: AuditRuleDefinition {
         for (otherID, other) in snapshot.profiles {
             guard otherID != profile.id, otherID > profile.id else { continue }
 
+            // The user has already reviewed this pair and confirmed they are
+            // two different people — don't re-surface it on this or any future
+            // re-audit (a false positive on a dense same-surname tree). The
+            // decision persists in the snapshot's dismissed set.
+            if snapshot.dismissedDuplicatePairs.contains(DuplicatePairKey(profile.id, otherID)) {
+                continue
+            }
+
+            // Structurally impossible to be the same person: a direct
+            // parent-child edge already asserts these are two people (one is the
+            // other's parent). MergeSafety BLOCKS the merge for exactly this
+            // case — so the detector should never have proposed it. Suppress at
+            // source rather than surface a row the user can only dismiss. This
+            // catches same-named father/son pairs in a generational naming chain
+            // (e.g. George Keyworth b.1838 → his son George b.1877).
+            if hasDirectParentChildEdge(profile.id, otherID, snapshot: snapshot) {
+                continue
+            }
+
             let score = similarityScore(profile, other)
             if score >= 0.7 {
                 results.append(AuditResult(
@@ -869,7 +888,21 @@ public nonisolated struct DuplicateDetectionRule: AuditRuleDefinition {
         // Birth year overlap corroborates; disjoint years positively DISTINGUISH.
         var datesConflict = false
         if let birthA = a.birthDate, let birthB = b.birthDate {
-            if rangesOverlap(birthA, birthB) { score += 0.3 } else { datesConflict = true }
+            if rangesOverlap(birthA, birthB) {
+                score += 0.3
+            } else {
+                datesConflict = true
+                // Two DATED profiles whose birth years are far apart cannot be
+                // the same person misrecorded — census ages and estimates vary
+                // by a few years, never by a generation. Beyond the gap ceiling
+                // they positively distinguish, so this is never a duplicate
+                // (e.g. George Keyworth 1877 vs 1904, or Lily 1907 vs 2012).
+                // An exact same-name pair otherwise pins at exactly 0.70 and
+                // fires regardless of the date gap — this is what stops that.
+                if let gap = birthYearGap(birthA, birthB), gap > Self.distinctBirthYearGap {
+                    return 0
+                }
+            }
         }
 
         // Strong-name duplicate signal without corroborating dates: a near-exact
@@ -883,6 +916,34 @@ public nonisolated struct DuplicateDetectionRule: AuditRuleDefinition {
         }
 
         return score
+    }
+
+    /// Birth-year gap beyond which two DATED profiles cannot be the same person
+    /// misrecorded. Census ages and estimates drift a few years at most; a
+    /// larger gap is a generational distinction, not a transcription variance.
+    /// Deliberately generous (well above MergeSafety's ±2 "same person" band) so
+    /// genuine duplicates recorded with fuzzy dates are never silently dropped —
+    /// only clear-cut different-generation pairs are.
+    static let distinctBirthYearGap = 10
+
+    /// Years between two disjoint birth-date ranges (0 if they overlap or either
+    /// is unbounded/undated). Uses `bestYear` so single years and estimate
+    /// ranges compare on the same footing.
+    private func birthYearGap(_ a: GenealogicalDate, _ b: GenealogicalDate) -> Int? {
+        guard let ay = a.bestYear, let by = b.bestYear else { return nil }
+        return abs(ay - by)
+    }
+
+    /// True when `a` and `b` are directly linked as parent and child (either
+    /// direction). Mirrors MergeSafety's hard block so the detector and the
+    /// merge guard agree on what "structurally impossible to be one person"
+    /// means. Grandparent/uncle links are NOT direct edges and fall to the
+    /// date-gap suppression instead.
+    private func hasDirectParentChildEdge(_ a: String, _ b: String, snapshot: FamilyGraphSnapshot) -> Bool {
+        snapshot.relationships.contains { r in
+            r.type == .parent &&
+            ((r.from == a && r.to == b) || (r.from == b && r.to == a))
+        }
     }
 
     private func rangesOverlap(_ a: GenealogicalDate, _ b: GenealogicalDate) -> Bool {

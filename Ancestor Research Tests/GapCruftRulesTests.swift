@@ -175,4 +175,109 @@ struct GapCruftRulesTests {
         let b = profile(id: "b", first: "Florence", last: "Keyworth")
         #expect(DuplicateDetectionRule().evaluate(profile: a, snapshot: snapshot(a, b)).isEmpty)
     }
+
+    // MARK: - "Not a duplicate" dismissals (v51)
+
+    /// A snapshot with a set of dismissed pairs — mirrors what the project
+    /// loader (`buildSnapshot`) hands the rule after the user marks a pair
+    /// "not a duplicate".
+    private func snapshot(
+        dismissing dismissed: Set<DuplicatePairKey>,
+        _ profiles: Profile...
+    ) -> FamilyGraphSnapshot {
+        FamilyGraphSnapshot(
+            profiles: Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) }),
+            relationships: [],
+            dismissedDuplicatePairs: dismissed)
+    }
+
+    @Test func dismissedPairStaysGoneAfterReAudit() {
+        // The Glays/Gladys pair fires normally...
+        let a = profile(id: "a", first: "Glays", last: "Cauldwell")
+        let b = profile(id: "b", first: "Gladys", last: "Cauldwell")
+        #expect(!DuplicateDetectionRule().evaluate(profile: a, snapshot: snapshot(a, b)).isEmpty)
+
+        // ...but once the user marks them "not a duplicate", re-auditing the
+        // same profiles emits nothing — the verdict survives the re-run.
+        let dismissed = snapshot(dismissing: [DuplicatePairKey("a", "b")], a, b)
+        #expect(DuplicateDetectionRule().evaluate(profile: a, snapshot: dismissed).isEmpty)
+    }
+
+    @Test func dismissalIsPairSpecificNotRuleWide() {
+        // Dismissing one pair must not silence a DIFFERENT genuine duplicate —
+        // the whole point of per-pair suppression over snoozing the rule.
+        let a = profile(id: "a", first: "Glays", last: "Cauldwell")
+        let b = profile(id: "b", first: "Gladys", last: "Cauldwell")
+        let c = profile(id: "c", first: "Mabel", last: "Wheeldon")
+        let d = profile(id: "d", first: "Mabel", last: "Wheeldon")
+
+        let snap = snapshot(dismissing: [DuplicatePairKey("a", "b")], a, b, c, d)
+        // a↔b suppressed…
+        #expect(DuplicateDetectionRule().evaluate(profile: a, snapshot: snap).isEmpty)
+        // …c↔d still flagged.
+        #expect(!DuplicateDetectionRule().evaluate(profile: c, snapshot: snap).isEmpty)
+    }
+
+    @Test func dismissalIsOrderInsensitive() {
+        // The rule reports a pair from the alphabetically-first profile, so the
+        // dismissal key must match whichever order it was recorded in.
+        let a = profile(id: "a", first: "Glays", last: "Cauldwell")
+        let b = profile(id: "b", first: "Gladys", last: "Cauldwell")
+        // Recorded as (b, a) — canonicalises to (a, b) and still suppresses.
+        let snap = snapshot(dismissing: [DuplicatePairKey("b", "a")], a, b)
+        #expect(DuplicateDetectionRule().evaluate(profile: a, snapshot: snap).isEmpty)
+    }
+
+    @Test func duplicatePairKeyCanonicalisesBothOrderings() {
+        #expect(DuplicatePairKey("b", "a") == DuplicatePairKey("a", "b"))
+        #expect(DuplicatePairKey("b", "a").hashValue == DuplicatePairKey("a", "b").hashValue)
+        let key = DuplicatePairKey("z", "a")
+        #expect(key.a == "a" && key.b == "z")
+    }
+
+    // MARK: - Structural / date suppression (generational namesake chains)
+
+    private func parentEdge(parent: String, child: String) -> Relationship {
+        Relationship(id: UUID(), from: parent, to: child, type: .parent,
+                     role: .father, subtype: .biological,
+                     marriageDate: nil, marriageLocation: nil, divorceDate: nil)
+    }
+
+    @Test func duplicateSuppressedWhenLinkedAsParentAndChild() {
+        // Same-named father & son in a naming chain: George Keyworth b.1838 and
+        // his son George b.1877, with a real parent→child edge. The detector
+        // must not propose a merge the safety layer would block anyway.
+        let father = profile(id: "g1838", first: "George", last: "Keyworth", birth: "1838")
+        let son = profile(id: "g1877", first: "George", last: "Keyworth", birth: "1877")
+        let snap = FamilyGraphSnapshot(
+            profiles: ["g1838": father, "g1877": son],
+            relationships: [parentEdge(parent: "g1838", child: "g1877")])
+        #expect(DuplicateDetectionRule().evaluate(profile: father, snapshot: snap).isEmpty)
+    }
+
+    @Test func duplicateSuppressedWhenBirthYearsAGenerationApart() {
+        // Exact same name, no edge between them, but born 27 years apart —
+        // beyond the same-person band. Previously pinned at exactly 0.70 and
+        // fired; now positively distinguished.
+        let a = profile(id: "g1877", first: "George", last: "Keyworth", birth: "1877")
+        let b = profile(id: "g1904", first: "George", last: "Keyworth", birth: "1904")
+        #expect(DuplicateDetectionRule().evaluate(profile: a, snapshot: snapshot(a, b)).isEmpty)
+    }
+
+    @Test func duplicateStillFiresWhenBirthYearsClose() {
+        // Regression guard: a genuine duplicate recorded with fuzzy dates (a
+        // couple of years apart, no overlap) must STILL surface — the gap
+        // ceiling is generous precisely so we don't drop these.
+        let a = profile(id: "a", first: "George", last: "Keyworth", birth: "1877")
+        let b = profile(id: "b", first: "George", last: "Keyworth", birth: "1879")
+        #expect(!DuplicateDetectionRule().evaluate(profile: a, snapshot: snapshot(a, b)).isEmpty)
+    }
+
+    @Test func duplicateStillFiresForExactNameWhenBothDateless() {
+        // Two dateless exact-name stubs are the classic import duplicate — no
+        // date gap to judge, so they must still surface for review.
+        let a = profile(id: "a", first: "George", last: "Cauldwell")
+        let b = profile(id: "b", first: "George", last: "Cauldwell")
+        #expect(!DuplicateDetectionRule().evaluate(profile: a, snapshot: snapshot(a, b)).isEmpty)
+    }
 }

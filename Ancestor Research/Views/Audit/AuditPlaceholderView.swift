@@ -190,8 +190,14 @@ struct HealthView: View {
             }
         }
         .navigationTitle("Health")
-        .sheet(item: $comparePair) { pair in
-            CompareProfilesView(leftProfileID: pair.leftID, rightProfileID: pair.rightID)
+        .sheet(item: $comparePair, onDismiss: {
+            // A merge or a "Not a duplicate" dismissal inside the sheet re-runs
+            // the audit on AppState; re-sync the view model's copy so the row
+            // drops off immediately (onAppear won't re-fire on sheet close).
+            refreshAudit()
+        }) { pair in
+            CompareProfilesView(leftProfileID: pair.leftID, rightProfileID: pair.rightID,
+                                fromDuplicateReview: true)
         }
         .onAppear {
             // Always show the latest maintained summary. AppState keeps

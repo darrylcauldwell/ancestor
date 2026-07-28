@@ -516,6 +516,48 @@ final class AppState {
         upsertAuditRuleOverride(override)
     }
 
+    /// Apply a single already-scored evidence record to its subject from the
+    /// profile's per-fact evidence expander — the same write path a cluster
+    /// Apply uses (overwrite-safe: fills nil fields, refines where the policy
+    /// allows, attaches the citation), marks the record `savedAsLead`, then
+    /// rebuilds the snapshot and re-audits. Lets the user apply a corroborating
+    /// record in context without opening the research review.
+    func applyEvidenceRecord(sourceRecordID: String, profileID: String) {
+        guard let db = currentDatabase, let profile = snapshot.profiles[profileID] else { return }
+        do {
+            let records = try db.loadEvidenceForProfile(profileID)
+            guard let evidence = records.first(where: { $0.sourceRecordID == sourceRecordID }) else { return }
+            let scored = evidence.asScoredRecord
+            _ = ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: snapshot, db: db)
+            try db.updateEvidenceUserStatus(evidenceID: evidence.id, status: .savedAsLead)
+            for event in scored.record.projectToLifeEvents(profileID: profileID) {
+                try? db.addLifeEventIfAbsent(event)
+            }
+            snapshot = try db.buildSnapshot()
+            runConflictSweep(force: true)
+            runPostLoadAudit()
+        } catch {
+            errorMessage = "Failed to apply record: \(error.localizedDescription)"
+        }
+    }
+
+    /// Record that two profiles flagged as a possible duplicate are actually
+    /// different people. Persists the pair (v51), rebuilds the snapshot so
+    /// `DuplicateDetectionRule` reads the dismissal, and re-runs the audit so
+    /// the row disappears immediately — and stays gone across future re-audits.
+    /// Order-insensitive. Distinct from snoozing the rule: this is per-pair and
+    /// permanent, so real duplicates elsewhere keep surfacing.
+    func dismissDuplicatePair(_ idX: String, _ idY: String) {
+        guard let db = currentDatabase else { return }
+        do {
+            try db.dismissDuplicatePair(idX, idY)
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+        } catch {
+            errorMessage = "Failed to mark as not a duplicate: \(error.localizedDescription)"
+        }
+    }
+
     /// Open the existing "Sample Family" project, or create-and-open it if
     /// none exists yet. Reviewer-friendly entry point: lets App Store reviewers
     /// (and first-time users) explore every feature without supplying their

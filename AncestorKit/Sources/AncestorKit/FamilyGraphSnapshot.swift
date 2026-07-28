@@ -23,6 +23,21 @@ public nonisolated enum CompletenessCheck: Hashable, Sendable {
     case hasParents
 }
 
+/// An unordered pair of profile IDs, used to record a user's "these two are
+/// NOT duplicates" decision so `DuplicateDetectionRule` stops re-surfacing the
+/// pair on every re-audit. Canonicalised on construction (`a <= b`) so the two
+/// orderings of the same pair hash and compare equal — the rule flags a pair
+/// once (from the alphabetically-first profile) and the dismissal must match
+/// regardless of which side asks.
+public nonisolated struct DuplicatePairKey: Hashable, Sendable {
+    public let a: String
+    public let b: String
+
+    public init(_ x: String, _ y: String) {
+        if x <= y { a = x; b = y } else { a = y; b = x }
+    }
+}
+
 /// Immutable snapshot of the family graph. Natively Sendable.
 /// Views receive snapshots; mutations produce new snapshots via ProjectStore.
 public nonisolated struct FamilyGraphSnapshot: Sendable {
@@ -38,11 +53,20 @@ public nonisolated struct FamilyGraphSnapshot: Sendable {
     /// and the conflict sweep read the SAME data (CL2 AC2).
     public let lifeEvents: [String: [LifeEvent]]
 
+    /// Pairs the user has explicitly marked "not a duplicate". Carried on the
+    /// snapshot (defaults empty) so `DuplicateDetectionRule` can suppress them
+    /// on every re-audit from the same data every other rule reads. The project
+    /// snapshot loader populates it from the `dismissed_duplicates` table;
+    /// lightweight construction sites (tests, importers) leave it empty.
+    public let dismissedDuplicatePairs: Set<DuplicatePairKey>
+
     public init(profiles: [String: Profile], relationships: [Relationship],
-                lifeEvents: [String: [LifeEvent]] = [:]) {
+                lifeEvents: [String: [LifeEvent]] = [:],
+                dismissedDuplicatePairs: Set<DuplicatePairKey> = []) {
         self.profiles = profiles
         self.relationships = relationships
         self.lifeEvents = lifeEvents
+        self.dismissedDuplicatePairs = dismissedDuplicatePairs
         self.siblingCache = Self.buildSiblingCache(profiles: profiles, relationships: relationships)
         self.completenessCache = Self.buildCompletenessCache(
             profiles: profiles,

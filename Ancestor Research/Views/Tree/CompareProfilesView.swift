@@ -14,6 +14,11 @@ import SwiftUI
 struct CompareProfilesView: View {
     let leftProfileID: String
     let rightProfileID: String
+    /// True when opened from a `duplicateDetection` audit row. Adds the
+    /// "Not a duplicate" action so the user can dismiss a false-positive pair
+    /// permanently. False for the tree's "Compare with…" flow, where the pair
+    /// was never flagged as a duplicate in the first place.
+    var fromDuplicateReview: Bool = false
 
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -75,6 +80,11 @@ struct CompareProfilesView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
+        // The vertical Divider between the columns is greedy on the vertical
+        // axis; without this it competes with the scrolling field grid for
+        // leftover height and inflates the header into a tall empty band.
+        // Pin the header to its content so all spare space goes to the grid.
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder
@@ -309,6 +319,20 @@ struct CompareProfilesView: View {
                     .frame(maxWidth: 320)
                 }
                 Spacer()
+                if fromDuplicateReview {
+                    // The honest counterpart to Merge: record that these two are
+                    // different people so the pair is never re-flagged. Persists
+                    // per-pair (v51), unlike snoozing the whole rule.
+                    Button {
+                        appState.dismissDuplicatePair(leftProfileID, rightProfileID)
+                        dismiss()
+                    } label: {
+                        Label("Not a duplicate", systemImage: "person.2.slash")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+                    .help("Mark these two as different people — they won't be flagged as a possible duplicate again")
+                }
                 if canMerge {
                     Button("Merge…") { showMergeConfirm = true }
                         .buttonStyle(.glassProminent)
