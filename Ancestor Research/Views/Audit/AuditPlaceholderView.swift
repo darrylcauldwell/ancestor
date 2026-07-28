@@ -876,6 +876,18 @@ struct HealthView: View {
             }
             .buttonStyle(.glassProminent).controlSize(.mini)
             .help("Absorb the blank placeholder parents into the real parents and re-home shared siblings")
+        case "censusParentUnlock":
+            // Change 3 — apply the ranker's winning childhood census to this
+            // parentless subject. Once it's a life-event the existing "Add census
+            // relatives" flow lifts its Head + Wife as the parents.
+            Button {
+                _ = appState.applyChildhoodCensusForParentUnlock(profileID: r.profileID)
+                refreshAudit()
+            } label: {
+                Label("Apply childhood census", systemImage: "person.2.badge.plus")
+            }
+            .buttonStyle(.glassProminent).controlSize(.mini)
+            .help("Apply the best-matching childhood census (same county, closest age) so its household's Head and Wife can be added as this person's parents")
         case "censusRelationship" where r.severity == .info:
             // Per-row Add lives in the detail panel below; the header only offers
             // a bulk "Add all" when there is more than one to take at once.
@@ -910,12 +922,14 @@ struct HealthView: View {
     /// rather than vanishing on the next reset.
     private func syncAuditSummary() {
         guard let base = appState.auditSummary else { auditVM.summary = nil; return }
-        let citationGaps = appState.freeBMDCitationGapFindings()
-        guard !citationGaps.isEmpty else { auditVM.summary = base; return }
+        let citationGaps = appState.freeBMDCitationGapFindings()      // info
+        let parentUnlocks = appState.censusParentUnlockFindings()     // warning
+        guard !citationGaps.isEmpty || !parentUnlocks.isEmpty else { auditVM.summary = base; return }
         auditVM.summary = AuditSummary(
-            errors: base.errors, warnings: base.warnings,
+            errors: base.errors,
+            warnings: base.warnings + parentUnlocks,
             info: base.info + citationGaps,
-            total: base.total + citationGaps.count,
+            total: base.total + citationGaps.count + parentUnlocks.count,
             profilesChecked: base.profilesChecked)
     }
 

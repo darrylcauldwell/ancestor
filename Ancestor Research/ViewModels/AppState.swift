@@ -3074,6 +3074,77 @@ final class AppState {
         }
     }
 
+    // MARK: - Census parent unlock (CENSUS_PARENT_UNLOCK_SPEC Change 2/3)
+
+    /// Parentless ancestors whose childhood census is already among their leads —
+    /// the pre-1911 twin of the FreeBMD/MMN unlock. DB-derived (reads each
+    /// profile's census evidence), so computed on demand from Health rather than
+    /// on the hot `runPostLoadAudit` path. Read-only.
+    func censusParentUnlockFindings() -> [AuditResult] {
+        guard let db = currentDatabase else { return [] }
+        var out: [AuditResult] = []
+        for (pid, profile) in snapshot.profiles where !profile.isDeleted {
+            let evidence = (try? db.loadEvidenceForProfile(pid)) ?? []
+            if let finding = CensusParentUnlockAudit.finding(
+                profileID: pid, profileName: profile.displayName,
+                birthYear: profile.birthDate?.bestYear, birthLocation: profile.birthLocation,
+                hasParents: !snapshot.parentsOf(pid).isEmpty, evidence: evidence) {
+                out.append(finding)
+            }
+        }
+        return out.sorted {
+            $0.profileName.localizedCaseInsensitiveCompare($1.profileName) == .orderedAscending
+        }
+    }
+
+    /// Whether the household lift surfaced — used by the Health fix button to
+    /// tell the user what to do next.
+    enum CensusParentUnlockResult { case applied(censusYear: Int, hasHousehold: Bool), noCandidate }
+
+    /// Change 3 — apply the ranker's winning childhood census to a parentless
+    /// subject. Once the census is a life-event, the shipped
+    /// `CensusRelationshipReconciler` "Add census relatives" flow lifts its
+    /// Head + Wife as the parents (the user reviews that step). Offline: uses the
+    /// household already stored on the lead; if none is stored the census still
+    /// lands (birth/residence + citation) and the message routes the user to
+    /// research so a run fetches the household detail.
+    func applyChildhoodCensusForParentUnlock(profileID: String) -> CensusParentUnlockResult {
+        guard let db = currentDatabase, let profile = snapshot.profiles[profileID] else {
+            return .noCandidate
+        }
+        guard let birthYear = profile.birthDate?.bestYear else { return .noCandidate }
+        let evidence = (try? db.loadEvidenceForProfile(profileID)) ?? []
+        let candidates = CensusParentUnlockAudit.candidates(from: evidence)
+        guard let winner = ChildhoodCensusRanker.best(
+                subjectBirthYear: birthYear, subjectCounty: profile.birthLocation,
+                candidates: candidates),
+              let evidenceRow = evidence.first(where: { $0.id == winner.id }),
+              case .census(let census) = evidenceRow.record else { return .noCandidate }
+
+        let scored = ScoredRecord(id: census.common.id, record: .census(census),
+                                  verdict: .fact, gates: [], summary: "")
+        do {
+            let fresh = (try? db.loadProfile(id: profile.id)) ?? profile
+            _ = ApplyEngine.applyFactToSubject(scored, profile: fresh, snapshot: snapshot, db: db)
+            for event in scored.record.projectToLifeEvents(profileID: profile.id) {
+                try? db.addLifeEventIfAbsent(event)
+            }
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+            let hasHousehold = !(census.household ?? []).isEmpty
+            successResearchProfileID = profile.id
+            if hasHousehold {
+                successMessage = "Applied \(profile.displayName)'s \(census.censusYear) childhood census — now “Add census relatives” to lift the household's Head and Wife as their parents."
+            } else {
+                successMessage = "Applied \(profile.displayName)'s \(census.censusYear) census, but its household wasn't fetched — research \(profile.displayName) to pull the roster, then add the parents."
+            }
+            return .applied(censusYear: census.censusYear, hasHousehold: hasHousehold)
+        } catch {
+            errorMessage = "Could not apply the census: \(error.localizedDescription)"
+            return .noCandidate
+        }
+    }
+
     // MARK: - Death-age birth-year backfill (death-side twin of census backfill)
 
     /// Tree-wide death-age backfill: every person with a FIRM death date but no

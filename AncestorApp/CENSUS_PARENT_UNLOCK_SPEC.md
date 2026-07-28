@@ -1,9 +1,9 @@
 # Census Parent Unlock
 
-Status: **Change 1 (disambiguation core) building.** The era-sibling to
-FREEBMD_CITATION_BACKFILL: for **1911+ births** the mother's maiden name unlocks
-parents; for **pre-1911 births** — most of a Victorian tree — the unlock is the
-**childhood census**.
+Status: **Changes 1–3 built + tested (offline path); live household-fetch pending.**
+The era-sibling to FREEBMD_CITATION_BACKFILL: for **1911+ births** the mother's
+maiden name unlocks parents; for **pre-1911 births** — most of a Victorian tree —
+the unlock is the **childhood census**.
 
 ## Problem (proven twice on George Keyworth, 1838)
 
@@ -46,14 +46,27 @@ For a parentless profile with birthYear `Y` and birthplace county `C`:
 
 ## Sequencing
 
-1. **Change 1 — `ChildhoodCensusRanker`** (pure, tested): childhood-window filter
-   + county/age ranking. No I/O. Building now.
-2. **Change 2 — surfacing**: on the Health "Missing parents" gap for a pre-1911
-   person, a **"Find parents from census"** action that runs the ranker over the
-   profile's census leads and shows the winner. Era-routed: FreeBMD/MMN for
-   1911+, census for pre-1911.
-3. **Change 3 — household lift**: promote the winning census's Head+Wife as
-   parents + co-children as siblings (live-verified).
+1. **Change 1 — `ChildhoodCensusRanker`** (pure, tested) ✅: childhood-window
+   filter + county/age ranking. No I/O. 9 tests, George's Halam case proven.
+2. **Change 2 — surfacing** ✅: `CensusParentUnlockAudit.finding` fires a
+   **warning** on any parentless profile whose ranked census leads yield a
+   childhood candidate; `AppState.censusParentUnlockFindings()` scans the tree and
+   folds it into the Health summary (`syncAuditSummary`). 7 tests.
+3. **Change 3 — household lift** ✅ (offline path): the Health **"Apply childhood
+   census"** button calls `AppState.applyChildhoodCensusForParentUnlock`, which
+   applies the ranker's winner as a life-event through the same `ApplyEngine`
+   path as any fact. The **shipped** `CensusRelationshipReconciler` "Add census
+   relatives" flow then lifts its Head + Wife as the parents (the user reviews
+   that step) — so we reuse verified relationship-creation machinery rather than
+   writing a new blind writer.
+
+### Live tail (not yet done)
+When the winning census lead has **no stored household** (it fell outside the
+per-run enrichment cap), applying it lands the birth/citation but surfaces no
+parents; the button's message routes the user to **research** the subject so a
+run fetches the roster. An on-demand single `fetchDetail` at click-time (one
+gentle FreeCEN call) would close this — deferred until it can be **live-verified
+against a FreeCEN 200**, per the "no blind scraper" rule.
 
 ## Non-goals
 - Gazetteer village-adjacency (county match suffices for v1).
