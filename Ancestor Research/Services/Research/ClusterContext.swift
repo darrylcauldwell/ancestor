@@ -84,4 +84,17 @@ nonisolated enum ClusterContext {
         let years = abs(cby - ref)
         return "~\(years) yrs from \(closest.origin.name) · likely a namesake"
     }
+
+    /// Absolute year gap from the cluster's era to the CLOSEST origin's
+    /// reference year (birth, else death). Used to rank *plausible* candidates
+    /// most-on-target first — a smaller gap means the cluster's era sits nearer
+    /// the surfacing profile, so it's the more likely same-person / close
+    /// relative. nil when the cluster has no birth year or no origin is dated
+    /// (unrankable — those sort last).
+    static func eraDistance(clusterBirthYear: Int?, origins: [Origin]) -> Int? {
+        guard let cby = clusterBirthYear else { return nil }
+        let refs = origins.compactMap { $0.birthYear ?? $0.deathYear }
+        guard let nearest = refs.min(by: { abs($0 - cby) < abs($1 - cby) }) else { return nil }
+        return abs(nearest - cby)
+    }
 }

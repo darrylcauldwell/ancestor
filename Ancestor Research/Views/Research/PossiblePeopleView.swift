@@ -38,11 +38,25 @@ struct PossiblePeopleView: View {
     }
     @State private var grouping: Grouping = .coherence
 
-    @State private var confident: [LeadDiscoveryEngine.EmergentCluster] = []
+    /// Category B — clusters proposing a NEW relative to attach, grouped by kin
+    /// role. Elevated above the same-person candidates so discovery signal
+    /// (inferred parents, census household members) is never buried under
+    /// namesake noise — the exact failure that hid a profile's parent leads at
+    /// the bottom of the yearless fold.
+    @State private var relatives: [LeadDiscoveryEngine.EmergentCluster] = []
+    /// Category A — same-person candidates whose era is plausibly the subject's.
+    /// The main list, ranked most-on-target first.
+    @State private var candidates: [LeadDiscoveryEngine.EmergentCluster] = []
+    /// Category A — candidates flagged as a distant-era namesake. The clearest
+    /// noise; parked behind a fold, not lost.
+    @State private var namesakes: [LeadDiscoveryEngine.EmergentCluster] = []
+    /// Category A — yearless candidates (era can't be placed). The existing
+    /// lower-confidence fold.
     @State private var lowConfidence: [LeadDiscoveryEngine.EmergentCluster] = []
     @State private var totalLeads = 0
     @State private var isLoading = true
     @State private var showLowConfidence = false
+    @State private var showNamesakes = false
     @State private var expanded: Set<String> = []
     /// The ONE member lead currently showing full detail (nil = none). Single
     /// selection by design — see `memberRow`.
@@ -63,7 +77,7 @@ struct PossiblePeopleView: View {
             if isLoading {
                 ProgressView("Finding possible people…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if confident.isEmpty && lowConfidence.isEmpty {
+            } else if relatives.isEmpty && candidates.isEmpty && namesakes.isEmpty && lowConfidence.isEmpty {
                 ContentUnavailableView {
                     Label("No candidates yet", systemImage: "person.2.slash")
                 } description: {
@@ -84,29 +98,28 @@ struct PossiblePeopleView: View {
                 Divider()
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        let visibleC = visible(confident)
-                        let visibleL = visible(lowConfidence)
-                        if visibleC.isEmpty && visibleL.isEmpty {
+                        let vRel = visible(relatives)
+                        let vCand = visible(candidates)
+                        let vName = visible(namesakes)
+                        let vLow = visible(lowConfidence)
+                        if vRel.isEmpty && vCand.isEmpty && vName.isEmpty && vLow.isEmpty {
                             Text("Nothing matches “\(searchText)”.")
                                 .font(AppTypography.cardBody)
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.top, 40)
-                        } else if scope == .all && grouping == .byPerson {
-                            byPersonList(visibleC + visibleL)
                         } else {
-                            ForEach(visibleC) { clusterCard($0) }
+                            // Signal first, always — the relatives to add sit
+                            // above the same-person candidates regardless of the
+                            // A-side grouping mode.
+                            relativesSection(vRel)
 
-                            if !visibleL.isEmpty {
-                                DisclosureGroup(isExpanded: $showLowConfidence) {
-                                    ForEach(visibleL) { clusterCard($0) }
-                                } label: {
-                                    Label("\(visibleL.count) lower-confidence (no birth year)",
-                                          systemImage: "questionmark.circle")
-                                        .font(AppTypography.cardMeta)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(.top, 4)
+                            if scope == .all && grouping == .byPerson {
+                                byPersonList(vCand + vName + vLow)
+                            } else {
+                                ForEach(vCand) { clusterCard($0) }
+                                namesakesFold(vName)
+                                lowConfidenceFold(vLow)
                             }
                         }
                     }
@@ -124,7 +137,7 @@ struct PossiblePeopleView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Possible People")
                     .font(AppTypography.cardTitle)
-                Text("\(confident.count) candidate\(confident.count == 1 ? "" : "s") from \(totalLeads) leads — read-only\(usingSemanticModel ? " · semantic" : "")")
+                Text(headerSummary)
                     .font(AppTypography.cardMeta)
                     .foregroundStyle(.secondary)
             }
@@ -133,6 +146,21 @@ struct PossiblePeopleView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
+    }
+
+    /// "2 relatives to add · 5 possible matches from 90 leads" — leads with the
+    /// signal (relatives) first, so the count reflects the split, not one pile.
+    private var headerSummary: String {
+        var parts: [String] = []
+        if !relatives.isEmpty {
+            parts.append("\(relatives.count) relative\(relatives.count == 1 ? "" : "s") to add")
+        }
+        let matches = candidates.count
+        parts.append("\(matches) possible match\(matches == 1 ? "" : "es")")
+        var summary = parts.joined(separator: " · ")
+        summary += " from \(totalLeads) leads — read-only"
+        if usingSemanticModel { summary += " · semantic" }
+        return summary
     }
 
     /// Opt-in trigger for the real MLX semantic embedder (Phase 3). Only shown
@@ -259,6 +287,84 @@ struct PossiblePeopleView: View {
             sections.append((title: "Unattached", clusters: unattached))
         }
         return sections
+    }
+
+    // MARK: - Signal / noise sections
+
+    /// Category B — "Relatives to add", grouped by kin role. Each role is a
+    /// small labelled sub-section; clusters render with the same card so
+    /// "Research as one person" still routes through the review path. This is
+    /// the section that lifts inferred parents / household members out of the
+    /// namesake pile where they used to sink (yearless → bottom fold). Empty →
+    /// nothing rendered.
+    @ViewBuilder
+    private func relativesSection(_ clusters: [LeadDiscoveryEngine.EmergentCluster]) -> some View {
+        if !clusters.isEmpty {
+            let byRole = Dictionary(grouping: clusters) { cluster -> LeadKind.RelativeRole in
+                if case .relative(let role) = LeadKind.classify(cluster.leads) { return role }
+                return .parent   // unreachable: this bucket only holds .relative clusters
+            }
+            let roles = byRole.keys.sorted { $0.sortOrder < $1.sortOrder }
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Relatives to add", systemImage: "person.badge.plus")
+                    .font(AppTypography.cardTitle)
+                Text("Discovered people who aren’t in the tree yet — the leads worth acting on.")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                ForEach(roles, id: \.self) { role in
+                    let group = byRole[role] ?? []
+                    HStack(spacing: 6) {
+                        Image(systemName: role.systemImage)
+                            .foregroundStyle(.secondary)
+                        Text(role.sectionTitle)
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.secondary)
+                        Text("\(group.count)")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 2)
+                    ForEach(group) { clusterCard($0) }
+                }
+            }
+            .padding(10)
+            .background(Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+            Divider().padding(.vertical, 4)
+        }
+    }
+
+    /// Category A noise — distant-era namesakes, parked behind a collapsed fold.
+    /// The count tells the user how much was set aside so nothing is silently
+    /// hidden.
+    @ViewBuilder
+    private func namesakesFold(_ clusters: [LeadDiscoveryEngine.EmergentCluster]) -> some View {
+        if !clusters.isEmpty {
+            DisclosureGroup(isExpanded: $showNamesakes) {
+                ForEach(clusters) { clusterCard($0) }
+            } label: {
+                Label("\(clusters.count) likely namesake\(clusters.count == 1 ? "" : "s") (different era)",
+                      systemImage: "person.fill.questionmark")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    /// Category A — yearless candidates, the existing lower-confidence fold.
+    @ViewBuilder
+    private func lowConfidenceFold(_ clusters: [LeadDiscoveryEngine.EmergentCluster]) -> some View {
+        if !clusters.isEmpty {
+            DisclosureGroup(isExpanded: $showLowConfidence) {
+                ForEach(clusters) { clusterCard($0) }
+            } label: {
+                Label("\(clusters.count) lower-confidence (no birth year)",
+                      systemImage: "questionmark.circle")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 4)
+        }
     }
 
     // MARK: - Cluster card
@@ -435,7 +541,9 @@ struct PossiblePeopleView: View {
             try? db.upsertLead(lead.with(status: .dismissed, resolvedAt: Date(), resolution: .dismissed))
         }
         withAnimation {
-            confident.removeAll { $0.id == cluster.id }
+            relatives.removeAll { $0.id == cluster.id }
+            candidates.removeAll { $0.id == cluster.id }
+            namesakes.removeAll { $0.id == cluster.id }
             lowConfidence.removeAll { $0.id == cluster.id }
         }
     }
@@ -556,7 +664,9 @@ struct PossiblePeopleView: View {
                     list.remove(at: idx)
                 }
             }
-            replace(in: &confident)
+            replace(in: &relatives)
+            replace(in: &candidates)
+            replace(in: &namesakes)
             replace(in: &lowConfidence)
         }
     }
@@ -626,8 +736,33 @@ struct PossiblePeopleView: View {
         case .profile(let id):
             scoped = clusters.filter { c in c.leads.contains { $0.profileID == id } }
         }
-        confident = scoped.filter { $0.birthYear != nil }
-        lowConfidence = scoped.filter { $0.birthYear == nil }
+        // Split the pool. Category B (relatives to add) is elevated whole;
+        // category A (same-person candidates) splits into plausible matches
+        // (ranked by era proximity to the surfacing profile), distant-era
+        // namesakes (parked), and yearless (the existing low-confidence fold).
+        let profiles = appState.snapshot.profiles
+        var rel: [LeadDiscoveryEngine.EmergentCluster] = []
+        var ranked: [(cluster: LeadDiscoveryEngine.EmergentCluster, distance: Int)] = []
+        var namesakeClusters: [LeadDiscoveryEngine.EmergentCluster] = []
+        var yearless: [LeadDiscoveryEngine.EmergentCluster] = []
+        for cluster in scoped {
+            if case .relative = LeadKind.classify(cluster.leads) {
+                rel.append(cluster)
+                continue
+            }
+            guard cluster.birthYear != nil else { yearless.append(cluster); continue }
+            let origins = ClusterContext.origins(for: cluster, in: profiles)
+            if ClusterContext.namesakeFlag(clusterBirthYear: cluster.birthYear, origins: origins) != nil {
+                namesakeClusters.append(cluster)
+            } else {
+                let distance = ClusterContext.eraDistance(clusterBirthYear: cluster.birthYear, origins: origins) ?? Int.max
+                ranked.append((cluster, distance))
+            }
+        }
+        relatives = rel
+        candidates = ranked.sorted { $0.distance < $1.distance }.map(\.cluster)
+        namesakes = namesakeClusters
+        lowConfidence = yearless
         isLoading = false
     }
 
