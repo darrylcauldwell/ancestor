@@ -438,13 +438,9 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             throw HTTPError.status(code: 0, body: nil)
         }
 
-        // Extract CSRF token
-        let csrfPattern = #"<meta name="csrf-token" content="([^"]+)""#
-        if let regex = try? NSRegularExpression(pattern: csrfPattern),
-           let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-           let range = Range(match.range(at: 1), in: html) {
-            csrfToken = String(html[range])
-        }
+        // Extract CSRF token — shared MyopicVicar helper (meta tag first,
+        // hidden authenticity_token input as fallback).
+        csrfToken = MyopicVicarParsing.csrfToken(fromHTML: html)
 
         // Session cookie
         if let cookies = HTTPCookieStorage.shared.cookies(for: Self.searchFormURL) {
@@ -523,8 +519,7 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
         if html.contains("No results found") { return .empty }
         // Rails validation banner (same copy family as FreeREG's) —
         // classified separately only for the reason string.
-        if html.range(of: #"error prohibited|prohibited this"#,
-                      options: [.regularExpression, .caseInsensitive]) != nil {
+        if MyopicVicarParsing.hasValidationBanner(html) {
             return .unparseable(reason: "FreeCen rejected the search (validation error)")
         }
         return .unparseable(reason: "Could not parse FreeCen results page")
@@ -544,23 +539,10 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
     /// FreeREGSource (the two Rails sites emit the same nav shapes;
     /// duplication follows the existing hasPaginationNav idiom).
     nonisolated static func nextPaginationHref(in html: String, base: String) -> String? {
-        let patterns = [
-            #"<a\b[^>]*rel="next"[^>]*href="([^"]+)""#,
-            #"<a\b[^>]*href="([^"]+)"[^>]*rel="next""#,
-            #"<a\b[^>]*class="[^"]*next[^"]*"[^>]*href="([^"]+)""#,
-            #"<a\b[^>]*href="([^"]+)"[^>]*class="[^"]*next[^"]*""#,
-        ]
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
-            if let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-               let range = Range(match.range(at: 1), in: html) {
-                let href = String(html[range]).replacingOccurrences(of: "&amp;", with: "&")
-                if href.hasPrefix("http") { return href }
-                if href.hasPrefix("/") { return base + href }
-                return nil
-            }
-        }
-        return nil
+        // Shared MyopicVicar machinery (both Rails sites emit the same
+        // kaminari/will_paginate shapes) — kept as a shim because
+        // FreeREGSource and the paging tests call through this name.
+        MyopicVicarParsing.nextPaginationHref(in: html, base: base)
     }
 
     /// Parse FreeCen search results HTML table.
@@ -680,38 +662,15 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
     }
 
     nonisolated static func parseHouseholdDetail(_ html: String, recordURL: String) -> SourceRecord? {
-        let tablePattern = #"<table[^>]*>(.*?)</table>"#
-        let rowPattern = #"<tr[^>]*>(.*?)</tr>"#
-        let cellPattern = #"<t[dh][^>]*>(.*?)</t[dh]>"#
-        guard let tableRegex = try? NSRegularExpression(pattern: tablePattern, options: .dotMatchesLineSeparators),
-              let rowRegex = try? NSRegularExpression(pattern: rowPattern, options: .dotMatchesLineSeparators),
-              let cellRegex = try? NSRegularExpression(pattern: cellPattern, options: .dotMatchesLineSeparators) else { return nil }
-
-        // Parse every table into rows of stripped cells. Tables are then
-        // identified by their HEADERS, not their position: the VLD path
-        // renders dwelling + members (2 tables), the FreeCEN2 CSV path
-        // renders census header + address + members (3 tables) — a
-        // position-based parse mistakes the CSV address table for the
-        // roster. Header-keyed columns also fix the year-specific
-        // layouts the old fixed-11-column parse silently mis-read
-        // (1841 has 7 member columns, 1911 E&W has 20).
-        var tables: [[[String]]] = []
-        for tableMatch in tableRegex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
-            guard let tableRange = Range(tableMatch.range(at: 1), in: html) else { continue }
-            let table = String(html[tableRange])
-            var rows: [[String]] = []
-            for rowMatch in rowRegex.matches(in: table, range: NSRange(table.startIndex..., in: table)) {
-                guard let rowRange = Range(rowMatch.range(at: 1), in: table) else { continue }
-                let rowHTML = String(table[rowRange])
-                let cells = cellRegex.matches(in: rowHTML, range: NSRange(rowHTML.startIndex..., in: rowHTML))
-                    .compactMap { match -> String? in
-                        guard let range = Range(match.range(at: 1), in: rowHTML) else { return nil }
-                        return stripHTML(String(rowHTML[range]))
-                    }
-                if !cells.isEmpty { rows.append(cells) }
-            }
-            if !rows.isEmpty { tables.append(rows) }
-        }
+        // Parse every table into rows of stripped cells (shared MyopicVicar
+        // primitive). Tables are then identified by their HEADERS, not
+        // their position: the VLD path renders dwelling + members
+        // (2 tables), the FreeCEN2 CSV path renders census header +
+        // address + members (3 tables) — a position-based parse mistakes
+        // the CSV address table for the roster. Header-keyed columns also
+        // fix the year-specific layouts the old fixed-11-column parse
+        // silently mis-read (1841 has 7 member columns, 1911 E&W has 20).
+        let tables = MyopicVicarParsing.tables(in: html)
 
         var dwelling: [String: String] = [:]
         var memberRows: [[String]] = []

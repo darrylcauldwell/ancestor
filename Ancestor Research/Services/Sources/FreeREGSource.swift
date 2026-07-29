@@ -379,24 +379,9 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
             "User-Agent": Self.userAgent,
         ])
         let html = String(data: data, encoding: .utf8) ?? ""
-
-        // Extract CSRF token from <meta name="csrf-token" content="...">
-        let metaPattern = #"<meta\s+name="csrf-token"\s+content="([^"]+)""#
-        if let regex = try? NSRegularExpression(pattern: metaPattern, options: .caseInsensitive),
-           let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-           let range = Range(match.range(at: 1), in: html) {
-            csrfToken = String(html[range])
-        }
-
-        // Fallback: look for hidden input
-        if csrfToken == nil {
-            let inputPattern = #"<input[^>]+name="authenticity_token"[^>]+value="([^"]+)""#
-            if let regex = try? NSRegularExpression(pattern: inputPattern),
-               let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-               let range = Range(match.range(at: 1), in: html) {
-                csrfToken = String(html[range])
-            }
-        }
+        // Shared MyopicVicar helper: meta csrf-token tag first, hidden
+        // authenticity_token input as fallback.
+        csrfToken = MyopicVicarParsing.csrfToken(fromHTML: html)
     }
 
     // MARK: - Rate Limiting
@@ -543,18 +528,12 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
         guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .unparseable(reason: "Empty response body")
         }
-        if html.range(of: #"error prohibited|prohibited this"#,
-                      options: [.regularExpression, .caseInsensitive]) != nil {
+        if MyopicVicarParsing.hasValidationBanner(html) {
             // Surface the first error <li> when the banner carries one
             // (Python extracts the whole list; one is enough for a reason).
-            var reason = "FreeREG rejected the search (validation error)"
-            let liPattern = #"<ul[^>]*class="[^"]*error[^"]*"[^>]*>.*?<li[^>]*>(.*?)</li>"#
-            if let regex = try? NSRegularExpression(pattern: liPattern, options: [.dotMatchesLineSeparators, .caseInsensitive]),
-               let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-               let range = Range(match.range(at: 1), in: html) {
-                let detail = stripTags(String(html[range]))
-                if !detail.isEmpty { reason = "FreeREG rejected the search: \(detail)" }
-            }
+            let reason = MyopicVicarParsing.validationErrorDetail(in: html)
+                .map { "FreeREG rejected the search: \($0)" }
+                ?? "FreeREG rejected the search (validation error)"
             return .validationError(reason: reason)
         }
         if html.range(of: #"no results|no records found"#,
@@ -572,11 +551,11 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
         return .unparseable(reason: "Could not parse FreeREG results page")
     }
 
-    /// FT-22 (fetching half) — next-page link. Mechanics shared with
-    /// FreeCen (`FreeCenSource.nextPaginationHref`): the two Rails
-    /// sites emit the same kaminari/will_paginate nav shapes.
+    /// FT-22 (fetching half) — next-page link. Shared MyopicVicar
+    /// machinery: the two Rails sites emit the same kaminari/
+    /// will_paginate nav shapes.
     nonisolated static func nextPageURL(_ html: String) -> String? {
-        FreeCenSource.nextPaginationHref(in: html, base: baseURL)
+        MyopicVicarParsing.nextPaginationHref(in: html, base: baseURL)
     }
 
     /// Parse FreeREG search results HTML table.
