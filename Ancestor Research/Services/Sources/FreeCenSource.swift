@@ -653,117 +653,154 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
     }
 
     /// Parse household detail from a FreeCen record page.
+    /// Map a dwelling/census-header label to the legacy rawFields key.
+    /// Labels vary by render path and year (VLD "Census" vs CSV "Census
+    /// Year"; Scotland's "Quaord Sacra" [sic]); unknown labels pass
+    /// through snake_cased so year-specific extras (Rooms, Walls…) are
+    /// kept rather than dropped.
+    nonisolated static func dwellingKey(_ label: String) -> String {
+        switch label.lowercased() {
+        case "census", "census year": return "census_year"
+        case "county": return "county"
+        case "district", "census district": return "district"
+        case "civil parish": return "parish"
+        case "ecclesiastical parish", "quaord sacra", "quoad sacra": return "ecclesiastical_parish"
+        case "piece": return "piece"
+        case "enumeration district": return "enumeration_district"
+        case "folio": return "folio"
+        case "page": return "page"
+        case "schedule": return "schedule"
+        case "house number": return "house_number"
+        case "house or street name": return "address"
+        default:
+            return label.lowercased()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: #"\s+"#, with: "_", options: .regularExpression)
+        }
+    }
+
     nonisolated static func parseHouseholdDetail(_ html: String, recordURL: String) -> SourceRecord? {
         let tablePattern = #"<table[^>]*>(.*?)</table>"#
-        guard let tableRegex = try? NSRegularExpression(pattern: tablePattern, options: .dotMatchesLineSeparators) else { return nil }
-        let tableMatches = tableRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+        let rowPattern = #"<tr[^>]*>(.*?)</tr>"#
+        let cellPattern = #"<t[dh][^>]*>(.*?)</t[dh]>"#
+        guard let tableRegex = try? NSRegularExpression(pattern: tablePattern, options: .dotMatchesLineSeparators),
+              let rowRegex = try? NSRegularExpression(pattern: rowPattern, options: .dotMatchesLineSeparators),
+              let cellRegex = try? NSRegularExpression(pattern: cellPattern, options: .dotMatchesLineSeparators) else { return nil }
+
+        // Parse every table into rows of stripped cells. Tables are then
+        // identified by their HEADERS, not their position: the VLD path
+        // renders dwelling + members (2 tables), the FreeCEN2 CSV path
+        // renders census header + address + members (3 tables) — a
+        // position-based parse mistakes the CSV address table for the
+        // roster. Header-keyed columns also fix the year-specific
+        // layouts the old fixed-11-column parse silently mis-read
+        // (1841 has 7 member columns, 1911 E&W has 20).
+        var tables: [[[String]]] = []
+        for tableMatch in tableRegex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+            guard let tableRange = Range(tableMatch.range(at: 1), in: html) else { continue }
+            let table = String(html[tableRange])
+            var rows: [[String]] = []
+            for rowMatch in rowRegex.matches(in: table, range: NSRange(table.startIndex..., in: table)) {
+                guard let rowRange = Range(rowMatch.range(at: 1), in: table) else { continue }
+                let rowHTML = String(table[rowRange])
+                let cells = cellRegex.matches(in: rowHTML, range: NSRange(rowHTML.startIndex..., in: rowHTML))
+                    .compactMap { match -> String? in
+                        guard let range = Range(match.range(at: 1), in: rowHTML) else { return nil }
+                        return stripHTML(String(rowHTML[range]))
+                    }
+                if !cells.isEmpty { rows.append(cells) }
+            }
+            if !rows.isEmpty { tables.append(rows) }
+        }
 
         var dwelling: [String: String] = [:]
-        var members: [HouseholdMember] = []
+        var memberRows: [[String]] = []
+        var memberHeaders: [String] = []
 
-        let cellPattern = #"<t[dh][^>]*>(.*?)</t[dh]>"#
-        guard let cellRegex = try? NSRegularExpression(pattern: cellPattern, options: .dotMatchesLineSeparators) else { return nil }
-
-        // Table 0: dwelling details
-        if tableMatches.count >= 1,
-           let tableRange = Range(tableMatches[0].range(at: 1), in: html) {
-            let table = String(html[tableRange])
-            let cells = cellRegex.matches(in: table, range: NSRange(table.startIndex..., in: table))
-                .compactMap { match -> String? in
-                    guard let range = Range(match.range(at: 1), in: table) else { return nil }
-                    return stripHTML(String(table[range]))
-                }
-
-            let keys = ["census_year", "county", "district", "parish",
-                        "ecclesiastical_parish", "piece", "enumeration_district",
-                        "folio", "page", "schedule", "house_number", "address"]
-
-            // Find where numeric year starts
-            if let valStart = cells.firstIndex(where: { $0.range(of: #"^1[89]\d\d$"#, options: .regularExpression) != nil }) {
-                for (j, key) in keys.enumerated() {
-                    let idx = valStart + j
-                    if idx < cells.count {
-                        dwelling[key] = cells[idx]
+        for table in tables {
+            guard let headerRow = table.first else { continue }
+            let lower = headerRow.map { $0.lowercased() }
+            if lower.contains("surname") && lower.contains("forenames") {
+                memberHeaders = lower
+                memberRows = Array(table.dropFirst())
+            } else if table.count >= 2 {
+                // A metadata table: header row + value row → key/value.
+                let values = table[1]
+                for (i, header) in headerRow.enumerated() where i < values.count {
+                    let key = Self.dwellingKey(header)
+                    let value = values[i]
+                    if !key.isEmpty, !value.isEmpty, dwelling[key] == nil {
+                        dwelling[key] = value
                     }
                 }
             }
         }
 
-        // Table 1: household members
-        if tableMatches.count >= 2,
-           let tableRange = Range(tableMatches[1].range(at: 1), in: html) {
-            let table = String(html[tableRange])
-            let cells = cellRegex.matches(in: table, range: NSRange(table.startIndex..., in: table))
-                .compactMap { match -> String? in
-                    guard let range = Range(match.range(at: 1), in: table) else { return nil }
-                    return stripHTML(String(table[range]))
-                }
-
-            // Skip 11 header cells, process data in groups of 11.
-            // Columns: Surname, Forenames, Relationship, Marital Status,
-            // Sex, Age, Occupation, Birth County, Birth Place, Disability,
-            // Notes (sources/freecen.py:279-289).
-            let dataCells = Array(cells.dropFirst(11))
-            // Handle "person found in your search" marker in first cell.
-            // Python remembers WHERE the marker cell lands (target_row_start,
-            // sources/freecen.py:296-307) so the marked member — not merely
-            // the first — can be selected as the search target below (FT-10).
-            var processed: [String] = []
-            var targetRowStart: Int?
-            for cell in dataCells {
-                if cell.lowercased().contains("person found in your search") {
-                    let parts = cell.components(separatedBy: "\n")
-                    let surname = parts.first(where: { !$0.lowercased().contains("person found") && !$0.trimmingCharacters(in: .whitespaces).isEmpty })?.trimmingCharacters(in: .whitespaces) ?? ""
-                    targetRowStart = processed.count
-                    processed.append(surname)
-                } else {
-                    processed.append(cell)
-                }
-            }
-
-            var i = 0
-            while i + 10 < processed.count {
-                let row = Array(processed[i..<i+11])
-                let surname = row[0]
-                let forenames = row[1]
-                let name = "\(forenames) \(surname)".trimmingCharacters(in: .whitespaces)
-
-                members.append(HouseholdMember(
-                    name: name,
-                    relationship: row[2],
-                    age: Int(row[5]),
-                    birthYear: nil,  // computed from census year - age
-                    birthPlace: row[8],
-                    occupation: row[6],
-                    sex: row[4],
-                    maritalStatus: row[3].isEmpty ? nil : row[3],
-                    birthCounty: row[7].isEmpty ? nil : row[7],
-                    disability: row[9].isEmpty ? nil : row[9],
-                    notes: row[10].isEmpty ? nil : row[10],
-                    isTarget: i == targetRowStart  // Python: is_target = (i == target_row_start)
-                ))
-                i += 11
-            }
-        }
-
-        // Compute birth years from census year and age
         let censusYear = Int(dwelling["census_year"] ?? "") ?? 0
-        let membersWithBirthYear = members.map { member in
-            HouseholdMember(
-                name: member.name,
-                relationship: member.relationship,
-                age: member.age,
-                birthYear: member.age.map { censusYear - $0 },
-                birthPlace: member.birthPlace,
-                occupation: member.occupation,
-                sex: member.sex,
-                maritalStatus: member.maritalStatus,
-                birthCounty: member.birthCounty,
-                disability: member.disability,
-                notes: member.notes,
-                isTarget: member.isTarget
-            )
+
+        var members: [HouseholdMember] = []
+        for rawRow in memberRows {
+            var row = rawRow
+            // "person found in your search" accessibility marker rides
+            // inside the marked member's surname cell (FT-10) — strip it
+            // and remember the row as the search target.
+            var isTarget = false
+            if let markerIndex = row.firstIndex(where: { $0.lowercased().contains("person found in your search") }) {
+                let parts = row[markerIndex].components(separatedBy: "\n")
+                row[markerIndex] = parts.first(where: {
+                    !$0.lowercased().contains("person found") && !$0.trimmingCharacters(in: .whitespaces).isEmpty
+                })?.trimmingCharacters(in: .whitespaces) ?? ""
+                isTarget = true
+            }
+
+            /// First non-empty cell under any of the given header names.
+            func cell(_ names: String...) -> String? {
+                for name in names {
+                    if let i = memberHeaders.firstIndex(of: name), i < row.count {
+                        let value = row[i]
+                        if !value.isEmpty { return value }
+                    }
+                }
+                return nil
+            }
+
+            let surname = cell("surname") ?? ""
+            let forenames = cell("forenames") ?? ""
+            let name = "\(forenames) \(surname)".trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty else { continue }
+
+            let ageText = cell("age") ?? ""
+            let ageInt = Int(ageText)
+
+            members.append(HouseholdMember(
+                name: name,
+                // 1841 has no Relationship column — empty, never guessed.
+                relationship: cell("relationship") ?? "",
+                age: ageInt,
+                birthYear: (censusYear > 0) ? ageInt.map { censusYear - $0 } : nil,
+                birthPlace: cell("birth place"),
+                occupation: cell("occupation"),
+                sex: cell("sex"),
+                maritalStatus: cell("marital status"),
+                birthCounty: cell("birth county"),
+                disability: cell("disability"),
+                notes: cell("notes"),
+                isTarget: isTarget,
+                // Age text that isn't a clean integer ("3m", "6w", "unk")
+                // is preserved as transcribed instead of being dropped.
+                rawAge: (ageInt == nil && !ageText.isEmpty) ? ageText : nil,
+                yearsMarried: cell("years married"),
+                childrenBornAlive: cell("children born alive").flatMap(Int.init),
+                childrenLiving: cell("children living").flatMap(Int.init),
+                childrenDeceased: cell("children deceased").flatMap(Int.init),
+                industry: cell("industry"),
+                nationality: cell("nationality"),
+                language: cell("language"),
+                disabilityNotes: cell("disability notes")
+            ))
         }
+
+        let membersWithBirthYear = members
 
         // Build a CensusRecord for the search target (FT-10). FreeCen lists
         // households head-first, so the member the results page marked as

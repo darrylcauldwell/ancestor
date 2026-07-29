@@ -431,9 +431,37 @@ public nonisolated struct HouseholdMember: Codable, Sendable, Hashable {
     /// ("unknown") rather than failing.
     public let isTarget: Bool?
 
+    // Year-specific columns from the authoritative MyopicVicar census
+    // schema (FREEREG_INTEGRATION_SPEC recon 2026-07-29). All optional +
+    // additive: absent in old persisted JSON → decode nil; they ride
+    // inside `household`, so the PublishedTree privacy strip covers them.
+
+    /// The age cell as transcribed when it is NOT a clean integer —
+    /// infant ages ("3m", "6w"), "unk" (the page's rendering of the
+    /// unknown-age sentinel 999). `age`/`birthYear` stay nil for these;
+    /// the raw text preserves the evidence instead of dropping it.
+    public let rawAge: String?
+    /// 1911 fertility block ("Years Married" / "Children Born Alive" /
+    /// "Children Living" / "Children Deceased") — a married woman's own
+    /// statement of her children, incl. ones who died young: the direct
+    /// missing-child detector for the tree.
+    public let yearsMarried: String?
+    public let childrenBornAlive: Int?
+    public let childrenLiving: Int?
+    public let childrenDeceased: Int?
+    /// 1911 "Industry" column (alongside occupation).
+    public let industry: String?
+    /// "Nationality" column (E&W part2 layouts).
+    public let nationality: String?
+    /// "Language" column (Wales 1891+, Scotland 1901/1911) — Welsh/Gaelic/
+    /// English; a cultural-context and record-interpretation signal.
+    public let language: String?
+    /// 1911 "Disability Notes" column (alongside the disability flag).
+    public let disabilityNotes: String?
+
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
-    public init(name: String, relationship: String, age: Int? = nil, birthYear: Int? = nil, birthPlace: String? = nil, occupation: String? = nil, sex: String? = nil, maritalStatus: String? = nil, birthCounty: String? = nil, disability: String? = nil, notes: String? = nil, isTarget: Bool? = nil) {
+    public init(name: String, relationship: String, age: Int? = nil, birthYear: Int? = nil, birthPlace: String? = nil, occupation: String? = nil, sex: String? = nil, maritalStatus: String? = nil, birthCounty: String? = nil, disability: String? = nil, notes: String? = nil, isTarget: Bool? = nil, rawAge: String? = nil, yearsMarried: String? = nil, childrenBornAlive: Int? = nil, childrenLiving: Int? = nil, childrenDeceased: Int? = nil, industry: String? = nil, nationality: String? = nil, language: String? = nil, disabilityNotes: String? = nil) {
         self.name = name
         self.relationship = relationship
         self.age = age
@@ -446,6 +474,15 @@ public nonisolated struct HouseholdMember: Codable, Sendable, Hashable {
         self.disability = disability
         self.notes = notes
         self.isTarget = isTarget
+        self.rawAge = rawAge
+        self.yearsMarried = yearsMarried
+        self.childrenBornAlive = childrenBornAlive
+        self.childrenLiving = childrenLiving
+        self.childrenDeceased = childrenDeceased
+        self.industry = industry
+        self.nationality = nationality
+        self.language = language
+        self.disabilityNotes = disabilityNotes
     }
 
 }
