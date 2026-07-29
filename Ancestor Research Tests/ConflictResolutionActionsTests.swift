@@ -171,4 +171,36 @@ struct ConflictResolutionActionsTests {
         #expect(proposal?.label.contains("1913") == true)
         #expect(proposal?.hypothesisID.contains("1913") == true)
     }
+
+    // MARK: - Defer keeps the dispute open (not "Resolved")
+
+    @Test func deferringKeepsTheDisputeOpenNotResolved() throws {
+        let db = try makeDB()
+        _ = try db.addProfile(profile("p", first: "Ernest", last: "Cauldwell"), source: .gedcom)
+        let existing = [FieldSource(origin: SourceOrigin(identifier: "gedcom"),
+                                    raw: "1886", addedAt: Date())]
+        guard let conflict = ConflictDetector.dateFieldConflict(
+            field: .birthDate, existing: GenealogicalDate(parsing: "1886"),
+            existingSources: existing,
+            candidate: GenealogicalDate(parsing: "1890"),
+            candidateOrigin: SourceOrigin(identifier: "freebmd"),
+            profileID: "p") else {
+            #expect(Bool(false), "expected a birth-date conflict"); return
+        }
+        _ = try db.upsertDispute(profileID: "p", conflict: conflict,
+                                 adjudication: DisputeResolver.Adjudication(resolution: nil, trace: []))
+        #expect(try db.openDisputeCount() == 1)
+
+        // Defer — "decide later", NOT a decision. The dispute must stay open and
+        // actionable (the bug: it read back as "Resolved" and vanished).
+        _ = try db.resolveFieldDispute(profileID: "p", field: .birthDate, resolution: .deferred)
+        #expect(try db.openDisputeCount() == 1)
+        let deferred = try db.allOpenDisputes().first
+        #expect(deferred?.resolution == .deferred)
+        #expect(deferred?.isOpen == true)
+
+        // A real decision (pick a value) actually closes it.
+        _ = try db.resolveFieldDispute(profileID: "p", field: .birthDate, resolution: .manual("1886"))
+        #expect(try db.openDisputeCount() == 0)
+    }
 }

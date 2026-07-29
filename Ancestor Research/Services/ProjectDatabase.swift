@@ -4163,7 +4163,11 @@ nonisolated struct DisputeRow: Identifiable, Sendable {
     let resolution: DisputeResolution?
     let resolvedAt: Date?
 
-    var isOpen: Bool { resolution == nil }
+    /// `.deferred` is "parked, decide later" — NOT a decision, so it stays open
+    /// and actionable. Only a real resolution (.accepted / .manual / .rule)
+    /// closes a dispute. (A deferred dispute reading as "Resolved" is the bug
+    /// this fixes.)
+    var isOpen: Bool { resolution == nil || resolution == .deferred }
 
     /// Short label naming HOW a resolved dispute was settled — cited in
     /// GPS criterion 4's met-with-evidence reason string (CL3 ⟨G2⟩).
@@ -4364,22 +4368,21 @@ nonisolated extension ProjectDatabase {
 
     /// Count of open disputes across the whole project (Audit tab badge).
     func openDisputeCount() throws -> Int {
-        try dbQueue.read { db in
-            try Int.fetchOne(db, sql: """
-                SELECT COUNT(*) FROM field_disputes WHERE resolution IS NULL
-                """) ?? 0
-        }
+        try allOpenDisputes().count
     }
 
-    /// Every open dispute in the project, newest first.
+    /// Every open dispute in the project, newest first. "Open" includes
+    /// `.deferred` (parked, decide later) — only a real resolution closes a row.
+    /// The SQL LIKE narrows to candidates cheaply; `isOpen` confirms exactly
+    /// (a manual value literally "deferred" is excluded by the Swift check).
     func allOpenDisputes() throws -> [DisputeRow] {
         try dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT rowid, * FROM field_disputes
-                WHERE resolution IS NULL
+                WHERE resolution IS NULL OR resolution LIKE '%deferred%'
                 ORDER BY rowid DESC
                 """)
-            return rows.compactMap(Self.disputeRow(from:))
+            return rows.compactMap(Self.disputeRow(from:)).filter(\.isOpen)
         }
     }
 

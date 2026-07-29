@@ -308,7 +308,9 @@ struct SharedProfileLayout: View {
                             }
                         }
                         Spacer()
-                        if dispute.resolution == nil {
+                        // `.deferred` is "parked", not decided — still open and
+                        // actionable, never shown as "Resolved".
+                        if dispute.resolution == nil || dispute.resolution == .deferred {
                             // ⟨G12⟩ — a linked candidate hypothesis has
                             // resolved the question: PROPOSE, never apply.
                             if let proposal = proposals[dispute.field] {
@@ -318,6 +320,11 @@ struct SharedProfileLayout: View {
                                 .buttonStyle(.glassProminent)
                                 .tint(.green)
                                 .controlSize(.small)
+                            }
+                            if dispute.resolution == .deferred {
+                                Text("deferred")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
                             Button("Resolve…") {
                                 resolvingDispute = DisputeSheetItem(
