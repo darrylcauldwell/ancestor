@@ -551,32 +551,51 @@ struct HealthView: View {
             .disabled(onOpenProfile == nil)
             .help("Open \(name) in the tree")
 
-            Button {
-                startResolving(row)
-            } label: {
-                Label("Resolve…", systemImage: "checkmark.circle.badge.questionmark")
+            if disputeIsInlineResolvable(row) {
+                Button {
+                    startResolving(row)
+                } label: {
+                    Label("Resolve…", systemImage: "checkmark.circle.badge.questionmark")
+                }
+                .buttonStyle(.glassProminent).controlSize(.mini)
+                .help("Choose which value is correct — a conflict is a decision only you can make")
+            } else {
+                // Timeline / structural conflicts (a census implying an impossible
+                // age, a spouse-surname mismatch) aren't a value-pick — they're
+                // resolved by editing the underlying record. Open the profile,
+                // where that edit lives. (`ConflictResolutionView` handles only
+                // .fieldValue.)
+                Button {
+                    onOpenProfile?(row.entityID)
+                } label: {
+                    Label("Open profile", systemImage: "arrow.up.forward.square")
+                }
+                .buttonStyle(.glassProminent).controlSize(.mini)
+                .disabled(onOpenProfile == nil)
+                .help("This conflict is resolved by editing the record on \(name)'s profile")
             }
-            .buttonStyle(.glassProminent).controlSize(.mini)
-            .help("Choose which value is correct — a conflict is a decision only you can make")
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
     }
 
-    /// Open the same `ConflictResolutionView` the profile uses for a value
-    /// dispute; for structural kinds (spouse identity, census witness) there's no
-    /// value-picker, so deep-link to the profile where they're handled.
+    /// A dispute is resolvable inline (value-picker sheet) only when it's a
+    /// field-value conflict on a real profile field — the only kind
+    /// `ConflictResolutionView` accepts. Timeline/spouse/parent kinds are edited
+    /// on the profile instead.
+    private func disputeIsInlineResolvable(_ row: DisputeRow) -> Bool {
+        row.kind == .fieldValue && ProfileField(rawValue: row.field) != nil
+    }
+
+    /// Open the same `ConflictResolutionView` the profile uses for a value dispute.
     private func startResolving(_ row: DisputeRow) {
-        guard let profile = appState.snapshot.profiles[row.entityID] else { return }
-        if row.kind == .fieldValue, let field = ProfileField(rawValue: row.field) {
-            let dispute = profile.disputes[field] ?? FieldDispute(
-                field: field, reason: row.reason, competingSources: row.competingSources,
-                detectedAt: row.detectedAt, resolution: row.resolution,
-                kind: row.kind, severity: row.severity, detectedBy: row.detectedBy)
-            resolvingDispute = DisputeSheetItem(profile: profile, dispute: dispute)
-        } else {
-            appState.selectedProfileID = row.entityID
-        }
+        guard let profile = appState.snapshot.profiles[row.entityID],
+              let field = ProfileField(rawValue: row.field) else { return }
+        let dispute = profile.disputes[field] ?? FieldDispute(
+            field: field, reason: row.reason, competingSources: row.competingSources,
+            detectedAt: row.detectedAt, resolution: row.resolution,
+            kind: row.kind, severity: row.severity, detectedBy: row.detectedBy)
+        resolvingDispute = DisputeSheetItem(profile: profile, dispute: dispute)
     }
 
     /// Plain-language conflict: competing values grouped by value, each tagged
