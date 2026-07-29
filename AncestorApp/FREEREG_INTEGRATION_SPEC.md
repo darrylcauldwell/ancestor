@@ -239,16 +239,30 @@ public struct FreeREGNotes: Codable, Sendable {
 
 ---
 
-## 3. Build sequence (design → code, follow-on)
+## 3. Build sequence — as-built record (2026-07-29)
 
-Not built by this spec — this is the plan. Suggested order, smallest-blast-radius first:
+1. **Honeypot + county-cap hardening** (§0) — ✅ **SHIPPED** (`c554352`): `batchGroupSize = 3` on BOTH `FreeREGParams` and `FreeCenParams`, `FreeREGParams.cappedChapmanCodes()` (CI-quartet exempt) enforced at emit, honeypot never-emit pinned by test.
+2. **Query model** (§1) — ✅ **SHIPPED** (`c554352`): `placeIDs` (FT-19), `includeWitnesses`/`includeFamilyMembers` (FT-21), `noSurname`, `searchNearbyPlaces` on `FreeREGParams`, gate rules enforced at emit (places need ONE county; nearby needs a place; no_surname needs forename+county+place; invalid → degrade or refuse, never an invalid POST). 12 wire-shape tests (`FreeREGQueryModelTests`).
+3. **Data model** (§2) — ✅ **SHIPPED** (`87a37ac`), as-built differs from the first draft in shape: the typed payload rides as **`ParishRecord.detail: FreeREGDetail?`** (additive optional; old `evidence_records.record_json` rows decode nil) rather than a parallel record type. `FreeREGDetailMapper` maps ordered (label, value) pairs → `FreeREGEvent` (.baptism/.marriage/.burial). **Live-page facts the recon verified** (labels are Rails `field.gsub('_',' ').capitalize` → normalised keys ARE the DB field names; witnesses render as `Witness1`…`Witness8` rows with combined "Forename Surname" values; `Church name`/`Register type` labels carry a `<small>` note, stripped; the location row is labelled **Place**, not Parish). `sex` stays `String?` (as-transcribed, never coerced — same rule as ages). **DS-10 hardening shipped with it:** flat `fatherName`/`motherName` are projected for baptisms ONLY (a marriage's groom-/bride-father and a burial's next-of-kin stay in the typed detail under true roles), and `RecordScorer.familyContextGate` gained the matching eventType guard.
+4. **Attribution** — `credit`/`transcribed_by` are typed on `FreeREGProvenance`; threading into `CitationRenderer` output is **OPEN** (small, next).
+5. **FreeCEN record model** — ✅ **SHIPPED** (`17d7169`), premise-corrected: the household was ALREADY typed (`HouseholdMember`); the real gaps were year-specific columns and a fixed-position parser. Added: 1911 fertility block (`yearsMarried`/`childrenBornAlive`/`childrenLiving`/`childrenDeceased` — the missing-child detector), `rawAge` (infant "3m"/"6w"/"unk" ages no longer dropped), `industry`/`nationality`/`language`/`disabilityNotes`; parser rewritten **header-keyed** (fixes silent mis-parse of 1841's 7-column and 1911's 20-column layouts, and the FreeCEN2 CSV 3-table path where the address table was read as the roster).
+6. **Shared machinery** — ✅ **SHIPPED**: `MyopicVicarParsing` (Services/Sources) — CSRF token (meta + hidden-input fallback, robustness union), kaminari pagination next-href, Rails validation-banner detection + error-detail extraction, header-keyed table/row/cell primitives. Both sources delegate; `FreeBMDSource` deliberately excluded (classic Perl CGI, not MyopicVicar). Full actor-state unification (session/pacing) NOT done — deliberate: the two sources' session behaviours differ (FreeCen reads cookies) and forced unification risks regressions for no behaviour gain.
 
-1. **Honeypot + county-cap hardening** (§0) — set `batchGroupSize = 3`, assert `region` never emitted, cap `chapman_codes` at 3. *No model change; pure safety.* Do first — **and apply to BOTH `FreeREGParams` and `FreeCenParams`** (both currently `= 10`; both hit the same 3-county MyopicVicar cap).
-2. **Query model** (§1) — wire the missing axes onto `FreeREGParams` + a testable `validate()`; add `placeIDs` (FT-19), `includeWitnesses`/`includeFamilyMembers` (FT-21), `noSurname`. Emit only after `validate()` passes.
-3. **Data model** (§2) — introduce `FreeREGRecord`/`FreeREGEvent`; parse detail pages into the typed structs; keep `ParishRecord` as a lossy projection for the existing scorer/convergence call sites until they migrate (avoid a big-bang rewrite of the decision core).
-4. **Attribution** — thread `credit`/`transcribed_by` into `Citation` rendering.
-5. **FreeCEN record model** (separate, larger) — the census-household equivalent of §2, plus applying the shared `validate()` to `FreeCenSource`. Best done as its own increment.
-6. **Generalize** — lift the shared `SearchQuery`-shaped validation + honeypot/cap rules + pagination into a `FreeUKGenSource` base that both FreeREG and FreeCEN reuse (their *record* schemas differ; the *query contract* is identical). `FreeBMDSource` stays out — it's the classic Perl CGI site, a different engine.
+### 3.0a Adversarial-verify pass (2026-07-29, `f72cde9`)
+
+A 3-agent verify pass (mapper-vs-schema · decision-core · parser-edges, each empirically probing against the MyopicVicar clone) found and fixed:
+- **CRITICAL ×2 (parser, masked by idealized fixtures):** live ERB pages pad every cell with newlines and encode entities — `MyopicVicarParsing.stripTags` now trims `.whitespacesAndNewlines` + decodes entities (was: whitespace-only → header matching failed on EVERY live page); live VLD partials render `<thead>` header cells with NO `<tr>` — `rows(inTableHTML:)` now lifts a tr-less thead's cells as the header row. Pinned by an ERB-faithful fixture (`erbShapedPageParsesEndToEnd`).
+- **REAL (mapper):** burial male+female relative blocks welded into a chimera person and dropped the second relative → per-prefix extraction + `FreeREGBurial.secondRelative`. `boolValue` rejected FreeREG's actual truthy transcriptions ("Licence", "Private") → per-field truthy vocabularies from the MyopicVicar constants.
+- **REAL (decision-core):** producer projected flat parents from the TYPED event while the scorer guard keyed on the flat eventType string — a blank type cell under the all-types `.parish` query skipped the DS-10 gate. Guard now matches the producer exactly (flat-eventType OR typed `.baptism`), pinned by `blankTypeSearchRowWithBaptismDetailKeepsGateFiring`.
+- **Minors:** `confirmationDate`/`receivedIntoChurchDate` typed (confirmation-only entries kept their defining date); `groomMarked`/`brideMarked` (literacy signal); eventKind resolves surname-only burials and treats confirmation dates as baptism-family; census members gained `occupationCategory`/`worksAtHome`/`religion`/`readWrite`/`schoolChildren`/`fatherPlaceOfBirth`.
+- **Refuted (no action, recorded to prevent re-investigation):** prefix bleed (exact-key construction prevents it), County/Place absorption into persons, hint overriding page evidence, witness token edge cases, FS `.parish` regression under the new guard, enrich-sentinel budget change, CSRF/pagination regex union safety.
+
+### 3.1 Open follow-ups
+
+- **Citation attribution** (item 4) — render `provenance.credit`/`transcribedBy` in FreeREG citations.
+- **Consumers of the typed detail** — the record-review panel (`ClusterReviewView`) could render witnesses/occupations/register info from `detail` instead of raw fields; marriage `groomFather`/`brideFather` are new hypothesis fuel (two generations per record); burial `relative`+`relationship` and the 1911 fertility block are audit-rule fuel (missing-child detector). All additive.
+- **1911 fertility audit rule** — `childrenBornAlive − childrenLiving > tree's dead children` → missing-child lead.
+- **`enrichWithDetail` sentinel** now `detail == nil` (was flat-parent nil-check) — covers all event types honestly.
 
 ## 4. Open items to verify against a live run
 
