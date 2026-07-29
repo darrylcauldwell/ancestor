@@ -22,6 +22,21 @@ struct ConflictResolutionView: View {
         "\(source.origin.identifier)|\(source.raw)"
     }
 
+    /// Competing sources collapsed by (origin, value): the same GRO entry is
+    /// often attested by several transcriptions, which otherwise render as
+    /// identical rows (e.g. "Sep 1927 · FREEBMD" four times). One row per
+    /// distinct value-from-source keeps the choice legible; the resolution only
+    /// needs the value, so the retained representative is sufficient.
+    private var dedupedSources: [FieldSource] {
+        var seen = Set<String>()
+        var out: [FieldSource] = []
+        for source in dispute.competingSources {
+            let key = "\(source.origin.identifier)|\(source.raw.trimmingCharacters(in: .whitespaces).lowercased())"
+            if seen.insert(key).inserted { out.append(source) }
+        }
+        return out
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Header
@@ -73,7 +88,7 @@ struct ConflictResolutionView: View {
             Text("Sources disagree:")
                 .font(.headline)
 
-            ForEach(Array(dispute.competingSources.enumerated()), id: \.offset) { index, source in
+            ForEach(Array(dedupedSources.enumerated()), id: \.offset) { index, source in
                 HStack {
                     RadioButton(isSelected: selectedSourceIndex == index) {
                         selectedSourceIndex = index
@@ -139,8 +154,8 @@ struct ConflictResolutionView: View {
                     let resolution: DisputeResolution
                     if let index = selectedSourceIndex,
                        index >= 0,
-                       index < dispute.competingSources.count {
-                        resolution = .accepted(dispute.competingSources[index])
+                       index < dedupedSources.count {
+                        resolution = .accepted(dedupedSources[index])
                     } else if !manualValue.trimmingCharacters(in: .whitespaces).isEmpty {
                         resolution = .manual(manualValue)
                     } else {
