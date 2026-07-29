@@ -352,10 +352,18 @@ public nonisolated struct ParishRecord: Codable, Sendable {
     public let county: String?
     public let fatherName: String?
     public let motherName: String?
+    /// FREEREG_INTEGRATION_SPEC §2 — the full typed register-entry payload
+    /// (occupations, witnesses, both spouses' parents, burial relative,
+    /// mother's prior-to-marriage context, register reference, transcriber
+    /// attribution). Optional + additive: the flat fields above remain the
+    /// lossy projection the scorer/convergence read; rows persisted before
+    /// this field existed decode as nil (synthesized `decodeIfPresent`).
+    /// FreeREG is the only parish source, hence the FreeREG-typed payload.
+    public let detail: FreeREGDetail?
 
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
-    public init(common: RecordCommon, eventType: String? = nil, eventDate: String? = nil, eventYear: Int? = nil, parish: String? = nil, county: String? = nil, fatherName: String? = nil, motherName: String? = nil) {
+    public init(common: RecordCommon, eventType: String? = nil, eventDate: String? = nil, eventYear: Int? = nil, parish: String? = nil, county: String? = nil, fatherName: String? = nil, motherName: String? = nil, detail: FreeREGDetail? = nil) {
         self.common = common
         self.eventType = eventType
         self.eventDate = eventDate
@@ -364,6 +372,7 @@ public nonisolated struct ParishRecord: Codable, Sendable {
         self.county = county
         self.fatherName = fatherName
         self.motherName = motherName
+        self.detail = detail
     }
 
 }

@@ -441,7 +441,11 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
                   case .parish(let parish) = record,
                   let urlString = parish.common.detailURL, !urlString.isEmpty,
                   let url = URL(string: urlString),
-                  parish.fatherName == nil, parish.motherName == nil else {
+                  parish.detail == nil else {
+                // `detail == nil` = not yet detail-enriched (the typed
+                // payload is attached by every enrichment path, so its
+                // absence — not the baptism-only flat parents — is the
+                // honest sentinel across all event types).
                 out.append(record)
                 continue
             }
@@ -451,9 +455,10 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
                     try await self.http.get(url: url, headers: ["User-Agent": Self.userAgent])
                 }
                 let html = String(data: data, encoding: .utf8) ?? ""
-                let fields = Self.parseDetailFields(html)
+                let detailPairs = Self.parseDetailPairs(html)
+                let fields = Self.detailFields(fromPairs: detailPairs)
                 if !fields.isEmpty {
-                    out.append(Self.mergedDetailRecord(base: parish, detailFields: fields))
+                    out.append(Self.mergedDetailRecord(base: parish, detailFields: fields, pairs: detailPairs))
                 } else {
                     // Detail page had no extractable pairs (layout
                     // drift, error page) — keep the search-result row.
@@ -481,9 +486,10 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
                 try await self.http.get(url: url, headers: ["User-Agent": Self.userAgent])
             }
             let html = String(data: data, encoding: .utf8) ?? ""
-            let fields = Self.parseDetailFields(html)
+            let detailPairs = Self.parseDetailPairs(html)
+            let fields = Self.detailFields(fromPairs: detailPairs)
             guard !fields.isEmpty,
-                  let record = Self.detailRecord(fields: fields, recordURL: recordID) else {
+                  let record = Self.detailRecord(fields: fields, recordURL: recordID, pairs: detailPairs) else {
                 return .results([])
             }
             return .results([record])
@@ -714,15 +720,15 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
 
     // MARK: - Detail parsing (FT-18, nonisolated static — testable)
 
-    /// Extract the transcribed field pairs from a FreeREG record detail
-    /// page. The pages render as definition lists (`<dt>Key</dt>
-    /// <dd>Value</dd>`) and/or two-cell table rows — Python's
-    /// fetch_record_detail walks exactly these two shapes
-    /// (freereg_search.py:308-321). Keys are normalised to lowercase
-    /// snake_case with apostrophes stripped ("Father's Forename" →
-    /// "fathers_forename").
-    nonisolated static func parseDetailFields(_ html: String) -> [String: String] {
-        var fields: [String: String] = [:]
+    /// Ordered RAW (label, value) pairs from a FreeREG record detail page.
+    /// The pages render as definition lists (`<dt>Key</dt> <dd>Value</dd>`)
+    /// and/or two-cell table rows — Python's fetch_record_detail walks
+    /// exactly these two shapes (freereg_search.py:308-321). Labels are
+    /// NOT normalised and duplicates are PRESERVED — order + repetition
+    /// carry the witness grouping the typed mapper needs
+    /// (`FreeREGDetailMapper`, FREEREG_INTEGRATION_SPEC §2).
+    nonisolated static func parseDetailPairs(_ html: String) -> [(String, String)] {
+        var pairs: [(String, String)] = []
         let pairPatterns = [
             #"<dt[^>]*>(.*?)</dt>\s*<dd[^>]*>(.*?)</dd>"#,
             #"<tr[^>]*>\s*<t[dh][^>]*>(.*?)</t[dh]>\s*<td[^>]*>(.*?)</td>\s*</tr>"#,
@@ -732,19 +738,48 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
             for match in regex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
                 guard let keyRange = Range(match.range(at: 1), in: html),
                       let valueRange = Range(match.range(at: 2), in: html) else { continue }
-                let key = normaliseDetailKey(stripTags(String(html[keyRange])))
+                let label = stripTags(String(html[keyRange]))
                 let value = stripTags(String(html[valueRange]))
-                if !key.isEmpty, !value.isEmpty, fields[key] == nil {
-                    fields[key] = value
+                if !label.isEmpty, !value.isEmpty {
+                    pairs.append((label, value))
                 }
+            }
+        }
+        return pairs
+    }
+
+    /// Normalised first-wins field map from ordered pairs. Keys are
+    /// lowercase snake_case with apostrophes stripped ("Father's
+    /// Forename" → "fathers_forename") — the shape `rawFields` and the
+    /// legacy extractors consume.
+    nonisolated static func detailFields(fromPairs pairs: [(String, String)]) -> [String: String] {
+        var fields: [String: String] = [:]
+        for (label, value) in pairs {
+            let key = normaliseDetailKey(label)
+            if !key.isEmpty, fields[key] == nil {
+                fields[key] = value
             }
         }
         return fields
     }
 
-    /// "Father's Forename:" → "fathers_forename"
+    /// Extract the transcribed field pairs from a FreeREG record detail
+    /// page — normalised, first-wins (see `parseDetailPairs` for the
+    /// ordered raw form).
+    nonisolated static func parseDetailFields(_ html: String) -> [String: String] {
+        detailFields(fromPairs: parseDetailPairs(html))
+    }
+
+    /// "Father forename" → "father_forename" (live pages label via Rails
+    /// `field.gsub('_',' ').capitalize`, so keys match the MyopicVicar DB
+    /// field names exactly); possessives ("Father's Forename" →
+    /// "fathers_forename") tolerated for older layouts. Parenthetical
+    /// label notes — "Church name (Links to more information)" — are
+    /// stripped so the key is the clean "church_name".
     nonisolated static func normaliseDetailKey(_ raw: String) -> String {
-        raw.lowercased()
+        raw
+            .replacingOccurrences(of: #"\([^)]*\)"#, with: "", options: .regularExpression)
+            .lowercased()
             .replacingOccurrences(of: "'", with: "")
             .replacingOccurrences(of: "\u{2019}", with: "")
             .replacingOccurrences(of: ":", with: "")
@@ -772,9 +807,11 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
     /// Build a standalone record from a detail page alone (the public
     /// `fetchDetail` path). Best-effort: principal name from the page's
     /// own Forename/Surname fields; event date/type from the kind-named
-    /// date field; parents via `extractParent`. Nil when no principal
-    /// name could be read — an unidentifiable record is worse than none.
-    nonisolated static func detailRecord(fields: [String: String], recordURL: String) -> SourceRecord? {
+    /// date field; parents via `extractParent`; the full typed payload
+    /// via `FreeREGDetailMapper` (`pairs` = ordered raw stream when the
+    /// caller has it). Nil when no principal name could be read — an
+    /// unidentifiable record is worse than none.
+    nonisolated static func detailRecord(fields: [String: String], recordURL: String, pairs: [(String, String)] = []) -> SourceRecord? {
         let surname = fields["surname"] ?? fields["persons_surname"]
         let given = fields["forename"] ?? fields["forenames"] ?? fields["first_name"]
         let name = [given, surname].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
@@ -798,7 +835,9 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
         if eventType.isEmpty {
             eventType = fields["record_type"]?.lowercased() ?? ""
         }
-        let parish = fields["parish"] ?? ""
+        // The live detail page's location row is labelled "Place"
+        // (parish is the FreeREG term, place is the page's) — accept both.
+        let parish = fields["parish"] ?? fields["place"] ?? ""
         let county = fields["county"] ?? ""
         let common = RecordCommon(
             id: stableRecordID(
@@ -813,6 +852,9 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
             detailURL: recordURL,
             rawFields: fields
         )
+        let mapperInput = pairs.isEmpty ? fields.map { ($0.key, $0.value) } : pairs
+        let typed = FreeREGDetailMapper.detail(fromLabelledPairs: mapperInput, typeHint: eventType.isEmpty ? nil : eventType)
+        let flatParents = flatParentProjection(typed: typed, detailFields: fields, eventType: eventType.isEmpty ? nil : eventType)
         return .parish(ParishRecord(
             common: common,
             eventType: eventType.isEmpty ? nil : eventType,
@@ -820,8 +862,9 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
             eventYear: extractYear(from: date),
             parish: parish.isEmpty ? nil : parish,
             county: county.isEmpty ? nil : county,
-            fatherName: extractParent(fields, role: "father"),
-            motherName: extractParent(fields, role: "mother")
+            fatherName: flatParents.father,
+            motherName: flatParents.mother,
+            detail: typed
         ))
     }
 
@@ -829,10 +872,23 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
     /// name and detail URL are the BASE record's — enrichment must
     /// never flip a record's identity (the FT-12 lesson, and the ID is
     /// already URL-derived on both paths per FT-16). Detail fields land
-    /// in rawFields (search-row keys win on collision); parents are
-    /// promoted to the typed fatherName/motherName the scorer and
-    /// hypothesis engine read.
-    nonisolated static func mergedDetailRecord(base: ParishRecord, detailFields: [String: String]) -> SourceRecord {
+    /// in rawFields (search-row keys win on collision); the FULL typed
+    /// payload (occupations, witnesses, both spouses' parents, burial
+    /// relative, register reference, transcriber attribution) rides on
+    /// `detail` via `FreeREGDetailMapper` (FREEREG_INTEGRATION_SPEC §2).
+    ///
+    /// Flat `fatherName`/`motherName` are populated for BAPTISMS ONLY:
+    /// they are what `RecordScorer.familyContextGate` (DS-10) compares
+    /// against the SUBJECT's linked parents, so a marriage's
+    /// groom-/bride-father or a burial's next-of-kin must never land
+    /// there (they are someone else's parents — the typed detail
+    /// carries them under their true roles instead).
+    ///
+    /// `pairs` is the ordered raw (label, value) stream from
+    /// `parseDetailPairs` — pass it when available so witness grouping
+    /// survives; when empty (legacy call sites), the mapper falls back
+    /// to the unordered field map.
+    nonisolated static func mergedDetailRecord(base: ParishRecord, detailFields: [String: String], pairs: [(String, String)] = []) -> SourceRecord {
         var raw = base.common.rawFields
         for (key, value) in detailFields where raw[key] == nil {
             raw[key] = value
@@ -846,16 +902,44 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
             detailURL: base.common.detailURL,
             rawFields: raw
         )
+        let mapperInput = pairs.isEmpty ? detailFields.map { ($0.key, $0.value) } : pairs
+        let typed = FreeREGDetailMapper.detail(fromLabelledPairs: mapperInput, typeHint: base.eventType)
+        let flatParents = flatParentProjection(typed: typed, detailFields: detailFields, eventType: base.eventType)
         return .parish(ParishRecord(
             common: common,
             eventType: base.eventType,
             eventDate: base.eventDate,
             eventYear: base.eventYear,
-            parish: base.parish ?? detailFields["parish"],
+            parish: base.parish ?? detailFields["parish"] ?? detailFields["place"],
             county: base.county ?? detailFields["county"],
-            fatherName: extractParent(detailFields, role: "father"),
-            motherName: extractParent(detailFields, role: "mother")
+            fatherName: flatParents.father,
+            motherName: flatParents.mother,
+            detail: typed
         ))
+    }
+
+    /// The baptism-only flat-parent projection (DS-10 producer guard).
+    /// Prefers the typed mapper's role-resolved parents; falls back to
+    /// the legacy prefix extractor only when the event is known to be a
+    /// baptism/christening. Non-baptism events (and unresolvable pages)
+    /// project NO flat parents.
+    nonisolated static func flatParentProjection(
+        typed: FreeREGDetail?, detailFields: [String: String], eventType: String?
+    ) -> (father: String?, mother: String?) {
+        if let typed {
+            guard case .baptism(let baptism) = typed.event else { return (nil, nil) }
+            let father = baptism.father?.displayName
+                ?? extractParent(detailFields, role: "father")
+            let mother = baptism.mother?.person.displayName
+                ?? extractParent(detailFields, role: "mother")
+            return (father, mother)
+        }
+        // No typed event (unparseable page): only a baptism-typed search
+        // row may use the legacy extractor.
+        let token = eventType?.lowercased() ?? ""
+        guard token.contains("bapt") || token.contains("christen") else { return (nil, nil) }
+        return (extractParent(detailFields, role: "father"),
+                extractParent(detailFields, role: "mother"))
     }
 
     /// Stable record ID (connector-audit FT-16). Record IDs are load-bearing

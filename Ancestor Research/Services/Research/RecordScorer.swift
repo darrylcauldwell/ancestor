@@ -1419,7 +1419,15 @@ nonisolated struct RecordScorer {
         // so the given is the discriminating token) against the subject's
         // linked parents. Corroborate on a match, soft-fail on a clear
         // contradiction, skip when there's nothing to compare.
-        if case .parish(let parish) = record {
+        // Event-type guard (FREEREG_INTEGRATION_SPEC §2 / consumer-map
+        // hardening 2026-07-29): only a BAPTISM's fatherName/motherName are
+        // the SUBJECT's parents. On a marriage they would be the groom's or
+        // bride's father (a stranger to a bride-subject); on a burial, the
+        // named next-of-kin. The producer (FreeREGSource) now projects flat
+        // parents baptism-only, and this guard keeps the gate honest even
+        // if another producer regresses.
+        if case .parish(let parish) = record,
+           parish.eventType.map({ $0.lowercased().contains("bapt") || $0.lowercased().contains("christen") }) ?? false {
             let father = Self.parentGivenMatch(
                 recordName: parish.fatherName,
                 knownGiven: context.fatherGivenName, knownFull: context.fatherName)
