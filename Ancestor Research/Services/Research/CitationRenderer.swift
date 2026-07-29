@@ -249,7 +249,32 @@ nonisolated struct CitationRenderer {
         let parish = r.parish ?? ""
         let year = r.eventYear.map(String.init) ?? "?"
 
-        let full = "\(parish) Parish Register, \(event) of \(name), \(year)."
+        // Register/archive reference from the typed detail when present —
+        // church + register type + film locate the ORIGINAL page, which is
+        // what a citation is for.
+        var reference = ""
+        if let register = r.detail?.register {
+            let parts = [
+                r.detail?.churchName,
+                register.registerType,
+                register.registerEntryNumber.map { "entry \($0)" },
+                register.film.map { "film \($0)" },
+            ].compactMap { $0 }.filter { !$0.isEmpty }
+            if !parts.isEmpty { reference = " (\(parts.joined(separator: ", ")))" }
+        }
+
+        // Transcriber attribution (FREEREG_INTEGRATION_SPEC §2/§3.1):
+        // FreeREG's value IS the volunteers' transcription work — credit
+        // them on the citation whenever the record carries the credit.
+        var attribution = ""
+        if let provenance = r.detail?.provenance {
+            let credit = provenance.credit ?? provenance.transcribedBy
+            if let credit, !credit.isEmpty {
+                attribution = " Transcription credit: \(credit)."
+            }
+        }
+
+        let full = "\(parish) Parish Register, \(event) of \(name), \(year)\(reference).\(attribution)"
         let short = "Parish: \(name), \(event) \(year)"
 
         return RenderedCitation(
