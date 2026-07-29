@@ -74,6 +74,26 @@ private nonisolated enum FreeCenFixtures {
     </table>
     """
 
+    /// Real-shape household with TWO same-name members (a father "George
+    /// KEYWORTH" Head, and his son "George KEYWORTH" Son) — the exact George
+    /// Keyworth 1881 Worksop record. The search marker sits inside a
+    /// `<span class="accessibility">` on the head, as on the live page.
+    static let sameNameHouseholdHTML = """
+    <table>
+    <tr><th>Census</th><th>County</th><th>District</th><th>Civil Parish</th><th>Ecclesiastical Parish</th><th>Piece</th><th>Enumeration District</th><th>Folio</th><th>Page</th><th>Schedule</th><th>House Number</th><th>House or Street Name</th></tr>
+    <tr><td>1881</td><td>Nottinghamshire</td><td>Worksop</td><td>Worksop</td><td></td><td>3306</td><td>10</td><td>37</td><td>39</td><td>191</td><td>137</td><td>Kilton Rd</td></tr>
+    </table>
+    <table>
+    <tr><th>Surname</th><th>Forenames</th><th>Relationship</th><th>Marital Status</th><th>Sex</th><th>Age</th><th>Occupation</th><th>Birth County</th><th>Birth Place</th><th>Disability</th><th>Notes</th></tr>
+    <tr><td><span class="accessibility">the person found in your search</span>
+    KEYWORTH</td><td>George</td><td>Head</td><td>M</td><td>M</td><td>43</td><td>Maltster</td><td>Nottinghamshire</td><td>Farnsfield</td><td></td><td></td></tr>
+    <tr><td>KEYWORTH</td><td>Elizabeth</td><td>Wife</td><td>M</td><td>F</td><td>37</td><td></td><td>Nottinghamshire</td><td>Retford</td><td></td><td></td></tr>
+    <tr><td>KEYWORTH</td><td>William H</td><td>Son</td><td>-</td><td>M</td><td>6</td><td>Scholar</td><td>Nottinghamshire</td><td>Worksop</td><td></td><td></td></tr>
+    <tr><td>KEYWORTH</td><td>George</td><td>Son</td><td>-</td><td>M</td><td>4</td><td>Scholar</td><td>Nottinghamshire</td><td>Worksop</td><td></td><td></td></tr>
+    <tr><td>HEDGE</td><td>Alice</td><td>Dau</td><td>S</td><td>F</td><td>16</td><td>Servnt</td><td>County Dublin</td><td>Dublin</td><td></td><td></td></tr>
+    </table>
+    """
+
     static let detailURL = "https://www.freecen.org.uk/search_records/64ab12cd34ef56?search_query=q1"
 
     static func census(_ record: SourceRecord?) -> CensusRecord? {
@@ -194,6 +214,28 @@ nonisolated struct FreeCenHouseholdTargetTests {
         let household = try #require(record.household)
         #expect(household.map(\.name) == ["William SMITH", "Sarah SMITH", "John SMITH"])
         #expect(household.map(\.birthYear) == [1846, 1848, 1879])
+    }
+
+    /// Two people with the SAME name in one household (father Head + son Son,
+    /// both "George KEYWORTH") must stay DISTINCT — never collapse to a
+    /// duplicate of the head. Reproduces the George Keyworth 1881 Worksop case.
+    @Test func sameNameHouseholdMembersStayDistinct() throws {
+        let record = try #require(FreeCenFixtures.census(
+            FreeCenSource.parseHouseholdDetail(
+                FreeCenFixtures.sameNameHouseholdHTML, recordURL: FreeCenFixtures.detailURL)
+        ))
+        let household = try #require(record.household)
+        #expect(household.count == 5)
+        #expect(household.map(\.name) == [
+            "George KEYWORTH", "Elizabeth KEYWORTH", "William H KEYWORTH",
+            "George KEYWORTH", "Alice HEDGE",
+        ])
+        // Exactly one Head; the two Georges are father (43) and son (4).
+        #expect(household.filter { $0.relationship == "Head" }.count == 1)
+        let georges = household.filter { $0.name == "George KEYWORTH" }
+        #expect(georges.count == 2)
+        #expect(georges.contains { $0.relationship == "Head" && $0.age == 43 })
+        #expect(georges.contains { $0.relationship == "Son" && $0.age == 4 })
     }
 }
 

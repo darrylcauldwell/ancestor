@@ -380,7 +380,7 @@ struct LifeEventEditorView: View {
                     Text("Household (\(censusHousehold.count))")
                         .font(AppTypography.badge)
                         .foregroundStyle(.secondary)
-                    ForEach(censusHousehold, id: \.name) { member in
+                    ForEach(Array(censusHousehold.enumerated()), id: \.offset) { _, member in
                         Text("• \(member.name)\(member.relationship.isEmpty ? "" : " (\(member.relationship))")")
                             .font(AppTypography.cardMeta)
                             .foregroundStyle(.secondary)

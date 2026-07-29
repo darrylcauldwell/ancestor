@@ -591,7 +591,7 @@ struct ClusterReviewView: View {
                          ?? "Household members")
                         .font(AppTypography.cardMeta)
                         .foregroundStyle(.secondary)
-                    ForEach(cluster.householdMembers, id: \.name) { member in
+                    ForEach(Array(cluster.householdMembers.enumerated()), id: \.offset) { _, member in
                         HStack(spacing: 8) {
                             Text(member.name)
                                 .font(AppTypography.cardBody)
@@ -955,7 +955,7 @@ struct ClusterReviewView: View {
                             Text("Household (\(household.count))")
                                 .font(AppTypography.cardMeta)
                                 .foregroundStyle(.secondary)
-                            ForEach(household, id: \.name) { member in
+                            ForEach(Array(household.enumerated()), id: \.offset) { _, member in
                                 HStack(alignment: .top, spacing: 6) {
                                     Text(member.name)
                                         .font(AppTypography.badge)

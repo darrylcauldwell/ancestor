@@ -81,7 +81,7 @@ struct LifeEventDetailsView: View {
                     Text("Household (\(c.household.count))")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                    ForEach(c.household, id: \.name) { member in
+                    ForEach(Array(c.household.enumerated()), id: \.offset) { _, member in
                         HStack(spacing: 4) {
                             Text(member.name)
                                 .font(.caption2)
