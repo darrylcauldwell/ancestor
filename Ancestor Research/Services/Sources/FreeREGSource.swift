@@ -96,7 +96,6 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
         guard recordTypes.contains(query.recordType) else {
             return SourceSearchEnvelope(.outsideCoverage(reason: "FreeREG provides parish register records only"))
         }
-        guard let surname = query.surname, !surname.isEmpty else { return SourceSearchEnvelope(.results([])) }
 
         // Map record type to FreeREG form value
         let recordTypeValue: String
@@ -117,14 +116,46 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
         // to carry in one request via repeated `chapman_codes[]` keys;
         // when present and non-empty it supersedes the single `chapmanCode`.
         // Order is preserved so the wire shape and cache key stay stable.
-        let chapmanCodes: [String]
-        if case .freeREG(let params) = query.sourceParams {
-            chapmanCodes = Self.resolveChapmanCodes(batch: params.chapmanCodes, single: params.chapmanCode)
-        } else if case .freeCen(let params) = query.sourceParams {
-            chapmanCodes = Self.resolveChapmanCodes(batch: params.chapmanCodes, single: params.chapmanCode)
-        } else {
-            chapmanCodes = []
+        let rawChapmanCodes: [String]
+        let regParams: FreeREGParams?
+        switch query.sourceParams {
+        case .freeREG(let params):
+            rawChapmanCodes = Self.resolveChapmanCodes(batch: params.chapmanCodes, single: params.chapmanCode)
+            regParams = params
+        case .freeCen(let params):
+            // Back-compat call site: a FreeCen param carries only the chapman
+            // axis into a FreeREG search; the capability axes stay unset.
+            rawChapmanCodes = Self.resolveChapmanCodes(batch: params.chapmanCodes, single: params.chapmanCode)
+            regParams = nil
+        default:
+            rawChapmanCodes = []
+            regParams = nil
         }
+        // MyopicVicar (the live engine) caps a query at 3 counties — Channel
+        // Islands quartet exempt (FREEREG_INTEGRATION_SPEC §0, resolves FT-27).
+        // Enforce defensively even if the dispatcher over-fans.
+        let chapmanCodes = FreeREGParams.cappedChapmanCodes(rawChapmanCodes)
+
+        // Capability axes + surname policy (FREEREG_INTEGRATION_SPEC §1).
+        // `place_ids` are valid only with a SINGLE county (the form's cascading
+        // Places box); `search_nearby_places` needs a place; `no_surname` needs
+        // forename + county + place — only then does the engine return rows
+        // instead of a validation reject.
+        let placeIDs = (regParams?.placeIDs ?? []).filter { !$0.isEmpty }
+        let placesEmitted = chapmanCodes.count == 1 && !placeIDs.isEmpty
+        let given = query.givenName ?? ""
+        let noSurnameValid = (regParams?.noSurname ?? false) && !given.isEmpty && placesEmitted
+
+        let surname: String
+        if let s = query.surname, !s.isEmpty {
+            surname = s
+        } else if noSurnameValid {
+            surname = ""   // a legitimate surname-less search (search_query[no_surname])
+        } else {
+            // No surname and not a valid no-surname query — nothing to search.
+            return SourceSearchEnvelope(.results([]))
+        }
+
         guard !chapmanCodes.isEmpty else {
             return SourceSearchEnvelope(.outsideCoverage(reason: "No home county (Chapman code) available to scope a FreeREG search"))
         }
@@ -169,6 +200,27 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
             }
             if let yearTo = query.yearTo {
                 fields.append(("search_query[end_year]", String(yearTo)))
+            }
+
+            // FT-19 / FT-21 capability axes (gates computed above). NB:
+            // `search_query[region]` is a bot HONEYPOT — deliberately NEVER
+            // emitted anywhere in this method (a test asserts it stays off wire).
+            if placesEmitted {
+                for pid in placeIDs {
+                    fields.append(("search_query[place_ids][]", pid))
+                }
+                if regParams?.searchNearbyPlaces == true {
+                    fields.append(("search_query[search_nearby_places]", "true"))
+                }
+            }
+            if regParams?.includeWitnesses == true {
+                fields.append(("search_query[witness]", "true"))
+            }
+            if regParams?.includeFamilyMembers == true {
+                fields.append(("search_query[inclusive]", "true"))
+            }
+            if noSurnameValid {
+                fields.append(("search_query[no_surname]", "true"))
             }
 
             let data = try await rateLimitedRequest {

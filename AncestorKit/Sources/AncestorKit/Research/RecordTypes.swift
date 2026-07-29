@@ -748,18 +748,16 @@ public nonisolated struct FreeCenParams: Sendable {
     /// Default false = flag for a probe rather than enable blind.
     public static let multiCodeBatchEnabled = false
 
-    /// FT-28 group size — how many chapman codes ride ONE batched
-    /// request. Conservative (not all-at-once): a whole-scope single
-    /// request maximises first-page truncation, which FT-22/FT-23 flag
-    /// as already more likely under wider queries. 10 cuts a ~90-code
-    /// national residence sweep to ~9 requests (a ~10× reduction) while
-    /// keeping each query's result set an order of magnitude smaller than
-    /// batching everything, so the 500-result / 10-page pagination budget
-    /// recovers most truncation. Automatic re-split on truncation (the
-    /// audit's "mirroring FreeBMD's adaptive split") is the runtime
-    /// follow-up; the static group size keeps the wire conservative until
-    /// then.
-    public static let batchGroupSize = 10
+    /// FT-28 group size — how many chapman codes ride ONE batched request.
+    /// **Hard cap: 3.** FreeCEN runs on the same MyopicVicar `SearchQuery`
+    /// engine as FreeREG (`freecen.org.uk/search_queries`), which rejects
+    /// more than 3 counties per query — Channel-Islands quartet exempt
+    /// (FREEREG_INTEGRATION_SPEC §0). Was 10 (would have exceeded the cap
+    /// once `multiCodeBatchEnabled` flipped on); corrected 2026-07-29 in
+    /// lock-step with `FreeREGParams.batchGroupSize`. A ~90-code national
+    /// residence sweep therefore fans to ~30 requests, not ~9 — correctness
+    /// over request-count; the deferred adaptive re-split still applies.
+    public static let batchGroupSize = 3
 
     /// RESIDENCE county filter — where the subject lived at census time
     /// (FreeCen's `search_query[chapman_codes][]`). nil/empty = no
@@ -923,18 +921,36 @@ public nonisolated struct FreeREGParams: Sendable {
     /// `FreeBMDParams.countyQueryEnabled` pattern.
     public static let multiCodeBatchEnabled = false
 
-    /// FT-28 group size — codes per batched request. Conservative for
-    /// the same truncation reason as FreeCen (see
-    /// `FreeCenParams.batchGroupSize`): 10 cuts a ~70-code national sweep
-    /// to ~7 requests while keeping each result set well within the
-    /// 500-result / 10-page pagination budget.
-    public static let batchGroupSize = 10
+    /// FT-28 group size — chapman codes per batched request. **Hard cap: 3.**
+    /// MyopicVicar's `SearchQuery` (the live FreeREG/FreeCEN engine) rejects
+    /// more than 3 counties per query — the sole exception being the Channel
+    /// Islands quartet `Self.channelIslandsCodes` (FREEREG_INTEGRATION_SPEC §0).
+    /// This resolves CONNECTOR_AUDIT FT-27 ("is the repeated key honoured?"):
+    /// 1–3 yes, more no. Was 10 (would have exceeded the cap the moment
+    /// `multiCodeBatchEnabled` flipped on); corrected 2026-07-29.
+    public static let batchGroupSize = 3
+
+    /// The only chapman codes that may exceed the 3-county cap together
+    /// (MyopicVicar's `SearchQuery` carve-out). A sweep made entirely of
+    /// these is not capped; any other set is capped to `batchGroupSize`.
+    public static let channelIslandsCodes: Set<String> = ["ALD", "GSY", "JSY", "SRK"]
+
+    /// Enforce the live engine's county cap on a code list: pass through
+    /// unchanged when within cap or all-Channel-Islands, else truncate to
+    /// the first `batchGroupSize`. Order-preserving; nonisolated + static so
+    /// the wire-shape tests can pin it.
+    public static func cappedChapmanCodes(_ codes: [String]) -> [String] {
+        let cleaned = codes.filter { !$0.isEmpty }
+        if cleaned.count <= batchGroupSize { return cleaned }
+        if cleaned.allSatisfy({ channelIslandsCodes.contains($0.uppercased()) }) { return cleaned }
+        return Array(cleaned.prefix(batchGroupSize))
+    }
 
     // `registerType` and `parish` were removed by SOURCE_WEIGHTING
-    // Change 3 (SCOPE_AUDIT finding 4): neither ever reached the wire —
-    // register type is derived from `query.recordType` source-side, and
-    // the search form has no parish axis wired. Dead params invite the
-    // strategist to "narrow" into a silent no-op.
+    // Change 3 (SCOPE_AUDIT finding 4); parish scoping returns below as
+    // `placeIDs` (the real form axis is `search_query[place_ids][]`,
+    // FREEREG_INTEGRATION_SPEC §1 / FT-19) — register type is still
+    // derived from `query.recordType` source-side.
     public let chapmanCode: String?
     /// FT-25 — a BATCH of chapman codes carried in one request via
     /// repeated `search_query[chapman_codes][]` keys. Supersedes the
@@ -943,13 +959,53 @@ public nonisolated struct FreeREGParams: Sendable {
     /// (and cache key) is stable.
     public let chapmanCodes: [String]?
 
+    /// FT-19 — parish/place scoping. Place IDs from the cascading Places
+    /// select, emitted as repeated `search_query[place_ids][]`. Only valid
+    /// when EXACTLY ONE county is selected (the form's "Places box fills
+    /// only when a single county is selected"); the source drops these
+    /// otherwise rather than sending an invalid query. nil/empty = no
+    /// place scoping (county-wide).
+    public let placeIDs: [String]?
+
+    /// FT-21 — extend matching to people recorded as WITNESSES to a
+    /// marriage/baptism (`search_query[witness]`). A collateral-kin
+    /// channel; hypothesis-driven, never the default sweep.
+    public let includeWitnesses: Bool
+
+    /// FT-21 — extend matching to the person's role as a relative/spouse
+    /// (`search_query[inclusive]`, the form's "Family members" box).
+    public let includeFamilyMembers: Bool
+
+    /// `search_query[no_surname]` — search unindexed-surname records by
+    /// forename. The live engine requires forename + a county + a place
+    /// alongside it; the source validates before emitting.
+    public let noSurname: Bool
+
+    /// `search_query[search_nearby_places]` — radius expansion to nearby
+    /// places. Requires at least one `placeIDs` entry (the source drops it
+    /// otherwise).
+    public let searchNearbyPlaces: Bool
+
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
-    /// `chapmanCodes` defaults nil so pre-FT-25 construction sites are
-    /// unchanged.
-    public init(chapmanCode: String? = nil, chapmanCodes: [String]? = nil) {
+    /// Every new axis defaults to its no-op so pre-existing construction
+    /// sites are unchanged.
+    public init(
+        chapmanCode: String? = nil,
+        chapmanCodes: [String]? = nil,
+        placeIDs: [String]? = nil,
+        includeWitnesses: Bool = false,
+        includeFamilyMembers: Bool = false,
+        noSurname: Bool = false,
+        searchNearbyPlaces: Bool = false
+    ) {
         self.chapmanCode = chapmanCode
         self.chapmanCodes = chapmanCodes
+        self.placeIDs = placeIDs
+        self.includeWitnesses = includeWitnesses
+        self.includeFamilyMembers = includeFamilyMembers
+        self.noSurname = noSurname
+        self.searchNearbyPlaces = searchNearbyPlaces
     }
 
 }
