@@ -16,8 +16,10 @@ struct HealthView: View {
     @Environment(SourceRegistry.self) private var registry
     @State private var auditVM = AuditViewModel()
     @State private var openDisputeCount: Int?
-    @State private var showDisputeList = false
     @State private var openDisputeRows: [DisputeRow] = []
+    /// Presented when the user taps "Resolve…" on a folded-in conflict row —
+    /// same `ConflictResolutionView` the profile uses (reuses `DisputeSheetItem`).
+    @State private var resolvingDispute: DisputeSheetItem?
     /// Per-audit-rule filter chip selection (e.g. "marriedSurnameFromSpouse").
     /// nil = all rules. Restores the per-issue-type filtering that lived in the
     /// Tasks tab before audit moved to Health.
@@ -58,6 +60,9 @@ struct HealthView: View {
     @State private var deathAgeProposals: [DeathAgeBackfillProposal] = []
     /// Sentinel `ruleFilter` value for the synthetic "Death-age backfill" chip.
     private let deathAgeBackfillFilterID = "__deathAgeBackfill"
+    /// Sentinel `ruleFilter` value for the synthetic "Conflicts" chip — the
+    /// folded-in open field-disputes (sources disagreeing with a stored value).
+    private let disputeConflictFilterID = "__disputes"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -125,41 +130,9 @@ struct HealthView: View {
 
             Divider()
 
-            // CONFLICT_LAYER_SPEC CL2 AC6 — open-disputes list: severity
-            // desc, rows deep-link to the owning profile's resolution UI.
-            if showDisputeList && !openDisputeRows.isEmpty {
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(openDisputeRows.sorted {
-                            ($0.severity ?? .none).rawValue > ($1.severity ?? .none).rawValue
-                        }) { row in
-                            Button {
-                                appState.selectedProfileID = row.entityID
-                            } label: {
-                                HStack(alignment: .top, spacing: 10) {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundStyle(.orange)
-                                        .frame(width: 24)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(appState.snapshot.profiles[row.entityID]?.displayName ?? row.entityID)
-                                            .font(AppTypography.cardTitle)
-                                        Text("\(row.kind.rawValue) · \(row.field)\(row.severity.map { " · \($0.rawValue)" } ?? "")")
-                                            .font(AppTypography.cardMeta)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.horizontal)
-                        }
-                    }
-                    .padding(.vertical, 8)
-                }
-                .frame(maxHeight: 260)
-                Divider()
-            }
+            // Open field-disputes are no longer a siloed parallel list — they're
+            // folded into the issues list below as `Conflicts` rows (each with a
+            // Resolve button). The pill above just filters to them.
 
             // Results
             if auditVM.isRunning {
@@ -186,6 +159,8 @@ struct HealthView: View {
                                     deathAgeBackfillRow(proposal)
                                 case .finding(let result):
                                     findingRow(result)
+                                case .dispute(let row):
+                                    disputeRow(row)
                                 }
                             }
                         }
@@ -244,6 +219,15 @@ struct HealthView: View {
             syncAuditSummary()
             backfillProposals = appState.censusBackfillProposals()
             deathAgeProposals = appState.deathAgeBackfillProposals()
+            openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
+        }
+        .sheet(item: $resolvingDispute, onDismiss: {
+            // Resolving writes through AppState.resolveDispute (re-runs the audit);
+            // reload the open rows + count so the resolved conflict drops off.
+            openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
+            openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
+        }) { item in
+            ConflictResolutionView(profile: item.profile, dispute: item.dispute)
         }
     }
 
@@ -265,14 +249,25 @@ struct HealthView: View {
         case duplicateCluster(DuplicateCluster)
         case censusBackfill(CensusBackfill.Proposal)
         case deathAgeBackfill(DeathAgeBackfillProposal)
+        case dispute(DisputeRow)
         var id: String {
             switch self {
             case .finding(let r): return "f:\(r.id)"
             case .duplicateCluster(let c): return "d:\(c.id)"
             case .censusBackfill(let p): return "b:\(p.id)"
             case .deathAgeBackfill(let p): return "da:\(p.id)"
+            case .dispute(let row): return "disp:\(row.id)"
             }
         }
+    }
+
+    /// Open disputes as rows, worst severity first (correction/conflict above the
+    /// cosmetic note/refinement) so a genuine disagreement never hides under a
+    /// pile of trivial ones.
+    private var disputeRows: [HealthRow] {
+        openDisputeRows
+            .sorted { ($0.severity ?? .none) > ($1.severity ?? .none) }
+            .map { HealthRow.dispute($0) }
     }
 
     struct DuplicateCluster: Identifiable {
@@ -294,12 +289,19 @@ struct HealthView: View {
         if ruleFilter == deathAgeBackfillFilterID {
             return deathAgeProposals.map { HealthRow.deathAgeBackfill($0) }
         }
+        // The synthetic conflicts chip (and the disputes pill) show only disputes.
+        if ruleFilter == disputeConflictFilterID {
+            return disputeRows
+        }
         let results = shownResults
         let dupes = results.filter { $0.ruleID == "duplicateDetection" }
         let others = results.filter { $0.ruleID != "duplicateDetection" }
         var rows: [HealthRow] = []
-        // Backfill proposals surface at the top of the unfiltered view.
+        // Conflicts + backfill proposals surface at the top of the unfiltered
+        // view — conflicts first, since a source disagreeing with a stored value
+        // is a decision only the user can make.
         if ruleFilter == nil {
+            rows += disputeRows
             rows += backfillProposals.map { HealthRow.censusBackfill($0) }
             rows += deathAgeProposals.map { HealthRow.deathAgeBackfill($0) }
         }
@@ -506,6 +508,131 @@ struct HealthView: View {
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
+    }
+
+    // MARK: - Conflict (open dispute) row
+
+    /// A folded-in open dispute: sources disagreeing with a stored value. Reads
+    /// as an issue row (name + plain-language "X says A, Y says B"), but its fix
+    /// is "Resolve…" — pick a value — never "Research" (a conflict isn't a gap;
+    /// researching it would only pile on more competing values).
+    @ViewBuilder
+    private func disputeRow(_ row: DisputeRow) -> some View {
+        let name = appState.snapshot.profiles[row.entityID]?.displayName ?? row.entityID
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "arrow.triangle.branch")
+                .foregroundStyle(disputeSeverityColor(row.severity))
+                .font(.body)
+                .frame(width: 24)
+                .accessibilityLabel("Conflict severity \(row.severity?.rawValue ?? "unknown")")
+            Button {
+                onOpenProfile?(row.entityID)
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(name).font(AppTypography.cardTitle)
+                        Text(prettyField(row.field))
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.secondary)
+                        if let sev = row.severity {
+                            Text(sev.rawValue)
+                                .font(AppTypography.badge)
+                                .foregroundStyle(disputeSeverityColor(sev))
+                        }
+                    }
+                    Text(disputeMessage(row))
+                        .font(AppTypography.cardBody)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(onOpenProfile == nil)
+            .help("Open \(name) in the tree")
+
+            Button {
+                startResolving(row)
+            } label: {
+                Label("Resolve…", systemImage: "checkmark.circle.badge.questionmark")
+            }
+            .buttonStyle(.glassProminent).controlSize(.mini)
+            .help("Choose which value is correct — a conflict is a decision only you can make")
+        }
+        .padding(12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+    }
+
+    /// Open the same `ConflictResolutionView` the profile uses for a value
+    /// dispute; for structural kinds (spouse identity, census witness) there's no
+    /// value-picker, so deep-link to the profile where they're handled.
+    private func startResolving(_ row: DisputeRow) {
+        guard let profile = appState.snapshot.profiles[row.entityID] else { return }
+        if row.kind == .fieldValue, let field = ProfileField(rawValue: row.field) {
+            let dispute = profile.disputes[field] ?? FieldDispute(
+                field: field, reason: row.reason, competingSources: row.competingSources,
+                detectedAt: row.detectedAt, resolution: row.resolution,
+                kind: row.kind, severity: row.severity, detectedBy: row.detectedBy)
+            resolvingDispute = DisputeSheetItem(profile: profile, dispute: dispute)
+        } else {
+            appState.selectedProfileID = row.entityID
+        }
+    }
+
+    /// Plain-language conflict: competing values grouped by value, each tagged
+    /// with which sources assert it — "“1 Jan 1999” (GEDCOM, you)  vs  “2000-04-07” (Probate)".
+    private func disputeMessage(_ row: DisputeRow) -> String {
+        var origins: [String: Set<String>] = [:]
+        var order: [String] = []
+        for source in row.competingSources {
+            let value = source.raw.trimmingCharacters(in: .whitespaces)
+            guard !value.isEmpty else { continue }
+            if origins[value] == nil { order.append(value) }
+            origins[value, default: []].insert(prettyOrigin(source.origin.identifier))
+        }
+        let parts = order.map { value -> String in
+            let who = origins[value]?.sorted().joined(separator: ", ") ?? ""
+            return who.isEmpty ? "“\(value)”" : "“\(value)” (\(who))"
+        }
+        return parts.isEmpty ? "Sources disagree on this value." : parts.joined(separator: "  vs  ")
+    }
+
+    private func disputeSeverityColor(_ severity: DiscrepancySeverity?) -> Color {
+        switch severity ?? .none {
+        case .correction: .red
+        case .conflict: .orange
+        case .refinement: .blue
+        case .note, .none: .secondary
+        }
+    }
+
+    /// Friendly field label for a dispute row header.
+    private func prettyField(_ field: String) -> String {
+        switch field {
+        case "birthDate": "Birth date"
+        case "deathDate": "Death date"
+        case "birthLocation": "Birthplace"
+        case "deathLocation": "Death place"
+        case "spouse": "Spouse"
+        default: field
+        }
+    }
+
+    /// Friendly source label for a competing-value provenance identifier.
+    private func prettyOrigin(_ identifier: String) -> String {
+        if identifier.hasPrefix("manual") { return "you" }
+        switch identifier {
+        case "gedcom": return "GEDCOM"
+        case "freebmd": return "FreeBMD"
+        case "freecen": return "FreeCen"
+        case "freereg": return "FreeREG"
+        case "familysearch": return "FamilySearch"
+        case "findagrave": return "Find a Grave"
+        case "probate": return "Probate"
+        case "cwgc": return "CWGC"
+        case "tree": return "tree"
+        default: return identifier.prefix(1).uppercased() + identifier.dropFirst()
+        }
     }
 
     // MARK: - Census reconciliation detail panel
@@ -732,6 +859,13 @@ struct HealthView: View {
                         ruleChip(label: "Death-age backfill (\(deathAgeProposals.count))",
                                  selected: ruleFilter == deathAgeBackfillFilterID) {
                             ruleFilter = (ruleFilter == deathAgeBackfillFilterID) ? nil : deathAgeBackfillFilterID
+                        }
+                    }
+                    if !openDisputeRows.isEmpty {
+                        ruleChip(label: "Conflicts (\(openDisputeRows.count))",
+                                 severity: .warning,
+                                 selected: ruleFilter == disputeConflictFilterID) {
+                            ruleFilter = (ruleFilter == disputeConflictFilterID) ? nil : disputeConflictFilterID
                         }
                     }
                 }
@@ -965,21 +1099,19 @@ struct HealthView: View {
         return msg.prefix(1).uppercased() + msg.dropFirst()
     }
 
-    /// Open-disputes status as a pill matching the severity counts, so the bar
-    /// reads as one coherent set rather than a stray orange text link. Toggles
-    /// the inline dispute list; ringed while the list is open.
+    /// Open-disputes status as a pill matching the severity counts. Tapping it
+    /// filters the issues list to the folded-in `Conflicts` rows (and back);
+    /// ringed while that filter is active.
     private func disputesPill(count: Int) -> some View {
-        Button {
-            showDisputeList.toggle()
-            if showDisputeList {
-                openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
-            }
+        let active = ruleFilter == disputeConflictFilterID
+        return Button {
+            ruleFilter = active ? nil : disputeConflictFilterID
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                     .accessibilityHidden(true)
-                Text("\(count) dispute\(count == 1 ? "" : "s")")
+                Text("\(count) conflict\(count == 1 ? "" : "s")")
                     .font(.caption)
                     .fontWeight(.semibold)
             }
@@ -987,14 +1119,14 @@ struct HealthView: View {
             .padding(.vertical, 4)
             .glassEffect(.regular, in: .capsule)
             .overlay(
-                Capsule().strokeBorder(showDisputeList ? Color.orange : Color.clear, lineWidth: 2)
+                Capsule().strokeBorder(active ? Color.orange : Color.clear, lineWidth: 2)
             )
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(count) open disputes")
-        .accessibilityAddTraits(showDisputeList ? [.isSelected] : [])
-        .help(showDisputeList ? "Hide the open-disputes list" : "Show the \(count) open disputes")
+        .accessibilityLabel("\(count) open conflicts")
+        .accessibilityAddTraits(active ? [.isSelected] : [])
+        .help(active ? "Show all issues" : "Show only the \(count) source conflicts")
     }
 
     /// A category (Issues / Gaps) as a single toggle pill carrying its name +
