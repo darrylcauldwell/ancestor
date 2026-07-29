@@ -968,8 +968,13 @@ struct HealthView: View {
                         appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
                         appState.runPostLoadAudit()
                         refreshAudit()
+                        // Report the ACTUAL outcome, not a catch-all "no match":
+                        // rate-limited, unavailable, nothing-to-query, or a genuine
+                        // miss are four different things and only one is "not found".
                         if outcome.throttled {
-                            appState.errorMessage = "FreeBMD is rate-limiting — enriched \(outcome.enriched) here; resume when it clears."
+                            appState.errorMessage = "FreeBMD is rate-limiting — enriched \(outcome.enriched) here; try again when it clears (usually minutes)."
+                        } else if let reason = outcome.unavailableReason {
+                            appState.errorMessage = "FreeBMD couldn't run the lookup for \(r.profileName): \(reason). Try again later."
                         } else if outcome.enriched > 0 {
                             // Not a dead-end "OK" — a launchpad: research now to see
                             // if the mother's maiden name opens doors, or open the
@@ -977,12 +982,10 @@ struct HealthView: View {
                             enrichResult = EnrichResult(
                                 profileID: r.profileID, profileName: r.profileName,
                                 count: outcome.enriched)
+                        } else if outcome.queriesRun == 0 {
+                            appState.errorMessage = "\(r.profileName)'s FreeBMD records carry no volume/page, so there's nothing to re-locate. The missing link is only provenance."
                         } else {
-                            // Not a data error: the re-lookup found nothing to link
-                            // — usually FreeBMD rate-limiting the query, or a record
-                            // with no vol/page to re-locate. Say so plainly rather
-                            // than alarm; the missing entry-link is only provenance.
-                            appState.errorMessage = "FreeBMD returned no match to re-link \(r.profileName) — likely rate-limiting, or the record has no volume/page to locate it. Nothing's wrong; try again later."
+                            appState.errorMessage = "FreeBMD returned no matching entry for \(r.profileName) — the stored record may be a transcription that no longer resolves. Not a data error; the missing link is only provenance."
                         }
                     }
                 } label: {

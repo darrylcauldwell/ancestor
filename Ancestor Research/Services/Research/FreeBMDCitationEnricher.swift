@@ -24,6 +24,14 @@ enum FreeBMDCitationEnricher {
         /// FreeBMD pushed back (429 / breaker) mid-run — caller should stop and
         /// resume in the next window.
         var throttled: Bool
+        /// FreeBMD couldn't run the lookup for another reason (unavailable,
+        /// outside coverage, needs auth) — the reason string to surface. Distinct
+        /// from a genuine "no match" so the UI can say "retry", not "not found".
+        var unavailableReason: String? = nil
+        /// How many targeted queries actually executed. 0 means every flagged
+        /// record lacked a vol/page to re-locate on — nothing was even asked of
+        /// FreeBMD, so "no match" would be a lie.
+        var queriesRun: Int = 0
     }
 
     /// Enrich one profile's link-less applied FreeBMD records.
@@ -42,12 +50,20 @@ enum FreeBMDCitationEnricher {
 
         var results: [SourceRecord] = []
         var throttled = false
+        var unavailableReason: String?
+        var queriesRun = 0
         for record in flagged {
             guard let query = targetedQuery(for: record) else { continue }
+            queriesRun += 1
             switch await source.search(query) {
-            case .results(let fresh): results.append(contentsOf: fresh)
-            case .throttled: throttled = true
-            default: break
+            case .results(let fresh):
+                results.append(contentsOf: fresh)
+            case .throttled:
+                throttled = true
+            case .unavailable(let reason), .outsideCoverage(let reason):
+                unavailableReason = reason
+            case .requiresAuth(let message):
+                unavailableReason = message
             }
             if throttled { break }   // the moment FreeBMD pushes back, stop
         }
@@ -59,7 +75,8 @@ enum FreeBMDCitationEnricher {
                 citationURL: update.citationURL,
                 mothersMaidenName: update.mothersMaidenName)
         }
-        return Outcome(enriched: updates.count, throttled: throttled)
+        return Outcome(enriched: updates.count, throttled: throttled,
+                       unavailableReason: unavailableReason, queriesRun: queriesRun)
     }
 
     /// A single narrow query that RE-LOCATES a known GRO entry: surname + given +
