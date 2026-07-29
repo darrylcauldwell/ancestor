@@ -38,6 +38,23 @@ struct ConflictSweepTests {
         )
     }
 
+    @Test func knownSurnamesCoversMaidenMarriedAndNameForms() {
+        // A wife carries her maiden surname (lastName), a married surname, and
+        // possibly extra name forms — a marriage record names the maiden, so all
+        // must count, or the F4b spouse-identity conflict false-fires.
+        let nora = Profile(
+            id: "n", externalIDs: [:], firstName: "Nora",
+            lastName: "Beresford", marriedSurname: "Rose",
+            nameForms: [NameForm(type: .married, fullText: "Nora Hood", surname: "Hood")],
+            gender: .female, attributes: nil,
+            birthDate: nil, birthLocation: nil, deathDate: nil, deathLocation: nil,
+            bio: nil, isDeleted: false, sources: [:], disputes: [:])
+        let surnames = ConflictSweep.knownSurnames(of: nora)
+        #expect(surnames.contains("BERESFORD"))   // maiden = lastName (what a marriage names)
+        #expect(surnames.contains("ROSE"))        // married surname
+        #expect(surnames.contains("HOOD"))        // an extra name form
+    }
+
     private func censusEvent(_ profileID: String, year: Int, location: String? = nil) -> LifeEvent {
         LifeEvent(
             id: UUID(), profileID: profileID, type: .census,

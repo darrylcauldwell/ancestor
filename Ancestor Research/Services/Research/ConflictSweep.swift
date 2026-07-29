@@ -23,6 +23,22 @@ nonisolated struct ConflictSweep {
         var skippedUnchanged = false
     }
 
+    /// Every surname a profile is known by, upper-cased. A marriage record names
+    /// the wife's MAIDEN surname, but she may be stored under her married surname
+    /// (WikiTree convention) with the maiden in `lastName`, `marriedSurname`, or a
+    /// name form. Matching only `lastName` false-fires the F4b spouse-identity
+    /// conflict on those (e.g. Nora Beresford m. Rose). Match against all.
+    static func knownSurnames(of profile: Profile) -> Set<String> {
+        var out: Set<String> = []
+        let candidates = [profile.lastName, profile.marriedSurname]
+            + profile.nameForms.map(\.surname)
+        for candidate in candidates {
+            let value = (candidate ?? "").trimmingCharacters(in: .whitespaces).uppercased()
+            if !value.isEmpty { out.insert(value) }
+        }
+        return out
+    }
+
     /// Full sweep. `force` bypasses the high-water skip (manual "Scan for
     /// conflicts", post-apply batches).
     ///
@@ -151,7 +167,8 @@ nonisolated struct ConflictSweep {
                       !surname.isEmpty else { continue }
                 let matchesEdge = spouseEdges.contains { edge in
                     let otherID = edge.from == profile.id ? edge.to : edge.from
-                    return (snapshot.profiles[otherID]?.lastName ?? "").uppercased() == surname
+                    guard let spouse = snapshot.profiles[otherID] else { return false }
+                    return Self.knownSurnames(of: spouse).contains(surname)
                 }
                 if !matchesEdge {
                     conflicts.append(ConflictDetector.spouseIdentityConflict(
