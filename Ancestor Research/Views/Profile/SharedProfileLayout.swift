@@ -363,6 +363,26 @@ struct SharedProfileLayout: View {
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
+                            // For a timeline census clash, show each competing
+                            // census's household so the user can judge same-person
+                            // (identical roster = duplicate) vs namesake (different
+                            // roster) — the "see the persons" gap.
+                            if row.kind == .timeline {
+                                ForEach(disputedLifeEvents(for: row), id: \.id) { event in
+                                    let household = censusHousehold(event)
+                                    if !household.isEmpty {
+                                        Text(disputedEventLabel(event))
+                                            .font(.caption2)
+                                            .fontWeight(.medium)
+                                            .padding(.top, 3)
+                                        ForEach(Array(household.enumerated()), id: \.offset) { _, m in
+                                            Text("      • \(m.name) — \(m.relationship)\(m.age.map { ", age \($0)" } ?? "")\(m.birthPlace.map { ", b. \($0)" } ?? "")")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                            }
                         }
                         Spacer()
                         structuralResolveMenu(for: row)
@@ -1419,7 +1439,9 @@ struct SharedProfileLayout: View {
                     }
                 }
                 ForEach(disputedLifeEvents(for: row), id: \.id) { event in
-                    Button("Discard \(event.type.rawValue) \(event.date?.original ?? "") — not the same person") {
+                    // Name WHICH census (place + household head) so the two
+                    // options are never identical.
+                    Button("Discard \(event.type.rawValue) \(event.date?.original ?? "") at \(disputedEventLabel(event)) — not the same person") {
                         try? ConflictResolutionActions.discardLifeEvent(
                             event, disputeFieldKey: row.field,
                             db: appState.currentDatabase!)
@@ -1458,6 +1480,24 @@ struct SharedProfileLayout: View {
         let idSet = Set(ids.compactMap(UUID.init))
         let events = (try? appState.currentDatabase?.loadLifeEvents(profileID: profile.id)) ?? []
         return events.filter { idSet.contains($0.id) }
+    }
+
+    /// The household roster stored on a census life-event (empty for others).
+    private func censusHousehold(_ event: LifeEvent) -> [HouseholdMember] {
+        if case .census(let details)? = event.details { return details.household }
+        return []
+    }
+
+    /// A short distinguisher for one disputed census: place + household head
+    /// (+ a stable id fragment as a fallback) so two same-year rows are never
+    /// indistinguishable in the Discard menu.
+    private func disputedEventLabel(_ event: LifeEvent) -> String {
+        let place = event.location ?? "unknown place"
+        let head = censusHousehold(event)
+            .first { $0.relationship.lowercased().contains("head") }?.name
+        let idFragment = String(event.id.uuidString.prefix(8))
+        if let head { return "\(place) — head \(head)" }
+        return "\(place) [\(idFragment)]"
     }
 
     /// ⟨G12⟩ accept a proposed resolution: routes through the SAME accept
