@@ -1442,8 +1442,7 @@ struct SharedProfileLayout: View {
                 // Identical rosters ⇒ the SAME enumeration transcribed twice, not
                 // two people: offer the honest "remove duplicate" action.
                 if events.count == 2, let keep = events.first, let drop = events.last,
-                   !censusHousehold(keep).isEmpty,
-                   censusHousehold(keep) == censusHousehold(drop) {
+                   sameHousehold(censusHousehold(keep), censusHousehold(drop)) {
                     Button("Same household — remove the duplicate, keep one") {
                         try? ConflictResolutionActions.discardLifeEvent(
                             drop, disputeFieldKey: row.field, reason: .duplicate,
@@ -1500,6 +1499,20 @@ struct SharedProfileLayout: View {
     private func censusHousehold(_ event: LifeEvent) -> [HouseholdMember] {
         if case .census(let details)? = event.details { return details.household }
         return []
+    }
+
+    /// Whether two rosters describe the SAME household — matched on the salient,
+    /// human-visible fields (name + relationship + age), order-independent. Not
+    /// full `HouseholdMember` equality: two transcriptions of one enumeration
+    /// routinely differ on hidden fields (occupation, sex, birthYear,
+    /// maritalStatus), which must NOT defeat duplicate detection.
+    private func sameHousehold(_ lhs: [HouseholdMember], _ rhs: [HouseholdMember]) -> Bool {
+        guard !lhs.isEmpty, lhs.count == rhs.count else { return false }
+        func key(_ m: HouseholdMember) -> String {
+            let name = m.name.lowercased().trimmingCharacters(in: .whitespaces)
+            return "\(name)|\(m.relationship.lowercased())|\(m.age.map(String.init) ?? "")"
+        }
+        return lhs.map(key).sorted() == rhs.map(key).sorted()
     }
 
     /// A short distinguisher for one disputed census: place + household head
