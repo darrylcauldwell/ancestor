@@ -120,6 +120,37 @@ struct ConflictSweepTests {
         #expect(duplicates[.mother]?.count == 2)
     }
 
+    @Test func sweepRetractsAStructuralDisputeOnceTheConflictIsFixed() throws {
+        // The sweep must reconcile in BOTH directions: a structural dispute it
+        // no longer detects (the conflict was fixed) is auto-closed, so a stale
+        // apply-time dispute doesn't survive every re-scan (Norman Rose's spouse
+        // conflict). Uses the two-mothers parentRole conflict as the fixture.
+        let db = try makeDB()
+        _ = try db.addProfile(profile("child"), source: .gedcom)
+        _ = try db.addProfile(profile("m1", firstName: "Mary", lastName: "Bown"), source: .gedcom)
+        _ = try db.addProfile(profile("m2", firstName: "Sarah", lastName: "Land"), source: .gedcom)
+        var rivalEdge: UUID?
+        for mother in ["m1", "m2"] {
+            let id = UUID()
+            if mother == "m2" { rivalEdge = id }
+            _ = try db.addRelationship(Relationship(
+                id: id, from: mother, to: "child", type: .parent,
+                role: .mother, subtype: .biological,
+                marriageDate: nil, marriageLocation: nil, divorceDate: nil))
+        }
+        var snapshot = try db.buildSnapshot()
+        _ = try ConflictSweep.run(db: db, snapshot: snapshot, force: true)
+        #expect(try db.openDisputes(profileID: "child").contains { $0.kind == .parentRole })
+
+        // Fix the conflict: remove the rival mother edge.
+        _ = try db.removeRelationship(id: rivalEdge!)
+        snapshot = try db.buildSnapshot()
+
+        // Re-sweep → parentRole no longer detected → the dispute retracts.
+        _ = try ConflictSweep.run(db: db, snapshot: snapshot, force: true)
+        #expect(try db.openDisputes(profileID: "child").contains { $0.kind == .parentRole } == false)
+    }
+
     // MARK: - AC3: same-enumeration-year duplicates (tree state)
 
     @Test func twoSameYearCensusEventsOpenTimelineDispute() throws {

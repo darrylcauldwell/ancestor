@@ -278,7 +278,10 @@ nonisolated struct ApplyEngine {
                     ?? recordSpouseRaw).uppercased()
                 edge = spouseEdges.first { rel in
                     guard let other = snapshot.profiles[otherEnd(rel)] else { return false }
-                    return (other.lastName ?? "").uppercased() == recordSpouseSurname
+                    // Match against ALL of the spouse's surnames (maiden/married/
+                    // name-forms), not just lastName — a marriage names the maiden
+                    // surname, but a wife may be stored under her married surname.
+                    return ConflictSweep.knownSurnames(of: other).contains(recordSpouseSurname)
                 }
                 // A same-page INFERENCE that matches no linked spouse is a
                 // weaker signal than a stated column (the family-context gate

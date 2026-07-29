@@ -186,6 +186,27 @@ nonisolated struct ConflictSweep {
                     adjudication: adjudication)
                 report.disputesTouched += 1
             }
+
+            // Retraction (idempotent reconciliation): a STRUCTURAL dispute the
+            // sweep re-derives from current tree state but no longer detects has
+            // been fixed (e.g. a spouse's maiden name now matches the marriage
+            // record) — close it. Without this the sweep is add-only, so a stale
+            // apply-time dispute survives every re-scan. Untouched rows only
+            // (`resolution IS NULL`); a user's explicit decision/defer is never
+            // overwritten. fieldValue disputes are left alone — their competing
+            // values persist in field_sources until the user picks one.
+            let detected = Set(conflicts.map { "\($0.kind.rawValue)|\($0.field)" })
+            for open in (try? db.openDisputes(profileID: profile.id)) ?? [] {
+                switch open.kind {
+                case .spouseIdentity, .parentRole, .timeline: break
+                case .fieldValue: continue
+                }
+                guard !detected.contains("\(open.kind.rawValue)|\(open.field)") else { continue }
+                try db.resolveStructuralDispute(
+                    profileID: profile.id, kind: open.kind, fieldKey: open.field,
+                    resolution: .manual("auto-resolved — no longer detected on re-scan"))
+                report.disputesTouched += 1
+            }
         }
 
         try db.setConflictSweepHighWater(Date())
