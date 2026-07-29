@@ -30,12 +30,16 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
     // on /terms-and-conditions): "Access to the data held by FreeREG is only
     // permitted manually via the search page. The use of front end programs or
     // sites to enter search parameters is strictly forbidden" AND "Data extracted
-    // from FreeREG must not be reproduced in any form." Both clauses rule out
-    // scraping AND storing records → the connector is retired; the profile offers
-    // a manual "Search FreeREG" link-out only.
+    // from FreeREG must not be reproduced in any form." Level stays `.restricted`
+    // — the terms genuinely restrict automated access — identical to FreeBMD/
+    // FreeCEN (same charity, same wording). Owner decision 2026-07-29: FreeREG
+    // operates under the ADR-008 §Decision-2 ask-first, respectful-interim
+    // posture (like its two siblings) — active for personal research at tiny
+    // volume, conservative pacing + daily cap, records linked back to source,
+    // permission request pending — NOT retired to a link-out.
     nonisolated let tosStatus = SourceToSStatus(
         level: .restricted,
-        summary: "FreeREG T&Cs (freereg.org.uk/terms-and-conditions, verified 2026-07-27): manual search only — \"front end programs … strictly forbidden\", and \"Data extracted from FreeREG must not be reproduced in any form.\" Retired to a link-out."
+        summary: "Terms forbid programmatic search (\"front end programs… strictly forbidden\", freereg.org.uk/terms-and-conditions) — personal-research interim use, permission request to Free UK Genealogy pending, ADR-008"
     )
 
     /// Conservative daily budget (ENGINE_FOUNDATION #Change5). FreeREG is

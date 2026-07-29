@@ -1,6 +1,8 @@
 # ADR-008 — Source access posture: published-terms-first
 
 **Status:** Accepted (tosStatus fixes shipped, commit `9d25875`; outreach/toggle outstanding). Decision (1)'s tosStatus corrections landed as a standalone pre-emptive bug-fix; the ask-first outreach + off-by-default user toggle of Decision (2) remain unbuilt.
+
+> **2026-07-29 — FreeREG restored to interim-use parity.** FreeREG had been retired to a link-out on 2026-07-27, a stricter posture than its two identical-terms siblings (FreeBMD/FreeCEN, both registered and gathering data under the Decision (2) interim-use clause below). Owner decision 2026-07-29: FreeREG returns to the **same** ADR-008 §Decision-2 interim footing as FreeBMD/FreeCEN — registered and active for personal research at tiny volume, conservative pacing + daily cap, records linked back to the transcribers' site, permission request to Free UK Genealogy still pending. The published terms are unchanged (`.restricted` stands; the interim-use clause knowingly continues against written terms for the pending window, exactly as it does for FreeBMD/FreeCEN). The manual "Search FreeREG" link-out stays as a complementary route.
 **Depends on:** ADR-002 (FS bounded surfaces — FS access is governed there, not here)
 **Evidence base:** `AncestorApp/SOURCE_ACCESS_COMPLIANCE_2026-07.md` (verbatim terms quotes, fetched 2026-07-14/15)
 

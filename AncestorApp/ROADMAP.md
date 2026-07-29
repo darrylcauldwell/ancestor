@@ -69,6 +69,8 @@ Sequenced by dependency + leverage; nothing is parked, later items simply occur 
 
 ### 2b. Source access compliance (gates FreeCEN scoping + red-source connectors)
 
+> **2026-07-29 — FreeREG restored to free-trio parity.** FreeREG is registered and gathering data again under the ADR-008 §Decision-2 interim-use posture (identical footing to FreeBMD/FreeCEN — same charity, same terms: personal research, tiny volume, conservative pacing + daily cap, records linked back, permission request pending). This reverses the 2026-07-27 link-only retirement that had singled FreeREG out for a stricter posture than its two siblings. Consequence: **FT-19 (FreeREG parish place-scoping)** is now live connector work again, and FreeREG's both-parents baptism records are a first-class research channel. — owner decision, `ADR-008`
+
 - **ADR-008 decision** — owner accepts a compliance posture for the 3 red charity sources + CWGC (gates the rest of 2b + FreeCEN scoping). — `SOURCE_ACCESS_COMPLIANCE_2026-07.md` / ADR-008 · gate: —
 - **Free UK Genealogy permission email** (one email covering FreeBMD/FreeCEN/FreeREG). — `SOURCE_ACCESS_COMPLIANCE_2026-07.md` · gate: owner
 - **CWGC licensing email.** — `SOURCE_ACCESS_COMPLIANCE_2026-07.md` · gate: owner, after the Free UK Genealogy email

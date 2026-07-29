@@ -1,6 +1,8 @@
 # Source Access Compliance Review — 2026-07-15
 
 **Status: evidence gathered overnight 2026-07-14/15; decisions pending ADR-008.**
+
+> **2026-07-29 posture note:** The three 🔴 free-trio sources (FreeBMD, FreeCEN, **FreeREG**) are all registered and gathering data under the ADR-008 §Decision-2 interim-use clause (personal research, tiny volume, conservative pacing + daily cap, records linked back, permission request to Free UK Genealogy pending). FreeREG's brief 2026-07-27 link-only retirement was reversed 2026-07-29 to restore parity with its two identical-terms siblings. The matrix below is unchanged — it records the *published terms* (which still `.restricted`/🔴), not the operational interim posture.
 Trigger: Darryl challenged the FreeBMD daily-budget numbers ("trial and error rather than
 looking at details and specifications"). Reading the actual published terms surfaced a
 compliance picture materially worse than the tuning question: several connectors' in-code

@@ -13,14 +13,20 @@ func bootstrapSources(registry: SourceRegistry) {
     // Tier 2: CSRF token (session per search batch)
     registry.register(FreeBMDSource())
     registry.register(FreeCenSource())
-    // FreeREG is DELIBERATELY NOT registered (2026-07-27, owner decision): its
-    // terms forbid programmatic searching ("front-end programs strictly
-    // forbidden", permission pending ADR-008), so the app must not scrape it.
-    // Its rich baptism records (which name both parents) stay reachable via the
-    // human-permitted route — the "Search FreeREG" link-out on the profile
-    // (SharedProfileLayout). The `freereg` source ID is retained in the trust-tier
-    // registry for existing FreeREG citations. FreeREGSource.swift is kept for
-    // reference / possible re-enable if Free UK Genealogy grants permission.
+    // FreeREG is registered under the SAME ADR-008 §Decision-2 interim-use
+    // posture as its two identical-terms siblings FreeBMD/FreeCEN (all three
+    // are one charity, Free UK Genealogy, under the same "front end programs…
+    // strictly forbidden" terms). Owner decision 2026-07-29: this is a personal
+    // research assistant streamlining a single researcher's access — tiny
+    // request volumes, conservative pacing (1s) + a daily cap, every record
+    // linked back to the transcribers' site, no bulk replication — so FreeREG
+    // gathers data on the same interim footing as FreeBMD/FreeCEN while the
+    // Free UK Genealogy permission request is pending, rather than being the
+    // odd source held to a stricter link-only posture. Its rich baptism records
+    // (which name BOTH parents) are a first-class research channel. The manual
+    // "Search FreeREG" link-out on the profile stays as a complementary route.
+    // (Reverses the 2026-07-27 link-only retirement, restoring free-trio parity.)
+    registry.register(FreeREGSource())
 
     // FamilySearch historical records over the official OAuth Platform API
     // (owner 2026-07-21: records ARE granted at our Beta tier — live-verified,
