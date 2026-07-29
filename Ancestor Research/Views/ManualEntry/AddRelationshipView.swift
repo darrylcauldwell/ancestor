@@ -388,6 +388,21 @@ struct AddRelationshipView: View {
                 type: .parent, role: role, subtype: subtype,
                 marriageDate: nil, marriageLocation: nil, divorceDate: nil
             ))
+            // Link the co-parent too: when the anchor has exactly ONE spouse,
+            // that spouse is unambiguously the child's other parent — otherwise
+            // adding a child to one of a married couple leaves them half-linked
+            // (the Missing Co-Parent audit exists to catch this; better not to
+            // create the gap). Two+ spouses = ambiguous, so don't guess. Mirrors
+            // the census-absorption co-parent link (AppState.absorb…).
+            let spouses = appState.snapshot.spousesOf(anchorID)
+            if spouses.count == 1, let coParent = spouses.first {
+                appState.addRelationship(Relationship(
+                    id: UUID(), from: coParent.id, to: targetID,
+                    type: .parent, role: parentRole(forParentID: coParent.id),
+                    subtype: subtype,
+                    marriageDate: nil, marriageLocation: nil, divorceDate: nil
+                ))
+            }
         case .spouse:
             appState.addRelationship(Relationship(
                 id: UUID(), from: anchorID, to: targetID,
