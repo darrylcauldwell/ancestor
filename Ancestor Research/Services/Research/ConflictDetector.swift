@@ -418,12 +418,27 @@ nonisolated struct ConflictDetector {
         }
 
         let yearLabel = m.marriageYear.map(String.init) ?? "unknown year"
+        // Include the identifying detail — district, full spouse name, vol/page —
+        // so a namesake marriage is distinguishable from the subject's own. A bare
+        // surname ("names spouse SANDERS") can't be told apart from the next
+        // George/Mary in the county; the district (near the subject vs elsewhere)
+        // and the spouse's forename are what disambiguate.
+        let locus = [m.quarter, m.district]
+            .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        let volPage = m.volume.flatMap { v in m.page.map { "\(v)/\($0)" } }
+        let spouseFull = m.spouseName?.trimmingCharacters(in: .whitespaces)
+        var detail = "marriage \(yearLabel)"
+        if !locus.isEmpty { detail += ", \(locus)" }
+        if let spouseFull, !spouseFull.isEmpty, spouseFull.uppercased() != recordSpouseSurname {
+            detail += " — spouse \(spouseFull)"
+        } else {
+            detail += " — spouse \(recordSpouseSurname)"
+        }
+        if let volPage { detail += " (\(volPage))" }
         var competing = [
-            FieldSource(
-                origin: origin,
-                raw: "marriage (\(yearLabel)) names spouse surname \(recordSpouseSurname)",
-                addedAt: Date()
-            ),
+            FieldSource(origin: origin, raw: detail, addedAt: Date()),
         ]
         if !knownSpouses.isEmpty {
             competing.append(FieldSource(
