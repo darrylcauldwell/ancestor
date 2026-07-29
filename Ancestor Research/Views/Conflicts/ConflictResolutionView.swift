@@ -12,6 +12,15 @@ struct ConflictResolutionView: View {
     /// CL UI pass ⟨G8⟩⟨G2⟩ — the store-level row carrying the weighing
     /// inputs (witness_summary) and the rule-by-rule ladder trace.
     @State private var storeRow: DisputeRow?
+    /// Per-competing-value citation (repository/collection/page/url), keyed by
+    /// "origin|raw" — so two same-source rows (e.g. two FreeBMD records) are
+    /// distinguishable by what record each actually is. Loaded on appear from
+    /// `field_sources` (competingSources themselves carry no citation).
+    @State private var citationByKey: [String: Citation] = [:]
+
+    private func sourceKey(_ source: FieldSource) -> String {
+        "\(source.origin.identifier)|\(source.raw)"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -22,6 +31,15 @@ struct ConflictResolutionView: View {
                 .onAppear {
                     storeRow = ((try? appState.currentDatabase?.openDisputes(profileID: profile.id)) ?? [])
                         .first { $0.kind == .fieldValue && $0.field == dispute.field.rawValue }
+                    // Re-load the field's sources WITH their citations and key by
+                    // origin|raw so each competing row can show its record detail.
+                    let sourced = (try? appState.currentDatabase?.fieldSources(
+                        profileID: profile.id, field: dispute.field)) ?? []
+                    citationByKey = Dictionary(
+                        sourced.compactMap { src in
+                            src.citation.flatMap { $0.isEmpty ? nil : (sourceKey(src), $0) }
+                        },
+                        uniquingKeysWith: { first, _ in first })
                 }
 
             Text("\(profile.displayName) — \(dispute.field.rawValue)")
@@ -70,6 +88,15 @@ struct ConflictResolutionView: View {
                             .padding(.vertical, 1)
                             .background(.quaternary)
                             .clipShape(Capsule())
+                        // The record this value actually came from — collection,
+                        // district/vol/page, URL — so two same-source rows are
+                        // distinguishable. Shown only when a citation was stored.
+                        if let citation = citationByKey[sourceKey(source)] {
+                            Text(citation.formatted)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
                         Text("Added \(source.addedAt.formatted())")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)

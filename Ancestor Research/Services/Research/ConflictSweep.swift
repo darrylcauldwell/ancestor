@@ -196,18 +196,29 @@ nonisolated struct ConflictSweep {
 nonisolated extension ProjectDatabase {
 
     /// Attested field_sources rows for one (profile, field), oldest first.
+    /// Carries each row's stored `Citation` (repository/collection/page/url)
+    /// when the apply path recorded one — the provenance the resolution UI
+    /// shows so two same-source rows are distinguishable.
     func fieldSources(profileID: String, field: ProfileField) throws -> [FieldSource] {
         try dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT origin, raw, added_at FROM field_sources
+                SELECT origin, raw, added_at, citation_json, evidence_quality, fact_confidence
+                FROM field_sources
                 WHERE entity_id = ? AND entity_kind = 'profile' AND field = ?
                 ORDER BY added_at ASC
                 """, arguments: [profileID, field.rawValue])
             return rows.map { row in
-                FieldSource(
+                var citation: Citation?
+                if let json: String = row["citation_json"], let data = json.data(using: .utf8) {
+                    citation = try? JSONDecoder().decode(Citation.self, from: data)
+                }
+                return FieldSource(
                     origin: SourceOrigin(identifier: row["origin"] ?? "unknown"),
                     raw: row["raw"] ?? "",
-                    addedAt: row["added_at"] ?? Date()
+                    addedAt: row["added_at"] ?? Date(),
+                    citation: citation,
+                    quality: (row["evidence_quality"] as Int?).flatMap(EvidenceQuality.init(rawValue:)),
+                    confidence: (row["fact_confidence"] as Int?).flatMap(FactConfidence.init(rawInt:))
                 )
             }
         }
