@@ -81,17 +81,27 @@ enum ConflictResolutionActions {
             resolution: .manual("death date cleared — the later alive-evidence stands; attested death values remain in field_sources"))
     }
 
-    /// The offending life event belongs to someone else (wrong-person
-    /// record) — delete it and resolve the owning timeline dispute.
+    /// Why a duplicated/conflicting life event is being removed — recorded
+    /// verbatim in the resolution so the provenance is honest (a duplicate
+    /// transcription is NOT "a different person").
+    enum DiscardReason: String, Sendable {
+        case notSamePerson = "not the same person"
+        case duplicate = "duplicate transcription — kept the other copy"
+    }
+
+    /// Delete a conflicting life event and resolve the owning timeline dispute.
+    /// `reason` distinguishes a wrong-person record from a duplicate transcription
+    /// of the same enumeration (identical household) — same DB effect, honest trace.
     static func discardLifeEvent(
         _ event: LifeEvent,
         disputeFieldKey: String,
+        reason: DiscardReason = .notSamePerson,
         db: ProjectDatabase
     ) throws {
         try db.deleteLifeEvent(id: event.id)
         try db.resolveStructuralDispute(
             profileID: event.profileID, kind: .timeline, fieldKey: disputeFieldKey,
-            resolution: .manual("\(event.type.rawValue) \(event.date?.original ?? "") discarded — not the same person"))
+            resolution: .manual("\(event.type.rawValue) \(event.date?.original ?? "") discarded — \(reason.rawValue)"))
     }
 
     // MARK: - spouseIdentity / any structural: defer + dismiss

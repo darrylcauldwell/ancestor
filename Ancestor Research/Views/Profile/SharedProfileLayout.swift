@@ -1438,7 +1438,21 @@ struct SharedProfileLayout: View {
                         refreshAfterResolve()
                     }
                 }
-                ForEach(disputedLifeEvents(for: row), id: \.id) { event in
+                let events = disputedLifeEvents(for: row)
+                // Identical rosters ⇒ the SAME enumeration transcribed twice, not
+                // two people: offer the honest "remove duplicate" action.
+                if events.count == 2, let keep = events.first, let drop = events.last,
+                   !censusHousehold(keep).isEmpty,
+                   censusHousehold(keep) == censusHousehold(drop) {
+                    Button("Same household — remove the duplicate, keep one") {
+                        try? ConflictResolutionActions.discardLifeEvent(
+                            drop, disputeFieldKey: row.field, reason: .duplicate,
+                            db: appState.currentDatabase!)
+                        refreshAfterResolve()
+                    }
+                    Divider()
+                }
+                ForEach(events, id: \.id) { event in
                     // Name WHICH census (place + household head) so the two
                     // options are never identical.
                     Button("Discard \(event.type.rawValue) \(event.date?.original ?? "") at \(disputedEventLabel(event)) — not the same person") {
