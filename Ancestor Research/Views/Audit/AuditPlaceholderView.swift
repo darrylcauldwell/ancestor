@@ -978,7 +978,11 @@ struct HealthView: View {
                                 profileID: r.profileID, profileName: r.profileName,
                                 count: outcome.enriched)
                         } else {
-                            appState.errorMessage = "No matching FreeBMD entry found for \(r.profileName)."
+                            // Not a data error: the re-lookup found nothing to link
+                            // — usually FreeBMD rate-limiting the query, or a record
+                            // with no vol/page to re-locate. Say so plainly rather
+                            // than alarm; the missing entry-link is only provenance.
+                            appState.errorMessage = "FreeBMD returned no match to re-link \(r.profileName) — likely rate-limiting, or the record has no volume/page to locate it. Nothing's wrong; try again later."
                         }
                     }
                 } label: {
