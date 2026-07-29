@@ -95,13 +95,31 @@ nonisolated enum MyopicVicarParsing {
         return tables
     }
 
-    /// `<tr>` rows of an HTML fragment as tag-stripped cell strings.
+    /// Rows of an HTML table fragment as tag-stripped cell strings.
+    ///
+    /// Live MyopicVicar VLD partials render `<thead>` header cells with
+    /// NO wrapping `<tr>` (`<thead><th>Surname</th>…</thead>`) — a
+    /// tr-only scan misses the header row entirely, the first DATA row
+    /// gets read as headers, and the roster is misclassified (verify
+    /// finding 2026-07-29). So: a tr-less `<thead>` block's cells form
+    /// the first row, then `<tr>`-wrapped rows follow as normal (a
+    /// tr-wrapped thead is covered by the tr scan — no double-count).
     static func rows(inTableHTML table: String) -> [[String]] {
         let rowPattern = #"<tr[^>]*>(.*?)</tr>"#
-        guard let rowRegex = try? NSRegularExpression(pattern: rowPattern, options: .dotMatchesLineSeparators) else {
+        let theadPattern = #"<thead[^>]*>(.*?)</thead>"#
+        guard let rowRegex = try? NSRegularExpression(pattern: rowPattern, options: .dotMatchesLineSeparators),
+              let theadRegex = try? NSRegularExpression(pattern: theadPattern, options: .dotMatchesLineSeparators) else {
             return []
         }
         var rows: [[String]] = []
+        if let theadMatch = theadRegex.firstMatch(in: table, range: NSRange(table.startIndex..., in: table)),
+           let theadRange = Range(theadMatch.range(at: 1), in: table) {
+            let thead = String(table[theadRange])
+            if thead.range(of: #"<tr\b"#, options: [.regularExpression, .caseInsensitive]) == nil {
+                let headerCells = cells(inRowHTML: thead)
+                if !headerCells.isEmpty { rows.append(headerCells) }
+            }
+        }
         for match in rowRegex.matches(in: table, range: NSRange(table.startIndex..., in: table)) {
             guard let range = Range(match.range(at: 1), in: table) else { continue }
             let cells = cells(inRowHTML: String(table[range]))
@@ -124,11 +142,21 @@ nonisolated enum MyopicVicarParsing {
 
     // MARK: - Primitives
 
+    /// Tag-strip + entity-decode + trim. MUST trim `.whitespacesAndNewlines`
+    /// and decode entities — live ERB templates pad every cell with
+    /// newlines (`<th>\n  Surname\n</th>`) and emit `&amp;`/`&#39;`; a
+    /// whitespace-only trim leaves "\n  Surname\n", the exact-match header
+    /// lookups fail, and household parsing dies on EVERY live page
+    /// (verify finding 2026-07-29). Interior whitespace is preserved —
+    /// the search-target marker split relies on the interior newline.
     static func stripTags(_ html: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: "<[^>]+>") else { return html }
-        return regex.stringByReplacingMatches(
-            in: html, range: NSRange(html.startIndex..., in: html), withTemplate: ""
-        ).trimmingCharacters(in: .whitespaces)
+        var result = html.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+        result = result.replacingOccurrences(of: "&amp;", with: "&")
+        result = result.replacingOccurrences(of: "&lt;", with: "<")
+        result = result.replacingOccurrences(of: "&gt;", with: ">")
+        result = result.replacingOccurrences(of: "&quot;", with: "\"")
+        result = result.replacingOccurrences(of: "&#39;", with: "'")
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func firstGroup(

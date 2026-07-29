@@ -99,13 +99,17 @@ public nonisolated enum FreeREGDetailMapper {
         if let marker = value(map, keys: ["record_type", "type"])?.lowercased() {
             if let kind = kind(fromToken: marker) { return kind }
         }
-        // 2. Kind-specific date keys.
-        if value(map, keys: ["baptism_date", "date_of_baptism"]) != nil { return .baptism }
-        if value(map, keys: ["marriage_date", "date_of_marriage"]) != nil { return .marriage }
+        // 2. Kind-specific date keys (confirmation / received-into-church
+        // entries are baptism-family records that may carry no baptism date).
+        if value(map, keys: ["baptism_date", "date_of_baptism", "confirmation_date", "received_into_church_date"]) != nil { return .baptism }
+        if value(map, keys: ["marriage_date", "date_of_marriage", "contract_date"]) != nil { return .marriage }
         if value(map, keys: ["burial_date", "date_of_burial"]) != nil { return .burial }
-        // 3. Kind-specific role blocks.
-        if value(map, keys: ["groom_forename", "grooms_forename", "groom_surname", "grooms_surname"]) != nil { return .marriage }
-        if value(map, keys: ["burial_person_forename", "burial_persons_forename"]) != nil { return .burial }
+        // 3. Kind-specific role blocks (surname-only entries included —
+        // an undated surname-only burial must not fall to a wrong hint).
+        if value(map, keys: ["groom_forename", "grooms_forename", "groom_surname", "grooms_surname",
+                             "bride_forename", "brides_forename", "bride_surname", "brides_surname"]) != nil { return .marriage }
+        if value(map, keys: ["burial_person_forename", "burial_persons_forename",
+                             "burial_person_surname", "burial_persons_surname"]) != nil { return .burial }
         // 4. The caller's hint (search-row event type).
         if let hint = typeHint?.lowercased(), let kind = kind(fromToken: hint) { return kind }
         return nil
@@ -185,9 +189,16 @@ public nonisolated enum FreeREGDetailMapper {
         return nil
     }
 
-    private static func boolValue(_ map: [String: String], keys: [String]) -> Bool? {
+    /// Boolean fields carry the RAW transcribed value — MyopicVicar's
+    /// ingest normalisation to boolean is commented out, and its constants
+    /// enumerate the accepted truthy spellings (e.g.
+    /// MARRIAGE_BY_LICENCE_OPTIONS includes "licence"/"by licence";
+    /// PRIVATE_BAPTISM_OPTIONS includes "private"/"private baptism").
+    /// `extraTruthy` carries the per-field vocabulary; unrecognised
+    /// non-empty values return nil (the raw text stays in rawFields).
+    private static func boolValue(_ map: [String: String], keys: [String], extraTruthy: Set<String> = []) -> Bool? {
         guard let raw = value(map, keys: keys)?.lowercased() else { return nil }
-        if ["true", "yes", "y", "1"].contains(raw) { return true }
+        if ["true", "yes", "y", "1"].contains(raw) || extraTruthy.contains(raw) { return true }
         if ["false", "no", "n", "0"].contains(raw) { return false }
         return nil
     }
@@ -213,7 +224,10 @@ public nonisolated enum FreeREGDetailMapper {
             child: child,
             birthDate: value(map, keys: ["birth_date", "date_of_birth"]),
             baptismDate: value(map, keys: ["baptism_date", "date_of_baptism", "date"]),
-            isPrivate: boolValue(map, keys: ["private_baptism"]),
+            confirmationDate: value(map, keys: ["confirmation_date"]),
+            receivedIntoChurchDate: value(map, keys: ["received_into_church_date"]),
+            isPrivate: boolValue(map, keys: ["private_baptism"],
+                                 extraTruthy: ["private", "private baptism", "private_baptism"]),
             father: nonEmptyPerson(map, prefixes: ["father", "fathers"]),
             mother: mother,
             witnesses: witnesses(pairs: pairs)
@@ -239,8 +253,11 @@ public nonisolated enum FreeREGDetailMapper {
             brideMother: nonEmptyPerson(map, prefixes: ["bride_mother", "brides_mother", "brides_mothers"]),
             marriageDate: value(map, keys: ["marriage_date", "date_of_marriage", "date"]),
             contractDate: value(map, keys: ["contract_date"]),
-            byLicence: boolValue(map, keys: ["marriage_by_licence", "by_licence"]),
+            byLicence: boolValue(map, keys: ["marriage_by_licence", "by_licence"],
+                                 extraTruthy: ["licence", "by licence", "by_licence", "marriage_by_licence"]),
             marriageBy: value(map, keys: ["marriage_by"]),
+            groomMarked: value(map, keys: ["groom_marked", "grooms_marked"]),
+            brideMarked: value(map, keys: ["bride_marked", "brides_marked"]),
             witnesses: witnesses(pairs: pairs)
         ))
     }
@@ -251,17 +268,27 @@ public nonisolated enum FreeREGDetailMapper {
         let deceased = person(map, prefixes: ["burial_person", "burial_persons", "person", "persons", ""])
         guard !deceased.isEmpty else { return nil }
 
-        // The relative named on the entry (NOT the deceased): explicit
-        // relative blocks, gendered variants included.
-        var relative = nonEmptyPerson(map, prefixes: ["relative", "relatives", "male_relative", "female_relative"])
-        // MyopicVicar splits the shared surname out as `relative_surname`
-        // alongside gendered forenames — recombine when the gendered
-        // block found a forename but no surname.
-        if var r = relative, r.surname == nil,
-           let sharedSurname = value(map, keys: ["relative_surname", "relatives_surname"]) {
-            r.surname = sharedSurname
-            relative = r
+        // The relative(s) named on the entry (NOT the deceased). The male
+        // and female blocks are DIFFERENT PEOPLE ("son of John and Jane")
+        // and must never share suffix hits across prefixes — a mixed
+        // lookup welds John's forename onto Jane's surname (verify
+        // finding 2026-07-29). Extract each block independently; the
+        // shared `relative_surname` backfills a missing surname per
+        // block (the female block prefers its own `female_relative_surname`).
+        let sharedSurname = value(map, keys: ["relative_surname", "relatives_surname"])
+        var maleRelative = nonEmptyPerson(map, prefixes: ["male_relative"])
+        if var m = maleRelative, m.surname == nil { m.surname = sharedSurname; maleRelative = m }
+        var femaleRelative = nonEmptyPerson(map, prefixes: ["female_relative"])
+        if var f = femaleRelative, f.surname == nil { f.surname = sharedSurname; femaleRelative = f }
+        // Ungendered block (legacy/odd layouts) — only when no gendered
+        // block matched, so it can't double-count.
+        var genericRelative: FreeREGPerson?
+        if maleRelative == nil, femaleRelative == nil {
+            genericRelative = nonEmptyPerson(map, prefixes: ["relative", "relatives"])
+            if var g = genericRelative, g.surname == nil { g.surname = sharedSurname; genericRelative = g }
         }
+        let relative = maleRelative ?? femaleRelative ?? genericRelative
+        let secondRelative = (maleRelative != nil) ? femaleRelative : nil
 
         return .burial(FreeREGBurial(
             deceased: deceased,
@@ -271,6 +298,7 @@ public nonisolated enum FreeREGDetailMapper {
             placeOfDeath: value(map, keys: ["place_of_death"]),
             relationship: value(map, keys: ["relationship", "persons_relationship", "person_relationship"]),
             relative: relative,
+            secondRelative: secondRelative,
             burialParish: value(map, keys: ["burial_parish"]),
             burialLocationInformation: value(map, keys: ["burial_location_information"]),
             memorialInformation: value(map, keys: ["memorial_information"]),

@@ -240,6 +240,95 @@ struct FreeREGDetailMapperTests {
         #expect(detail == nil, "no kind + no principal = no typed payload (never guess)")
     }
 
+    // MARK: - Verify-pass regressions (2026-07-29 adversarial findings)
+
+    @Test func burialWithTwoRelativesNeverWeldsAChimera() {
+        // "son of John and Jane" — male + female relative blocks are two
+        // PEOPLE; the old cross-prefix lookup produced "John Brown"
+        // (John's forename + Jane Brown's surname) and dropped Jane.
+        let pairs: [(String, String)] = [
+            ("Burial date", "4 Apr 1851"),
+            ("Burial person forename", "Thomas"),
+            ("Relationship", "Son of"),
+            ("Male relative forename", "John"),
+            ("Female relative forename", "Jane"),
+            ("Female relative surname", "Brown"),
+            ("Relative surname", "SMITH"),
+        ]
+        let detail = FreeREGDetailMapper.detail(fromLabelledPairs: pairs, typeHint: "burial")
+        guard case .burial(let b)? = detail?.event else { Issue.record("expected burial"); return }
+        #expect(b.relative?.forename == "John")
+        #expect(b.relative?.surname == "SMITH", "male block backfills from the SHARED relative surname")
+        #expect(b.secondRelative?.forename == "Jane")
+        #expect(b.secondRelative?.surname == "Brown", "female block keeps its OWN surname — never John's")
+    }
+
+    @Test func freeREGTruthySpellingsParseAsBooleans() {
+        // MyopicVicar renders raw transcribed values ("Licence", "Private"),
+        // not true/yes — the constants enumerate the accepted spellings.
+        let marriage: [(String, String)] = [
+            ("Marriage date", "1 May 1850"),
+            ("Groom forename", "A"), ("Groom surname", "B"),
+            ("Marriage by licence", "Licence"),
+        ]
+        guard case .marriage(let m)? = FreeREGDetailMapper.detail(fromLabelledPairs: marriage, typeHint: nil)?.event else {
+            Issue.record("expected marriage"); return
+        }
+        #expect(m.byLicence == true, "\"Licence\" is a truthy transcription")
+
+        let baptism: [(String, String)] = [
+            ("Baptism date", "1 May 1850"),
+            ("Person forename", "A"),
+            ("Private baptism", "Private"),
+        ]
+        guard case .baptism(let b)? = FreeREGDetailMapper.detail(fromLabelledPairs: baptism, typeHint: nil)?.event else {
+            Issue.record("expected baptism"); return
+        }
+        #expect(b.isPrivate == true, "\"Private\" is a truthy transcription")
+    }
+
+    @Test func confirmationOnlyEntryKeepsItsDefiningDate() {
+        let pairs: [(String, String)] = [
+            ("Person forename", "Ellen"),
+            ("Person surname", "Wright"),
+            ("Confirmation date", "4 Apr 1855"),
+        ]
+        // No hint: the confirmation date alone must resolve baptism-family.
+        let detail = FreeREGDetailMapper.detail(fromLabelledPairs: pairs, typeHint: nil)
+        guard case .baptism(let b)? = detail?.event else { Issue.record("expected baptism-family event"); return }
+        #expect(b.confirmationDate == "4 Apr 1855", "the defining date is typed, not rawFields-only")
+        #expect(b.baptismDate == nil)
+    }
+
+    @Test func markedWithMarkFieldsAreTyped() {
+        let pairs: [(String, String)] = [
+            ("Marriage date", "1 May 1850"),
+            ("Groom forename", "A"), ("Groom surname", "B"),
+            ("Groom marked", "y"),
+            ("Bride marked", "marked"),
+        ]
+        guard case .marriage(let m)? = FreeREGDetailMapper.detail(fromLabelledPairs: pairs, typeHint: nil)?.event else {
+            Issue.record("expected marriage"); return
+        }
+        #expect(m.groomMarked == "y")
+        #expect(m.brideMarked == "marked")
+    }
+
+    @Test func surnameOnlyUndatedBurialSurvivesAWrongHint() {
+        let pairs: [(String, String)] = [
+            ("Burial person surname", "Slack"),
+            ("Relationship", "Widow of"),
+            ("Male relative forename", "George"),
+        ]
+        let detail = FreeREGDetailMapper.detail(fromLabelledPairs: pairs, typeHint: "marriage")
+        guard case .burial(let b)? = detail?.event else {
+            Issue.record("burial_person_surname must outrank a wrong hint")
+            return
+        }
+        #expect(b.deceased.surname == "Slack")
+        #expect(b.relative?.forename == "George")
+    }
+
     // MARK: - Legacy possessive labels stay tolerated
 
     @Test func possessiveLabelsStillMap() {
@@ -310,6 +399,42 @@ struct FreeREGTypedAttachmentTests {
         #expect(p.fatherName == nil, "a burial's next-of-kin is not the subject's parent")
         guard case .burial(let b)? = p.detail?.event else { Issue.record("typed burial expected"); return }
         #expect(b.relative?.forename == "John")
+    }
+
+    // MARK: - Producer/guard agreement (DS-10, verify finding 2026-07-29)
+
+    @Test func blankTypeSearchRowWithBaptismDetailKeepsGateFiring() {
+        // An all-types .parish search row can carry a blank type cell
+        // (eventType falls back to "parish") while its enriched detail
+        // page proves baptism. The producer populates flat parents from
+        // the TYPED event — and the scorer's DS-10 gate must fire on the
+        // same basis, or namesake-baptism protection silently lapses.
+        let pairs = FreeREGSource.parseDetailPairs(FreeREGDetailMapperTests.liveBaptismHTML)
+        let fields = FreeREGSource.detailFields(fromPairs: pairs)
+        let merged = FreeREGSource.mergedDetailRecord(
+            base: baseParish(eventType: "parish"), detailFields: fields, pairs: pairs)
+        guard case .parish(let p) = merged else { Issue.record("expected parish"); return }
+        // Producer: typed baptism → flat parents populated despite the
+        // blank/fallback search-row type.
+        #expect(p.fatherName == "John KENWORTHY")
+        guard case .baptism = p.detail?.event else { Issue.record("typed baptism expected"); return }
+
+        // Scorer: the familyContext gate fires via the typed event.
+        let subject = ResearchSubject(
+            surname: "KENWORTHY", givenName: "Sarah",
+            birthYearFrom: 1843, birthYearTo: 1847,
+            gender: .female, region: .englandAndWales,
+            mode: .verify,
+            familyContext: FamilyContext(
+                spouseName: nil, spouseSurname: nil, spouseGivenName: nil,
+                spouseFatherSurname: nil, childNames: [],
+                fatherName: "William KENWORTHY", fatherSurname: "KENWORTHY", fatherGivenName: "William",
+                motherName: nil, motherSurname: nil, motherGivenName: nil)
+        )
+        let result = RecordScorer.classify(record: merged, subject: subject, searchType: .parish)
+        let family = result.gates.first { $0.gate == .familyContext }
+        #expect(family?.outcome == .softFail,
+                "record father John vs linked father William must soft-fail even when eventType is the 'parish' fallback — got \(String(describing: family?.outcome))")
     }
 
     // MARK: - Codable compatibility

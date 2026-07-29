@@ -1426,8 +1426,17 @@ nonisolated struct RecordScorer {
         // named next-of-kin. The producer (FreeREGSource) now projects flat
         // parents baptism-only, and this guard keeps the gate honest even
         // if another producer regresses.
-        if case .parish(let parish) = record,
-           parish.eventType.map({ $0.lowercased().contains("bapt") || $0.lowercased().contains("christen") }) ?? false {
+        //
+        // The baptism test matches the PRODUCER's exactly: flat eventType
+        // (legacy rows, direct-baptism queries) OR the typed detail's
+        // event (an all-types .parish search row can carry a blank type
+        // cell while its enriched detail page proves baptism — the gate
+        // must still fire there; verify finding 2026-07-29).
+        if case .parish(let parish) = record, {
+            if let t = parish.eventType?.lowercased(), t.contains("bapt") || t.contains("christen") { return true }
+            if case .baptism = parish.detail?.event { return true }
+            return false
+        }() {
             let father = Self.parentGivenMatch(
                 recordName: parish.fatherName,
                 knownGiven: context.fatherGivenName, knownFull: context.fatherName)

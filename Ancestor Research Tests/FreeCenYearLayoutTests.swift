@@ -64,9 +64,123 @@ struct FreeCenYearLayoutTests {
     </table>
     """
 
+    /// ERB-FAITHFUL fixture (verify findings 2026-07-29): the live VLD
+    /// partials render `<thead>` header cells with NO wrapping `<tr>`,
+    /// pad every cell with template newlines, HTML-encode values
+    /// (`&amp;`, `&#39;`), and put the search-target marker in an
+    /// accessibility span followed by a newline. The idealized fixtures
+    /// above masked ALL of that — this one must parse identically.
+    static let erbShapedVLDHTML = """
+    <table class='table--data'>
+    <thead>
+    <th>
+      Census
+    </th><th>
+      County
+    </th><th>
+      District
+    </th><th>
+      Civil Parish
+    </th><th>
+      Piece
+    </th><th>
+      Folio
+    </th><th>
+      Page
+    </th>
+    </thead>
+    <tbody>
+    <tr><td>
+      1891
+    </td><td>
+      Derbyshire
+    </td><td>
+      Belper
+    </td><td>
+      Duffield
+    </td><td>
+      RG12/2717
+    </td><td>
+      88
+    </td><td>
+      12
+    </td></tr>
+    </tbody>
+    </table>
+    <table class='table--data'>
+    <thead>
+    <th>
+      Surname
+    </th><th>
+      Forenames
+    </th><th>
+      Relationship
+    </th><th>
+      Marital Status
+    </th><th>
+      Sex
+    </th><th>
+      Age
+    </th><th>
+      Occupation
+    </th><th>
+      Birth County
+    </th><th>
+      Birth Place
+    </th><th>
+      Disability
+    </th><th>
+      Notes
+    </th>
+    </thead>
+    <tbody>
+    <tr class="weight--semibold"><td>
+      <span class="accessibility">the person found in your search</span>
+      O&#39;BRIEN
+    </td><td>
+      William
+    </td><td>
+      Head
+    </td><td>
+      M
+    </td><td>
+      M
+    </td><td>
+      45
+    </td><td>
+      Coal Miner &amp; Hewer
+    </td><td>
+      Derbyshire
+    </td><td>
+      Duffield
+    </td><td>
+    </td><td>
+    </td></tr>
+    </tbody>
+    </table>
+    """
+
     private func household(_ html: String) -> CensusRecord? {
         guard case .census(let census)? = FreeCenSource.parseHouseholdDetail(html, recordURL: Self.detailURL) else { return nil }
         return census
+    }
+
+    // MARK: - ERB-shaped reality (the two masked criticals)
+
+    @Test func erbShapedPageParsesEndToEnd() {
+        guard let census = household(Self.erbShapedVLDHTML) else {
+            Issue.record("live-shaped page (bare-th thead + newline-padded cells) must parse")
+            return
+        }
+        #expect(census.censusYear == 1891)
+        #expect(census.household?.count == 1)
+        let william = census.household?.first
+        #expect(william?.isTarget == true, "marker span + newline before the value still resolves the target")
+        #expect(william?.name == "William O'BRIEN", "entity &#39; decodes")
+        #expect(william?.occupation == "Coal Miner & Hewer", "entity &amp; decodes")
+        #expect(william?.age == 45)
+        #expect(census.common.rawFields["parish"] == "Duffield")
+        #expect(census.common.rawFields["folio"] == "88", "bare-th thead headers key the dwelling table")
     }
 
     // MARK: - 1911

@@ -755,7 +755,13 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
                 industry: cell("industry"),
                 nationality: cell("nationality"),
                 language: cell("language"),
-                disabilityNotes: cell("disability notes")
+                disabilityNotes: cell("disability notes"),
+                occupationCategory: cell("occ category"),
+                worksAtHome: cell("works at home"),
+                religion: cell("religion"),
+                readWrite: cell("read and write"),
+                schoolChildren: cell("school children"),
+                fatherPlaceOfBirth: cell("father's place of birth", "fathers place of birth")
             ))
         }
 

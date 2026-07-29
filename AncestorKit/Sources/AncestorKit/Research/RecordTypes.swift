@@ -458,10 +458,23 @@ public nonisolated struct HouseholdMember: Codable, Sendable, Hashable {
     public let language: String?
     /// 1911 "Disability Notes" column (alongside the disability flag).
     public let disabilityNotes: String?
+    /// "Occ Category" (1891–1911) — the occupational-category code.
+    public let occupationCategory: String?
+    /// "Works At Home" (1901/1911).
+    public let worksAtHome: String?
+    /// "Religion" (Ireland 1901/1911) — genuine transcribed content.
+    public let religion: String?
+    /// "Read and Write" (Ireland 1901/1911) — literacy as transcribed.
+    public let readWrite: String?
+    /// "School Children" (Scotland 1861–1881).
+    public let schoolChildren: String?
+    /// "Father's Place of Birth" (Channel Islands 1911) — direct
+    /// parentage-origin evidence.
+    public let fatherPlaceOfBirth: String?
 
     /// Public memberwise init — synthesized inits are internal
     /// outside the package, so cross-module construction needs this.
-    public init(name: String, relationship: String, age: Int? = nil, birthYear: Int? = nil, birthPlace: String? = nil, occupation: String? = nil, sex: String? = nil, maritalStatus: String? = nil, birthCounty: String? = nil, disability: String? = nil, notes: String? = nil, isTarget: Bool? = nil, rawAge: String? = nil, yearsMarried: String? = nil, childrenBornAlive: Int? = nil, childrenLiving: Int? = nil, childrenDeceased: Int? = nil, industry: String? = nil, nationality: String? = nil, language: String? = nil, disabilityNotes: String? = nil) {
+    public init(name: String, relationship: String, age: Int? = nil, birthYear: Int? = nil, birthPlace: String? = nil, occupation: String? = nil, sex: String? = nil, maritalStatus: String? = nil, birthCounty: String? = nil, disability: String? = nil, notes: String? = nil, isTarget: Bool? = nil, rawAge: String? = nil, yearsMarried: String? = nil, childrenBornAlive: Int? = nil, childrenLiving: Int? = nil, childrenDeceased: Int? = nil, industry: String? = nil, nationality: String? = nil, language: String? = nil, disabilityNotes: String? = nil, occupationCategory: String? = nil, worksAtHome: String? = nil, religion: String? = nil, readWrite: String? = nil, schoolChildren: String? = nil, fatherPlaceOfBirth: String? = nil) {
         self.name = name
         self.relationship = relationship
         self.age = age
@@ -483,6 +496,12 @@ public nonisolated struct HouseholdMember: Codable, Sendable, Hashable {
         self.nationality = nationality
         self.language = language
         self.disabilityNotes = disabilityNotes
+        self.occupationCategory = occupationCategory
+        self.worksAtHome = worksAtHome
+        self.religion = religion
+        self.readWrite = readWrite
+        self.schoolChildren = schoolChildren
+        self.fatherPlaceOfBirth = fatherPlaceOfBirth
     }
 
 }

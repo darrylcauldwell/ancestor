@@ -153,6 +153,11 @@ public nonisolated struct FreeREGBaptism: Codable, Sendable, Equatable {
     public var birthDate: String?
     /// `baptism_date`.
     public var baptismDate: String?
+    /// `confirmation_date` / `received_into_church_date` (extended
+    /// layouts) — the DEFINING date on confirmation and nonconformist
+    /// received-into-church entries, which may carry no baptism date.
+    public var confirmationDate: String?
+    public var receivedIntoChurchDate: String?
     /// `private_baptism`.
     public var isPrivate: Bool?
     /// `father_*` — incl. occupation/abode/place/county.
@@ -164,6 +169,7 @@ public nonisolated struct FreeREGBaptism: Codable, Sendable, Equatable {
     public init(
         child: FreeREGPerson,
         birthDate: String? = nil, baptismDate: String? = nil,
+        confirmationDate: String? = nil, receivedIntoChurchDate: String? = nil,
         isPrivate: Bool? = nil,
         father: FreeREGPerson? = nil, mother: FreeREGMother? = nil,
         witnesses: [FreeREGWitness] = []
@@ -171,6 +177,8 @@ public nonisolated struct FreeREGBaptism: Codable, Sendable, Equatable {
         self.child = child
         self.birthDate = birthDate
         self.baptismDate = baptismDate
+        self.confirmationDate = confirmationDate
+        self.receivedIntoChurchDate = receivedIntoChurchDate
         self.isPrivate = isPrivate
         self.father = father
         self.mother = mother
@@ -227,6 +235,11 @@ public nonisolated struct FreeREGMarriage: Codable, Sendable, Equatable {
     public var byLicence: Bool?
     /// `marriage_by` — officiant / rite as transcribed.
     public var marriageBy: String?
+    /// `groom_marked` / `bride_marked` (extended layouts) — signed the
+    /// register with a MARK rather than a signature; a literacy signal,
+    /// as transcribed ("y"/"marked").
+    public var groomMarked: String?
+    public var brideMarked: String?
     /// Relatives routinely witness marriages — a collateral-kin signal
     /// (CONNECTOR_AUDIT FT-21).
     public var witnesses: [FreeREGWitness]
@@ -238,6 +251,7 @@ public nonisolated struct FreeREGMarriage: Codable, Sendable, Equatable {
         brideFather: FreeREGPerson? = nil, brideMother: FreeREGPerson? = nil,
         marriageDate: String? = nil, contractDate: String? = nil,
         byLicence: Bool? = nil, marriageBy: String? = nil,
+        groomMarked: String? = nil, brideMarked: String? = nil,
         witnesses: [FreeREGWitness] = []
     ) {
         self.groom = groom
@@ -252,6 +266,8 @@ public nonisolated struct FreeREGMarriage: Codable, Sendable, Equatable {
         self.contractDate = contractDate
         self.byLicence = byLicence
         self.marriageBy = marriageBy
+        self.groomMarked = groomMarked
+        self.brideMarked = brideMarked
         self.witnesses = witnesses
     }
 }
@@ -268,12 +284,19 @@ public nonisolated struct FreeREGBurial: Codable, Sendable, Equatable {
     public var deathDate: String?
     public var causeOfDeath: String?
     public var placeOfDeath: String?
-    /// `relationship` — the deceased's relation to `relative`
-    /// ("dau of", "wife of", "son of").
+    /// `relationship` — the deceased's relation to the named relative(s)
+    /// ("dau of", "wife of", "son of John and Jane").
     public var relationship: String?
-    /// `male_relative_*` / `female_relative_*` / `relative_*` — the named
-    /// relative (NOT the deceased).
+    /// The first named relative (NOT the deceased) — the male-relative
+    /// block when present, else the female/generic block. A burial naming
+    /// BOTH ("son of John and Jane") carries the other in
+    /// `secondRelative`; the two blocks are never welded into one person
+    /// (verify finding 2026-07-29: mixing prefix hits produced a chimera
+    /// "John Brown" from John's forename + Jane Brown's surname).
     public var relative: FreeREGPerson?
+    /// The OTHER named relative when the entry names two (typically the
+    /// mother on a "son of John and Jane" infant burial).
+    public var secondRelative: FreeREGPerson?
     /// `burial_parish` — when the burial was recorded away from home.
     public var burialParish: String?
     public var burialLocationInformation: String?
@@ -285,6 +308,7 @@ public nonisolated struct FreeREGBurial: Codable, Sendable, Equatable {
         burialDate: String? = nil, deathDate: String? = nil,
         causeOfDeath: String? = nil, placeOfDeath: String? = nil,
         relationship: String? = nil, relative: FreeREGPerson? = nil,
+        secondRelative: FreeREGPerson? = nil,
         burialParish: String? = nil,
         burialLocationInformation: String? = nil,
         memorialInformation: String? = nil,
@@ -297,6 +321,7 @@ public nonisolated struct FreeREGBurial: Codable, Sendable, Equatable {
         self.placeOfDeath = placeOfDeath
         self.relationship = relationship
         self.relative = relative
+        self.secondRelative = secondRelative
         self.burialParish = burialParish
         self.burialLocationInformation = burialLocationInformation
         self.memorialInformation = memorialInformation
