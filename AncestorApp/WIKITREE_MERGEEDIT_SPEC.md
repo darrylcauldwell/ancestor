@@ -68,6 +68,15 @@ Only citations not already present in the twin's bio text are included (substrin
 
 GEDCOM X `data` path (structured sourceDescriptions + fact bullets); relationship/parent edits (MergeEdit is field-level only); create-new-profile; batch contributions (one profile per review page keeps the human genuinely in the loop); MCP staging of contributions (wants the same request-table pattern as FS once the flow is proven); twin re-sync automation (WAF + block questions first).
 
+## 6a. As-built record (2026-07-31, #WT0–#WT4)
+
+WT1–WT4 SHIPPED in one pass, full suite 3,434/365 green:
+- **WT1** `78b1037` — `WikiTreeMergeEdit.build` (Services/WikiTree/): differs-AND-research-provenance sendability, twin-raw `expected` (the `.wikitree`-origin FieldSource stamped at import is the in-app twin memory), maiden-surname manual notes, §4 research-notes block with bio-dedup, FNV-1a citation keys. 10 tests.
+- **WT2** `20378db` — `WikiTreeMergeEditLauncher`: pure `reviewPageHTML` (form fields `user_name`/`person`/`expected`/`options`/`summary`, JSON-encoded values, HTML-escaped) + temp-file `NSWorkspace.open`. Bio↔mergeBio pairing structurally enforced + pinned by test. 4 tests.
+- **WT3+WT4** `4e3410a` — `WikiTreeContributeSheet` (preview: field diffs, bio text, manual notes, summary; "Open WikiTree Review Page"; opened-state copy says offered-not-saved) wired into the profile card's More menu; migration `v54_wikitree_contributions` + `ProjectDatabase+WikiTreeContributions` (offers newest-first, profile-cascade). 2 tests.
+
+**Remaining: WT5 (live verify) — BLOCKED on the Error-2562 unblock**, then: small manual edit → Apps Google Group courtesy post → first MergeEdit against Darryl's own profile → settle §7.
+
 ## 7. Unresolved — settle at live verify
 
 1. Exact POST encoding: separate form fields with JSON-encoded values (our build) vs one raw-JSON body — Help page shows a single JSON document; the G2G "params on the URL + window.open" report implies param-style works. Compare with the demo app if the form bounces.
