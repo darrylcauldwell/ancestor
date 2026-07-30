@@ -709,8 +709,27 @@ final class ResearchViewModel {
         for record in result.allScoredRecords {
             sourceCounts[record.record.sourceID, default: 0] += 1
         }
+        // Per-source T1-01 envelope truth. The mid-run cards are fed by the
+        // process-global ResearchActivityBus, which carries NO run identity —
+        // a completion from another invocation (Source Explorer probe,
+        // aborted/parallel run) can render inside THIS run's card
+        // (drop-trace finding 2026-07-30: a phantom "FreeREG — 3 results").
+        // This settle pass is the truth: it rewrites every card from the
+        // persisted result's own outcome envelopes, distinguishing
+        // "never queried" / "queries failed" / "searched clean, zero".
+        var dispatched: [String: Int] = [:]
+        var failed: [String: Int] = [:]
+        var suppressed: [String: Int] = [:]
+        for entry in result.searchOutcomes {
+            dispatched[entry.sourceID, default: 0] += 1
+            if entry.outcome.suppressed { suppressed[entry.sourceID, default: 0] += 1 }
+            if case .error = entry.outcome.availability { failed[entry.sourceID, default: 0] += 1 }
+        }
+        let haveOutcomes = !result.searchOutcomes.isEmpty
+
         for i in sourceStatuses.indices {
-            let count = sourceCounts[sourceStatuses[i].id] ?? 0
+            let id = sourceStatuses[i].id
+            let count = sourceCounts[id] ?? 0
             sourceStatuses[i].resultCount = count
             // Errors are sticky through settling too — a source that
             // failed (e.g. FamilySearch session expired) must never end
@@ -718,8 +737,26 @@ final class ResearchViewModel {
             // Harry Marshall run, 2026-07-15).
             if sourceStatuses[i].state != .skipped && sourceStatuses[i].state != .error {
                 sourceStatuses[i].state = .complete
-                if count == 0 {
+                guard count == 0 else { continue }
+                guard haveOutcomes else {
                     sourceStatuses[i].reason = "no results"
+                    continue
+                }
+                let queries = dispatched[id] ?? 0
+                let failures = failed[id] ?? 0
+                if queries == 0 {
+                    sourceStatuses[i].reason = "not queried this run"
+                } else if failures > 0 {
+                    // Zero records AND failed queries: emptiness is
+                    // meaningless — never a green "no results".
+                    sourceStatuses[i].state = .error
+                    sourceStatuses[i].reason = failures == queries
+                        ? "all \(queries) queries failed"
+                        : "\(failures) of \(queries) queries failed"
+                } else if suppressed[id] == queries {
+                    sourceStatuses[i].reason = "skipped — prior clean negatives"
+                } else {
+                    sourceStatuses[i].reason = "searched \(queries) \(queries == 1 ? "query" : "queries") — no results"
                 }
             }
         }

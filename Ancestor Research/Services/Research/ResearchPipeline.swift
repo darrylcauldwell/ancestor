@@ -422,7 +422,7 @@ final class ResearchPipeline {
             for (idx, stageTypes) in typesByStageIndex {
                 for recordType in stageTypes where !resolvedTypes.contains(recordType) {
                     let survivors = scored.filter { s in
-                        s.record.recordType == recordType
+                        Self.recordSatisfies(s.record, dispatchedType: recordType)
                             && s.verdict != .impossible
                             && !s.gates.contains {
                                 $0.gate == .geography
@@ -2302,6 +2302,34 @@ final class ResearchPipeline {
     /// BMD quarters are labelled by their END month ("Mar quarter" = Jan/Feb/Mar)
     /// which is unintuitive to non-genealogists. We expand to "Jan–Mar" etc. to
     /// remove the ambiguity. Pre-1912 marriages lack spouse surname; handled.
+
+    /// A scored record satisfies a dispatched record-type target when its own
+    /// type matches — or when it is a parish-register record whose EVENT is
+    /// that type. FreeREG returns `.parish` for EVERY query (its rows are
+    /// register entries), so a FreeREG marriage hit dispatched under the
+    /// `.marriage` target previously failed the `record.recordType ==
+    /// recordType` survivors check: real hits read as "genuine miss" and the
+    /// stage ladder widened on a lie (drop-trace finding 2026-07-30).
+    /// Conservative mapping: only parish events map across (baptism/
+    /// christening, marriage, burial); non-parish types are exact-match as
+    /// before, and the `.parish` umbrella accepts any parish record.
+    nonisolated static func recordSatisfies(_ record: SourceRecord, dispatchedType: RecordType) -> Bool {
+        if record.recordType == dispatchedType { return true }
+        guard case .parish(let parish) = record else { return false }
+        if dispatchedType == .parish { return true }
+        let event = parish.eventType?.lowercased() ?? ""
+        switch dispatchedType {
+        case .baptism, .christening:
+            return event.contains("bapt") || event.contains("christen")
+        case .marriage:
+            return event.contains("marria")
+        case .burial:
+            return event.contains("buri")
+        default:
+            return false
+        }
+    }
+
     private static func marriageRecordSummary(_ record: SourceRecord) -> String {
         guard case .marriage(let m) = record else { return "Marriage" }
         let given = m.common.givenName ?? ""
