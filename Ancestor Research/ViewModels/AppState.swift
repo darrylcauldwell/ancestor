@@ -480,6 +480,12 @@ final class AppState {
             isManualGuidanceMode: isSmallManualProject,
             overrides: overrides
         )
+        // MC4: persist the fresh snapshot for external MCP readers. This is
+        // the only persistence point — Health relies solely on this auto-audit
+        // (UnifiedTasksView's separate AuditViewModel pass is not persisted).
+        if let summary = auditSummary, let db = currentDatabase {
+            try? db.replaceAuditFindings(summary.errors + summary.warnings + summary.info)
+        }
     }
 
     /// User-disabled audit rules (AuditRulesView writes the AppStorage-backed

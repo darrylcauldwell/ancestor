@@ -1570,6 +1570,25 @@ nonisolated final class ProjectDatabase: Sendable {
                           on: "wikitree_contributions", columns: ["profile_id"])
         }
 
+        // v55 — persisted Health audit findings (MCP_CONSUMER_SURFACE_SPEC MC4).
+        // Audit results were in-process only; an external MCP reader needs a
+        // table. Each in-app audit pass replaces the whole snapshot, and
+        // `computed_at` lets consumers judge staleness honestly. `profile_id`
+        // is nullable and deliberately has NO foreign key: some findings are
+        // tree-level (no profile), and edge-case ids must never fail the write.
+        migrator.registerMigration("v55_audit_findings") { db in
+            try db.create(table: "audit_findings") { t in
+                t.column("id", .text).primaryKey()
+                t.column("rule_id", .text).notNull()
+                t.column("profile_id", .text)
+                t.column("severity", .text).notNull()
+                t.column("message", .text).notNull()
+                t.column("computed_at", .datetime).notNull()
+            }
+            try db.create(index: "idx_audit_findings_profile",
+                          on: "audit_findings", columns: ["profile_id"])
+        }
+
         return migrator
     }
 

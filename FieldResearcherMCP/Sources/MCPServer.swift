@@ -537,6 +537,16 @@ actor MCPHandler {
                 // network calls). Request-driven uploads stop at
                 // uploaded-but-hidden; visibility/privacy are in-app consents.
                 tool(
+                    name: "get_audit_findings",
+                    description: "Read the persisted Health audit findings (v55 snapshot written each time the app runs its audit pass). Returns rule_id, severity (error | warning | info), message, profile_id (null = tree-level) and computed_at — report the computed_at to the user, findings are only as fresh as the app's last audit pass. Optional filters: profile_id, severity.",
+                    properties: [
+                        "profile_id": ["type": "string", "description": "Optional: findings for one profile only."],
+                        "severity": ["type": "string", "description": "Optional filter: error | warning | info."],
+                        "limit": ["type": "integer", "description": "Max rows (default 100, max 500)."],
+                    ],
+                    required: []
+                ),
+                tool(
                     name: "get_fs_upload_status",
                     description: "Read the FamilySearch User Tree upload run(s): tree ID, phase (created | uploading | finalized | failed), counts of persons/relationships/sources uploaded, and privacy once finalized. Newest first.",
                     properties: [
@@ -657,6 +667,8 @@ actor MCPHandler {
             return try inspectApprovalDecision(arguments)
         case "promote_lead":
             return try promoteLead(arguments)
+        case "get_audit_findings":
+            return ["content": [["type": "text", "text": try getAuditFindingsResponseText(arguments)]]]
         case "get_fs_upload_status":
             return ["content": [["type": "text", "text": try getFSUploadStatusResponseText(arguments)]]]
         case "get_fs_person_links":
@@ -2816,6 +2828,49 @@ actor MCPHandler {
             return "{\"error\": \"serialization_failed\"}"
         }
         return text
+    }
+
+    // MARK: - Audit findings (MC4)
+
+    /// Health audit findings from the v55 snapshot the app persists after each
+    /// audit pass. `computed_at` makes staleness honest — the MCP server never
+    /// computes audits itself (AuditEngine runs in-app).
+    func getAuditFindingsResponseText(_ args: [String: Any]) throws -> String {
+        let limit = max(1, min((args["limit"] as? Int) ?? 100, 500))
+        let profileID = (args["profile_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let severity = (args["severity"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let iso = ISO8601DateFormatter()
+        do {
+            let payload: [[String: Any]] = try db.read { dbConn in
+                var sql = "SELECT id, rule_id, profile_id, severity, message, computed_at FROM audit_findings"
+                var clauses: [String] = []
+                var arguments: [DatabaseValueConvertible] = []
+                if let profileID { clauses.append("profile_id = ?"); arguments.append(profileID) }
+                if let severity { clauses.append("severity = ?"); arguments.append(severity) }
+                if !clauses.isEmpty { sql += " WHERE " + clauses.joined(separator: " AND ") }
+                sql += """
+                     ORDER BY CASE severity WHEN 'error' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, rule_id LIMIT ?
+                    """
+                arguments.append(limit)
+                let rows = try Row.fetchAll(dbConn, sql: sql, arguments: StatementArguments(arguments))
+                return rows.map { row in
+                    var entry: [String: Any] = [
+                        "rule_id": row["rule_id"] as String? ?? "",
+                        "severity": row["severity"] as String? ?? "",
+                        "message": row["message"] as String? ?? "",
+                    ]
+                    if let v: String = row["profile_id"] { entry["profile_id"] = v }
+                    if let v: Date = row["computed_at"] { entry["computed_at"] = iso.string(from: v) }
+                    return entry
+                }
+            }
+            if payload.isEmpty {
+                return Self.jsonString(["findings": [], "note": "No persisted findings — the app writes this snapshot when its Health audit runs; open the app's Health tab to refresh."])
+            }
+            return Self.jsonString(payload)
+        } catch where Self.isMissingTable(error) {
+            return Self.fsSchemaOutOfDate
+        }
     }
 
     // MARK: - FamilySearch tools (WL7)

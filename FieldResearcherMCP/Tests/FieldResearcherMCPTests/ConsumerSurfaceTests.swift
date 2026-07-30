@@ -88,6 +88,45 @@ struct ConsumerSurfaceTests {
         #expect(!json.contains("\n  "))
     }
 
+    // MARK: MC4 — audit findings read
+
+    @Test func auditFindingsReadFiltersAndReportsFreshness() async throws {
+        let dbPath = try makeDB()
+        let q = try DatabaseQueue(path: dbPath)
+        try await q.write { db in
+            try db.execute(sql: "CREATE TABLE audit_findings (id TEXT PRIMARY KEY, rule_id TEXT NOT NULL, profile_id TEXT, severity TEXT NOT NULL, message TEXT NOT NULL, computed_at DATETIME NOT NULL)")
+            try db.execute(sql: """
+                INSERT INTO audit_findings (id, rule_id, profile_id, severity, message, computed_at)
+                VALUES ('f1', 'deathBeforeBirth', '@WHK@', 'error', 'Death precedes birth', ?),
+                       ('f2', 'missingSources', '@ES@', 'info', 'No sources on birth', ?),
+                       ('f3', 'fertilityGap', NULL, 'warning', 'Tree-level statement', ?)
+                """, arguments: [Date(timeIntervalSince1970: 500), Date(timeIntervalSince1970: 500), Date(timeIntervalSince1970: 500)])
+        }
+        let handler = try MCPHandler(dbPath: dbPath)
+        let all = try await handler.getAuditFindingsResponseText([:])
+        #expect(all.contains("deathBeforeBirth") && all.contains("fertilityGap"))
+        #expect(all.contains("computed_at"))   // staleness is honest
+        let one = try await handler.getAuditFindingsResponseText(["profile_id": "@WHK@"])
+        #expect(one.contains("deathBeforeBirth") && !one.contains("missingSources"))
+        let errors = try await handler.getAuditFindingsResponseText(["severity": "error"])
+        #expect(errors.contains("deathBeforeBirth") && !errors.contains("fertilityGap"))
+    }
+
+    @Test func auditFindingsExplainEmptyAndPreMigrationStates() async throws {
+        let dbPath = try makeDB()
+        // No audit_findings table at all → friendly schema payload, not SQL error.
+        let handler = try MCPHandler(dbPath: dbPath)
+        let missing = try await handler.getAuditFindingsResponseText([:])
+        #expect(missing.contains("schema_out_of_date"))
+        // Table present but empty → tells the assistant how findings refresh.
+        let q = try DatabaseQueue(path: dbPath)
+        try await q.write { db in
+            try db.execute(sql: "CREATE TABLE audit_findings (id TEXT PRIMARY KEY, rule_id TEXT NOT NULL, profile_id TEXT, severity TEXT NOT NULL, message TEXT NOT NULL, computed_at DATETIME NOT NULL)")
+        }
+        let empty = try await handler.getAuditFindingsResponseText([:])
+        #expect(empty.contains("Health"))
+    }
+
     // MARK: MC1 — prompts
 
     @Test func advertisedPromptsAreAllImplemented() async throws {
