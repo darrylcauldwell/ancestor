@@ -84,6 +84,7 @@ public nonisolated enum AuditRules {
         SelfSpouseRule(),
         UnsourcedBioRule(),
         MissingDeathLocationRule(),
+        DatelessReadsAsLivingRule(),
         AncestorExtensionRule(),
         UnlinkedSpouseForFemaleSubjectRule(),
         MarriedSurnameFromSpouseRule(),
@@ -239,6 +240,63 @@ public nonisolated struct IncompleteNameRule: AuditRuleDefinition {
             severity: .info, category: .gap, ruleID: id,
             message: "\(display) — \(reason). Add the missing part, or research it (a surname-only spouse often needs a maiden name)."
         )]
+    }
+}
+
+// MARK: - Dateless — Reads As Living
+
+/// A profile with NO dates at all is treated as "possibly living" by the
+/// completeness heuristic (an unbounded birth can't rule out being alive), so
+/// it gets privacy treatment and is skipped by living-person guards — even
+/// when the surrounding family makes a Victorian birth certain. Live specimen
+/// (owner dogfood 2026-07-30): the dateless sister Elizabeth Keyworth read
+/// "(living)" though her brother was born 1875. This rule infers a
+/// conservative "born no later than" bound from family anchors — siblings
+/// (+20), spouse (+20), children (−14) — and flags dateless profiles whose
+/// bound is more than 100 years ago (the same threshold the living heuristic
+/// itself uses).
+public nonisolated struct DatelessReadsAsLivingRule: AuditRuleDefinition {
+    public let id = "datelessReadsAsLiving"
+    public let category: AuditCategory = .gap
+    public let displayName = "Dateless — Reads As Living"
+    public let description = "A profile with no dates is treated as possibly living, but family dates prove a birth more than a century ago."
+    public let fireCondition = "No birth AND no death date, and siblings/spouse/children imply birth no later than 100 years ago."
+    public let warningCondition: String? = nil
+    public let workedExample = "Elizabeth Keyworth (no dates) shows \u{201C}living\u{201D}, but brother William Henry was born 1875 — she was born no later than ~1895."
+    public let defaultSeverity = Severity.warning
+    public init() {}
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        guard profile.birthDate == nil, profile.deathDate == nil else { return [] }
+        guard let bound = Self.bornNoLaterThan(profile: profile, snapshot: snapshot) else { return [] }
+        let currentYear = Calendar.current.component(.year, from: Date())
+        guard bound.year + 100 < currentYear else { return [] }
+        let display = profile.displayName.trimmingCharacters(in: .whitespaces).isEmpty
+            ? "(unnamed)" : profile.displayName
+        return [AuditResult(
+            profileID: profile.id, profileName: display,
+            severity: .warning, category: .gap, ruleID: id,
+            message: "\(display) — no dates recorded, so they read as possibly living; but \(bound.anchor) means they were born no later than ~\(bound.year), over a century ago. Add an estimated birth or death year so privacy and research treat them correctly."
+        )]
+    }
+
+    /// Conservative latest-plausible birth year from family anchors, with the
+    /// anchor that produced the tightest bound. Nil when no dated relatives.
+    static func bornNoLaterThan(profile: Profile, snapshot: FamilyGraphSnapshot) -> (year: Int, anchor: String)? {
+        var bounds: [(year: Int, anchor: String)] = []
+        let siblingYears = snapshot.siblingsOf(profile.id).compactMap { $0.birthDate?.bestYear }
+        if let latest = siblingYears.max() {
+            bounds.append((latest + 20, "a sibling born \(latest)"))
+        }
+        let spouseYears = snapshot.spousesOf(profile.id).compactMap { $0.birthDate?.bestYear }
+        if let latest = spouseYears.max() {
+            bounds.append((latest + 20, "a spouse born \(latest)"))
+        }
+        let childYears = snapshot.childrenOf(profile.id).compactMap { $0.birthDate?.bestYear }
+        if let earliest = childYears.min() {
+            bounds.append((earliest - 14, "a child born \(earliest)"))
+        }
+        return bounds.min { $0.year < $1.year }
     }
 }
 
