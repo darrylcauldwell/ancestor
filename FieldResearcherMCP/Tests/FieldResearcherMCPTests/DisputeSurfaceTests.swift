@@ -16,6 +16,7 @@ struct DisputeSurfaceTests {
         let queue = try DatabaseQueue(path: dbPath)
         try queue.write { db in
             try db.execute(sql: "CREATE TABLE leads (id TEXT PRIMARY KEY, profile_id TEXT, name TEXT, relationship TEXT, status TEXT, evidence TEXT, birth_year INTEGER, death_year INTEGER, created_at DATETIME, investigated_at DATETIME, source TEXT, given_name TEXT, surname TEXT, resolved_at DATETIME, resolution TEXT)")
+            try db.execute(sql: "CREATE TABLE evidence_records (id TEXT PRIMARY KEY, profile_id TEXT, source_id TEXT, source_record_id TEXT, record_type TEXT, verdict TEXT, record_json TEXT, citation_full TEXT, citation_url TEXT, scored_at DATETIME, user_status TEXT DEFAULT 'unreviewed', gates_json TEXT)")
             try db.execute(sql: """
                 CREATE TABLE profiles (
                     id TEXT PRIMARY KEY, first_name TEXT, last_name TEXT,
@@ -29,7 +30,8 @@ struct DisputeSurfaceTests {
             try db.execute(sql: """
                 CREATE TABLE field_sources (
                     entity_id TEXT, entity_kind TEXT, field TEXT,
-                    origin TEXT, raw TEXT, added_at DATETIME
+                    origin TEXT, raw TEXT, added_at DATETIME,
+                    citation_json TEXT, evidence_quality INTEGER, fact_confidence TEXT
                 )
                 """)
             try db.execute(sql: """

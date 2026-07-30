@@ -351,9 +351,11 @@ actor MCPHandler {
                 ),
                 tool(
                     name: "get_profile",
-                    description: "Get full detail for a specific profile including all known facts, sources, relationships, and research history.",
+                    description: "Get full detail for a specific profile: names (incl. married surname / mother's maiden name), vitals, attributes, external identifiers, relationships (with direction on parent edges and marriage date on spouse edges), confirmed facts with structured citations, disputes with reasoning traces, actionable leads (joined to their scored-record verdict + citation where available), negative searches with freshness, not_duplicate_of verdicts, and research history.",
                     properties: [
                         "profile_id": ["type": "string", "description": "The profile ID to look up"],
+                        "leads_status": ["type": "string", "description": "Comma-separated lead statuses to include (default 'new,investigating'; pass 'all' for everything incl. dismissed/promoted)."],
+                        "leads_limit": ["type": "integer", "description": "Max leads returned (default 50, max 500). Newest first."],
                     ],
                     required: ["profile_id"]
                 ),
@@ -616,7 +618,9 @@ actor MCPHandler {
             return try submitLead(arguments)
         case "get_profile":
             let id = arguments["profile_id"] as? String ?? ""
-            let detail = try profileDetail(id: id)
+            let leadsStatus = arguments["leads_status"] as? String
+            let leadsLimit = max(1, min((arguments["leads_limit"] as? Int) ?? 50, 500))
+            let detail = try profileDetail(id: id, leadsStatusFilter: leadsStatus, leadsLimit: leadsLimit)
             return ["content": [["type": "text", "text": detail]]]
         case "search_profiles":
             let query = arguments["query"] as? String ?? ""
@@ -951,7 +955,7 @@ actor MCPHandler {
         }
     }
 
-    func profileDetail(id: String) throws -> String {
+    func profileDetail(id: String, leadsStatusFilter: String? = nil, leadsLimit: Int = 50) throws -> String {
         try db.read { db in
             guard let row = try Row.fetchOne(db, sql: "SELECT * FROM profiles WHERE id = ? AND is_deleted = 0", arguments: [id]) else {
                 return "{\"error\": \"profile not found\"}"
@@ -962,13 +966,36 @@ actor MCPHandler {
                 "first_name": row["first_name"] as String? ?? "",
                 "last_name": row["last_name"] as String? ?? "",
             ]
+            // MC2 — the dossier previously omitted middle/nick/married/
+            // mothers-maiden names and even death_location; a UK-convention
+            // assistant is blind without them.
+            if let v: String = row["middle_name"] { p["middle_name"] = v }
+            if let v: String = row["nick_name"] { p["nick_name"] = v }
+            if let v: String = row["married_surname"] { p["married_surname"] = v }
+            if let v: String = row["mothers_maiden_name"] { p["mothers_maiden_name"] = v }
             if let v: String = row["birth_date_original"] { p["birth_date"] = v }
             if let v: Int = row["birth_date_earliest"] { p["birth_year_earliest"] = v }
             if let v: Int = row["birth_date_latest"] { p["birth_year_latest"] = v }
             if let v: String = row["death_date_original"] { p["death_date"] = v }
             if let v: Int = row["death_date_earliest"] { p["death_year_earliest"] = v }
+            if let v: Int = row["death_date_latest"] { p["death_year_latest"] = v }
             if let v: String = row["birth_location"] { p["birth_location"] = v }
+            if let v: String = row["death_location"] { p["death_location"] = v }
             if let v: String = row["gender"] { p["gender"] = v }
+            if let v: String = row["attributes"], let data = v.data(using: .utf8),
+               let decoded = try? JSONSerialization.jsonObject(with: data) {
+                p["attributes"] = decoded
+            }
+            if let v: String = row["external_identifiers"], let data = v.data(using: .utf8),
+               let decoded = try? JSONSerialization.jsonObject(with: data),
+               let list = decoded as? [Any], !list.isEmpty {
+                p["external_identifiers"] = list
+            }
+            if let v: String = row["name_forms"], let data = v.data(using: .utf8),
+               let decoded = try? JSONSerialization.jsonObject(with: data),
+               let list = decoded as? [Any], !list.isEmpty {
+                p["name_forms"] = list
+            }
 
             // CONFLICT_LAYER_SPEC CL6 (§4.8.5) — read-only dispute ledger:
             // open + resolved, with kind/field/severity/reasoning-bearing
@@ -995,7 +1022,8 @@ actor MCPHandler {
 
             // Relationships
             let rels = try Row.fetchAll(db, sql: """
-                SELECT r.type, r.role, p.id, p.first_name, p.last_name,
+                SELECT r.type, r.role, r.from_id, r.marriage_date_original, r.marriage_location,
+                       p.id, p.first_name, p.last_name,
                        p.birth_date_original, p.death_date_original
                 FROM relationships r
                 JOIN profiles p ON (r.to_id = p.id AND r.from_id = ?) OR (r.from_id = p.id AND r.to_id = ?)
@@ -1009,6 +1037,19 @@ actor MCPHandler {
                     "person": "\(rel["first_name"] as String? ?? "") \(rel["last_name"] as String? ?? "")",
                     "person_id": rel["id"] as String? ?? "",
                 ]
+                // MC2 — direction disambiguates parent edges (memory
+                // reference_mcp_get_profile_edge_directions: this list mixes
+                // the subject's parents AND children; direction makes it
+                // explicit instead of leaving callers to birth-year guessing).
+                let relType = rel["type"] as String? ?? ""
+                if relType == "parent" {
+                    let fromID = rel["from_id"] as String? ?? ""
+                    r["direction"] = fromID == id ? "subject_is_parent_of" : "subject_is_child_of"
+                }
+                if relType == "spouse" {
+                    if let m: String = rel["marriage_date_original"] { r["marriage_date"] = m }
+                    if let m: String = rel["marriage_location"] { r["marriage_location"] = m }
+                }
                 if let b: String = rel["birth_date_original"] { r["birth"] = b }
                 if let d: String = rel["death_date_original"] { r["death"] = d }
                 relationships.append(r)
@@ -1017,23 +1058,59 @@ actor MCPHandler {
 
             // Field sources — what's confirmed with source provenance
             let fieldSources = try Row.fetchAll(db, sql: """
-                SELECT field, raw, origin FROM field_sources WHERE entity_id = ?
+                SELECT field, raw, origin, citation_json, evidence_quality, fact_confidence, added_at
+                FROM field_sources WHERE entity_id = ?
                 """, arguments: [id])
-            var confirmedFacts: [[String: String]] = []
+            var confirmedFacts: [[String: Any]] = []
+            let factISO = ISO8601DateFormatter()
             for fs in fieldSources {
-                confirmedFacts.append([
+                var fact: [String: Any] = [
                     "field": fs["field"] as String? ?? "",
                     "value": fs["raw"] as String? ?? "",
                     "source": fs["origin"] as String? ?? "",
-                ])
+                ]
+                // MC3 — the structured citation never left the DB before;
+                // 'what is the actual citation behind this birth date' was
+                // unanswerable from the display string alone.
+                if let c: String = fs["citation_json"], let data = c.data(using: .utf8),
+                   let decoded = try? JSONSerialization.jsonObject(with: data) {
+                    fact["citation"] = decoded
+                }
+                if let q: Int = fs["evidence_quality"] { fact["evidence_quality"] = q }
+                if let fc: String = fs["fact_confidence"] { fact["confidence"] = fc }
+                if let at: Date = fs["added_at"] { fact["added_at"] = factISO.string(from: at) }
+                confirmedFacts.append(fact)
             }
             p["confirmed_facts"] = confirmedFacts
 
-            // Active leads for this profile
-            let leadRows = try Row.fetchAll(db, sql: """
-                SELECT id, name, relationship, status, evidence, birth_year, death_year
-                FROM leads WHERE profile_id = ? ORDER BY created_at DESC
-                """, arguments: [id])
+            // Active leads for this profile. MC5 — the old shape returned
+            // EVERY lead ever (150+ observed, mostly dismissed/stale) with no
+            // ranking signal. Default = actionable statuses, capped, newest
+            // first, with the scored record's verdict + citation joined in
+            // where the lead came from a scored record (lead id convention:
+            // 'lead_' + evidence_records.source_record_id).
+            let leadStatuses = (leadsStatusFilter ?? "new,investigating")
+                .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            let includeAllStatuses = leadStatuses.contains("all")
+            var leadSQL = """
+                SELECT l.id, l.name, l.relationship, l.status, l.evidence,
+                       l.birth_year, l.death_year, l.created_at,
+                       e.verdict AS record_verdict, e.citation_url AS record_citation_url
+                FROM leads l
+                LEFT JOIN evidence_records e
+                  ON l.id = 'lead_' || e.source_record_id AND e.profile_id = l.profile_id
+                WHERE l.profile_id = ?
+                """
+            var leadArgs: [DatabaseValueConvertible] = [id]
+            if !includeAllStatuses {
+                leadSQL += " AND l.status IN (" + leadStatuses.map { _ in "?" }.joined(separator: ",") + ")"
+                leadArgs.append(contentsOf: leadStatuses)
+            }
+            leadSQL += " ORDER BY l.created_at DESC LIMIT ?"
+            leadArgs.append(leadsLimit)
+            let leadRows = try Row.fetchAll(db, sql: leadSQL, arguments: StatementArguments(leadArgs))
+            let leadISO = ISO8601DateFormatter()
             p["leads"] = leadRows.map { lead -> [String: Any] in
                 var l: [String: Any] = [
                     // `id` is required so an agent that reads a lead here can
@@ -1047,6 +1124,9 @@ actor MCPHandler {
                 if let r: String = lead["relationship"] { l["relationship"] = r }
                 if let y: Int = lead["birth_year"] { l["birth_year"] = y }
                 if let y: Int = lead["death_year"] { l["death_year"] = y }
+                if let c: Date = lead["created_at"] { l["created_at"] = leadISO.string(from: c) }
+                if let v: String = lead["record_verdict"] { l["record_verdict"] = v }
+                if let u: String = lead["record_citation_url"] { l["citation_url"] = u }
                 return l
             }
 
@@ -1074,17 +1154,33 @@ actor MCPHandler {
                 return r
             }
 
-            // Negative searches
+            // Negative searches. MC5 — searched_at was SELECTed then dropped
+            // (staleness of a negative is decision-relevant: a 90-day cache
+            // entry from last year is not evidence of absence today).
             let negatives = try Row.fetchAll(db, sql: """
                 SELECT source_id, record_type, searched_at
                 FROM negative_searches WHERE profile_id = ? ORDER BY searched_at DESC
                 """, arguments: [id])
-
-            p["negative_searches"] = negatives.map { neg -> [String: String] in
-                [
+            let negISO = ISO8601DateFormatter()
+            p["negative_searches"] = negatives.map { neg -> [String: Any] in
+                var n: [String: Any] = [
                     "source": neg["source_id"] as String? ?? "",
                     "type": neg["record_type"] as String? ?? "",
                 ]
+                if let at: Date = neg["searched_at"] { n["searched_at"] = negISO.string(from: at) }
+                return n
+            }
+
+            // MC3 — the user's "these are different people" verdicts (v51):
+            // without them an assistant re-proposes merges already rejected.
+            if let dupRows = try? Row.fetchAll(db, sql: """
+                SELECT profile_id_a, profile_id_b FROM dismissed_duplicates
+                WHERE profile_id_a = ? OR profile_id_b = ?
+                """, arguments: [id, id]), !dupRows.isEmpty {
+                p["not_duplicate_of"] = dupRows.map { d -> String in
+                    let a = d["profile_id_a"] as String? ?? ""
+                    return a == id ? (d["profile_id_b"] as String? ?? "") : a
+                }
             }
 
             let data = try JSONSerialization.data(withJSONObject: p, options: .prettyPrinted)
