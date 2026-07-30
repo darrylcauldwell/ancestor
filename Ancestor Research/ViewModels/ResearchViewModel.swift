@@ -720,10 +720,20 @@ final class ResearchViewModel {
         var dispatched: [String: Int] = [:]
         var failed: [String: Int] = [:]
         var suppressed: [String: Int] = [:]
+        var skipReason: [String: String] = [:]
         for entry in result.searchOutcomes {
             dispatched[entry.sourceID, default: 0] += 1
             if entry.outcome.suppressed { suppressed[entry.sourceID, default: 0] += 1 }
             if case .error = entry.outcome.availability { failed[entry.sourceID, default: 0] += 1 }
+            // Deliberate non-searches (outside coverage, no surname,
+            // scope-skip) count as skips WITH their reason — never as
+            // failures and never as "searched, empty" (connector audit
+            // 2026-07-30: Probate's 1922–1995 out-of-coverage subjects
+            // ended every run wearing a red "all N queries failed").
+            if case .skipped(let reason) = entry.outcome.availability {
+                suppressed[entry.sourceID, default: 0] += 1
+                if skipReason[entry.sourceID] == nil { skipReason[entry.sourceID] = reason }
+            }
         }
         let haveOutcomes = !result.searchOutcomes.isEmpty
 
@@ -754,7 +764,7 @@ final class ResearchViewModel {
                         ? "all \(queries) queries failed"
                         : "\(failures) of \(queries) queries failed"
                 } else if suppressed[id] == queries {
-                    sourceStatuses[i].reason = "skipped — prior clean negatives"
+                    sourceStatuses[i].reason = "skipped — \(skipReason[id] ?? "prior clean negatives")"
                 } else {
                     sourceStatuses[i].reason = "searched \(queries) \(queries == 1 ? "query" : "queries") — no results"
                 }

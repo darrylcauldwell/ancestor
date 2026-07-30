@@ -96,6 +96,18 @@ actor SourceHTTPClient: HTTPClient {
         return out
     }
 
+    /// Transient network failures worth one bounded retry — never
+    /// content-level errors (those are the server speaking).
+    nonisolated private static func isTransient(_ error: URLError) -> Bool {
+        switch error.code {
+        case .timedOut, .networkConnectionLost, .cannotConnectToHost,
+             .dnsLookupFailed, .cannotFindHost, .secureConnectionFailed:
+            return true
+        default:
+            return false
+        }
+    }
+
     nonisolated private static let hexDigits: [Character] = Array("0123456789ABCDEF")
 
     private func withRetry(retries: Int, operation: () async throws -> Data) async throws -> Data {
@@ -104,6 +116,16 @@ actor SourceHTTPClient: HTTPClient {
             do {
                 return try await operation()
             } catch let error as HTTPError where error.isRetryable {
+                lastError = error
+                let backoff = Duration.seconds(pow(2.0, Double(attempt)))
+                try await Task.sleep(for: backoff)
+            } catch let error as URLError where Self.isTransient(error) {
+                // Connector audit 2026-07-30: transient transport blips
+                // (timeout, connection reset, DNS hiccup) previously
+                // aborted on the FIRST attempt — one TCP blip painted the
+                // whole source unavailable and the card sticky-red, the
+                // classic "flaky connector" signature. Same bounded
+                // backoff as retryable HTTP statuses.
                 lastError = error
                 let backoff = Duration.seconds(pow(2.0, Double(attempt)))
                 try await Task.sleep(for: backoff)

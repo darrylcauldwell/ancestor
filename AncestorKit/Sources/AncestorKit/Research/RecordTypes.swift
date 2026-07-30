@@ -1269,7 +1269,14 @@ extension SourceQueryResult {
         case .throttled:
             return SearchOutcome(resultCount: 0, availability: .throttled)
         case .outsideCoverage(let reason):
-            return SearchOutcome(resultCount: 0, availability: .error(reason: "outside coverage: \(reason)"))
+            // `.skipped`, not `.error` (connector audit 2026-07-30): outside
+            // coverage is a DELIBERATE non-search — nothing failed. The old
+            // `.error` mapping painted every out-of-coverage subject as a
+            // failing source ("all N queries failed", red card, run after
+            // run — the Probate 1922–1995 case), while `.skipped` keeps it
+            // out of GPS criterion 1, negative persistence, and ladder
+            // broadening exactly the same way.
+            return SearchOutcome(resultCount: 0, availability: .skipped(reason: "outside coverage: \(reason)"))
         case .requiresAuth:
             return SearchOutcome(resultCount: 0, availability: .requiresAuth)
         }

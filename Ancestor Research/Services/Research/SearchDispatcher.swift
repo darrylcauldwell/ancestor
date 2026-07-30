@@ -1155,10 +1155,18 @@ struct SearchDispatcher {
             }
 
         case "cwgc":
-            // Only for military-eligible males
-            guard subject.gender == .male || subject.gender == nil else { return [] }
-            if let birthYear = subject.birthYearFrom,
-               !ScoringRules.militaryEligible(birthYear: birthYear, gender: .male).isEmpty {
+            // Interval eligibility (T1-08, wired 2026-07-30 — the predicate
+            // was built and tested but the dispatcher still ran the old
+            // single-point birth-year test, so males with approximate
+            // birth WINDOWS straddling the ranges, or a war-years death
+            // and no birth year at all, were never searched).
+            if CWGCSource.isMilitaryEligible(
+                gender: subject.gender,
+                birthYearFrom: subject.birthYearFrom,
+                birthYearTo: subject.birthYearTo,
+                deathYearFrom: subject.deathYearFrom,
+                deathYearTo: subject.deathYearTo
+            ) {
                 return [RecordQuery(
                     surname: subject.surname,
                     givenName: subject.givenName,

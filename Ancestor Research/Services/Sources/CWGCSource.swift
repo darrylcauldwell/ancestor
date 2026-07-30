@@ -69,7 +69,11 @@ struct CWGCSource: RecordSource {
         guard recordTypes.contains(query.recordType) else {
             return .outsideCoverage(reason: "CWGC only provides death records")
         }
-        guard let surname = query.surname, !surname.isEmpty else { return .results([]) }
+        guard let surname = query.surname, !surname.isEmpty else {
+            // A skip, not a clean zero — "never searched" must not be
+            // recorded as "searched, empty" (connector audit 2026-07-30).
+            return .outsideCoverage(reason: "no surname to search")
+        }
 
         let summary = Self.activitySummary(query: query, surname: surname)
         await ResearchActivityBus.shared.publish(.sourceQueryStarted(sourceID: sourceID, summary: summary, strictness: query.strictness))
@@ -106,8 +110,12 @@ struct CWGCSource: RecordSource {
                         query: query, surname: surname,
                         forename: nil, initials: initial
                     )
-                    let fallback = try await fetchCasualties(queryItems: fallbackItems, surname: surname)
-                    if case .casualties(let fallbackRecords) = fallback {
+                    // The fallback probe is OPTIONAL — a thrown error here
+                    // must not discard the primary probe's healthy zero
+                    // (connector audit 2026-07-30: intermittent red cards
+                    // whose real answer was a clean no-match).
+                    let fallback = try? await fetchCasualties(queryItems: fallbackItems, surname: surname)
+                    if case .casualties(let fallbackRecords)? = fallback {
                         logger.info("CWGC initials fallback (\(initial)) returned \(fallbackRecords.count) records for \(surname)")
                         await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: fallbackRecords.count, strictness: query.strictness))
                         return .results(fallbackRecords)

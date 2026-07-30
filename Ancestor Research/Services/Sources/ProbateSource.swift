@@ -122,7 +122,10 @@ struct ProbateSource: RecordSource {
         guard query.recordType == .probate else {
             return SourceSearchEnvelope(.outsideCoverage(reason: "Probate Calendar only provides probate records"))
         }
-        guard let surname = query.surname, !surname.isEmpty else { return SourceSearchEnvelope(.results([])) }
+        guard let surname = query.surname, !surname.isEmpty else {
+            // A skip, not a clean zero (connector audit 2026-07-30).
+            return SourceSearchEnvelope(.outsideCoverage(reason: "no surname to search"))
+        }
 
         // T1-26 — coverage guard, enforced BEFORE the query hits the wire
         // (or the activity feed): the digital calendar starts ~1996, with a
@@ -280,6 +283,11 @@ struct ProbateSource: RecordSource {
         } catch {
             logger.error("Probate search failed: \(error.localizedDescription)")
             await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: error.localizedDescription, strictness: query.strictness))
+            // A rate-limit is a transient throttle state, not a hard
+            // source failure (connector audit 2026-07-30).
+            if let httpError = error as? HTTPError, httpError.isThrottled {
+                return SourceSearchEnvelope(.throttled(retryAfter: .seconds(60)))
+            }
             return SourceSearchEnvelope(.unavailable(reason: error.localizedDescription))
         }
     }
