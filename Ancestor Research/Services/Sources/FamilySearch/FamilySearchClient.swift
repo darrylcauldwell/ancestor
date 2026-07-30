@@ -71,6 +71,20 @@ nonisolated struct FamilySearchResponse: Sendable {
     var isDeleted: Bool { statusCode == 410 }
     var isNoResults: Bool { statusCode == 204 }
 
+    /// The ID of an entity created by a POST: `X-entity-id` when present, else
+    /// the last path component of `Location`. The beta reference for person
+    /// create documents only `Location`, so the fallback is load-bearing
+    /// (see FS_WRITE_WIRE_CONTRACTS.md §unresolved).
+    var createdEntityID: String? {
+        if let id = headers["x-entity-id"], !id.isEmpty { return id }
+        if let location = headers["location"],
+           let url = URL(string: location) {
+            let last = url.lastPathComponent
+            if !last.isEmpty, last != "/" { return last }
+        }
+        return nil
+    }
+
     func decode<T: Decodable>(_ type: T.Type, decoder: JSONDecoder = JSONDecoder()) throws -> T {
         try decoder.decode(type, from: body)
     }
@@ -82,6 +96,10 @@ nonisolated enum FamilySearchClientError: Error, Sendable, Equatable {
     case notAuthenticated
     case transport(String)
     case tooManyThrottleRetries
+    /// A write was rejected or returned an unusable success (e.g. a 2xx create
+    /// with no entity ID). Carries the status and a body snippet — FS error
+    /// bodies name the offending field, which is the diagnostic that matters.
+    case unexpectedStatus(Int, String)
 }
 
 // MARK: - Token source seam

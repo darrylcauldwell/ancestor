@@ -253,22 +253,47 @@ final class FSMockURLProtocol: URLProtocol, @unchecked Sendable {
 
     nonisolated(unsafe) private static var queue: [Stub] = []
     nonisolated(unsafe) private(set) static var recordedRequests: [URLRequest] = []
+    /// Request bodies, parallel to `recordedRequests`. Captured by draining
+    /// `httpBodyStream` — at the URLProtocol layer URLSession has already
+    /// converted `httpBody` into a stream, so `lastRequest?.httpBody` is nil
+    /// even when a body was sent.
+    nonisolated(unsafe) private(set) static var recordedBodies: [Data?] = []
     private static let lock = NSLock()
 
     static func reset() {
-        lock.withLock { queue = []; recordedRequests = [] }
+        lock.withLock { queue = []; recordedRequests = []; recordedBodies = [] }
     }
     static func enqueue(status: Int, headers: [String: String] = [:], body: Data = Data()) {
         lock.withLock { queue.append(Stub(status: status, headers: headers, body: body)) }
     }
     static var lastRequest: URLRequest? { lock.withLock { recordedRequests.last } }
+    static var lastRequestBody: Data? { lock.withLock { recordedBodies.last ?? nil } }
+
+    private static func drainBody(of request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let bufferSize = 4096
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let read = stream.read(buffer, maxLength: bufferSize)
+            guard read > 0 else { break }
+            data.append(buffer, count: read)
+        }
+        return data.isEmpty ? nil : data
+    }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        let body = FSMockURLProtocol.drainBody(of: request)
         let stub: Stub = FSMockURLProtocol.lock.withLock {
             FSMockURLProtocol.recordedRequests.append(request)
+            FSMockURLProtocol.recordedBodies.append(body)
             return FSMockURLProtocol.queue.isEmpty
                 ? Stub(status: 200, headers: [:], body: Data())
                 : FSMockURLProtocol.queue.removeFirst()
