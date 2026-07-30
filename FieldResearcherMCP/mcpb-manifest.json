@@ -1,0 +1,34 @@
+{
+  "manifest_version": "0.2",
+  "name": "ancestor-research",
+  "display_name": "Ancestor Research",
+  "version": "1.0.0",
+  "description": "Ask questions of your Ancestor Research family tree: profiles, relationships, research evidence with per-gate scoring, audit findings, leads, and research triggers. Read-and-trigger only — the Evidence Firewall means nothing writes to the tree; research results are reviewed in the app.",
+  "author": {
+    "name": "Dreamfold"
+  },
+  "server": {
+    "type": "binary",
+    "entry_point": "server/FieldResearcherMCP",
+    "mcp_config": {
+      "command": "${__dirname}/server/FieldResearcherMCP",
+      "args": [
+        "${user_config.project_database}"
+      ],
+      "env": {
+        "ANCESTOR_MCP_PROFILE": "reader"
+      }
+    }
+  },
+  "user_config": {
+    "project_database": {
+      "type": "file",
+      "title": "Project database",
+      "description": "Your Ancestor Research project .sqlite file. Find it via the app: Settings → Projects (usually under ~/Library/Containers/dev.dreamfold.Ancestor-Research/…/AncestorResearch/projects/).",
+      "required": true
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin"]
+  }
+}
