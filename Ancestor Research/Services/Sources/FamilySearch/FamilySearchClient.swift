@@ -155,6 +155,9 @@ actor FamilySearchClient {
     /// succeed once retried with the settled token. Bounded so a genuine
     /// persistent 409 still surfaces. (Memory: reference_familysearch_409_token_race.)
     private let maxConflictRetries: Int
+    /// Bounded retry for gateway-level 502/503 (beta intermittently answers
+    /// "503 upstream" before the request reaches the service).
+    private let maxServerErrorRetries: Int
     private let sleeper: @Sendable (TimeInterval) async -> Void
     private let redirectBlocker = FamilySearchRedirectBlocker()
     private let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "FamilySearchClient")
@@ -165,6 +168,7 @@ actor FamilySearchClient {
         session: URLSession = .shared,
         maxThrottleRetries: Int = 5,
         maxConflictRetries: Int = 3,
+        maxServerErrorRetries: Int = 2,
         sleeper: @escaping @Sendable (TimeInterval) async -> Void = { seconds in
             try? await Task.sleep(for: .seconds(seconds))
         }
@@ -174,6 +178,7 @@ actor FamilySearchClient {
         self.session = session
         self.maxThrottleRetries = maxThrottleRetries
         self.maxConflictRetries = maxConflictRetries
+        self.maxServerErrorRetries = maxServerErrorRetries
         self.sleeper = sleeper
     }
 
@@ -188,10 +193,20 @@ actor FamilySearchClient {
         var didRefresh = false
         var throttleRetries = 0
         var conflictRetries = 0
+        var serverErrorRetries = 0
 
         while true {
             let response = try await send(request, bearer: bearer)
             switch response.statusCode {
+            case 502 where serverErrorRetries < maxServerErrorRetries,
+                 503 where serverErrorRetries < maxServerErrorRetries:
+                // Beta's gateway intermittently 503s ("upstream 503") — the
+                // request never reached the service, so a bounded retry is
+                // duplicate-safe even for creates. (500 is deliberately NOT
+                // retried: it can mean mid-processing failure.)
+                serverErrorRetries += 1
+                await sleeper(TimeInterval(2 * serverErrorRetries))   // 2s, 4s
+
             case 401 where !didRefresh:
                 didRefresh = true
                 guard let refreshed = await tokenSource.refreshBearer() else {

@@ -818,12 +818,11 @@ extension RunRequestWatcher {
                     note: "Nothing to upload — no deceased persons in the tree (living people never upload).")
                 return
             }
-            // Resume the wizard's (or a prior request's) interrupted run when
-            // one exists — same rule as the wizard, so both paths converge on
-            // one tree instead of minting duplicates.
+            // Converge on the existing run whenever one exists — including a
+            // finalized one (same rule as the wizard): re-runs resume against
+            // the same FS tree, never mint a duplicate.
             let prior = try? db.latestFamilySearchUploadRun(environment: "beta")
-            let runID = (prior?.phase == "uploading" || prior?.phase == "created")
-                ? prior!.id : UUID().uuidString
+            let runID = prior?.id ?? UUID().uuidString
             let client = FamilySearchClient(
                 environment: .beta,
                 tokenSource: KeychainFamilySearchTokenSource(environment: .beta))

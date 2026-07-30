@@ -50,6 +50,23 @@ final class FamilySearchUploadModel {
         return false
     }
 
+    /// Human text for the failure surface — the raw enum bridges to an
+    /// opaque "(…FamilySearchClientError error 1.)" NSError string.
+    private static func friendlyText(_ error: Error) -> String {
+        switch error {
+        case FamilySearchClientError.transport(let detail):
+            return "couldn't reach FamilySearch (\(detail))."
+        case FamilySearchClientError.tooManyThrottleRetries:
+            return "FamilySearch throttled repeatedly — try again in a few minutes."
+        case FamilySearchClientError.unexpectedStatus(let status, _) where status == 502 || status == 503:
+            return "FamilySearch beta appears temporarily unavailable (HTTP \(status))."
+        case FamilySearchClientError.unexpectedStatus(let status, let body):
+            return "FamilySearch rejected a request (HTTP \(status)): \(body.prefix(160))."
+        default:
+            return error.localizedDescription + "."
+        }
+    }
+
     private var config: FamilySearchTreeEncoder.Config {
         .init(treeName: treeName.trimmingCharacters(in: .whitespaces),
               treeDescription: treeDescription,
@@ -104,11 +121,13 @@ final class FamilySearchUploadModel {
                 let plan = try FamilySearchTreeEncoder.makePlan(
                     snapshot: snapshot, relationshipCitations: relationshipCitations, config: config)
 
-                // Resume an interrupted run for this environment when one
-                // exists — otherwise a fresh run id.
+                // Converge on the existing run whenever one exists — including
+                // a FINALIZED one. A re-run against an uploaded tree must
+                // resume (everything skips, nothing duplicates), never mint a
+                // second group/tree. Only a project with no prior run starts
+                // fresh.
                 let prior = try? self.database.latestFamilySearchUploadRun(environment: "beta")
-                let runID = (prior?.phase == "uploading" || prior?.phase == "created")
-                    ? prior!.id : UUID().uuidString
+                let runID = prior?.id ?? UUID().uuidString
 
                 let client = FamilySearchClient(
                     environment: .beta,
@@ -129,7 +148,7 @@ final class FamilySearchUploadModel {
                 self.signInNeeded = true
                 self.phase = .reviewing
             } catch {
-                self.phase = .failed("Upload interrupted: \(error.localizedDescription). Progress is saved — run Upload again to resume.")
+                self.phase = .failed("Upload interrupted: \(Self.friendlyText(error)) Progress is saved — run Upload again to resume.")
             }
         }
     }

@@ -153,6 +153,52 @@ struct FamilySearchTreeUploadServiceTests {
         #expect(FSMockURLProtocol.recordedRequests.count == 5)
     }
 
+    @Test func rerunAgainstFinalizedRunSkipsEverythingAndNeverMintsASecondTree() async throws {
+        // The live 2026-07-30 regression: a re-run after a FINALIZED upload
+        // must converge on the existing tree — the old rule treated finalized
+        // as terminal, minted a fresh run, and started creating a duplicate
+        // group + tree (only a beta 503 stopped it).
+        let db = try makeTempDB()
+        let plan = try makeFixture(db: db, withCitation: false)
+        let runID = UUID().uuidString
+        try db.saveFamilySearchUploadRun(FSTreeUploadRecord(
+            id: runID, environment: "beta", fsGroupID: "G1", fsTreeID: "T1",
+            treeName: "Test Tree", treeDescription: "test", startingProfileID: "@H@",
+            isPrivate: true, phase: "finalized", startedAt: Date(), finalizedAt: Date(),
+            personsUploaded: 3, relationshipsUploaded: 2, sourcesUploaded: 0))
+        for (profileID, pid) in ["@H@": "P-H", "@W@": "P-W", "@C@": "P-C"] {
+            try db.recordFamilySearchPersonLink(profileID: profileID, fsTreeID: "T1", fsPID: pid)
+        }
+        for couple in plan.couples {
+            try db.recordFamilySearchEntityLink(localKey: couple.localKey, fsTreeID: "T1", kind: "couple", fsID: "R1")
+        }
+        for cap in plan.childAndParents {
+            try db.recordFamilySearchEntityLink(localKey: cap.localKey, fsTreeID: "T1", kind: "childAndParents", fsID: "R2")
+        }
+
+        FSMockURLProtocol.reset()
+        FSMockURLProtocol.enqueue(status: 204)   // set current (persons — nothing to create)
+        FSMockURLProtocol.enqueue(status: 204)   // set current (relationships)
+        FSMockURLProtocol.enqueue(status: 204)   // set current (source refs)
+        FSMockURLProtocol.enqueue(status: 204)   // re-finalize (idempotent)
+        FSMockURLProtocol.enqueue(status: 204)   // restore GLOBAL
+
+        let summary = try await makeService(db: db).upload(
+            plan: plan, config: config, runID: runID,
+            startingProfileID: "@H@", isPrivate: true, progress: { _ in })
+
+        #expect(summary.treeID == "T1")
+        #expect(summary.personsCreated == 0)
+        #expect(summary.personsSkipped == 3)
+        #expect(summary.relationshipsSkipped == 2)
+        #expect(summary.finalized)
+        // The load-bearing assertion: no POST ever targeted /groups or /trees
+        // (the create collection) — the existing tree was reused.
+        let paths = FSMockURLProtocol.recordedRequests.compactMap { $0.url?.path }
+        #expect(!paths.contains("/platform/groups"))
+        #expect(!paths.contains("/platform/trees"))
+    }
+
     @Test func requestDrivenUploadNeverReachesFinalize() async throws {
         // MCP-staged uploads pass performFinalize: false — the one-way hidden
         // flip and privacy choice are wizard consents, so the sequence must

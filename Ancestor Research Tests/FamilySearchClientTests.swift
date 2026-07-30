@@ -86,6 +86,31 @@ struct FamilySearchClientTests {
         #expect(FSMockURLProtocol.recordedRequests.count == 3)   // initial + 2 retries
     }
 
+    @Test func retriesBounded503ThenSucceeds() async throws {
+        // Beta's gateway intermittently answers "503 upstream" before the
+        // request reaches the service — duplicate-safe to retry, bounded.
+        FSMockURLProtocol.reset()
+        FSMockURLProtocol.enqueue(status: 503)
+        FSMockURLProtocol.enqueue(status: 201, headers: ["X-entity-id": "G1"])
+        let slept = SleepRecorder()
+        let client = FamilySearchClient(tokenSource: FakeFSTokenSource(bearer: "T"),
+                                        session: mockSession(), sleeper: { slept.record($0) })
+        let response = try await client.execute(FamilySearchRequest(url: url, method: "POST", body: Data("{}".utf8)))
+        #expect(response.statusCode == 201)
+        #expect(FSMockURLProtocol.recordedRequests.count == 2)
+        #expect(slept.values == [2])   // 2s backoff before the retry
+    }
+
+    @Test func exhausts503RetriesThenSurfacesTheStatus() async throws {
+        FSMockURLProtocol.reset()
+        for _ in 0..<4 { FSMockURLProtocol.enqueue(status: 503) }
+        let client = FamilySearchClient(tokenSource: FakeFSTokenSource(bearer: "T"),
+                                        session: mockSession(), maxServerErrorRetries: 2, sleeper: { _ in })
+        let response = try await client.execute(FamilySearchRequest(url: url))
+        #expect(response.statusCode == 503)                      // surfaced as data, caller decides
+        #expect(FSMockURLProtocol.recordedRequests.count == 3)   // initial + 2 retries
+    }
+
     @Test func retriesOn409TokenRaceThenSucceeds() async throws {
         // The undocumented post-sign-in token-rotation race: first request 409s,
         // the retry (with the settled bearer) succeeds.
