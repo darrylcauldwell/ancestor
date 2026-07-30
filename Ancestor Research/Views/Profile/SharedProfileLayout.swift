@@ -1029,18 +1029,25 @@ struct SharedProfileLayout: View {
     private func evidenceTrigger(key: String, records: [ProfileSourcesLedger.RecordDetail]) -> some View {
         if !records.isEmpty {
             let open = expandedEvidenceKeys.contains(key)
+            // Discoverability (owner dogfood 2026-07-30: "cannot find where
+            // these records are"): a bare grey count read as metadata, not a
+            // control. A worded, tinted capsule reads as the button it is.
             Button { toggleEvidenceKey(key) } label: {
                 HStack(spacing: 3) {
                     Image(systemName: "doc.text.magnifyingglass")
-                    Text("\(records.count)")
+                    Text("\(records.count) record\(records.count == 1 ? "" : "s")")
                     Image(systemName: open ? "chevron.up" : "chevron.down")
                 }
                 .font(AppTypography.badge)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.blue)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.blue.opacity(0.10), in: .capsule)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Records behind this — applied on top, then researched / rejected")
+            .accessibilityLabel("\(records.count) evidence record\(records.count == 1 ? "" : "s") — click to \(open ? "collapse" : "expand")")
         }
     }
 
