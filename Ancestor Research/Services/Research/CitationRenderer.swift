@@ -117,6 +117,21 @@ nonisolated struct CitationRenderer {
 
     // MARK: - FreeBMD (Birth/Death/Marriage)
 
+    /// Source-aware attribution for index-style citations. Census and BMD
+    /// records can come from MORE THAN ONE source (FreeBMD/FreeCEN and
+    /// FamilySearch's own collections) — the old hardcoded "FreeBMD"/
+    /// "FreeCen" strings mislabelled every FamilySearch record as a
+    /// Free-UK-Genealogy one (owner report 2026-07-30: "FS pulls from
+    /// FreeBMD/FreeCEN" — it doesn't; our citations just said so).
+    private static func indexAttribution(for sourceID: String, kind: String) -> String {
+        switch sourceID {
+        case "freebmd": return "FreeBMD (https://www.freebmd.org.uk)"
+        case "freecen": return "FreeCen (https://www.freecen.org.uk)"
+        case "familysearch": return "FamilySearch (https://www.familysearch.org)"
+        default: return kind
+        }
+    }
+
     private static func citeBMDRecord(
         type: String, common: RecordCommon,
         year: Int?, quarter: String?,
@@ -132,7 +147,7 @@ nonisolated struct CitationRenderer {
         let full: String
         if common.sourceID == "freebmd" {
             full = "\"England & Wales, Civil Registration \(type) Index, \(yearStr),\" " +
-                   "FreeBMD (https://www.freebmd.org.uk), " +
+                   "\(indexAttribution(for: common.sourceID, kind: "civil registration index")), " +
                    "\(name), \(qStr) \(yearStr), \(loc)" +
                    (ref.isEmpty ? "" : ", vol. \(ref)") +
                    "; accessed \(formatDate(accessedAt))."
@@ -160,7 +175,7 @@ nonisolated struct CitationRenderer {
         let birthPlace = r.birthPlace ?? ""
 
         let full = "\"\(r.censusYear) England Census,\" " +
-                   "FreeCen (https://www.freecen.org.uk), " +
+                   "\(indexAttribution(for: r.common.sourceID, kind: "census transcription")), " +
                    "\(name), age \(r.age.map(String.init) ?? "?"), " +
                    "\(parish), born \(birthPlace)" +
                    "; accessed \(formatDate(accessedAt))."
