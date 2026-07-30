@@ -1550,6 +1550,26 @@ nonisolated final class ProjectDatabase: Sendable {
                           on: "fs_action_requests", columns: ["status"])
         }
 
+        // v54 — WikiTree contribution log (WT4, WIKITREE_MERGEEDIT_SPEC §5).
+        // Records that a MergeEdit review page was OPENED in the browser for a
+        // profile. Whether Darryl actually saved on WikiTree is unknowable
+        // app-side (the commit happens on wikitree.com) — truth arrives via a
+        // later twin sync; UI copy must say "offered", never "saved".
+        migrator.registerMigration("v54_wikitree_contributions") { db in
+            try db.create(table: "wikitree_contributions") { t in
+                t.column("id", .text).primaryKey()
+                t.column("profile_id", .text).notNull()
+                    .references("profiles", onDelete: .cascade)
+                t.column("wikitree_id", .text).notNull()
+                t.column("fields_json", .text).notNull()     // MergeEdit person object sent
+                t.column("bio_appended", .integer).notNull().defaults(to: 0)
+                t.column("summary", .text)
+                t.column("opened_at", .datetime).notNull()
+            }
+            try db.create(index: "idx_wikitree_contributions_profile",
+                          on: "wikitree_contributions", columns: ["profile_id"])
+        }
+
         return migrator
     }
 

@@ -73,6 +73,9 @@ struct ProfileDetailView: View {
     @State private var showingTimeline: Bool = false
     @State private var showingRelationshipCalculator: Bool = false
     @State private var cleansePresentation: CleansePresentation?
+    /// WT3 — WikiTree contribution preview (.sheet(item:) per
+    /// feedback_sheet_isPresented_race).
+    @State private var wikiTreeContribute: WikiTreeContributeContext?
     /// Count of active leads this profile's research surfaced — the cheap
     /// signal behind the "Possible People (N)" section (the expensive
     /// clustering happens in the panel the section deep-links to).
@@ -182,6 +185,9 @@ struct ProfileDetailView: View {
         }
         .sheet(item: $cleansePresentation) { presentation in
             ProfileCleanseWizard(mode: presentation.mode)
+        }
+        .sheet(item: $wikiTreeContribute) { context in
+            WikiTreeContributeSheet(context: context)
         }
         // PROFILE_SOURCES_LEDGER_SPEC Change 3 — per-record removal confirm.
         // presenting: pattern (not isPresented + force-unwrap) per the
@@ -578,6 +584,13 @@ struct ProfileDetailView: View {
                         // On-demand FamilySearch hint enrichment (S6b) — drained
                         // in ContentView (always mounted), so no tree-intent hop.
                         Button("Fetch FamilySearch hints") { appState.requestFetchFSHints = profile.id }
+                        // WT3 — assisted WikiTree write-back: preview sheet,
+                        // then WikiTree's own review page in the browser.
+                        Button("Contribute to WikiTree…") {
+                            wikiTreeContribute = WikiTreeContributeContext(
+                                profile: profile,
+                                lifeEvents: appState.snapshot.lifeEvents[profile.id] ?? [])
+                        }
                         if let freeREG = URL(string: "https://www.freereg.org.uk/search_queries/new") {
                             Link("Search FreeREG", destination: freeREG)
                         }
