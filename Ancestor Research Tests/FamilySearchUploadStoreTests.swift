@@ -82,6 +82,43 @@ struct FamilySearchUploadStoreTests {
         #expect(try db.familySearchEntityLinks(fsTreeID: "T2", kind: "couple") == ["couple|@A@+@B@": "R9"])
     }
 
+    @Test func fsActionRequestsDequeueOldestFirstAndClaimAtomically() throws {
+        let db = try makeTempDB()
+        try db.dbQueue.write { conn in
+            try conn.execute(sql: """
+                INSERT INTO fs_action_requests (id, kind, profile_id, status, requested_by, created_at)
+                VALUES ('fsreq_2', 'hints', '@I2@', 'queued', 'mcp', ?),
+                       ('fsreq_1', 'hints', '@I1@', 'queued', 'mcp', ?)
+                """, arguments: [Date(timeIntervalSince1970: 200), Date(timeIntervalSince1970: 100)])
+        }
+        let first = try #require(db.dequeueFSActionRequest())
+        #expect(first.id == "fsreq_1")   // oldest first
+        #expect(first.kind == "hints")
+        #expect(first.profileID == "@I1@")
+        let second = try #require(db.dequeueFSActionRequest())
+        #expect(second.id == "fsreq_2")  // fsreq_1 was claimed (running), not re-served
+        #expect(db.dequeueFSActionRequest() == nil)
+    }
+
+    @Test func fsActionCompletionAndFailureWriteNotes() throws {
+        let db = try makeTempDB()
+        try db.dbQueue.write { conn in
+            try conn.execute(sql: """
+                INSERT INTO fs_action_requests (id, kind, status, requested_by, created_at)
+                VALUES ('fsreq_a', 'upload', 'queued', 'mcp', ?), ('fsreq_b', 'upload', 'queued', 'mcp', ?)
+                """, arguments: [Date(), Date()])
+        }
+        db.markFSActionCompleted(id: "fsreq_a", note: "Uploaded HIDDEN to tree T1")
+        db.markFSActionFailed(id: "fsreq_b", note: "Not signed in")
+        let rows = try db.dbQueue.read { conn in
+            try Row.fetchAll(conn, sql: "SELECT id, status, note, completed_at FROM fs_action_requests ORDER BY id")
+        }
+        #expect(rows[0]["status"] as String == "completed")
+        #expect((rows[0]["note"] as String).contains("HIDDEN"))
+        #expect(rows[1]["status"] as String == "failed")
+        #expect(rows[1]["completed_at"] as Date? != nil)
+    }
+
     @Test func personLinkCascadesWhenProfileIsHardDeleted() throws {
         let db = try makeTempDB()
         try seedProfile("@I1@", into: db)

@@ -1525,6 +1525,31 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // v53 — FamilySearch action requests (WL7): the MCP staging surface
+        // for FS work, mirroring research_run_requests. The MCP server only
+        // ever INSERTs queued rows ('hints' for one profile, 'upload' for the
+        // whole tree); the app's RunRequestWatcher claims and executes them
+        // with the app's own auth. Request-driven uploads NEVER finalize —
+        // the one-way hidden flip and privacy choice are in-app wizard
+        // consents (FAMILYSEARCH_TREES_WRITE_SPEC §3 D4).
+        migrator.registerMigration("v53_fs_action_requests") { db in
+            try db.create(table: "fs_action_requests") { t in
+                t.column("id", .text).primaryKey()
+                t.column("kind", .text).notNull()          // 'hints' | 'upload'
+                t.column("profile_id", .text)              // hints only
+                t.column("tree_name", .text)               // upload only (optional)
+                t.column("tree_description", .text)        // upload only (optional)
+                t.column("status", .text).notNull().defaults(to: "queued")
+                t.column("note", .text)                    // summary / error
+                t.column("requested_by", .text).notNull()
+                t.column("created_at", .datetime).notNull()
+                t.column("started_at", .datetime)
+                t.column("completed_at", .datetime)
+            }
+            try db.create(index: "idx_fs_action_requests_status",
+                          on: "fs_action_requests", columns: ["status"])
+        }
+
         return migrator
     }
 

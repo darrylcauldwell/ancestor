@@ -153,6 +153,38 @@ struct FamilySearchTreeUploadServiceTests {
         #expect(FSMockURLProtocol.recordedRequests.count == 5)
     }
 
+    @Test func requestDrivenUploadNeverReachesFinalize() async throws {
+        // MCP-staged uploads pass performFinalize: false — the one-way hidden
+        // flip and privacy choice are wizard consents, so the sequence must
+        // stop at uploaded-but-hidden even when the upload is clean.
+        FSMockURLProtocol.reset()
+        FSMockURLProtocol.enqueue(status: 201, headers: ["X-entity-id": "G1"])
+        FSMockURLProtocol.enqueue(status: 201, headers: ["X-entity-id": "T1"])
+        FSMockURLProtocol.enqueue(status: 204)                                    // set current (persons)
+        FSMockURLProtocol.enqueue(status: 201, headers: ["X-entity-id": "P-C"])
+        FSMockURLProtocol.enqueue(status: 201, headers: ["X-entity-id": "P-H"])
+        FSMockURLProtocol.enqueue(status: 201, headers: ["X-entity-id": "P-W"])
+        FSMockURLProtocol.enqueue(status: 204)                                    // set current (relationships)
+        FSMockURLProtocol.enqueue(status: 201, headers: ["X-entity-id": "R-COUPLE"])
+        FSMockURLProtocol.enqueue(status: 201, headers: ["X-entity-id": "R-CAP"])
+        FSMockURLProtocol.enqueue(status: 204)                                    // set current (source refs; no citations)
+        FSMockURLProtocol.enqueue(status: 204)                                    // restore GLOBAL — finalize never fires
+
+        let db = try makeTempDB()
+        let plan = try makeFixture(db: db, withCitation: false)
+        let summary = try await makeService(db: db).upload(
+            plan: plan, config: config, runID: UUID().uuidString,
+            startingProfileID: "@H@", isPrivate: true, performFinalize: false, progress: { _ in })
+
+        #expect(summary.personsCreated == 3)
+        #expect(summary.failures.isEmpty)
+        #expect(!summary.finalized)
+        #expect(summary.finalizeNote?.contains("wizard") == true)
+        #expect(!FSMockURLProtocol.recordedRequests.contains { $0.url?.path == "/platform/trees/T1" })
+        let run = try #require(try db.latestFamilySearchUploadRun(environment: "beta"))
+        #expect(run.phase == "uploading")   // still wizard-finalizable
+    }
+
     @Test func personFailureIsCapturedRunContinuesAndFinalizeIsWithheld() async throws {
         FSMockURLProtocol.reset()
         FSMockURLProtocol.enqueue(status: 201, headers: ["X-entity-id": "G1"])

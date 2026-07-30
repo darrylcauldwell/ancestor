@@ -126,9 +126,22 @@ final class RunRequestWatcher {
         // transaction every 3 seconds even when the queue was idle
         // (project_runrequestwatcher_mainthread_poll). Only `execute` needs
         // the MainActor, and only when a request is actually queued.
-        guard let request = await Self.pollDatabase(db: db) else { return }
+        guard let request = await Self.pollDatabase(db: db) else {
+            // Research queue idle — FS action requests (v53, MCP-staged) run
+            // at lower priority so a queued research run is never starved by
+            // a tree upload.
+            if let fsAction = await Self.dequeueFSAction(db: db) {
+                logger.info("Dispatching fs_action_request \(fsAction.id): kind=\(fsAction.kind) profile=\(fsAction.profileID ?? "nil")")
+                await executeFSAction(fsAction, db: db)
+            }
+            return
+        }
         logger.info("Dispatching research_run_request \(request.id): profile=\(request.profileID ?? "nil") lead=\(request.leadID ?? "nil") mode=\(request.mode) scope=\(request.scope)")
         await execute(request: request, db: db)
+    }
+
+    private nonisolated static func dequeueFSAction(db: ProjectDatabase) async -> FSActionRequest? {
+        db.dequeueFSActionRequest()
     }
 
     /// The recurring, MainActor-free half of a poll: materialise queued
@@ -713,6 +726,121 @@ final class RunRequestWatcher {
                 resolvedAt: row["resolved_at"],
                 resolution: (row["resolution"] as String?).flatMap(LeadResolution.init(rawValue:))
             )
+        }
+    }
+}
+
+// MARK: - FS action requests (v53 — MCP-staged, WL7)
+
+extension RunRequestWatcher {
+
+    /// Execute one MCP-staged FamilySearch action with the APP's auth. The
+    /// MCP server never talks to FamilySearch itself — one binary owns the
+    /// key and tokens (the keychain-ACL lesson), and the FSI agreement frames
+    /// access as per-user sessions in the reviewed product. Headless: results
+    /// land where they already land (leads in Triage, run record in v52) and
+    /// the request row's note carries the human summary the MCP caller polls.
+    func executeFSAction(_ request: FSActionRequest, db: ProjectDatabase) async {
+        guard await FamilySearchTokenStore.shared.validAccessToken(environment: .beta) != nil else {
+            db.markFSActionFailed(id: request.id,
+                note: "Not signed in to FamilySearch — sign in via Settings ▸ FamilySearch (Beta), then re-request.")
+            return
+        }
+        switch request.kind {
+        case "hints":
+            await executeFSHints(request, db: db)
+        case "upload":
+            await executeFSUpload(request, db: db)
+        default:
+            db.markFSActionFailed(id: request.id, note: "Unknown request kind '\(request.kind)'.")
+        }
+    }
+
+    /// Headless twin of `AppState.fetchFamilySearchHints` — same core
+    /// (enrichment → scorer routing → persist), none of the UI side effects
+    /// (toasts, sign-in prompt, tab switch).
+    private func executeFSHints(_ request: FSActionRequest, db: ProjectDatabase) async {
+        guard let profileID = request.profileID else {
+            db.markFSActionFailed(id: request.id, note: "profile_id is required for a hints request.")
+            return
+        }
+        do {
+            guard let profile = try db.loadProfile(id: profileID) else {
+                db.markFSActionFailed(id: request.id, note: "Profile \(profileID) not found.")
+                return
+            }
+            let snapshot = try db.buildSnapshot()
+            let homeChapmanCode = (try? db.loadProjectMeta())?.resolvedHomeChapmanCode ?? ""
+            let subject = ResearchSubject.fromProfile(profile, snapshot: snapshot, homeChapmanCode: homeChapmanCode)
+            guard let surname = subject.surname, !surname.isEmpty else {
+                db.markFSActionFailed(id: request.id, note: "Profile has no surname to search FamilySearch with.")
+                return
+            }
+            let records = await FamilySearchEnrichmentService(environment: .beta)
+                .recordHintsAsSourceRecords(
+                    surname: surname, givenName: subject.givenName,
+                    birthYear: subject.birthYearFrom, deathYear: subject.deathYearFrom)
+            guard !records.isEmpty else {
+                db.markFSActionCompleted(id: request.id,
+                    note: "0 hints — the person may not be in FamilySearch's tree.")
+                return
+            }
+            let result = FamilySearchHintRouting.route(records: records, subject: subject)
+            _ = await ResearchRunService.persist(
+                result: result, mode: .extend,
+                sourceInfoMap: registry.buildSourceInfoMap(), registry: registry,
+                snapshot: snapshot, profileID: profileID, leadToFinalise: nil, db: db)
+            db.markFSActionCompleted(id: request.id,
+                note: "\(records.count) hint(s) reviewed — \(result.leads.count) lead(s) in Triage.")
+        } catch {
+            db.markFSActionFailed(id: request.id, note: "Hints fetch failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Request-driven upload: same encoder/orchestrator as the wizard but
+    /// `performFinalize: false` — the run is capped at uploaded-but-hidden.
+    /// Visibility and privacy are wizard consents (spec §3 D4).
+    private func executeFSUpload(_ request: FSActionRequest, db: ProjectDatabase) async {
+        do {
+            let snapshot = try db.buildSnapshot()
+            let relationshipCitations = (try? db.familySearchRelationshipCitations()) ?? [:]
+            let treeName = request.treeName?.isEmpty == false
+                ? request.treeName! : (appState.currentProject?.name ?? "Family Tree")
+            let config = FamilySearchTreeEncoder.Config(
+                treeName: treeName,
+                treeDescription: request.treeDescription ?? "Uploaded from Ancestor Research.",
+                environment: .beta,
+                currentYear: Calendar.current.component(.year, from: Date()))
+            let plan = try FamilySearchTreeEncoder.makePlan(
+                snapshot: snapshot, relationshipCitations: relationshipCitations, config: config)
+            guard !plan.isEmpty else {
+                db.markFSActionFailed(id: request.id,
+                    note: "Nothing to upload — no deceased persons in the tree (living people never upload).")
+                return
+            }
+            // Resume the wizard's (or a prior request's) interrupted run when
+            // one exists — same rule as the wizard, so both paths converge on
+            // one tree instead of minting duplicates.
+            let prior = try? db.latestFamilySearchUploadRun(environment: "beta")
+            let runID = (prior?.phase == "uploading" || prior?.phase == "created")
+                ? prior!.id : UUID().uuidString
+            let client = FamilySearchClient(
+                environment: .beta,
+                tokenSource: KeychainFamilySearchTokenSource(environment: .beta))
+            let service = FamilySearchTreeUploadService(client: client, database: db, environment: .beta)
+            let summary = try await service.upload(
+                plan: plan, config: config, runID: runID,
+                startingProfileID: nil, isPrivate: true, performFinalize: false, progress: { _ in })
+            let failureNote = summary.failures.isEmpty ? "" : "; \(summary.failures.count) item(s) failed (re-request to retry)"
+            db.markFSActionCompleted(id: request.id, note:
+                "Uploaded HIDDEN to tree \(summary.treeID): \(summary.personsCreated) person(s) created"
+                + (summary.personsSkipped > 0 ? " (+\(summary.personsSkipped) already uploaded)" : "")
+                + ", \(summary.relationshipsCreated) relationship(s), \(summary.sourceDescriptionsCreated) source(s)"
+                + failureNote
+                + ". Finalize (visibility + privacy) in the app: Actions ▸ Upload Tree to FamilySearch.")
+        } catch {
+            db.markFSActionFailed(id: request.id,
+                note: "Upload interrupted: \(error.localizedDescription). Progress is saved — re-request to resume.")
         }
     }
 }

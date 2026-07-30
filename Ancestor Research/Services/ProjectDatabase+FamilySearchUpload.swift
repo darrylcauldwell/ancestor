@@ -25,6 +25,16 @@ nonisolated struct FSTreeUploadRecord: Sendable, Equatable {
     var sourcesUploaded: Int
 }
 
+/// One claimed FS action request (v53) — the Sendable snapshot handed from
+/// the off-main dequeue to the watcher's executor.
+nonisolated struct FSActionRequest: Sendable {
+    let id: String
+    let kind: String            // 'hints' | 'upload'
+    let profileID: String?
+    let treeName: String?
+    let treeDescription: String?
+}
+
 /// Persistence for the FamilySearch User Tree write leg (WL3,
 /// FAMILYSEARCH_TREES_WRITE_SPEC §5). Every write is an idempotent upsert so
 /// the orchestrator can re-record on resume without special-casing.
@@ -169,6 +179,52 @@ nonisolated extension ProjectDatabase {
                 WHERE fs_tree_id = ? AND kind = ?
                 """, arguments: [fsTreeID, kind])
             return Dictionary(uniqueKeysWithValues: rows.map { ($0["local_key"], $0["fs_id"]) })
+        }
+    }
+
+    // MARK: FS action requests (v53 — MCP staging, WL7)
+
+    /// The oldest queued FS action, atomically claimed (queued → running) so
+    /// a duplicate watcher can't double-execute. Mirrors the
+    /// research_run_requests dequeue.
+    func dequeueFSActionRequest() -> FSActionRequest? {
+        (try? dbQueue.write { db -> FSActionRequest? in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT id, kind, profile_id, tree_name, tree_description
+                FROM fs_action_requests
+                WHERE status = 'queued'
+                ORDER BY created_at ASC
+                LIMIT 1
+                """) else { return nil }
+            let id: String = row["id"]
+            try db.execute(sql: """
+                UPDATE fs_action_requests
+                SET status = 'running', started_at = ?
+                WHERE id = ? AND status = 'queued'
+                """, arguments: [Date(), id])
+            return FSActionRequest(
+                id: id, kind: row["kind"], profileID: row["profile_id"],
+                treeName: row["tree_name"], treeDescription: row["tree_description"])
+        }) ?? nil
+    }
+
+    func markFSActionCompleted(id: String, note: String) {
+        try? dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE fs_action_requests
+                SET status = 'completed', note = ?, completed_at = ?
+                WHERE id = ?
+                """, arguments: [note, Date(), id])
+        }
+    }
+
+    func markFSActionFailed(id: String, note: String) {
+        try? dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE fs_action_requests
+                SET status = 'failed', note = ?, completed_at = ?
+                WHERE id = ?
+                """, arguments: [note, Date(), id])
         }
     }
 

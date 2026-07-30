@@ -48,12 +48,18 @@ actor FamilySearchTreeUploadService {
 
     /// Run (or resume) an upload. `runID` pins the bookkeeping row; passing
     /// the id of an interrupted run continues it against the same FS tree.
+    ///
+    /// `performFinalize: false` caps the run at uploaded-but-hidden: the
+    /// one-way hidden flip and the privacy choice are owner consents captured
+    /// by the in-app wizard, so request-driven paths (MCP staging) must never
+    /// reach them. A later wizard run against the same tree finalizes.
     func upload(
         plan: FSUploadPlan,
         config: FamilySearchTreeEncoder.Config,
         runID: String,
         startingProfileID: String?,
         isPrivate: Bool,
+        performFinalize: Bool = true,
         progress: @escaping @Sendable (String) -> Void
     ) async throws -> FSUploadSummary {
         var run = try database.latestFamilySearchUploadRun(environment: environment.rawValue)
@@ -242,7 +248,9 @@ actor FamilySearchTreeUploadService {
             var finalized = false
             var finalizeNote: String?
             let startingPID = (startingProfileID ?? plan.persons.first?.profileID).flatMap { pids[$0] }
-            if !blocking.isEmpty {
+            if !performFinalize {
+                finalizeNote = "Uploaded hidden — visibility and privacy are confirmed in the app's upload wizard."
+            } else if !blocking.isEmpty {
                 finalizeNote = "\(blocking.count) person/relationship failure(s) — tree left hidden; fix and re-run to finalize."
             } else if let startingPID {
                 do {
