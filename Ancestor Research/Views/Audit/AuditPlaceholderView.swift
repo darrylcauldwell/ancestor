@@ -1311,13 +1311,43 @@ struct GapsPlaceholderView: View {
                             }
                         }
                     }
+
+                    // Research freshness (2026-07-30): tree-wide counts of
+                    // when each profile was last researched. After an engine
+                    // change (county fixes, FreeREG rebuild, typed models)
+                    // "researched, but by the OLD engine" is a gap too — the
+                    // per-query negative cache is 90 days, so >90d profiles
+                    // will re-ask their empty questions on the next run.
+                    HStack(spacing: 10) {
+                        let counts = freshnessCounts
+                        Text("Research freshness:")
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.secondary)
+                        Text("\(counts.never) never")
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(counts.never > 0 ? .red : .secondary)
+                        Text("\(counts.stale) over 90 days")
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(counts.stale > 0 ? .orange : .secondary)
+                        Text("\(counts.fresh) fresh")
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.green)
+                        Spacer()
+                        Toggle("Sort by research age", isOn: $sortByResearchAge)
+                            .font(AppTypography.controlLabel)
+                            .toggleStyle(.checkbox)
+                            .controlSize(.small)
+                    }
                 }
                 .padding()
                 Divider()
             }
 
-            // List
-            let gaps = filteredProfiles
+            // List — optionally ordered stalest-research-first (never
+            // researched leads, then oldest completion date).
+            let gaps = sortByResearchAge
+                ? filteredProfiles.sorted { researchDates[$0.id] ?? .distantPast < researchDates[$1.id] ?? .distantPast }
+                : filteredProfiles
             if gaps.isEmpty {
                 ContentUnavailableView {
                     Label("No Gaps", systemImage: "checkmark.circle")
@@ -1355,6 +1385,10 @@ struct GapsPlaceholderView: View {
                                     Text("Missing: \(comp.missing.map(\.shortLabel).joined(separator: ", "))")
                                         .font(AppTypography.cardBody)
                                         .foregroundStyle(.secondary)
+                                    let age = researchAgeLabel(profile.id)
+                                    Text(age.text)
+                                        .font(AppTypography.cardMeta)
+                                        .foregroundStyle(age.stale ? .orange : .secondary)
                                 }
 
                                 Spacer()
@@ -1395,6 +1429,35 @@ struct GapsPlaceholderView: View {
             }
         }
         .navigationTitle("Gaps (\(filteredProfiles.count) incomplete)")
+        .task { researchDates = appState.lastResearchCompletions() }
+    }
+
+    // MARK: - Research freshness (2026-07-30)
+
+    /// Latest research completion per profile; absent key = never researched.
+    @State private var researchDates: [String: Date] = [:]
+    @State private var sortByResearchAge = false
+
+    private var freshnessCounts: (never: Int, stale: Int, fresh: Int) {
+        var never = 0, stale = 0, fresh = 0
+        let cutoff = Date().addingTimeInterval(-90 * 86_400)
+        for id in appState.snapshot.profiles.keys {
+            if let date = researchDates[id] {
+                if date < cutoff { stale += 1 } else { fresh += 1 }
+            } else {
+                never += 1
+            }
+        }
+        return (never, stale, fresh)
+    }
+
+    private func researchAgeLabel(_ profileID: String) -> (text: String, stale: Bool) {
+        guard let date = researchDates[profileID] else {
+            return ("never researched", true)
+        }
+        let days = max(0, Int(Date().timeIntervalSince(date) / 86_400))
+        let text = days == 0 ? "researched today" : "researched \(days)d ago"
+        return (text, days > 90)
     }
 
     // MARK: - Filter Button

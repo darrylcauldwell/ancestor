@@ -25,6 +25,13 @@ final class AppState {
     var currentProject: Project?
     var currentDatabase: ProjectDatabase?
 
+    /// Health → Gaps research-freshness feed: latest research completion
+    /// per profile (absent key = never researched). Empty when no project.
+    func lastResearchCompletions() -> [String: Date] {
+        guard let db = currentDatabase else { return [:] }
+        return (try? db.lastResearchCompletions()) ?? [:]
+    }
+
     /// Polls `research_run_requests` for queued rows enqueued by the MCP
     /// `kick_off_research` tool. Created lazily on first project open;
     /// re-bound to each new database via `start()`. Stopped on close.

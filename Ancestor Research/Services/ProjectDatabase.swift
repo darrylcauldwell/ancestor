@@ -3294,6 +3294,30 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// Latest research completion per profile, tree-wide — the Health
+    /// "research freshness" feed (2026-07-30). After an engine change the
+    /// planning question is "when was each profile last researched (and so
+    /// by which engine)"; a profile ABSENT from this map has never been
+    /// researched at all. One GROUP BY over the indexed research_runs
+    /// table — cheap at any tree size.
+    func lastResearchCompletions() throws -> [String: Date] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT profile_id, MAX(completed_at) AS last_completed
+                FROM research_runs
+                WHERE completed_at IS NOT NULL
+                GROUP BY profile_id
+                """)
+            var out: [String: Date] = [:]
+            for row in rows {
+                if let date = row["last_completed"] as Date? {
+                    out[row["profile_id"] as String] = date
+                }
+            }
+            return out
+        }
+    }
+
     /// Load research history for a profile.
     func loadResearchRuns(profileID: String) throws -> [(id: UUID, mode: String, date: Date, facts: Int, leads: Int, clusters: Int, gps: Int?)] {
         try dbQueue.read { db in
