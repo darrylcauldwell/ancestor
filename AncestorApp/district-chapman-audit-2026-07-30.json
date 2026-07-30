@@ -1,0 +1,824 @@
+[
+ {
+  "district": "Hambledon",
+  "catalogue_chapman": "SSX",
+  "correct_chapman": "SRY",
+  "cross_border": false,
+  "evidence": "UKBMD lists Hambledon RD under Surrey (https://www.ukbmd.org.uk/reg/sry.html, district page https://www.ukbmd.org.uk/reg/districts/hambledon.html): sub-districts Cranleigh and Witley (both Surrey); abolished 1.4.1934 into Surrey South-Western RD. GENUKI/Wikipedia confirm Hambledon is the Godalming-area Surrey district, not the Hampshire village (which was in Droxford RD)."
+ },
+ {
+  "district": "Hay",
+  "catalogue_chapman": "HEF",
+  "correct_chapman": "BRE",
+  "cross_border": true,
+  "evidence": "GENUKI files Hay under Breconshire (https://www.genuki.org.uk/big/wal/BRE/Hay 'Hay (Y Gelli), Breconshire'); UKBMD district page https://www.ukbmd.org.uk/reg/districts/hay.html shows it absorbed into Powys RD in 2009 (Welsh county). Town stands on the borders of Brecknockshire/Radnorshire/Herefordshire and the district took in border parishes, but the officially-listed county is Breconshire."
+ },
+ {
+  "district": "Hayfield",
+  "catalogue_chapman": "CHS",
+  "correct_chapman": "DBY",
+  "cross_border": false,
+  "evidence": "UKBMD files Hayfield under Derbyshire (https://www.ukbmd.org.uk/reg/dby.html, district page https://www.ukbmd.org.uk/reg/districts/hayfield.html): created 20.1.1838 out of High Peak RD (DBY), abolished 1.4.1938 into Chapel-en-le-Frith RD (DBY). WeRelate: 'Hayfield Registration District, Derbyshire, England'."
+ },
+ {
+  "district": "Headington",
+  "catalogue_chapman": "BKM",
+  "correct_chapman": "OXF",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/headington.html and headington.org.uk family-history page: Headington RD was in Oxfordshire, created 1.7.1837, abolished 1.1.1933 into Oxford RD; named for the head of Bullingdon Hundred, included parts of Oxford city."
+ },
+ {
+  "district": "Henley",
+  "catalogue_chapman": "BRK",
+  "correct_chapman": "OXF",
+  "cross_border": true,
+  "evidence": "UKBMD lists Henley under Oxfordshire (https://www.ukbmd.org.uk/reg/oxf.html, district page https://www.ukbmd.org.uk/reg/districts/henley.html): abolished 1.10.2001 into the Oxfordshire RD alongside Abingdon/Banbury/Oxford etc. Cross-border in practice \u2014 its Caversham sub-district became part of Reading, Berkshire in 1911 \u2014 but the officially-listed county is Oxfordshire."
+ },
+ {
+  "district": "Highworth",
+  "catalogue_chapman": "BRK",
+  "correct_chapman": "WIL",
+  "cross_border": true,
+  "evidence": "UKBMD lists Highworth under Wiltshire (https://www.ukbmd.org.uk/reg/wil.html, district page https://www.ukbmd.org.uk/reg/districts/highworth.html): originally 'Swindon & Highworth', renamed to Swindon RD 1.5.1899; 'some Berkshire parishes were included from 1837-1881' \u2014 cross-border, but the listed county is Wiltshire. WeRelate: 'Highworth Registration District, Wiltshire, England'."
+ },
+ {
+  "district": "Hitchin",
+  "catalogue_chapman": "BDF",
+  "correct_chapman": "HRT",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/hitchin.html: Hitchin RD was in Hertfordshire, created 1.7.1837, sub-districts Baldock and Hitchin; abolished 1.3.1996 into Hitchin & Stevenage RD (which the catalogue itself correctly codes HRT)."
+ },
+ {
+  "district": "Huntingdon",
+  "catalogue_chapman": "CAM",
+  "correct_chapman": "HUN",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/huntingdon.html: registration county Huntingdonshire 1837-1974 (Cambridgeshire only 1974-2007); UKBMD files the district on its Huntingdonshire page https://www.ukbmd.org.uk/reg/hun.html. For the historic BMD era the app searches, HUN is the listed county \u2014 CAM matches only the final 33 years. Sibling catalogue entry 'Huntingdonshire North' is already HUN."
+ },
+ {
+  "district": "Kendal",
+  "catalogue_chapman": "LAN",
+  "correct_chapman": "WES",
+  "cross_border": false,
+  "evidence": "UKBMD files Kendal under Westmorland (https://www.ukbmd.org.uk/reg/wes.html 'Registration Districts in Westmorland'; district page https://www.ukbmd.org.uk/reg/districts/kendal.html \u2014 re-created 1974 out of Westmorland South and Sedbergh RDs, GRO vol XXV/10b for 1837-1937). Kendal was never Lancashire. NOTE: the catalogue has TWO Kendal rows (codes 853 and 854), both wrongly LAN \u2014 both need WES."
+ },
+ {
+  "district": "Keynsham",
+  "catalogue_chapman": "GLS",
+  "correct_chapman": "SOM",
+  "cross_border": true,
+  "evidence": "UKBMD lists Keynsham under Somerset (https://www.ukbmd.org.uk/reg/som.html; district page https://www.ukbmd.org.uk/reg/districts/keynsham.html: 'was in Somerset', created 1.7.1837, abolished 1.4.1936 divided between Chipping Sodbury, Bathavon and Bristol RDs). Cross-border \u2014 sub-districts Bitton/Kingswood/Oldland were Gloucestershire parishes \u2014 but the officially-listed county is Somerset."
+ },
+ {
+  "district": "Kidderminster",
+  "catalogue_chapman": "SAL",
+  "correct_chapman": "WOR",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/kidderminster.html: abolished 1.4.2006 into the Worcestershire RD; register office run by Worcestershire County Council (worcestershire.gov.uk). Kidderminster is a Worcestershire town, not Shropshire."
+ },
+ {
+  "district": "Kingston",
+  "catalogue_chapman": "MDX",
+  "correct_chapman": "SRY",
+  "cross_border": true,
+  "evidence": "UKBMD lists Kingston RD under Surrey (https://www.ukbmd.org.uk/reg/sry.html; district page https://www.ukbmd.org.uk/reg/districts/kingston.html: created 1.7.1837, abolished 1.4.1934 divided between Surrey North-Eastern, Staines and Surrey Mid-Eastern RDs). Cross-border \u2014 its Hampton sub-district lay in Middlesex \u2014 but the officially-listed county is Surrey. The catalogue's separate 'Kingston upon Thames' row is already correctly SRY."
+ },
+ {
+  "district": "Knighton",
+  "catalogue_chapman": "HEF",
+  "correct_chapman": "RAD",
+  "cross_border": true,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/knighton.html and Forebears (https://forebears.io/wales/radnorshire/knighton): Knighton RD is filed under Radnorshire, GRO vol XXVI/11b; abolished 1.4.1933 divided between Radnorshire East, Clun (SAL) and Leominster (HEF) RDs \u2014 a genuinely cross-border district, but the officially-listed county is Radnorshire."
+ },
+ {
+  "district": "Easingwold",
+  "catalogue_chapman": "DUR",
+  "correct_chapman": "NRY",
+  "cross_border": false,
+  "evidence": "UKBMD lists Easingwold under 'Registration Districts in Yorkshire North Riding' (https://www.ukbmd.org.uk/reg/nry.html; district page https://www.ukbmd.org.uk/reg/districts/easingwold.html): created 1.7.1837, abolished 1.10.1936 into Bulmer RD; sub-districts Coxwold, Easingwold, Stillington \u2014 all North Riding. Nothing connects it to Durham."
+ },
+ {
+  "district": "Edmonton",
+  "catalogue_chapman": "ESS",
+  "correct_chapman": "MDX",
+  "cross_border": true,
+  "evidence": "UKBMD lists Edmonton under 'Registration Districts in Middlesex' (https://www.ukbmd.org.uk/reg/mdx.html; district page https://www.ukbmd.org.uk/reg/districts/edmonton.html): created 1.7.1837, abolished 1.4.1965 divided between Enfield and Haringey. WeRelate: 'Edmonton Registration District, Middlesex, England'. Cross-border: sub-districts included Cheshunt (HRT) and Waltham Abbey (ESS), but the GRO/UKBMD-listed county is Middlesex."
+ },
+ {
+  "district": "Evesham",
+  "catalogue_chapman": "GLS",
+  "correct_chapman": "WOR",
+  "cross_border": true,
+  "evidence": "UKBMD lists Evesham under 'Registration Districts in Worcestershire' (https://www.ukbmd.org.uk/reg/wor.html; district page https://www.ukbmd.org.uk/reg/districts/evesham.html): abolished 1.4.2006 into the Worcestershire RD (created from Bromsgrove, Droitwich, Evesham, Kidderminster, Malvern, Pershore, Redditch, Tenbury and Worcester). Historically the district took in a few Gloucestershire border parishes, but the listed county is Worcestershire."
+ },
+ {
+  "district": "Farnborough",
+  "catalogue_chapman": "SSX",
+  "correct_chapman": "HAM",
+  "cross_border": false,
+  "evidence": "UKBMD district page (https://www.ukbmd.org.uk/reg/districts/farnborough.html) states Registration County: Hampshire; created 28.5.1846 out of Farnham RD, abolished 1.7.1869 divided between Hartley Wintney, Farnham, Alton, Petersfield and Guildford RDs. Farnborough is a Hampshire town; no Sussex connection."
+ },
+ {
+  "district": "Farnham",
+  "catalogue_chapman": "SSX",
+  "correct_chapman": "SRY",
+  "cross_border": true,
+  "evidence": "UKBMD lists Farnham under 'Registration Districts in Surrey' (https://www.ukbmd.org.uk/reg/sry.html; district page https://www.ukbmd.org.uk/reg/districts/farnham.html): created 1.7.1837, abolished 1.4.1934 divided between Surrey South-Western and Surrey North-Western RDs. WeRelate: 'Farnham Registration District, Surrey, England'. Cross-border: it included Hampshire parishes (Aldershot/Frimley area) 1837-1932, but the listed county is Surrey."
+ },
+ {
+  "district": "Ffestiniog",
+  "catalogue_chapman": "CAE",
+  "correct_chapman": "MER",
+  "cross_border": true,
+  "evidence": "UKBMD lists Ffestiniog under 'Registration Districts in Merionethshire' (https://www.ukbmd.org.uk/reg/mer.html; district page https://www.ukbmd.org.uk/reg/districts/ffestiniog.html): created 1.7.1837 (originally 'Festinog'), abolished 1.10.1935 divided between Merioneth North, Merioneth South and Pwllheli RDs. FamilySearch and Forebears both place Ffestiniog in Merionethshire. Cross-border: the Tremadoc sub-district lay in Caernarfonshire (hence the partial transfer to Pwllheli), but the listed county is Merionethshire."
+ },
+ {
+  "district": "Flintshire East",
+  "catalogue_chapman": "DEN",
+  "correct_chapman": "FLN",
+  "cross_border": false,
+  "evidence": "GENUKI 'Flintshire Registration Districts' (https://www.genuki.org.uk/big/wal/FLN/RegDistricts) and UKBMD's Flintshire pages (https://www.ukbmd.org.uk/reg/subdistricts/flintshire.html, https://www.ukbmd.org.uk/county/flintshire/) list Flintshire East as a Flintshire district, based in Hawarden (Flintshire); merged with Flintshire West on 18.4.2005 to form the Flintshire RD."
+ },
+ {
+  "district": "Flintshire West",
+  "catalogue_chapman": "DEN",
+  "correct_chapman": "FLN",
+  "cross_border": false,
+  "evidence": "GENUKI 'Flintshire Registration Districts' (https://www.genuki.org.uk/big/wal/FLN/RegDistricts) and UKBMD's Flintshire pages list Flintshire West as a Flintshire district, based in Holywell (Flintshire); merged with Flintshire East on 18.4.2005 to form the Flintshire RD."
+ },
+ {
+  "district": "Forden",
+  "catalogue_chapman": "SAL",
+  "correct_chapman": "MGY",
+  "cross_border": true,
+  "evidence": "UKBMD district page (https://www.ukbmd.org.uk/reg/districts/forden.html): created 1.7.1870 by renaming Montgomery RD, abolished 1.1.1936 into Welshpool RD, which UKBMD places in Montgomeryshire (1837-1974). GENUKI files Forden under Montgomeryshire (https://www.genuki.org.uk/big/wal/MGY/Forden/Gaz1868). Cross-border: the Chirbury sub-district lay in Shropshire, but the listed county is Montgomeryshire \u2014 same pattern as the Worksop precedent."
+ },
+ {
+  "district": "Goole",
+  "catalogue_chapman": "ERY",
+  "correct_chapman": "WRY",
+  "cross_border": false,
+  "evidence": "UKBMD lists Goole under 'Registration Districts in Yorkshire West Riding' (https://www.ukbmd.org.uk/reg/wry.html; district page https://www.ukbmd.org.uk/reg/districts/goole.html): in Yorkshire West Riding 1837-1974, Humberside 1974-96, East Riding of Yorkshire only 1996-2002 (abolished 1.7.2002). WeRelate: 'Goole Registration District, West Riding of Yorkshire, England'. For the whole civil-registration era relevant to genealogy searches the county is WRY, not ERY."
+ },
+ {
+  "district": "Grantham",
+  "catalogue_chapman": "LEI",
+  "correct_chapman": "LIN",
+  "cross_border": true,
+  "evidence": "Catalogue row code 91. UKBMD lists Grantham under 'Registration Districts in Lincolnshire' (https://www.ukbmd.org.uk/reg/lin.html; district page https://www.ukbmd.org.uk/reg/districts/grantham.html): created 1.7.1837, abolished 1.1.1934, re-created 1.4.1974 from Grantham & West Kesteven. GENUKI files Grantham under Lincolnshire (https://www.genuki.org.uk/big/eng/LIN/Grantham); FreeBMD district 91 = Grantham, Lincolnshire. Cross-border: the district took in some Leicestershire border parishes (part went to Melton Mowbray RD in 1934), but the listed county is Lincolnshire \u2014 consistent with the sibling catalogue row 'Grantham & West Kesteven' = LIN."
+ },
+ {
+  "district": "Grantham",
+  "catalogue_chapman": "LEI",
+  "correct_chapman": "LIN",
+  "cross_border": true,
+  "evidence": "Catalogue row code 92 (duplicate name, second row also mis-coded LEI). Same evidence as row 91: UKBMD https://www.ukbmd.org.uk/reg/districts/grantham.html and https://www.ukbmd.org.uk/reg/lin.html list Grantham under Lincolnshire."
+ },
+ {
+  "district": "Uttoxeter",
+  "catalogue_chapman": "DBY",
+  "correct_chapman": "STS",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/uttoxeter.html \u2014 'Registration County: Staffordshire' (created 1.7.1837, abolished 1.10.1939). Worksop-pattern error: the union took in Derbyshire parishes across the Dove (Doveridge, Sudbury area) but the district is officially listed under Staffordshire."
+ },
+ {
+  "district": "Uppingham",
+  "catalogue_chapman": "LEI",
+  "correct_chapman": "RUT",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/uppingham.html \u2014 'Registration County: Rutland' (1.7.1837 to 1.4.1974, then added to Rutland RD). Union edges into Leicestershire/Northamptonshire parishes but the officially-listed county is Rutland."
+ },
+ {
+  "district": "Warrington",
+  "catalogue_chapman": "CHS",
+  "correct_chapman": "LAN",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/warrington.html \u2014 'Registration County: Lancashire (1837\u20131974); Cheshire (from 1974)'. The GRO-index/genealogy-era county is Lancashire; the catalogue's convention elsewhere (e.g. Wallingford/Wantage kept BRK despite 1974 transfer to Oxfordshire) is the historic registration county, so CHS reflects only the post-1974 transfer and misroutes 1837\u20131974 searches."
+ },
+ {
+  "district": "Wellingborough",
+  "catalogue_chapman": "BDF",
+  "correct_chapman": "NTH",
+  "cross_border": false,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/wellingborough.html \u2014 'Registration County: Northamptonshire' (1.7.1837 to 1.10.2010, then into Northamptonshire RD). Wellingborough is squarely a Northamptonshire town; BDF is a neighbouring-county slip."
+ },
+ {
+  "district": "Welshpool & Llanfyllin",
+  "catalogue_chapman": "BRE",
+  "correct_chapman": "MGY",
+  "cross_border": false,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/welshpool%20and%20llanfyllin.html \u2014 'Registration County: Powys. Created 1.4.1982 (from Llanfyllin and Welshpool registration districts)'. Both constituent districts were Montgomeryshire (UKBMD Llanfyllin page: 'Montgomeryshire (1837\u20131974)'); the district covers the Montgomeryshire part of Powys, so historic-county Chapman is MGY \u2014 Breconshire (BRE) is wrong under any convention (likely a bad Powys\u2192BRE mapping). Note the plain 'Welshpool' row is already correctly MGY."
+ },
+ {
+  "district": "Wincanton",
+  "catalogue_chapman": "DOR",
+  "correct_chapman": "SOM",
+  "cross_border": false,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/wincanton.html \u2014 'Registration County: Somerset' (1.7.1837, abolished 1.4.1974). Wincanton is a Somerset town near the Dorset border; officially listed under Somerset."
+ },
+ {
+  "district": "Witney",
+  "catalogue_chapman": "BRK",
+  "correct_chapman": "OXF",
+  "cross_border": false,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/witney.html \u2014 'Registration County: Oxfordshire' (1.7.1837, abolished 1.4.1982). Witney is well inside Oxfordshire; BRK is a neighbouring-county slip."
+ },
+ {
+  "district": "Wolverhampton",
+  "catalogue_chapman": "SAL",
+  "correct_chapman": "STS",
+  "cross_border": false,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/wolverhampton.html \u2014 'Registration County: Staffordshire (1837\u20131974); West Midlands (from 1974)'. Wolverhampton is Staffordshire; Shropshire (SAL) is wrong for every period."
+ },
+ {
+  "district": "Wrexham",
+  "catalogue_chapman": "CHS",
+  "correct_chapman": "DEN",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/wrexham.html \u2014 'Registration County: Denbighshire (1837\u20131974); Clwyd (from 1996)'. The 1837 union was based on the Wrexham PLU which included parts of Denbighshire, Flintshire and (in England) Cheshire \u2014 Worksop-pattern cross-border district officially listed under Denbighshire (also GENUKI Denbighshire RegDistricts). NOTE: the catalogue has TWO Wrexham rows (codes 637 and 638), both CHS \u2014 both need DEN."
+ },
+ {
+  "district": "Ynys Mon",
+  "catalogue_chapman": "CAE",
+  "correct_chapman": "AGY",
+  "cross_border": false,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/ynys%20mon.html \u2014 'Registration County: Gwynedd. Created 1.4.1974 (by renaming Anglesey registration district). Also known as \"Isle of Anglesey\" district.' The district is exactly the island of Anglesey, whose Chapman code is AGY; Caernarfonshire (CAE) is the wrong historic county within Gwynedd."
+ },
+ {
+  "district": "Taunton",
+  "catalogue_chapman": "DEV",
+  "correct_chapman": "SOM",
+  "cross_border": false,
+  "evidence": "ukbmd.org.uk/reg/districts/taunton.html: 'The registration county for Taunton is Somerset' (created 1.7.1837, renamed Taunton Deane 1974). NOTE: the catalogue has TWO Taunton rows (codes 317 and 318), both wrongly DEV; the adjacent Taunton Deane row is already correctly SOM.",
+  "district_note": ""
+ },
+ {
+  "district": "Tonbridge",
+  "catalogue_chapman": "SSX",
+  "correct_chapman": "KEN",
+  "cross_border": false,
+  "evidence": "ukbmd.org.uk/reg/districts/tonbridge.html: Registration county Kent; created 1.7.1837 (originally 'Tunbridge'), renamed Tunbridge Wells RD 1980. Tonbridge is a Kent town; never Sussex."
+ },
+ {
+  "district": "Stamford",
+  "catalogue_chapman": "HUN",
+  "correct_chapman": "LIN",
+  "cross_border": true,
+  "evidence": "ukbmd.org.uk/reg/districts/stamford.html + genuki.org.uk/big/eng/LIN/Stamford: Stamford RD filed under Lincolnshire; 'All the areas in Stamford registration district became part of the county of Lincolnshire on 1.4.1974', later merged into the Lincolnshire RD (2003). Union included Northamptonshire/Rutland fringe parishes but the GRO/UKBMD-listed county is Lincolnshire, not Huntingdonshire."
+ },
+ {
+  "district": "Thrapston",
+  "catalogue_chapman": "HUN",
+  "correct_chapman": "NTH",
+  "cross_border": false,
+  "evidence": "ukbmd.org.uk/reg/districts/thrapston.html: 'The Registration County for Thrapston is Northamptonshire' (1837-1974, then into Oundle & Thrapston RD, later the Northamptonshire RD)."
+ },
+ {
+  "district": "Southam",
+  "catalogue_chapman": "NTH",
+  "correct_chapman": "WAR",
+  "cross_border": false,
+  "evidence": "ukbmd.org.uk/reg/districts/southam.html: Southam RD, GRO volume 6d 1852-1946 (the Warwickshire volume series), abolished 1.10.1985 into the Mid Warwickshire RD. Southam is a Warwickshire town; never Northamptonshire."
+ },
+ {
+  "district": "South Pembrokeshire",
+  "catalogue_chapman": "CGN",
+  "correct_chapman": "PEM",
+  "cross_border": false,
+  "evidence": "ukbmd.org.uk/reg/pem.html (Registration Districts in Pembrokeshire) lists South Pembrokeshire; ukbmd.org.uk/reg/districts/pembrokeshire.html: Pembrokeshire RD created 1.4.2003 from Haverfordwest, South Pembrokeshire and Carmarthen RDs. Cardiganshire (CGN) is simply wrong."
+ },
+ {
+  "district": "Selby",
+  "catalogue_chapman": "ERY",
+  "correct_chapman": "WRY",
+  "cross_border": false,
+  "evidence": "ukbmd.org.uk/reg/districts/selby.html: 'The Selby registration district was in Yorkshire West Riding from 1837 to 1974, and then in North Yorkshire from 1974 to 1998.' Not East Riding."
+ },
+ {
+  "district": "Scarborough",
+  "catalogue_chapman": "ERY",
+  "correct_chapman": "NRY",
+  "cross_border": false,
+  "evidence": "ukbmd.org.uk/reg/nry.html (Registration Districts in Yorkshire North Riding) lists Scarborough; ukbmd.org.uk/reg/districts/scarborough.html (sub-districts Filey, Hutton Bushell, Scarborough, Sherburn; into North Yorkshire RD 1998). Scarborough is historically in the North Riding, not the East Riding."
+ },
+ {
+  "district": "Thorne",
+  "catalogue_chapman": "LIN",
+  "correct_chapman": "WRY",
+  "cross_border": true,
+  "evidence": "ukbmd.org.uk/reg/districts/thorne.html: 'The registration county for Thorne registration district is Yorkshire West Riding' (1837-1947, then into Don Valley RD). Cross-border: sub-districts Crowle and Epworth are Lincolnshire (Isle of Axholme), but the GRO/UKBMD-listed county is Yorkshire West Riding."
+ },
+ {
+  "district": "Saddleworth",
+  "catalogue_chapman": "LAN",
+  "correct_chapman": "WRY",
+  "cross_border": false,
+  "evidence": "ukbmd.org.uk/reg/districts/saddleworth.html + GENUKI (genuki.org.uk/big/eng/YKS/WRY/...): 'The Saddleworth Registration District was in Yorkshire West Riding, created 1.7.1837, abolished 1.4.1974 when it was added to the Oldham registration district.' Historically WRY despite the Manchester orbit."
+ },
+ {
+  "district": "Todmorden",
+  "catalogue_chapman": "LAN",
+  "correct_chapman": "WRY",
+  "cross_border": true,
+  "evidence": "ukbmd.org.uk/reg/districts/todmorden.html: 'The registration county for Todmorden was Yorkshire West Riding (1837-1974) and West Yorkshire (1974-2002)', abolished 2003 into Calderdale RD. Cross-border: pre-1888 the Lancashire/Yorkshire boundary ran through the town centre, but the district is filed under Yorkshire West Riding."
+ },
+ {
+  "district": "Tamworth",
+  "catalogue_chapman": "DBY",
+  "correct_chapman": "STS",
+  "cross_border": true,
+  "evidence": "ukbmd.org.uk/reg/districts/tamworth.html: 'The registration county for Tamworth is Staffordshire' (1837-1939, then into Lichfield RD). Cross-border: sub-districts included Sutton Coldfield (Warwickshire), but the listed county is Staffordshire. Never Derbyshire."
+ },
+ {
+  "district": "Seisdon",
+  "catalogue_chapman": "SAL",
+  "correct_chapman": "STS",
+  "cross_border": false,
+  "evidence": "ukbmd.org.uk/reg/districts/seisdon.html: sub-districts Kinver, Seisdon, Tettenhall, Wombourne (all Staffordshire parishes); abolished 1.4.1974 into the South Staffordshire RD; Seisdon Rural District was in Staffordshire (Wikipedia: Seisdon Rural District). Both catalogue rows (212, 213) carry SAL. Not Shropshire."
+ },
+ {
+  "district": "Stourbridge",
+  "catalogue_chapman": "SAL",
+  "correct_chapman": "WOR",
+  "cross_border": true,
+  "evidence": "ukbmd.org.uk/reg/districts/stourbridge.html: 'The registration county was Worcestershire from 1837-1974, and West Midlands from 1974-2002.' Cross-border: sub-district Kingswinford lay in Staffordshire, but the listed county is Worcestershire. Not Shropshire."
+ },
+ {
+  "district": "Tenbury",
+  "catalogue_chapman": "HEF",
+  "correct_chapman": "WOR",
+  "cross_border": true,
+  "evidence": "ukbmd.org.uk/reg/districts/tenbury.html: 'registration county was Worcestershire (1837-1974), Hereford & Worcester (1974-98), and Worcestershire (1998-2006)'. The union took in Shropshire/Herefordshire border parishes, but the district is filed under Worcestershire."
+ },
+ {
+  "district": "Sudbury",
+  "catalogue_chapman": "ESS",
+  "correct_chapman": "SFK",
+  "cross_border": true,
+  "evidence": "ukbmd.org.uk/reg/districts/sudbury.html + genuki.org.uk/big/eng/SFK/RegDists: Sudbury RD is filed under Suffolk (areas became part of West Suffolk 1.4.1889); the union did include 18 Essex parishes in Hinckford Hundred (classic Worksop-style cross-border case), but the GRO/UKBMD-listed county is Suffolk."
+ },
+ {
+  "district": "Thame",
+  "catalogue_chapman": "BKM",
+  "correct_chapman": "OXF",
+  "cross_border": true,
+  "evidence": "ukbmd.org.uk/reg/districts/thame.html: 'The Thame Registration District's Registration County is Oxfordshire', created 1.7.1837, abolished 1.10.1932 (split to Ploughley & Bullingdon and Aylesbury RDs). The union included Buckinghamshire fringe parishes, but the listed county is Oxfordshire."
+ },
+ {
+  "district": "Sandwell",
+  "catalogue_chapman": "WAR",
+  "correct_chapman": "STS",
+  "cross_border": true,
+  "evidence": "ukbmd.org.uk/reg/districts/sandwell.html: created 1.4.1974 out of West Bromwich and Warley RDs, in the county of West Midlands. It was NEVER Warwickshire. Strictly the UKBMD county is West Midlands (Chapman WMD, outside the standard historic set); by this catalogue's convention of mapping post-1974 metropolitan districts to their dominant historic county (cf. Sefton=LAN, Tameside=LAN, Trafford=CHS), Sandwell = Staffordshire (West Bromwich, Wednesbury, Tipton, Smethwick \u2014 the catalogue itself has Smethwick=STS), with the Oldbury/Warley fringe historically Worcestershire."
+ },
+ {
+  "district": "Tower Hamlets",
+  "catalogue_chapman": "MDX",
+  "correct_chapman": "LND",
+  "cross_border": false,
+  "evidence": "ukbmd.org.uk/reg/districts/tower%20hamlets.html: Tower Hamlets RD created 1.1.1983 from Stepney and Poplar & Bethnal Green RDs, in Greater London. Middlesex ceased to exist in 1965; no authority files this district under Middlesex. The catalogue's own convention for London districts (Stepney, Shoreditch, Southwark, etc.) is LND."
+ },
+ {
+  "district": "Croydon",
+  "catalogue_chapman": "KEN",
+  "correct_chapman": "SRY",
+  "cross_border": false,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/croydon.html \u2014 'Registration County: Surrey (1837\u20131965); Greater London (from 1965)'. Croydon was never a Kent district."
+ },
+ {
+  "district": "Doncaster",
+  "catalogue_chapman": "LIN",
+  "correct_chapman": "WRY",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/doncaster.html \u2014 'Registration County: Yorkshire West Riding (1837\u20131974); South Yorkshire (from 1974)'. District briefly included Notts parishes (Auckley, Finningley) and part of Misson (Lincs), all transferred out by 1938; listed county was always Yorkshire West Riding, never Lincolnshire."
+ },
+ {
+  "district": "Chard",
+  "catalogue_chapman": "DEV",
+  "correct_chapman": "SOM",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/chard.html \u2014 'Registration County: Somerset'. Cross-border fringe: Wambrook (Dorset until 1895) and Yarcombe (Devon until 1895), but the district is filed under Somerset."
+ },
+ {
+  "district": "Dulverton",
+  "catalogue_chapman": "DEV",
+  "correct_chapman": "SOM",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/dulverton.html \u2014 'Registration County: Somerset'. Only Devon content was Morebath parish 1862\u20131896, later returned to Tiverton RD. NOTE: the catalogue has TWO Dulverton rows (codes 1036 and 1037), both DEV \u2014 both need correcting to SOM."
+ },
+ {
+  "district": "Cranbrook",
+  "catalogue_chapman": "SSX",
+  "correct_chapman": "KEN",
+  "cross_border": false,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/cranbrook.html (via search snippet) \u2014 Registration County: Kent; created 1.7.1837, abolished 1.4.1941 (added to Maidstone RD); sub-districts Cranbrook and Hawkhurst. Corroborated by https://en.wikipedia.org/wiki/Cranbrook,_Kent \u2014 town in the Weald of Kent, no Sussex connection."
+ },
+ {
+  "district": "Downham",
+  "catalogue_chapman": "CAM",
+  "correct_chapman": "NFK",
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/downham.html (via search snippet) \u2014 Registration County: Norfolk; created 1.7.1837, abolished 1.4.2011 (added to Norfolk RD); sub-districts Downham, Fincham, Wiggenhall (all around Downham Market, Norfolk)."
+ },
+ {
+  "district": "Chepstow",
+  "catalogue_chapman": "GLS",
+  "correct_chapman": "MON",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/chepstow.html \u2014 'Registration County: Monmouthshire'. Did include Gloucestershire parishes (Alvington, Aylburton, Lydney etc.) until their 1937 transfer to Forest of Dean RD, but the district is filed under Monmouthshire \u2014 Worksop-pattern cross-border case."
+ },
+ {
+  "district": "Caerphilly",
+  "catalogue_chapman": "MON",
+  "correct_chapman": "GLA",
+  "cross_border": false,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/caerphilly.html \u2014 'Registration County: Mid Glamorgan' (district created 1.4.1996; all listed communities shown under Mid Glamorgan). Caerphilly town is historic Glamorgan, not Monmouthshire."
+ },
+ {
+  "district": "Carnarvon",
+  "catalogue_chapman": "AGY",
+  "correct_chapman": "CAE",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/carnarvon.html (via search snippet) \u2014 Registration County: Caernarvonshire; 1837\u20131937, sub-districts Carnarvon, Llandwrog, Llanidan (Anglesey side of the Menai), Llanrug; abolished 1937 divided between Caernarvon and Anglesey East RDs. Listed county is Caernarvonshire; note the catalogue's other spellings (Caernarfon 1055, Caernarvon 1056) already carry CAE."
+ },
+ {
+  "district": "Corwen",
+  "catalogue_chapman": "DEN",
+  "correct_chapman": "MER",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/corwen.html \u2014 'Registration County: Merionethshire'. Genuinely cross-border (numerous Denbighshire parishes incl. Cerrigydrudion, Llangollen, Llantysilio) but officially filed under Merionethshire; corroborated by https://en.wikipedia.org/wiki/Corwen \u2014 'Historically, Corwen was part of the county of Merionethshire.'"
+ },
+ {
+  "district": "Delyn",
+  "catalogue_chapman": "DEN",
+  "correct_chapman": "FLN",
+  "cross_border": false,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/delyn.html \u2014 Registration County: Clwyd (post-1974 admin county, not a Chapman code); its communities are Mold, Holywell, Flint, Caerwys, Cilcain, Halkyn, Llanasa, Whitford, Northop, Nannerch, Leeswood \u2014 all historic Flintshire, none Denbighshire. Sub-districts 'Flint & Mold' and 'Holywell'."
+ },
+ {
+  "district": "De Meirionydd",
+  "catalogue_chapman": "CAE",
+  "correct_chapman": "MER",
+  "cross_border": false,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/de%20meirionydd.html \u2014 Registration County: Gwynedd; created 1.4.1974 by renaming Merioneth South RD; communities (Barmouth, Dolgellau, Tywyn, Llanegryn, Llanelltyd, Pennal) 'transferred from Merionethshire to the county of Gwynedd on 1.4.1974' \u2014 historic Merionethshire, not Caernarfonshire."
+ },
+ {
+  "district": "Basford",
+  "catalogue_chapman": "DBY",
+  "correct_chapman": "NTT",
+  "cross_border": true,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/basford.html and WeRelate 'Basford Registration District, Nottinghamshire, England'; GENUKI files Basford under NTT (https://www.genuki.org.uk/big/eng/NTT/Basford). Abolished 1.4.2012 into the Nottinghamshire registration district (created from Basford, Bassetlaw, Mansfield, Newark, Rushcliffe). District genuinely spanned the border ('covered... the southern bits of Derbyshire bordering on Nottinghamshire' \u2014 Ilkeston sub-district is DBY), but the officially-listed county is Nottinghamshire. Same failure mode as Worksop."
+ },
+ {
+  "district": "Bingham",
+  "catalogue_chapman": "LEI",
+  "correct_chapman": "NTT",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/bingham.html: abolished 1.4.1974 into Rushcliffe RD (Nottinghamshire), later into Nottinghamshire RD 2012; GRO vol 7b (Notts series) 1852-1946. GENUKI files Bingham under NTT (https://www.genuki.org.uk/big/eng/NTT/Bingham)."
+ },
+ {
+  "district": "Abergavenny",
+  "catalogue_chapman": "HEF",
+  "correct_chapman": "MON",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/abergavenny.html: 'The Abergavenny registration district was in Monmouthshire', created 1.7.1837, abolished 1.1.1959 into Pontypool RD (Monmouthshire). Near the Herefordshire border but filed under Monmouthshire."
+ },
+ {
+  "district": "Bedwellty",
+  "catalogue_chapman": "BRE",
+  "correct_chapman": "MON",
+  "cross_border": false,
+  "evidence": "Listed on UKBMD 'Registration Districts in Monmouthshire' (https://www.ukbmd.org.uk/reg/mon.html); UKBMD district page https://www.ukbmd.org.uk/reg/districts/bedwelty.html: created 1.7.1861 out of Abergavenny RD, abolished 1.4.1974 into Blaenau Gwent/Merthyr Tydfil. Wikipedia: parish historically in the county of Monmouthshire, not Breconshire."
+ },
+ {
+  "district": "Belford",
+  "catalogue_chapman": "DUR",
+  "correct_chapman": "NBL",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/belford.html, listed on 'Registration Districts in Northumberland' (https://www.ukbmd.org.uk/reg/nbl.html); abolished 1.1.1937 into Northumberland North First RD. Belford is a Northumberland village, not County Durham."
+ },
+ {
+  "district": "Berwick",
+  "catalogue_chapman": "DUR",
+  "correct_chapman": "NBL",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/berwick.html, listed on 'Registration Districts in Northumberland' (https://www.ukbmd.org.uk/reg/nbl.html); abolished 1.1.1937 into Northumberland North First RD (sub-districts Berwick upon Tweed, Islandshire, Norhamshire). Filed under Northumberland, not Durham."
+ },
+ {
+  "district": "Banbury",
+  "catalogue_chapman": "GLS",
+  "correct_chapman": "OXF",
+  "cross_border": true,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/banbury.html: created 1.7.1837, abolished 1.10.2001 into the Oxfordshire registration district; included in 'Oxfordshire Registration Districts 1837-1974' (http://www.genealogytree.co.uk/guides/oxfordshire-registration-districts/). The Banbury union/district took in parishes over the Northants/Warwickshire (and pre-1844 a Gloucestershire detached parish) borders, which likely seeded the error, but the listed county is Oxfordshire."
+ },
+ {
+  "district": "Bicester",
+  "catalogue_chapman": "BKM",
+  "correct_chapman": "OXF",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/bicester.html, listed on 'Registration Districts in Oxfordshire' (https://www.ukbmd.org.uk/reg/oxf.html); created 1.7.1837, abolished 1.10.1932 into Ploughley & Bullingdon RD (Oxfordshire); GRO vol 3a. Bicester is an Oxfordshire town, not Buckinghamshire."
+ },
+ {
+  "district": "Basingstoke",
+  "catalogue_chapman": "BRK",
+  "correct_chapman": "HAM",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/basingstoke.html: abolished 1.1.2001 into Hampshire North registration district; Basingstoke Register Office is run by Hampshire County Council (https://www.hants.gov.uk/birthsdeathsandceremonies/registrationservices/registeroffices/basingstoke-register-office). Hampshire, not Berkshire."
+ },
+ {
+  "district": "Bedminster",
+  "catalogue_chapman": "GLS",
+  "correct_chapman": "SOM",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/bedminster.html: 'Bedminster was a registration district in Somerset', created 1.7.1837, renamed Long Ashton RD 1.4.1899; GRO vol 5c (Somerset series). South-of-Avon Bristol suburb historically in Somerset, not Gloucestershire."
+ },
+ {
+  "district": "Bromsgrove",
+  "catalogue_chapman": "SAL",
+  "correct_chapman": "WOR",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/bromsgrove.html: abolished 1.4.2006 into the Worcestershire registration district (created from Bromsgrove, Droitwich, Evesham, Kidderminster, Malvern, Pershore, Redditch, Tenbury, Worcester); GRO vols 6c/9D (Worcestershire series). Worcestershire, not Shropshire."
+ },
+ {
+  "district": "Brackley",
+  "catalogue_chapman": "BKM",
+  "correct_chapman": "NTH",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/brackley.html: 'The Brackley Registration District was in Northamptonshire', created 1.7.1837, abolished 1.10.2001 into Towcester & Brackley RD; listed on 'Registration Districts in Northamptonshire' (https://www.ukbmd.org.uk/reg/nth.html)."
+ },
+ {
+  "district": "Atherstone",
+  "catalogue_chapman": "LEI",
+  "correct_chapman": "WAR",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/atherstone.html, listed on 'Registration Districts in Warwickshire' (https://www.ukbmd.org.uk/reg/war.html); abolished 1.4.1974 into North Warwickshire RD, successors Warwickshire North then Warwickshire. Atherstone is a Warwickshire market town near the Leicestershire border."
+ },
+ {
+  "district": "Berkhampstead",
+  "catalogue_chapman": "BKM",
+  "correct_chapman": "HRT",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/berkhampstead.html: 'The Berkhampstead registration district was in Hertfordshire' (sub-districts Berkhampstead and Tring), abolished 1.10.1939 into Berkhamsted and Hemel Hempstead RDs; official spelling changed to Berkhamsted 1937. Note: the catalogue's separate 'Berkhamsted' entry already carries the correct HRT \u2014 this duplicate spelling variant carries the wrong BKM."
+ },
+ {
+  "district": "Alyn & Deeside",
+  "catalogue_chapman": "DEN",
+  "correct_chapman": "FLN",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://ukbmd.org.uk/reg/districts/alyn%20and%20deeside.html: abolished 1.4.1996 by renaming to Flintshire East registration district; the local-government district covered former administrative-Flintshire areas (Buckley UD, Connah's Quay UD, Hawarden RD \u2014 Wikipedia 'District of Alyn and Deeside'). Flintshire, not Denbighshire."
+ },
+ {
+  "district": "Ardudwy",
+  "catalogue_chapman": "CAE",
+  "correct_chapman": "MER",
+  "cross_border": false,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/ardudwy.html: created 1.4.1974 by renaming Merioneth North RD (itself created 1935 from Ffestiniog and Dolgelly RDs), abolished 6.7.2009 into Gwynedd RD; listed on 'Registration Districts in Merionethshire' (https://www.ukbmd.org.uk/reg/mer.html). Merionethshire, not Caernarfonshire."
+ },
+ {
+  "district": "Bangor",
+  "catalogue_chapman": "AGY",
+  "correct_chapman": "CAE",
+  "cross_border": true,
+  "evidence": "UKBMD district page https://www.ukbmd.org.uk/reg/districts/bangor.html: 'The Bangor registration district was in Caernarvonshire from 1837-1974, then Gwynedd'; originally named 'Bangor & Beaumaris', sub-districts include Beaumaris and Llanfairpwll (on Anglesey), so it genuinely spans CAE+AGY \u2014 but the officially-listed county is Caernarfonshire (Worksop precedent)."
+ },
+ {
+  "district": "Newark",
+  "catalogue_chapman": "LIN",
+  "correct_chapman": "NTT",
+  "cross_border": true,
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/ntt.html row: 'Newark | Nottinghamshire | 1837 | 2012 | Abolished 1.4.2012 and added to Nottinghamshire registration district.' District spanned into Lincolnshire (sub-districts incl. Bassingham/Claypole, Lincs parishes) but is filed under Nottinghamshire \u2014 exact Worksop pattern."
+ },
+ {
+  "district": "Rotherham",
+  "catalogue_chapman": "DBY",
+  "correct_chapman": "WRY",
+  "cross_border": true,
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/districts/rotherham.html: registration county 'Yorkshire West Riding (1837-1974), South Yorkshire from 1974'. Sub-districts include Beighton (historically a Derbyshire parish), which likely caused the DBY slip, but the district is filed under the West Riding."
+ },
+ {
+  "district": "Ripon",
+  "catalogue_chapman": "NRY",
+  "correct_chapman": "WRY",
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/districts/ripon.html: 'The registration county for Ripon is Yorkshire West Riding', created 1.7.1837, abolished 1.1.1947 into Claro RD. Ripon is a West Riding city, not North Riding."
+ },
+ {
+  "district": "Oxford",
+  "catalogue_chapman": "BRK",
+  "correct_chapman": "OXF",
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/oxf.html row: 'Oxford | Oxfordshire | 1837 | 2001 | Abolished 1.10.2001 and added to Oxfordshire registration district.'"
+ },
+ {
+  "district": "Nuneaton",
+  "catalogue_chapman": "LEI",
+  "correct_chapman": "WAR",
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/districts/nuneaton.html: 'in Warwickshire county... created 1.7.1837', sub-districts Bedworth and Nuneaton; renamed Nuneaton & Bedworth 1.10.1985. (Catalogue's separate 'Nuneaton & Bedworth' row is already correctly WAR.)"
+ },
+ {
+  "district": "Rugby",
+  "catalogue_chapman": "LEI",
+  "correct_chapman": "WAR",
+  "cross_border": true,
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/districts/rugby.html: 'created 1 July 1837 in Warwickshire county', sub-districts Crick (Northamptonshire), Dunchurch, Rugby; renamed Warwickshire East 2005. District spans WAR/NTH \u2014 Leicestershire is not the listed county."
+ },
+ {
+  "district": "Oakham",
+  "catalogue_chapman": "LEI",
+  "correct_chapman": "RUT",
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/rut.html row: 'Oakham | Rutland | 1837 | 1974 | Abolished 1.4.1974 and added to Rutland registration district.' Oakham is Rutland's county town."
+ },
+ {
+  "district": "Rutland",
+  "catalogue_chapman": "LEI",
+  "correct_chapman": "RUT",
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/rut.html row: 'Rutland | Rutland | 1997 | Created 1.4.1997 out of Melton & Rutland registration district' (a Rutland district also existed 1974-97, receiving Oakham). Both duplicate 'Rutland' rows in the catalogue carry LEI and both should be RUT."
+ },
+ {
+  "district": "Oundle",
+  "catalogue_chapman": "HUN",
+  "correct_chapman": "NTH",
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/nth.html row: 'Oundle | Northamptonshire | 1837 | 1974 | Abolished 1.4.1974 and added to Oundle & Thrapston registration district.' (Catalogue's 'Oundle & Thrapston' is already correctly NTH.)"
+ },
+ {
+  "district": "Peterborough",
+  "catalogue_chapman": "CAM",
+  "correct_chapman": "NTH",
+  "cross_border": true,
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/districts/peterborough.html: 'Registration County: Northamptonshire (1837-1934); Soke of Peterborough (1934-65); Huntingdon & Peterborough (1965-74); Cambridgeshire (from 1974).' For the historic BMD-index era the GRO filed Peterborough under Northamptonshire; CAM is only valid post-1974, so historic searches are misrouted."
+ },
+ {
+  "district": "Potterspury",
+  "catalogue_chapman": "BKM",
+  "correct_chapman": "NTH",
+  "cross_border": true,
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/nth.html row: 'Potterspury | Northamptonshire | 1837 | 1935 | Abolished 1.4.1935 and divided between North Bucks and Towcester registration districts.' Union straddled the Bucks border but is filed under Northamptonshire."
+ },
+ {
+  "district": "Petersfield",
+  "catalogue_chapman": "SSX",
+  "correct_chapman": "HAM",
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/ham.html row: 'Petersfield | Hampshire | 1837 | 2008 | Abolished 1.4.2008 and added to Hampshire registration district.'"
+ },
+ {
+  "district": "Royston",
+  "catalogue_chapman": "CAM",
+  "correct_chapman": "HRT",
+  "cross_border": true,
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/districts/royston.html: 'The Royston registration district was in Hertfordshire', created 1.7.1837 (orig. 'Royston & Buntingford'), abolished 1.10.1939. Sub-district Melbourn is in Cambridgeshire \u2014 cross-border district filed under Hertfordshire."
+ },
+ {
+  "district": "Risbridge",
+  "catalogue_chapman": "CAM",
+  "correct_chapman": "SFK",
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/districts/risbridge.html: 'Risbridge is a registration district in Suffolk County', created 1.7.1837, abolished 1.7.1938 (divided between Newmarket and Braintree RDs). Risbridge is a Suffolk hundred (Haverhill/Clare area)."
+ },
+ {
+  "district": "Ross",
+  "catalogue_chapman": "GLS",
+  "correct_chapman": "HEF",
+  "cross_border": true,
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/districts/ross.html: 'Registration County: Herefordshire (1837-1974); Hereford & Worcester (1974-98); Herefordshire (1998-2008).' District briefly contained a few Gloucestershire parishes (Ruardean, Lea) but is filed under Herefordshire."
+ },
+ {
+  "district": "Neath",
+  "catalogue_chapman": "BRE",
+  "correct_chapman": "GLA",
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/gla.html row: 'Neath | Glamorganshire | 1837 | 1970 | Abolished 1.10.1970 and added to West Glamorgan registration district.' Both duplicate 'Neath' rows in the catalogue carry BRE; both should be GLA. (The separate 'Neath Port Talbot' row is already correctly GLA.)"
+ },
+ {
+  "district": "Pontardawe",
+  "catalogue_chapman": "BRE",
+  "correct_chapman": "GLA",
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/gla.html row: 'Pontardawe | Glamorganshire | 1875 | 1934 | Created 1.7.1875 out of Neath and Swansea registration districts. Abolished 1.1.1935 and added to West Glamorgan registration district.'"
+ },
+ {
+  "district": "Narberth",
+  "catalogue_chapman": "CMN",
+  "correct_chapman": "PEM",
+  "cross_border": true,
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/districts/narberth.html: 'registration county was Pembrokeshire', created 1.7.1837, abolished 1.4.1973 into Haverfordwest RD. Sub-districts included Llanboidy/Llandisilio (Carmarthenshire parishes) but the district is filed under Pembrokeshire."
+ },
+ {
+  "district": "Presteigne",
+  "catalogue_chapman": "HEF",
+  "correct_chapman": "RAD",
+  "cross_border": true,
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/districts/presteigne.html: 'The Presteigne registration district was in Radnorshire county', created 1.7.1837 (orig. 'Presteigne & Kington'), abolished 1.7.1877. Kington/Brilley sub-districts were Herefordshire, but the district is filed under Radnorshire (Presteigne = Radnorshire county town)."
+ },
+ {
+  "district": "Rhayader",
+  "catalogue_chapman": "BRE",
+  "correct_chapman": "RAD",
+  "cross_border": true,
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/districts/rhayader.html: 'Registration County: Radnorshire' throughout 1837-1933; page notes one parish (Llanwrthwl) was in Brecknockshire, but 'the district itself was designated as a Radnorshire registration district'."
+ },
+ {
+  "district": "Rhuddlan",
+  "catalogue_chapman": "DEN",
+  "correct_chapman": "FLN",
+  "cross_border": false,
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/districts/rhuddlan.html: registration county Clwyd (created 1.4.1974 out of St Asaph RD; Clwyd has no Chapman code). Wikipedia https://en.wikipedia.org/wiki/Rhuddlan_(district): 'It covered the area of three former districts from the administrative county of Flintshire... Prestatyn Urban District, Rhyl Urban District, St Asaph Rural District' \u2014 the district's whole area (Rhyl/Prestatyn/St Asaph) is historic Flintshire, so the historic-county code is FLN not DEN."
+ },
+ {
+  "district": "Penllyn",
+  "catalogue_chapman": "CAE",
+  "correct_chapman": "MER",
+  "cross_border": false,
+  "evidence": "UKBMD https://www.ukbmd.org.uk/reg/districts/penllyn.html: registration county Gwynedd (created 1.4.1974, abolished 6.7.2009; Gwynedd has no Chapman code); UKBMD lists it on the Merionethshire page https://www.ukbmd.org.uk/reg/mer.html as created out of Merioneth East RD. Penllyn (Bala area) is historic Merionethshire, so the historic-county code is MER not CAE."
+ },
+ {
+  "district": "Mansfield",
+  "catalogue_chapman": "DBY",
+  "correct_chapman": "NTT",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/mansfield.html \u2014 'Registration County: Nottinghamshire'; district included Derbyshire parishes (Ault Hucknall, Blackwell, Glapwell, Pleasley, Scarcliffe, Shirebrook, South Normanton, Tibshelf) mostly transferred out by 1936. Same pattern as the Worksop precedent: spans DBY parishes but the district is filed NTT. Corroborated: https://en.wikipedia.org/wiki/Mansfield_(district) (Nottinghamshire)."
+ },
+ {
+  "district": "Launceston",
+  "catalogue_chapman": "DEV",
+  "correct_chapman": "CON",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/launceston.html \u2014 registration county Cornwall; included Devon parishes (Broadwood Widger, North Petherwin, Northcott, St Giles on the Heath, Virginstow, Werrington) until transferred to Holsworthy 1.7.1936, but the district is filed under Cornwall."
+ },
+ {
+  "district": "Morpeth",
+  "catalogue_chapman": "DUR",
+  "correct_chapman": "NBL",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/morpeth.html \u2014 registration county Northumberland; sole Durham element was Bedlington parish, 'Transferred from Durham to Northumberland on 20.10.1844'. District filed under Northumberland."
+ },
+ {
+  "district": "Ludlow",
+  "catalogue_chapman": "HEF",
+  "correct_chapman": "SAL",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/districts/ludlow.html \u2014 'Registration County: Shropshire'; district included Herefordshire parishes (Aston, Burrington, Downton, Elton, etc.) but is filed under Shropshire."
+ },
+ {
+  "district": "Malmesbury",
+  "catalogue_chapman": "GLS",
+  "correct_chapman": "WIL",
+  "evidence": "https://www.ukbmd.org.uk/reg/wil.html \u2014 Malmesbury listed as a Wiltshire registration district 1837-1936 (then added to Chippenham RD). Corroborated: https://en.wikipedia.org/wiki/Malmesbury \u2014 'a town and civil parish in north Wiltshire'."
+ },
+ {
+  "district": "Mere",
+  "catalogue_chapman": "DOR",
+  "correct_chapman": "WIL",
+  "evidence": "https://www.ukbmd.org.uk/reg/wil.html \u2014 Mere listed as a Wiltshire registration district 1837-1977 (then added to Salisbury RD). Corroborated: https://en.wikipedia.org/wiki/Mere,_Wiltshire \u2014 town near the Wiltshire/Somerset/Dorset tripoint but in Wiltshire; likely source of the DOR confusion."
+ },
+ {
+  "district": "Malton",
+  "catalogue_chapman": "ERY",
+  "correct_chapman": "NRY",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/nry.html \u2014 Malton listed among Yorkshire North Riding registration districts, 1837-1936 (abolished 1.10.1936, divided between Ryedale and Bridlington RDs). Corroborated: https://en.wikipedia.org/wiki/Malton,_North_Yorkshire \u2014 'Historically part of the North Riding of Yorkshire'; the River Derwent (N/E Riding boundary) runs just south of the town, so the district touches the East Riding, but it is filed under the North Riding."
+ },
+ {
+  "district": "Monmouth",
+  "catalogue_chapman": "GLS",
+  "correct_chapman": "MON",
+  "evidence": "https://www.ukbmd.org.uk/reg/mon.html \u2014 Monmouth listed as a Monmouthshire registration district, 1837-1939 (abolished 1.4.1939, added to Abergavenny RD). Corroborated: https://en.wikipedia.org/wiki/Monmouth \u2014 county town of historic Monmouthshire."
+ },
+ {
+  "district": "Montgomery",
+  "catalogue_chapman": "SAL",
+  "correct_chapman": "MGY",
+  "evidence": "https://www.ukbmd.org.uk/reg/mgy.html \u2014 Montgomery listed as a Montgomeryshire registration district, 1837-1870 (abolished 1.7.1870, added to Forden RD). Filed under Montgomeryshire, not Shropshire."
+ },
+ {
+  "district": "Llanfyllin",
+  "catalogue_chapman": "DEN",
+  "correct_chapman": "MGY",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/mgy.html \u2014 Llanfyllin listed as a Montgomeryshire registration district, 1837-1974 (transferred to Powys 1.4.1974). https://www.ukbmd.org.uk/reg/den.html cross-references it as 'registered under Montgomeryshire... Partly in Denbighshire until 1.10.1935' \u2014 genuinely cross-border but filed MGY. Corroborated: https://en.wikipedia.org/wiki/Llanfyllin \u2014 'For centuries, up until 1974, Llanfyllin was part of Montgomeryshire'."
+ },
+ {
+  "district": "Machynlleth",
+  "catalogue_chapman": "CGN",
+  "correct_chapman": "MGY",
+  "evidence": "https://www.ukbmd.org.uk/reg/mgy.html \u2014 Machynlleth listed as a Montgomeryshire registration district, 1837-1974 (transferred to Powys 1.4.1974). Corroborated: https://en.wikipedia.org/wiki/Machynlleth \u2014 'within the historic boundaries of Montgomeryshire'."
+ },
+ {
+  "district": "Llandovery",
+  "catalogue_chapman": "BRE",
+  "correct_chapman": "CMN",
+  "evidence": "https://www.ukbmd.org.uk/reg/cmn.html \u2014 Llandovery listed as a Carmarthenshire registration district, 1837-1935 (abolished 1.7.1935, added to Carmarthen RD). Filed under Carmarthenshire, not Breconshire."
+ },
+ {
+  "district": "Llanelli",
+  "catalogue_chapman": "CGN",
+  "correct_chapman": "CMN",
+  "evidence": "https://www.ukbmd.org.uk/reg/cmn.html \u2014 'Llanelly | Carmarthenshire | 1837 | 1974 | Abolished 1.4.1974 to become Llanelli registration district' \u2014 the Llanelli RD is the Carmarthenshire district's direct successor. Corroborated: https://en.wikipedia.org/wiki/Llanelli \u2014 'a market town and community in Carmarthenshire'. Note the catalogue's separate 'Llanelly' entry already correctly carries CMN."
+ },
+ {
+  "district": "Llanrwst",
+  "catalogue_chapman": "CAE",
+  "correct_chapman": "DEN",
+  "cross_border": true,
+  "evidence": "https://www.ukbmd.org.uk/reg/den.html \u2014 'Llanrwst | Denbighshire | 1837 | 1935 | Abolished 1.10.1935 and divided between Hiraethog and Conway registration districts.' Corroborated: https://en.wikipedia.org/wiki/Llanrwst \u2014 parish historically straddled the River Conwy (Caernarfonshire west bank / Denbighshire east bank, town on the Denbighshire side); cross-border but filed DEN."
+ },
+ {
+  "district": "Mutford",
+  "catalogue_chapman": "NFK",
+  "correct_chapman": "SFK",
+  "evidence": "https://www.ukbmd.org.uk/reg/sfk.html \u2014 'Mutford | Suffolk | 1837 | 1935 | Abolished 1.4.1935 and added to Lothingland registration district.' Corroborated: https://en.wikipedia.org/wiki/Mutford \u2014 village in Suffolk, gave its name to the Half Hundred of Mutford. Likely confused with Mitford (& Launditch), which IS Norfolk and is correctly catalogued NFK."
+ }
+]
