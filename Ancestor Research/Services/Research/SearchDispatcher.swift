@@ -114,6 +114,21 @@ struct SearchDispatcher {
             }
         }
 
+        // Person-shaped collapse (owner decision 2026-07-30): FreeREG's
+        // all-types umbrella (`.parish`) query is a strict SUPERSET of its
+        // typed baptism/marriage/burial queries — one person-per-county
+        // search returns every register entry for the name, and the
+        // 4-gate scorer discriminates client-side (mirroring how a human
+        // uses the site: one search, then read). When the umbrella target
+        // is present, the typed FreeREG targets are pure duplicate
+        // request-spend with an added narrow-window silent-miss failure
+        // mode (live find: the 1896 KEYWORTH marriage), so they collapse
+        // into it. A run without `.parish` (focused typed runs) keeps its
+        // typed FreeREG query.
+        if targets.contains(where: { $0.0.sourceID == "freereg" && $0.1 == .parish }) {
+            targets.removeAll { $0.0.sourceID == "freereg" && $0.1 != .parish }
+        }
+
         // T1-12 — collapse targets that would produce a wire-identical
         // query set. CWGC is the motivating case: its `.death` and
         // `.burial` record-type targets both build the same `.death` CWGC

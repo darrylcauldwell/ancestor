@@ -595,10 +595,16 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
             guard let rowRange = Range(rowMatch.range(at: 1), in: html) else { continue }
             let rowHTML = String(html[rowRange])
 
-            let cellMatches = cellRegex.matches(in: rowHTML, range: NSRange(rowHTML.startIndex..., in: rowHTML))
+            // <br> separates MULTIPLE PERSONS inside one cell on the live
+            // results table ("William Henry KEYWORTH<br>Emma GLADWIN" on a
+            // marriage row) — preserve the boundary as a newline before
+            // stripping tags so the name resolver can split people apart.
+            let brNormalisedRow = rowHTML.replacingOccurrences(
+                of: #"<br\s*/?>"#, with: "\n", options: [.regularExpression, .caseInsensitive])
+            let cellMatches = cellRegex.matches(in: brNormalisedRow, range: NSRange(brNormalisedRow.startIndex..., in: brNormalisedRow))
             let cells = cellMatches.compactMap { match -> String? in
-                guard let range = Range(match.range(at: 1), in: rowHTML) else { return nil }
-                return stripTags(String(rowHTML[range]))
+                guard let range = Range(match.range(at: 1), in: brNormalisedRow) else { return nil }
+                return stripTags(String(brNormalisedRow[range]))
             }
 
             guard !cells.isEmpty else { continue }
@@ -626,11 +632,26 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
                 detailURL = "\(baseURL)\(rowHTML[range])"
             }
 
-            // Build record
-            let date = row["date"] ?? ""
-            let parish = row["parish"] ?? ""
+            // Build record. Live results-table columns (verified against a
+            // captured 2026-07-30 results page): "Details | Person or
+            // persons | Record type | Event date | County | Place : Church
+            // : Register type" — the date and place keys are NOT the old
+            // "Date"/"Parish"; accept both generations.
+            let date = row["date"] ?? row["event date"] ?? ""
             let county = row["county"] ?? ""
             let type = row["record type"] ?? row["type"] ?? ""
+            var parish = row["parish"] ?? ""
+            var church: String?
+            var registerType: String?
+            if parish.isEmpty,
+               let compositeKey = row.keys.first(where: { $0.contains("place") && $0.contains("church") }),
+               let composite = row[compositeKey] {
+                // "Worksop : St John : Parish Register"
+                let parts = composite.split(separator: ":").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                if parts.count >= 1 { parish = parts[0] }
+                if parts.count >= 2, !parts[1].isEmpty { church = parts[1] }
+                if parts.count >= 3, !parts[2].isEmpty { registerType = parts[2] }
+            }
 
             // FT-17 — resolve name/surname/given from the site's own
             // columns where present; otherwise last-token-surname.
@@ -642,6 +663,18 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
             let eventYear = extractYear(from: date)
             let eventType = type.isEmpty ? recordType.rawValue : type.lowercased()
 
+            var raw = ["parish": parish, "county": county, "event_type": eventType, "date": date]
+            if let church { raw["church_name"] = church }
+            if let registerType { raw["register_type"] = registerType }
+            // A marriage row lists BOTH principals (<br>-separated) — keep
+            // the co-person(s) for the scorer/typed layer.
+            if let persons = row.keys.first(where: { $0.contains("person") }).flatMap({ row[$0] }) {
+                let personLines = persons.split(separator: "\n")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                let others = personLines.dropFirst()
+                if !others.isEmpty { raw["co_persons"] = others.joined(separator: "; ") }
+            }
             let common = RecordCommon(
                 id: stableRecordID(
                     detailURL: detailURL,
@@ -651,7 +684,7 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
                 sourceID: "freereg",
                 name: name, surname: surname, givenName: givenName,
                 detailURL: detailURL,
-                rawFields: ["parish": parish, "county": county, "event_type": eventType, "date": date]
+                rawFields: raw
             )
 
             records.append(.parish(ParishRecord(
@@ -682,7 +715,16 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
         let explicitGiven = ["forenames", "forename", "first name(s)", "first names", "first name", "given name"]
             .compactMap { row[$0] }
             .first { !$0.isEmpty }
-        let display = row["name"].flatMap { $0.isEmpty ? nil : $0 }
+        // Live results table names the column "Person or persons"; a
+        // marriage row carries BOTH principals newline-separated (from the
+        // <br> the cell extractor preserves) — the FIRST is the row's
+        // principal, the rest are co-persons (kept in rawFields upstream).
+        let personCell = row.keys.first { $0.contains("person") }.flatMap { row[$0] }
+        let firstPerson = personCell?
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty }
+        let display = row["name"].flatMap { $0.isEmpty ? nil : $0 } ?? firstPerson
 
         if let explicitSurname {
             let given: String? = explicitGiven ?? display.flatMap { d in
@@ -969,9 +1011,14 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
 
     nonisolated private static func stripTags(_ html: String) -> String {
         guard let regex = try? NSRegularExpression(pattern: "<[^>]+>") else { return html }
+        // Trim newlines as well as spaces — live ERB pads every cell with
+        // template newlines, and a whitespace-only trim leaves header keys
+        // like "\n  person or persons\n" that no exact lookup can match
+        // (the same failure class MyopicVicarParsing.stripTags had; live
+        // find 2026-07-30: "FreeREG: 0 of 2 results").
         return regex.stringByReplacingMatches(
             in: html, range: NSRange(html.startIndex..., in: html), withTemplate: ""
-        ).trimmingCharacters(in: .whitespaces)
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     nonisolated private static func extractYear(from dateStr: String) -> Int? {

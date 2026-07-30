@@ -78,19 +78,16 @@ struct FreeREGDispatchSelectionTests {
 
         let posts = freeREGPosts(client)
         let types = recordTypeValues(posts)
-        // Exactly TWO queries is CORRECT here (matching the live run):
-        // the typed marriage query and the all-types umbrella. The burial
-        // target is legitimately absent — William d.1943, and a 1941–45
-        // burial window lies entirely past FreeREG's 1900 coverage cap,
-        // so the dispatcher clamps it out rather than waste a volunteer
-        // request that cannot hit.
-        #expect(posts.count == 2,
-                "marriage + umbrella expected (burial coverage-clamped) — got \(posts.count): \(types)")
-        #expect(types.contains("ma"), "the typed marriage query must fire — it retrieves the 1896 GLADWIN marriage on the live site")
-        #expect(types.contains { $0 == nil || $0 == "" },
-                "the all-types umbrella must fire — it is the ONLY query that can surface the 1875 baptism under Adaptive (no .baptism target)")
-        #expect(!types.contains("bu"),
-                "a burial window wholly past 1900 must not reach FreeREG")
+        // Person-shaped collapse (2026-07-30): with the `.parish` umbrella
+        // among the targets, FreeREG gets exactly ONE query — the
+        // all-types person search whose results superset every typed
+        // parish query. Mirrors the human search flow that provably
+        // returns the 1875 baptism AND the 1896 marriage in one request.
+        #expect(posts.count == 1,
+                "one person-shaped umbrella query expected — got \(posts.count): \(types)")
+        let recordTypeField = types.first.flatMap { $0 }   // unwrap the double optional
+        #expect(recordTypeField == nil || recordTypeField == "",
+                "the single query must be the all-types umbrella (no record_type) — got \(String(describing: recordTypeField))")
     }
 
     @Test func marriageQueryCarriesTheSubjectIdentityShape() async {
