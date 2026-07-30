@@ -40,3 +40,11 @@ Three defects in `checkGeography`: it keys solely off the **tree-home** Chapman 
 ## Invariants
 
 Deterministic sandwich holds: no AI input anywhere in either fix. Verdicts only demote in the exclusivity pass. Geography changes widen only via the subject's own recorded places. Fall back to current behaviour whenever resolution declines. When in doubt, split.
+
+
+## As-built (2026-07-31, #DC0–#DC5)
+
+- **DC1+DC2** `6172a0e` — `RecordScorer.applyExclusivity` (slots, non-vacuous familyContext discriminator, demote-only, idempotent) + `ScoringGate.exclusivity` + wiring at the pipeline's pre-clustering assembly (confirmedFacts/leads are computed partitions of scoredRecords, so demotion reconciles everything) and in `FamilySearchHintRouting`. 9 corpus tests from the live specimens.
+- **DC3** — geography rebuilt per Fix B: `acceptedChapmanCodes(for:)` (home + subject's own region/death/burial places via ChapmanCodeResolver, declines skipped), hierarchy walk via `PlaceResolver.resolveDistrict` + `county(of:)` containment before any substring fallback, county/parish substring paths iterate the accepted set, and classify's `hasSoftFails` forgives unknown-district/no-location geography softFails ONLY under a genuine familyContext pass. 6 corpus tests (Worksop-NTT subject in DBY tree → pass; Chesterfield hierarchy → pass; Taunton/SOM → still demoted; unknown+family → fact; unknown alone → lead; foreign → impossible unchanged).
+- **DC4** — full suite: 3,454 tests / 369 suites, zero legitimate flips (sole failure = the documented MultiWindowAppState parallel flake, green isolated). The corpus-first constraint held: nothing outside the specimens' behaviour changed.
+- Known scope limits, deliberate: the pass runs at batch assembly, so mid-run adaptive anchoring still sees pre-pass facts (a full mid-run reflow was judged too invasive; the persisted result and everything downstream see post-pass verdicts). Persisted evidence from OLD runs keeps its stored verdicts — re-running research re-scores under the new rules.

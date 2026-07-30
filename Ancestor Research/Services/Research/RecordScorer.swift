@@ -144,7 +144,20 @@ nonisolated struct RecordScorer {
         // All gates pass with no softFails → fact.
         // All gates pass but has softFails (geography unknown-district /
         // family-context noise) → lead.
-        let hasSoftFails = gates.contains { $0.outcome == .softFail }
+        // Fix B.3 (DECISION_CORE_PAIR_SPEC) — a geography softFail that means
+        // "we don't KNOW where this is" (unknown district / no location
+        // data) does not demote a record whose familyContext gate scored a
+        // genuine match: family evidence outranks missing geo data. A WRONG
+        // place (non-local, foreign, catchment mismatch) still demotes.
+        let familyConfirmed = gates.contains { $0.gate == .familyContext && $0.outcome == .pass }
+        let hasSoftFails = gates.contains { gate in
+            guard gate.outcome == .softFail else { return false }
+            if gate.gate == .geography && familyConfirmed
+                && (gate.reason.hasPrefix("unknown district") || gate.reason == "no location data") {
+                return false
+            }
+            return true
+        }
 
         // #CPC-Change4 — bounded cross-profile elevation
         // (CROSS_PROFILE_CORROBORATION_SPEC Decision 10; RESEARCH_PIPELINE
@@ -1001,6 +1014,36 @@ nonisolated struct RecordScorer {
         }
     }
 
+    // MARK: - Subject research area (DECISION_CORE_PAIR_SPEC Fix B.1)
+
+    /// The subject's accepted counties: the tree's home Chapman code PLUS the
+    /// counties of the subject's OWN recorded places (birth region, death
+    /// location, burial). A Nottinghamshire-born subject in a Derbyshire-home
+    /// tree accepts both — their own home district no longer soft-fails.
+    /// Resolution declines are skipped, never guessed; no hardcoded regions.
+    static func acceptedChapmanCodes(for subject: ResearchSubject) -> Set<String> {
+        var codes: Set<String> = []
+        let home = subject.homeChapmanCode.trimmingCharacters(in: .whitespaces).uppercased()
+        if !home.isEmpty { codes.insert(home) }
+        var placeTexts: [String] = []
+        switch subject.region {
+        case .county(let text): placeTexts.append(text)
+        case .parish(let parish, let county): placeTexts.append(parish); placeTexts.append(county)
+        default: break
+        }
+        if let deathLocation = subject.deathLocation { placeTexts.append(deathLocation) }
+        if let burialPlace = subject.burialPlace { placeTexts.append(burialPlace) }
+        for text in placeTexts {
+            if let code = ChapmanCodeResolver.chapmanCode(forPlaceText: text) {
+                codes.insert(code.uppercased())
+            }
+        }
+        if let burialChapman = subject.burialChapmanCode, !burialChapman.isEmpty {
+            codes.insert(burialChapman.uppercased())
+        }
+        return codes
+    }
+
     // MARK: - Gate 3: Geography
 
     private static func checkGeography(record: SourceRecord, subject: ResearchSubject) -> GateResult {
@@ -1111,12 +1154,15 @@ nonisolated struct RecordScorer {
             // directions so the full county ("Derbyshire") and the common
             // census short form / county town ("Derby", "Derbys") both pass,
             // for whichever county the subject actually belongs to.
-            let homeCounty = Self.countyName(forChapman: subject.homeChapmanCode)
-            if !homeCounty.isEmpty {
+            // Fix B.1 — every accepted county (home + the subject's own
+            // places), not just the tree home.
+            for code in Self.acceptedChapmanCodes(for: subject) {
+                let acceptedCounty = Self.countyName(forChapman: code)
+                guard !acceptedCounty.isEmpty else { continue }
                 let place = county.lowercased()
-                let home = homeCounty.lowercased()
-                if place.contains(home) || (place.count >= 5 && home.contains(place)) {
-                    return GateResult(gate: .geography, outcome: .pass, reason: homeCounty)
+                let accepted = acceptedCounty.lowercased()
+                if place.contains(accepted) || (place.count >= 5 && accepted.contains(place)) {
+                    return GateResult(gate: .geography, outcome: .pass, reason: acceptedCounty)
                 }
             }
             // Slice 8 — parish-level lookup. A census record reporting
@@ -1132,7 +1178,8 @@ nonisolated struct RecordScorer {
                     .split(separator: ",", maxSplits: 1, omittingEmptySubsequences: true)
                     .first
                     .map { String($0).trimmingCharacters(in: .whitespaces) } ?? county
-                if ScoringRules.isLocalParish(primaryToken, forHomeChapman: subject.homeChapmanCode) {
+                for code in Self.acceptedChapmanCodes(for: subject)
+                where ScoringRules.isLocalParish(primaryToken, forHomeChapman: code) {
                     return GateResult(
                         gate: .geography, outcome: .pass,
                         reason: "parish \(primaryToken) is in research-area district"
@@ -1196,12 +1243,30 @@ nonisolated struct RecordScorer {
             return foreignGate("non-UK district", districtClean)
         }
 
-        if let nonLocal = ScoringRules.isNonLocal(districtClean, forHomeChapman: subject.homeChapmanCode) {
-            return GateResult(gate: .geography, outcome: .softFail, reason: "\(districtClean) is in \(nonLocal), not local")
+        let acceptedCodes = Self.acceptedChapmanCodes(for: subject)
+
+        // Fix B.2 — hierarchy + validity walk FIRST: resolve the district to
+        // a PlaceAuthority node and decide by containment (the district's
+        // county ∈ the subject's accepted set). Substring/curated fallback
+        // only when resolution declines, so unresolvable text keeps today's
+        // behaviour exactly.
+        if let districtID = PlaceResolver.resolveDistrict(name: districtClean),
+           let countyNode = PlaceAuthorityRegistry.shared.places.county(of: districtID) {
+            if acceptedCodes.contains(countyNode.id.uppercased()) {
+                return GateResult(gate: .geography, outcome: .pass,
+                    reason: "\(districtClean) is in \(countyNode.name) — the subject's research area")
+            }
+            return GateResult(gate: .geography, outcome: .softFail,
+                reason: "\(districtClean) is in \(countyNode.name), outside the subject's counties")
         }
 
-        if ScoringRules.isLocalDistrict(districtClean, forHomeChapman: subject.homeChapmanCode) {
-            return GateResult(gate: .geography, outcome: .pass, reason: "\(districtClean) is in research area")
+        for code in acceptedCodes {
+            if ScoringRules.isLocalDistrict(districtClean, forHomeChapman: code) {
+                return GateResult(gate: .geography, outcome: .pass, reason: "\(districtClean) is in research area")
+            }
+        }
+        if let nonLocal = ScoringRules.isNonLocal(districtClean, forHomeChapman: subject.homeChapmanCode) {
+            return GateResult(gate: .geography, outcome: .softFail, reason: "\(districtClean) is in \(nonLocal), not local")
         }
 
         return GateResult(gate: .geography, outcome: .softFail, reason: "unknown district: \(districtClean)")

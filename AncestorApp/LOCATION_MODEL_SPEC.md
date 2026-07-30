@@ -1,6 +1,6 @@
 # LOCATION_MODEL_SPEC
 
-**Status:** Stages 0–2 SHIPPED. Stage 3 (decision-core geography-gate rebuild) DEFERRED to a future focused session (2026-07-27 decision — land the safe primitives, give the sandwich change its own test-first session). Stage 4 gated on FS production-verify + village→district data.
+**Status:** Stages 0–3 SHIPPED. Stage 3 (decision-core geography-gate rebuild) SHIPPED 2026-07-31 as Fix B of `DECISION_CORE_PAIR_SPEC.md` (#DC3) — subject-derived accepted-county set, hierarchy+validity walk with substring fallback, absence-of-knowledge never vetoes family-confirmed records. Stage 4 gated on FS production-verify + village→district data.
 **Origin:** the 2026-07-25 location audit + the 2026-07-27 "full pass" decision.
 
 ## Problem

@@ -198,3 +198,116 @@ struct DecisionCorePairExclusivityTests {
         #expect(demoted?.gates.contains { $0.gate == .name && $0.outcome == .pass } == true)
     }
 }
+
+/// DECISION_CORE_PAIR_SPEC Fix B — the geography gate derives the research
+/// area from the SUBJECT's own places (not just tree home), walks the place
+/// hierarchy when the district resolves, and never lets ABSENCE of geographic
+/// knowledge veto a family-confirmed record.
+struct DecisionCorePairGeographyTests {
+
+    private func common(_ id: String, surname: String = "KEYWORTH", given: String = "WILLIAM") -> RecordCommon {
+        RecordCommon(id: id, sourceID: "freebmd", name: nil,
+                     surname: surname, givenName: given, detailURL: nil, rawFields: [:])
+    }
+
+    /// The Worksop specimen: a Nottinghamshire-born subject in a
+    /// Derbyshire-home tree.
+    private func nottsSubjectInDerbyshireTree() -> ResearchSubject {
+        var s = ResearchSubject(
+            surname: "KEYWORTH", givenName: "WILLIAM",
+            birthYearFrom: 1873, birthYearTo: 1877,
+            gender: .male, region: .county("Worksop, Nottinghamshire"), mode: .extend)
+        s.homeChapmanCode = "DBY"
+        return s
+    }
+
+    @Test func subjectsOwnCountyDistrictPassesDespiteForeignTreeHome() {
+        // Worksop is NTT; tree home is DBY. Pre-fix: softFail "unknown
+        // district: Worksop" → the subject's own home records demoted.
+        let record = SourceRecord.birth(BirthRecord(
+            common: common("worksop"), birthYear: 1875, birthDate: nil,
+            birthPlace: nil, quarter: nil, district: "Worksop",
+            volume: "7b", page: "23", mothersMaidenName: nil))
+        let scored = RecordScorer.classify(
+            record: record, subject: nottsSubjectInDerbyshireTree(), searchType: .birth)
+        #expect(scored.gates.first { $0.gate == .geography }?.outcome == .pass)
+        #expect(scored.verdict == .fact)
+    }
+
+    @Test func hierarchyResolvedDistrictInHomeCountyPasses() {
+        // Chesterfield IS Derbyshire — the live WHK specimen soft-failed it
+        // as "unknown district". The hierarchy walk settles it.
+        var subject = ResearchSubject(
+            surname: "KEYWORTH", givenName: "WILLIAM",
+            birthYearFrom: 1873, birthYearTo: 1877,
+            gender: .male, region: .county("Derbyshire"), mode: .extend)
+        subject.homeChapmanCode = "DBY"
+        let record = SourceRecord.birth(BirthRecord(
+            common: common("chesterfield"), birthYear: 1875, birthDate: nil,
+            birthPlace: nil, quarter: nil, district: "Chesterfield",
+            volume: "7b", page: "600", mothersMaidenName: nil))
+        let scored = RecordScorer.classify(record: record, subject: subject, searchType: .birth)
+        #expect(scored.gates.first { $0.gate == .geography }?.outcome == .pass)
+    }
+
+    @Test func resolvedDistrictOutsideAcceptedCountiesStaysDemoted() {
+        // Taunton resolves to Somerset — a real place that is genuinely NOT
+        // in the subject's area must still demote (softFail → lead).
+        var subject = ResearchSubject(
+            surname: "KEYWORTH", givenName: "WILLIAM",
+            birthYearFrom: 1873, birthYearTo: 1877,
+            gender: .male, region: .county("Derbyshire"), mode: .extend)
+        subject.homeChapmanCode = "DBY"
+        let record = SourceRecord.birth(BirthRecord(
+            common: common("taunton"), birthYear: 1875, birthDate: nil,
+            birthPlace: nil, quarter: nil, district: "Taunton",
+            volume: "5c", page: "1", mothersMaidenName: nil))
+        let scored = RecordScorer.classify(record: record, subject: subject, searchType: .birth)
+        #expect(scored.gates.first { $0.gate == .geography }?.outcome == .softFail)
+        #expect(scored.verdict == .lead)
+    }
+
+    @Test func unknownDistrictWithFamilyConfirmationReachesFact() {
+        // Absence of geographic knowledge must not veto a record the family
+        // gate confirmed (Fix B.3) — the WHK-1909 shape.
+        var subject = nottsSubjectInDerbyshireTree()
+        subject.deathYearFrom = 1943
+        subject.deathYearTo = 1943
+        subject.familyContext = FamilyContext(
+            spouseName: "EMMA GLADWIN", spouseSurname: nil, spouseGivenName: nil,
+            spouseFatherSurname: nil, childNames: [],
+            fatherName: nil, fatherSurname: nil, fatherGivenName: nil,
+            motherName: nil, motherSurname: nil, motherGivenName: nil)
+        let record = SourceRecord.marriage(MarriageRecord(
+            common: common("m1896"), marriageYear: 1896, marriageDate: nil,
+            marriagePlace: nil, quarter: nil, district: "Xxfordshire Hundred",
+            volume: "7b", page: "74", spouseName: "EMMA GLADWIN"))
+        let scored = RecordScorer.classify(record: record, subject: subject, searchType: .marriage)
+        #expect(scored.gates.first { $0.gate == .geography }?.reason.hasPrefix("unknown district") == true)
+        #expect(scored.gates.first { $0.gate == .familyContext }?.outcome == .pass)
+        #expect(scored.verdict == .fact)
+    }
+
+    @Test func unknownDistrictWithoutFamilyConfirmationStaysLead() {
+        var subject = nottsSubjectInDerbyshireTree()
+        let record = SourceRecord.birth(BirthRecord(
+            common: common("mystery"), birthYear: 1875, birthDate: nil,
+            birthPlace: nil, quarter: nil, district: "Xxfordshire Hundred",
+            volume: "7b", page: "23", mothersMaidenName: nil))
+        let scored = RecordScorer.classify(record: record, subject: subject, searchType: .birth)
+        #expect(scored.verdict == .lead)
+    }
+
+    @Test func foreignRecordsStillFailUnchanged() {
+        var subject = nottsSubjectInDerbyshireTree()
+        let record = SourceRecord.birth(BirthRecord(
+            common: RecordCommon(
+                id: "us", sourceID: "familysearch", name: nil,
+                surname: "KEYWORTH", givenName: "WILLIAM", detailURL: nil,
+                rawFields: ["collection.title": "United States Census, 1920"]),
+            birthYear: 1875, birthDate: nil, birthPlace: nil, quarter: nil,
+            district: nil, volume: nil, page: nil, mothersMaidenName: nil))
+        let scored = RecordScorer.classify(record: record, subject: subject, searchType: .birth)
+        #expect(scored.verdict == .impossible)
+    }
+}
