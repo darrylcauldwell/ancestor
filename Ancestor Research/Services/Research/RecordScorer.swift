@@ -687,19 +687,36 @@ nonisolated struct RecordScorer {
         }
 
         let deathYear = subject.deathYearFrom
+
+        // Parish records carry their own EVENT kind — a parish MARRIAGE
+        // must be date-checked as a marriage and a parish BURIAL as a
+        // death-shape record, not against the birth window. Every parish
+        // event was previously birth-dated, so the subject's own 1896
+        // marriage (age 21) scored impossible while a namesake's infant
+        // burial passed (live find 2026-07-30, first FreeREG run).
+        // Baptism/christening and unknown parish events stay on the
+        // birth window — a baptism year approximates the birth year.
+        let effectiveType: RecordType = {
+            guard case .parish(let parish) = record else { return searchType }
+            let event = parish.eventType?.lowercased() ?? ""
+            if event.contains("marria") { return .marriage }
+            if event.contains("buri") { return .burial }
+            return searchType
+        }()
+
         // Validate against the *low* bound to mirror Python parity — pre-
         // window the engine used birthYearFrom as the single anchor, so
         // `validateRecord` was always called with that value. Keeping
         // parity here means existing IMPOSSIBLE rules (married before
         // birth, died before birth, etc.) still fire.
-        let validation = ScoringRules.validateRecord(recordYear: recordYear, birthYear: birthLow, deathYear: deathYear, recordType: searchType.rawValue)
+        let validation = ScoringRules.validateRecord(recordYear: recordYear, birthYear: birthLow, deathYear: deathYear, recordType: effectiveType.rawValue)
         if validation.hasPrefix("impossible") {
             return GateResult(gate: .date, outcome: .impossible, reason: validation)
         }
 
         let windowLabel = birthLow == birthHigh ? "~\(birthLow)" : "\(birthLow)–\(birthHigh)"
 
-        switch searchType {
+        switch effectiveType {
         case .death, .probate, .burial:
             // Probate/burial records carry a death year too (per
             // `extractYear` they return `deathYear`), so the death-axis
