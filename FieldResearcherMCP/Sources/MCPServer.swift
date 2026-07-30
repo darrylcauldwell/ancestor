@@ -103,7 +103,14 @@ actor MCPHandler {
             } catch {
                 if isNotification { continue }
                 let code: Int
-                if case MCPError.methodNotFound = error { code = -32601 } else { code = -32603 }
+                // MC1 — a caller mistake must not read as a server crash:
+                // invalid params get their proper JSON-RPC code (-32602)
+                // instead of collapsing into -32603 "internal error".
+                switch error {
+                case MCPError.methodNotFound: code = -32601
+                case MCPError.invalidParams, MCPError.toolNotFound, MCPError.resourceNotFound: code = -32602
+                default: code = -32603
+                }
                 envelope = [
                     "jsonrpc": "2.0",
                     "id": id as Any,
@@ -487,7 +494,7 @@ actor MCPHandler {
                 ),
                 tool(
                     name: "get_scored_records",
-                    description: "Return the per-record verdict and identifying fields for records the pipeline scored for a profile, read from evidence_records. Useful when get_profile's aggregate counts aren't enough — e.g. \"which of these marriages landed as .fact vs .lead?\". Surfaces the salient identifying fields (year, district, vol/page, surname, plus marriage-specific partnerSurnameFromSamePage) alongside the verdict and citation. Note: evidence_records carries no per-gate breakdown, so which of the four gates held a record back is not available here.",
+                    description: "Return the per-record verdict and identifying fields for records the pipeline scored for a profile, read from evidence_records. Useful when get_profile's aggregate counts aren't enough — e.g. \"which of these marriages landed as .fact vs .lead?\". Surfaces the salient identifying fields (year, district, vol/page, surname, plus marriage-specific partnerSurnameFromSamePage) alongside the verdict and citation. Also surfaces user_status (unreviewed | discarded | saved_as_lead — respect prior human verdicts: never re-propose discarded records) and the per-gate breakdown (gates object, when the app has stored it) showing which of the four gates (name / date / geography / family) held a record back.",
                     properties: [
                         "profile_id": ["type": "string", "description": "Profile ID to look up scored records for"],
                         "record_type": ["type": "string", "description": "Optional filter: birth | death | marriage | census | burial | military | probate | parish | pedigree"],
@@ -689,8 +696,21 @@ actor MCPHandler {
                         ["name": "role", "description": "father or mother", "required": true],
                     ],
                 ],
+                [
+                    "name": "research_lifecycle",
+                    "description": "Walk the full research loop for a profile: trigger a run, poll it, read back what was found, and summarise for the user",
+                    "arguments": [
+                        ["name": "profile_id", "description": "Profile ID to research", "required": true],
+                    ],
+                ],
             ]
         ]
+    }
+
+    /// String projection of `getPrompt` for tests (Sendable across the
+    /// actor boundary — same pattern as the *ResponseText helpers).
+    func getPromptResponseText(_ params: [String: Any]) -> String {
+        Self.jsonString(getPrompt(params: params))
     }
 
     func getPrompt(params: [String: Any]) -> [String: Any] {
@@ -730,6 +750,66 @@ actor MCPHandler {
                     ],
                 ],
             ]
+        case "find_ancestor":
+            // MC1 — was advertised in prompts/list but unimplemented: every
+            // request silently returned {"messages": []}.
+            let profileID = args["profile_id"] as? String ?? ""
+            let role = (args["role"] as? String ?? "parent").lowercased()
+            let context = (try? profileDetail(id: profileID)) ?? "{}"
+            return [
+                "messages": [
+                    [
+                        "role": "user",
+                        "content": [
+                            "type": "text",
+                            "text": """
+                            This person is missing their \(role). Here is everything known about them, \
+                            including leads already gathered and searches that came back empty:
+
+                            \(context)
+
+                            Work out who the \(role) most plausibly was:
+                            1. Check the leads list first — parent-inferred leads (from birth-index \
+                            mother's-maiden-name columns) and census household leads (Head/Wife of the \
+                            subject's childhood household) are the strongest starting points.
+                            2. Check confirmed facts for a mother's maiden name on the subject.
+                            3. If the evidence is thin, trigger kick_off_research (mode "discover") on the \
+                            profile, poll get_run_status, then re-read the leads.
+                            4. Present the candidate(s) with your reasoning and the supporting citations. \
+                            Do NOT assert a parent as fact — candidates are reviewed and applied by the \
+                            user in the app.
+                            """,
+                        ],
+                    ],
+                ],
+            ]
+        case "research_lifecycle":
+            let profileID = args["profile_id"] as? String ?? ""
+            return [
+                "messages": [
+                    [
+                        "role": "user",
+                        "content": [
+                            "type": "text",
+                            "text": """
+                            Run the research loop for profile \(profileID) and report what it finds:
+                            1. get_profile — capture what is currently known (facts, leads, negative searches).
+                            2. kick_off_research with profile_id "\(profileID)" (default mode/scope unless the \
+                            user asked otherwise). Note the request_id. The Ancestor Research app must be \
+                            RUNNING with this project open — if the request stays queued for more than ~30 \
+                            seconds, tell the user to open the app.
+                            3. Poll get_run_status until completed or failed.
+                            4. On completion: get_research_result for the run envelope, then \
+                            get_scored_records and a fresh get_profile to see what changed.
+                            5. Summarise NEW findings only (compare against step 1): new facts by verdict, \
+                            new leads worth attention, and searches that came back empty. Anything that \
+                            changes the tree is reviewed and applied by the user in the app — say so when \
+                            relevant.
+                            """,
+                        ],
+                    ],
+                ],
+            ]
         default:
             return ["messages": []]
         }
@@ -763,6 +843,7 @@ actor MCPHandler {
                        death_date_original, death_date_earliest,
                        birth_location
                 FROM profiles
+                WHERE is_deleted = 0
                 ORDER BY
                     CASE WHEN birth_date_original IS NULL THEN 0 ELSE 1 END +
                     CASE WHEN death_date_original IS NULL THEN 0 ELSE 1 END +
@@ -792,12 +873,18 @@ actor MCPHandler {
 
     func allProfiles() throws -> String {
         try db.read { db in
+            // MC1: soft-deleted rows were leaking into this list resource
+            // (get_profile filters them; the list didn't) — an assistant would
+            // confidently discuss deleted people. MC2: names split into
+            // first/last (surname analytics need them separate) +
+            // death_location added. Compact JSON — this is the set-query
+            // workhorse and pretty-printing ~doubles its token cost.
             let rows = try Row.fetchAll(db, sql: """
                 SELECT id, first_name, last_name, gender,
                        birth_date_original, birth_date_earliest, birth_date_latest,
                        death_date_original, death_date_earliest, death_date_latest,
-                       birth_location, bio
-                FROM profiles ORDER BY last_name, first_name
+                       birth_location, death_location, bio
+                FROM profiles WHERE is_deleted = 0 ORDER BY last_name, first_name
                 """)
 
             let profiles = rows.map { row -> [String: Any] in
@@ -805,16 +892,19 @@ actor MCPHandler {
                     "id": row["id"] as String,
                     "name": "\(row["first_name"] as String? ?? "") \(row["last_name"] as String? ?? "")",
                 ]
+                if let v: String = row["first_name"] { p["first_name"] = v }
+                if let v: String = row["last_name"] { p["last_name"] = v }
                 if let v: String = row["birth_date_original"] { p["birth"] = v }
                 if let v: Int = row["birth_date_earliest"] { p["birth_year"] = v }
                 if let v: String = row["death_date_original"] { p["death"] = v }
                 if let v: Int = row["death_date_earliest"] { p["death_year"] = v }
                 if let v: String = row["birth_location"] { p["location"] = v }
+                if let v: String = row["death_location"] { p["death_location"] = v }
                 if let v: String = row["gender"] { p["gender"] = v }
                 return p
             }
 
-            let data = try JSONSerialization.data(withJSONObject: profiles, options: .prettyPrinted)
+            let data = try JSONSerialization.data(withJSONObject: profiles, options: [.sortedKeys])
             return String(data: data, encoding: .utf8) ?? "[]"
         }
     }
@@ -991,14 +1081,27 @@ actor MCPHandler {
     }
 
     func searchProfiles(query: String) throws -> String {
-        let q = "%\(query)%"
+        // MC1 — tokenised AND-matching. The old shape wrapped the WHOLE query
+        // in one %…% and tested it against first_name OR last_name separately,
+        // so any multi-token query ("William Henry Keyworth") returned [].
+        // Each token now matches anywhere in the concatenated name, which also
+        // covers middle names and the married surname (UK convention: many
+        // women are only findable by it).
+        let tokens = query.split(whereSeparator: \.isWhitespace).map(String.init).filter { !$0.isEmpty }
+        guard !tokens.isEmpty else { return "[]" }
+        let nameExpr = """
+            (COALESCE(first_name,'') || ' ' || COALESCE(middle_name,'') || ' ' || \
+            COALESCE(last_name,'') || ' ' || COALESCE(married_surname,''))
+            """
+        let clause = tokens.map { _ in "\(nameExpr) LIKE ?" }.joined(separator: " AND ")
+        let arguments = StatementArguments(tokens.map { "%\($0)%" })
         return try db.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT id, first_name, last_name, birth_date_original, death_date_original, birth_location
                 FROM profiles
-                WHERE (first_name LIKE ? OR last_name LIKE ?) AND is_deleted = 0
+                WHERE \(clause) AND is_deleted = 0
                 ORDER BY last_name, first_name
-                """, arguments: [q, q])
+                """, arguments: arguments)
 
             let results = rows.map { row -> [String: Any] in
                 var p: [String: Any] = [
@@ -2150,9 +2253,9 @@ actor MCPHandler {
     /// writes after each run. The salient identifying fields come out of
     /// the stored `record_json`; for marriages the `marriage` block surfaces
     /// `partnerSurnameFromSamePage` alongside vol/page so same-page-couple
-    /// debugging is trivial. NOTE: `evidence_records` carries no per-gate
-    /// columns, so the 4-gate (name / date / geography / family) breakdown
-    /// is not available here.
+    /// debugging is trivial. `gates_json` (v44) carries the per-gate
+    /// breakdown when present, and `user_status` (v16) carries the human's
+    /// prior verdict on the record — both are surfaced.
     ///
     /// `record_type` and `verdict` are optional server-side filters; the
     /// limit clamps to [1, 500] (default 50). Rows return newest-first.
@@ -2174,7 +2277,9 @@ actor MCPHandler {
                        record_json,
                        citation_full,
                        citation_url,
-                       scored_at
+                       scored_at,
+                       user_status,
+                       gates_json
                 FROM evidence_records
                 WHERE profile_id = ?
                 """
@@ -2197,10 +2302,9 @@ actor MCPHandler {
         return ["content": [["type": "text", "text": json]]]
     }
 
-    /// Build the JSON payload for one `evidence_records` row. `evidence_records`
-    /// has no per-gate columns (that breakdown only ever lived on the
-    /// never-written `scored_records` table), so this surfaces the record's
-    /// verdict, identity, and citation — not a gate breakdown.
+    /// Build the JSON payload for one `evidence_records` row: verdict,
+    /// identity, citation, the human's prior `user_status`, and the stored
+    /// per-gate breakdown (`gates_json`, v44) when present.
     private static func scoredRecordPayload(row: Row) -> [String: Any] {
         var payload: [String: Any] = [
             "evidence_record_id": row["id"] as String? ?? "",
@@ -2210,6 +2314,12 @@ actor MCPHandler {
             payload["scored_at"] = ISO8601DateFormatter().string(from: scoredAt)
         }
         if let t: String = row["record_type"] { payload["record_type"] = t }
+        if let u: String = row["user_status"] { payload["user_status"] = u }
+        if let g: String = row["gates_json"], !g.isEmpty,
+           let gatesData = g.data(using: .utf8),
+           let gates = try? JSONSerialization.jsonObject(with: gatesData) {
+            payload["gates"] = gates
+        }
         if let s: String = row["source_id"] { payload["source_id"] = s }
         if let sr: String = row["source_record_id"] { payload["source_record_id"] = sr }
         if let c: String = row["citation_full"], !c.isEmpty { payload["citation_full"] = c }

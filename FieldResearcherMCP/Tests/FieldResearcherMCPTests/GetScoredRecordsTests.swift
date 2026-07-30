@@ -24,7 +24,7 @@ struct GetScoredRecordsTests {
                 CREATE TABLE evidence_records (
                     id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, source_id TEXT NOT NULL,
                     source_record_id TEXT NOT NULL, record_type TEXT NOT NULL, verdict TEXT NOT NULL,
-                    record_json TEXT NOT NULL, citation_full TEXT, citation_url TEXT, scored_at DATETIME NOT NULL)
+                    record_json TEXT NOT NULL, citation_full TEXT, citation_url TEXT, scored_at DATETIME NOT NULL, user_status TEXT NOT NULL DEFAULT 'unreviewed', gates_json TEXT)
                 """)
             try db.execute(sql: "INSERT INTO project_meta (id, name, source_kind, source_value, created_at) VALUES (?,'T','manual','',?)", arguments: [UUID().uuidString, Date()])
         }
