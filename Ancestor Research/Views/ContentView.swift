@@ -25,7 +25,7 @@ struct ContentView: View {
             }
             Button("Cancel", role: .cancel) { appState.familySearchSignInPrompt = false }
         } message: {
-            Text("FamilySearch hints need you to be signed in. Open Settings ▸ FamilySearch to sign in, then try again.")
+            Text("This action needs a FamilySearch sign-in. Open Settings ▸ FamilySearch to sign in, then try again.")
         }
         .alert("Success", isPresented: .constant(appState.successMessage != nil)) {
             // For fixes that add a research-unlocking field (married surname,
@@ -117,6 +117,9 @@ struct MainView: View {
     @State private var showingExporter = false
     @State private var showingReportPicker = false
     @State private var showingExportOptions = false
+    /// WL5 — FamilySearch User Tree upload wizard (.sheet(item:) per
+    /// feedback_sheet_isPresented_race).
+    @State private var fsUploadContext: FamilySearchUploadContext?
     /// User preference for the M14 §7.15.2 sensitive-filter toggle, persisted
     /// across launches via AppStorage so repeat exports remember the choice.
     @AppStorage("excludeSensitiveOnExport") private var excludeSensitiveOnExport: Bool = false
@@ -200,10 +203,28 @@ struct MainView: View {
                         presentHTMLExport()
                     }
                     .disabled(appState.snapshot.profiles.isEmpty)
+                    Divider()
+                    Button("Upload Tree to FamilySearch…") {
+                        guard let db = appState.currentDatabase else { return }
+                        Task {
+                            if await FamilySearchTokenStore.shared.validAccessToken(environment: .beta) != nil {
+                                fsUploadContext = FamilySearchUploadContext(
+                                    database: db,
+                                    suggestedName: appState.currentProject?.name ?? "Family Tree")
+                            } else {
+                                appState.familySearchSignInPrompt = true
+                            }
+                        }
+                    }
+                    .disabled(appState.snapshot.profiles.isEmpty)
                 } label: {
                     Label("Actions", systemImage: "ellipsis.circle")
                 }
             }
+        }
+        .sheet(item: $fsUploadContext) { context in
+            FamilySearchUploadSheet(model: FamilySearchUploadModel(
+                database: context.database, suggestedName: context.suggestedName))
         }
         .sheet(isPresented: $showingExportOptions) {
             GEDCOMExportOptionsSheet(
