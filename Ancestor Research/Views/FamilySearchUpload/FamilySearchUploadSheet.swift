@@ -65,6 +65,21 @@ final class FamilySearchUploadModel {
                 snapshot: snapshot, relationshipCitations: relationshipCitations, config: config)
             if startingProfileID == nil { startingProfileID = plan?.persons.first?.profileID }
             phase = .reviewing
+            // Session pre-flight. Token expiry is server-arbitrated (the app
+            // never guesses locally), so a stale session passes the menu's
+            // token gate — the definitive answer is one cheap authenticated
+            // GET. A dead session prompts sign-in NOW, not after Upload.
+            Task { [weak self] in
+                switch await FamilySearchConnection.verify() {
+                case .notSignedIn:
+                    self?.signInNeeded = true
+                case .failed(let status, _) where status == 401 || status == 403:
+                    self?.signInNeeded = true
+                default:
+                    break   // connected, or a transient network failure —
+                            // the upload path surfaces the latter itself
+                }
+            }
         } catch {
             phase = .failed("Could not prepare the upload: \(error.localizedDescription)")
         }
