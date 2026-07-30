@@ -59,6 +59,35 @@ struct ChapmanCodeResolverTests {
         #expect(ChapmanCodeResolver.chapmanCode(forPlaceText: "Worksop, Nottinghamshire, England") == "NTT")
     }
 
+    /// 2026-07-30 catalogue audit: 119 of 1,121 districts carried a wrong
+    /// county (the Worksop failure class — many are cross-border unions
+    /// mis-attributed by the original enrichment). Full verified list in
+    /// the audit record; this table pins a geographically-diverse sample
+    /// so a catalogue regeneration can't silently reintroduce the class.
+    @Test func auditedDistrictAttributionsHold() {
+        let expected: [(district: String, chapman: String)] = [
+            ("Basford", "NTT"),        // was DBY — same border as Worksop
+            ("Bingham", "NTT"),        // was LEI
+            ("Croydon", "SRY"),        // was KEN
+            ("Kendal", "WES"),         // was LAN
+            ("Huntingdon", "HUN"),     // was CAM
+            ("Taunton", "SOM"),        // was DEV
+            ("Wolverhampton", "STS"),  // was SAL
+            ("Banbury", "OXF"),        // was GLS (cross-border union)
+            ("Basingstoke", "HAM"),    // was BRK
+            ("Bedminster", "SOM"),     // was GLS
+            ("Goole", "WRY"),          // was ERY
+            ("Uppingham", "RUT"),      // was LEI
+            ("Wrexham", "DEN"),        // was CHS
+            ("Ynys Mon", "AGY"),       // was CAE
+            ("Edmonton", "MDX"),       // was ESS
+        ]
+        for (district, chapman) in expected {
+            #expect(ChapmanCodeResolver.chapmanCode(forPlaceText: district) == chapman,
+                    "\(district) must resolve to \(chapman)")
+        }
+    }
+
     // MARK: - Delegation: the two wrappers now agree
 
     @Test func researchSubjectAndConflictDetectorWrappersAgree() {

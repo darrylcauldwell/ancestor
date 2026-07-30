@@ -68,7 +68,7 @@
   {
     "name": "Abergavenny",
     "code": "390",
-    "chapmanCode": "HEF",
+    "chapmanCode": "MON",
     "startYear": null,
     "endYear": 1958,
     "parishes": [
@@ -146,7 +146,7 @@
       "Lower Vaenor",
       "Melindwr",
       "Parcel Canol",
-      "Rh\u00f4stie",
+      "Rhôstie",
       "Tirymynach",
       "Trefeirig",
       "Uchandre",
@@ -380,11 +380,11 @@
     "parishes": [
       "Abergele Rural",
       "Abergele Urban",
-      "Betws yn Rh\u00f4s",
+      "Betws yn Rhôs",
       "Bylchau",
       "Cefn",
-      "Llandrillo yn Rh\u00f4s",
-      "Llanelian yn Rh\u00f4s",
+      "Llandrillo yn Rhôs",
+      "Llanelian yn Rhôs",
       "Llanfair Talhaiarn",
       "Llannefydd",
       "Llansantffraid Glan Conway",
@@ -610,7 +610,7 @@
   {
     "name": "Alyn & Deeside",
     "code": "405",
-    "chapmanCode": "DEN",
+    "chapmanCode": "FLN",
     "startYear": 1974,
     "endYear": 1996,
     "parishes": [
@@ -898,7 +898,7 @@
       "Llanallgo",
       "Llanbabo",
       "Llanbadrig",
-      "Llanbedrg\u00f4ch",
+      "Llanbedrgôch",
       "Llanbeulan",
       "Llanddeusant",
       "Llanddyfnan",
@@ -932,12 +932,12 @@
       "Llanynghenedl",
       "Llechcynfarwydd",
       "Llechylched",
-      "Penrh\u00f4s Lligwy",
+      "Penrhôs Lligwy",
       "Pentraeth",
       "Rhodogeidio",
       "Rhosbeirio",
       "Rhoscolyn",
-      "Rh\u00f4sybol",
+      "Rhôsybol",
       "Trefdraeth",
       "Tregaian",
       "Trewalchmai",
@@ -984,7 +984,7 @@
       "Llanallgo",
       "Llanbabo",
       "Llanbadrig",
-      "Llanbedrg\u00f4ch",
+      "Llanbedrgôch",
       "Llanbeulan",
       "Llanddeusant",
       "Llanddyfnan",
@@ -1018,12 +1018,12 @@
       "Llanynghenedl",
       "Llechcynfarwydd",
       "Llechylched",
-      "Penrh\u00f4s Lligwy",
+      "Penrhôs Lligwy",
       "Pentraeth",
       "Rhodogeidio",
       "Rhosbeirio",
       "Rhoscolyn",
-      "Rh\u00f4sybol",
+      "Rhôsybol",
       "Trefdraeth",
       "Tregaian",
       "Trewalchmai",
@@ -1092,10 +1092,10 @@
       "Llechcynfarwydd",
       "Newborough",
       "Penmynydd",
-      "Penrh\u00f4s Lligwy",
+      "Penrhôs Lligwy",
       "Pentraeth",
       "Rhodogeidio",
-      "Rh\u00f4sybol",
+      "Rhôsybol",
       "Trefdraeth",
       "Tregaian"
     ]
@@ -1176,7 +1176,7 @@
   {
     "name": "Ardudwy",
     "code": "417",
-    "chapmanCode": "CAE",
+    "chapmanCode": "MER",
     "startYear": 1974,
     "endYear": null,
     "parishes": [
@@ -1664,7 +1664,7 @@
   {
     "name": "Atherstone",
     "code": "428",
-    "chapmanCode": "LEI",
+    "chapmanCode": "WAR",
     "startYear": null,
     "endYear": 1974,
     "parishes": [
@@ -2243,7 +2243,7 @@
   {
     "name": "Banbury",
     "code": "693",
-    "chapmanCode": "GLS",
+    "chapmanCode": "OXF",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -2313,7 +2313,7 @@
   {
     "name": "Bangor",
     "code": "694",
-    "chapmanCode": "AGY",
+    "chapmanCode": "CAE",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -2774,7 +2774,7 @@
   {
     "name": "Basford",
     "code": "707",
-    "chapmanCode": "DBY",
+    "chapmanCode": "NTT",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -2870,7 +2870,7 @@
   {
     "name": "Basingstoke",
     "code": "709",
-    "chapmanCode": "BRK",
+    "chapmanCode": "HAM",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -3313,7 +3313,7 @@
   {
     "name": "Bedminster",
     "code": "718",
-    "chapmanCode": "GLS",
+    "chapmanCode": "SOM",
     "startYear": null,
     "endYear": 1899,
     "parishes": [
@@ -3349,7 +3349,7 @@
   {
     "name": "Bedwellty",
     "code": "719",
-    "chapmanCode": "BRE",
+    "chapmanCode": "MON",
     "startYear": 1861,
     "endYear": 1974,
     "parishes": [
@@ -3370,7 +3370,7 @@
   {
     "name": "Belford",
     "code": "720",
-    "chapmanCode": "DUR",
+    "chapmanCode": "NBL",
     "startYear": null,
     "endYear": 1936,
     "parishes": [
@@ -3506,7 +3506,7 @@
   {
     "name": "Berkhampstead",
     "code": "724",
-    "chapmanCode": "BKM",
+    "chapmanCode": "HRT",
     "startYear": null,
     "endYear": 1939,
     "parishes": [
@@ -3571,7 +3571,7 @@
   {
     "name": "Berwick",
     "code": "727",
-    "chapmanCode": "DUR",
+    "chapmanCode": "NBL",
     "startYear": null,
     "endYear": 1936,
     "parishes": [
@@ -3812,7 +3812,7 @@
   {
     "name": "Bicester",
     "code": "732",
-    "chapmanCode": "BKM",
+    "chapmanCode": "OXF",
     "startYear": null,
     "endYear": 1932,
     "parishes": [
@@ -4062,7 +4062,7 @@
   {
     "name": "Bingham",
     "code": "738",
-    "chapmanCode": "LEI",
+    "chapmanCode": "NTT",
     "startYear": null,
     "endYear": 1974,
     "parishes": [
@@ -5014,7 +5014,7 @@
   {
     "name": "Brackley",
     "code": "768",
-    "chapmanCode": "BKM",
+    "chapmanCode": "NTH",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -6334,7 +6334,7 @@
   {
     "name": "Bromsgrove",
     "code": "795",
-    "chapmanCode": "SAL",
+    "chapmanCode": "WOR",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -7245,7 +7245,7 @@
       "Llanfaglan",
       "Llanfairisgaer",
       "Llanllyfni",
-      "Llanr\u00fbg",
+      "Llanrûg",
       "Llanwnda",
       "Waenfawr"
     ]
@@ -7253,7 +7253,7 @@
   {
     "name": "Caerphilly",
     "code": "1057",
-    "chapmanCode": "MON",
+    "chapmanCode": "GLA",
     "startYear": 1996,
     "endYear": null,
     "parishes": [
@@ -8618,7 +8618,7 @@
   {
     "name": "Carnarvon",
     "code": "1079",
-    "chapmanCode": "AGY",
+    "chapmanCode": "CAE",
     "startYear": null,
     "endYear": 1937,
     "parishes": [
@@ -8636,7 +8636,7 @@
       "Llangeinwen",
       "Llanidan",
       "Llanllyfni",
-      "Llanr\u00fbg",
+      "Llanrûg",
       "Llanwnda",
       "Newborough",
       "Waenfawr"
@@ -8962,7 +8962,7 @@
   {
     "name": "Chard",
     "code": "1089",
-    "chapmanCode": "DEV",
+    "chapmanCode": "SOM",
     "startYear": null,
     "endYear": 1974,
     "parishes": [
@@ -9337,7 +9337,7 @@
   {
     "name": "Chepstow",
     "code": "1096",
-    "chapmanCode": "GLS",
+    "chapmanCode": "MON",
     "startYear": null,
     "endYear": 1968,
     "parishes": [
@@ -11277,7 +11277,7 @@
       "Community",
       "Abergele",
       "Abergele Rural",
-      "Betws yn Rh\u00f4s",
+      "Betws yn Rhôs",
       "Bylchau",
       "Cefn",
       "Cerrigydrudion",
@@ -11285,7 +11285,7 @@
       "Gwytherin",
       "Llanddulas",
       "Llanddulas &amp; Rhyd y Foel",
-      "Llanelian yn Rh\u00f4s",
+      "Llanelian yn Rhôs",
       "Llanfair Talhaiarn",
       "Llangernyw",
       "Llangwm",
@@ -11463,18 +11463,18 @@
       "Dolgarrog",
       "Dolwyddelan",
       "Dwygyfylchi",
-      "Eglwys Rh\u00f4s",
+      "Eglwys Rhôs",
       "Eidda",
       "Gyffin",
       "Henryd",
       "Llanbedr y Cennin",
-      "Llandrillo yn Rh\u00f4s",
+      "Llandrillo yn Rhôs",
       "Llandudno",
-      "Llandudno cum Eglwys Rh\u00f4s",
-      "Llanelian yn Rh\u00f4s",
+      "Llandudno cum Eglwys Rhôs",
+      "Llanelian yn Rhôs",
       "Llangelynin",
       "Llangwstennin",
-      "Llanrh\u00f4s",
+      "Llanrhôs",
       "Llanrhychwyn",
       "Llansantffraid Glan Conway",
       "Llechwedd",
@@ -11536,7 +11536,7 @@
   {
     "name": "Corwen",
     "code": "1136",
-    "chapmanCode": "DEN",
+    "chapmanCode": "MER",
     "startYear": null,
     "endYear": 1935,
     "parishes": [
@@ -11593,7 +11593,7 @@
   {
     "name": "Cranbrook",
     "code": "1139",
-    "chapmanCode": "SSX",
+    "chapmanCode": "KEN",
     "startYear": null,
     "endYear": 1941,
     "parishes": [
@@ -11774,7 +11774,7 @@
       "Llanbedr Ystradwy",
       "Llanelly",
       "Llanelly Brynmawr Urban",
-      "Llanfihangel Cwmd\u00fb",
+      "Llanfihangel Cwmdû",
       "Llangattock Brynmawr Urban",
       "Llangenny",
       "Llechryd",
@@ -11839,7 +11839,7 @@
   {
     "name": "Croydon",
     "code": "1146",
-    "chapmanCode": "KEN",
+    "chapmanCode": "SRY",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -12103,7 +12103,7 @@
   {
     "name": "De Meirionydd",
     "code": "1009",
-    "chapmanCode": "CAE",
+    "chapmanCode": "MER",
     "startYear": 1974,
     "endYear": null,
     "parishes": [
@@ -12118,7 +12118,7 @@
       "Dolgelly",
       "Ganllwyd",
       "Llanaber",
-      "Llanddwywe \u00ees y Graig",
+      "Llanddwywe îs y Graig",
       "Llanddwywe Uwch y Graig",
       "Llanegryn",
       "Llanelltyd",
@@ -12230,7 +12230,7 @@
   {
     "name": "Delyn",
     "code": "1011",
-    "chapmanCode": "DEN",
+    "chapmanCode": "FLN",
     "startYear": 1974,
     "endYear": 1996,
     "parishes": [
@@ -12677,7 +12677,7 @@
       "Caerinion Fechan",
       "Dolgelly",
       "Llanaber",
-      "Llanddwywe \u00ees y Graig",
+      "Llanddwywe îs y Graig",
       "Llanddwywe uwch y Graig",
       "Llanegryn",
       "Llanelltyd",
@@ -12711,7 +12711,7 @@
   {
     "name": "Doncaster",
     "code": "1024",
-    "chapmanCode": "LIN",
+    "chapmanCode": "WRY",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -12959,7 +12959,7 @@
   {
     "name": "Downham",
     "code": "1028",
-    "chapmanCode": "CAM",
+    "chapmanCode": "NFK",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -13188,7 +13188,7 @@
   {
     "name": "Dulverton",
     "code": "1036",
-    "chapmanCode": "DEV",
+    "chapmanCode": "SOM",
     "startYear": null,
     "endYear": 1837,
     "parishes": [
@@ -13211,7 +13211,7 @@
   {
     "name": "Dulverton",
     "code": "1037",
-    "chapmanCode": "DEV",
+    "chapmanCode": "SOM",
     "startYear": 1855,
     "endYear": 1936,
     "parishes": [
@@ -13990,7 +13990,7 @@
   {
     "name": "Easingwold",
     "code": "812",
-    "chapmanCode": "DUR",
+    "chapmanCode": "NRY",
     "startYear": null,
     "endYear": 1936,
     "parishes": [
@@ -14718,7 +14718,7 @@
   {
     "name": "Edmonton",
     "code": "834",
-    "chapmanCode": "ESS",
+    "chapmanCode": "MDX",
     "startYear": null,
     "endYear": 1965,
     "parishes": [
@@ -15117,7 +15117,7 @@
   {
     "name": "Evesham",
     "code": "847",
-    "chapmanCode": "GLS",
+    "chapmanCode": "WOR",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -15522,7 +15522,7 @@
   {
     "name": "Farnborough",
     "code": "366",
-    "chapmanCode": "SSX",
+    "chapmanCode": "HAM",
     "startYear": 1847,
     "endYear": 1869,
     "parishes": [
@@ -15541,7 +15541,7 @@
   {
     "name": "Farnham",
     "code": "367",
-    "chapmanCode": "SSX",
+    "chapmanCode": "SRY",
     "startYear": null,
     "endYear": 1934,
     "parishes": [
@@ -15686,7 +15686,7 @@
   {
     "name": "Ffestiniog",
     "code": "372",
-    "chapmanCode": "CAE",
+    "chapmanCode": "MER",
     "startYear": null,
     "endYear": 1935,
     "parishes": [
@@ -15758,7 +15758,7 @@
   {
     "name": "Flintshire East",
     "code": "376",
-    "chapmanCode": "DEN",
+    "chapmanCode": "FLN",
     "startYear": 1996,
     "endYear": null,
     "parishes": [
@@ -15782,7 +15782,7 @@
   {
     "name": "Flintshire West",
     "code": "377",
-    "chapmanCode": "DEN",
+    "chapmanCode": "FLN",
     "startYear": 1996,
     "endYear": null,
     "parishes": [
@@ -15874,7 +15874,7 @@
   {
     "name": "Forden",
     "code": "380",
-    "chapmanCode": "SAL",
+    "chapmanCode": "MGY",
     "startYear": 1870,
     "endYear": 1935,
     "parishes": [
@@ -15901,7 +15901,7 @@
       "Pool Lower",
       "Pool Middle",
       "Pool Upper",
-      "Rhosg\u00f4ch",
+      "Rhosgôch",
       "Trelystan",
       "Trewern",
       "Uppington",
@@ -16854,7 +16854,7 @@
   {
     "name": "Goole",
     "code": "88",
-    "chapmanCode": "ERY",
+    "chapmanCode": "WRY",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -16940,7 +16940,7 @@
   {
     "name": "Grantham",
     "code": "91",
-    "chapmanCode": "LEI",
+    "chapmanCode": "LIN",
     "startYear": null,
     "endYear": 1933,
     "parishes": [
@@ -17015,7 +17015,7 @@
   {
     "name": "Grantham",
     "code": "92",
-    "chapmanCode": "LEI",
+    "chapmanCode": "LIN",
     "startYear": 1974,
     "endYear": null,
     "parishes": [
@@ -17785,7 +17785,7 @@
   {
     "name": "Hambledon",
     "code": "456",
-    "chapmanCode": "SSX",
+    "chapmanCode": "SRY",
     "startYear": null,
     "endYear": 1934,
     "parishes": [
@@ -18264,7 +18264,7 @@
       "Llandilo",
       "Llandissilio West",
       "Llanfair Nant Gwyn",
-      "Llanfair Nant y G\u00f4f",
+      "Llanfair Nant y Gôf",
       "Llanfallteg West",
       "Llanfihangel Penbedw",
       "Llanfrynach",
@@ -18421,7 +18421,7 @@
   {
     "name": "Hay",
     "code": "477",
-    "chapmanCode": "HEF",
+    "chapmanCode": "BRE",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -18467,7 +18467,7 @@
   {
     "name": "Hayfield",
     "code": "478",
-    "chapmanCode": "CHS",
+    "chapmanCode": "DBY",
     "startYear": 1838,
     "endYear": 1938,
     "parishes": [
@@ -18523,7 +18523,7 @@
   {
     "name": "Headington",
     "code": "480",
-    "chapmanCode": "BKM",
+    "chapmanCode": "OXF",
     "startYear": null,
     "endYear": 1932,
     "parishes": [
@@ -18775,7 +18775,7 @@
   {
     "name": "Henley",
     "code": "487",
-    "chapmanCode": "BRK",
+    "chapmanCode": "OXF",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -19235,7 +19235,7 @@
   {
     "name": "Highworth",
     "code": "496",
-    "chapmanCode": "BRK",
+    "chapmanCode": "WIL",
     "startYear": null,
     "endYear": 1899,
     "parishes": [
@@ -19334,7 +19334,7 @@
   {
     "name": "Hitchin",
     "code": "500",
-    "chapmanCode": "BDF",
+    "chapmanCode": "HRT",
     "startYear": null,
     "endYear": 1996,
     "parishes": [
@@ -20253,7 +20253,7 @@
   {
     "name": "Huntingdon",
     "code": "525",
-    "chapmanCode": "CAM",
+    "chapmanCode": "HUN",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -20685,7 +20685,7 @@
   {
     "name": "Kendal",
     "code": "853",
-    "chapmanCode": "LAN",
+    "chapmanCode": "WES",
     "startYear": null,
     "endYear": 1937,
     "parishes": [
@@ -20763,7 +20763,7 @@
   {
     "name": "Kendal",
     "code": "854",
-    "chapmanCode": "LAN",
+    "chapmanCode": "WES",
     "startYear": 1974,
     "endYear": null,
     "parishes": [
@@ -21013,7 +21013,7 @@
   {
     "name": "Keynsham",
     "code": "860",
-    "chapmanCode": "GLS",
+    "chapmanCode": "SOM",
     "startYear": null,
     "endYear": 1936,
     "parishes": [
@@ -21048,7 +21048,7 @@
   {
     "name": "Kidderminster",
     "code": "861",
-    "chapmanCode": "SAL",
+    "chapmanCode": "WOR",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -21224,7 +21224,7 @@
   {
     "name": "Kingston",
     "code": "868",
-    "chapmanCode": "MDX",
+    "chapmanCode": "SRY",
     "startYear": null,
     "endYear": 1934,
     "parishes": [
@@ -21563,7 +21563,7 @@
   {
     "name": "Knighton",
     "code": "878",
-    "chapmanCode": "HEF",
+    "chapmanCode": "RAD",
     "startYear": null,
     "endYear": 1933,
     "parishes": [
@@ -21776,7 +21776,7 @@
   {
     "name": "Launceston",
     "code": "897",
-    "chapmanCode": "DEV",
+    "chapmanCode": "CON",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -22829,7 +22829,7 @@
   {
     "name": "Llandovery",
     "code": "924",
-    "chapmanCode": "BRE",
+    "chapmanCode": "CMN",
     "startYear": null,
     "endYear": 1935,
     "parishes": [
@@ -22852,7 +22852,7 @@
   {
     "name": "Llanelli",
     "code": "925",
-    "chapmanCode": "CGN",
+    "chapmanCode": "CMN",
     "startYear": 1974,
     "endYear": null,
     "parishes": [
@@ -22898,7 +22898,7 @@
   {
     "name": "Llanfyllin",
     "code": "927",
-    "chapmanCode": "DEN",
+    "chapmanCode": "MGY",
     "startYear": null,
     "endYear": 1982,
     "parishes": [
@@ -22934,7 +22934,7 @@
   {
     "name": "Llanrwst",
     "code": "928",
-    "chapmanCode": "CAE",
+    "chapmanCode": "DEN",
     "startYear": null,
     "endYear": 1935,
     "parishes": [
@@ -23487,7 +23487,7 @@
   {
     "name": "Ludlow",
     "code": "937",
-    "chapmanCode": "HEF",
+    "chapmanCode": "SAL",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -23776,7 +23776,7 @@
   {
     "name": "Machynlleth",
     "code": "943",
-    "chapmanCode": "CGN",
+    "chapmanCode": "MGY",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -24086,7 +24086,7 @@
   {
     "name": "Malmesbury",
     "code": "951",
-    "chapmanCode": "GLS",
+    "chapmanCode": "WIL",
     "startYear": null,
     "endYear": 1936,
     "parishes": [
@@ -24129,7 +24129,7 @@
   {
     "name": "Malton",
     "code": "952",
-    "chapmanCode": "ERY",
+    "chapmanCode": "NRY",
     "startYear": null,
     "endYear": 1936,
     "parishes": [
@@ -24323,7 +24323,7 @@
   {
     "name": "Mansfield",
     "code": "958",
-    "chapmanCode": "DBY",
+    "chapmanCode": "NTT",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -25226,7 +25226,7 @@
   {
     "name": "Mere",
     "code": "975",
-    "chapmanCode": "DOR",
+    "chapmanCode": "WIL",
     "startYear": null,
     "endYear": 1977,
     "parishes": [
@@ -25355,7 +25355,7 @@
       "Brithdir &amp; Islaw'rdref",
       "Dolgelly",
       "Llanaber",
-      "Llanddwywe \u00ees y Graig",
+      "Llanddwywe îs y Graig",
       "Llanddwywe uwch y Graig",
       "Llanegryn",
       "Llanelltyd",
@@ -26074,7 +26074,7 @@
   {
     "name": "Monmouth",
     "code": "999",
-    "chapmanCode": "GLS",
+    "chapmanCode": "MON",
     "startYear": null,
     "endYear": 1939,
     "parishes": [
@@ -26103,7 +26103,7 @@
       "Newland",
       "Parc Grace Dieu",
       "Penallt",
-      "Penrh\u00f4s",
+      "Penrhôs",
       "Pen y Clawdd",
       "Raglan",
       "Raglan United",
@@ -26171,7 +26171,7 @@
   {
     "name": "Montgomery",
     "code": "1001",
-    "chapmanCode": "SAL",
+    "chapmanCode": "MGY",
     "startYear": null,
     "endYear": 1870,
     "parishes": [
@@ -26195,7 +26195,7 @@
       "Pool Lower",
       "Pool Middle",
       "Pool Upper",
-      "Rhosg\u00f4ch",
+      "Rhosgôch",
       "Trelystan",
       "Trewern",
       "Uppington",
@@ -26205,7 +26205,7 @@
   {
     "name": "Morpeth",
     "code": "1002",
-    "chapmanCode": "DUR",
+    "chapmanCode": "NBL",
     "startYear": null,
     "endYear": 1936,
     "parishes": [
@@ -26290,7 +26290,7 @@
   {
     "name": "Mutford",
     "code": "1003",
-    "chapmanCode": "NFK",
+    "chapmanCode": "SFK",
     "startYear": null,
     "endYear": 1935,
     "parishes": [
@@ -26420,7 +26420,7 @@
   {
     "name": "Narberth",
     "code": "12",
-    "chapmanCode": "CMN",
+    "chapmanCode": "PEM",
     "startYear": null,
     "endYear": 1973,
     "parishes": [
@@ -26505,7 +26505,7 @@
   {
     "name": "Neath",
     "code": "13",
-    "chapmanCode": "BRE",
+    "chapmanCode": "GLA",
     "startYear": null,
     "endYear": 1970,
     "parishes": [
@@ -26515,7 +26515,7 @@
       "Blaengwrach",
       "Blaenhonddan",
       "Briton Ferry",
-      "C\u00eelybebyll",
+      "Cîlybebyll",
       "Clyne",
       "Coedffranc",
       "Dyffryn Clydach",
@@ -26561,7 +26561,7 @@
   {
     "name": "Neath",
     "code": "14",
-    "chapmanCode": "BRE",
+    "chapmanCode": "GLA",
     "startYear": 1974,
     "endYear": 1996,
     "parishes": [
@@ -26571,7 +26571,7 @@
       "Blaengwrach",
       "Blaenhonddan",
       "Briton Ferry",
-      "C\u00eelybebyll",
+      "Cîlybebyll",
       "Clyne",
       "Coedffranc",
       "Dyffryn Clydach",
@@ -26750,7 +26750,7 @@
   {
     "name": "Newark",
     "code": "17",
-    "chapmanCode": "LIN",
+    "chapmanCode": "NTT",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -29881,7 +29881,7 @@
   {
     "name": "Nuneaton",
     "code": "72",
-    "chapmanCode": "LEI",
+    "chapmanCode": "WAR",
     "startYear": null,
     "endYear": 1985,
     "parishes": [
@@ -29914,7 +29914,7 @@
   {
     "name": "Oakham",
     "code": "436",
-    "chapmanCode": "LEI",
+    "chapmanCode": "RUT",
     "startYear": null,
     "endYear": 1974,
     "parishes": [
@@ -30263,7 +30263,7 @@
   {
     "name": "Oundle",
     "code": "446",
-    "chapmanCode": "HUN",
+    "chapmanCode": "NTH",
     "startYear": null,
     "endYear": 1974,
     "parishes": [
@@ -30346,7 +30346,7 @@
   {
     "name": "Oxford",
     "code": "449",
-    "chapmanCode": "BRK",
+    "chapmanCode": "OXF",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -30552,7 +30552,7 @@
   {
     "name": "Penllyn",
     "code": "648",
-    "chapmanCode": "CAE",
+    "chapmanCode": "MER",
     "startYear": 1974,
     "endYear": null,
     "parishes": [
@@ -30769,7 +30769,7 @@
   {
     "name": "Peterborough",
     "code": "652",
-    "chapmanCode": "CAM",
+    "chapmanCode": "NTH",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -30837,7 +30837,7 @@
   {
     "name": "Petersfield",
     "code": "653",
-    "chapmanCode": "SSX",
+    "chapmanCode": "HAM",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -31396,11 +31396,11 @@
   {
     "name": "Pontardawe",
     "code": "665",
-    "chapmanCode": "BRE",
+    "chapmanCode": "GLA",
     "startYear": 1875,
     "endYear": 1934,
     "parishes": [
-      "C\u00eelybebyll",
+      "Cîlybebyll",
       "Llangiwg",
       "Mawr",
       "Rhyndwclydach",
@@ -31881,7 +31881,7 @@
   {
     "name": "Potterspury",
     "code": "675",
-    "chapmanCode": "BKM",
+    "chapmanCode": "NTH",
     "startYear": null,
     "endYear": 1935,
     "parishes": [
@@ -31938,7 +31938,7 @@
   {
     "name": "Presteigne",
     "code": "677",
-    "chapmanCode": "HEF",
+    "chapmanCode": "RAD",
     "startYear": null,
     "endYear": 1877,
     "parishes": [
@@ -32115,9 +32115,9 @@
       "Llanystumdwy",
       "Meyllteyrn",
       "Nevin",
-      "Penll\u00each",
+      "Penllêch",
       "Penllyn",
-      "Penrh\u00f4s",
+      "Penrhôs",
       "Pistyll",
       "Rhiw with Llanfaelrhys",
       "Tudweiliog",
@@ -32510,7 +32510,7 @@
   {
     "name": "Rhayader",
     "code": "151",
-    "chapmanCode": "BRE",
+    "chapmanCode": "RAD",
     "startYear": null,
     "endYear": 1933,
     "parishes": [
@@ -32531,7 +32531,7 @@
   {
     "name": "Rhuddlan",
     "code": "152",
-    "chapmanCode": "DEN",
+    "chapmanCode": "FLN",
     "startYear": 1974,
     "endYear": 1996,
     "parishes": [
@@ -32688,7 +32688,7 @@
   {
     "name": "Ripon",
     "code": "159",
-    "chapmanCode": "NRY",
+    "chapmanCode": "WRY",
     "startYear": null,
     "endYear": 1946,
     "parishes": [
@@ -32765,7 +32765,7 @@
   {
     "name": "Risbridge",
     "code": "160",
-    "chapmanCode": "CAM",
+    "chapmanCode": "SFK",
     "startYear": null,
     "endYear": 1938,
     "parishes": [
@@ -33032,7 +33032,7 @@
   {
     "name": "Ross",
     "code": "168",
-    "chapmanCode": "GLS",
+    "chapmanCode": "HEF",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -33210,7 +33210,7 @@
   {
     "name": "Rotherham",
     "code": "171",
-    "chapmanCode": "DBY",
+    "chapmanCode": "WRY",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -33292,7 +33292,7 @@
   {
     "name": "Royston",
     "code": "174",
-    "chapmanCode": "CAM",
+    "chapmanCode": "HRT",
     "startYear": null,
     "endYear": 1939,
     "parishes": [
@@ -33350,7 +33350,7 @@
   {
     "name": "Rugby",
     "code": "175",
-    "chapmanCode": "LEI",
+    "chapmanCode": "WAR",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -33603,7 +33603,7 @@
   {
     "name": "Rutland",
     "code": "179",
-    "chapmanCode": "LEI",
+    "chapmanCode": "RUT",
     "startYear": 1974,
     "endYear": 1995,
     "parishes": [
@@ -33673,7 +33673,7 @@
   {
     "name": "Rutland",
     "code": "180",
-    "chapmanCode": "LEI",
+    "chapmanCode": "RUT",
     "startYear": 1997,
     "endYear": null,
     "parishes": [
@@ -33911,7 +33911,7 @@
   {
     "name": "Saddleworth",
     "code": "195",
-    "chapmanCode": "LAN",
+    "chapmanCode": "WRY",
     "startYear": null,
     "endYear": 1974,
     "parishes": [
@@ -34242,7 +34242,7 @@
   {
     "name": "Sandwell",
     "code": "201",
-    "chapmanCode": "WAR",
+    "chapmanCode": "STS",
     "startYear": 1974,
     "endYear": null,
     "parishes": [
@@ -34252,7 +34252,7 @@
   {
     "name": "Scarborough",
     "code": "202",
-    "chapmanCode": "ERY",
+    "chapmanCode": "NRY",
     "startYear": null,
     "endYear": 1998,
     "parishes": [
@@ -34597,7 +34597,7 @@
   {
     "name": "Seisdon",
     "code": "212",
-    "chapmanCode": "SAL",
+    "chapmanCode": "STS",
     "startYear": null,
     "endYear": 1838,
     "parishes": [
@@ -34623,7 +34623,7 @@
   {
     "name": "Seisdon",
     "code": "213",
-    "chapmanCode": "SAL",
+    "chapmanCode": "STS",
     "startYear": 1966,
     "endYear": 1974,
     "parishes": [
@@ -34649,7 +34649,7 @@
   {
     "name": "Selby",
     "code": "214",
-    "chapmanCode": "ERY",
+    "chapmanCode": "WRY",
     "startYear": null,
     "endYear": 1998,
     "parishes": [
@@ -36417,7 +36417,7 @@
   {
     "name": "South Pembrokeshire",
     "code": "255",
-    "chapmanCode": "CGN",
+    "chapmanCode": "PEM",
     "startYear": 1983,
     "endYear": null,
     "parishes": [
@@ -36656,7 +36656,7 @@
   {
     "name": "Southam",
     "code": "243",
-    "chapmanCode": "NTH",
+    "chapmanCode": "WAR",
     "startYear": null,
     "endYear": 1985,
     "parishes": [
@@ -37021,7 +37021,7 @@
     "parishes": [
       "Abergele Rural",
       "Abergele Urban",
-      "Betws yn Rh\u00f4s",
+      "Betws yn Rhôs",
       "Bodelwyddan",
       "Bodfari",
       "Bylchau",
@@ -37033,7 +37033,7 @@
       "Henllan Rural",
       "Henllan Urban",
       "Llanddulas",
-      "Llandrillo yn Rh\u00f4s",
+      "Llandrillo yn Rhôs",
       "Llanfair Talhaiarn",
       "Llannefydd",
       "Llansannan",
@@ -37734,7 +37734,7 @@
   {
     "name": "Stamford",
     "code": "271",
-    "chapmanCode": "HUN",
+    "chapmanCode": "LIN",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -38133,7 +38133,7 @@
   {
     "name": "Stourbridge",
     "code": "287",
-    "chapmanCode": "SAL",
+    "chapmanCode": "WOR",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -38648,7 +38648,7 @@
   {
     "name": "Sudbury",
     "code": "298",
-    "chapmanCode": "ESS",
+    "chapmanCode": "SFK",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -39455,7 +39455,7 @@
   {
     "name": "Tamworth",
     "code": "316",
-    "chapmanCode": "DBY",
+    "chapmanCode": "STS",
     "startYear": null,
     "endYear": 1939,
     "parishes": [
@@ -39489,7 +39489,7 @@
   {
     "name": "Taunton",
     "code": "317",
-    "chapmanCode": "DEV",
+    "chapmanCode": "SOM",
     "startYear": null,
     "endYear": 1974,
     "parishes": [
@@ -39564,7 +39564,7 @@
   {
     "name": "Taunton",
     "code": "318",
-    "chapmanCode": "DEV",
+    "chapmanCode": "SOM",
     "startYear": 1996,
     "endYear": null,
     "parishes": [
@@ -39899,7 +39899,7 @@
   {
     "name": "Tenbury",
     "code": "326",
-    "chapmanCode": "HEF",
+    "chapmanCode": "WOR",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -40068,7 +40068,7 @@
   {
     "name": "Thame",
     "code": "332",
-    "chapmanCode": "BKM",
+    "chapmanCode": "OXF",
     "startYear": null,
     "endYear": 1932,
     "parishes": [
@@ -40460,7 +40460,7 @@
   {
     "name": "Thorne",
     "code": "339",
-    "chapmanCode": "LIN",
+    "chapmanCode": "WRY",
     "startYear": null,
     "endYear": 1946,
     "parishes": [
@@ -40474,7 +40474,7 @@
   {
     "name": "Thrapston",
     "code": "340",
-    "chapmanCode": "HUN",
+    "chapmanCode": "NTH",
     "startYear": null,
     "endYear": 1974,
     "parishes": [
@@ -40657,7 +40657,7 @@
   {
     "name": "Todmorden",
     "code": "345",
-    "chapmanCode": "LAN",
+    "chapmanCode": "WRY",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -40677,7 +40677,7 @@
   {
     "name": "Tonbridge",
     "code": "346",
-    "chapmanCode": "SSX",
+    "chapmanCode": "KEN",
     "startYear": null,
     "endYear": 1979,
     "parishes": [
@@ -40963,7 +40963,7 @@
   {
     "name": "Tower Hamlets",
     "code": "353",
-    "chapmanCode": "MDX",
+    "chapmanCode": "LND",
     "startYear": 1983,
     "endYear": null,
     "parishes": [
@@ -41292,7 +41292,7 @@
   {
     "name": "Uppingham",
     "code": "883",
-    "chapmanCode": "LEI",
+    "chapmanCode": "RUT",
     "startYear": null,
     "endYear": 1974,
     "parishes": [
@@ -41385,7 +41385,7 @@
   {
     "name": "Uttoxeter",
     "code": "886",
-    "chapmanCode": "DBY",
+    "chapmanCode": "STS",
     "startYear": null,
     "endYear": 1939,
     "parishes": [
@@ -42090,7 +42090,7 @@
   {
     "name": "Warrington",
     "code": "546",
-    "chapmanCode": "CHS",
+    "chapmanCode": "LAN",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -42465,7 +42465,7 @@
   {
     "name": "Wellingborough",
     "code": "554",
-    "chapmanCode": "BDF",
+    "chapmanCode": "NTH",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -42655,7 +42655,7 @@
   {
     "name": "Welshpool & Llanfyllin",
     "code": "559",
-    "chapmanCode": "BRE",
+    "chapmanCode": "MGY",
     "startYear": 1982,
     "endYear": null,
     "parishes": [
@@ -43295,7 +43295,7 @@
       "Blaengwrach",
       "Blaenhonddan",
       "Cheriton",
-      "C\u00eelybebyll",
+      "Cîlybebyll",
       "Clyne",
       "Coedffranc",
       "Dyffryn Clydach",
@@ -44696,7 +44696,7 @@
   {
     "name": "Wincanton",
     "code": "611",
-    "chapmanCode": "DOR",
+    "chapmanCode": "SOM",
     "startYear": null,
     "endYear": 1974,
     "parishes": [
@@ -45087,7 +45087,7 @@
   {
     "name": "Witney",
     "code": "620",
-    "chapmanCode": "BRK",
+    "chapmanCode": "OXF",
     "startYear": null,
     "endYear": 1982,
     "parishes": [
@@ -45260,7 +45260,7 @@
   {
     "name": "Wolverhampton",
     "code": "624",
-    "chapmanCode": "SAL",
+    "chapmanCode": "STS",
     "startYear": null,
     "endYear": null,
     "parishes": [
@@ -45737,7 +45737,7 @@
   {
     "name": "Wrexham",
     "code": "637",
-    "chapmanCode": "CHS",
+    "chapmanCode": "DEN",
     "startYear": null,
     "endYear": 1974,
     "parishes": [
@@ -45833,7 +45833,7 @@
   {
     "name": "Wrexham",
     "code": "638",
-    "chapmanCode": "CHS",
+    "chapmanCode": "DEN",
     "startYear": 1996,
     "endYear": null,
     "parishes": [
@@ -46255,7 +46255,7 @@
   {
     "name": "Ynys Mon",
     "code": "687",
-    "chapmanCode": "CAE",
+    "chapmanCode": "AGY",
     "startYear": 1974,
     "endYear": null,
     "parishes": [
@@ -46320,7 +46320,7 @@
       "Moelfre",
       "Newborough",
       "Penmynydd",
-      "Penrh\u00f4s Lligwy",
+      "Penrhôs Lligwy",
       "Pentraeth",
       "Rhodogeidio",
       "Rhoscolyn",
