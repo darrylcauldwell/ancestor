@@ -196,8 +196,53 @@ actor MCPHandler {
                 "name": "ancestor-research",
                 "version": "1.0.0",
             ],
+            // The data-interpretation explainer, delivered to every client at
+            // connect time. Load the interpreting_the_data prompt for the
+            // long-form version.
+            "instructions": Self.dataInterpretationGuide,
         ]
     }
+
+    /// How to read this server's data without misleading the user. Served as
+    /// the initialize `instructions` AND as the `interpreting_the_data`
+    /// prompt. Born of a real failure: an assistant recommended applying a
+    /// death record that was already on the profile.
+    static let dataInterpretationGuide = """
+    Ancestor Research genealogy server — how to interpret the data:
+
+    1. SCORED IS NOT APPLIED. A record with verdict "fact" passed the \
+    deterministic gates; it says nothing about whether its content is on the \
+    profile. `applied_at` (when set) means the apply action ran for that \
+    record; NULL means unknown (records applied before mid-2026 carry no \
+    stamp). Before recommending the user apply anything, cross-check \
+    get_profile's confirmed_facts: if the field already carries this value \
+    and citation, it is already applied.
+    2. VERDICTS: fact = passed all gates; lead = plausible, needs human \
+    judgement; impossible = contradicts known data. Multiple mutually \
+    exclusive records can EACH be "fact" (gates are per-record) — eleven \
+    birth registrations for one person means an unresolved identity, not \
+    eleven truths. Recommend discriminating evidence, not application.
+    3. user_status is the human's review verdict: "discarded" means the user \
+    rejected it — NEVER re-propose it. Quirk: some apply paths historically \
+    set "saved_as_lead" on applied records.
+    4. LEADS never apply automatically. They are suggestions the user reviews \
+    in the app's Triage. Same for anything research produces: the app's \
+    review surfaces are where changes happen; you read, narrate, and trigger.
+    5. NAMES: women are stored under their MAIDEN surname (tree convention); \
+    records index them under married surnames. "Elizabeth Keyworth" on a \
+    death record is "Elizabeth Shaw" in the tree. Search matches married \
+    surnames, but always confirm you have the right person via relationships.
+    6. The same GRO registration can appear as multiple index rows (identical \
+    type/quarter/district/vol/page, different row ids) — treat those as ONE \
+    registration.
+    7. negative_searches means "searched, found nothing" — check searched_at; \
+    the cache ages out after ~90 days. Audit findings carry computed_at — \
+    report their freshness.
+    8. kick_off_research needs the Ancestor Research app RUNNING with the \
+    project open; a request queued >15s usually means it is not.
+    9. Every claim you make should trace to a record, citation, or field this \
+    server returned. When the data is ambiguous, say so.
+    """
 
     // MARK: - Resources
 
@@ -518,7 +563,7 @@ actor MCPHandler {
                 ),
                 tool(
                     name: "get_scored_records",
-                    description: "Return the per-record verdict and identifying fields for records the pipeline scored for a profile, read from evidence_records. Useful when get_profile's aggregate counts aren't enough — e.g. \"which of these marriages landed as .fact vs .lead?\". Surfaces the salient identifying fields (year, district, vol/page, surname, plus marriage-specific partnerSurnameFromSamePage) alongside the verdict and citation. Also surfaces user_status (unreviewed | discarded | saved_as_lead — respect prior human verdicts: never re-propose discarded records) and the per-gate breakdown (gates object, when the app has stored it) showing which of the four gates (name / date / geography / family) held a record back.",
+                    description: "Return the per-record verdict and identifying fields for records the pipeline scored for a profile, read from evidence_records. Useful when get_profile's aggregate counts aren't enough — e.g. \"which of these marriages landed as .fact vs .lead?\". Surfaces the salient identifying fields (year, district, vol/page, surname, plus marriage-specific partnerSurnameFromSamePage) alongside the verdict and citation. Also surfaces user_status (unreviewed | discarded | saved_as_lead — respect prior human verdicts: never re-propose discarded records), applied_at (the apply-action stamp; NULL = unknown for pre-2026 applies — ALWAYS cross-check get_profile confirmed_facts before recommending the user apply a record) and the per-gate breakdown (gates object, when the app has stored it) showing which of the four gates (name / date / geography / family) held a record back.",
                     properties: [
                         "profile_id": ["type": "string", "description": "Profile ID to look up scored records for"],
                         "record_type": ["type": "string", "description": "Optional filter: birth | death | marriage | census | burial | military | probate | parish | pedigree"],
@@ -834,6 +879,11 @@ actor MCPHandler {
                     ],
                 ],
                 [
+                    "name": "interpreting_the_data",
+                    "description": "How to read this server's data without misleading the user: scored vs applied, verdict semantics, review statuses, maiden-name convention, registration twins, freshness rules.",
+                    "arguments": [],
+                ],
+                [
                     "name": "research_lifecycle",
                     "description": "Walk the full research loop for a profile: trigger a run, poll it, read back what was found, and summarise for the user",
                     "arguments": [
@@ -918,6 +968,13 @@ actor MCPHandler {
                             """,
                         ],
                     ],
+                ],
+            ]
+        case "interpreting_the_data":
+            return [
+                "messages": [
+                    ["role": "user",
+                     "content": ["type": "text", "text": Self.dataInterpretationGuide]],
                 ],
             ]
         case "research_lifecycle":
@@ -2522,7 +2579,8 @@ actor MCPHandler {
                        citation_url,
                        scored_at,
                        user_status,
-                       gates_json
+                       gates_json,
+                       applied_at
                 FROM evidence_records
                 WHERE profile_id = ?
                 """
@@ -2558,6 +2616,9 @@ actor MCPHandler {
         }
         if let t: String = row["record_type"] { payload["record_type"] = t }
         if let u: String = row["user_status"] { payload["user_status"] = u }
+        // v56 — the apply-action stamp. NULL = unknown (pre-stamp applies),
+        // NOT "definitely unapplied": cross-check confirmed_facts.
+        if let a: Date = row["applied_at"] { payload["applied_at"] = ISO8601DateFormatter().string(from: a) }
         if let g: String = row["gates_json"], !g.isEmpty,
            let gatesData = g.data(using: .utf8),
            let gates = try? JSONSerialization.jsonObject(with: gatesData) {
@@ -2804,7 +2865,7 @@ actor MCPHandler {
         try db.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT id, source_id, source_record_id, record_type, verdict,
-                       citation_full, citation_url, scored_at, user_status, gates_json
+                       citation_full, citation_url, scored_at, user_status, gates_json, applied_at
                 FROM evidence_records
                 WHERE profile_id = ?
                 ORDER BY scored_at DESC
@@ -2822,6 +2883,7 @@ actor MCPHandler {
                 if let v: String = row["citation_url"] { r["citation_url"] = v }
                 // MC3 — the human's prior verdict: never re-propose discarded.
                 if let v: String = row["user_status"] { r["user_status"] = v }
+                if let a: Date = row["applied_at"] { r["applied_at"] = ISO8601DateFormatter().string(from: a) }
                 if let g: String = row["gates_json"], let data = g.data(using: .utf8),
                    let decoded = try? JSONSerialization.jsonObject(with: data) {
                     r["gates"] = decoded

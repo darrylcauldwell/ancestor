@@ -128,6 +128,38 @@ struct ConsumerSurfaceTests {
         #expect(empty.contains("Health"))
     }
 
+    // MARK: Explainer + applied stamp
+
+    @Test func dataInterpretationGuideIsServedAtConnectAndAsPrompt() async throws {
+        // The connect-time instructions and the on-demand prompt share one
+        // source of truth — the guide born of the "apply a record that was
+        // already applied" failure.
+        #expect(MCPHandler.dataInterpretationGuide.contains("SCORED IS NOT APPLIED"))
+        #expect(MCPHandler.dataInterpretationGuide.contains("MAIDEN surname"))
+        let handler = try MCPHandler(dbPath: try makeDB())
+        let prompt = await handler.getPromptResponseText(["name": "interpreting_the_data", "arguments": [:]])
+        #expect(prompt.contains("SCORED IS NOT APPLIED"))
+        #expect(prompt.contains("cross-check"))
+    }
+
+    @Test func appliedAtSurfacesOnScoredRecords() async throws {
+        let dbPath = try makeDB()
+        let q = try DatabaseQueue(path: dbPath)
+        try await q.write { db in
+            try db.execute(sql: "CREATE TABLE evidence_records (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, source_id TEXT NOT NULL, source_record_id TEXT NOT NULL, record_type TEXT NOT NULL, verdict TEXT NOT NULL, record_json TEXT NOT NULL, citation_full TEXT, citation_url TEXT, scored_at DATETIME NOT NULL, user_status TEXT NOT NULL DEFAULT 'unreviewed', gates_json TEXT, applied_at DATETIME)")
+            try db.execute(sql: """
+                INSERT INTO evidence_records (id, profile_id, source_id, source_record_id, record_type, verdict, record_json, scored_at, applied_at)
+                VALUES ('@WHK@|r1', '@WHK@', 'freebmd', 'r1', 'death', 'fact', '{}', ?, ?),
+                       ('@WHK@|r2', '@WHK@', 'freebmd', 'r2', 'birth', 'fact', '{}', ?, NULL)
+                """, arguments: [Date(timeIntervalSince1970: 100), Date(timeIntervalSince1970: 200), Date(timeIntervalSince1970: 100)])
+        }
+        let handler = try MCPHandler(dbPath: dbPath)
+        let json = try await handler.getScoredRecordsResponseText(["profile_id": "@WHK@"])
+        #expect(json.contains("applied_at"))          // stamped row carries it
+        // Exactly one of the two rows is stamped.
+        #expect(json.components(separatedBy: "applied_at").count == 2)
+    }
+
     // MARK: MC1 — prompts
 
     @Test func advertisedPromptsAreAllImplemented() async throws {

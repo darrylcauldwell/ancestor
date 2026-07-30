@@ -1589,6 +1589,20 @@ nonisolated final class ProjectDatabase: Sendable {
                           on: "audit_findings", columns: ["profile_id"])
         }
 
+        // v56 — applied-ness stamped ON the evidence record (MCP consumer
+        // fix). "Was this record's content applied to the profile?" was only
+        // computable app-side, which left external assistants recommending
+        // applies for records already applied. `applied_at` is stamped by
+        // ApplyEngine.applyFactToSubject (the choke point) and cleared by
+        // removeAppliedRecord. Rows applied BEFORE v56 stay NULL — consumers
+        // treat NULL as "unknown, cross-check confirmed_facts", never as
+        // "definitely unapplied".
+        migrator.registerMigration("v56_evidence_applied_at") { db in
+            try db.alter(table: "evidence_records") { t in
+                t.add(column: "applied_at", .datetime)
+            }
+        }
+
         return migrator
     }
 
@@ -3943,6 +3957,26 @@ nonisolated extension ProjectDatabase {
 
     /// Set the user-review status for a single evidence row. Idempotent —
     /// repeating the same call leaves the row unchanged.
+    /// v56 — stamp/clear the apply action on an evidence row. See the
+    /// migration comment for semantics (NULL = unknown for pre-v56 applies).
+    func markEvidenceApplied(evidenceID: String, at date: Date = Date()) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE evidence_records SET applied_at = ? WHERE id = ?",
+                arguments: [date, evidenceID]
+            )
+        }
+    }
+
+    func clearEvidenceApplied(evidenceID: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE evidence_records SET applied_at = NULL WHERE id = ?",
+                arguments: [evidenceID]
+            )
+        }
+    }
+
     func updateEvidenceUserStatus(evidenceID: String, status: UserReviewStatus) throws {
         try dbQueue.write { db in
             try db.execute(

@@ -2275,6 +2275,7 @@ final class AppState {
         guard let db = currentDatabase else { return nil }
         do {
             let report = try db.removeAppliedRecord(evidence)
+            try? db.clearEvidenceApplied(evidenceID: evidence.id)   // v56 stamp off
             if let tx = report.transactionID {
                 recordSessionEvent(.transactionRecorded(tx))
             }

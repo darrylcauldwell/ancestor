@@ -83,6 +83,11 @@ nonisolated struct ApplyEngine {
                 break  // executed by the caller via projectToLifeEvents
             }
         }
+        // v56 — record that the apply ACTION ran for this record (even a
+        // fully-blocked apply was a deliberate act; Remove clears it). This
+        // is what lets external consumers distinguish applied evidence from
+        // merely-scored evidence.
+        try? db.markEvidenceApplied(evidenceID: "\(profile.id)|\(scored.id)")
         return failures
     }
 
