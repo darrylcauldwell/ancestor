@@ -79,6 +79,8 @@ public nonisolated struct ScorerAttrition: Sendable, Equatable {
                 case .familyContext:
                     familyEval += 1
                     if gate.outcome == .pass { familyPass += 1 }
+                case .exclusivity:
+                    break   // demotions show up in the verdict counts
                 }
             }
             switch r.verdict {

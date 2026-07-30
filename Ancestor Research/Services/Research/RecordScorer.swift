@@ -252,6 +252,92 @@ nonisolated struct RecordScorer {
         return dateGate.outcome == .fail && dateGate.reason == insufficientDateInfoReason
     }
 
+    // MARK: - Cross-record exclusivity pass (DECISION_CORE_PAIR_SPEC Fix A)
+
+    /// The slot a record occupies among facts a person can hold at most once.
+    /// nil = the record type carries no exclusivity semantics.
+    static func exclusivitySlot(for record: SourceRecord) -> String? {
+        switch record {
+        case .birth: return "birth"
+        case .death: return "death"
+        case .burial: return "burial"
+        case .probate: return "probate"
+        case .census(let c): return "census-\(c.censusYear)"
+        case .marriage: return "marriage"   // non-singular — remarriage is legitimate
+        case .parish(let p):
+            // Parish events join the slot of the life event they attest.
+            let kind = (p.detail?.event).map { "\($0)" } ?? (p.eventType ?? "").lowercased()
+            if kind.contains("bapt") || kind.contains("christen") { return "birth" }
+            if kind.contains("marriage") { return "marriage" }
+            if kind.contains("burial") { return "death" }
+            return nil
+        default: return nil
+        }
+    }
+
+    /// The deterministic discriminator: a NON-VACUOUS familyContext pass
+    /// (child/spouse/parent/maiden-name actually matched — `.skip` and
+    /// `.softFail` never count). Cross-profile elevation is subsumed: its
+    /// predicate requires a familyContext pass.
+    static func isDiscriminated(_ record: ScoredRecord) -> Bool {
+        record.gates.contains { $0.gate == .familyContext && $0.outcome == .pass }
+    }
+
+    /// `fact` must mean "confident this is THEM". Gates are per-record, so a
+    /// namesake-dense name can put eleven mutually exclusive birth
+    /// registrations through as eleven `facts`. This pass runs over an
+    /// assembled batch and demotes competing facts:
+    ///   • singular slots: >1 fact with exactly one discriminated → the rest
+    ///     demote; zero or two-plus discriminated → ALL demote (a namesake
+    ///     pile, or a genuine contradiction — either way, human judgement).
+    ///   • marriage (non-singular): discriminated facts always keep; an
+    ///     undiscriminated fact keeps only when it is the ONLY marriage fact.
+    /// Verdicts only ever move DOWN (fact → lead); `.lead`/`.impossible`
+    /// inputs are untouched; the pass is idempotent. No AI input anywhere.
+    static func applyExclusivity(_ scored: [ScoredRecord]) -> [ScoredRecord] {
+        var factIndicesBySlot: [String: [Int]] = [:]
+        for (index, record) in scored.enumerated() where record.verdict == .fact {
+            if let slot = exclusivitySlot(for: record.record) {
+                factIndicesBySlot[slot, default: []].append(index)
+            }
+        }
+
+        var demotions: [Int: String] = [:]
+        for (slot, indices) in factIndicesBySlot {
+            guard indices.count > 1 else { continue }
+            let discriminated = indices.filter { isDiscriminated(scored[$0]) }
+            if slot == "marriage" {
+                // Multiple marriages are legitimate — but only corroborated
+                // ones may coexist as facts.
+                for index in indices where !discriminated.contains(index) {
+                    demotions[index] = "\(indices.count) marriage candidates and this one carries no family corroboration — demoted for review"
+                }
+            } else if discriminated.count == 1 {
+                for index in indices where index != discriminated[0] {
+                    demotions[index] = "\(indices.count) competing \(slot) candidates — a family-corroborated record outranks this one"
+                }
+            } else if discriminated.isEmpty {
+                for index in indices {
+                    demotions[index] = "\(indices.count) competing \(slot) candidates, none discriminated — a person holds at most one; needs family or cross-profile corroboration"
+                }
+            } else {
+                for index in indices {
+                    demotions[index] = "\(indices.count) competing \(slot) candidates with \(discriminated.count) corroborated — a genuine evidential contradiction; review required"
+                }
+            }
+        }
+
+        guard !demotions.isEmpty else { return scored }
+        return scored.enumerated().map { index, record in
+            guard let reason = demotions[index] else { return record }
+            var gates = record.gates
+            gates.append(GateResult(gate: .exclusivity, outcome: .softFail, reason: reason))
+            return ScoredRecord(
+                id: record.id, record: record.record, verdict: .lead,
+                gates: gates, summary: record.summary)
+        }
+    }
+
     // MARK: - Gate 1: Name
 
     private static func checkName(record: SourceRecord, subject: ResearchSubject) -> GateResult {

@@ -19,9 +19,9 @@ import AncestorKit
 nonisolated enum FamilySearchHintRouting {
 
     static func route(records: [SourceRecord], subject: ResearchSubject) -> ResearchResult {
-        let scored = records.map {
+        let scored = RecordScorer.applyExclusivity(records.map {
             RecordScorer.classify(record: $0, subject: subject, searchType: $0.recordType)
-        }
+        })
         return ResearchResult(
             confirmedFacts: scored.filter { $0.verdict == .fact },
             leads: scored.filter { $0.verdict == .lead },

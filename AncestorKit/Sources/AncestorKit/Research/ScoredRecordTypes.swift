@@ -44,6 +44,11 @@ public nonisolated struct GateResult: Sendable, Codable {
 
 public nonisolated enum ScoringGate: String, Codable, Sendable {
     case name, date, geography, familyContext
+    /// DECISION_CORE_PAIR_SPEC Fix A — the cross-record exclusivity pass.
+    /// Appended (always as a softFail) when a record's `.fact` verdict was
+    /// demoted because it competed with other facts in a slot a person can
+    /// hold at most once (birth, death, one household per census night, …).
+    case exclusivity
 }
 
 public nonisolated enum GateOutcome: String, Codable, Sendable {

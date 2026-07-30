@@ -917,6 +917,12 @@ final class ResearchPipeline {
             from: state.scoredRecords,
             enrichmentIDs: state.enrichmentRecordIDs,
             rejectedIDs: rejectedRecordIDs)
+        // DECISION_CORE_PAIR_SPEC Fix A — the cross-record exclusivity pass
+        // runs over the ACCUMULATED record set before clustering and final
+        // assembly. confirmedFacts/leads are computed partitions of
+        // scoredRecords, so demotions reconcile everything downstream.
+        state.scoredRecords = RecordScorer.applyExclusivity(state.scoredRecords)
+
         let clusters = ClusteringEngine.cluster(
             records: clusterInput,
             sourceInfoMap: sourceInfoMap,
