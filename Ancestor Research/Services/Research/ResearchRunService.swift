@@ -143,12 +143,34 @@ enum ResearchRunService {
             // research_runs row is saved under below.
             let runID = UUID()
 
+            // DECISION_CORE_PAIR_SPEC Fix A, cross-run extension: compete this
+            // run's facts against the STORED facts the caches kept out of the
+            // batch, and demote stored rivals in place. Without this, a
+            // cache-suppressed rival makes a namesake look unrivalled.
+            var effectiveRecords = result.allScoredRecords
+            var demotedStored: [(scored: ScoredRecord, citationFull: String?, citationURL: String?, isEnrichment: Bool)] = []
+            if let storedEvidence = try? db.loadEvidenceForProfile(profileID) {
+                let storedFactRows = storedEvidence.filter { $0.verdict == .fact }
+                let cross = RecordScorer.applyExclusivityAcrossStore(
+                    batch: result.allScoredRecords,
+                    storedFacts: storedFactRows.map(\.asScoredRecord))
+                effectiveRecords = cross.batch
+                let rowByID = Dictionary(uniqueKeysWithValues: storedFactRows.map { ($0.sourceRecordID, $0) })
+                demotedStored = cross.demotedStored.compactMap { demoted in
+                    guard let row = rowByID[demoted.id] else { return nil }
+                    return (demoted, row.citationFull, row.citationURL, row.isEnrichment)
+                }
+            }
+            let demotedBatchIDs = Set(zip(result.allScoredRecords, effectiveRecords)
+                .filter { $0.0.verdict == .fact && $0.1.verdict == .lead }
+                .map { $0.0.id })
+
             // Evidence rows + citations — persisted with the FULL scorer
             // output (gates + summary) and the run's enrichment tag so a DB
             // reconstruction can rebuild the exact ScoredRecords and apply
             // the same clustering exclusion the run did.
             var saved = 0
-            for scored in result.allScoredRecords {
+            for scored in effectiveRecords {
                 let citation = CitationRenderer.cite(scored.record)
                 do {
                     try db.saveEvidence(
@@ -163,6 +185,17 @@ enum ResearchRunService {
                 } catch {
                     failures.append(.init(what: "Save evidence \(scored.record.id)", error: error))
                 }
+            }
+            // Demote the stored rivals in place (upsert preserves the
+            // human's user_status and the v56 applied_at stamp).
+            for item in demotedStored {
+                try? db.saveEvidence(
+                    profileID: profileID, scored: item.scored,
+                    citationFull: item.citationFull, citationURL: item.citationURL,
+                    isEnrichment: item.isEnrichment, runID: runID.uuidString)
+            }
+            if !demotedStored.isEmpty {
+                logger.info("Cross-run exclusivity demoted \(demotedStored.count) stored fact(s) for \(profileID)")
             }
             logger.info("Persisted \(saved)/\(result.allScoredRecords.count) evidence records for \(profileID)")
 
@@ -183,7 +216,9 @@ enum ResearchRunService {
             // audit trail of the chain's current strength, not a ratchet.
             // Fact-verdict records only (leads must not inflate the chain,
             // DS-24), witness-collapsed inside scoreValueGroups (DS-03).
-            let factRecords = result.confirmedFacts.map(\.record)
+            let factRecords = result.confirmedFacts
+                .filter { !demotedBatchIDs.contains($0.id) }   // cross-run demotions never apply
+                .map(\.record)
             if !factRecords.isEmpty {
                 let groups = ConvergenceEngine.scoreValueGroups(
                     records: factRecords, sourceInfoMap: sourceInfoMap
@@ -214,7 +249,8 @@ enum ResearchRunService {
             // could be recorded before the leads existed.
             let leadStore = LeadStore(db: db)
             let leadFilter = snapshot.profiles[profileID].map(LeadFilter.deriving(from:))
-            for scored in result.leads {
+            let crossRunDemotedLeads = effectiveRecords.filter { demotedBatchIDs.contains($0.id) }
+            for scored in result.leads + crossRunDemotedLeads {
                 if let filter = leadFilter, !filter.accepts(scored) {
                     continue
                 }

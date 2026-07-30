@@ -311,3 +311,68 @@ struct DecisionCorePairGeographyTests {
         #expect(scored.verdict == .impossible)
     }
 }
+
+/// DECISION_CORE_PAIR_SPEC Fix A, cross-RUN extension — the live 2026-07-31
+/// screenshot specimen: a re-run re-promoted the 1891 Ilkeston census as an
+/// "unrivalled" fact because its Hayfield/Belper rivals were cache-suppressed
+/// from the batch and sat in the store as yesterday's facts.
+struct DecisionCorePairCrossRunTests {
+
+    private func common(_ id: String) -> RecordCommon {
+        RecordCommon(id: id, sourceID: "freecen", name: nil,
+                     surname: "SHAW", givenName: "ELIZABETH", detailURL: nil, rawFields: [:])
+    }
+
+    private func censusFact(_ id: String) -> ScoredRecord {
+        ScoredRecord(
+            id: id,
+            record: .census(CensusRecord(common: common(id), censusYear: 1891, age: 22,
+                                         birthYear: 1869, district: "Belper")),
+            verdict: .fact,
+            gates: [GateResult(gate: .name, outcome: .pass, reason: "surname=1.00")],
+            summary: "census 1891")
+    }
+
+    @Test func batchFactDemotesAgainstStoredRivals() {
+        // Today's batch: one census fact (Ilkeston). Store: yesterday's two
+        // rival 1891 census facts. All three must end up leads.
+        let cross = RecordScorer.applyExclusivityAcrossStore(
+            batch: [censusFact("ilkeston")],
+            storedFacts: [censusFact("hayfield"), censusFact("belper")])
+        #expect(cross.batch.first?.verdict == .lead)
+        #expect(cross.batch.first?.gates.contains { $0.gate == .exclusivity } == true)
+        #expect(cross.demotedStored.count == 2)
+        #expect(cross.demotedStored.allSatisfy { $0.verdict == .lead })
+    }
+
+    @Test func storedOnlyRivalriesHealWithoutBatchInvolvement() {
+        // A run that fetches nothing new for the slot still heals the
+        // store's stale contradiction (incremental cleanup on every run).
+        let cross = RecordScorer.applyExclusivityAcrossStore(
+            batch: [],
+            storedFacts: [censusFact("hayfield"), censusFact("belper")])
+        #expect(cross.demotedStored.count == 2)
+    }
+
+    @Test func unrivalledBatchFactSurvivesWithBenignStore() {
+        // Store holds only the same record (already saved by this run's
+        // earlier iteration) — no phantom rivalry with itself.
+        let cross = RecordScorer.applyExclusivityAcrossStore(
+            batch: [censusFact("ilkeston")],
+            storedFacts: [censusFact("ilkeston")])
+        #expect(cross.batch.first?.verdict == .fact)
+        #expect(cross.demotedStored.isEmpty)
+    }
+
+    @Test func storedLeadsNeverResurrectAndOrderIsPreserved() {
+        var storedLead = censusFact("old-lead")
+        storedLead = ScoredRecord(id: storedLead.id, record: storedLead.record,
+                                  verdict: .lead, gates: storedLead.gates, summary: storedLead.summary)
+        let batch = [censusFact("a"), censusFact("b")]
+        let cross = RecordScorer.applyExclusivityAcrossStore(
+            batch: batch, storedFacts: [storedLead])
+        #expect(cross.batch.map(\.id) == ["a", "b"])          // order preserved
+        #expect(cross.batch.allSatisfy { $0.verdict == .lead }) // in-batch rivalry
+        #expect(cross.demotedStored.isEmpty)                   // leads never touched
+    }
+}

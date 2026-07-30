@@ -1014,6 +1014,37 @@ nonisolated struct RecordScorer {
         }
     }
 
+    /// Cross-RUN exclusivity (DECISION_CORE_PAIR_SPEC Fix A, cross-run
+    /// extension). The in-run pass can only see the current batch — but the
+    /// negative/dedup caches mean a rival from an earlier run often is NOT
+    /// re-fetched, so a namesake could return as an "unrivalled" fact while
+    /// its competitors sit in the evidence store (live specimen: Elizabeth
+    /// Shaw's 1891 Ilkeston census re-promoted while Hayfield + Belper were
+    /// cache-suppressed). This variant competes the batch against STORED
+    /// facts and reports which stored rows must demote too — healing stale
+    /// piles incrementally on every subsequent run.
+    struct CrossRunExclusivity {
+        let batch: [ScoredRecord]
+        /// Stored facts (not in the batch) whose verdict changed — the
+        /// caller re-persists these (user_status/applied_at preserved by
+        /// the upsert).
+        let demotedStored: [ScoredRecord]
+    }
+
+    static func applyExclusivityAcrossStore(
+        batch: [ScoredRecord], storedFacts: [ScoredRecord]
+    ) -> CrossRunExclusivity {
+        let batchIDs = Set(batch.map(\.id))
+        let stored = storedFacts.filter { !batchIDs.contains($0.id) }
+        let passed = applyExclusivity(batch + stored)   // order-preserving
+        let newBatch = Array(passed.prefix(batch.count))
+        let storedAfter = Array(passed.suffix(stored.count))
+        let demotedStored = zip(stored, storedAfter).compactMap { before, after in
+            after.verdict != before.verdict ? after : nil
+        }
+        return CrossRunExclusivity(batch: newBatch, demotedStored: demotedStored)
+    }
+
     // MARK: - Subject research area (DECISION_CORE_PAIR_SPEC Fix B.1)
 
     /// The subject's accepted counties: the tree's home Chapman code PLUS the
