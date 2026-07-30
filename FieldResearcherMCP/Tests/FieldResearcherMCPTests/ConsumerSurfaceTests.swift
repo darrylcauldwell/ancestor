@@ -32,6 +32,7 @@ struct ConsumerSurfaceTests {
                     is_deleted INTEGER DEFAULT 0)
                 """)
             try db.execute(sql: "CREATE TABLE relationships (id TEXT PRIMARY KEY)")
+            try db.execute(sql: "CREATE TABLE research_runs (id TEXT PRIMARY KEY, profile_id TEXT, mode TEXT, completed_at DATETIME, fact_count INTEGER, lead_count INTEGER, cluster_count INTEGER, gps_score INTEGER)")
             try db.execute(sql: "INSERT INTO project_meta (id, name, source_kind, source_value, created_at) VALUES (?,'T','manual','',?)", arguments: [UUID().uuidString, Date()])
 
             try db.execute(sql: """
@@ -140,5 +141,53 @@ struct ConsumerSurfaceTests {
         #expect(father.contains("kick_off_research"))
         let unknown = await handler.getPromptResponseText(["name": "no_such_prompt", "arguments": [:]])
         #expect(!unknown.contains("\"text\""))
+    }
+}
+
+/// MC6 — reader posture: the consumer profile refuses by ABSENCE.
+struct ReaderPostureTests {
+
+    private func makeDB() throws -> String {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).sqlite").path
+        let q = try DatabaseQueue(path: path)
+        try q.write { db in
+            try db.execute(sql: "CREATE TABLE leads (id TEXT PRIMARY KEY, status TEXT)")
+            try db.execute(sql: "CREATE TABLE project_meta (id TEXT PRIMARY KEY, name TEXT, source_kind TEXT, source_value TEXT, created_at DATETIME)")
+            try db.execute(sql: "CREATE TABLE profiles (id TEXT PRIMARY KEY, is_deleted INTEGER DEFAULT 0)")
+            try db.execute(sql: "CREATE TABLE relationships (id TEXT PRIMARY KEY)")
+        }
+        return path
+    }
+
+    @Test func readerPostureHidesWriteToolsFromTheList() async throws {
+        let reader = try MCPHandler(dbPath: try makeDB(), posture: "reader")
+        let listed = await reader.toolsListResponseText()
+        #expect(listed.contains("\"get_profile\""))
+        #expect(listed.contains("\"kick_off_research\""))     // triggers stay
+        #expect(listed.contains("\"request_fs_hints\""))
+        #expect(!listed.contains("\"submit_evidence\""))       // writes are absent
+        #expect(!listed.contains("\"approve_pending_fact\""))
+        #expect(!listed.contains("\"promote_lead\""))
+        #expect(!listed.contains("\"delete_project\""))
+        #expect(!listed.contains("\"request_fs_upload\""))     // FS upload = wizard territory
+        #expect(!listed.contains("\"add_workbench_note\""))
+    }
+
+    @Test func readerPostureRefusesWriteDispatchByName() async throws {
+        let reader = try MCPHandler(dbPath: try makeDB(), posture: "reader")
+        await #expect(throws: MCPError.self) {
+            try await reader.invokeToolDiscardingResult(name: "submit_evidence")
+        }
+        await #expect(throws: MCPError.self) {
+            try await reader.invokeToolDiscardingResult(name: "delete_project")
+        }
+    }
+
+    @Test func devPostureIsUnchanged() async throws {
+        let dev = try MCPHandler(dbPath: try makeDB())
+        let listed = await dev.toolsListResponseText()
+        #expect(listed.contains("\"submit_evidence\""))
+        #expect(listed.contains("\"approve_pending_fact\""))
     }
 }

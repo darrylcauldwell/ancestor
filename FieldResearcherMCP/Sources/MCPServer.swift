@@ -61,8 +61,31 @@ actor MCPHandler {
         return queue
     }
 
-    init(dbPath: String) throws {
+    /// MC6 — server posture. "dev" (default) exposes the full surface;
+    /// "reader" is the consumer profile: reads + research triggers only —
+    /// refusal by ABSENCE (excluded tools are not listed and not callable),
+    /// not by policy prompt. Derived from ANCESTOR_MCP_PROFILE unless
+    /// injected (tests).
+    let posture: String
+
+    /// Tools available under the reader posture: pure reads + the two
+    /// sanctioned triggers (research runs, FS hints staging). Everything
+    /// that writes tree data — submit_*, approve/promote/dismiss, workbench
+    /// writes, project deletion, FS uploads — is absent by construction.
+    static let readerTools: Set<String> = [
+        "get_profile", "search_profiles", "find_path",
+        "get_scored_records", "get_run_status", "get_research_result",
+        "get_project_info", "get_pending_facts", "get_open_disputes",
+        "get_recent_changes", "get_workbench_notes", "get_open_questions",
+        "get_name_equivalences", "get_wikitree_contributions", "get_audit_findings",
+        "get_fs_upload_status", "get_fs_person_links", "get_fs_hints", "get_fs_request_status",
+        "list_projects", "switch_project",
+        "kick_off_research", "request_fs_hints",
+    ]
+
+    init(dbPath: String, posture: String? = nil) throws {
         self.dbPath = dbPath
+        self.posture = posture ?? ProcessInfo.processInfo.environment["ANCESTOR_MCP_PROFILE"] ?? "dev"
         self.db = try Self.openValidatedDatabase(at: dbPath)
     }
 
@@ -303,8 +326,7 @@ actor MCPHandler {
     // MARK: - Tools
 
     func toolsList() -> [String: Any] {
-        [
-            "tools": [
+        let all: [[String: Any]] = [
                 tool(
                     name: "submit_evidence",
                     description: "Submit a research finding as evidence for a profile. The finding will be scored by the app's deterministic pipeline before human review.",
@@ -539,6 +561,72 @@ actor MCPHandler {
                 // network calls). Request-driven uploads stop at
                 // uploaded-but-hidden; visibility/privacy are in-app consents.
                 tool(
+                    name: "get_project_info",
+                    description: "The bound project's identity and settings: name, home person (id + name), home region (chapman code), expansion policy, and profile/relationship counts.",
+                    properties: [:],
+                    required: []
+                ),
+                tool(
+                    name: "get_pending_facts",
+                    description: "Pending facts awaiting human review, tree-wide or for one profile. Each row: profile_id, field, value, review/verification status, source URL/title, reasoning, created_at.",
+                    properties: [
+                        "profile_id": ["type": "string", "description": "Optional: one profile only."],
+                        "review_status": ["type": "string", "description": "Optional filter (default 'pending')."],
+                        "limit": ["type": "integer", "description": "Max rows (default 100, max 500)."],
+                    ],
+                    required: []
+                ),
+                tool(
+                    name: "get_open_disputes",
+                    description: "Tree-wide evidence disputes, open by default: profile (id + name), field, kind, severity, detected_by. Answers 'which profiles have unresolved conflicts?' in one call.",
+                    properties: [
+                        "status": ["type": "string", "description": "open (default) | resolved | all"],
+                        "limit": ["type": "integer", "description": "Max rows (default 100, max 500)."],
+                    ],
+                    required: []
+                ),
+                tool(
+                    name: "get_recent_changes",
+                    description: "What changed in the tree since a given time: newly scored evidence, new leads, applied field sources, completed research runs, and new pending facts — newest first, each row tagged with its kind and timestamp.",
+                    properties: [
+                        "since": ["type": "string", "description": "ISO8601 timestamp (e.g. 2026-07-24T00:00:00Z). Required."],
+                        "limit": ["type": "integer", "description": "Max rows per kind (default 50, max 200)."],
+                    ],
+                    required: ["since"]
+                ),
+                tool(
+                    name: "get_workbench_notes",
+                    description: "Read workbench notes (newest first), optionally full-text searched. Notes were previously write-only over MCP.",
+                    properties: [
+                        "query": ["type": "string", "description": "Optional FTS query over note text."],
+                        "limit": ["type": "integer", "description": "Max rows (default 50, max 200)."],
+                    ],
+                    required: []
+                ),
+                tool(
+                    name: "get_open_questions",
+                    description: "The workbench's open research questions (status 'open' by default).",
+                    properties: [
+                        "status": ["type": "string", "description": "open (default) | resolved | all"],
+                    ],
+                    required: []
+                ),
+                tool(
+                    name: "get_name_equivalences",
+                    description: "User-confirmed name equivalences learned during review (e.g. Bob≡Robert) — use them when judging candidate matches so external reasoning stays consistent with the app's.",
+                    properties: [:],
+                    required: []
+                ),
+                tool(
+                    name: "get_wikitree_contributions",
+                    description: "WikiTree MergeEdit contribution offers logged by the app (per profile or latest tree-wide). 'Offered' means a review page was opened in the member's browser — whether it was SAVED on WikiTree is unknowable app-side until a future sync.",
+                    properties: [
+                        "profile_id": ["type": "string", "description": "Optional: one profile only."],
+                        "limit": ["type": "integer", "description": "Max rows (default 50, max 200)."],
+                    ],
+                    required: []
+                ),
+                tool(
                     name: "get_audit_findings",
                     description: "Read the persisted Health audit findings (v55 snapshot written each time the app runs its audit pass). Returns rule_id, severity (error | warning | info), message, profile_id (null = tree-level) and computed_at — report the computed_at to the user, findings are only as fresh as the app's last audit pass. Optional filters: profile_id, severity.",
                     properties: [
@@ -600,10 +688,27 @@ actor MCPHandler {
                     required: []
                 ),
             ]
-        ]
+        // MC6 — reader posture: excluded tools are simply absent.
+        let tools = posture == "reader"
+            ? all.filter { Self.readerTools.contains(($0["name"] as? String) ?? "") }
+            : all
+        return ["tools": tools]
+    }
+
+    /// Test projections (Sendable across the actor boundary).
+    func toolsListResponseText() -> String { Self.jsonString(toolsList()) }
+    func invokeToolDiscardingResult(name: String, arguments: [String: Any] = [:]) async throws {
+        _ = try await callTool(params: ["name": name, "arguments": arguments])
     }
 
     func callTool(params: [String: Any]) async throws -> [String: Any] {
+        // MC6 — refusal by absence at dispatch too: a reader-posture caller
+        // cannot invoke an unlisted tool by guessing its name.
+        if posture == "reader",
+           let requested = params["name"] as? String,
+           !Self.readerTools.contains(requested) {
+            throw MCPError.toolNotFound(requested)
+        }
         guard let name = params["name"] as? String,
               let arguments = params["arguments"] as? [String: Any] else {
             throw MCPError.invalidParams("missing name or arguments")
@@ -671,6 +776,22 @@ actor MCPHandler {
             return try inspectApprovalDecision(arguments)
         case "promote_lead":
             return try promoteLead(arguments)
+        case "get_project_info":
+            return ["content": [["type": "text", "text": try getProjectInfoResponseText()]]]
+        case "get_pending_facts":
+            return ["content": [["type": "text", "text": try getPendingFactsResponseText(arguments)]]]
+        case "get_open_disputes":
+            return ["content": [["type": "text", "text": try getOpenDisputesResponseText(arguments)]]]
+        case "get_recent_changes":
+            return ["content": [["type": "text", "text": try getRecentChangesResponseText(arguments)]]]
+        case "get_workbench_notes":
+            return ["content": [["type": "text", "text": try getWorkbenchNotesResponseText(arguments)]]]
+        case "get_open_questions":
+            return ["content": [["type": "text", "text": try getOpenQuestionsResponseText(arguments)]]]
+        case "get_name_equivalences":
+            return ["content": [["type": "text", "text": try getNameEquivalencesResponseText()]]]
+        case "get_wikitree_contributions":
+            return ["content": [["type": "text", "text": try getWikiTreeContributionsResponseText(arguments)]]]
         case "get_audit_findings":
             return ["content": [["type": "text", "text": try getAuditFindingsResponseText(arguments)]]]
         case "get_fs_upload_status":
@@ -854,12 +975,13 @@ actor MCPHandler {
     func treeGaps() throws -> String {
         try db.read { db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT id, first_name, last_name, gender,
-                       birth_date_original, birth_date_earliest,
-                       death_date_original, death_date_earliest,
-                       birth_location
-                FROM profiles
-                WHERE is_deleted = 0
+                SELECT p.id, p.first_name, p.last_name, p.gender,
+                       p.birth_date_original, p.birth_date_earliest,
+                       p.death_date_original, p.death_date_earliest,
+                       p.birth_location,
+                       (SELECT MAX(completed_at) FROM research_runs r WHERE r.profile_id = p.id) AS last_research_at
+                FROM profiles p
+                WHERE p.is_deleted = 0
                 ORDER BY
                     CASE WHEN birth_date_original IS NULL THEN 0 ELSE 1 END +
                     CASE WHEN death_date_original IS NULL THEN 0 ELSE 1 END +
@@ -879,6 +1001,11 @@ actor MCPHandler {
                 if row["death_date_original"] == nil { missing.append("deathDate") }
                 if row["birth_location"] == nil { missing.append("birthLocation") }
                 p["missing"] = missing
+                // MC5 — "who needs research most" needs staleness, not just
+                // incompleteness; absent = never researched.
+                if let d: Date = row["last_research_at"] {
+                    p["last_research_at"] = ISO8601DateFormatter().string(from: d)
+                }
                 return p
             }
 
@@ -2072,7 +2199,7 @@ actor MCPHandler {
             "content": [
                 [
                     "type": "text",
-                    "text": "Research run queued. request_id: \(id). Target: \(profileID.map { "profile \($0)" } ?? "lead \(leadID ?? "?")"). Mode: \(mode), scope: \(scope).\(autoNote) Poll get_run_status for completion.",
+                    "text": "Research run queued. request_id: \(id). Target: \(profileID.map { "profile \($0)" } ?? "lead \(leadID ?? "?")"). Mode: \(mode), scope: \(scope).\(autoNote) The Ancestor Research app must be RUNNING with this project open — its watcher executes queued requests (polls every ~3s). Poll get_run_status for completion; if it stays queued for more than ~30 seconds, ask the user to open the app.",
                 ]
             ]
         ]
@@ -2303,6 +2430,14 @@ actor MCPHandler {
             if let v: String = row["error"] { payload["error"] = v }
             if let d: Date = row["created_at"] {
                 payload["created_at"] = ISO8601DateFormatter().string(from: d)
+                // MC5 — the watcher claims queued rows within ~3s while the
+                // app is open; a stale queued row almost always means the app
+                // is closed, which was previously indistinguishable from
+                // "still working".
+                if (row["status"] as String? ?? "queued") == "queued",
+                   Date().timeIntervalSince(d) > 15 {
+                    payload["hint"] = "Still queued after \(Int(Date().timeIntervalSince(d)))s — the app's watcher claims requests within ~3 seconds while running, so the Ancestor Research app is probably not open with this project. Ask the user to open it."
+                }
             }
             if let d: Date = row["started_at"] {
                 payload["started_at"] = ISO8601DateFormatter().string(from: d)
@@ -2901,17 +3036,47 @@ actor MCPHandler {
                 adj[b, default: []].append((a, backwardLabel))
             }
 
+            // MC5 — per-hop identity so the caller can NAME the relationship
+            // without one get_profile per node (kinship derivation is the
+            // assistant's job — deliberately outside the app core, ADR-007).
+            let nameRows = try Row.fetchAll(db, sql: """
+                SELECT id, first_name, last_name, gender, birth_date_earliest
+                FROM profiles WHERE is_deleted = 0
+                """)
+            var identity: [String: [String: Any]] = [:]
+            for n in nameRows {
+                let pid: String = n["id"]
+                var entry: [String: Any] = [
+                    "name": "\(n["first_name"] as String? ?? "") \(n["last_name"] as String? ?? "")",
+                ]
+                if let g: String = n["gender"] { entry["gender"] = g }
+                if let b: Int = n["birth_date_earliest"] { entry["birth_year"] = b }
+                identity[pid] = entry
+            }
+            func step(_ id: String, via: String?) -> [String: Any] {
+                var out: [String: Any] = identity[id] ?? [:]
+                out["id"] = id
+                if let via { out["via"] = via }
+                return out
+            }
+
             var queue: [(node: String, path: [(String, String)], depth: Int)] = [(from, [], 0)]
             var visited: Set<String> = [from]
+            var hopLimitPruned = false
             while !queue.isEmpty {
                 let head = queue.removeFirst()
-                if head.depth >= maxHops { continue }
+                if head.depth >= maxHops {
+                    // Frontier still had unexplored nodes — the search was
+                    // cut by max_hops, not by running out of graph.
+                    hopLimitPruned = true
+                    continue
+                }
                 for next in adj[head.node] ?? [] {
                     if visited.contains(next.neighbour) { continue }
                     let newPath = head.path + [(next.neighbour, next.label)]
                     if next.neighbour == to {
                         let nodes = [from] + newPath.map(\.0)
-                        let steps = newPath.map { ["to": $0.0, "via": $0.1] }
+                        let steps = [step(from, via: nil)] + newPath.map { step($0.0, via: $0.1) }
                         let payload: [String: Any] = [
                             "path": nodes,
                             "steps": steps,
@@ -2923,7 +3088,13 @@ actor MCPHandler {
                     queue.append((next.neighbour, newPath, head.depth + 1))
                 }
             }
-            return Self.jsonString(["path": NSNull(), "hops": NSNull(), "reason": "no path within \(maxHops) hops"])
+            // MC5 — disconnected components and too-far are different answers:
+            // "not connected in the tree" is a genealogical finding; "raise
+            // max_hops" is a retry instruction.
+            let reason = hopLimitPruned
+                ? "no path within \(maxHops) hops — try a larger max_hops"
+                : "not connected — these two people are in disconnected components of the tree"
+            return Self.jsonString(["path": NSNull(), "hops": NSNull(), "reason": reason])
         }
     }
 
@@ -2975,6 +3146,264 @@ actor MCPHandler {
             return "{\"error\": \"serialization_failed\"}"
         }
         return text
+    }
+
+    // MARK: - MC5 conveniences (read-only)
+
+    func getProjectInfoResponseText() throws -> String {
+        try db.read { dbConn in
+            var info: [String: Any] = [:]
+            if let meta = try Row.fetchOne(dbConn, sql: "SELECT * FROM project_meta LIMIT 1") {
+                if let v: String = meta["name"] { info["name"] = v }
+                if let v: String = meta["home_person_id"] {
+                    info["home_person_id"] = v
+                    if let home = try Row.fetchOne(dbConn,
+                        sql: "SELECT first_name, last_name FROM profiles WHERE id = ?", arguments: [v]) {
+                        info["home_person_name"] = "\(home["first_name"] as String? ?? "") \(home["last_name"] as String? ?? "")"
+                    }
+                }
+                if let v: String = meta["home_chapman_code"] { info["home_chapman_code"] = v }
+                if let v: String = meta["expansion_policy"] { info["expansion_policy"] = v }
+            }
+            info["profiles"] = try Int.fetchOne(dbConn, sql: "SELECT COUNT(*) FROM profiles WHERE is_deleted = 0") ?? 0
+            info["relationships"] = try Int.fetchOne(dbConn, sql: "SELECT COUNT(*) FROM relationships") ?? 0
+            return Self.jsonString(info)
+        }
+    }
+
+    func getPendingFactsResponseText(_ args: [String: Any]) throws -> String {
+        let limit = max(1, min((args["limit"] as? Int) ?? 100, 500))
+        let profileID = (args["profile_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let status = (args["review_status"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "pending"
+        let iso = ISO8601DateFormatter()
+        return try db.read { dbConn in
+            var sql = "SELECT id, profile_id, fact_kind, value_json, review_status, verification_status, source_url, source_title, reasoning, created_at FROM pending_facts"
+            var clauses: [String] = []
+            var arguments: [DatabaseValueConvertible] = []
+            if status != "all" { clauses.append("review_status = ?"); arguments.append(status) }
+            if let profileID { clauses.append("profile_id = ?"); arguments.append(profileID) }
+            if !clauses.isEmpty { sql += " WHERE " + clauses.joined(separator: " AND ") }
+            sql += " ORDER BY created_at DESC LIMIT ?"
+            arguments.append(limit)
+            let rows = try Row.fetchAll(dbConn, sql: sql, arguments: StatementArguments(arguments))
+            let out = rows.map { row -> [String: Any] in
+                var f: [String: Any] = [
+                    "id": row["id"] as String? ?? "",
+                    "profile_id": row["profile_id"] as String? ?? "",
+                    "field": row["fact_kind"] as String? ?? "",
+                    "value": row["value_json"] as String? ?? "",
+                    "review_status": row["review_status"] as String? ?? "",
+                ]
+                if let v: String = row["verification_status"] { f["verification_status"] = v }
+                if let v: String = row["source_url"] { f["source_url"] = v }
+                if let v: String = row["source_title"] { f["source_title"] = v }
+                if let v: String = row["reasoning"] { f["reasoning"] = v }
+                if let d: Date = row["created_at"] { f["created_at"] = iso.string(from: d) }
+                return f
+            }
+            return Self.jsonString(out)
+        }
+    }
+
+    func getOpenDisputesResponseText(_ args: [String: Any]) throws -> String {
+        let limit = max(1, min((args["limit"] as? Int) ?? 100, 500))
+        let status = (args["status"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "open"
+        return try db.read { dbConn in
+            var sql = """
+                SELECT d.entity_id, d.kind, d.field, d.severity, d.detected_by, d.resolution,
+                       p.first_name, p.last_name
+                FROM field_disputes d
+                LEFT JOIN profiles p ON p.id = d.entity_id
+                """
+            var clauses: [String] = []
+            if status == "open" { clauses.append("d.resolution IS NULL") }
+            if status == "resolved" { clauses.append("d.resolution IS NOT NULL") }
+            if !clauses.isEmpty { sql += " WHERE " + clauses.joined(separator: " AND ") }
+            sql += " ORDER BY d.rowid DESC LIMIT ?"
+            let rows = try Row.fetchAll(dbConn, sql: sql, arguments: [limit])
+            let out = rows.map { row -> [String: Any] in
+                var d: [String: Any] = [
+                    "profile_id": row["entity_id"] as String? ?? "",
+                    "kind": row["kind"] as String? ?? "",
+                    "field": row["field"] as String? ?? "",
+                    "status": (row["resolution"] as String?) == nil ? "open" : "resolved",
+                ]
+                let name = "\(row["first_name"] as String? ?? "") \(row["last_name"] as String? ?? "")".trimmingCharacters(in: .whitespaces)
+                if !name.isEmpty { d["profile_name"] = name }
+                if let v: String = row["severity"] { d["severity"] = v }
+                if let v: String = row["detected_by"] { d["detected_by"] = v }
+                return d
+            }
+            return Self.jsonString(out)
+        }
+    }
+
+    func getRecentChangesResponseText(_ args: [String: Any]) throws -> String {
+        guard let sinceRaw = args["since"] as? String,
+              let since = ISO8601DateFormatter().date(from: sinceRaw) else {
+            throw MCPError.invalidParams("get_recent_changes requires an ISO8601 'since' timestamp")
+        }
+        let limit = max(1, min((args["limit"] as? Int) ?? 50, 200))
+        let iso = ISO8601DateFormatter()
+        return try db.read { dbConn in
+            var events: [[String: Any]] = []
+            func collect(_ sql: String, kind: String, map: (Row) -> [String: Any]) {
+                guard let rows = try? Row.fetchAll(dbConn, sql: sql, arguments: [since, limit]) else { return }
+                for row in rows {
+                    var e = map(row)
+                    e["kind"] = kind
+                    events.append(e)
+                }
+            }
+            collect("SELECT profile_id, source_id, verdict, scored_at AS at FROM evidence_records WHERE scored_at > ? ORDER BY scored_at DESC LIMIT ?", kind: "evidence_scored") { row in
+                var e: [String: Any] = ["profile_id": row["profile_id"] as String? ?? ""]
+                if let v: String = row["source_id"] { e["source"] = v }
+                if let v: String = row["verdict"] { e["verdict"] = v }
+                if let d: Date = row["at"] { e["at"] = iso.string(from: d) }
+                return e
+            }
+            collect("SELECT profile_id, name, status, created_at AS at FROM leads WHERE created_at > ? ORDER BY created_at DESC LIMIT ?", kind: "lead_created") { row in
+                var e: [String: Any] = ["profile_id": row["profile_id"] as String? ?? ""]
+                if let v: String = row["name"] { e["name"] = v }
+                if let v: String = row["status"] { e["status"] = v }
+                if let d: Date = row["at"] { e["at"] = iso.string(from: d) }
+                return e
+            }
+            collect("SELECT entity_id AS profile_id, field, origin, added_at AS at FROM field_sources WHERE added_at > ? AND entity_kind != 'relationship' ORDER BY added_at DESC LIMIT ?", kind: "fact_applied") { row in
+                var e: [String: Any] = ["profile_id": row["profile_id"] as String? ?? ""]
+                if let v: String = row["field"] { e["field"] = v }
+                if let v: String = row["origin"] { e["source"] = v }
+                if let d: Date = row["at"] { e["at"] = iso.string(from: d) }
+                return e
+            }
+            collect("SELECT profile_id, mode, fact_count, lead_count, completed_at AS at FROM research_runs WHERE completed_at > ? ORDER BY completed_at DESC LIMIT ?", kind: "research_completed") { row in
+                var e: [String: Any] = ["profile_id": row["profile_id"] as String? ?? ""]
+                if let v: String = row["mode"] { e["mode"] = v }
+                if let v: Int = row["fact_count"] { e["facts"] = v }
+                if let v: Int = row["lead_count"] { e["leads"] = v }
+                if let d: Date = row["at"] { e["at"] = iso.string(from: d) }
+                return e
+            }
+            collect("SELECT profile_id, fact_kind, review_status, created_at AS at FROM pending_facts WHERE created_at > ? ORDER BY created_at DESC LIMIT ?", kind: "pending_fact_created") { row in
+                var e: [String: Any] = ["profile_id": row["profile_id"] as String? ?? ""]
+                if let v: String = row["fact_kind"] { e["field"] = v }
+                if let v: String = row["review_status"] { e["review_status"] = v }
+                if let d: Date = row["at"] { e["at"] = iso.string(from: d) }
+                return e
+            }
+            events.sort { (($0["at"] as? String) ?? "") > (($1["at"] as? String) ?? "") }
+            return Self.jsonString(events)
+        }
+    }
+
+    func getWorkbenchNotesResponseText(_ args: [String: Any]) throws -> String {
+        let limit = max(1, min((args["limit"] as? Int) ?? 50, 200))
+        let query = (args["query"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let iso = ISO8601DateFormatter()
+        return try db.read { dbConn in
+            let rows: [Row]
+            if let query {
+                rows = try Row.fetchAll(dbConn, sql: """
+                    SELECT n.id, n.content, n.tag, n.attachment_kind, n.attachment_id, n.created_at
+                    FROM workbench_notes n
+                    JOIN workbench_notes_fts f ON f.rowid = n.rowid
+                    WHERE workbench_notes_fts MATCH ?
+                    ORDER BY n.created_at DESC LIMIT ?
+                    """, arguments: [query, limit])
+            } else {
+                rows = try Row.fetchAll(dbConn, sql: """
+                    SELECT id, content, tag, attachment_kind, attachment_id, created_at
+                    FROM workbench_notes ORDER BY created_at DESC LIMIT ?
+                    """, arguments: [limit])
+            }
+            let out = rows.map { row -> [String: Any] in
+                var n: [String: Any] = [
+                    "id": row["id"] as String? ?? "",
+                    "content": row["content"] as String? ?? "",
+                ]
+                if let v: String = row["tag"] { n["tag"] = v }
+                if let v: String = row["attachment_kind"] { n["attached_to_kind"] = v }
+                if let v: String = row["attachment_id"] { n["attached_to_id"] = v }
+                if let d: Date = row["created_at"] { n["created_at"] = iso.string(from: d) }
+                return n
+            }
+            return Self.jsonString(out)
+        }
+    }
+
+    func getOpenQuestionsResponseText(_ args: [String: Any]) throws -> String {
+        let status = (args["status"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "open"
+        return try db.read { dbConn in
+            var sql = "SELECT id, text, profile_ids, priority, status, resolution, created_at FROM open_questions"
+            var arguments: [DatabaseValueConvertible] = []
+            if status != "all" { sql += " WHERE status = ?"; arguments.append(status) }
+            sql += " ORDER BY created_at DESC LIMIT 200"
+            let iso = ISO8601DateFormatter()
+            let rows = try Row.fetchAll(dbConn, sql: sql, arguments: StatementArguments(arguments))
+            let out = rows.map { row -> [String: Any] in
+                var q: [String: Any] = [
+                    "id": row["id"] as String? ?? "",
+                    "question": row["text"] as String? ?? "",
+                    "status": row["status"] as String? ?? "",
+                ]
+                if let v: String = row["priority"] { q["priority"] = v }
+                if let v: String = row["resolution"] { q["resolution"] = v }
+                if let v: String = row["profile_ids"], let data = v.data(using: .utf8),
+                   let decoded = try? JSONSerialization.jsonObject(with: data) {
+                    q["profile_ids"] = decoded
+                }
+                if let d: Date = row["created_at"] { q["created_at"] = iso.string(from: d) }
+                return q
+            }
+            return Self.jsonString(out)
+        }
+    }
+
+    func getNameEquivalencesResponseText() throws -> String {
+        try db.read { dbConn in
+            let rows = try Row.fetchAll(dbConn, sql: "SELECT * FROM name_equivalences LIMIT 500")
+            let out = rows.map { row -> [String: Any] in
+                var e: [String: Any] = [:]
+                // Column names differ across schema eras — surface whatever
+                // the row carries rather than guessing a fixed pair.
+                for (column, value) in row {
+                    if let v = value.storage.value as? String { e[column] = v }
+                }
+                return e
+            }
+            return Self.jsonString(out)
+        }
+    }
+
+    func getWikiTreeContributionsResponseText(_ args: [String: Any]) throws -> String {
+        let limit = max(1, min((args["limit"] as? Int) ?? 50, 200))
+        let profileID = (args["profile_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let iso = ISO8601DateFormatter()
+        do {
+            return try db.read { dbConn in
+                var sql = "SELECT id, profile_id, wikitree_id, fields_json, bio_appended, summary, opened_at FROM wikitree_contributions"
+                var arguments: [DatabaseValueConvertible] = []
+                if let profileID { sql += " WHERE profile_id = ?"; arguments.append(profileID) }
+                sql += " ORDER BY opened_at DESC LIMIT ?"
+                arguments.append(limit)
+                let rows = try Row.fetchAll(dbConn, sql: sql, arguments: StatementArguments(arguments))
+                let out = rows.map { row -> [String: Any] in
+                    var c: [String: Any] = [
+                        "profile_id": row["profile_id"] as String? ?? "",
+                        "wikitree_id": row["wikitree_id"] as String? ?? "",
+                        "fields": row["fields_json"] as String? ?? "{}",
+                        "bio_appended": (row["bio_appended"] as Bool?) ?? false,
+                        "note": "offered — a review page was opened; whether it was saved on WikiTree is unknown until a future sync",
+                    ]
+                    if let v: String = row["summary"] { c["summary"] = v }
+                    if let d: Date = row["opened_at"] { c["opened_at"] = iso.string(from: d) }
+                    return c
+                }
+                return Self.jsonString(out)
+            }
+        } catch where Self.isMissingTable(error) {
+            return Self.fsSchemaOutOfDate
+        }
     }
 
     // MARK: - Audit findings (MC4)
