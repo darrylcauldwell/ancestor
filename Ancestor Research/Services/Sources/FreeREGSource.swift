@@ -82,6 +82,16 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
     nonisolated static let maxResults = 500
     nonisolated static let maxPages = 10
 
+    /// Search-POST timeout. FreeREG's own form documents "search limited
+    /// to 100 seconds maximum" — the server genuinely computes for up to
+    /// that long before responding, so the transport default (20 s,
+    /// `SourceHTTPClient`) guaranteed a timeout on any non-trivial query
+    /// (first live-run symptom 2026-07-30, and a likely contributor to
+    /// the pre-retirement "returned 0" verdict). 110 s = the documented
+    /// ceiling plus redirect/transfer margin. Applies to the search POST
+    /// only; session/paging/detail GETs stay on the fast default.
+    nonisolated static let searchTimeout: TimeInterval = 110
+
     // MARK: - Search
 
     func search(_ query: RecordQuery) async -> SourceQueryResult {
@@ -231,7 +241,8 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
                         "User-Agent": Self.userAgent,
                         "X-CSRF-Token": self.csrfToken ?? "",
                         "Referer": Self.searchFormURL,
-                    ]
+                    ],
+                    timeout: Self.searchTimeout
                 )
             }
 
