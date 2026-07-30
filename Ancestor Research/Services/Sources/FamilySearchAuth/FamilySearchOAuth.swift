@@ -103,13 +103,21 @@ nonisolated struct FamilySearchTokenSet: Codable, Sendable, Equatable {
     let obtainedAt: Date
     let expiresIn: Int?
 
-    /// Conservative expiry: FS reportedly issues 24h access tokens but the
-    /// spec flags the lifetime unverified (§15.2), so an absent
-    /// `expires_in` is treated as one hour. 60s safety margin so a token
-    /// isn't presented mid-flight at its exact expiry instant.
+    /// Server-arbitrated expiry (2026-07-30): when FS declares
+    /// `expires_in`, honour it (60s safety margin). When it does NOT —
+    /// the usual case on this key — we previously FABRICATED a one-hour
+    /// lifetime and discarded the token client-side, which forced an
+    /// interactive re-sign-in every hour even though FS reportedly
+    /// issues ~24h tokens (§15.2, lifetime unverified). Nobody but the
+    /// server knows the truth, and `FamilySearchClient.execute` already
+    /// arbitrates it: a stale token costs one 401 → refresh (nil on
+    /// this key) → `.notAuthenticated`, the same UX as a client-side
+    /// discard. So: absent `expires_in` = present the token and let the
+    /// server decide. This is what made hourly sign-ins so painful that
+    /// the owner stopped signing in at all.
     func isExpired(now: Date = Date()) -> Bool {
-        let lifetime = TimeInterval(expiresIn ?? 3600)
-        return now >= obtainedAt.addingTimeInterval(lifetime - 60)
+        guard let expiresIn else { return false }
+        return now >= obtainedAt.addingTimeInterval(TimeInterval(expiresIn) - 60)
     }
 }
 

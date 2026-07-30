@@ -90,13 +90,30 @@ struct FamilySearchOAuthTests {
         #expect(!tokens.isExpired(now: now.addingTimeInterval(86400 - 120)))
     }
 
-    @Test func missingExpiryTreatedAsOneConservativeHour() throws {
+    /// Policy change 2026-07-30 (owner): an absent `expires_in` is
+    /// SERVER-ARBITRATED, not client-guessed. The old fabricated one-hour
+    /// lifetime forced an interactive re-sign-in every hour (FS issues no
+    /// refresh token on this key) even though FS reportedly issues ~24h
+    /// tokens — painful enough that the owner stopped signing in at all.
+    /// A stale token now costs exactly one 401 → `.notAuthenticated`,
+    /// the same end state as the old client-side discard.
+    @Test func missingExpiryIsServerArbitratedNotClientGuessed() throws {
         let json = #"{"access_token":"AT-2","token_type":"family_search"}"#
         let now = Date()
         let tokens = try FamilySearchOAuth.parseTokenResponse(Data(json.utf8), now: now)
         #expect(tokens.refreshToken == nil)
-        #expect(!tokens.isExpired(now: now.addingTimeInterval(1800)))
-        #expect(tokens.isExpired(now: now.addingTimeInterval(3600)))
+        #expect(!tokens.isExpired(now: now.addingTimeInterval(3600)),
+                "no declared lifetime → never client-expired; the server's 401 arbitrates")
+        #expect(!tokens.isExpired(now: now.addingTimeInterval(86_400)))
+    }
+
+    @Test func declaredExpiryIsStillHonoured() throws {
+        let json = #"{"access_token":"AT-3","token_type":"family_search","expires_in":7200}"#
+        let now = Date()
+        let tokens = try FamilySearchOAuth.parseTokenResponse(Data(json.utf8), now: now)
+        #expect(!tokens.isExpired(now: now.addingTimeInterval(3600)))
+        #expect(tokens.isExpired(now: now.addingTimeInterval(7200)),
+                "a server-declared lifetime is honoured (with the 60s margin)")
     }
 
     // MARK: - Form encoding
