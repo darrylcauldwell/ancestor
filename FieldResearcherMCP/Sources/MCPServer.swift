@@ -325,6 +325,13 @@ actor MCPHandler {
             let trimmed = uri.dropFirst("ancestor://profile/".count)
             let id = String(trimmed.dropLast("/disputes".count))
             content = try disputesResource(profileID: id)
+        case _ where uri.hasPrefix("ancestor://profile/") && uri.hasSuffix("/dossier"):
+            // DOSSIER_SPEC #T9-Change1 — the deterministic skeleton as JSON.
+            // Read-only, model-free (this server never runs MLX); rendered
+            // from the same rows the in-app assembler reads.
+            let trimmed = uri.dropFirst("ancestor://profile/".count)
+            let id = String(trimmed.dropLast("/dossier".count))
+            content = try dossierResource(profileID: id)
         case _ where uri.hasPrefix("ancestor://profile/"):
             let id = String(uri.dropFirst("ancestor://profile/".count))
             content = try profileDetail(id: id)
@@ -1135,6 +1142,136 @@ actor MCPHandler {
             let data = (try? JSONSerialization.data(
                 withJSONObject: ["profile_id": profileID, "disputes": payload],
                 options: [.sortedKeys])) ?? Data()
+            return String(data: data, encoding: .utf8) ?? "{}"
+        }
+    }
+
+    /// DOSSIER_SPEC #T9-Change1 — the pre-commit decision dossier as a
+    /// deterministic JSON skeleton: what we know (D1), what conflicts (D2),
+    /// what's honestly missing (D3 — clean negatives vs partial answers,
+    /// never conflated), what's being investigated (D4), plus last-run
+    /// standing (D0) and a provenance footer (D7). A projection of rows the
+    /// other resources already expose, shaped for reading a subject's
+    /// evidential state in one fetch.
+    func dossierResource(profileID: String) throws -> String {
+        try db.read { db in
+            guard let profile = try Row.fetchOne(
+                db, sql: "SELECT * FROM profiles WHERE id = ? AND is_deleted = 0",
+                arguments: [profileID]) else {
+                let data = (try? JSONSerialization.data(
+                    withJSONObject: ["error": "profile_not_found"], options: [.sortedKeys])) ?? Data()
+                return String(data: data, encoding: .utf8) ?? "{}"
+            }
+            let iso = ISO8601DateFormatter()
+            var dossier: [String: Any] = ["profile_id": profileID]
+            let first = profile["first_name"] as String? ?? ""
+            let last = profile["last_name"] as String? ?? ""
+            dossier["subject"] = "\(first) \(last)".trimmingCharacters(in: .whitespaces)
+
+            // D0 — standing from the last completed run.
+            if let run = try Row.fetchOne(db, sql: """
+                SELECT id, mode, completed_at, gps_score, fact_count, lead_count
+                FROM research_runs WHERE profile_id = ? AND completed_at IS NOT NULL
+                ORDER BY completed_at DESC LIMIT 1
+                """, arguments: [profileID]) {
+                var d0: [String: Any] = ["mode": run["mode"] as String? ?? ""]
+                if let v: Int = run["gps_score"] { d0["gps_score"] = v }
+                if let d: Date = run["completed_at"] { d0["last_researched_at"] = iso.string(from: d) }
+                d0["facts"] = run["fact_count"] as Int? ?? 0
+                d0["leads"] = run["lead_count"] as Int? ?? 0
+                dossier["d0_standing"] = d0
+            } else {
+                dossier["d0_standing"] = ["note": "never researched"]
+            }
+
+            // D1 — accepted facts (verdict=fact, not user-discarded).
+            let facts = try Row.fetchAll(db, sql: """
+                SELECT source_record_id, source_id, record_type, citation_full
+                FROM evidence_records
+                WHERE profile_id = ? AND verdict = 'fact'
+                  AND (user_status IS NULL OR user_status != 'discarded')
+                ORDER BY record_type, source_record_id
+                """, arguments: [profileID])
+            dossier["d1_what_we_know"] = facts.map { f -> [String: Any] in
+                var out: [String: Any] = [
+                    "record_id": f["source_record_id"] as String? ?? "",
+                    "source": f["source_id"] as String? ?? "",
+                    "type": f["record_type"] as String? ?? "",
+                ]
+                if let v: String = f["citation_full"] { out["citation"] = v }
+                return out
+            }
+
+            // D2 — conflicts, open first (verbatim stored strings).
+            let disputes = try Row.fetchAll(db, sql: """
+                SELECT rowid, field, severity, resolution, ladder_trace, witness_summary
+                FROM field_disputes WHERE entity_id = ?
+                ORDER BY CASE WHEN resolution IS NULL THEN 0 ELSE 1 END, rowid
+                """, arguments: [profileID])
+            dossier["d2_what_conflicts"] = disputes.map { d -> [String: Any] in
+                var out: [String: Any] = [
+                    "field": d["field"] as String? ?? "",
+                    "status": (d["resolution"] as String?) == nil ? "open" : "resolved",
+                ]
+                if let v: String = d["severity"] { out["severity"] = v }
+                if let v: String = d["witness_summary"] { out["witness_summary"] = v }
+                if let v: String = d["ladder_trace"] { out["ladder_trace"] = v }
+                return out
+            }
+
+            // D3 — what's missing, with the honesty envelope intact: only a
+            // clean negative claims absence; truncated/partial answers are
+            // labelled and never read as gaps.
+            let negatives = try Row.fetchAll(db, sql: """
+                SELECT rowid, source_id, record_type, searched_at, result_kind
+                FROM negative_searches WHERE profile_id = ?
+                ORDER BY searched_at DESC LIMIT 100
+                """, arguments: [profileID])
+            dossier["d3_whats_missing"] = negatives.map { n -> [String: Any] in
+                let kind = n["result_kind"] as String? ?? "zero"
+                var out: [String: Any] = [
+                    "source": n["source_id"] as String? ?? "",
+                    "type": n["record_type"] as String? ?? "",
+                    "conclusion": kind == "zero"
+                        ? "searched and absent"
+                        : "partial answer (\(kind)) — not evidence of absence",
+                ]
+                if let d: Date = n["searched_at"] { out["searched_at"] = iso.string(from: d) }
+                return out
+            }
+            if negatives.isEmpty {
+                dossier["d3_note"] = "No negative searches recorded — absence here means not yet searched, not searched-and-absent."
+            }
+
+            // D4 — hypotheses under investigation (reasoning verbatim).
+            let hypotheses = try Row.fetchAll(db, sql: """
+                SELECT id, kind_discriminator, verdict, origin, reasoning, attempts, user_rejected
+                FROM research_hypotheses WHERE subject_profile_id = ?
+                ORDER BY id
+                """, arguments: [profileID])
+            dossier["d4_investigating"] = hypotheses.map { h -> [String: Any] in
+                var out: [String: Any] = [
+                    "id": h["id"] as String? ?? "",
+                    "kind": h["kind_discriminator"] as String? ?? "",
+                    "verdict": h["verdict"] as String? ?? "",
+                    "origin": h["origin"] as String? ?? "engine",
+                    "attempts": h["attempts"] as Int? ?? 0,
+                ]
+                if let v: String = h["reasoning"] { out["reasoning"] = v }
+                if (h["user_rejected"] as Int? ?? 0) == 1 { out["user_rejected"] = true }
+                return out
+            }
+
+            // D7 — provenance footer: honest process narration.
+            dossier["d7_footer"] = [
+                "generated_at": iso.string(from: Date()),
+                "narration_mode": "deterministic",
+                "row_counts": ["d1": facts.count, "d2": disputes.count,
+                               "d3": negatives.count, "d4": hypotheses.count],
+                "note": "A projection of stored rows — never persisted as evidence, never cited. Candidate comparison (D5) and challenges (D6) are in-app surfaces.",
+            ]
+            let data = (try? JSONSerialization.data(
+                withJSONObject: dossier, options: [.sortedKeys, .prettyPrinted])) ?? Data()
             return String(data: data, encoding: .utf8) ?? "{}"
         }
     }

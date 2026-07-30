@@ -3479,6 +3479,31 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// Load a profile's negative-search rows, newest first (DOSSIER_SPEC
+    /// #T9-Change1 — the D3 "what's missing" input; no fetch helper existed).
+    /// `result_kind` NULL = legacy pre-v42 row — by writer construction those
+    /// were only ever clean zeros, so readers treat NULL as 'zero'.
+    func negativeSearches(profileID: String) throws -> [NegativeSearchRow] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT rowid, source_id, record_type, searched_at, search_params,
+                       result_kind, hit_count
+                FROM negative_searches WHERE profile_id = ?
+                ORDER BY searched_at DESC
+                """, arguments: [profileID])
+            return rows.map { row in
+                NegativeSearchRow(
+                    id: row["rowid"] as Int64? ?? 0,
+                    sourceID: row["source_id"] as String? ?? "",
+                    recordType: row["record_type"] as String? ?? "",
+                    searchedAt: row["searched_at"] as Date? ?? Date.distantPast,
+                    searchParams: row["search_params"] as String?,
+                    resultKind: row["result_kind"] as String?,
+                    hitCount: row["hit_count"] as Int?)
+            }
+        }
+    }
+
     /// Save a rejected record ID for a profile.
     func saveRejection(profileID: String, recordID: String) throws {
         try dbQueue.write { db in
@@ -4313,6 +4338,27 @@ nonisolated extension ProjectDatabase {
 /// kinds; this row type is the store-level contract that carries every
 /// kind, the ladder trace, and the witness summary — `allDisputes` over it
 /// is the T9 dossier read contract (§4.8.6).
+/// One negative-search row (DOSSIER_SPEC #T9-Change1). The honesty envelope
+/// distinction is load-bearing: only a CLEAN negative ("searched and absent")
+/// may back an absence claim — a truncated/partial answer is never evidence
+/// of absence.
+nonisolated struct NegativeSearchRow: Identifiable, Sendable, Equatable {
+    let id: Int64
+    let sourceID: String
+    let recordType: String
+    let searchedAt: Date
+    let searchParams: String?
+    /// 'zero' | 'sparse' | 'positive' | 'truncated'; NULL = legacy clean zero.
+    let resultKind: String?
+    let hitCount: Int?
+
+    /// Searched conclusively and found nothing — the only rows D3 may list
+    /// as "searched and absent".
+    var isCleanNegative: Bool {
+        resultKind == nil || resultKind == "zero"
+    }
+}
+
 nonisolated struct DisputeRow: Identifiable, Sendable {
     let id: Int64
     let entityID: String

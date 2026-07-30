@@ -122,3 +122,77 @@ struct RecentChangesCollapseTests {
         #expect(fields.contains("deathDate") && fields.contains("deathLocation"))
     }
 }
+
+/// DOSSIER_SPEC #T9-Change1 acceptance criterion 6 — the MCP dossier
+/// resource renders the deterministic skeleton from the same rows, with the
+/// honesty envelope intact (a truncated search is never an absence claim).
+struct DossierResourceTests {
+
+    private func makeDB() throws -> String {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).sqlite").path
+        let q = try DatabaseQueue(path: path)
+        try q.write { db in
+            try db.execute(sql: "CREATE TABLE project_meta (id TEXT PRIMARY KEY, name TEXT, source_kind TEXT, source_value TEXT, created_at DATETIME)")
+            try db.execute(sql: "INSERT INTO project_meta (id, name, source_kind, source_value, created_at) VALUES ('t','T','manual','',?)", arguments: [Date()])
+            try db.execute(sql: """
+                CREATE TABLE profiles (id TEXT PRIMARY KEY, first_name TEXT, last_name TEXT,
+                    is_deleted INTEGER DEFAULT 0)
+                """)
+            try db.execute(sql: "CREATE TABLE leads (id TEXT PRIMARY KEY, profile_id TEXT, name TEXT, status TEXT, created_at DATETIME)")
+            try db.execute(sql: """
+                CREATE TABLE evidence_records (id TEXT PRIMARY KEY, profile_id TEXT, source_id TEXT,
+                    source_record_id TEXT, record_type TEXT, verdict TEXT, record_json TEXT,
+                    citation_full TEXT, user_status TEXT, scored_at DATETIME)
+                """)
+            try db.execute(sql: "CREATE TABLE field_disputes (rowid INTEGER PRIMARY KEY, entity_id TEXT, field TEXT, severity TEXT, resolution TEXT, ladder_trace TEXT, witness_summary TEXT)")
+            try db.execute(sql: "CREATE TABLE negative_searches (rowid INTEGER PRIMARY KEY, profile_id TEXT, source_id TEXT, record_type TEXT, searched_at DATETIME, search_params TEXT, result_kind TEXT, hit_count INTEGER)")
+            try db.execute(sql: "CREATE TABLE research_hypotheses (id TEXT PRIMARY KEY, subject_profile_id TEXT, kind_discriminator TEXT, verdict TEXT, origin TEXT, reasoning TEXT, attempts INTEGER, user_rejected INTEGER DEFAULT 0)")
+            try db.execute(sql: "CREATE TABLE research_runs (id TEXT PRIMARY KEY, profile_id TEXT, mode TEXT, completed_at DATETIME, gps_score INTEGER, fact_count INTEGER, lead_count INTEGER)")
+
+            try db.execute(sql: "INSERT INTO profiles (id, first_name, last_name) VALUES ('@P1@', 'Elizabeth', 'Shaw')")
+            try db.execute(sql: """
+                INSERT INTO evidence_records (id, profile_id, source_id, source_record_id, record_type, verdict, record_json, citation_full, user_status, scored_at)
+                VALUES ('@P1@|d1', '@P1@', 'freebmd', 'd1', 'death', 'fact', '{}', 'FreeBMD death 7b/920', 'unreviewed', ?),
+                       ('@P1@|c1', '@P1@', 'freecen', 'c1', 'census', 'lead', '{}', NULL, 'unreviewed', ?)
+                """, arguments: [Date(), Date()])
+            try db.execute(sql: "INSERT INTO field_disputes (entity_id, field, severity, witness_summary) VALUES ('@P1@', 'deathDate', 'conflict', '2 witnesses say 1916; 1 says 1914')")
+            try db.execute(sql: """
+                INSERT INTO negative_searches (profile_id, source_id, record_type, searched_at, result_kind) VALUES
+                ('@P1@', 'freebmd', 'birth', ?, 'zero'),
+                ('@P1@', 'freecen', 'census', ?, 'truncated')
+                """, arguments: [Date(), Date()])
+        }
+        return path
+    }
+
+    @Test func dossierSkeletonRendersFromRowsWithHonestyEnvelope() async throws {
+        let handler = try MCPHandler(dbPath: try makeDB())
+        let contents = try await handler.dossierResource(profileID: "@P1@")
+        let dossier = try #require(JSONSerialization.jsonObject(with: Data(contents.utf8)) as? [String: Any])
+
+        #expect(dossier["subject"] as? String == "Elizabeth Shaw")
+        // D1: only the FACT row; the lead is not "what we know".
+        let d1 = try #require(dossier["d1_what_we_know"] as? [[String: Any]])
+        #expect(d1.count == 1)
+        #expect(d1.first?["citation"] as? String == "FreeBMD death 7b/920")
+        // D2: verbatim stored strings.
+        let d2 = try #require(dossier["d2_what_conflicts"] as? [[String: Any]])
+        #expect(d2.first?["witness_summary"] as? String == "2 witnesses say 1916; 1 says 1914")
+        #expect(d2.first?["status"] as? String == "open")
+        // D3: the truncated row is labelled, never an absence claim.
+        let d3 = try #require(dossier["d3_whats_missing"] as? [[String: Any]])
+        let conclusions = d3.compactMap { $0["conclusion"] as? String }
+        #expect(conclusions.contains("searched and absent"))
+        #expect(conclusions.contains { $0.contains("not evidence of absence") })
+        // D7: honest narration.
+        let d7 = try #require(dossier["d7_footer"] as? [String: Any])
+        #expect(d7["narration_mode"] as? String == "deterministic")
+    }
+
+    @Test func missingProfileReturnsSharedNotFoundBody() async throws {
+        let handler = try MCPHandler(dbPath: try makeDB())
+        let contents = try await handler.dossierResource(profileID: "@NOPE@")
+        #expect(contents.contains("profile_not_found"))
+    }
+}

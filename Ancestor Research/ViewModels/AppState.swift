@@ -3281,6 +3281,34 @@ final class AppState {
         successMessage = "Demoted \(saved) contradictory fact\(saved == 1 ? "" : "s") on \(finding.profileName) to leads — none was certain enough to stand; review them in Triage."
         successResearchProfileID = finding.profileID
     }
+
+    // MARK: - Investigation dossier (DOSSIER_SPEC #T9-Change1)
+
+    /// Assemble the deterministic dossier skeleton for a profile from stored
+    /// rows. A pure read — `DossierAssembler` takes plain values and holds no
+    /// database handle, so assembly can write nothing. Live GPS/cluster
+    /// detail rides only when a run result is in memory (review surfaces);
+    /// the profile door renders the stored last-run summary.
+    func assembleDossier(for profileID: String) -> Dossier? {
+        guard let db = currentDatabase,
+              let profile = snapshot.profiles[profileID] else { return nil }
+        let runs = (try? db.loadResearchRuns(profileID: profileID)) ?? []
+        let lastRun = runs.first.map {
+            DossierAssembler.Inputs.LastRun(
+                id: $0.id.uuidString, date: $0.date, gps: $0.gps, mode: $0.mode)
+        }
+        let inputs = DossierAssembler.Inputs(
+            profile: profile,
+            disputes: (try? db.allDisputes(profileID: profileID)) ?? [],
+            evidence: (try? db.loadEvidenceForProfile(profileID)) ?? [],
+            hypotheses: (try? db.loadHypotheses(forProfile: profileID)) ?? [],
+            negativeSearches: (try? db.negativeSearches(profileID: profileID)) ?? [],
+            lastRun: lastRun,
+            liveGPS: nil, liveClusters: [],
+            sourceInfoMap: attachedRegistry?.buildSourceInfoMap() ?? [:],
+            now: Date())
+        return DossierAssembler.assemble(inputs)
+    }
 }
 
 /// A tree-wide death-age backfill available for one profile: a calculated

@@ -230,6 +230,10 @@ struct SharedProfileLayout: View {
             // the same day; the per-gap "Missing facts"/"Explore" sections too.)
             searchFreeREGRow
 
+            // DOSSIER_SPEC #T9-Change1 surface (a) — the profile-page door
+            // to the investigation dossier.
+            DossierEntryRow(profileID: profile.id)
+
             // Editable name fields + gender Picker, only when the consumer
             // opted into edit mode. Inserted above the date rows so users
             // see name/gender first (the most-commonly-edited identity).
