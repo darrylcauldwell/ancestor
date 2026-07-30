@@ -357,7 +357,28 @@ public nonisolated struct TreeLayout {
             else { continue }
             visited.insert(spouse.id)
             let completeness = snapshot.completeness(for: spouse.id)
-            let spouseX = node.x + nodeWidth + spouseSpacing
+            // Collision-aware slot. The default right-hand slot can already
+            // be occupied: rooting on a child of one marriage places BOTH
+            // parents side by side, and the partner's DISPLAYED spouse may be
+            // a different marriage entirely — the George Keyworth specimen
+            // drew Elizabeth Brewer's card exactly on co-parent Alice's.
+            // Prefer right; fall back to the left slot; else push right past
+            // every occupied slot. Never stack two cards.
+            let nodeY = node.y
+            func slotOccupied(_ x: Double) -> Bool {
+                (realNodes + ghostNodes).contains { other in
+                    abs(other.y - nodeY) < nodeHeight && abs(other.x - x) < nodeWidth
+                }
+            }
+            var spouseX = node.x + nodeWidth + spouseSpacing
+            if slotOccupied(spouseX) {
+                let leftX = node.x - nodeWidth - spouseSpacing
+                if !slotOccupied(leftX) {
+                    spouseX = leftX
+                } else {
+                    while slotOccupied(spouseX) { spouseX += nodeWidth + spouseSpacing }
+                }
+            }
             realNodes.append(LayoutNode(
                 id: spouse.id,
                 kind: .profile(spouse, completeness),

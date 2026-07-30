@@ -100,6 +100,48 @@ struct TreeLayoutMultiSpouseTests {
         #expect(abs((two[0].x + two[1].x) / 2 - expectedMid) < 0.001)
     }
 
+    /// The George Keyworth specimen (owner dogfood 2026-07-30): rooting the
+    /// pedigree on a CHILD of the second marriage places both parents
+    /// (George + Alice) side by side — then the spouse pass computed George's
+    /// displayed spouse as the EARLIEST marriage (Elizabeth Brewer, not the
+    /// co-parent Alice) and dropped her card exactly on Alice's slot. The
+    /// spouse pass must place a card only in a free slot (left side, or
+    /// pushed clear) — never stacked on an existing card.
+    @Test func nonCoParentSpouseNeverStacksOnTheCoParent() {
+        let elizabeth = profile("elizabeth", "Elizabeth", "Keyworth", 1886)
+        let george = profile("george", "George", "Keyworth", 1838)
+        let alice = profile("alice", "Alice", "Keyworth", 1850)
+        let brewer = profile("brewer", "Elizabeth", "Brewer", 1840)
+        func parent(_ p: String, _ c: String) -> Relationship {
+            Relationship(id: UUID(), from: p, to: c, type: .parent, role: nil,
+                         subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
+        }
+        let snapshot = FamilyGraphSnapshot(
+            profiles: [elizabeth.id: elizabeth, george.id: george,
+                       alice.id: alice, brewer.id: brewer],
+            relationships: [
+                spouseRel("george", "brewer", marriage: "1860"),   // earliest → displayed by default
+                spouseRel("george", "alice", marriage: "1885"),
+                parent("george", "elizabeth"), parent("alice", "elizabeth"),
+            ])
+
+        let result = TreeLayout.pedigreeLayout(rootID: "elizabeth", snapshot: snapshot)
+        // All four people render (both parents + the displayed other wife)…
+        for id in ["elizabeth", "george", "alice", "brewer"] {
+            #expect(result.nodes.contains { $0.id == id }, "\(id) should render")
+        }
+        // …and no two cards may overlap (the defect drew Brewer on Alice).
+        let nodes = result.nodes
+        for i in nodes.indices {
+            for j in nodes.indices where j > i {
+                let a = nodes[i], b = nodes[j]
+                let clear = abs(a.x - b.x) >= TreeLayout.nodeWidth
+                    || abs(a.y - b.y) >= TreeLayout.nodeHeight
+                #expect(clear, "\(a.id) and \(b.id) overlap at (\(a.x),\(a.y)) vs (\(b.x),\(b.y))")
+            }
+        }
+    }
+
     /// A single spouse always shows (no switcher, no regression).
     @Test func singleSpouseAlwaysShown() {
         let david = profile("david", "David", "Rose", 1950)
