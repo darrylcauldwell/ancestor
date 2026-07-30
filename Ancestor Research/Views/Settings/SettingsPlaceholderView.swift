@@ -14,6 +14,8 @@ struct SettingsPlaceholderView: View {
     @AppStorage("showResearchIndicators") private var showResearchIndicators: Bool = true
     /// Persists the user's reasoning-model choice. Backed by `ReasoningModel.rawValue`.
     @AppStorage("reasoningModelChoice") private var reasoningModelChoiceRaw: String = ReasoningModel.default.rawValue
+    /// Launch-load opt-in — mirrors ContentRoot's gate; default OFF.
+    @AppStorage("autoLoadReasoningModelAtLaunch") private var autoLoadReasoningModelAtLaunch = false
     /// PROJECT_ONBOARDING_SPEC Part A Step 2 — semantic embedder consent
     /// (shared with the setup wizard + the launch auto-load).
     @AppStorage("semanticEmbedderEnabled") private var semanticEmbedderEnabled = false
@@ -494,6 +496,15 @@ struct SettingsPlaceholderView: View {
                 .controlSize(.small)
                 .disabled(isLoadingModel || loadedModelID == nil)
             }
+
+            // Launch-load is OPT-IN (owner decision 2026-07-30): default
+            // off, so the app starts in its deterministic baseline and the
+            // AI tier only runs when deliberately loaded. Mirrors the
+            // @AppStorage gate in ContentRoot.autoLoadReasoningModelIfOnDisk.
+            Toggle("Load automatically at launch", isOn: $autoLoadReasoningModelAtLaunch)
+                .font(AppTypography.controlLabel)
+                .toggleStyle(.switch)
+                .controlSize(.small)
 
             // Escape hatch: power users who already have the model on disk
             // (e.g. from Python tooling at `~/.cache/huggingface/hub/…`) can

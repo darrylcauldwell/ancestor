@@ -159,6 +159,14 @@ private struct NewWindowCommand: View {
 struct ContentRoot: View {
     @State private var appState = AppState()
     @AppStorage("reasoningModelChoice") private var reasoningModelChoiceRaw: String = ReasoningModel.default.rawValue
+    /// Opt-IN launch load (owner decision 2026-07-30). Default OFF: the
+    /// reasoning model stays unloaded until the user loads it in Settings
+    /// (or enables this toggle there). Every AI path has a deterministic
+    /// fallback, so unloaded is the app's honest baseline — the previous
+    /// always-on auto-load silently re-armed the AI tier on every
+    /// relaunch, which made AI-vs-deterministic comparisons impossible
+    /// to keep clean.
+    @AppStorage("autoLoadReasoningModelAtLaunch") private var autoLoadReasoningModelAtLaunch = false
     // PROJECT_ONBOARDING_SPEC Part A Step 2 — the user's consent to use the
     // semantic clustering embedder. Default off (core doctrine: fully
     // functional deterministically with no model). Shared across windows.
@@ -205,6 +213,8 @@ struct ContentRoot: View {
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
             return
         }
+        // Launch-load is opt-in (default off) — see the property doc.
+        guard autoLoadReasoningModelAtLaunch else { return }
         let model = ReasoningModel(rawValue: reasoningModelChoiceRaw) ?? .default
         // 1 GB threshold filters out partial/empty model directories — only
         // proceed when the model is plausibly complete on disk.
