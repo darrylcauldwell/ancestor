@@ -44,6 +44,21 @@ struct ChapmanCodeResolverTests {
         #expect(ChapmanCodeResolver.chapmanCode(forPlaceText: "Nowhere, Atlantis") == nil)
     }
 
+    // MARK: - Catalogue-data regressions
+
+    /// 2026-07-30 live-run miss: the catalogue carried Worksop district as
+    /// DBY, so a Worksop-born subject (William Henry Keyworth) had every
+    /// FreeREG/FreeCEN/FreeBMD query scoped to Derbyshire while his entire
+    /// record trail sits in Nottinghamshire (verified by direct FreeREG
+    /// search: baptism 21 Mar 1875 Worksop Priory, marriage 22 Mar 1896
+    /// Worksop St John). Worksop district straddles the county border —
+    /// its parish list includes Derbyshire parishes — but the district's
+    /// attribution is Nottinghamshire.
+    @Test func worksopDistrictResolvesToNottinghamshire() {
+        #expect(ChapmanCodeResolver.chapmanCode(forPlaceText: "Worksop") == "NTT")
+        #expect(ChapmanCodeResolver.chapmanCode(forPlaceText: "Worksop, Nottinghamshire, England") == "NTT")
+    }
+
     // MARK: - Delegation: the two wrappers now agree
 
     @Test func researchSubjectAndConflictDetectorWrappersAgree() {
