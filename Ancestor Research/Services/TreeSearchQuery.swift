@@ -37,7 +37,19 @@ nonisolated struct TreeSearchQuery: Sendable {
     /// Apply this query as a predicate on a profile. AND across fields.
     func matches(_ profile: Profile) -> Bool {
         if let name {
-            if !profile.displayName.lowercased().contains(name.lowercased()) {
+            // Tokenised AND-match over ALL the profile's name fields — the
+            // #MC1 search fix, app-side. A wife is stored under her maiden
+            // name ("Elizabeth Shaw") but users search what they know her as
+            // ("Elizabeth Keyworth") — the married surname must match too.
+            // Tokenising also lets "Elizabeth Keyworth" hit "Elizabeth Maud
+            // Keyworth" (the old whole-substring test failed across an
+            // interleaved middle name).
+            let haystack = [profile.displayName, profile.marriedSurname, profile.nickName]
+                .compactMap { $0 }
+                .joined(separator: " ")
+                .lowercased()
+            let tokens = name.lowercased().split(separator: " ", omittingEmptySubsequences: true)
+            if !tokens.allSatisfy({ haystack.contains($0) }) {
                 return false
             }
         }

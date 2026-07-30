@@ -268,3 +268,41 @@ struct TreeSearchQueryTests {
         #expect(query.name?.contains("1509") == true)
     }
 }
+
+// The app-side #MC1 search fix (owner dogfood 2026-07-30): searching
+// "Elizabeth Keyworth" found only the SISTER Elizabeth Keyworth — the wife,
+// stored under maiden name "Elizabeth Shaw" with married surname Keyworth,
+// was unfindable. Name matching must tokenise and cover married surname.
+extension TreeSearchQueryTests {
+
+    @Test func marriedSurnameMatchesInNameSearch() {
+        var wife = makeProfile(firstName: "Elizabeth", lastName: "Shaw")
+        wife.marriedSurname = "Keyworth"
+        #expect(TreeSearchQuery.parse("Elizabeth Keyworth").matches(wife),
+                "married surname must be searchable")
+        #expect(TreeSearchQuery.parse("Elizabeth Shaw").matches(wife),
+                "maiden name still matches")
+        #expect(TreeSearchQuery.parse("Keyworth").matches(wife))
+    }
+
+    @Test func tokensMatchAcrossAnInterleavedMiddleName() {
+        let p = makeProfile(firstName: "Elizabeth", lastName: "Keyworth")
+        var withMiddle = p
+        withMiddle.middleName = "Maud"
+        #expect(TreeSearchQuery.parse("Elizabeth Keyworth").matches(withMiddle),
+                "middle name must not break given+surname search")
+    }
+
+    @Test func unrelatedNamesStillRejected() {
+        var wife = makeProfile(firstName: "Elizabeth", lastName: "Shaw")
+        wife.marriedSurname = "Keyworth"
+        #expect(!TreeSearchQuery.parse("Elizabeth Brewer").matches(wife))
+        #expect(!TreeSearchQuery.parse("Margaret Keyworth").matches(wife))
+    }
+
+    @Test func nickNameMatchesInNameSearch() {
+        var p = makeProfile(firstName: "Elizabeth", lastName: "Keyworth")
+        p.nickName = "Betty"
+        #expect(TreeSearchQuery.parse("Betty").matches(p))
+    }
+}
