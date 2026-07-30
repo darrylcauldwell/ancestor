@@ -933,6 +933,18 @@ struct HealthView: View {
     /// fixed via Edit or in the profile.
     @ViewBuilder private func fixButton(for r: AuditResult) -> some View {
         switch r.ruleID {
+        case "fertilityGap":
+            // No deterministic data-fix exists (the missing children's
+            // names are unknown) — the affordance is a research launch on
+            // her, via the existing researchProfileID idiom
+            // (FREEREG_INTEGRATION_SPEC §5).
+            Button {
+                appState.researchProfileID = r.profileID
+            } label: {
+                Label("Research", systemImage: "magnifyingglass")
+            }
+            .buttonStyle(.glassProminent).controlSize(.mini)
+            .help("Search the record sources for the children her 1911 census statement says are missing from the tree")
         case "marriedSurnameFromSpouse":
             if let her = appState.snapshot.profiles[r.profileID],
                let s = MarriedSurnameFromSpouseRule.suggestion(for: her, in: appState.snapshot) {

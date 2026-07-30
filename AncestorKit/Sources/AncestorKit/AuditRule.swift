@@ -92,6 +92,7 @@ public nonisolated enum AuditRules {
         JunkInNameRule(),
         IncompleteNameRule(),
         SuspectLocationRule(),
+        FertilityGapRule(),
     ]
 }
 
@@ -1944,5 +1945,168 @@ public nonisolated struct CensusAgeBirthYearRule: AuditRuleDefinition {
 
     public func guidanceMessage(profile: Profile) -> String? {
         "Set \(profile.displayName)'s birth year from their age in a linked relative's census."
+    }
+}
+
+// MARK: - Rule: 1911 fertility statement vs tree (FREEREG_INTEGRATION_SPEC §5)
+
+/// The 1911 census asked each married woman, about her PRESENT marriage:
+/// years married, children born alive, children still living (and deceased,
+/// except Scotland/Ireland). It is the mother's own statement of how many
+/// children the tree should hold — including children who died young and
+/// appear in no other census. This rule compares her corroborated 1911
+/// roster row's statement with the tree and surfaces any shortfall as a
+/// research prompt (severity .info, category .gap — the
+/// `CensusRelationshipRule` precedent); a second finding cross-checks
+/// 1911 − yearsMarried against the recorded marriage year (±2 tolerance).
+///
+/// Deliberately UNDER-firing (the anti-duplicate-detection posture):
+/// unknown-birth-year children count toward the tree tally, the tally uses
+/// ALL her children (not the couple intersection, which undercounts
+/// half-linked children and would inflate a shortfall), step/adoptive
+/// edges are excluded, and an internally inconsistent statement fires
+/// nothing.
+public nonisolated struct FertilityGapRule: AuditRuleDefinition {
+    public let id = "fertilityGap"
+    public let category: AuditCategory = .gap
+    public let displayName = "1911 Fertility Statement"
+    public let description = "A woman's 1911 census statement of children born alive exceeds her children recorded in the tree, or implies a different marriage year."
+    public let fireCondition = "Her corroborated 1911 census row states more children born alive than the tree records born before 1911 (internally consistent statements only), or 1911 − years-married differs from the recorded marriage year by more than 2."
+    public let warningCondition: String? = nil
+    public let workedExample = "Sarah stated 5 children born alive (4 living, 1 died); the tree has 3 born before 1911 — 2 unaccounted, incl. 1 who died young."
+    public let defaultSeverity = Severity.info
+    public init() {}
+
+    /// Her corroborated 1911 row + the household it sits in. Searches her
+    /// own census events first, then her spouses' (the roster often lives
+    /// on the husband's event — the `CensusAgeBirthYearRule` precedent).
+    /// Corroboration = the reconciler's name + birth-year predicates;
+    /// `isTarget` is NOT required (it flags the searched person, usually
+    /// the husband).
+    static func statement(for profile: Profile, in snapshot: FamilyGraphSnapshot)
+        -> (row: HouseholdMember, household: [HouseholdMember])? {
+        var carriers: [Profile] = [profile]
+        carriers += snapshot.spousesOf(profile.id)
+        for carrier in carriers {
+            for event in snapshot.lifeEvents[carrier.id] ?? [] where event.type == .census {
+                guard case .census(let details)? = event.details,
+                      event.date?.bestYear == 1911 else { continue }
+                if let row = details.household.first(where: {
+                    $0.childrenBornAlive != nil &&
+                    CensusRelationshipReconciler.matches(member: $0, profile: profile, censusYear: 1911)
+                }) {
+                    return (row, details.household)
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Internal consistency of the stated figures: born == living + died
+    /// when all three present; born ≥ living when died is absent
+    /// (Scotland/Ireland 1911 omit the deceased column). An inconsistent
+    /// statement is transcription doubt → never fires.
+    static func isConsistent(_ row: HouseholdMember) -> Bool {
+        guard let born = row.childrenBornAlive, born >= 0 else { return false }
+        if let living = row.childrenLiving, let died = row.childrenDeceased {
+            return living + died == born
+        }
+        if let living = row.childrenLiving { return born >= living }
+        return true
+    }
+
+    /// Her children in the tree, counted UNDER-firing: all her non-step,
+    /// non-adoptive, non-deleted children; unknown birth years count as
+    /// born-before-1912 (assume accounted-for, never inflate a shortfall).
+    static func treeChildTally(for profile: Profile, in snapshot: FamilyGraphSnapshot) -> Int {
+        snapshot.relationships
+            .filter { $0.type == .parent && $0.from == profile.id
+                      && $0.subtype != .step && $0.subtype != .adoptive }
+            .compactMap { snapshot.profiles[$0.to] }
+            .filter { !$0.isDeleted }
+            .filter { ($0.birthDate?.bestYear).map { $0 <= 1911 } ?? true }
+            .count
+    }
+
+    /// 1911 − yearsMarried vs the recorded marriage year. The census
+    /// husband's marriage edge is chosen only when unambiguous: her sole
+    /// dated marriage, or (multiple dated marriages) the dated edge to
+    /// the spouse who matches the roster's Head row. Anything ambiguous
+    /// → nil, no finding.
+    static func marriageYearMismatch(
+        for profile: Profile, in snapshot: FamilyGraphSnapshot,
+        row: HouseholdMember, household: [HouseholdMember]
+    ) -> (implied: Int, recorded: Int)? {
+        guard let text = row.yearsMarried?.trimmingCharacters(in: .whitespaces),
+              let years = Int(text), years >= 0, years < 80 else { return nil }
+        let implied = 1911 - years
+
+        let edges = snapshot.relationships.filter {
+            $0.type == .spouse && ($0.from == profile.id || $0.to == profile.id)
+        }
+        let dated: [(edge: Relationship, year: Int)] = edges.compactMap { e in
+            e.marriageDate?.bestYear.map { (e, $0) }
+        }
+        let recorded: Int?
+        if dated.count == 1 {
+            recorded = dated[0].year
+        } else if let head = household.first(where: { $0.relationship.lowercased() == "head" }),
+                  head != row {
+            let headSpouses = snapshot.spousesOf(profile.id).filter {
+                CensusRelationshipReconciler.matches(member: head, profile: $0, censusYear: 1911)
+            }
+            if headSpouses.count == 1 {
+                let spouseID = headSpouses[0].id
+                let matching = dated.filter { $0.edge.from == spouseID || $0.edge.to == spouseID }
+                recorded = matching.count == 1 ? matching[0].year : nil
+            } else {
+                recorded = nil
+            }
+        } else {
+            recorded = nil
+        }
+
+        guard let recorded, abs(implied - recorded) > 2 else { return nil }
+        return (implied, recorded)
+    }
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        guard let (row, household) = Self.statement(for: profile, in: snapshot),
+              Self.isConsistent(row) else { return [] }
+        var results: [AuditResult] = []
+
+        if let born = row.childrenBornAlive {
+            let tally = Self.treeChildTally(for: profile, in: snapshot)
+            if tally < born {
+                var stated = "\(born) children born alive"
+                if let living = row.childrenLiving, let died = row.childrenDeceased {
+                    stated += " (\(living) living, \(died) died)"
+                } else if let living = row.childrenLiving {
+                    stated += " (\(living) living)"
+                }
+                var message = "1911: \(profile.displayName) stated \(stated); the tree has \(tally) born before 1911 — \(born - tally) unaccounted"
+                if let died = row.childrenDeceased, died > 0 {
+                    message += " (incl. \(died) who died young, likely absent from all censuses)"
+                }
+                message += "."
+                results.append(AuditResult(
+                    profileID: profile.id, profileName: profile.displayName,
+                    severity: .info, category: .gap, ruleID: id,
+                    message: message))
+            }
+        }
+
+        if let (implied, recorded) = Self.marriageYearMismatch(
+            for: profile, in: snapshot, row: row, household: household) {
+            results.append(AuditResult(
+                profileID: profile.id, profileName: profile.displayName,
+                severity: .info, category: .gap, ruleID: id,
+                message: "1911: \(profile.displayName)'s census implies marriage ~\(implied) (\(row.yearsMarried ?? "?") years married); the tree records \(recorded)."))
+        }
+        return results
+    }
+
+    public func guidanceMessage(profile: Profile) -> String? {
+        "FreeBMD birth and death indexes between \(profile.displayName)'s marriage and 1911 often surface children who died young."
     }
 }

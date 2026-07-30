@@ -268,5 +268,27 @@ A 3-agent verify pass (mapper-vs-schema · decision-core · parser-edges, each e
 
 - **`place_ids[]` option values** — the exact IDs the cascading Places select emits (confirm they're numeric place IDs, and how to resolve a parish name → place ID). Needs one inspection of the rendered `<option value>`s for a single county. *(Wire key itself is resolved: `search_query[place_ids][]`.)*
 - **`record_type` "all" encoding** — the current code omits the field for "all"; the template shows an explicit `""` option value for "all three types". Confirm omitting vs sending `""` behave the same.
-- **The ⚠ "returned 0" symptom** (see memory `reference_freereg_active_interim_use`): the current guard already refuses county-less queries, so it is **not** a missing-county rejection. More likely a results-table parse drift or a `record_type` mismatch. Needs a live probe — the §1.1 validation won't self-resolve it.
+- **The ⚠ "returned 0" symptom** (see memory `reference_freereg_active_interim_use`): the current guard already refuses county-less queries, so it is **not** a missing-county rejection. **PARTIALLY RESOLVED 2026-07-30:** the first live trial timed out — FreeREG's server computes for up to its documented 100 s while the transport default was 20 s; `FreeREGSource.searchTimeout = 110` shipped (`66fc938`). Re-run the trial; if results now flow, the "returned 0"/timeout mystery closes.
+
+## 5. 1911 fertility-gap audit rule — design (2026-07-30)
+
+**Premise.** The 1911 census asked each married woman, about her PRESENT marriage: years married, children born alive, children still living (+ deceased, not Scotland/Ireland). It is the mother's own statement of how many children the tree should hold — including children who died young and appear in no other census. The typed fields shipped 2026-07-29 (`HouseholdMember.yearsMarried/childrenBornAlive/childrenLiving/childrenDeceased`).
+
+**Rule shape** (all file/line facts from the 2026-07-30 recon):
+- `FertilityGapRule: AuditRuleDefinition` in `AncestorKit/AuditRule.swift`, registered in `AuditRules.builtIn`. Finding = **severity `.info`, category `.gap`** — the `CensusRelationshipRule` research-prompt precedent (AuditRule.swift:1606-1610). One grouped finding per woman.
+- Detection lives in a shared static `suggestion(for:in:)` so the finding and any affordance can never disagree (the `CensusAgeBirthYearRule` pattern).
+
+**Locating her statement.** Iterate the woman's own census life events AND her spouses'/relatives' (the roster often lives on the husband's event — the `CensusAgeBirthYearRule` precedent): for each `.census` details with `censusYear == 1911`, find HER row by the reconciler's predicates — `namesMatch` (first given token + last token ∈ {maiden, married surname}) AND birth-year corroboration (±3) (`CensusRelationshipReconciler.matches`, :268-302). `isTarget` is NOT required (it flags the searched person, usually the husband). Same-name collisions keyed by the Hashable member, never by name.
+
+**Firing condition (deliberately under-firing — the anti-duplicate-detection posture):**
+1. Her row has `childrenBornAlive` (Int) present.
+2. Internal consistency: `living + deceased == bornAlive` when all three present; `bornAlive >= living` when deceased is absent (Scotland/Ireland). Inconsistent → no finding.
+3. Tree tally = `childrenOf(woman)` **excluding** `.step`/`.adoptive` parent-edge subtypes, **excluding** soft-deleted, filtered to born ≤ 1911 — with **unknown-birth-year children COUNTING toward the tally** (assume accounted-for). Counting ALL her children (not `childrenOfCouple`) is also deliberate: the couple-intersection undercounts half-linked children (the `MissingCoParentRule` class) and would over-fire; all-children makes the tally an upper bound and the shortfall a lower bound.
+4. Fire only when `tally < bornAlive`. Message (house copy style): *"1911: {name} stated {N} children born alive ({L} living, {D} died); the tree has {T} born before 1911 — {N−T} unaccounted (incl. {D} who died young, likely absent from all censuses)."* + `guidanceMessage` pointing at FreeBMD birth/death indexes in the marriage window.
+
+**yearsMarried cross-check (same data, bundled):** when `Int(yearsMarried)` parses and a `.spouse` edge to the census husband carries `marriageDate.bestYear`: `implied = 1911 − years`; fire a second `.info/.gap` finding when `|implied − recorded| > 2` — *"1911 census implies marriage ~{implied}; tree records {recorded}."* Undated marriages: no finding (nothing to contradict). The implied year is also the natural research window for the missing-children hunt.
+
+**Affordance:** no data-fix button (nothing deterministic to write — we don't know the children's names). "Research {name}" via the existing `appState.researchProfileID` idiom (zero new plumbing, precedent AuditPlaceholderView:197-202) + the universal "Add Question" promote. A future targeted hunt (marriage-window birth-index sweep + infant-death pairing, the FreeBMD-MMN machinery) is the Stage-2 upgrade — design when the finding volume proves demand.
+
+**Data-availability honesty:** fertility fields are nil for every non-1911 census, blank 1911 cells, and all records persisted before 2026-07-29 — the rule silently no-ops there (re-research repopulates). Not a `log`-worthy gap; the finding copy never implies exhaustiveness.
 ```
