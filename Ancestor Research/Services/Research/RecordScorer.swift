@@ -288,6 +288,22 @@ nonisolated struct RecordScorer {
         }
     }
 
+    /// The GRO registration identity of a BMD index row — same registration
+    /// (vol + page + year + district) across different index rows means the
+    /// SAME candidate, not a rival. nil when the record carries no vol/page.
+    static func registrationKey(for record: SourceRecord) -> String? {
+        func key(_ prefix: String, _ vol: String?, _ page: String?, _ year: Int?, _ district: String?) -> String? {
+            guard let vol, let page, !vol.isEmpty, !page.isEmpty else { return nil }
+            return "\(prefix)|\(vol.lowercased())|\(page.lowercased())|\(year.map(String.init) ?? "")|\((district ?? "").lowercased())"
+        }
+        switch record {
+        case .birth(let r): return key("b", r.volume, r.page, r.birthYear, r.district)
+        case .death(let r): return key("d", r.volume, r.page, r.deathYear, r.district)
+        case .marriage(let r): return key("m", r.volume, r.page, r.marriageYear, r.district)
+        default: return nil
+        }
+    }
+
     /// The deterministic discriminator: a NON-VACUOUS familyContext pass
     /// (child/spouse/parent/maiden-name actually matched — `.skip` and
     /// `.softFail` never count). Cross-profile elevation is subsumed: its
@@ -318,25 +334,39 @@ nonisolated struct RecordScorer {
         var demotions: [Int: String] = [:]
         for (slot, indices) in factIndicesBySlot {
             guard indices.count > 1 else { continue }
-            let discriminated = indices.filter { isDiscriminated(scored[$0]) }
+            // Registration-identity grouping: the same GRO registration often
+            // exists as several index rows (different row ids, identical
+            // vol/page/year). Twins are ONE candidate, never rivals — without
+            // this, a correct death fact demotes against its own twin.
+            var candidates: [String: [Int]] = [:]
+            for index in indices {
+                let key = Self.registrationKey(for: scored[index].record) ?? "id:\(scored[index].id)"
+                candidates[key, default: []].append(index)
+            }
+            guard candidates.count > 1 else { continue }   // one registration → no rivalry
+
+            let discriminatedKeys = candidates.filter { _, rows in
+                rows.contains { isDiscriminated(scored[$0]) }
+            }.map(\.key)
+
+            func demote(_ keys: [String], _ reason: String) {
+                for key in keys {
+                    for index in candidates[key] ?? [] { demotions[index] = reason }
+                }
+            }
+            let allKeys = Array(candidates.keys)
+            let undiscriminatedKeys = allKeys.filter { !discriminatedKeys.contains($0) }
+
             if slot == "marriage" {
                 // Multiple marriages are legitimate — but only corroborated
                 // ones may coexist as facts.
-                for index in indices where !discriminated.contains(index) {
-                    demotions[index] = "\(indices.count) marriage candidates and this one carries no family corroboration — demoted for review"
-                }
-            } else if discriminated.count == 1 {
-                for index in indices where index != discriminated[0] {
-                    demotions[index] = "\(indices.count) competing \(slot) candidates — a family-corroborated record outranks this one"
-                }
-            } else if discriminated.isEmpty {
-                for index in indices {
-                    demotions[index] = "\(indices.count) competing \(slot) candidates, none discriminated — a person holds at most one; needs family or cross-profile corroboration"
-                }
+                demote(undiscriminatedKeys, "\(candidates.count) marriage candidates and this one carries no family corroboration — demoted for review")
+            } else if discriminatedKeys.count == 1 {
+                demote(undiscriminatedKeys, "\(candidates.count) competing \(slot) candidates — a family-corroborated record outranks this one")
+            } else if discriminatedKeys.isEmpty {
+                demote(allKeys, "\(candidates.count) competing \(slot) candidates, none discriminated — a person holds at most one; needs family or cross-profile corroboration")
             } else {
-                for index in indices {
-                    demotions[index] = "\(indices.count) competing \(slot) candidates with \(discriminated.count) corroborated — a genuine evidential contradiction; review required"
-                }
+                demote(allKeys, "\(candidates.count) competing \(slot) candidates with \(discriminatedKeys.count) corroborated — a genuine evidential contradiction; review required")
             }
         }
 

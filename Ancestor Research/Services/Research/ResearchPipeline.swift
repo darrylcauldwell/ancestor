@@ -919,9 +919,22 @@ final class ResearchPipeline {
             rejectedIDs: rejectedRecordIDs)
         // DECISION_CORE_PAIR_SPEC Fix A — the cross-record exclusivity pass
         // runs over the ACCUMULATED record set before clustering and final
-        // assembly. confirmedFacts/leads are computed partitions of
-        // scoredRecords, so demotions reconcile everything downstream.
-        state.scoredRecords = RecordScorer.applyExclusivity(state.scoredRecords)
+        // assembly, competing against STORED facts too (cross-run extension:
+        // cache-suppressed rivals live in the store, not the batch). Running
+        // it HERE — not only at persist — means the review UI displays the
+        // same verdicts the store ends up holding. confirmedFacts/leads are
+        // computed partitions of scoredRecords, so demotions reconcile
+        // everything downstream.
+        if let profileID = state.subject.profileID,
+           let storedEvidence = spouseEvidenceLookup?(profileID) {
+            let storedFacts = storedEvidence
+                .filter { $0.verdict == .fact }
+                .map(\.asScoredRecord)
+            state.scoredRecords = RecordScorer.applyExclusivityAcrossStore(
+                batch: state.scoredRecords, storedFacts: storedFacts).batch
+        } else {
+            state.scoredRecords = RecordScorer.applyExclusivity(state.scoredRecords)
+        }
 
         let clusters = ClusteringEngine.cluster(
             records: clusterInput,

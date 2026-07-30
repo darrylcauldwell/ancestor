@@ -376,3 +376,77 @@ struct DecisionCorePairCrossRunTests {
         #expect(cross.demotedStored.isEmpty)                   // leads never touched
     }
 }
+
+/// Registration-identity grouping — the live 2026-07-31 regression: the death
+/// fact demoted against its own registration TWIN (same GRO vol/page as two
+/// FreeBMD index rows). Twins are one candidate, never rivals.
+struct DecisionCorePairRegistrationTwinTests {
+
+    private func deathFact(_ id: String, vol: String = "7b", page: String = "920") -> ScoredRecord {
+        ScoredRecord(
+            id: id,
+            record: .death(DeathRecord(
+                common: RecordCommon(id: id, sourceID: "freebmd", name: nil,
+                                     surname: "KEYWORTH", givenName: "ELIZABETH",
+                                     detailURL: nil, rawFields: [:]),
+                deathYear: 1916, deathDate: nil, deathPlace: nil, age: 46,
+                quarter: "Dec", district: "Bakewell", volume: vol, page: page)),
+            verdict: .fact,
+            gates: [GateResult(gate: .name, outcome: .pass, reason: "surname=1.00")],
+            summary: "death 1916")
+    }
+
+    @Test func registrationTwinsAreOneCandidateAndKeepFact() {
+        // Two index rows, one registration — the exact death-record shape
+        // that wrongly demoted in live use.
+        let passed = RecordScorer.applyExclusivity([
+            deathFact("freebmd_death_7b_920_137442739"),
+            deathFact("freebmd_death_7b_920_137435711"),
+        ])
+        #expect(passed.allSatisfy { $0.verdict == .fact })
+        #expect(passed.allSatisfy { record in
+            !record.gates.contains { $0.gate == .exclusivity }
+        })
+    }
+
+    @Test func twinsPlusADistinctRegistrationStillRival() {
+        // Two twins + one genuinely different registration = TWO candidates,
+        // neither discriminated → all demote.
+        let passed = RecordScorer.applyExclusivity([
+            deathFact("twin1"), deathFact("twin2"),
+            deathFact("rival", vol: "7b", page: "111"),
+        ])
+        #expect(passed.allSatisfy { $0.verdict == .lead })
+    }
+
+    @Test func crossRunTwinInStoreIsNoPhantomRival() {
+        // Today's batch row vs the SAME registration stored under a different
+        // index-row id from an earlier run — must stay fact.
+        let cross = RecordScorer.applyExclusivityAcrossStore(
+            batch: [deathFact("freebmd_death_7b_920_137442739")],
+            storedFacts: [deathFact("freebmd_death_7b_920_137435711")])
+        #expect(cross.batch.first?.verdict == .fact)
+        #expect(cross.demotedStored.isEmpty)
+    }
+
+    @Test func recordsWithoutVolPageFallBackToRowIdentity() {
+        // No vol/page (e.g. parish rows) → per-row candidates, prior
+        // behaviour preserved.
+        let a = ScoredRecord(
+            id: "pa",
+            record: .parish(ParishRecord(common: RecordCommon(
+                id: "pa", sourceID: "freereg", name: nil, surname: "SHAW",
+                givenName: "ELIZABETH", detailURL: nil, rawFields: [:]),
+                eventType: "baptism", eventYear: 1869)),
+            verdict: .fact, gates: [], summary: "baptism")
+        let b = ScoredRecord(
+            id: "pb",
+            record: .parish(ParishRecord(common: RecordCommon(
+                id: "pb", sourceID: "freereg", name: nil, surname: "SHAW",
+                givenName: "ELIZABETH", detailURL: nil, rawFields: [:]),
+                eventType: "baptism", eventYear: 1870)),
+            verdict: .fact, gates: [], summary: "baptism")
+        let passed = RecordScorer.applyExclusivity([a, b])
+        #expect(passed.allSatisfy { $0.verdict == .lead })   // two distinct rites → rivalry
+    }
+}
