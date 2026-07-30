@@ -21,7 +21,8 @@ struct DisputeSurfaceTests {
                     id TEXT PRIMARY KEY, first_name TEXT, last_name TEXT,
                     birth_date_original TEXT, birth_date_earliest INTEGER,
                     birth_date_latest INTEGER, death_date_original TEXT,
-                    birth_location TEXT, gender TEXT
+                    birth_location TEXT, gender TEXT,
+                    is_deleted INTEGER DEFAULT 0
                 )
                 """)
             try db.execute(sql: "INSERT INTO profiles (id, first_name, last_name) VALUES ('P1','Ernest','Cauldwell')")

@@ -523,6 +523,63 @@ actor MCPHandler {
                     ],
                     required: ["lead_id"]
                 ),
+                // FamilySearch (WL7 — FAMILYSEARCH_TREES_WRITE_SPEC). Reads are
+                // plain DB reads of the v52/v53 tables; the two request tools
+                // only STAGE rows — the app's watcher executes them with the
+                // app's own FamilySearch auth (the MCP server never makes
+                // network calls). Request-driven uploads stop at
+                // uploaded-but-hidden; visibility/privacy are in-app consents.
+                tool(
+                    name: "get_fs_upload_status",
+                    description: "Read the FamilySearch User Tree upload run(s): tree ID, phase (created | uploading | finalized | failed), counts of persons/relationships/sources uploaded, and privacy once finalized. Newest first.",
+                    properties: [
+                        "limit": ["type": "integer", "description": "Max runs to return (default 5, max 50)."],
+                    ],
+                    required: []
+                ),
+                tool(
+                    name: "get_fs_person_links",
+                    description: "Read the local-profile → FamilySearch person-ID (pid) links written by tree uploads. Optionally filter to one profile.",
+                    properties: [
+                        "profile_id": ["type": "string", "description": "Optional: only links for this profile."],
+                        "limit": ["type": "integer", "description": "Max rows (default 100, max 500). Newest first."],
+                    ],
+                    required: []
+                ),
+                tool(
+                    name: "get_fs_hints",
+                    description: "Read FamilySearch-sourced hint leads for a profile (leads joined to their FamilySearch evidence records): lead status, identifying fields, scorer verdict, and the FamilySearch citation URL.",
+                    properties: [
+                        "profile_id": ["type": "string", "description": "Profile whose FamilySearch hint leads to return."],
+                        "limit": ["type": "integer", "description": "Max rows (default 50, max 500). Newest first."],
+                    ],
+                    required: ["profile_id"]
+                ),
+                tool(
+                    name: "get_fs_request_status",
+                    description: "Poll staged FamilySearch action requests (from request_fs_hints / request_fs_upload). With request_id returns that request; without, the latest 10. Status queued | running | completed | failed; note carries the outcome summary or error.",
+                    properties: [
+                        "request_id": ["type": "string", "description": "Optional: the id returned by a request_fs_* tool."],
+                    ],
+                    required: []
+                ),
+                tool(
+                    name: "request_fs_hints",
+                    description: "Stage a FamilySearch hints fetch for one profile. The app (running, project open, signed in to FamilySearch) executes it with its own auth; resulting leads land in Triage. Returns a request_id — poll get_fs_request_status, then read get_fs_hints.",
+                    properties: [
+                        "profile_id": ["type": "string", "description": "Profile to fetch FamilySearch record hints for."],
+                    ],
+                    required: ["profile_id"]
+                ),
+                tool(
+                    name: "request_fs_upload",
+                    description: "Stage a FamilySearch User Tree upload of the whole local tree (deceased persons only; living people never upload). The app executes it with its own auth, resumable and idempotent — re-requesting continues an interrupted upload. The tree is uploaded HIDDEN; finalizing (visibility + privacy) is an in-app wizard consent and cannot be triggered from here. Returns a request_id — poll get_fs_request_status and get_fs_upload_status.",
+                    properties: [
+                        "tree_name": ["type": "string", "description": "Optional tree name (defaults to the project name)."],
+                        "tree_description": ["type": "string", "description": "Optional tree description."],
+                    ],
+                    required: []
+                ),
             ]
         ]
     }
@@ -593,6 +650,18 @@ actor MCPHandler {
             return try inspectApprovalDecision(arguments)
         case "promote_lead":
             return try promoteLead(arguments)
+        case "get_fs_upload_status":
+            return ["content": [["type": "text", "text": try getFSUploadStatusResponseText(arguments)]]]
+        case "get_fs_person_links":
+            return ["content": [["type": "text", "text": try getFSPersonLinksResponseText(arguments)]]]
+        case "get_fs_hints":
+            return ["content": [["type": "text", "text": try getFSHintsResponseText(arguments)]]]
+        case "get_fs_request_status":
+            return ["content": [["type": "text", "text": try getFSRequestStatusResponseText(arguments)]]]
+        case "request_fs_hints":
+            return ["content": [["type": "text", "text": try requestFSHintsResponseText(arguments)]]]
+        case "request_fs_upload":
+            return ["content": [["type": "text", "text": try requestFSUploadResponseText(arguments)]]]
         case _ where name == "get_run_status" || name.hasPrefix("ancestor://run_status/"):
             return try getRunStatus(arguments)
         default:
@@ -2637,6 +2706,228 @@ actor MCPHandler {
             return "{\"error\": \"serialization_failed\"}"
         }
         return text
+    }
+
+    // MARK: - FamilySearch tools (WL7)
+    //
+    // Reads target the v52/v53 tables the app's write leg maintains; the two
+    // request tools stage rows the app's RunRequestWatcher executes with the
+    // APP's FamilySearch auth. This server never talks to FamilySearch —
+    // one binary owns the key and tokens. A project database that predates
+    // the FS migrations gets a friendly schema_out_of_date payload, not a
+    // raw SQL error.
+
+    private static let fsSchemaOutOfDate =
+        "{\"error\": \"schema_out_of_date\", \"detail\": \"This project database predates the FamilySearch tables — open the project in the Ancestor Research app once to run migrations, then retry.\"}"
+
+    private nonisolated static func isMissingTable(_ error: Error) -> Bool {
+        String(describing: error).lowercased().contains("no such table")
+    }
+
+    func getFSUploadStatusResponseText(_ args: [String: Any]) throws -> String {
+        let limit = max(1, min((args["limit"] as? Int) ?? 5, 50))
+        let iso = ISO8601DateFormatter()
+        do {
+            let payload: [[String: Any]] = try db.read { dbConn in
+                let rows = try Row.fetchAll(dbConn, sql: """
+                    SELECT id, environment, fs_group_id, fs_tree_id, tree_name, tree_description,
+                           starting_profile_id, private, phase, started_at, finalized_at,
+                           persons_uploaded, relationships_uploaded, sources_uploaded
+                    FROM familysearch_tree_uploads
+                    ORDER BY started_at DESC LIMIT ?
+                    """, arguments: [limit])
+                return rows.map { row in
+                    var entry: [String: Any] = [
+                        "run_id": row["id"] as String? ?? "",
+                        "environment": row["environment"] as String? ?? "",
+                        "phase": row["phase"] as String? ?? "",
+                        "tree_name": row["tree_name"] as String? ?? "",
+                        "persons_uploaded": row["persons_uploaded"] as Int? ?? 0,
+                        "relationships_uploaded": row["relationships_uploaded"] as Int? ?? 0,
+                        "sources_uploaded": row["sources_uploaded"] as Int? ?? 0,
+                    ]
+                    if let v: String = row["fs_tree_id"] { entry["fs_tree_id"] = v }
+                    if let v: String = row["fs_group_id"] { entry["fs_group_id"] = v }
+                    if let v: String = row["starting_profile_id"] { entry["starting_profile_id"] = v }
+                    if let v: Bool = row["private"] { entry["private"] = v }
+                    if let v: Date = row["started_at"] { entry["started_at"] = iso.string(from: v) }
+                    if let v: Date = row["finalized_at"] { entry["finalized_at"] = iso.string(from: v) }
+                    return entry
+                }
+            }
+            return Self.jsonString(payload)
+        } catch where Self.isMissingTable(error) {
+            return Self.fsSchemaOutOfDate
+        }
+    }
+
+    func getFSPersonLinksResponseText(_ args: [String: Any]) throws -> String {
+        let limit = max(1, min((args["limit"] as? Int) ?? 100, 500))
+        let profileID = args["profile_id"] as? String
+        let iso = ISO8601DateFormatter()
+        do {
+            let payload: [[String: Any]] = try db.read { dbConn in
+                var sql = """
+                    SELECT profile_id, fs_tree_id, fs_pid, status, superseded_by, uploaded_at
+                    FROM familysearch_person_links
+                    """
+                var arguments: [DatabaseValueConvertible] = []
+                if let profileID, !profileID.isEmpty {
+                    sql += " WHERE profile_id = ?"
+                    arguments.append(profileID)
+                }
+                sql += " ORDER BY uploaded_at DESC LIMIT ?"
+                arguments.append(limit)
+                let rows = try Row.fetchAll(dbConn, sql: sql, arguments: StatementArguments(arguments))
+                return rows.map { row in
+                    var entry: [String: Any] = [
+                        "profile_id": row["profile_id"] as String? ?? "",
+                        "fs_tree_id": row["fs_tree_id"] as String? ?? "",
+                        "fs_pid": row["fs_pid"] as String? ?? "",
+                        "status": row["status"] as String? ?? "",
+                    ]
+                    if let v: String = row["superseded_by"] { entry["superseded_by"] = v }
+                    if let v: Date = row["uploaded_at"] { entry["uploaded_at"] = iso.string(from: v) }
+                    return entry
+                }
+            }
+            return Self.jsonString(payload)
+        } catch where Self.isMissingTable(error) {
+            return Self.fsSchemaOutOfDate
+        }
+    }
+
+    func getFSHintsResponseText(_ args: [String: Any]) throws -> String {
+        guard let profileID = args["profile_id"] as? String, !profileID.isEmpty else {
+            throw MCPError.invalidParams("get_fs_hints requires profile_id")
+        }
+        let limit = max(1, min((args["limit"] as? Int) ?? 50, 500))
+        let iso = ISO8601DateFormatter()
+        // Canonical lead→record join: a scored lead's id is
+        // 'lead_' + evidence_records.source_record_id (same join the app's
+        // backfillLeadAgePlace uses); source_id = 'familysearch' scopes to FS.
+        let payload: [[String: Any]] = try db.read { dbConn in
+            let rows = try Row.fetchAll(dbConn, sql: """
+                SELECT l.id, l.name, l.surname, l.given_name, l.birth_year, l.death_year,
+                       l.status, l.evidence, l.created_at, l.place,
+                       e.verdict, e.record_type, e.citation_url
+                FROM leads l
+                JOIN evidence_records e
+                  ON l.id = 'lead_' || e.source_record_id AND l.profile_id = e.profile_id
+                WHERE l.profile_id = ? AND e.source_id = 'familysearch'
+                ORDER BY l.created_at DESC LIMIT ?
+                """, arguments: [profileID, limit])
+            return rows.map { row in
+                var entry: [String: Any] = [
+                    "lead_id": row["id"] as String? ?? "",
+                    "name": row["name"] as String? ?? "",
+                    "status": row["status"] as String? ?? "",
+                    "verdict": row["verdict"] as String? ?? "",
+                    "record_type": row["record_type"] as String? ?? "",
+                    "evidence": row["evidence"] as String? ?? "",
+                ]
+                if let v: Int = row["birth_year"] { entry["birth_year"] = v }
+                if let v: Int = row["death_year"] { entry["death_year"] = v }
+                if let v: String = row["place"] { entry["place"] = v }
+                if let v: String = row["citation_url"] { entry["citation_url"] = v }
+                if let v: Date = row["created_at"] { entry["created_at"] = iso.string(from: v) }
+                return entry
+            }
+        }
+        return Self.jsonString(payload)
+    }
+
+    func getFSRequestStatusResponseText(_ args: [String: Any]) throws -> String {
+        let requestID = args["request_id"] as? String
+        let iso = ISO8601DateFormatter()
+        do {
+            let payload: [[String: Any]] = try db.read { dbConn in
+                let rows: [Row]
+                if let requestID, !requestID.isEmpty {
+                    rows = try Row.fetchAll(dbConn, sql: """
+                        SELECT * FROM fs_action_requests WHERE id = ?
+                        """, arguments: [requestID])
+                } else {
+                    rows = try Row.fetchAll(dbConn, sql: """
+                        SELECT * FROM fs_action_requests ORDER BY created_at DESC LIMIT 10
+                        """)
+                }
+                return rows.map { row in
+                    var entry: [String: Any] = [
+                        "request_id": row["id"] as String? ?? "",
+                        "kind": row["kind"] as String? ?? "",
+                        "status": row["status"] as String? ?? "",
+                    ]
+                    if let v: String = row["profile_id"] { entry["profile_id"] = v }
+                    if let v: String = row["tree_name"] { entry["tree_name"] = v }
+                    if let v: String = row["note"] { entry["note"] = v }
+                    if let v: Date = row["created_at"] { entry["created_at"] = iso.string(from: v) }
+                    if let v: Date = row["completed_at"] { entry["completed_at"] = iso.string(from: v) }
+                    return entry
+                }
+            }
+            if let requestID, payload.isEmpty {
+                return Self.jsonString(["error": "request_not_found", "request_id": requestID])
+            }
+            return Self.jsonString(payload)
+        } catch where Self.isMissingTable(error) {
+            return Self.fsSchemaOutOfDate
+        }
+    }
+
+    func requestFSHintsResponseText(_ args: [String: Any]) throws -> String {
+        guard let profileID = args["profile_id"] as? String, !profileID.isEmpty else {
+            throw MCPError.invalidParams("request_fs_hints requires profile_id")
+        }
+        do {
+            return try db.write { dbConn in
+                guard try Row.fetchOne(dbConn, sql: "SELECT id FROM profiles WHERE id = ?",
+                                       arguments: [profileID]) != nil else {
+                    return Self.jsonString(["error": "profile_not_found", "profile_id": profileID])
+                }
+                if let existing = try Row.fetchOne(dbConn, sql: """
+                    SELECT id, status FROM fs_action_requests
+                    WHERE kind = 'hints' AND profile_id = ? AND status IN ('queued', 'running')
+                    LIMIT 1
+                    """, arguments: [profileID]) {
+                    let id: String = existing["id"]
+                    return "A hints request for this profile is already \(existing["status"] as String? ?? "queued") — request_id: \(id). Poll get_fs_request_status."
+                }
+                let id = "fsreq_\(UUID().uuidString)"
+                try dbConn.execute(sql: """
+                    INSERT INTO fs_action_requests (id, kind, profile_id, status, requested_by, created_at)
+                    VALUES (?, 'hints', ?, 'queued', 'mcp', ?)
+                    """, arguments: [id, profileID, Date()])
+                return "FamilySearch hints request queued. request_id: \(id). The app executes it with its own FamilySearch sign-in; resulting leads land in Triage. Needs the app running with this project open and a FamilySearch session. Poll get_fs_request_status, then read get_fs_hints."
+            }
+        } catch where Self.isMissingTable(error) {
+            return Self.fsSchemaOutOfDate
+        }
+    }
+
+    func requestFSUploadResponseText(_ args: [String: Any]) throws -> String {
+        let treeName = args["tree_name"] as? String
+        let treeDescription = args["tree_description"] as? String
+        do {
+            return try db.write { dbConn in
+                if let existing = try Row.fetchOne(dbConn, sql: """
+                    SELECT id, status FROM fs_action_requests
+                    WHERE kind = 'upload' AND status IN ('queued', 'running')
+                    LIMIT 1
+                    """) {
+                    let id: String = existing["id"]
+                    return "An upload request is already \(existing["status"] as String? ?? "queued") — request_id: \(id). Uploads are resumable; wait for it rather than stacking another. Poll get_fs_request_status."
+                }
+                let id = "fsreq_\(UUID().uuidString)"
+                try dbConn.execute(sql: """
+                    INSERT INTO fs_action_requests (id, kind, tree_name, tree_description, status, requested_by, created_at)
+                    VALUES (?, 'upload', ?, ?, 'queued', 'mcp', ?)
+                    """, arguments: [id, treeName, treeDescription, Date()])
+                return "FamilySearch tree-upload request queued. request_id: \(id). The app uploads deceased persons only, resumably, with its own FamilySearch sign-in — and the tree stays HIDDEN: finalizing (visibility + privacy) is an in-app wizard consent. Poll get_fs_request_status and get_fs_upload_status."
+            }
+        } catch where Self.isMissingTable(error) {
+            return Self.fsSchemaOutOfDate
+        }
     }
 
     // MARK: - Helpers
