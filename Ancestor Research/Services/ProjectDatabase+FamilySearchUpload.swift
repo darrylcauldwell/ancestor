@@ -171,4 +171,28 @@ nonisolated extension ProjectDatabase {
             return Dictionary(uniqueKeysWithValues: rows.map { ($0["local_key"], $0["fs_id"]) })
         }
     }
+
+    // MARK: Encoder input (D9 — marriage citations reference the Couple)
+
+    /// Citations attached to relationship edges (`field_sources` with
+    /// `entity_kind = 'relationship'` — E4 existence rows and any marriage
+    /// fields), grouped by relationship UUID for the upload encoder.
+    func familySearchRelationshipCitations() throws -> [UUID: [Citation]] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT entity_id, citation_json FROM field_sources
+                WHERE entity_kind = 'relationship' AND citation_json IS NOT NULL
+                """)
+            var result: [UUID: [Citation]] = [:]
+            for row in rows {
+                guard let idString: String = row["entity_id"],
+                      let id = UUID(uuidString: idString),
+                      let json: String = row["citation_json"],
+                      let citation = try? JSONDecoder().decode(Citation.self, from: Data(json.utf8)),
+                      !citation.isEmpty else { continue }
+                result[id, default: []].append(citation)
+            }
+            return result
+        }
+    }
 }
