@@ -450,3 +450,169 @@ struct DecisionCorePairRegistrationTwinTests {
         #expect(passed.allSatisfy { $0.verdict == .lead })   // two distinct rites → rivalry
     }
 }
+
+// DECISION_CORE_PAIR_SPEC — ghost-rival extension (fourth dogfood round).
+// Live specimen: after the 2026-07-30 Elizabeth Shaw run the store held ZERO
+// census-1891 facts and three exclusivity-demoted leads (Ilkeston "born
+// Eastwood" / Belper / Hayfield). With only stored FACTS counting as rivals,
+// the next cache-suppressed re-fetch of any one namesake would re-promote to
+// `fact` in an "emptied" slot — flip-flopping forever. Stored leads that this
+// pass itself demoted (the persisted `.exclusivity` softFail is the marker)
+// must keep the slot contested.
+struct DecisionCorePairGhostRivalTests {
+
+    private func common(_ id: String) -> RecordCommon {
+        RecordCommon(id: id, sourceID: "freecen", name: nil,
+                     surname: "SHAW", givenName: "ELIZABETH", detailURL: nil, rawFields: [:])
+    }
+
+    private func censusFact(_ id: String, discriminated: Bool = false) -> ScoredRecord {
+        var gates = [GateResult(gate: .name, outcome: .pass, reason: "surname=1.00")]
+        if discriminated {
+            gates.append(GateResult(gate: .familyContext, outcome: .pass,
+                                    reason: "spouse WILLIAM in household"))
+        }
+        return ScoredRecord(
+            id: id,
+            record: .census(CensusRecord(common: common(id), censusYear: 1891, age: 22,
+                                         birthYear: 1869, district: "Belper")),
+            verdict: .fact, gates: gates, summary: "census 1891")
+    }
+
+    private func censusGhost(_ id: String) -> ScoredRecord {
+        var ghost = censusFact(id)
+        var gates = ghost.gates
+        gates.append(GateResult(gate: .exclusivity, outcome: .softFail,
+                                reason: "3 competing census-1891 candidates, none discriminated"))
+        ghost = ScoredRecord(id: ghost.id, record: ghost.record,
+                             verdict: .lead, gates: gates, summary: ghost.summary)
+        return ghost
+    }
+
+    private func marriageFact(_ id: String, page: String) -> ScoredRecord {
+        ScoredRecord(
+            id: id,
+            record: .marriage(MarriageRecord(
+                common: common(id), marriageYear: 1919, marriageDate: nil,
+                marriagePlace: nil, quarter: nil, district: "Belper",
+                volume: "7b", page: page, spouseName: nil)),
+            verdict: .fact,
+            gates: [GateResult(gate: .name, outcome: .pass, reason: "surname=1.00")],
+            summary: "marriage 1919")
+    }
+
+    @Test func storedGhostsBlockLoneReturningNamesake() {
+        // The exact live store shape: batch re-fetches ONE census namesake;
+        // the other two demoted rivals sit in the store as leads.
+        let cross = RecordScorer.applyExclusivityAcrossStore(
+            batch: [censusFact("ilkeston-1869")],
+            storedFacts: [],
+            storedGhosts: [censusGhost("belper-1870"), censusGhost("hayfield-1870")])
+        #expect(cross.batch.first?.verdict == .lead)
+        #expect(cross.batch.first?.gates.contains { $0.gate == .exclusivity } == true)
+        #expect(cross.demotedStored.isEmpty)   // ghosts are never re-reported
+    }
+
+    @Test func discriminatedBatchRecordStillClaimsContestedSlot() {
+        // The designed escape hatch: NEW discriminating evidence (family in
+        // the household) beats the ghost pile and keeps `fact`.
+        let cross = RecordScorer.applyExclusivityAcrossStore(
+            batch: [censusFact("ilkeston-1869", discriminated: true)],
+            storedFacts: [],
+            storedGhosts: [censusGhost("belper-1870"), censusGhost("hayfield-1870")])
+        #expect(cross.batch.first?.verdict == .fact)
+    }
+
+    @Test func naturalStoredLeadsAreNotGhosts() {
+        // A stored lead WITHOUT the exclusivity marker (it failed gates on
+        // its own merits) proves nothing about the slot — no rivalry.
+        var naturalLead = censusFact("weak-namesake")
+        naturalLead = ScoredRecord(id: naturalLead.id, record: naturalLead.record,
+                                   verdict: .lead, gates: naturalLead.gates,
+                                   summary: naturalLead.summary)
+        let cross = RecordScorer.applyExclusivityAcrossStore(
+            batch: [censusFact("ilkeston-1869")],
+            storedFacts: [],
+            storedGhosts: [naturalLead])
+        #expect(cross.batch.first?.verdict == .fact)
+    }
+
+    @Test func ghostTwinOfTheBatchRecordAloneDoesNotRival() {
+        // The batch record's OWN stored demoted copy (same id) is not a
+        // rival — with no other candidates the slot is uncontested.
+        let cross = RecordScorer.applyExclusivityAcrossStore(
+            batch: [censusFact("ilkeston-1869")],
+            storedFacts: [],
+            storedGhosts: [censusGhost("ilkeston-1869")])
+        #expect(cross.batch.first?.verdict == .fact)
+        #expect(cross.demotedStored.isEmpty)
+    }
+
+    @Test func loneUndiscriminatedMarriageFactWithGhostRivalDemotes() {
+        // Mary E Land's flip-flop twin: her two namesake marriages demoted
+        // last run; one returns alone this run. The ghost keeps the
+        // marriage slot contested for undiscriminated newcomers.
+        var ghost = marriageFact("watson-1919", page: "101")
+        var gates = ghost.gates
+        gates.append(GateResult(gate: .exclusivity, outcome: .softFail,
+                                reason: "2 marriage candidates and this one carries no family corroboration"))
+        ghost = ScoredRecord(id: ghost.id, record: ghost.record,
+                             verdict: .lead, gates: gates, summary: ghost.summary)
+        let cross = RecordScorer.applyExclusivityAcrossStore(
+            batch: [marriageFact("sanders-1941", page: "202")],
+            storedFacts: [],
+            storedGhosts: [ghost])
+        #expect(cross.batch.first?.verdict == .lead)
+    }
+
+    private func deathGhost(_ id: String, vol: String, page: String,
+                            discriminated: Bool) -> ScoredRecord {
+        var gates = [GateResult(gate: .name, outcome: .pass, reason: "surname=1.00")]
+        if discriminated {
+            gates.append(GateResult(gate: .familyContext, outcome: .pass,
+                                    reason: "widower WILLIAM matches known spouse"))
+        }
+        gates.append(GateResult(gate: .exclusivity, outcome: .softFail,
+                                reason: "competing death candidates"))
+        return ScoredRecord(
+            id: id,
+            record: .death(DeathRecord(
+                common: RecordCommon(id: id, sourceID: "freebmd", name: nil,
+                                     surname: "KEYWORTH", givenName: "ELIZABETH",
+                                     detailURL: nil, rawFields: [:]),
+                deathYear: 1916, deathDate: nil, deathPlace: nil, age: 46,
+                quarter: "Dec", district: "Bakewell", volume: vol, page: page)),
+            verdict: .lead, gates: gates, summary: "death 1916")
+    }
+
+    @Test func ghostDiscriminationTransfersToItsLiveRegistrationTwin() {
+        // A stored twin ROW (different index row, same GRO registration)
+        // carrying a familyContext pass discriminates the whole candidate —
+        // the freshly-fetched twin (which lacked family context this run)
+        // keeps `fact` against an undiscriminated ghost rival. Registration
+        // identity spans the store boundary; twin rows never phantom-rival.
+        let liveTwin = ScoredRecord(
+            id: "freebmd_death_7b_920_137442739",
+            record: .death(DeathRecord(
+                common: RecordCommon(id: "freebmd_death_7b_920_137442739",
+                                     sourceID: "freebmd", name: nil,
+                                     surname: "KEYWORTH", givenName: "ELIZABETH",
+                                     detailURL: nil, rawFields: [:]),
+                deathYear: 1916, deathDate: nil, deathPlace: nil, age: 46,
+                quarter: "Dec", district: "Bakewell", volume: "7b", page: "920")),
+            verdict: .fact,
+            gates: [GateResult(gate: .name, outcome: .pass, reason: "surname=1.00")],
+            summary: "death 1916")
+        let cross = RecordScorer.applyExclusivityAcrossStore(
+            batch: [liveTwin],
+            storedFacts: [],
+            storedGhosts: [
+                deathGhost("freebmd_death_7b_920_137435711", vol: "7b", page: "920",
+                           discriminated: true),                       // twin row, corroborated
+                deathGhost("freebmd_death_1a_55_999", vol: "1a", page: "55",
+                           discriminated: false),                      // distinct rival
+            ])
+        #expect(cross.batch.first?.verdict == .fact)
+        #expect(cross.demotedStored.isEmpty)
+    }
+}

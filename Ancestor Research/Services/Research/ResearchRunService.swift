@@ -151,9 +151,16 @@ enum ResearchRunService {
             var demotedStored: [(scored: ScoredRecord, citationFull: String?, citationURL: String?, isEnrichment: Bool)] = []
             if let storedEvidence = try? db.loadEvidenceForProfile(profileID) {
                 let storedFactRows = storedEvidence.filter { $0.verdict == .fact }
+                // Ghost rivals — mirror of the in-pipeline pass: previously
+                // demoted (non-discarded) leads keep their slot contested.
+                let storedGhosts = storedEvidence
+                    .filter { $0.verdict == .lead && $0.userStatus != .discarded }
+                    .map(\.asScoredRecord)
+                    .filter(RecordScorer.isExclusivityGhost)
                 let cross = RecordScorer.applyExclusivityAcrossStore(
                     batch: result.allScoredRecords,
-                    storedFacts: storedFactRows.map(\.asScoredRecord))
+                    storedFacts: storedFactRows.map(\.asScoredRecord),
+                    storedGhosts: storedGhosts)
                 effectiveRecords = cross.batch
                 let rowByID = Dictionary(uniqueKeysWithValues: storedFactRows.map { ($0.sourceRecordID, $0) })
                 demotedStored = cross.demotedStored.compactMap { demoted in

@@ -312,28 +312,47 @@ nonisolated struct RecordScorer {
         record.gates.contains { $0.gate == .familyContext && $0.outcome == .pass }
     }
 
+    /// A GHOST rival: a stored lead this pass itself previously demoted (the
+    /// persisted `.exclusivity` softFail is the marker). Its presence proves
+    /// the slot is contested even when the caches keep the other rivals out
+    /// of the batch — without ghosts, demoting all rivals EMPTIES the slot
+    /// and the next lone re-fetch re-promotes as "unrivalled", flip-flopping
+    /// forever. Ghosts block undiscriminated newcomers but are never
+    /// re-promoted (leads never resurrect) and never demoted further.
+    static func isExclusivityGhost(_ record: ScoredRecord) -> Bool {
+        record.verdict == .lead
+            && record.gates.contains { $0.gate == .exclusivity && $0.outcome == .softFail }
+    }
+
     /// `fact` must mean "confident this is THEM". Gates are per-record, so a
     /// namesake-dense name can put eleven mutually exclusive birth
     /// registrations through as eleven `facts`. This pass runs over an
     /// assembled batch and demotes competing facts:
-    ///   • singular slots: >1 fact with exactly one discriminated → the rest
-    ///     demote; zero or two-plus discriminated → ALL demote (a namesake
-    ///     pile, or a genuine contradiction — either way, human judgement).
+    ///   • singular slots: >1 candidate with exactly one discriminated → the
+    ///     rest demote; zero or two-plus discriminated → ALL demote (a
+    ///     namesake pile, or a genuine contradiction — human judgement).
     ///   • marriage (non-singular): discriminated facts always keep; an
-    ///     undiscriminated fact keeps only when it is the ONLY marriage fact.
-    /// Verdicts only ever move DOWN (fact → lead); `.lead`/`.impossible`
-    /// inputs are untouched; the pass is idempotent. No AI input anywhere.
-    static func applyExclusivity(_ scored: [ScoredRecord]) -> [ScoredRecord] {
+    ///     undiscriminated fact keeps only when it is the ONLY candidate.
+    /// `ghosts` (stored exclusivity-demoted leads) count as rival candidates
+    /// but can neither keep fact nor demote further. Verdicts only ever move
+    /// DOWN (fact → lead); `.lead`/`.impossible` inputs are untouched; the
+    /// pass is idempotent. No AI input anywhere.
+    static func applyExclusivity(_ scored: [ScoredRecord], ghosts: [ScoredRecord] = []) -> [ScoredRecord] {
         var factIndicesBySlot: [String: [Int]] = [:]
         for (index, record) in scored.enumerated() where record.verdict == .fact {
             if let slot = exclusivitySlot(for: record.record) {
                 factIndicesBySlot[slot, default: []].append(index)
             }
         }
+        var ghostsBySlot: [String: [ScoredRecord]] = [:]
+        for ghost in ghosts where isExclusivityGhost(ghost) {
+            if let slot = exclusivitySlot(for: ghost.record) {
+                ghostsBySlot[slot, default: []].append(ghost)
+            }
+        }
 
         var demotions: [Int: String] = [:]
         for (slot, indices) in factIndicesBySlot {
-            guard indices.count > 1 else { continue }
             // Registration-identity grouping: the same GRO registration often
             // exists as several index rows (different row ids, identical
             // vol/page/year). Twins are ONE candidate, never rivals — without
@@ -343,30 +362,47 @@ nonisolated struct RecordScorer {
                 let key = Self.registrationKey(for: scored[index].record) ?? "id:\(scored[index].id)"
                 candidates[key, default: []].append(index)
             }
-            guard candidates.count > 1 else { continue }   // one registration → no rivalry
+            // Ghost candidates join under the same identity rules — a ghost
+            // sharing a registration with a live row merges into that
+            // candidate rather than phantom-rivalling it.
+            var ghostKeys: Set<String> = []
+            var discriminatedGhostKeys: Set<String> = []
+            let liveKeys = Set(candidates.keys)
+            for ghost in ghostsBySlot[slot] ?? [] {
+                let key = Self.registrationKey(for: ghost.record) ?? "id:\(ghost.id)"
+                // A ghost twin of a live row is the SAME candidate — it adds
+                // no rival, but its stored discrimination still counts (a
+                // candidate is discriminated if ANY of its rows is).
+                if !liveKeys.contains(key) { ghostKeys.insert(key) }
+                if isDiscriminated(ghost) { discriminatedGhostKeys.insert(key) }
+            }
+            let allKeys = liveKeys.union(ghostKeys)
+            guard allKeys.count > 1 else { continue }   // one candidate → no rivalry
 
-            let discriminatedKeys = candidates.filter { _, rows in
+            let discriminatedLiveKeys = Set(candidates.filter { _, rows in
                 rows.contains { isDiscriminated(scored[$0]) }
-            }.map(\.key)
+            }.map(\.key))
+            let discriminatedKeys = discriminatedLiveKeys.union(discriminatedGhostKeys)
 
-            func demote(_ keys: [String], _ reason: String) {
+            // Demotion only ever lands on live rows — ghost keys have no
+            // entry in `candidates`, so demoting them is a natural no-op.
+            func demote(_ keys: some Collection<String>, _ reason: String) {
                 for key in keys {
                     for index in candidates[key] ?? [] { demotions[index] = reason }
                 }
             }
-            let allKeys = Array(candidates.keys)
-            let undiscriminatedKeys = allKeys.filter { !discriminatedKeys.contains($0) }
+            let undiscriminatedKeys = allKeys.subtracting(discriminatedKeys)
 
             if slot == "marriage" {
                 // Multiple marriages are legitimate — but only corroborated
                 // ones may coexist as facts.
-                demote(undiscriminatedKeys, "\(candidates.count) marriage candidates and this one carries no family corroboration — demoted for review")
+                demote(undiscriminatedKeys, "\(allKeys.count) marriage candidates and this one carries no family corroboration — demoted for review")
             } else if discriminatedKeys.count == 1 {
-                demote(undiscriminatedKeys, "\(candidates.count) competing \(slot) candidates — a family-corroborated record outranks this one")
+                demote(undiscriminatedKeys, "\(allKeys.count) competing \(slot) candidates — a family-corroborated record outranks this one")
             } else if discriminatedKeys.isEmpty {
-                demote(allKeys, "\(candidates.count) competing \(slot) candidates, none discriminated — a person holds at most one; needs family or cross-profile corroboration")
+                demote(allKeys, "\(allKeys.count) competing \(slot) candidates, none discriminated — a person holds at most one; needs family or cross-profile corroboration")
             } else {
-                demote(allKeys, "\(candidates.count) competing \(slot) candidates with \(discriminatedKeys.count) corroborated — a genuine evidential contradiction; review required")
+                demote(allKeys, "\(allKeys.count) competing \(slot) candidates with \(discriminatedKeys.count) corroborated — a genuine evidential contradiction; review required")
             }
         }
 
@@ -1061,12 +1097,19 @@ nonisolated struct RecordScorer {
         let demotedStored: [ScoredRecord]
     }
 
+    /// `storedGhosts` — stored leads previously demoted by this pass (see
+    /// `isExclusivityGhost`); they mark their slot as contested so a lone
+    /// cache-suppressed namesake cannot re-promote into an emptied slot.
+    /// Callers pre-filter out user-discarded rows: a human's "not them" means
+    /// the ghost no longer blocks.
     static func applyExclusivityAcrossStore(
-        batch: [ScoredRecord], storedFacts: [ScoredRecord]
+        batch: [ScoredRecord], storedFacts: [ScoredRecord],
+        storedGhosts: [ScoredRecord] = []
     ) -> CrossRunExclusivity {
         let batchIDs = Set(batch.map(\.id))
         let stored = storedFacts.filter { !batchIDs.contains($0.id) }
-        let passed = applyExclusivity(batch + stored)   // order-preserving
+        let ghosts = storedGhosts.filter { !batchIDs.contains($0.id) }
+        let passed = applyExclusivity(batch + stored, ghosts: ghosts)   // order-preserving
         let newBatch = Array(passed.prefix(batch.count))
         let storedAfter = Array(passed.suffix(stored.count))
         let demotedStored = zip(stored, storedAfter).compactMap { before, after in

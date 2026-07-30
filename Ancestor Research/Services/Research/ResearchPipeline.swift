@@ -913,10 +913,6 @@ final class ResearchPipeline {
         // memory already loaded via `rejectionLookup` (record_rejections +
         // evidence_records.user_status='discarded').
         let rejectedRecordIDs: Set<String> = subject.profileID.flatMap { rejectionLookup?($0) } ?? []
-        let clusterInput = Self.clusterInput(
-            from: state.scoredRecords,
-            enrichmentIDs: state.enrichmentRecordIDs,
-            rejectedIDs: rejectedRecordIDs)
         // DECISION_CORE_PAIR_SPEC Fix A — the cross-record exclusivity pass
         // runs over the ACCUMULATED record set before clustering and final
         // assembly, competing against STORED facts too (cross-run extension:
@@ -924,17 +920,33 @@ final class ResearchPipeline {
         // it HERE — not only at persist — means the review UI displays the
         // same verdicts the store ends up holding. confirmedFacts/leads are
         // computed partitions of scoredRecords, so demotions reconcile
-        // everything downstream.
+        // everything downstream. MUST run before `clusterInput` is taken:
+        // ScoredRecord is a value type, so clusters built from a pre-pass
+        // snapshot would carry stale `.fact` verdicts into the review UI and
+        // its Apply path (live specimen: Elizabeth Shaw's demoted 1891
+        // census still showing "Will apply" while the store held `lead`).
         if let profileID = state.subject.profileID,
            let storedEvidence = spouseEvidenceLookup?(profileID) {
             let storedFacts = storedEvidence
                 .filter { $0.verdict == .fact }
                 .map(\.asScoredRecord)
+            // Ghost rivals: leads this pass previously demoted keep their
+            // slot contested (flip-flop guard) — unless the user discarded
+            // them ("not them" resolves the contest).
+            let storedGhosts = storedEvidence
+                .filter { $0.verdict == .lead && $0.userStatus != .discarded }
+                .map(\.asScoredRecord)
+                .filter(RecordScorer.isExclusivityGhost)
             state.scoredRecords = RecordScorer.applyExclusivityAcrossStore(
-                batch: state.scoredRecords, storedFacts: storedFacts).batch
+                batch: state.scoredRecords, storedFacts: storedFacts,
+                storedGhosts: storedGhosts).batch
         } else {
             state.scoredRecords = RecordScorer.applyExclusivity(state.scoredRecords)
         }
+        let clusterInput = Self.clusterInput(
+            from: state.scoredRecords,
+            enrichmentIDs: state.enrichmentRecordIDs,
+            rejectedIDs: rejectedRecordIDs)
 
         let clusters = ClusteringEngine.cluster(
             records: clusterInput,
