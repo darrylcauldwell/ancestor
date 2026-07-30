@@ -632,7 +632,7 @@ actor MCPHandler {
                 ),
                 tool(
                     name: "get_recent_changes",
-                    description: "What changed in the tree since a given time: newly scored evidence, new leads, applied field sources, completed research runs, and new pending facts — newest first, each row tagged with its kind and timestamp.",
+                    description: "What changed in the tree since a given time: newly scored evidence, new leads, applied field sources, completed research runs, and new pending facts — newest first, each row tagged with its kind and timestamp. Rows written by one operation (same profile, same second) are collapsed into a single event carrying a count, so one research run reads as one evidence event, not hundreds.",
                     properties: [
                         "since": ["type": "string", "description": "ISO8601 timestamp (e.g. 2026-07-24T00:00:00Z). Required."],
                         "limit": ["type": "integer", "description": "Max rows per kind (default 50, max 200)."],
@@ -3317,24 +3317,62 @@ actor MCPHandler {
                     events.append(e)
                 }
             }
-            collect("SELECT profile_id, source_id, verdict, scored_at AS at FROM evidence_records WHERE scored_at > ? ORDER BY scored_at DESC LIMIT ?", kind: "evidence_scored") { row in
+            // Same-second collapse (owner dogfood 2026-07-30): a single
+            // research run re-scores hundreds of evidence rows with one
+            // timestamp — surfaced raw, the feed is unreadable spam. Rows
+            // from one operation (same profile, same second) aggregate into
+            // ONE event with a count; a single-row group keeps its detail.
+            collect("""
+                SELECT profile_id, scored_at AS at, COUNT(*) AS n,
+                       SUM(CASE WHEN verdict = 'fact' THEN 1 ELSE 0 END) AS facts,
+                       SUM(CASE WHEN verdict = 'lead' THEN 1 ELSE 0 END) AS leads,
+                       MAX(source_id) AS source_id, MAX(verdict) AS verdict
+                FROM evidence_records WHERE scored_at > ?
+                GROUP BY profile_id, scored_at
+                ORDER BY scored_at DESC LIMIT ?
+                """, kind: "evidence_scored") { row in
                 var e: [String: Any] = ["profile_id": row["profile_id"] as String? ?? ""]
-                if let v: String = row["source_id"] { e["source"] = v }
-                if let v: String = row["verdict"] { e["verdict"] = v }
+                let n: Int = row["n"] ?? 1
+                if n > 1 {
+                    e["records"] = n
+                    if let v: Int = row["facts"] { e["facts"] = v }
+                    if let v: Int = row["leads"] { e["leads"] = v }
+                } else {
+                    if let v: String = row["source_id"] { e["source"] = v }
+                    if let v: String = row["verdict"] { e["verdict"] = v }
+                }
                 if let d: Date = row["at"] { e["at"] = iso.string(from: d) }
                 return e
             }
-            collect("SELECT profile_id, name, status, created_at AS at FROM leads WHERE created_at > ? ORDER BY created_at DESC LIMIT ?", kind: "lead_created") { row in
+            collect("""
+                SELECT profile_id, created_at AS at, COUNT(*) AS n,
+                       MAX(name) AS name, MAX(status) AS status
+                FROM leads WHERE created_at > ?
+                GROUP BY profile_id, created_at
+                ORDER BY created_at DESC LIMIT ?
+                """, kind: "lead_created") { row in
                 var e: [String: Any] = ["profile_id": row["profile_id"] as String? ?? ""]
-                if let v: String = row["name"] { e["name"] = v }
-                if let v: String = row["status"] { e["status"] = v }
+                let n: Int = row["n"] ?? 1
+                if n > 1 {
+                    e["count"] = n
+                } else {
+                    if let v: String = row["name"] { e["name"] = v }
+                    if let v: String = row["status"] { e["status"] = v }
+                }
                 if let d: Date = row["at"] { e["at"] = iso.string(from: d) }
                 return e
             }
-            collect("SELECT entity_id AS profile_id, field, origin, added_at AS at FROM field_sources WHERE added_at > ? AND entity_kind != 'relationship' ORDER BY added_at DESC LIMIT ?", kind: "fact_applied") { row in
+            collect("""
+                SELECT entity_id AS profile_id, added_at AS at, COUNT(*) AS n,
+                       GROUP_CONCAT(DISTINCT field) AS fields, MAX(origin) AS origin
+                FROM field_sources WHERE added_at > ? AND entity_kind != 'relationship'
+                GROUP BY entity_id, added_at
+                ORDER BY added_at DESC LIMIT ?
+                """, kind: "fact_applied") { row in
                 var e: [String: Any] = ["profile_id": row["profile_id"] as String? ?? ""]
-                if let v: String = row["field"] { e["field"] = v }
+                if let v: String = row["fields"] { e["field"] = v }
                 if let v: String = row["origin"] { e["source"] = v }
+                if let n: Int = row["n"], n > 1 { e["count"] = n }
                 if let d: Date = row["at"] { e["at"] = iso.string(from: d) }
                 return e
             }
