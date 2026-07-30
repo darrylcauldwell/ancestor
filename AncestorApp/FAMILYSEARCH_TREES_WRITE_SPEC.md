@@ -108,3 +108,16 @@ Known-unresolved list to watch: `FS_WRITE_WIRE_CONTRACTS.md` §unresolved (acces
 ## 8. Sequenced follow-ups (roadmap, in order — not parked)
 
 **WF-A** change-history sync (Tree Change History feed → conflict strategy per compatibility checklist). **WF-B** FS→local user-tree import. **WF-C** hint source attach-back (Source Linker flow). **WF-D** production environment flip + embedded production key (post-certification). WF-A/B complete the remaining User-Tree compatibility checklist rows; schedule after Tiffany confirms the beta records index situation.
+
+## 9. As-built record (2026-07-30, #WL0–#WL6)
+
+All six slices SHIPPED in one session, every slice gated on green `xcodebuild test`; full suite at close: **3,412 tests / 362 suites, all passing.**
+
+- **WL1** `6f30b9d` — client write surface. `FamilySearchClient+Writes.swift` (creates return entity IDs; attaches tolerate missing IDs; 400-with-body surfaces as `unexpectedStatus(status, snippet)`), 10 endpoint builders, `FamilySearchResponse.createdEntityID` (X-entity-id → Location fallback), mock `httpBodyStream` drain. 14 tests.
+- **WL2** `4fb33d4` — `FamilySearchTreeEncoder` (pure). D1–D12 policy encoded + tested; `FSUploadPlan` with persons encoded at plan time and relationship/source-ref SPECS rendered post-pid; citation keys are FNV-1a (NOT `Hasher` — process-seeded, would break resume). 17 tests.
+- **WL3** `d78ed4e` — migration `v52_familysearch_upload` (3 tables per §5) + `ProjectDatabase+FamilySearchUpload.swift` (upsert CRUD, E1 dual-write via `mergingLegacyMap` in the same write txn, `familySearchRelationshipCitations()` for D9). 5 tests.
+- **WL4** `b55b19e` — `FamilySearchTreeUploadService` actor. Full §2 sequence; context re-asserted before every batch; fail-soft per-entity capture; finalize gated on zero person/relationship failures (one-way flip protected); finalize media-type 400/415 → fs-v1 fallback (contracts §unresolved); GLOBAL restore on success AND error paths; interrupted runs saved as phase `uploading` for resume. 3 tests (full-run / resume-skips-everything / fail-soft-withholds-finalize) over mock transport + real temp DB.
+- **WL5** `ae9276d` — `FamilySearchUploadSheet` + Actions-menu entry ("Upload Tree to FamilySearch…", sign-in-gated, `.sheet(item:)`). Review shows include/exclude counts; privacy toggle explains the hints trade-off in plain language; explicit one-way consent checkbox gates Upload; done view shows honest per-stage counts + failures + finalize note.
+- **WL6** — this record; ROADMAP §2a entry updated; `FAMILYSEARCH_SOURCE_SPEC.md` §2.4 marked superseded-in-part; app CLAUDE.md migration count 41→52.
+
+**NOT yet done: §7 live verify on beta (owner).** The four §unresolved wire questions (access-enum form, update-tree media type, current-tree session lifetime, X-entity-id on person create) are all defensively handled in code but unconfirmed against the live service.

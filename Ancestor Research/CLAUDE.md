@@ -25,7 +25,7 @@ Each `.sqlite` file is one project (one family tree). The database must exist be
 
 ## Database Schema
 
-41 in-code migrations (v1_create_tables … v41_conflict_layer) in
+52 in-code migrations (v1_create_tables … v52_familysearch_upload) in
 `Services/ProjectDatabase.swift` — that file is the schema's source of truth;
 each migration carries a rationale comment. ~33 tables + 1 FTS5 virtual table
 in four families:
