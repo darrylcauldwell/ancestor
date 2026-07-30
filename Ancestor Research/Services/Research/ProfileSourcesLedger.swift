@@ -73,6 +73,10 @@ enum ProfileSourcesLedger {
         /// the same entry can be saved more than once across runs (different
         /// scrape ids, same vol/page). Removal cleans them all.
         var duplicateIDs: [String]
+        /// GRO registration identity (type|vol|page|year|district) when the
+        /// record carries one — twin index rows of the same registration share
+        /// it even when their transcriptions (and so citations) differ.
+        var registrationKey: String?
     }
 
     /// EVERY evidence record for the profile (applied, pending, rejected),
@@ -92,7 +96,8 @@ enum ProfileSourcesLedger {
                     ageDetail: ageDetail(rec.record),
                     reconcileNote: reconcileNote(rec.record, profile: profile),
                     matchRank: matchRank(verdict: rec.verdict, gates: rec.gates),
-                    duplicateIDs: [rec.sourceRecordID])
+                    duplicateIDs: [rec.sourceRecordID],
+                    registrationKey: RecordScorer.registrationKey(for: rec.record))
             }
 
         // Collapse the same underlying entry saved more than once across runs
@@ -121,10 +126,18 @@ enum ProfileSourcesLedger {
             }
     }
 
-    /// Identity of a record independent of the run that saved it — source, type,
-    /// and the citation with the trailing "; accessed <date>" trimmed off (the
+    /// Identity of a record independent of the run that saved it. BMD records
+    /// with a vol/page carry a REGISTRATION identity — the same GRO entry is
+    /// often indexed as several rows whose transcriptions (and so citations)
+    /// differ, and those twins are one real record, never two cards (the
+    /// Elizabeth Keyworth 7b/920 specimen: the applied death and its twin
+    /// showed as "1 applied + 1 researched"). Otherwise: source, type, and
+    /// the citation with the trailing "; accessed <date>" trimmed off (the
     /// only part that differs between re-scrapes of the same entry).
     private static func identityKey(_ d: RecordDetail) -> String {
+        if let reg = d.registrationKey {
+            return "\(d.sourceID)|\(reg)"
+        }
         let base = d.citation.range(of: "; accessed").map { String(d.citation[..<$0.lowerBound]) } ?? d.citation
         return "\(d.sourceID)|\(d.recordType.rawValue)|\(base.trimmingCharacters(in: .whitespaces))"
     }

@@ -73,3 +73,72 @@ struct ProfileSourcesLedgerTests {
         #expect(try ProfileSourcesLedger.entries(for: "p2", db: db).isEmpty)
     }
 }
+
+// Registration-twin dedup (owner dogfood 2026-07-30): the same GRO entry
+// (7b/920) indexed as two FreeBMD rows with DIFFERENT transcriptions showed as
+// "1 applied + 1 researched" in the per-fact expander. Twin rows are one real
+// record — one card, applied standing wins, removal cleans both.
+@MainActor
+struct ProfileSourcesLedgerTwinTests {
+
+    private func makeDB() throws -> ProjectDatabase {
+        let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
+        let db = try ProjectDatabase(path: path)
+        try db.dbQueue.write { sql in
+            try sql.execute(sql: "INSERT INTO project_meta (id, name, source_kind, source_value, created_at) VALUES ('t','T','manual','',?)", arguments: [Date()])
+        }
+        return db
+    }
+
+    private func death(_ id: String, given: String, vol: String, page: String) -> ScoredRecord {
+        let common = RecordCommon(id: id, sourceID: "freebmd", name: nil,
+                                  surname: "KEYWORTH", givenName: given,
+                                  detailURL: nil, rawFields: [:])
+        let record = SourceRecord.death(DeathRecord(
+            common: common, deathYear: 1916, deathDate: nil, deathPlace: nil,
+            age: 46, quarter: "Dec", district: "Bakewell", volume: vol, page: page))
+        return ScoredRecord(id: record.id, record: record, verdict: .fact, gates: [], summary: "")
+    }
+
+    @Test func registrationTwinsCollapseToOneCardWithAppliedStanding() throws {
+        let db = try makeDB()
+        _ = try db.addProfile(Profile(
+            id: "p1", firstName: "Elizabeth", lastName: "Shaw",
+            gender: .female, isDeleted: false, sources: [:], disputes: [:]), source: .gedcom)
+
+        // Twin rows: same registration, DIFFERENT transcriptions → different
+        // citations (the citation-identity fallback can't collapse these).
+        let applied = death("freebmd_death_7b_920_137442739", given: "ELIZABETH", vol: "7b", page: "920")
+        let twin = death("freebmd_death_7b_920_137435711", given: "ELIZABETH A", vol: "7b", page: "920")
+        try db.saveEvidence(profileID: "p1", scored: applied,
+                            citationFull: "FreeBMD, Elizabeth Keyworth, Dec 1916, Bakewell, vol. 7b/920; accessed 18 Jul 2026.",
+                            citationURL: nil)
+        try db.saveEvidence(profileID: "p1", scored: twin,
+                            citationFull: "FreeBMD, Elizabeth A Keyworth, Dec 1916, Bakewell, vol. 7b/920; accessed 30 Jul 2026.",
+                            citationURL: nil)
+        try db.updateEvidenceUserStatus(profileID: "p1", sourceRecordIDs: [applied.record.id], status: .savedAsLead)
+
+        let records = try ProfileSourcesLedger.allRecords(for: "p1", db: db)
+        let deaths = records.filter { $0.recordType == .death }
+        #expect(deaths.count == 1, "twin rows are one card, got \(deaths.map(\.id))")
+        #expect(Set(deaths.first?.duplicateIDs ?? []) ==
+                ["freebmd_death_7b_920_137442739", "freebmd_death_7b_920_137435711"],
+                "removal must clean both underlying rows")
+    }
+
+    @Test func distinctRegistrationsStaySeparateCards() throws {
+        let db = try makeDB()
+        _ = try db.addProfile(Profile(
+            id: "p2", firstName: "Elizabeth", lastName: "Shaw",
+            gender: .female, isDeleted: false, sources: [:], disputes: [:]), source: .gedcom)
+        try db.saveEvidence(profileID: "p2",
+                            scored: death("d1", given: "ELIZABETH", vol: "7b", page: "920"),
+                            citationFull: "FreeBMD, Dec 1916, Bakewell, vol. 7b/920", citationURL: nil)
+        try db.saveEvidence(profileID: "p2",
+                            scored: death("d2", given: "ELIZABETH", vol: "1a", page: "55"),
+                            citationFull: "FreeBMD, Dec 1916, Ashby, vol. 1a/55", citationURL: nil)
+        let deaths = try ProfileSourcesLedger.allRecords(for: "p2", db: db)
+            .filter { $0.recordType == .death }
+        #expect(deaths.count == 2, "different registrations must not merge")
+    }
+}
