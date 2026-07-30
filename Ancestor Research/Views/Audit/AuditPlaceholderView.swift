@@ -60,6 +60,13 @@ struct HealthView: View {
     @State private var deathAgeProposals: [DeathAgeBackfillProposal] = []
     /// Sentinel `ruleFilter` value for the synthetic "Death-age backfill" chip.
     private let deathAgeBackfillFilterID = "__deathAgeBackfill"
+    /// Contradictory-facts findings — profiles whose stored evidence holds
+    /// mutually exclusive `fact` verdicts the exclusivity pass would demote
+    /// (DECISION_CORE_PAIR follow-up). Computed once on appear (reads
+    /// evidence per profile).
+    @State private var contradictoryFindings: [ContradictoryFactsAudit.Finding] = []
+    /// Sentinel `ruleFilter` value for the synthetic "Contradictory facts" chip.
+    private let contradictoryFactsFilterID = "__contradictoryFacts"
     /// Sentinel `ruleFilter` value for the synthetic "Conflicts" chip — the
     /// folded-in open field-disputes (sources disagreeing with a stored value).
     private let disputeConflictFilterID = "__disputes"
@@ -157,6 +164,8 @@ struct HealthView: View {
                                     censusBackfillRow(proposal)
                                 case .deathAgeBackfill(let proposal):
                                     deathAgeBackfillRow(proposal)
+                                case .contradictoryFacts(let finding):
+                                    contradictoryFactsRow(finding)
                                 case .finding(let result):
                                     findingRow(result)
                                 case .dispute(let row):
@@ -219,6 +228,7 @@ struct HealthView: View {
             syncAuditSummary()
             backfillProposals = appState.censusBackfillProposals()
             deathAgeProposals = appState.deathAgeBackfillProposals()
+            contradictoryFindings = appState.contradictoryFactsFindings()
             openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
         }
         .sheet(item: $resolvingDispute, onDismiss: {
@@ -249,6 +259,7 @@ struct HealthView: View {
         case duplicateCluster(DuplicateCluster)
         case censusBackfill(CensusBackfill.Proposal)
         case deathAgeBackfill(DeathAgeBackfillProposal)
+        case contradictoryFacts(ContradictoryFactsAudit.Finding)
         case dispute(DisputeRow)
         var id: String {
             switch self {
@@ -256,6 +267,7 @@ struct HealthView: View {
             case .duplicateCluster(let c): return "d:\(c.id)"
             case .censusBackfill(let p): return "b:\(p.id)"
             case .deathAgeBackfill(let p): return "da:\(p.id)"
+            case .contradictoryFacts(let f): return "cf:\(f.id)"
             case .dispute(let row): return "disp:\(row.id)"
             }
         }
@@ -289,6 +301,9 @@ struct HealthView: View {
         if ruleFilter == deathAgeBackfillFilterID {
             return deathAgeProposals.map { HealthRow.deathAgeBackfill($0) }
         }
+        if ruleFilter == contradictoryFactsFilterID {
+            return contradictoryFindings.map { HealthRow.contradictoryFacts($0) }
+        }
         // The synthetic conflicts chip (and the disputes pill) show only disputes.
         if ruleFilter == disputeConflictFilterID {
             return disputeRows
@@ -302,6 +317,10 @@ struct HealthView: View {
         // is a decision only the user can make.
         if ruleFilter == nil {
             rows += disputeRows
+            // Contradictory facts sit with the conflicts, above the gap-fill
+            // backfills — accepted evidence disagreeing with itself is an
+            // issue, not a gap.
+            rows += contradictoryFindings.map { HealthRow.contradictoryFacts($0) }
             rows += backfillProposals.map { HealthRow.censusBackfill($0) }
             rows += deathAgeProposals.map { HealthRow.deathAgeBackfill($0) }
         }
@@ -450,6 +469,42 @@ struct HealthView: View {
         var s = "Died \(String(p.deathYear)) aged \(String(p.ageAtDeath))"
         if let d = p.district, !d.isEmpty { s += " (\(d))" }
         return s + " → calculated birth year ~\(String(p.estimatedBirthYear))"
+    }
+
+    @ViewBuilder
+    private func contradictoryFactsRow(_ f: ContradictoryFactsAudit.Finding) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
+                .foregroundStyle(.orange)
+                .font(.body)
+                .frame(width: 24)
+            Button {
+                onOpenProfile?(f.profileID)
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(f.profileName)
+                        .font(AppTypography.cardTitle)
+                    Text("\(f.demotions.count) accepted fact\(f.demotions.count == 1 ? "" : "s") contradict each other (\(f.slotSummary)) — a person holds at most one of each; none is corroborated enough to stand")
+                        .font(AppTypography.cardBody)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            Spacer(minLength: 0)
+            Button {
+                appState.demoteContradictoryFacts(f)
+                contradictoryFindings.removeAll { $0.id == f.id }
+                refreshAudit()
+            } label: {
+                Label("Demote \(f.demotions.count) to leads", systemImage: "arrow.down.circle")
+            }
+            .buttonStyle(.glassProminent).controlSize(.mini)
+            .help("Demote these \(f.demotions.count) contested facts to reviewable leads — the same deterministic rules a re-research run would apply. Nothing is deleted; applied records keep their applied status, and you can promote the right one from Triage.")
+        }
+        .padding(12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
     }
 
     @ViewBuilder
@@ -857,7 +912,8 @@ struct HealthView: View {
         // gap ("Missing bio") shows blue, an amber warning shows orange, an error
         // shows red — the severity is legible before you even select the chip.
         let severityByRule = worstSeverityByRule
-        if counts.count > 1 || !backfillProposals.isEmpty || !deathAgeProposals.isEmpty {
+        if counts.count > 1 || !backfillProposals.isEmpty || !deathAgeProposals.isEmpty
+            || !contradictoryFindings.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ruleChip(label: "All (\(auditVM.filteredResults.count))", selected: ruleFilter == nil) {
@@ -878,6 +934,13 @@ struct HealthView: View {
                         ruleChip(label: "Death-age backfill (\(deathAgeProposals.count))",
                                  selected: ruleFilter == deathAgeBackfillFilterID) {
                             ruleFilter = (ruleFilter == deathAgeBackfillFilterID) ? nil : deathAgeBackfillFilterID
+                        }
+                    }
+                    if !contradictoryFindings.isEmpty {
+                        ruleChip(label: "Contradictory facts (\(contradictoryFindings.count))",
+                                 severity: .warning,
+                                 selected: ruleFilter == contradictoryFactsFilterID) {
+                            ruleFilter = (ruleFilter == contradictoryFactsFilterID) ? nil : contradictoryFactsFilterID
                         }
                     }
                     if !openDisputeRows.isEmpty {

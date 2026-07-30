@@ -3232,6 +3232,55 @@ final class AppState {
             errorMessage = "Could not set birth year: \(error.localizedDescription)"
         }
     }
+
+    // MARK: - Contradictory-facts audit (DECISION_CORE_PAIR follow-up)
+
+    /// Tree-wide sweep: profiles whose stored evidence holds `fact` verdicts
+    /// the run-time exclusivity pass would demote (stale multi-fact piles
+    /// from before the decision-core rules, plus flip-flop legacy states).
+    /// Read-only; the caller applies via `demoteContradictoryFacts`.
+    func contradictoryFactsFindings() -> [ContradictoryFactsAudit.Finding] {
+        guard let db = currentDatabase else { return [] }
+        var out: [ContradictoryFactsAudit.Finding] = []
+        for (profileID, profile) in snapshot.profiles {
+            let evidence = (try? db.loadEvidenceForProfile(profileID)) ?? []
+            guard !evidence.isEmpty else { continue }
+            if let f = ContradictoryFactsAudit.finding(
+                profileID: profileID, profileName: profile.displayName,
+                evidence: evidence) {
+                out.append(f)
+            }
+        }
+        return out.sorted { $0.profileName < $1.profileName }
+    }
+
+    /// One-click fix: demote the contradictory facts exactly as a research
+    /// run would. Re-derived fresh here (a stale click can never demote
+    /// records the store no longer holds as rivals); verdict-only writes —
+    /// the `saveEvidence` upsert preserves `user_status` and `applied_at`.
+    func demoteContradictoryFacts(_ finding: ContradictoryFactsAudit.Finding) {
+        guard let db = currentDatabase else { return }
+        let evidence = (try? db.loadEvidenceForProfile(finding.profileID)) ?? []
+        let demoted = ContradictoryFactsAudit.demotions(in: evidence)
+        guard !demoted.isEmpty else { return }
+        let rowByID = Dictionary(uniqueKeysWithValues: evidence.map { ($0.sourceRecordID, $0) })
+        var saved = 0
+        for rec in demoted {
+            guard let row = rowByID[rec.id] else { continue }
+            do {
+                try db.saveEvidence(
+                    profileID: finding.profileID, scored: rec,
+                    citationFull: row.citationFull, citationURL: row.citationURL,
+                    isEnrichment: row.isEnrichment)
+                saved += 1
+            } catch {
+                errorMessage = "Could not demote \(rec.id): \(error.localizedDescription)"
+            }
+        }
+        guard saved > 0 else { return }
+        successMessage = "Demoted \(saved) contradictory fact\(saved == 1 ? "" : "s") on \(finding.profileName) to leads — none was certain enough to stand; review them in Triage."
+        successResearchProfileID = finding.profileID
+    }
 }
 
 /// A tree-wide death-age backfill available for one profile: a calculated
