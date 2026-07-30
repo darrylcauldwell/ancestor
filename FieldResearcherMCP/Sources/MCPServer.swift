@@ -2479,7 +2479,9 @@ actor MCPHandler {
         try db.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT r.id AS rel_id, r.type, r.role, r.subtype,
-                       r.marriage_date_original, r.marriage_location,
+                       r.marriage_date_original, r.marriage_date_earliest,
+                       r.marriage_date_latest, r.marriage_date_qualifier,
+                       r.marriage_location,
                        r.divorce_date_original,
                        r.from_id, r.to_id,
                        p.id AS other_id, p.first_name, p.last_name,
@@ -2502,10 +2504,40 @@ actor MCPHandler {
                 ]
                 if let r: String = row["role"] { e["role"] = r }
                 if let v: String = row["marriage_date_original"] { e["marriage_date"] = v }
+                if let v: Int = row["marriage_date_earliest"] { e["marriage_year_earliest"] = v }
+                if let v: Int = row["marriage_date_latest"] { e["marriage_year_latest"] = v }
+                if let v: String = row["marriage_date_qualifier"] { e["marriage_date_qualifier"] = v }
                 if let v: String = row["marriage_location"] { e["marriage_location"] = v }
                 if let v: String = row["divorce_date_original"] { e["divorce_date"] = v }
                 if let v: String = row["birth_date_original"] { e["other_birth"] = v }
                 if let v: String = row["death_date_original"] { e["other_death"] = v }
+
+                // MC3 — E4 edge provenance (v37): WHY do we believe this edge
+                // exists? Existence rows (and any relationship-field sources)
+                // are field_sources keyed by the RELATIONSHIP id — previously
+                // they had zero read path, crippling "these two are related
+                // but something doesn't add up" investigations.
+                let relID = row["rel_id"] as String? ?? ""
+                if let provRows = try? Row.fetchAll(db, sql: """
+                    SELECT field, origin, raw, citation_json, added_at
+                    FROM field_sources
+                    WHERE entity_id = ? AND entity_kind = 'relationship'
+                    """, arguments: [relID]), !provRows.isEmpty {
+                    let iso = ISO8601DateFormatter()
+                    e["provenance"] = provRows.map { pr -> [String: Any] in
+                        var out: [String: Any] = [
+                            "field": pr["field"] as String? ?? "",
+                            "origin": pr["origin"] as String? ?? "",
+                            "raw": pr["raw"] as String? ?? "",
+                        ]
+                        if let c: String = pr["citation_json"], let data = c.data(using: .utf8),
+                           let decoded = try? JSONSerialization.jsonObject(with: data) {
+                            out["citation"] = decoded
+                        }
+                        if let at: Date = pr["added_at"] { out["added_at"] = iso.string(from: at) }
+                        return out
+                    }
+                }
                 return e
             }
 
@@ -2637,7 +2669,7 @@ actor MCPHandler {
         try db.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT id, source_id, source_record_id, record_type, verdict,
-                       citation_full, citation_url, scored_at
+                       citation_full, citation_url, scored_at, user_status, gates_json
                 FROM evidence_records
                 WHERE profile_id = ?
                 ORDER BY scored_at DESC
@@ -2653,6 +2685,12 @@ actor MCPHandler {
                 ]
                 if let v: String = row["citation_full"] { r["citation"] = v }
                 if let v: String = row["citation_url"] { r["citation_url"] = v }
+                // MC3 — the human's prior verdict: never re-propose discarded.
+                if let v: String = row["user_status"] { r["user_status"] = v }
+                if let g: String = row["gates_json"], let data = g.data(using: .utf8),
+                   let decoded = try? JSONSerialization.jsonObject(with: data) {
+                    r["gates"] = decoded
+                }
                 if let d: Date = row["scored_at"] {
                     r["scored_at"] = ISO8601DateFormatter().string(from: d)
                 }
@@ -2669,7 +2707,8 @@ actor MCPHandler {
         try db.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT id, type, date_original, date_earliest, date_latest,
-                       end_date_original, location, description, confidence
+                       end_date_original, location, description, confidence,
+                       details_json, sources_json, sensitive
                 FROM life_events
                 WHERE profile_id = ?
                 ORDER BY date_earliest NULLS LAST, date_original
@@ -2687,6 +2726,18 @@ actor MCPHandler {
                 if let v: String = row["end_date_original"] { e["end_date"] = v }
                 if let v: String = row["location"] { e["location"] = v }
                 if let v: String = row["description"] { e["description"] = v }
+                // MC3 — the typed details payload (census household
+                // composition, military/probate/burial detail) is the richest
+                // structured data the table holds and was never exposed.
+                if let v: String = row["details_json"], let data = v.data(using: .utf8),
+                   let decoded = try? JSONSerialization.jsonObject(with: data) {
+                    e["details"] = decoded
+                }
+                if let v: String = row["sources_json"], let data = v.data(using: .utf8),
+                   let decoded = try? JSONSerialization.jsonObject(with: data) {
+                    e["sources"] = decoded
+                }
+                if let v: Bool = row["sensitive"], v { e["sensitive"] = true }
                 return e
             }
 
