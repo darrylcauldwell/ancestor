@@ -1480,6 +1480,51 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // v52 — FamilySearch User Tree upload bookkeeping (WL3,
+        // FAMILYSEARCH_TREES_WRITE_SPEC §5). One-person-per-POST × hundreds of
+        // persons × throttling means interruption is normal: every created FS
+        // entity is recorded BEFORE the next call so a re-run resumes instead
+        // of duplicating. `familysearch_person_links` is the pid map (the E1
+        // `external_identifiers` column is dual-written by the writer);
+        // `familysearch_entity_links` covers relationships + source
+        // descriptions/references keyed by stable local identity.
+        migrator.registerMigration("v52_familysearch_upload") { db in
+            try db.create(table: "familysearch_tree_uploads") { t in
+                t.column("id", .text).primaryKey()
+                t.column("environment", .text).notNull()
+                t.column("fs_group_id", .text)
+                t.column("fs_tree_id", .text)
+                t.column("tree_name", .text).notNull()
+                t.column("tree_description", .text)
+                t.column("starting_profile_id", .text)
+                t.column("private", .integer)
+                t.column("phase", .text).notNull()
+                t.column("started_at", .datetime).notNull()
+                t.column("finalized_at", .datetime)
+                t.column("persons_uploaded", .integer).notNull().defaults(to: 0)
+                t.column("relationships_uploaded", .integer).notNull().defaults(to: 0)
+                t.column("sources_uploaded", .integer).notNull().defaults(to: 0)
+            }
+            try db.create(table: "familysearch_person_links") { t in
+                t.column("profile_id", .text).notNull()
+                    .references("profiles", onDelete: .cascade)
+                t.column("fs_tree_id", .text).notNull()
+                t.column("fs_pid", .text).notNull()
+                t.column("status", .text).notNull().defaults(to: "created")
+                t.column("superseded_by", .text)
+                t.column("uploaded_at", .datetime).notNull()
+                t.primaryKey(["profile_id", "fs_tree_id"])
+            }
+            try db.create(table: "familysearch_entity_links") { t in
+                t.column("local_key", .text).notNull()
+                t.column("fs_tree_id", .text).notNull()
+                t.column("kind", .text).notNull()
+                t.column("fs_id", .text).notNull()
+                t.column("uploaded_at", .datetime).notNull()
+                t.primaryKey(["local_key", "fs_tree_id", "kind"])
+            }
+        }
+
         return migrator
     }
 
