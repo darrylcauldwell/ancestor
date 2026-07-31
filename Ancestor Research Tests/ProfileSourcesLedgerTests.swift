@@ -224,3 +224,84 @@ struct ProfileSourcesLedgerAppliedStandingTests {
                 "legacy applied rows keep their Applied standing via the citation fingerprint")
     }
 }
+
+// Cross-anchor consistency lines (owner request 2026-07-31): each candidate
+// row states the arithmetic against the profile's OTHER facts — "If theirs:
+// married at 30 (1915); Reginald born when they were 31" — with graded
+// prefixes for strained (Unlikely) and contradictory (Impossible) fits.
+// Fixtures mirror Mary Ellen Thompson (m.1915, Reginald b.1916, no birth).
+@MainActor
+struct CrossAnchorNoteTests {
+
+    private let maryAnchors = ProfileSourcesLedger.LifeAnchors(
+        marriageYears: [1915],
+        earliestChildBirthYear: 1916, latestChildBirthYear: 1916,
+        childName: "Reginald Holmes", deathYear: nil, birthYear: nil)
+
+    private func birth(_ year: Int) -> SourceRecord {
+        .birth(BirthRecord(
+            common: RecordCommon(id: "b\(year)", sourceID: "freebmd", name: nil,
+                                 surname: "THOMPSON", givenName: "MARY",
+                                 detailURL: nil, rawFields: [:]),
+            birthYear: year, birthDate: nil, birthPlace: nil,
+            quarter: "Mar", district: "Belper", volume: "7b", page: "1",
+            mothersMaidenName: nil))
+    }
+
+    private func death(_ year: Int) -> SourceRecord {
+        .death(DeathRecord(
+            common: RecordCommon(id: "d\(year)", sourceID: "freebmd", name: nil,
+                                 surname: "THOMPSON", givenName: "MARY",
+                                 detailURL: nil, rawFields: [:]),
+            deathYear: year, deathDate: nil, deathPlace: nil, age: nil,
+            quarter: "Mar", district: "Belper", volume: "7b", page: "2"))
+    }
+
+    @Test func plausibleBirthStatesTheArithmetic() {
+        let note = ProfileSourcesLedger.crossAnchorNote(birth(1885), anchors: maryAnchors)
+        #expect(note == "If theirs: married at 30 (1915); Reginald Holmes born when they were 31.")
+    }
+
+    @Test func strainedBirthReadsUnlikely() {
+        // b.1901 → married at 14, mother at 15: arithmetically possible,
+        // historically strained — flagged, never silently plausible.
+        let note = ProfileSourcesLedger.crossAnchorNote(birth(1901), anchors: maryAnchors)
+        #expect(note?.hasPrefix("Unlikely if theirs:") == true)
+        #expect(note?.contains("married at 14") == true)
+    }
+
+    @Test func birthAfterMarriageIsImpossible() {
+        let note = ProfileSourcesLedger.crossAnchorNote(birth(1920), anchors: maryAnchors)
+        #expect(note?.hasPrefix("Impossible if theirs:") == true)
+        #expect(note?.contains("born after the 1915 marriage") == true)
+    }
+
+    @Test func deathBeforeChildBirthIsImpossible() {
+        // The namesake-killer for her 565 death candidates: died 1898,
+        // before Reginald's 1916 birth.
+        let note = ProfileSourcesLedger.crossAnchorNote(death(1898), anchors: maryAnchors)
+        #expect(note?.hasPrefix("Impossible if theirs:") == true)
+        #expect(note?.contains("died before Reginald Holmes's 1916 birth") == true)
+    }
+
+    @Test func consistentDeathStatesTheAlignment() {
+        let note = ProfileSourcesLedger.crossAnchorNote(death(1960), anchors: maryAnchors)
+        #expect(note == "If theirs: alive for Reginald Holmes's 1916 birth.")
+    }
+
+    @Test func noAnchorsMeansNoNote() {
+        let empty = ProfileSourcesLedger.LifeAnchors()
+        #expect(ProfileSourcesLedger.crossAnchorNote(birth(1885), anchors: empty) == nil)
+        #expect(ProfileSourcesLedger.crossAnchorNote(death(1898), anchors: empty) == nil)
+    }
+
+    @Test func censusImpliedYearGetsTheSameTreatment() {
+        let census = SourceRecord.census(CensusRecord(
+            common: RecordCommon(id: "c1", sourceID: "freecen", name: "Mary THOMPSON",
+                                 surname: nil, givenName: nil, detailURL: nil, rawFields: [:]),
+            censusYear: 1891, age: nil, birthYear: 1871,
+            birthPlace: "Swadlincote", district: "Church Gresley"))
+        let note = ProfileSourcesLedger.crossAnchorNote(census, anchors: maryAnchors)
+        #expect(note == "If theirs: married at 44 (1915); Reginald Holmes born when they were 45.")
+    }
+}

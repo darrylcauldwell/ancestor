@@ -79,10 +79,44 @@ enum ProfileSourcesLedger {
         var registrationKey: String?
     }
 
+    /// The profile's LIFE ANCHORS — the established facts a candidate record
+    /// must be arithmetically consistent with. Built by the caller from the
+    /// snapshot (the ledger itself has no graph access) so every candidate
+    /// row can carry the cross-fact reasoning a researcher does in their
+    /// head: "b.~1871 would mean she married at 44 and had Reginald at 45"
+    /// (owner request 2026-07-31 — surface the cross-thinking).
+    struct LifeAnchors: Sendable, Equatable {
+        var marriageYears: [Int] = []
+        var earliestChildBirthYear: Int? = nil
+        var latestChildBirthYear: Int? = nil
+        var childName: String? = nil
+        var deathYear: Int? = nil
+        var birthYear: Int? = nil
+
+        static func build(for profileID: String, snapshot: FamilyGraphSnapshot) -> LifeAnchors {
+            var anchors = LifeAnchors()
+            let profile = snapshot.profiles[profileID]
+            anchors.deathYear = profile?.deathDate?.bestYear
+            anchors.birthYear = profile?.birthDate?.bestYear
+            anchors.marriageYears = snapshot.relationships
+                .filter { $0.type == .spouse && ($0.from == profileID || $0.to == profileID) }
+                .compactMap { $0.marriageDate?.bestYear }
+                .sorted()
+            let children = snapshot.childrenOf(profileID)
+                .compactMap { child in child.birthDate?.bestYear.map { (child.displayName, $0) } }
+                .sorted { $0.1 < $1.1 }
+            anchors.earliestChildBirthYear = children.first?.1
+            anchors.latestChildBirthYear = children.last?.1
+            anchors.childName = children.first?.0
+            return anchors
+        }
+    }
+
     /// EVERY evidence record for the profile (applied, pending, rejected),
     /// classified by standing. The per-fact expander filters these by record
     /// type. Ordered by standing (applied first), then record type, then id.
-    static func allRecords(for profileID: String, db: ProjectDatabase, profile: Profile? = nil) throws -> [RecordDetail] {
+    static func allRecords(for profileID: String, db: ProjectDatabase, profile: Profile? = nil,
+                           anchors: LifeAnchors? = nil) throws -> [RecordDetail] {
         let details = try db.loadEvidenceForProfile(profileID)
             .map { rec in
                 RecordDetail(
@@ -94,7 +128,11 @@ enum ProfileSourcesLedger {
                     citation: (rec.citationFull?.isEmpty == false ? rec.citationFull! : rec.summary),
                     citationURL: rec.citationURL,
                     ageDetail: ageDetail(rec.record),
-                    reconcileNote: reconcileNote(rec.record, profile: profile),
+                    reconcileNote: [reconcileNote(rec.record, profile: profile),
+                                    anchors.flatMap { crossAnchorNote(rec.record, anchors: $0) }]
+                        .compactMap { $0 }
+                        .joined(separator: " ")
+                        .nilIfEmpty,
                     matchRank: matchRank(verdict: rec.verdict, gates: rec.gates),
                     duplicateIDs: [rec.sourceRecordID],
                     registrationKey: RecordScorer.registrationKey(for: rec.record))
@@ -140,6 +178,153 @@ enum ProfileSourcesLedger {
         }
         let base = d.citation.range(of: "; accessed").map { String(d.citation[..<$0.lowerBound]) } ?? d.citation
         return "\(d.sourceID)|\(d.recordType.rawValue)|\(base.trimmingCharacters(in: .whitespaces))"
+    }
+
+    /// The cross-fact consistency line — deterministic arithmetic between a
+    /// candidate record's year and the profile's OTHER anchors, so the row
+    /// itself says what a researcher would work out on paper: "If hers:
+    /// married at 30 (1915); Reginald born when she was 31." Hard
+    /// contradictions lead with "Impossible if hers"; strained ones with
+    /// "Unlikely if hers". Nil when the record implies no year or the
+    /// profile has no anchors to check against. Pure — no AI, no lookups.
+    static func crossAnchorNote(_ record: SourceRecord, anchors: LifeAnchors) -> String? {
+        if let birthYear = impliedCandidateBirthYear(record) {
+            return birthConsistency(birthYear, anchors: anchors)
+        }
+        if let deathYear = impliedCandidateDeathYear(record) {
+            return deathConsistency(deathYear, anchors: anchors)
+        }
+        if case .marriage(let m) = record, let year = m.marriageYear {
+            return marriageConsistency(year, anchors: anchors)
+        }
+        return nil
+    }
+
+    private static func birthConsistency(_ year: Int, anchors: LifeAnchors) -> String? {
+        var clauses: [String] = []
+        var severity = 0   // 0 fine · 1 unlikely · 2 impossible
+        if let marriage = anchors.marriageYears.first {
+            let age = marriage - year
+            if age < 0 {
+                clauses.append("born after the \(marriage) marriage")
+                severity = 2
+            } else if age < 16 {
+                clauses.append("married at \(age) (\(marriage))")
+                severity = max(severity, 1)
+            } else {
+                clauses.append("married at \(age) (\(marriage))")
+            }
+        }
+        if let child = anchors.earliestChildBirthYear {
+            let age = child - year
+            let name = anchors.childName ?? "the first child"
+            if age < 0 {
+                clauses.append("born after \(name)'s \(child) birth")
+                severity = 2
+            } else if age < 14 || age > 50 {
+                clauses.append("\(name) born when they were \(age)")
+                severity = max(severity, 1)
+            } else {
+                clauses.append("\(name) born when they were \(age)")
+            }
+        }
+        if let death = anchors.deathYear {
+            let lifespan = death - year
+            if lifespan < 0 {
+                clauses.append("born after the recorded \(death) death")
+                severity = 2
+            } else if lifespan > 105 {
+                clauses.append("a \(lifespan)-year lifespan")
+                severity = max(severity, 1)
+            }
+        }
+        guard !clauses.isEmpty else { return nil }
+        return prefixed(clauses, severity: severity)
+    }
+
+    private static func deathConsistency(_ year: Int, anchors: LifeAnchors) -> String? {
+        var clauses: [String] = []
+        var severity = 0
+        if let child = anchors.latestChildBirthYear {
+            let name = anchors.childName ?? "the youngest child"
+            if year < child {
+                clauses.append("died before \(name)'s \(child) birth")
+                severity = 2
+            } else {
+                clauses.append("alive for \(name)'s \(child) birth")
+            }
+        }
+        if let marriage = anchors.marriageYears.last {
+            if year < marriage {
+                clauses.append("died before the \(marriage) marriage")
+                severity = 2
+            } else if clauses.isEmpty {
+                clauses.append("after the \(marriage) marriage")
+            }
+        }
+        if let birth = anchors.birthYear {
+            let age = year - birth
+            if age < 0 {
+                clauses.append("before the recorded \(birth) birth")
+                severity = 2
+            } else if age > 105 {
+                clauses.append("aged \(age)")
+                severity = max(severity, 1)
+            }
+        }
+        guard !clauses.isEmpty else { return nil }
+        return prefixed(clauses, severity: severity)
+    }
+
+    private static func marriageConsistency(_ year: Int, anchors: LifeAnchors) -> String? {
+        var clauses: [String] = []
+        var severity = 0
+        if let birth = anchors.birthYear {
+            let age = year - birth
+            if age < 0 {
+                clauses.append("married before the recorded \(birth) birth")
+                severity = 2
+            } else if age < 16 {
+                clauses.append("married at \(age)")
+                severity = max(severity, 1)
+            } else {
+                clauses.append("married at \(age)")
+            }
+        }
+        if let death = anchors.deathYear, year > death {
+            clauses.append("after the recorded \(death) death")
+            severity = 2
+        }
+        guard !clauses.isEmpty else { return nil }
+        return prefixed(clauses, severity: severity)
+    }
+
+    private static func prefixed(_ clauses: [String], severity: Int) -> String {
+        let body = clauses.joined(separator: "; ")
+        switch severity {
+        case 2: return "Impossible if theirs: \(body)."
+        case 1: return "Unlikely if theirs: \(body)."
+        default: return "If theirs: \(body)."
+        }
+    }
+
+    /// The birth year a candidate record implies (for the consistency line).
+    private static func impliedCandidateBirthYear(_ record: SourceRecord) -> Int? {
+        switch record {
+        case .birth(let b): return b.birthYear
+        case .census(let c): return c.birthYear ?? c.age.map { c.censusYear - $0 }
+        default: return nil
+        }
+    }
+
+    /// The death year a candidate record implies.
+    private static func impliedCandidateDeathYear(_ record: SourceRecord) -> Int? {
+        switch record {
+        case .death(let d): return d.deathYear
+        case .burial(let b): return b.deathYear
+        case .probate(let p): return p.deathYear
+        default: return nil
+        }
     }
 
     /// Plain-English reconciliation for a BMD-index record against the applied
@@ -253,4 +438,9 @@ enum ProfileSourcesLedger {
             }
             .sorted { ($0.recordType.rawValue, $0.id) < ($1.recordType.rawValue, $1.id) }
     }
+}
+
+private extension String {
+    /// "" → nil, so an all-empty join never renders a blank note line.
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

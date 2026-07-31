@@ -1044,7 +1044,12 @@ struct SharedProfileLayout: View {
 
     private func reloadFactRecords() {
         guard let db = appState.currentDatabase else { factRecords = []; return }
-        factRecords = (try? ProfileSourcesLedger.allRecords(for: profile.id, db: db, profile: profile)) ?? []
+        // Anchors let every candidate row carry the cross-fact arithmetic
+        // ("If theirs: married at 30 (1915); Reginald born when they were 31").
+        let anchors = ProfileSourcesLedger.LifeAnchors.build(
+            for: profile.id, snapshot: appState.snapshot)
+        factRecords = (try? ProfileSourcesLedger.allRecords(
+            for: profile.id, db: db, profile: profile, anchors: anchors)) ?? []
         censusCiteHint = appState.censusCorroborationProposal(for: profile.id)
 
         // Health strip inputs — this profile's slice of the maintained audit
