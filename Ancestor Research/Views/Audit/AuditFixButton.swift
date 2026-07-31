@@ -93,24 +93,37 @@ struct AuditFixButton: View {
             }
         case "duplicateDetection":
             if let otherID = result.relatedProfileIDs?.first {
-                if let onCompare {
-                    Button {
-                        onCompare(result.profileID, otherID)
-                    } label: {
-                        Label("Compare", systemImage: "rectangle.on.rectangle")
+                HStack(spacing: 6) {
+                    if let onCompare {
+                        Button {
+                            onCompare(result.profileID, otherID)
+                        } label: {
+                            Label("Compare", systemImage: "rectangle.on.rectangle")
+                        }
+                        .buttonStyle(.glassProminent).controlSize(.mini)
+                        .help("Compare the two profiles side by side and merge only if they are truly the same person")
+                    } else {
+                        // Merge is a judgement call — the profile card links to
+                        // Health's full-context compare rather than acting inline.
+                        Button {
+                            appState.requestSidebarTab = .health
+                        } label: {
+                            Label("Review in Health", systemImage: "rectangle.on.rectangle")
+                        }
+                        .buttonStyle(.glassProminent).controlSize(.mini)
+                        .help("Open Health to compare the possible duplicate side by side — merging is never offered inline")
                     }
-                    .buttonStyle(.glassProminent).controlSize(.mini)
-                    .help("Compare the two profiles side by side and merge only if they are truly the same person")
-                } else {
-                    // Merge is a judgement call — the profile card links to
-                    // Health's full-context compare rather than acting inline.
+                    // The false-positive exit — pairwise and permanent
+                    // (v51 dismissed_duplicates), previously reachable only
+                    // inside the Compare sheet.
                     Button {
-                        appState.requestSidebarTab = .health
+                        appState.dismissDuplicatePair(result.profileID, otherID)
+                        onFixed()
                     } label: {
-                        Label("Review in Health", systemImage: "rectangle.on.rectangle")
+                        Label("Not a duplicate", systemImage: "person.2.slash")
                     }
-                    .buttonStyle(.glassProminent).controlSize(.mini)
-                    .help("Open Health to compare the possible duplicate side by side — merging is never offered inline")
+                    .buttonStyle(.glass).controlSize(.mini)
+                    .help("Record that these are two different people — this pair stops being flagged; other possible duplicates keep surfacing")
                 }
             }
         case "givenNameContainsMiddle":

@@ -401,6 +401,20 @@ struct HealthView: View {
                 }
                 .buttonStyle(.glassProminent).controlSize(.mini)
                 .help("Compare these profiles side by side, one pair at a time — merge only true duplicates")
+                // Inline false-positive exit for the unambiguous case: a
+                // 2-person cluster IS one pair, so "Not a duplicate" needs
+                // no compare detour. N-person clusters stay pair-at-a-time
+                // through Compare (each pair is its own judgement).
+                if cluster.pairs.count == 1 {
+                    Button {
+                        appState.dismissDuplicatePair(pair.0, pair.1)
+                        refreshAudit()
+                    } label: {
+                        Label("Not a duplicate", systemImage: "person.2.slash")
+                    }
+                    .buttonStyle(.glass).controlSize(.mini)
+                    .help("Record that \(cluster.names.joined(separator: " and ")) are two different people — this pair stops being flagged; other possible duplicates keep surfacing")
+                }
             }
         }
         .padding(12)
