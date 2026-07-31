@@ -1045,155 +1045,18 @@ struct HealthView: View {
     /// census-derived birth year, placeholder-parent cleanup. Rules that need a
     /// human choice (which parent to unlink, etc.) have no button here and are
     /// fixed via Edit or in the profile.
+    /// Shared per-rule fix switch — see `AuditFixButton`. Health passes its
+    /// compare-sheet and FreeBMD-enrich launchpad closures; the profile
+    /// card's Health strip uses the same component with fallbacks.
     @ViewBuilder private func fixButton(for r: AuditResult) -> some View {
-        switch r.ruleID {
-        case "fertilityGap":
-            // No deterministic data-fix exists (the missing children's
-            // names are unknown) — the affordance is a research launch on
-            // her, via the existing researchProfileID idiom
-            // (FREEREG_INTEGRATION_SPEC §5).
-            Button {
-                appState.researchProfileID = r.profileID
-            } label: {
-                Label("Research", systemImage: "magnifyingglass")
+        AuditFixButton(
+            result: r,
+            onFixed: { refreshAudit() },
+            onCompare: { left, right in comparePair = ComparePair(leftID: left, rightID: right) },
+            onEnriched: { profileID, profileName, count in
+                enrichResult = EnrichResult(profileID: profileID, profileName: profileName, count: count)
             }
-            .buttonStyle(.glassProminent).controlSize(.mini)
-            .help("Search the record sources for the children her 1911 census statement says are missing from the tree")
-        case "marriedSurnameFromSpouse":
-            if let her = appState.snapshot.profiles[r.profileID],
-               let s = MarriedSurnameFromSpouseRule.suggestion(for: her, in: appState.snapshot) {
-                Button {
-                    appState.setMarriedSurname(profileID: r.profileID, surname: s.marriedSurname)
-                    refreshAudit()
-                } label: {
-                    Label("Set “\(s.marriedSurname)”", systemImage: "person.badge.plus")
-                }
-                .buttonStyle(.glassProminent).controlSize(.mini)
-                .help("Record \(s.marriedSurname) as her married surname so research finds her death and probate records")
-            }
-        case "censusAgeBirthYear":
-            if let t = appState.snapshot.profiles[r.profileID],
-               let s = CensusAgeBirthYearRule.suggestion(for: t, in: appState.snapshot) {
-                Button {
-                    appState.setBirthYearFromCensus(profileID: r.profileID, year: s.year, censusYear: s.censusYear, sourceID: s.sourceID)
-                    refreshAudit()
-                } label: {
-                    Label("Set birth year ~\(String(s.year))", systemImage: "calendar.badge.plus")
-                }
-                .buttonStyle(.glassProminent).controlSize(.mini)
-            }
-        case "freebmdLinkMissing":
-            // Change 5 — targeted, budget-light: re-locate this person's FreeBMD
-            // entries by vol/page (one narrow query each) to capture the link +
-            // mother's maiden name. Stops the moment FreeBMD throttles.
-            if let db = appState.currentDatabase {
-                Button {
-                    Task {
-                        let outcome = await FreeBMDCitationEnricher.enrich(
-                            profileID: r.profileID, registry: registry, db: db)
-                        appState.snapshot = (try? db.buildSnapshot()) ?? appState.snapshot
-                        appState.runPostLoadAudit()
-                        refreshAudit()
-                        // Report the ACTUAL outcome, not a catch-all "no match":
-                        // rate-limited, unavailable, nothing-to-query, or a genuine
-                        // miss are four different things and only one is "not found".
-                        if outcome.throttled {
-                            appState.errorMessage = "FreeBMD is rate-limiting — enriched \(outcome.enriched) here; try again when it clears (usually minutes)."
-                        } else if let reason = outcome.unavailableReason {
-                            appState.errorMessage = "FreeBMD couldn't run the lookup for \(r.profileName): \(reason). Try again later."
-                        } else if outcome.enriched > 0 {
-                            // Not a dead-end "OK" — a launchpad: research now to see
-                            // if the mother's maiden name opens doors, or open the
-                            // profile.
-                            enrichResult = EnrichResult(
-                                profileID: r.profileID, profileName: r.profileName,
-                                count: outcome.enriched)
-                        } else if outcome.queriesRun == 0 {
-                            appState.errorMessage = "\(r.profileName)'s FreeBMD records carry no volume/page, so there's nothing to re-locate. The missing link is only provenance."
-                        } else {
-                            appState.errorMessage = "FreeBMD returned no matching entry for \(r.profileName) — the stored record may be a transcription that no longer resolves. Not a data error; the missing link is only provenance."
-                        }
-                    }
-                } label: {
-                    Label("Enrich from FreeBMD", systemImage: "link.badge.plus")
-                }
-                .buttonStyle(.glassProminent).controlSize(.mini)
-                .help("One narrow vol/page query per record — captures the citation link and the mother's maiden name (which can surface new parents on the next research). Gentle on FreeBMD; stops if throttled.")
-            }
-        case "duplicateDetection":
-            if let otherID = r.relatedProfileIDs?.first {
-                Button {
-                    comparePair = ComparePair(leftID: r.profileID, rightID: otherID)
-                } label: {
-                    Label("Compare", systemImage: "rectangle.on.rectangle")
-                }
-                .buttonStyle(.glassProminent).controlSize(.mini)
-                .help("Compare the two profiles side by side and merge only if they are truly the same person")
-            }
-        case "givenNameContainsMiddle":
-            if let p = appState.snapshot.profiles[r.profileID],
-               let split = p.impliedGivenMiddleSplit {
-                Button {
-                    appState.applyGivenMiddleSplit(profileID: r.profileID)
-                    refreshAudit()
-                } label: {
-                    Label("Split to “\(split.first)” + “\(split.middle)”", systemImage: "textformat.abc")
-                }
-                .buttonStyle(.glassProminent).controlSize(.mini)
-                .help("Move the extra word out of the given name and into the middle name")
-            }
-        case "missingCoParent":
-            if let coID = r.relatedProfileIDs?.first, let co = appState.snapshot.profiles[coID] {
-                Button {
-                    appState.addCoParent(childID: r.profileID, coParentID: coID)
-                    refreshAudit()
-                } label: {
-                    Label("Add \(co.displayName)", systemImage: "person.badge.plus")
-                }
-                .buttonStyle(.glassProminent).controlSize(.mini)
-                .help("Link \(co.displayName) as the other parent — matching this child's siblings")
-            }
-        case "excessParentEdges" where r.relatedProfileIDs?.isEmpty == false:
-            Button {
-                appState.repairExcessPlaceholderParents(for: r.profileID)
-                refreshAudit()
-            } label: {
-                Label("Remove placeholders", systemImage: "wand.and.stars")
-            }
-            .buttonStyle(.glassProminent).controlSize(.mini)
-            .help("Absorb the blank placeholder parents into the real parents and re-home shared siblings")
-        case "censusParentUnlock":
-            // Change 3 — apply the ranker's winning childhood census to this
-            // parentless subject. Once it's a life-event the existing "Add census
-            // relatives" flow lifts its Head + Wife as the parents.
-            Button {
-                _ = appState.applyChildhoodCensusForParentUnlock(profileID: r.profileID)
-                refreshAudit()
-            } label: {
-                Label("Apply childhood census", systemImage: "person.2.badge.plus")
-            }
-            .buttonStyle(.glassProminent).controlSize(.mini)
-            .help("Apply the best-matching childhood census (same county, closest age) so its household's Head and Wife can be added as this person's parents")
-        case "censusRelationship" where r.severity == .info:
-            // Per-row Add lives in the detail panel below; the header only offers
-            // a bulk "Add all" when there is more than one to take at once.
-            let missingCount = appState.snapshot.profiles[r.profileID].map { subject in
-                CensusRelationshipReconciler.findings(for: subject, in: appState.snapshot)
-                    .filter { $0.kind == .missing }.count
-            } ?? 0
-            if missingCount > 1 {
-                Button {
-                    appState.addMissingCensusRelatives(for: r.profileID)
-                    refreshAudit()
-                } label: {
-                    Label("Add all \(missingCount)", systemImage: "person.2.badge.plus")
-                }
-                .buttonStyle(.glassProminent).controlSize(.mini)
-                .help("Create all \(missingCount) census relatives missing from the tree and link them, citing the census")
-            }
-        default:
-            EmptyView()
-        }
+        )
     }
 
     /// AppState's fix methods re-run the audit and refresh `auditSummary`;

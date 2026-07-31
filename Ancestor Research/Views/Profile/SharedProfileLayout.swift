@@ -141,6 +141,15 @@ struct SharedProfileLayout: View {
     /// uncited year. Loaded with the fact records; nil when none.
     @State private var censusCiteHint: CensusBackfill.Proposal?
 
+    // Per-profile Health strip (owner request 2026-07-31: every Health item
+    // about THIS person, resolvable where the person is). Loaded with the
+    // fact records — all lookups are bounded to this profile/family.
+    @State private var profileFindings: [AuditResult] = []
+    @State private var profileContradiction: ContradictoryFactsAudit.Finding?
+    @State private var profileBackfill: CensusBackfill.Proposal?
+    @State private var profileDeathAge: DeathAgeBackfillProposal?
+    @State private var healthStripExpanded = false
+
     /// All evidence records for this profile (applied / researched / rejected),
     /// so a fact, marriage, or census row can expand to its complete evidence
     /// picture in context.
@@ -238,6 +247,11 @@ struct SharedProfileLayout: View {
             // DOSSIER_SPEC #T9-Change1 surface (a) — the profile-page door
             // to the investigation dossier.
             DossierEntryRow(profileID: profile.id)
+
+            // Every Health item about THIS person, fixable in place — the
+            // same one-click fixes the Health tab offers (shared
+            // `AuditFixButton`); merge judgement stays a Health jump.
+            profileHealthStrip
 
             // Editable name fields + gender Picker, only when the consumer
             // opted into edit mode. Inserted above the date rows so users
@@ -1032,6 +1046,24 @@ struct SharedProfileLayout: View {
         guard let db = appState.currentDatabase else { factRecords = []; return }
         factRecords = (try? ProfileSourcesLedger.allRecords(for: profile.id, db: db, profile: profile)) ?? []
         censusCiteHint = appState.censusCorroborationProposal(for: profile.id)
+
+        // Health strip inputs — this profile's slice of the maintained audit
+        // summary, plus the DB-derived per-profile sweeps (evidence loaded
+        // once and shared).
+        let evidence = (try? db.loadEvidenceForProfile(profile.id)) ?? []
+        var findings = ((appState.auditSummary?.errors ?? [])
+            + (appState.auditSummary?.warnings ?? [])
+            + (appState.auditSummary?.info ?? []))
+            .filter { $0.profileID == profile.id }
+        if let gap = FreeBMDCitationAudit.finding(
+            profileID: profile.id, profileName: profile.displayName, evidence: evidence) {
+            findings.append(gap)
+        }
+        profileFindings = findings
+        profileContradiction = ContradictoryFactsAudit.finding(
+            profileID: profile.id, profileName: profile.displayName, evidence: evidence)
+        profileBackfill = appState.censusBackfillProposal(for: profile.id)
+        profileDeathAge = appState.deathAgeBackfillProposal(for: profile.id)
     }
 
     private func removeAppliedRecord(_ rec: ProfileSourcesLedger.RecordDetail) {
@@ -1054,6 +1086,119 @@ struct SharedProfileLayout: View {
     private func toggleEvidenceBucket(_ key: String) {
         if expandedEvidenceBuckets.contains(key) { expandedEvidenceBuckets.remove(key) }
         else { expandedEvidenceBuckets.insert(key) }
+    }
+
+    // MARK: - Per-profile Health strip
+
+    private var healthStripCount: Int {
+        profileFindings.count
+            + (profileContradiction != nil ? 1 : 0)
+            + (profileBackfill != nil ? 1 : 0)
+            + (profileDeathAge != nil ? 1 : 0)
+    }
+
+    @ViewBuilder
+    private var profileHealthStrip: some View {
+        if healthStripCount > 0 {
+            VStack(alignment: .leading, spacing: 6) {
+                Button {
+                    healthStripExpanded.toggle()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.shield")
+                            .foregroundStyle(.orange)
+                        Text("Health (\(healthStripCount))")
+                            .font(AppTypography.cardBody)
+                        Spacer()
+                        Image(systemName: healthStripExpanded ? "chevron.up" : "chevron.down")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Everything the Health checks flag about this person — with the same one-click fixes as the Health tab")
+                if healthStripExpanded {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if let f = profileContradiction {
+                            healthStripRow(
+                                icon: "exclamationmark.arrow.triangle.2.circlepath", tint: .orange,
+                                text: "\(f.demotions.count) accepted fact\(f.demotions.count == 1 ? "" : "s") contradict each other (\(f.slotSummary))"
+                            ) {
+                                Button("Demote \(f.demotions.count) to leads") {
+                                    appState.demoteContradictoryFacts(f)
+                                    reloadFactRecords()
+                                }
+                                .buttonStyle(.glassProminent).controlSize(.mini)
+                            }
+                        }
+                        if let p = profileBackfill {
+                            healthStripRow(
+                                icon: "person.text.rectangle", tint: .blue,
+                                text: "In the \(String(p.censusYear)) census as \(p.relationshipLabel) — details available to backfill"
+                            ) {
+                                Button("Absorb census") {
+                                    appState.absorbCensusForRelative(p)
+                                    reloadFactRecords()
+                                }
+                                .buttonStyle(.glassProminent).controlSize(.mini)
+                            }
+                        }
+                        if let p = profileDeathAge {
+                            healthStripRow(
+                                icon: "calendar.badge.clock", tint: .blue,
+                                text: "Died \(String(p.deathYear)) aged \(String(p.ageAtDeath)) → calculated birth ~\(String(p.estimatedBirthYear))"
+                            ) {
+                                Button("Set birth ~\(String(p.estimatedBirthYear))") {
+                                    appState.setBirthYearFromDeathAge(p)
+                                    reloadFactRecords()
+                                }
+                                .buttonStyle(.glassProminent).controlSize(.mini)
+                            }
+                        }
+                        ForEach(profileFindings) { finding in
+                            healthStripRow(
+                                icon: finding.severity.iconName,
+                                tint: finding.severity.color,
+                                text: strippedFindingMessage(finding)
+                            ) {
+                                AuditFixButton(result: finding, onFixed: { reloadFactRecords() })
+                            }
+                        }
+                    }
+                    .padding(.leading, 4)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func healthStripRow(
+        icon: String, tint: Color, text: String,
+        @ViewBuilder action: () -> some View
+    ) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .font(AppTypography.badge)
+                .foregroundStyle(tint)
+                .frame(width: 16)
+            Text(text)
+                .font(AppTypography.badge)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            action()
+        }
+    }
+
+    /// Drop the leading "Name — " so strip rows don't repeat the header.
+    private func strippedFindingMessage(_ result: AuditResult) -> String {
+        let msg = result.message
+        for sep in [" — ", ": "] {
+            if msg.hasPrefix(result.profileName + sep) {
+                return String(msg.dropFirst(result.profileName.count + sep.count))
+            }
+        }
+        return msg
     }
 
     /// The chevron + count that opens a context's evidence. Shared by the fact

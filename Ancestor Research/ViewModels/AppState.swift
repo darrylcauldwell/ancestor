@@ -3044,7 +3044,25 @@ final class AppState {
     /// name this person under the linker's safety rules, so only those are
     /// read — never the tree-wide sweep.
     func censusCorroborationProposal(for profileID: String) -> CensusBackfill.Proposal? {
-        guard let db = currentDatabase, snapshot.profiles[profileID] != nil else { return nil }
+        let sources = familyCensusSources(around: profileID)
+        guard !sources.isEmpty else { return nil }
+        return CensusBackfill.corroborations(censuses: sources, snapshot: snapshot)
+            .first { $0.targetProfileID == profileID }
+    }
+
+    /// Single-profile gap-fill lookup (the profile-card Health strip's
+    /// bounded twin of the tree-wide `censusBackfillProposals`).
+    func censusBackfillProposal(for profileID: String) -> CensusBackfill.Proposal? {
+        let sources = familyCensusSources(around: profileID)
+        guard !sources.isEmpty else { return nil }
+        return CensusBackfill.proposals(censuses: sources, snapshot: snapshot)
+            .first { $0.targetProfileID == profileID }
+    }
+
+    /// The immediate family's applied/confirmed censuses — the only
+    /// households that can name this person under the linker's safety rules.
+    private func familyCensusSources(around profileID: String) -> [CensusBackfill.CensusSource] {
+        guard let db = currentDatabase, snapshot.profiles[profileID] != nil else { return [] }
         var family: Set<String> = []
         family.formUnion(snapshot.parentsOf(profileID).map(\.id))
         family.formUnion(snapshot.spousesOf(profileID).map(\.id))
@@ -3061,9 +3079,7 @@ final class AppState {
                 sources.append(CensusBackfill.CensusSource(subjectID: member, record: c))
             }
         }
-        guard !sources.isEmpty else { return nil }
-        return CensusBackfill.corroborations(censuses: sources, snapshot: snapshot)
-            .first { $0.targetProfileID == profileID }
+        return sources
     }
 
     /// Every census ON a profile, with its household: scorer-confirmed
@@ -3232,41 +3248,45 @@ final class AppState {
     /// applied census roster (the death entry is usually an unapplied lead, so
     /// the scan reads `evidence_records`, not the snapshot's life-events).
     func deathAgeBackfillProposals() -> [DeathAgeBackfillProposal] {
-        guard let db = currentDatabase else { return [] }
-        var out: [DeathAgeBackfillProposal] = []
-        for (profileID, profile) in snapshot.profiles {
-            // Gap-fill only, and only for a precise death year.
-            guard profile.birthDate?.bestYear == nil,
-                  let deathDate = profile.deathDate,
-                  let firmDeathYear = deathDate.bestYear else { continue }
-            // The GRO quarter the firm death date falls in — only when the date
-            // carries a month (GenealogicalDate keeps just the year; the month
-            // survives in `.original`). A year-only death date matches at year
-            // granularity only.
-            let firmQuarter: String? = {
-                guard let parts = RecordScorer.fullCalendarDate(deathDate.original) else { return nil }
-                return DeathAgeBirthYear.groQuarter(forMonth: parts.month)
-            }()
-            let evidence = (try? db.loadEvidenceForProfile(profileID)) ?? []
-            let candidates: [DeathAgeBirthYear.Candidate] = evidence.compactMap { e in
-                guard e.recordType == .death, e.verdict != .impossible,
-                      e.userStatus != .discarded, case .death(let dr) = e.record else { return nil }
-                return DeathAgeBirthYear.Candidate(
-                    recordID: dr.common.id, sourceID: dr.common.sourceID,
-                    deathYear: dr.deathYear, ageAtDeath: dr.age,
-                    quarter: dr.quarter, district: dr.district)
-            }
-            guard let p = DeathAgeBirthYear.proposal(
-                existingBirthYear: nil,
-                firmDeathYear: firmDeathYear,
-                firmDeathQuarter: firmQuarter,
-                candidates: candidates) else { continue }
-            out.append(DeathAgeBackfillProposal(
-                profileID: profileID, profileName: profile.displayName,
-                estimatedBirthYear: p.estimatedBirthYear, deathYear: p.deathYear,
-                ageAtDeath: p.ageAtDeath, district: p.district, sourceID: p.sourceID))
+        snapshot.profiles.keys
+            .compactMap { deathAgeBackfillProposal(for: $0) }
+            .sorted { $0.profileName < $1.profileName }
+    }
+
+    /// Single-profile variant — the profile-card Health strip's bounded twin.
+    func deathAgeBackfillProposal(for profileID: String) -> DeathAgeBackfillProposal? {
+        guard let db = currentDatabase,
+              let profile = snapshot.profiles[profileID] else { return nil }
+        // Gap-fill only, and only for a precise death year.
+        guard profile.birthDate?.bestYear == nil,
+              let deathDate = profile.deathDate,
+              let firmDeathYear = deathDate.bestYear else { return nil }
+        // The GRO quarter the firm death date falls in — only when the date
+        // carries a month (GenealogicalDate keeps just the year; the month
+        // survives in `.original`). A year-only death date matches at year
+        // granularity only.
+        let firmQuarter: String? = {
+            guard let parts = RecordScorer.fullCalendarDate(deathDate.original) else { return nil }
+            return DeathAgeBirthYear.groQuarter(forMonth: parts.month)
+        }()
+        let evidence = (try? db.loadEvidenceForProfile(profileID)) ?? []
+        let candidates: [DeathAgeBirthYear.Candidate] = evidence.compactMap { e in
+            guard e.recordType == .death, e.verdict != .impossible,
+                  e.userStatus != .discarded, case .death(let dr) = e.record else { return nil }
+            return DeathAgeBirthYear.Candidate(
+                recordID: dr.common.id, sourceID: dr.common.sourceID,
+                deathYear: dr.deathYear, ageAtDeath: dr.age,
+                quarter: dr.quarter, district: dr.district)
         }
-        return out.sorted { $0.profileName < $1.profileName }
+        guard let p = DeathAgeBirthYear.proposal(
+            existingBirthYear: nil,
+            firmDeathYear: firmDeathYear,
+            firmDeathQuarter: firmQuarter,
+            candidates: candidates) else { return nil }
+        return DeathAgeBackfillProposal(
+            profileID: profileID, profileName: profile.displayName,
+            estimatedBirthYear: p.estimatedBirthYear, deathYear: p.deathYear,
+            ageAtDeath: p.ageAtDeath, district: p.district, sourceID: p.sourceID)
     }
 
     /// Apply a death-age backfill: write the calculated birth year as a
