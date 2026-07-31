@@ -86,10 +86,60 @@ public nonisolated struct CensusAgeEnrichment {
         sourceID: String?,
         relations: [String: CensusRelation] = [:]
     ) -> [BirthYearProposal] {
-        let gapRelatives = linkedRelatives.filter {
-            $0.id != subjectID && $0.birthDate?.bestYear == nil
+        matchProposals(
+            subjectID: subjectID, household: household, censusYear: censusYear,
+            linkedRelatives: linkedRelatives, sourceID: sourceID, relations: relations,
+            targetFilter: { $0.birthDate?.bestYear == nil },
+            yearConsistency: nil)
+    }
+
+    /// Corroborate-in-place (owner dogfood 2026-07-31): the gap-fill rule
+    /// above skips any relative who already HAS a birth year — so a child
+    /// with an UNSOURCED import year stays uncited even when the applied
+    /// household roster agrees with it (George Keyworth jr: gedcom 1877,
+    /// roster age 4 in 1881). This mode targets relatives whose recorded
+    /// year lacks any research-source backing AND matches the roster
+    /// estimate (±1 — a census age straddles the birthday). Absorbing the
+    /// member record changes NO value: the same-value apply path records
+    /// the census as an alternative fact + citation, upgrading the year to
+    /// evidence-backed. Same two-way-unique matching, same role exclusions.
+    public static func corroborations(
+        subjectID: String,
+        household: [HouseholdMember],
+        censusYear: Int,
+        linkedRelatives: [Profile],
+        sourceID: String?,
+        relations: [String: CensusRelation] = [:]
+    ) -> [BirthYearProposal] {
+        matchProposals(
+            subjectID: subjectID, household: household, censusYear: censusYear,
+            linkedRelatives: linkedRelatives, sourceID: sourceID, relations: relations,
+            targetFilter: { profile in
+                guard profile.birthDate?.bestYear != nil else { return false }
+                let backed = (profile.sources[.birthDate] ?? [])
+                    .contains { $0.origin.tier == .researchSource }
+                return !backed
+            },
+            yearConsistency: { estimate, target in
+                guard let recorded = target.birthDate?.bestYear else { return false }
+                return abs(estimate - recorded) <= 1
+            })
+    }
+
+    private static func matchProposals(
+        subjectID: String,
+        household: [HouseholdMember],
+        censusYear: Int,
+        linkedRelatives: [Profile],
+        sourceID: String?,
+        relations: [String: CensusRelation],
+        targetFilter: (Profile) -> Bool,
+        yearConsistency: ((Int, Profile) -> Bool)?
+    ) -> [BirthYearProposal] {
+        let targets = linkedRelatives.filter {
+            $0.id != subjectID && targetFilter($0)
         }
-        guard !gapRelatives.isEmpty else { return [] }
+        guard !targets.isEmpty else { return [] }
 
         // Family members with a usable year, paired with their estimate.
         let candidates: [(member: HouseholdMember, year: Int)] = household.compactMap { m in
@@ -100,7 +150,7 @@ public nonisolated struct CensusAgeEnrichment {
         }
 
         var proposals: [BirthYearProposal] = []
-        for target in gapRelatives {
+        for target in targets {
             var matches = candidates.filter { Self.nameMatches($0.member.name, target) }
             // Role-aware tiebreak: if several roster rows share the name but we
             // know how the target relates to the subject, keep only the rows
@@ -112,9 +162,13 @@ public nonisolated struct CensusAgeEnrichment {
             guard matches.count == 1 else { continue }        // 0 or still-ambiguous
             let hit = matches[0]
             // Member-side uniqueness: this member must not also plausibly be a
-            // different gap relative.
-            let relativesForMember = gapRelatives.filter { Self.nameMatches(hit.member.name, $0) }
+            // different candidate relative.
+            let relativesForMember = targets.filter { Self.nameMatches(hit.member.name, $0) }
             guard relativesForMember.count == 1 else { continue }
+            // Mode-specific consistency (corroboration: the roster estimate
+            // must agree with the recorded year — a mismatch is namesake
+            // territory, never silently cited).
+            if let consistent = yearConsistency, !consistent(hit.year, target) { continue }
 
             proposals.append(BirthYearProposal(
                 targetProfileID: target.id,

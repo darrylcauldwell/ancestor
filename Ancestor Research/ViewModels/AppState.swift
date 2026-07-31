@@ -3027,18 +3027,37 @@ final class AppState {
     /// so a census the researcher found on ONE person enriches the whole
     /// household. Read-only; the caller applies via `setBirthYearFromCensus`.
     func censusBackfillProposals() -> [CensusBackfill.Proposal] {
+        CensusBackfill.proposals(censuses: confirmedCensusSources(), snapshot: snapshot)
+    }
+
+    /// Census corroboration proposals — linked relatives whose recorded birth
+    /// year is UNSOURCED but agrees with an applied household roster (±1).
+    /// One click cites the census on the existing value (no value changes —
+    /// the same-value apply path records it as alternative fact + citation).
+    func censusCorroborationProposals() -> [CensusBackfill.Proposal] {
+        CensusBackfill.corroborations(censuses: confirmedCensusSources(), snapshot: snapshot)
+    }
+
+    /// Every census ON a profile, with its household: scorer-confirmed
+    /// (`verdict == .fact`) OR user-applied (`userStatus == .savedAsLead` —
+    /// the apply path's stamp). The old fact-only filter silently skipped
+    /// every census a human applied over a lead verdict (George Keyworth's
+    /// 1881 Worksop household — owner dogfood 2026-07-31), starving both the
+    /// gap-fill sweep and corroboration.
+    private func confirmedCensusSources() -> [CensusBackfill.CensusSource] {
         guard let db = currentDatabase else { return [] }
         var sources: [CensusBackfill.CensusSource] = []
         for profileID in snapshot.profiles.keys {
             let evidence = (try? db.loadEvidenceForProfile(profileID)) ?? []
-            for e in evidence where e.recordType == .census && e.verdict == .fact {
+            for e in evidence where e.recordType == .census
+                && (e.verdict == .fact || e.userStatus == .savedAsLead)
+                && e.userStatus != .discarded {
                 guard case .census(let c) = e.record,
                       let household = c.household, !household.isEmpty else { continue }
-                _ = household   // presence-checked; the full record travels through
                 sources.append(CensusBackfill.CensusSource(subjectID: profileID, record: c))
             }
         }
-        return CensusBackfill.proposals(censuses: sources, snapshot: snapshot)
+        return sources
     }
 
     /// FREEBMD_CITATION_BACKFILL_SPEC Change 2 — applied FreeBMD evidence that
@@ -3067,6 +3086,19 @@ final class AppState {
     /// land as facts/life-events AND the census is cited on their profile — not
     /// just a bare birth year. (owner request 2026-07-25.)
     func absorbCensusForRelative(_ proposal: CensusBackfill.Proposal) {
+        absorbCensus(proposal, successMessage:
+            "Absorbed the \(proposal.censusYear) census onto \(snapshot.profiles[proposal.targetProfileID]?.displayName ?? "the relative") — birth, residence and occupation where the record has them.")
+    }
+
+    /// Corroborate-in-place apply: identical engine path, but the birth year
+    /// already matches — the census lands as a citation + alternative fact,
+    /// upgrading an unsourced import year to evidence-backed.
+    func citeCensusOnRelative(_ proposal: CensusBackfill.Proposal) {
+        absorbCensus(proposal, successMessage:
+            "Cited the \(proposal.censusYear) census on \(snapshot.profiles[proposal.targetProfileID]?.displayName ?? "the relative") — the birth year they already carried is now evidence-backed.")
+    }
+
+    private func absorbCensus(_ proposal: CensusBackfill.Proposal, successMessage message: String) {
         guard let db = currentDatabase,
               let profile = snapshot.profiles[proposal.targetProfileID] else { return }
         let scored = ScoredRecord(
@@ -3081,7 +3113,7 @@ final class AppState {
             }
             snapshot = try db.buildSnapshot()
             runPostLoadAudit()
-            successMessage = "Absorbed the \(proposal.censusYear) census onto \(profile.displayName) — birth, residence and occupation where the record has them."
+            successMessage = message
             successResearchProfileID = profile.id
         } catch {
             errorMessage = "Could not absorb the census: \(error.localizedDescription)"

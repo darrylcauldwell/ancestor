@@ -60,6 +60,12 @@ struct HealthView: View {
     @State private var deathAgeProposals: [DeathAgeBackfillProposal] = []
     /// Sentinel `ruleFilter` value for the synthetic "Death-age backfill" chip.
     private let deathAgeBackfillFilterID = "__deathAgeBackfill"
+    /// Census corroboration proposals — relatives whose recorded birth year
+    /// is unsourced but agrees with an applied household roster; one click
+    /// cites the census on the existing value. Computed once on appear.
+    @State private var censusCorroborations: [CensusBackfill.Proposal] = []
+    /// Sentinel `ruleFilter` value for the synthetic "Cite census" chip.
+    private let censusCiteFilterID = "__censusCite"
     /// Contradictory-facts findings — profiles whose stored evidence holds
     /// mutually exclusive `fact` verdicts the exclusivity pass would demote
     /// (DECISION_CORE_PAIR follow-up). Computed once on appear (reads
@@ -164,6 +170,8 @@ struct HealthView: View {
                                     censusBackfillRow(proposal)
                                 case .deathAgeBackfill(let proposal):
                                     deathAgeBackfillRow(proposal)
+                                case .censusCorroboration(let proposal):
+                                    censusCorroborationRow(proposal)
                                 case .contradictoryFacts(let finding):
                                     contradictoryFactsRow(finding)
                                 case .finding(let result):
@@ -228,6 +236,7 @@ struct HealthView: View {
             syncAuditSummary()
             backfillProposals = appState.censusBackfillProposals()
             deathAgeProposals = appState.deathAgeBackfillProposals()
+            censusCorroborations = appState.censusCorroborationProposals()
             contradictoryFindings = appState.contradictoryFactsFindings()
             openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
         }
@@ -259,6 +268,7 @@ struct HealthView: View {
         case duplicateCluster(DuplicateCluster)
         case censusBackfill(CensusBackfill.Proposal)
         case deathAgeBackfill(DeathAgeBackfillProposal)
+        case censusCorroboration(CensusBackfill.Proposal)
         case contradictoryFacts(ContradictoryFactsAudit.Finding)
         case dispute(DisputeRow)
         var id: String {
@@ -267,6 +277,7 @@ struct HealthView: View {
             case .duplicateCluster(let c): return "d:\(c.id)"
             case .censusBackfill(let p): return "b:\(p.id)"
             case .deathAgeBackfill(let p): return "da:\(p.id)"
+            case .censusCorroboration(let p): return "cc:\(p.id)"
             case .contradictoryFacts(let f): return "cf:\(f.id)"
             case .dispute(let row): return "disp:\(row.id)"
             }
@@ -301,6 +312,9 @@ struct HealthView: View {
         if ruleFilter == deathAgeBackfillFilterID {
             return deathAgeProposals.map { HealthRow.deathAgeBackfill($0) }
         }
+        if ruleFilter == censusCiteFilterID {
+            return censusCorroborations.map { HealthRow.censusCorroboration($0) }
+        }
         if ruleFilter == contradictoryFactsFilterID {
             return contradictoryFindings.map { HealthRow.contradictoryFacts($0) }
         }
@@ -323,6 +337,7 @@ struct HealthView: View {
             rows += contradictoryFindings.map { HealthRow.contradictoryFacts($0) }
             rows += backfillProposals.map { HealthRow.censusBackfill($0) }
             rows += deathAgeProposals.map { HealthRow.deathAgeBackfill($0) }
+            rows += censusCorroborations.map { HealthRow.censusCorroboration($0) }
         }
         rows += duplicateClusters(from: dupes).map { HealthRow.duplicateCluster($0) }
         rows += others.map { HealthRow.finding($0) }
@@ -469,6 +484,36 @@ struct HealthView: View {
         var s = "Died \(String(p.deathYear)) aged \(String(p.ageAtDeath))"
         if let d = p.district, !d.isEmpty { s += " (\(d))" }
         return s + " → calculated birth year ~\(String(p.estimatedBirthYear))"
+    }
+
+    @ViewBuilder
+    private func censusCorroborationRow(_ p: CensusBackfill.Proposal) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.seal")
+                .foregroundStyle(.blue)
+                .font(.body)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(p.targetName)
+                    .font(AppTypography.cardTitle)
+                Text("Birth year \(p.estimatedBirthYear.map { "~\(String($0))" } ?? "on record") is unsourced — the applied \(String(p.censusYear)) census household (as \(p.relationshipLabel)) agrees with it")
+                    .font(AppTypography.cardBody)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
+            Button {
+                appState.citeCensusOnRelative(p)
+                censusCorroborations.removeAll { $0.targetProfileID == p.targetProfileID }
+                refreshAudit()
+            } label: {
+                Label("Cite census", systemImage: "checkmark.seal")
+            }
+            .buttonStyle(.glassProminent).controlSize(.mini)
+            .help("Attach the \(String(p.censusYear)) census as evidence for \(p.targetName)'s existing birth year — the value doesn't change; it becomes evidence-backed instead of an uncited import.")
+        }
+        .padding(12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
     }
 
     @ViewBuilder
@@ -913,7 +958,7 @@ struct HealthView: View {
         // shows red — the severity is legible before you even select the chip.
         let severityByRule = worstSeverityByRule
         if counts.count > 1 || !backfillProposals.isEmpty || !deathAgeProposals.isEmpty
-            || !contradictoryFindings.isEmpty {
+            || !contradictoryFindings.isEmpty || !censusCorroborations.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ruleChip(label: "All (\(auditVM.filteredResults.count))", selected: ruleFilter == nil) {
@@ -941,6 +986,12 @@ struct HealthView: View {
                                  severity: .warning,
                                  selected: ruleFilter == contradictoryFactsFilterID) {
                             ruleFilter = (ruleFilter == contradictoryFactsFilterID) ? nil : contradictoryFactsFilterID
+                        }
+                    }
+                    if !censusCorroborations.isEmpty {
+                        ruleChip(label: "Cite census (\(censusCorroborations.count))",
+                                 selected: ruleFilter == censusCiteFilterID) {
+                            ruleFilter = (ruleFilter == censusCiteFilterID) ? nil : censusCiteFilterID
                         }
                     }
                     if !openDisputeRows.isEmpty {

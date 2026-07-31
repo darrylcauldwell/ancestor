@@ -87,6 +87,45 @@ public nonisolated struct CensusBackfill {
         return out
     }
 
+    /// Corroboration proposals across all confirmed censuses: linked
+    /// relatives whose recorded birth year is UNSOURCED but agrees with the
+    /// roster (±1). Absorbing the member record changes no value — it cites
+    /// the census on the existing year (owner dogfood 2026-07-31: applying a
+    /// census to the parent should evidence the child it names).
+    public static func corroborations(
+        censuses: [CensusSource],
+        snapshot: FamilyGraphSnapshot
+    ) -> [Proposal] {
+        var out: [Proposal] = []
+        var claimed: Set<String> = []
+        for source in censuses {
+            let household = source.record.household ?? []
+            guard !household.isEmpty else { continue }
+            let relatives = linkedRelatives(of: source.subjectID, in: snapshot)
+            guard !relatives.isEmpty else { continue }
+            let relations = relationMap(subjectID: source.subjectID, relatives: relatives, snapshot: snapshot)
+            let matches = CensusAgeEnrichment.corroborations(
+                subjectID: source.subjectID,
+                household: household,
+                censusYear: source.record.censusYear,
+                linkedRelatives: relatives,
+                sourceID: source.record.common.sourceID,
+                relations: relations)
+            for m in matches where !claimed.contains(m.targetProfileID) {
+                guard let member = matchMember(to: m, in: household) else { continue }
+                claimed.insert(m.targetProfileID)
+                out.append(Proposal(
+                    targetProfileID: m.targetProfileID,
+                    targetName: m.targetName,
+                    relationshipLabel: m.relationshipLabel,
+                    estimatedBirthYear: m.estimatedBirthYear,
+                    censusYear: source.record.censusYear,
+                    memberRecord: memberRecord(for: member, in: source.record)))
+            }
+        }
+        return out
+    }
+
     /// A census record scoped to one household member: their own age / birthplace
     /// / occupation, plus the shared district, year, address and citation from
     /// the household record. Absorbing this lands the member's social history and
