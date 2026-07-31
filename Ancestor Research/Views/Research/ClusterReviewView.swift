@@ -1245,16 +1245,54 @@ struct ClusterReviewView: View {
         guard let subject = vm.selectedProfile else {
             return "This birth conflicts with the birth already confirmed on the profile."
         }
-        let confirmedYear = subject.birthDate?.bestYear.map(String.init) ?? "year unknown"
-        let confirmedPlace = (subject.birthLocation?.isEmpty == false)
-            ? subject.birthLocation! : "place unrecorded"
+        let confirmedYearValue = subject.birthDate?.bestYear
+        let confirmedYear = confirmedYearValue.map(String.init) ?? "year unknown"
+        // Provenance of the confirmed year — the claim's STRENGTH depends on
+        // it (owner dogfood 2026-07-31: "how do we know if the applied birth
+        // is estimate or evidenced?"). An unsourced import year could itself
+        // be the wrong one; an evidence-backed year outranks a near-miss.
+        let birthSources = subject.sources[.birthDate] ?? []
+        let evidenceBacked = birthSources.filter { $0.origin.tier == .researchSource }
+        let provenance: String
+        if !evidenceBacked.isEmpty {
+            let names = Set(evidenceBacked.map(\.origin.identifier)).sorted().joined(separator: ", ")
+            provenance = "evidence-backed (\(names))"
+        } else if birthSources.isEmpty {
+            provenance = "unsourced"
+        } else {
+            let names = Set(birthSources.map(\.origin.identifier)).sorted().joined(separator: ", ")
+            provenance = "from \(names) only, not evidence-backed"
+        }
+        var confirmedSide = (subject.birthLocation?.isEmpty == false)
+            ? "The profile's confirmed birth is \(confirmedYear) in \(subject.birthLocation!)"
+            : "The profile's confirmed birth is \(confirmedYear) (no place recorded)"
+        confirmedSide += " — \(provenance)"
         var recordSide = "this record registers a different birth"
+        var yearGap: Int?
         if case .birth(let b) = scored.record {
             let year = b.birthYear.map(String.init) ?? "year unknown"
-            let district = (b.district?.isEmpty == false) ? b.district! : "district unknown"
-            recordSide = "this record registers \(year) in \(district)"
+            recordSide = (b.district?.isEmpty == false)
+                ? "this record registers \(year) in \(b.district!)"
+                : "this record registers \(year) (district unknown)"
+            if let recordYear = b.birthYear, let confirmed = confirmedYearValue {
+                yearGap = abs(recordYear - confirmed)
+            }
         }
-        return "The profile's confirmed birth is \(confirmedYear) in \(confirmedPlace); \(recordSide) — almost certainly a same-named different person."
+        // Graded verdict, honest to the numbers AND the provenance ("years
+        // line up" — the date GATE passes ±2 while this guard holds ±1, the
+        // most a late registration can straddle; a 2-year near-miss deserves
+        // "verify", not "almost certainly", and a near-miss against an
+        // UNSOURCED year cuts both ways). The ±1 itself stays — widening it
+        // would re-admit the Wheeldon namesake regression.
+        let verdict: String
+        if let gap = yearGap, gap <= 2 {
+            verdict = evidenceBacked.isEmpty
+                ? "the years are close and the confirmed year is not evidence-backed — this registration could be the true birth; verify before trusting either"
+                : "the years are close, but a birth can only register up to a year late (±1) and the confirmed year is evidence-backed — likely a namesake; verify which year is right"
+        } else {
+            verdict = "almost certainly a same-named different person"
+        }
+        return "\(confirmedSide); \(recordSide) — \(verdict)."
     }
 
     private func statusPill(_ text: String, icon: String, tint: Color) -> some View {
