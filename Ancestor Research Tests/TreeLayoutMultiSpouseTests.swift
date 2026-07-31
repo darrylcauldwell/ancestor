@@ -142,6 +142,65 @@ struct TreeLayoutMultiSpouseTests {
         }
     }
 
+    /// Owner dogfood 2026-07-31, second round: switching George to marriage
+    /// ② (Alice — the root's MOTHER, already placed as the co-parent card)
+    /// made the wife "vanish": the spouse pass skipped her as visited and
+    /// drew no connector. The displayed marriage must always be visible —
+    /// as an edge to the existing card, never a duplicate card.
+    @Test func switchingToTheCoParentMarriageDrawsTheConnectorNotACard() {
+        let elizabeth = profile("elizabeth", "Elizabeth", "Keyworth", 1886)
+        let george = profile("george", "George", "Keyworth", 1838)
+        let alice = profile("alice", "Alice", "", 1850)
+        let brewer = profile("brewer", "Elizabeth", "Brewer", 1843)
+        func parent(_ p: String, _ c: String) -> Relationship {
+            Relationship(id: UUID(), from: p, to: c, type: .parent, role: nil,
+                         subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
+        }
+        let snapshot = FamilyGraphSnapshot(
+            profiles: [elizabeth.id: elizabeth, george.id: george,
+                       alice.id: alice, brewer.id: brewer],
+            relationships: [
+                spouseRel("george", "brewer", marriage: "1873"),
+                spouseRel("george", "alice"),           // undated → chip ②
+                parent("george", "elizabeth"), parent("alice", "elizabeth"),
+            ])
+
+        let result = TreeLayout.pedigreeLayout(
+            rootID: "elizabeth", snapshot: snapshot, activeSpouse: ["george": "alice"])
+        // Alice renders exactly once (her co-parent card), Brewer not at all.
+        #expect(result.nodes.filter { $0.id == "alice" }.count == 1)
+        #expect(!result.nodes.contains { $0.id == "brewer" })
+        // The selected marriage is VISIBLE: a spouse edge joins the couple.
+        let marriage = result.edges.first {
+            $0.type == .spouse && Set([$0.fromID, $0.toID]) == ["george", "alice"]
+        }
+        #expect(marriage != nil, "switching to the co-parent marriage must draw its connector")
+        // And exactly one — the reciprocal iteration must not duplicate it.
+        #expect(result.edges.filter {
+            $0.type == .spouse && Set([$0.fromID, $0.toID]) == ["george", "alice"]
+        }.count == 1)
+    }
+
+    /// Owner dogfood 2026-07-31: the marriage connector drawn centre-to-centre
+    /// crossed both card faces (visible through the glass material). Spouse
+    /// edges must span only the gap between the facing card borders.
+    @Test func spouseEdgesAreTrimmedToTheGapBetweenCards() {
+        let david = profile("david", "David", "Rose", 1950)
+        let margaret = profile("margaret", "Margaret", "Marshall", 1951)
+        let snapshot = FamilyGraphSnapshot(
+            profiles: [david.id: david, margaret.id: margaret],
+            relationships: [spouseRel("david", "margaret")])
+        let result = TreeLayout.pedigreeLayout(rootID: "david", snapshot: snapshot)
+        let davidNode = result.nodes.first { $0.id == "david" }!
+        let margaretNode = result.nodes.first { $0.id == "margaret" }!
+        let edge = result.edges.first { $0.type == .spouse }!
+        let leftCardRightBorder = min(davidNode.x, margaretNode.x) + TreeLayout.nodeWidth / 2
+        let rightCardLeftBorder = max(davidNode.x, margaretNode.x) - TreeLayout.nodeWidth / 2
+        let span = [edge.fromX, edge.toX].sorted()
+        #expect(span[0] >= leftCardRightBorder - 0.001, "edge must not run under the left card")
+        #expect(span[1] <= rightCardLeftBorder + 0.001, "edge must not run under the right card")
+    }
+
     /// A single spouse always shows (no switcher, no regression).
     @Test func singleSpouseAlwaysShown() {
         let david = profile("david", "David", "Rose", 1950)

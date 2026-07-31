@@ -352,9 +352,25 @@ public nonisolated struct TreeLayout {
         // neat. Previously all spouses shared one x and overwrote each other.
         for node in Array(realNodes) {
             guard node.profile != nil,
-                  let spouse = snapshot.displayedSpouse(of: node.id, activeSpouse: activeSpouse),
-                  !visited.contains(spouse.id)
+                  let spouse = snapshot.displayedSpouse(of: node.id, activeSpouse: activeSpouse)
             else { continue }
+            if visited.contains(spouse.id) {
+                // The displayed spouse is ALREADY on canvas — typically as
+                // the co-parent placed beside this node (George Keyworth ↔
+                // Alice: she is the root's mother). Without a connector the
+                // marriage is invisible and switching to it looks like the
+                // wife vanished (owner-reported 2026-07-31). Draw the spouse
+                // edge to her existing card; never add a second card.
+                if let placed = realNodes.first(where: { $0.id == spouse.id }),
+                   abs(placed.y - node.y) < 1,
+                   !edges.contains(where: {
+                       $0.id == "\(node.id)=\(spouse.id)" || $0.id == "\(spouse.id)=\(node.id)"
+                   }) {
+                    edges.append(spouseEdge(from: node.id, at: node.x,
+                                            to: spouse.id, at: placed.x, y: node.y))
+                }
+                continue
+            }
             visited.insert(spouse.id)
             let completeness = snapshot.completeness(for: spouse.id)
             // Collision-aware slot. The default right-hand slot can already
@@ -385,13 +401,8 @@ public nonisolated struct TreeLayout {
                 x: spouseX, y: node.y, generation: node.generation,
                 hasMoreAncestors: false, hasMoreDescendants: false
             ))
-            edges.append(LayoutEdge(
-                id: "\(node.id)=\(spouse.id)",
-                fromID: node.id, toID: spouse.id,
-                fromX: node.x, fromY: node.y,
-                toX: spouseX, toY: node.y,
-                type: .spouse
-            ))
+            edges.append(spouseEdge(from: node.id, at: node.x,
+                                    to: spouse.id, at: spouseX, y: node.y))
         }
 
         // Render the focal subject's siblings at generation 0 alongside
@@ -559,29 +570,33 @@ public nonisolated struct TreeLayout {
 
         /// Place the DISPLAYED spouse of a person to the right, advancing nextX.
         /// Under the switcher a multi-spouse person shows one marriage at a time.
+        /// A spouse already on canvas gets the marriage connector only (same
+        /// visited-co-parent rule as the pedigree pass).
         func placeSpouses(of profileID: String, personX: Double, atY y: Double, generation: Int) {
-            let spouses = [snapshot.displayedSpouse(of: profileID, activeSpouse: activeSpouse)]
-                .compactMap { $0 }
-                .filter { !visited.contains($0.id) }
-            for spouse in spouses {
-                visited.insert(spouse.id)
-                let spouseX = nextX
-                let completeness = snapshot.completeness(for: spouse.id)
-                nodes.append(LayoutNode(
-                    id: spouse.id,
-                    kind: .profile(spouse, completeness),
-                    x: spouseX, y: y, generation: generation,
-                    hasMoreAncestors: false, hasMoreDescendants: false
-                ))
-                edges.append(LayoutEdge(
-                    id: "\(profileID)=\(spouse.id)",
-                    fromID: profileID, toID: spouse.id,
-                    fromX: personX, fromY: y,
-                    toX: spouseX, toY: y,
-                    type: .spouse
-                ))
-                nextX += nodeWidth + spouseSpacing
+            guard let spouse = snapshot.displayedSpouse(of: profileID, activeSpouse: activeSpouse) else { return }
+            if visited.contains(spouse.id) {
+                if let placed = nodes.first(where: { $0.id == spouse.id }),
+                   abs(placed.y - y) < 1,
+                   !edges.contains(where: {
+                       $0.id == "\(profileID)=\(spouse.id)" || $0.id == "\(spouse.id)=\(profileID)"
+                   }) {
+                    edges.append(spouseEdge(from: profileID, at: personX,
+                                            to: spouse.id, at: placed.x, y: y))
+                }
+                return
             }
+            visited.insert(spouse.id)
+            let spouseX = nextX
+            let completeness = snapshot.completeness(for: spouse.id)
+            nodes.append(LayoutNode(
+                id: spouse.id,
+                kind: .profile(spouse, completeness),
+                x: spouseX, y: y, generation: generation,
+                hasMoreAncestors: false, hasMoreDescendants: false
+            ))
+            edges.append(spouseEdge(from: profileID, at: personX,
+                                    to: spouse.id, at: spouseX, y: y))
+            nextX += nodeWidth + spouseSpacing
         }
 
         _ = place(profileID: rootID, generation: 0)
@@ -594,6 +609,29 @@ public nonisolated struct TreeLayout {
     }
 
     // MARK: - Helpers
+
+    /// A marriage connector TRIMMED to the gap between the two card borders.
+    /// Drawn centre-to-centre it crosses both card faces (visible through the
+    /// glass material — owner-reported 2026-07-31); border-to-border it reads
+    /// as a connector between the couple, whichever side the spouse sits on
+    /// and however far apart the cards are (the visited-co-parent case).
+    static func spouseEdge(from fromID: String, at fromX: Double,
+                           to toID: String, at toX: Double, y: Double) -> LayoutEdge {
+        let leftBorder = min(fromX, toX) + nodeWidth / 2
+        let rightBorder = max(fromX, toX) - nodeWidth / 2
+        // Degenerate (overlapping cards) — keep a zero-length stub at the
+        // midpoint rather than an inverted span.
+        let a = min(leftBorder, rightBorder)
+        let b = max(leftBorder, rightBorder)
+        let fromIsLeft = fromX <= toX
+        return LayoutEdge(
+            id: "\(fromID)=\(toID)",
+            fromID: fromID, toID: toID,
+            fromX: fromIsLeft ? a : b, fromY: y,
+            toX: fromIsLeft ? b : a, toY: y,
+            type: .spouse
+        )
+    }
 
     private static func countAncestorGenerations(_ id: String, snapshot: FamilyGraphSnapshot, max: Int) -> Int {
         guard max > 0 else { return 0 }
