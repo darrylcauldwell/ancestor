@@ -23,9 +23,9 @@ struct ResearchProgressSheet: View {
     private var aiGateMessage: String {
         guard let gate = vm.aiGate else { return "" }
         if gate.modelOnDisk {
-            return "\(gate.modelDisplayName) is downloaded but not loaded. Open Settings to load it (~10–30 s). Or run without AI assistance — Level-2 focused queries will be skipped."
+            return "\(gate.modelDisplayName) is downloaded but not loaded. Open Settings to load it (~10–30 s). Or run without AI assistance — Level-2 focused queries will be skipped. “Always Run Without AI” remembers the choice and stops asking; loading the model in Settings brings AI back any time."
         } else {
-            return "\(gate.modelDisplayName) needs to be downloaded (~8 GB, one-time) and loaded before AI-assisted research is available. Open Settings to start the download, or run without AI for now."
+            return "\(gate.modelDisplayName) needs to be downloaded (~8 GB, one-time) and loaded before AI-assisted research is available. Open Settings to start the download, or run without AI for now. “Always Run Without AI” remembers the choice and stops asking."
         }
     }
 
@@ -89,6 +89,15 @@ struct ResearchProgressSheet: View {
                 onOpenSettings?()
             }
             Button("Run Without AI") {
+                let gate = vm.aiGate
+                vm.aiGate = nil
+                if let gate { Task { await gate.proceed() } }
+            }
+            Button("Always Run Without AI") {
+                // Remembered — the gate stays silent from now on; loading
+                // the model in Settings brings AI assistance back without
+                // needing to clear anything.
+                UserDefaults.standard.set(true, forKey: ResearchViewModel.runWithoutAIRememberedKey)
                 let gate = vm.aiGate
                 vm.aiGate = nil
                 if let gate { Task { await gate.proceed() } }

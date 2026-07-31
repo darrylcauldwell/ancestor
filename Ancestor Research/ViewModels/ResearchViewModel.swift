@@ -281,8 +281,16 @@ final class ResearchViewModel {
     /// The closure passed as `retry` re-invokes `startResearch` with
     /// `bypassAICheck = true`, which the alert's "Run Without AI" button
     /// triggers.
+    /// UserDefaults key remembering "Always Run Without AI" — once set, the
+    /// not-loaded gate stays silent and runs proceed deterministic-only
+    /// (owner dogfood 2026-07-31: the alert fired on EVERY run; the answer
+    /// doesn't change until the user actually loads the model, at which
+    /// point `isAvailable` short-circuits and the flag is moot).
+    static let runWithoutAIRememberedKey = "runWithoutAIRemembered"
+
     private func shouldGateOnMissingAI(retry: @escaping () async -> Void) async -> Bool {
         if await LocalInferenceService.shared.isAvailable { return false }
+        if UserDefaults.standard.bool(forKey: Self.runWithoutAIRememberedKey) { return false }
         let raw = UserDefaults.standard.string(forKey: "reasoningModelChoice")
             ?? ReasoningModel.default.rawValue
         let model = ReasoningModel(rawValue: raw) ?? .default
