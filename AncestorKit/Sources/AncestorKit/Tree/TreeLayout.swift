@@ -357,11 +357,16 @@ public nonisolated struct TreeLayout {
             if visited.contains(spouse.id) {
                 // The displayed spouse is ALREADY on canvas — typically as
                 // the co-parent placed beside this node (George Keyworth ↔
-                // Alice: she is the root's mother). Without a connector the
-                // marriage is invisible and switching to it looks like the
-                // wife vanished (owner-reported 2026-07-31). Draw the spouse
-                // edge to her existing card; never add a second card.
-                if let placed = realNodes.first(where: { $0.id == spouse.id }),
+                // Alice: she is the root's mother). Without a connector,
+                // switching the marriage switcher to her looks like the wife
+                // vanished (owner-reported 2026-07-31). Draw the spouse edge
+                // to her existing card; never add a second card. ONLY for
+                // multi-marriage people — the connector's job is to show
+                // WHICH marriage is active; single-marriage co-parent
+                // couples keep their long-standing connector-free look
+                // (drawing one for every couple flooded the tree with pink).
+                if snapshot.spousesOrderedByMarriage(node.id).count >= 2,
+                   let placed = realNodes.first(where: { $0.id == spouse.id }),
                    abs(placed.y - node.y) < 1,
                    !edges.contains(where: {
                        $0.id == "\(node.id)=\(spouse.id)" || $0.id == "\(spouse.id)=\(node.id)"
@@ -575,7 +580,9 @@ public nonisolated struct TreeLayout {
         func placeSpouses(of profileID: String, personX: Double, atY y: Double, generation: Int) {
             guard let spouse = snapshot.displayedSpouse(of: profileID, activeSpouse: activeSpouse) else { return }
             if visited.contains(spouse.id) {
-                if let placed = nodes.first(where: { $0.id == spouse.id }),
+                // Same multi-marriage-only rule as the pedigree pass.
+                if snapshot.spousesOrderedByMarriage(profileID).count >= 2,
+                   let placed = nodes.first(where: { $0.id == spouse.id }),
                    abs(placed.y - y) < 1,
                    !edges.contains(where: {
                        $0.id == "\(profileID)=\(spouse.id)" || $0.id == "\(spouse.id)=\(profileID)"
@@ -610,25 +617,23 @@ public nonisolated struct TreeLayout {
 
     // MARK: - Helpers
 
-    /// A marriage connector TRIMMED to the gap between the two card borders.
-    /// Drawn centre-to-centre it crosses both card faces (visible through the
-    /// glass material — owner-reported 2026-07-31); border-to-border it reads
-    /// as a connector between the couple, whichever side the spouse sits on
-    /// and however far apart the cards are (the visited-co-parent case).
+    /// A marriage connector with the LEFT partner first. The geometry
+    /// authority is `TreeCanvasRenderer.drawEdge`, which trims a `.spouse`
+    /// edge to the gap between the cards by assuming CENTRE coordinates with
+    /// `from` as the left card — an unordered pair (a spouse placed on the
+    /// LEFT, or a distant co-parent) drew the connector backwards across
+    /// both card faces (owner-reported 2026-07-31; layout-side trimming
+    /// double-trimmed and made it worse). The layout's only job is to honour
+    /// the ordering contract: emit centres, left first, never trim.
     static func spouseEdge(from fromID: String, at fromX: Double,
                            to toID: String, at toX: Double, y: Double) -> LayoutEdge {
-        let leftBorder = min(fromX, toX) + nodeWidth / 2
-        let rightBorder = max(fromX, toX) - nodeWidth / 2
-        // Degenerate (overlapping cards) — keep a zero-length stub at the
-        // midpoint rather than an inverted span.
-        let a = min(leftBorder, rightBorder)
-        let b = max(leftBorder, rightBorder)
-        let fromIsLeft = fromX <= toX
+        let leftFirst = fromX <= toX
         return LayoutEdge(
             id: "\(fromID)=\(toID)",
-            fromID: fromID, toID: toID,
-            fromX: fromIsLeft ? a : b, fromY: y,
-            toX: fromIsLeft ? b : a, toY: y,
+            fromID: leftFirst ? fromID : toID,
+            toID: leftFirst ? toID : fromID,
+            fromX: min(fromX, toX), fromY: y,
+            toX: max(fromX, toX), toY: y,
             type: .spouse
         )
     }

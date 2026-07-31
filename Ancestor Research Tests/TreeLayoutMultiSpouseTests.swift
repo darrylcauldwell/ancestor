@@ -181,24 +181,80 @@ struct TreeLayoutMultiSpouseTests {
         }.count == 1)
     }
 
-    /// Owner dogfood 2026-07-31: the marriage connector drawn centre-to-centre
-    /// crossed both card faces (visible through the glass material). Spouse
-    /// edges must span only the gap between the facing card borders.
-    @Test func spouseEdgesAreTrimmedToTheGapBetweenCards() {
+    /// Owner dogfood 2026-07-31 (two rounds): the renderer trims a spouse
+    /// edge to the inter-card gap ASSUMING centre coordinates with `from` as
+    /// the left card. A left-placed spouse broke the ordering (line across
+    /// both faces); layout-side trimming then double-trimmed (backward spans
+    /// + floating dashes). Contract: layout emits CENTRES, left partner
+    /// first; the renderer's trim must land inside the gap.
+    @Test func spouseEdgesEmitOrderedCentresSoTheRendererTrimLandsInTheGap() {
+        // Right-placed spouse (the ordinary case)…
         let david = profile("david", "David", "Rose", 1950)
         let margaret = profile("margaret", "Margaret", "Marshall", 1951)
         let snapshot = FamilyGraphSnapshot(
             profiles: [david.id: david, margaret.id: margaret],
             relationships: [spouseRel("david", "margaret")])
         let result = TreeLayout.pedigreeLayout(rootID: "david", snapshot: snapshot)
-        let davidNode = result.nodes.first { $0.id == "david" }!
-        let margaretNode = result.nodes.first { $0.id == "margaret" }!
+        let nodes = Dictionary(uniqueKeysWithValues: result.nodes.map { ($0.id, $0) })
         let edge = result.edges.first { $0.type == .spouse }!
-        let leftCardRightBorder = min(davidNode.x, margaretNode.x) + TreeLayout.nodeWidth / 2
-        let rightCardLeftBorder = max(davidNode.x, margaretNode.x) - TreeLayout.nodeWidth / 2
-        let span = [edge.fromX, edge.toX].sorted()
-        #expect(span[0] >= leftCardRightBorder - 0.001, "edge must not run under the left card")
-        #expect(span[1] <= rightCardLeftBorder + 0.001, "edge must not run under the right card")
+        #expect(edge.fromX <= edge.toX, "left partner first")
+        #expect(edge.fromX == nodes[edge.fromID]!.x, "edges carry card CENTRES — the renderer owns trimming")
+        #expect(edge.toX == nodes[edge.toID]!.x)
+        // The renderer's trim (±nodeWidth/2) must land inside the gap.
+        let rendered = (edge.fromX + TreeLayout.nodeWidth / 2, edge.toX - TreeLayout.nodeWidth / 2)
+        #expect(rendered.0 <= rendered.1 + 0.001, "trimmed segment must never run backwards")
+    }
+
+    /// A LEFT-placed spouse (the collision-fix slot) must still emit the
+    /// left partner first — this exact shape drew the line across both card
+    /// faces in live use.
+    @Test func leftPlacedSpouseEdgeIsStillOrderedLeftFirst() {
+        let elizabeth = profile("elizabeth", "Elizabeth", "Keyworth", 1886)
+        let george = profile("george", "George", "Keyworth", 1838)
+        let alice = profile("alice", "Alice", "", 1850)
+        let brewer = profile("brewer", "Elizabeth", "Brewer", 1843)
+        func parent(_ p: String, _ c: String) -> Relationship {
+            Relationship(id: UUID(), from: p, to: c, type: .parent, role: nil,
+                         subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
+        }
+        let snapshot = FamilyGraphSnapshot(
+            profiles: [elizabeth.id: elizabeth, george.id: george,
+                       alice.id: alice, brewer.id: brewer],
+            relationships: [
+                spouseRel("george", "brewer", marriage: "1873"),
+                spouseRel("george", "alice"),
+                parent("george", "elizabeth"), parent("alice", "elizabeth"),
+            ])
+        let result = TreeLayout.pedigreeLayout(rootID: "elizabeth", snapshot: snapshot)
+        let brewerNode = result.nodes.first { $0.id == "brewer" }!
+        let georgeNode = result.nodes.first { $0.id == "george" }!
+        #expect(brewerNode.x < georgeNode.x, "precondition: Brewer took the left slot")
+        let edge = result.edges.first {
+            $0.type == .spouse && Set([$0.fromID, $0.toID]) == ["george", "brewer"]
+        }!
+        #expect(edge.fromID == "brewer" && edge.fromX <= edge.toX,
+                "the left partner must come first or the renderer draws backwards across both cards")
+    }
+
+    /// Single-marriage co-parent couples keep their long-standing
+    /// connector-free look — drawing a connector for EVERY couple flooded
+    /// the tree with pink lines (owner-reported 2026-07-31). Only
+    /// multi-marriage people get the disambiguating connector.
+    @Test func singleMarriageCoParentsDrawNoConnector() {
+        let child = profile("child", "Reginald", "Holmes", 1916)
+        let father = profile("father", "William", "Holmes", 1880)
+        let mother = profile("mother", "Mary Ellen", "Thompson", 1885)
+        func parent(_ p: String, _ c: String) -> Relationship {
+            Relationship(id: UUID(), from: p, to: c, type: .parent, role: nil,
+                         subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
+        }
+        let snapshot = FamilyGraphSnapshot(
+            profiles: [child.id: child, father.id: father, mother.id: mother],
+            relationships: [spouseRel("father", "mother"),
+                            parent("father", "child"), parent("mother", "child")])
+        let result = TreeLayout.pedigreeLayout(rootID: "child", snapshot: snapshot)
+        #expect(!result.edges.contains { $0.type == .spouse },
+                "a single-marriage co-parent couple draws no marriage connector")
     }
 
     /// A single spouse always shows (no switcher, no regression).
