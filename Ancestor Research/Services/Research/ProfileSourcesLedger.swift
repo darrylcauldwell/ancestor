@@ -90,7 +90,7 @@ enum ProfileSourcesLedger {
                     sourceID: rec.sourceID,
                     recordType: rec.recordType,
                     verdict: rec.verdict,
-                    standing: standing(userStatus: rec.userStatus, verdict: rec.verdict),
+                    standing: standing(for: rec, profile: profile),
                     citation: (rec.citationFull?.isEmpty == false ? rec.citationFull! : rec.summary),
                     citationURL: rec.citationURL,
                     ageDetail: ageDetail(rec.record),
@@ -205,10 +205,15 @@ enum ProfileSourcesLedger {
         return base + gates.filter { $0.outcome == .pass }.count
     }
 
-    private static func standing(userStatus: UserReviewStatus, verdict: RecordVerdict) -> Standing {
-        if userStatus == .savedAsLead { return .applied }
-        if userStatus == .discarded { return .userRejected }   // user's call wins over verdict
-        if verdict == .impossible { return .scorerRejected }
+    /// `.applied` requires the apply ACTION to have run (v56 `applied_at`,
+    /// with the citation-fingerprint fallback for pre-v56 rows) — a record
+    /// merely kept via "Save as lead" is `.researched`, never "Applied"
+    /// (owner dogfood 2026-07-31: Mary Ellen Thompson's saved census showed
+    /// a green Applied pill while her Birth stayed empty).
+    private static func standing(for rec: EvidenceRecord, profile: Profile?) -> Standing {
+        if rec.userStatus == .discarded { return .userRejected }   // user's call wins
+        if rec.wasApplied(to: profile) { return .applied }
+        if rec.verdict == .impossible { return .scorerRejected }
         return .researched
     }
 

@@ -3072,7 +3072,7 @@ final class AppState {
         for member in family {
             let evidence = (try? db.loadEvidenceForProfile(member)) ?? []
             for e in evidence where e.recordType == .census
-                && (e.verdict == .fact || e.userStatus == .savedAsLead)
+                && (e.verdict == .fact || e.wasApplied(to: snapshot.profiles[member]))
                 && e.userStatus != .discarded {
                 guard case .census(let c) = e.record,
                       let household = c.household, !household.isEmpty else { continue }
@@ -3094,7 +3094,7 @@ final class AppState {
         for profileID in snapshot.profiles.keys {
             let evidence = (try? db.loadEvidenceForProfile(profileID)) ?? []
             for e in evidence where e.recordType == .census
-                && (e.verdict == .fact || e.userStatus == .savedAsLead)
+                && (e.verdict == .fact || e.wasApplied(to: snapshot.profiles[profileID]))
                 && e.userStatus != .discarded {
                 guard case .census(let c) = e.record,
                       let household = c.household, !household.isEmpty else { continue }

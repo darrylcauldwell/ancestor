@@ -43,6 +43,12 @@ nonisolated struct EvidenceRecord: Sendable, Identifiable {
     /// columns get overwritten on conflict).
     let userStatus: UserReviewStatus
 
+    /// v56 — when the apply ACTION ran for this record (nil = never applied,
+    /// or applied before v56 existed; Remove clears it). `.savedAsLead` alone
+    /// is NOT an apply: the "Save as lead" review action stamps the same
+    /// status without writing anything.
+    let appliedAt: Date?
+
     // CAMPAIGN_REVIEW_SPEC Change 2 — the persisted evidence chain carries
     // the FULL scorer output, so a DB reconstruction is a complete
     // ScoredRecord, not a gates-less shadow. Legacy (pre-v44) rows decode
@@ -64,7 +70,7 @@ nonisolated struct EvidenceRecord: Sendable, Identifiable {
         id: String, profileID: String, sourceID: String, sourceRecordID: String,
         recordType: RecordType, verdict: RecordVerdict, record: SourceRecord,
         citationFull: String?, citationURL: String?, scoredAt: Date,
-        userStatus: UserReviewStatus,
+        userStatus: UserReviewStatus, appliedAt: Date? = nil,
         gates: [GateResult] = [], summary: String = "",
         isEnrichment: Bool = false, lastRunID: String? = nil
     ) {
@@ -79,10 +85,42 @@ nonisolated struct EvidenceRecord: Sendable, Identifiable {
         self.citationURL = citationURL
         self.scoredAt = scoredAt
         self.userStatus = userStatus
+        self.appliedAt = appliedAt
         self.gates = gates
         self.summary = summary
         self.isEnrichment = isEnrichment
         self.lastRunID = lastRunID
+    }
+
+    /// Whether the apply ACTION actually ran for this record. v56's
+    /// `applied_at` is the truth; rows applied BEFORE v56 (the column has no
+    /// backfill) are recognised by the apply's fingerprint — every applied
+    /// field carries the record's citation, so its URL (or its citation text,
+    /// access-date trimmed) appears among the profile's field sources. A
+    /// record merely kept via "Save as lead" matches neither. (Owner dogfood
+    /// 2026-07-31: Mary Ellen Thompson's saved-as-lead census rendered a
+    /// green "Applied" while her Birth stayed empty — `.savedAsLead` alone
+    /// must never read as applied.)
+    func wasApplied(to profile: Profile?) -> Bool {
+        if appliedAt != nil { return true }
+        guard userStatus == .savedAsLead, let profile else { return false }
+        let trimmedFull = Self.trimAccessDate(citationFull)
+        for sources in profile.sources.values {
+            for source in sources {
+                guard let citation = source.citation else { continue }
+                if let url = citationURL, !url.isEmpty, citation.url == url { return true }
+                if let full = trimmedFull, !full.isEmpty,
+                   Self.trimAccessDate(citation.notes) == full { return true }
+            }
+        }
+        return false
+    }
+
+    /// "…; accessed 30 Jul 2026." → "…" — the only part of a citation that
+    /// differs between the apply-time copy and a later re-scrape.
+    static func trimAccessDate(_ s: String?) -> String? {
+        guard let s else { return nil }
+        return s.range(of: "; accessed").map { String(s[..<$0.lowerBound]) } ?? s
     }
 
     /// Reconstruct the scorer's view of this row — the input shape

@@ -3857,7 +3857,7 @@ nonisolated extension ProjectDatabase {
         try dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT id, profile_id, source_id, source_record_id, record_type, verdict, record_json, citation_full, citation_url, scored_at, user_status,
-                       gates_json, summary, is_enrichment, last_run_id
+                       applied_at, gates_json, summary, is_enrichment, last_run_id
                 FROM evidence_records
                 WHERE profile_id = ?
                 ORDER BY scored_at DESC
@@ -3892,6 +3892,7 @@ nonisolated extension ProjectDatabase {
                     citationURL: row["citation_url"] as String?,
                     scoredAt: row["scored_at"] as Date,
                     userStatus: userStatus,
+                    appliedAt: row["applied_at"] as Date?,
                     gates: gates,
                     summary: (row["summary"] as String?) ?? "",
                     isEnrichment: ((row["is_enrichment"] as Int?) ?? 0) != 0,

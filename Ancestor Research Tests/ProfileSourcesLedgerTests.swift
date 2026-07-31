@@ -142,3 +142,85 @@ struct ProfileSourcesLedgerTwinTests {
         #expect(deaths.count == 2, "different registrations must not merge")
     }
 }
+
+// Applied vs saved-as-lead (owner dogfood 2026-07-31): "Save as lead" stamps
+// the same `.savedAsLead` status the apply path uses, so Mary Ellen
+// Thompson's KEPT census rendered a green "Applied" pill while her Birth
+// stayed "Not recorded". `.applied` standing now requires the apply ACTION:
+// v56 `applied_at`, or (pre-v56 rows — the column has no backfill) the
+// apply's citation fingerprint on the profile's field sources.
+@MainActor
+struct ProfileSourcesLedgerAppliedStandingTests {
+
+    private func makeDB() throws -> ProjectDatabase {
+        let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
+        let db = try ProjectDatabase(path: path)
+        try db.dbQueue.write { sql in
+            try sql.execute(sql: "INSERT INTO project_meta (id, name, source_kind, source_value, created_at) VALUES ('t','T','manual','',?)", arguments: [Date()])
+        }
+        return db
+    }
+
+    private func census(_ id: String) -> ScoredRecord {
+        let record = SourceRecord.census(CensusRecord(
+            common: RecordCommon(id: id, sourceID: "freecen", name: "Mary THOMPSON",
+                                 surname: nil, givenName: nil,
+                                 detailURL: "https://freecen/\(id)", rawFields: [:]),
+            censusYear: 1891, age: nil, birthYear: 1871,
+            birthPlace: "Swadlincote", district: "Church Gresley"))
+        return ScoredRecord(id: id, record: record, verdict: .lead, gates: [], summary: "")
+    }
+
+    @Test func savedAsLeadAloneIsNotApplied() throws {
+        // The Mary specimen: kept via Save as lead, never applied.
+        let db = try makeDB()
+        _ = try db.addProfile(Profile(
+            id: "mary", firstName: "Mary Ellen", lastName: "Thompson",
+            gender: .female, isDeleted: false, sources: [:], disputes: [:]), source: .gedcom)
+        try db.saveEvidence(profileID: "mary", scored: census("c1"),
+                            citationFull: "FreeCen, Mary THOMPSON, Church Gresley; accessed 30 Jul 2026.",
+                            citationURL: "https://freecen/c1")
+        try db.updateEvidenceUserStatus(profileID: "mary", sourceRecordIDs: ["c1"], status: .savedAsLead)
+
+        let profile = try #require(try db.loadProfile(id: "mary"))
+        let records = try ProfileSourcesLedger.allRecords(for: "mary", db: db, profile: profile)
+        #expect(records.first?.standing == .researched,
+                "a kept-as-lead record must never read as Applied")
+    }
+
+    @Test func v56AppliedStampIsApplied() throws {
+        let db = try makeDB()
+        _ = try db.addProfile(Profile(
+            id: "mary", firstName: "Mary", lastName: "Thompson",
+            gender: .female, isDeleted: false, sources: [:], disputes: [:]), source: .gedcom)
+        try db.saveEvidence(profileID: "mary", scored: census("c1"),
+                            citationFull: "FreeCen; accessed 30 Jul 2026.", citationURL: "https://freecen/c1")
+        try db.updateEvidenceUserStatus(profileID: "mary", sourceRecordIDs: ["c1"], status: .savedAsLead)
+        try db.markEvidenceApplied(evidenceID: "mary|c1")
+
+        let profile = try #require(try db.loadProfile(id: "mary"))
+        let records = try ProfileSourcesLedger.allRecords(for: "mary", db: db, profile: profile)
+        #expect(records.first?.standing == .applied)
+    }
+
+    @Test func preV56AppliedRowRecognisedByCitationFingerprint() throws {
+        // A row applied BEFORE v56: applied_at is NULL, but the apply left
+        // the record's citation on the profile's field sources.
+        let db = try makeDB()
+        _ = try db.addProfile(Profile(
+            id: "mary", firstName: "Mary", lastName: "Thompson",
+            gender: .female, isDeleted: false, sources: [:], disputes: [:]), source: .gedcom)
+        try db.saveEvidence(profileID: "mary", scored: census("c1"),
+                            citationFull: "FreeCen; accessed 30 Jul 2026.", citationURL: "https://freecen/c1")
+        try db.updateEvidenceUserStatus(profileID: "mary", sourceRecordIDs: ["c1"], status: .savedAsLead)
+        var profile = try #require(try db.loadProfile(id: "mary"))
+        profile.sources[.birthLocation] = [FieldSource(
+            origin: .freecen, raw: "Swadlincote", addedAt: Date(),
+            citation: Citation(title: "Census 1891", url: "https://freecen/c1",
+                               dateAccessed: Date(), notes: "FreeCen; accessed 18 Jul 2026."))]
+
+        let records = try ProfileSourcesLedger.allRecords(for: "mary", db: db, profile: profile)
+        #expect(records.first?.standing == .applied,
+                "legacy applied rows keep their Applied standing via the citation fingerprint")
+    }
+}
