@@ -871,9 +871,12 @@ struct ClusterReviewView: View {
                 } else if birthConflict {
                     // Amber = deliberately withheld. A different-year/district
                     // birth than the one confirmed on the profile — almost
-                    // certainly a same-named different person.
+                    // certainly a same-named different person. The help names
+                    // BOTH sides of the conflict (owner dogfood 2026-07-31:
+                    // the pill alone showed only the record's values, leaving
+                    // the confirmed birth it clashes with invisible).
                     statusPill("Different birth", icon: "exclamationmark.triangle.fill", tint: .orange)
-                        .help("This birth conflicts with the birth already confirmed on the profile (different year or registration district), so it won't be applied — a person has only one birth, and this is almost certainly a same-named different person. Force-apply it from the record menu if you're sure it's him.")
+                        .help(birthConflictExplanation(scored) + " It won't be applied — a person has only one birth. Force-apply from the record menu if you're sure it's them.")
                         .accessibilityLabel("Withheld — conflicts with the confirmed birth")
                 } else if effectiveWillApply {
                     // Blue (not green) = a pending SELECTION: included in the next
@@ -908,6 +911,24 @@ struct ClusterReviewView: View {
             // Collapsed to summary by default. Click row to expand full detail.
             if isExpanded {
                 VStack(alignment: .leading, spacing: 8) {
+                    // "Different birth" states its case with BOTH sides
+                    // visible — the profile's confirmed birth AND this
+                    // record's — so the conflict is judgeable in place.
+                    // (Recomputed here: the header's `birthConflict` is
+                    // scoped to its own closure.)
+                    let expandedBirthConflict = vm.recordDecisions[scored.id] != .accepted
+                        && (vm.selectedProfile.map { RecordScorer.conflictsWithConfirmedBirth(scored, subject: $0) } ?? false)
+                    if expandedBirthConflict {
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.orange)
+                            Text(birthConflictExplanation(scored))
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.orange)
+                                .textSelection(.enabled)
+                        }
+                    }
                     if !scored.gates.isEmpty {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Scoring gates")
@@ -1216,6 +1237,26 @@ struct ClusterReviewView: View {
     /// A compact, text-bearing status pill (PROFILE_LIFECYCLE_SPEC Change 2) —
     /// the words are always visible, and the tint distinguishes states at a
     /// glance (green = applied/done, blue = pending selection, grey = skipped).
+    /// Both sides of a "Different birth" conflict with the values NAMED —
+    /// the profile's confirmed birth AND this record's registration. The
+    /// claim is only judgeable when both halves are visible (owner dogfood
+    /// 2026-07-31: the pill presented the record's side alone).
+    private func birthConflictExplanation(_ scored: ScoredRecord) -> String {
+        guard let subject = vm.selectedProfile else {
+            return "This birth conflicts with the birth already confirmed on the profile."
+        }
+        let confirmedYear = subject.birthDate?.bestYear.map(String.init) ?? "year unknown"
+        let confirmedPlace = (subject.birthLocation?.isEmpty == false)
+            ? subject.birthLocation! : "place unrecorded"
+        var recordSide = "this record registers a different birth"
+        if case .birth(let b) = scored.record {
+            let year = b.birthYear.map(String.init) ?? "year unknown"
+            let district = (b.district?.isEmpty == false) ? b.district! : "district unknown"
+            recordSide = "this record registers \(year) in \(district)"
+        }
+        return "The profile's confirmed birth is \(confirmedYear) in \(confirmedPlace); \(recordSide) — almost certainly a same-named different person."
+    }
+
     private func statusPill(_ text: String, icon: String, tint: Color) -> some View {
         HStack(spacing: 3) {
             Image(systemName: icon)
