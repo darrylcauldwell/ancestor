@@ -136,6 +136,11 @@ struct SharedProfileLayout: View {
     /// `.sheet(isPresented:) + if let` — the EmptyView-rectangle race).
     @State private var resolvingDispute: DisputeSheetItem?
     @State private var structuralDisputes: [DisputeRow] = []
+    /// A pending corroborate-in-place offer for this profile's birth year —
+    /// an applied family census whose roster agrees with the recorded but
+    /// uncited year. Loaded with the fact records; nil when none.
+    @State private var censusCiteHint: CensusBackfill.Proposal?
+
     /// All evidence records for this profile (applied / researched / rejected),
     /// so a fact, marriage, or census row can expand to its complete evidence
     /// picture in context.
@@ -973,6 +978,29 @@ struct SharedProfileLayout: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                // Corroborate-in-place hint ON the profile (owner dogfood
+                // 2026-07-31: the offer only lived in Health — invisible
+                // here). An applied family census agrees with this uncited
+                // birth year; one click evidences it, changing nothing.
+                if field == .birthDate, let hint = censusCiteHint {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.seal")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.blue)
+                        Text("The applied \(String(hint.censusYear)) census (as \(hint.relationshipLabel)) agrees with this year — currently uncited")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.secondary)
+                        Button("Cite census") {
+                            appState.citeCensusOnRelative(hint)
+                            censusCiteHint = nil
+                            reloadFactRecords()
+                        }
+                        .buttonStyle(.glassProminent)
+                        .controlSize(.mini)
+                        .help("Attach the \(String(hint.censusYear)) census as evidence for this birth year — the value doesn't change; it becomes evidence-backed instead of an uncited import.")
+                    }
+                    .padding(.top, 2)
+                }
                 if expandedEvidenceKeys.contains(key) {
                     evidenceDisclosure(key: key, records: records)
                 }
@@ -1003,6 +1031,7 @@ struct SharedProfileLayout: View {
     private func reloadFactRecords() {
         guard let db = appState.currentDatabase else { factRecords = []; return }
         factRecords = (try? ProfileSourcesLedger.allRecords(for: profile.id, db: db, profile: profile)) ?? []
+        censusCiteHint = appState.censusCorroborationProposal(for: profile.id)
     }
 
     private func removeAppliedRecord(_ rec: ProfileSourcesLedger.RecordDetail) {

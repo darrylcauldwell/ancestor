@@ -3038,6 +3038,34 @@ final class AppState {
         CensusBackfill.corroborations(censuses: confirmedCensusSources(), snapshot: snapshot)
     }
 
+    /// Single-profile corroboration lookup for the profile card (owner
+    /// dogfood 2026-07-31: the offer lived only in Health — no hint on the
+    /// profile itself). Bounded: only the immediate family's censuses can
+    /// name this person under the linker's safety rules, so only those are
+    /// read — never the tree-wide sweep.
+    func censusCorroborationProposal(for profileID: String) -> CensusBackfill.Proposal? {
+        guard let db = currentDatabase, snapshot.profiles[profileID] != nil else { return nil }
+        var family: Set<String> = []
+        family.formUnion(snapshot.parentsOf(profileID).map(\.id))
+        family.formUnion(snapshot.spousesOf(profileID).map(\.id))
+        family.formUnion(snapshot.childrenOf(profileID).map(\.id))
+        family.formUnion(snapshot.siblingsOf(profileID).map(\.id))
+        var sources: [CensusBackfill.CensusSource] = []
+        for member in family {
+            let evidence = (try? db.loadEvidenceForProfile(member)) ?? []
+            for e in evidence where e.recordType == .census
+                && (e.verdict == .fact || e.userStatus == .savedAsLead)
+                && e.userStatus != .discarded {
+                guard case .census(let c) = e.record,
+                      let household = c.household, !household.isEmpty else { continue }
+                sources.append(CensusBackfill.CensusSource(subjectID: member, record: c))
+            }
+        }
+        guard !sources.isEmpty else { return nil }
+        return CensusBackfill.corroborations(censuses: sources, snapshot: snapshot)
+            .first { $0.targetProfileID == profileID }
+    }
+
     /// Every census ON a profile, with its household: scorer-confirmed
     /// (`verdict == .fact`) OR user-applied (`userStatus == .savedAsLead` —
     /// the apply path's stamp). The old fact-only filter silently skipped
