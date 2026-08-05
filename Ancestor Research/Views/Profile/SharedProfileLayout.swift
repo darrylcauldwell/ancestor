@@ -148,6 +148,9 @@ struct SharedProfileLayout: View {
     @State private var profileContradiction: ContradictoryFactsAudit.Finding?
     @State private var profileBackfill: CensusBackfill.Proposal?
     @State private var profileDeathAge: DeathAgeBackfillProposal?
+    /// An applied census whose household roster can still be loaded (FreeCen
+    /// enriches only the top hit) or absorbed into parents/siblings.
+    @State private var censusHousehold: AppState.CensusHouseholdProposal?
     @State private var healthStripExpanded = false
 
     /// All evidence records for this profile (applied / researched / rejected),
@@ -1069,6 +1072,7 @@ struct SharedProfileLayout: View {
             profileID: profile.id, profileName: profile.displayName, evidence: evidence)
         profileBackfill = appState.censusBackfillProposal(for: profile.id)
         profileDeathAge = appState.deathAgeBackfillProposal(for: profile.id)
+        censusHousehold = appState.censusHouseholdProposal(for: profile, evidence: evidence)
     }
 
     private func removeAppliedRecord(_ rec: ProfileSourcesLedger.RecordDetail) {
@@ -1100,6 +1104,7 @@ struct SharedProfileLayout: View {
             + (profileContradiction != nil ? 1 : 0)
             + (profileBackfill != nil ? 1 : 0)
             + (profileDeathAge != nil ? 1 : 0)
+            + (censusHousehold != nil ? 1 : 0)
     }
 
     @ViewBuilder
@@ -1159,6 +1164,39 @@ struct SharedProfileLayout: View {
                                     reloadFactRecords()
                                 }
                                 .buttonStyle(.glassProminent).controlSize(.mini)
+                            }
+                        }
+                        if let ch = censusHousehold {
+                            switch ch {
+                            case .needsLoad(let sourceRecordID, let year):
+                                healthStripRow(
+                                    icon: "person.2.badge.plus", tint: .blue,
+                                    text: "The \(String(year)) census household isn't loaded — fetch it to add parents & siblings"
+                                ) {
+                                    Button("Load household") {
+                                        Task {
+                                            _ = await appState.loadCensusHousehold(
+                                                sourceRecordID: sourceRecordID, profileID: profile.id)
+                                            reloadFactRecords()
+                                        }
+                                    }
+                                    .buttonStyle(.glassProminent).controlSize(.mini)
+                                    .help("Fetches this census's full schedule — one page from FreeCen — so its household family can be added.")
+                                }
+                            case .canAbsorb(let links, let year, let sourceID):
+                                healthStripRow(
+                                    icon: "person.2.badge.plus", tint: .blue,
+                                    text: "In the \(String(year)) census with \(links.count) household member\(links.count == 1 ? "" : "s") not on the tree"
+                                ) {
+                                    Button("Add \(links.count) family member\(links.count == 1 ? "" : "s")") {
+                                        _ = appState.addCensusFamily(
+                                            links: links, subject: profile,
+                                            censusYear: year, sourceID: sourceID)
+                                        reloadFactRecords()
+                                    }
+                                    .buttonStyle(.glassProminent).controlSize(.mini)
+                                    .help("Adds only the family rows (parents, spouse, children, siblings). Boarders, lodgers, visitors and servants are left out.")
+                                }
                             }
                         }
                         ForEach(profileFindings) { finding in

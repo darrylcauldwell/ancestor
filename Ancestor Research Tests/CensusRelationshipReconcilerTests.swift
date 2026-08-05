@@ -498,6 +498,49 @@ struct CensusRelationshipReconcilerTests {
                 "still exactly one Mary A in the tree")
     }
 
+    // MARK: - Profile-card household proposal (net-new link preview)
+
+    @Test func censusMemberGenderReadsSexThenRelationship() {
+        #expect(AppState.censusMemberGender(HouseholdMember(name: "Elizabeth", relationship: "Wife", age: 38)) == .female)
+        #expect(AppState.censusMemberGender(HouseholdMember(name: "George", relationship: "Son", age: 12)) == .male)
+        // Sex column wins when present.
+        #expect(AppState.censusMemberGender(HouseholdMember(name: "Pat", relationship: "Head", age: 40, sex: "F")) == .female)
+        // No sex column and no gendered relationship term → unknown.
+        #expect(AppState.censusMemberGender(HouseholdMember(name: "Chris", relationship: "Head", age: 40)) == nil)
+    }
+
+    /// John W Thompson's 1861 household (his live case): Head + Wife + siblings.
+    /// The proposal previews only family NOT already on the tree.
+    @MainActor
+    @Test func netNewLinksExcludeKinAlreadyOnTheTree() throws {
+        let db = try makeTempDB()
+        _ = try db.addProfile(person("johnw", "John W", "Thompson", birthYear: 1853), source: .gedcom)
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = try db.buildSnapshot()
+
+        let links: [CensusFamilyLinker.Link] = [
+            .init(member: HouseholdMember(name: "John Thompson", relationship: "Head", age: 55, sex: "M"), relation: .parent),
+            .init(member: HouseholdMember(name: "Elizabeth Thompson", relationship: "Wife", age: 38, sex: "F"), relation: .parent),
+            .init(member: member("George Thompson", "Son", age: 12), relation: .sibling),
+            .init(member: member("Mary E Thompson", "Dau", age: 5), relation: .sibling),
+        ]
+
+        // Nothing on the tree yet → every roster link is net-new.
+        let subject = try #require(appState.snapshot.profiles["johnw"])
+        #expect(appState.censusFamilyNetNewLinks(links, subject: subject, censusYear: 1861).count == 4)
+
+        // Add the father → his roster row is matched (name + census-age year) and
+        // drops out; the mother and both siblings remain net-new.
+        _ = try db.addProfile(person("john", "John", "Thompson", birthYear: 1806), source: .gedcom)
+        _ = try db.addRelationship(parentEdge("john", "johnw"))
+        appState.snapshot = try db.buildSnapshot()
+        let subject2 = try #require(appState.snapshot.profiles["johnw"])
+        let net = appState.censusFamilyNetNewLinks(links, subject: subject2, censusYear: 1861)
+        #expect(net.count == 3)
+        #expect(!net.contains { $0.member.name == "John Thompson" })
+    }
+
     /// A census address is a household fact: applying it broadcasts to the whole
     /// household — the subject and each 1-hop relative that matches a roster row
     /// gets a census life-event for that year carrying the shared address plus

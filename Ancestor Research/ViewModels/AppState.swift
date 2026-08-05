@@ -2468,24 +2468,9 @@ final class AppState {
         guard let db = currentDatabase else { return (0, 0) }
         let source = SourceOrigin(identifier: sourceID)
 
-        func gender(_ sex: String?) -> Gender? {
-            guard let s = sex?.trimmingCharacters(in: .whitespaces).uppercased(), let f = s.first else { return nil }
-            return f == "F" ? .female : (f == "M" ? .male : nil)
-        }
-        // Gender with a census-relationship fallback: many transcriptions omit
-        // the Sex column, but the "Relationship to Head" term is decisive — a
-        // "Wife" is female, a "Head"/"Father" male. Needed so a sexless Wife row
-        // is still recognised as the mother (for the parent-edge role) AND as a
-        // married-in woman (for the surname handling below).
-        func genderOf(_ m: HouseholdMember) -> Gender? {
-            if let g = gender(m.sex) { return g }
-            let rel = m.relationship.lowercased()
-            if rel.contains("wife") || rel.contains("widow") || rel.contains("mother")
-                || rel.hasPrefix("dau") || rel.contains("daughter") || rel.contains("sister") { return .female }
-            if rel.contains("husband") || rel.contains("widower") || rel.contains("father")
-                || rel.contains("son") || rel.contains("brother") { return .male }
-            return nil
-        }
+        // Gender with a census-relationship fallback (hoisted to a static so the
+        // profile-card household proposal classifies the mother/father the same).
+        func genderOf(_ m: HouseholdMember) -> Gender? { Self.censusMemberGender(m) }
         func role(for member: HouseholdMember) -> ParentRole {
             switch genderOf(member) {
             case .female: return .mother
@@ -2605,6 +2590,100 @@ final class AppState {
             errorMessage = "Add family from census failed: \(error.localizedDescription)"
         }
         return (added, skipped)
+    }
+
+    /// Gender of a census household member: the Sex column when present, else the
+    /// decisive "Relationship to Head" term (a Wife is female, a Father male).
+    /// Shared by `addCensusFamily` (edge roles + married-in surname handling) and
+    /// `censusFamilyNetNewLinks` so both agree on who the mother/father is.
+    nonisolated static func censusMemberGender(_ m: HouseholdMember) -> Gender? {
+        if let s = m.sex?.trimmingCharacters(in: .whitespaces).uppercased(), let f = s.first {
+            if f == "F" { return .female }
+            if f == "M" { return .male }
+        }
+        let rel = m.relationship.lowercased()
+        if rel.contains("wife") || rel.contains("widow") || rel.contains("mother")
+            || rel.hasPrefix("dau") || rel.contains("daughter") || rel.contains("sister") { return .female }
+        if rel.contains("husband") || rel.contains("widower") || rel.contains("father")
+            || rel.contains("son") || rel.contains("brother") { return .male }
+        return nil
+    }
+
+    /// The household-roster state of a subject's APPLIED census, for the
+    /// profile-card Health strip. FreeCen enriches only the top search hit at
+    /// search time, so a non-top-hit census (owner report 2026-08-05: John W
+    /// Thompson's 1861) arrives applied but roster-less — and with no roster its
+    /// parents/siblings can never be absorbed. Prefers "load the roster" then
+    /// "absorb the family the roster holds".
+    enum CensusHouseholdProposal: Equatable {
+        /// Applied census with a detail page but no roster yet — fetch it.
+        case needsLoad(sourceRecordID: String, censusYear: Int)
+        /// Roster present; these family members aren't on the tree yet.
+        case canAbsorb(links: [CensusFamilyLinker.Link], censusYear: Int, sourceID: String)
+    }
+
+    /// Compute the census-household proposal for a subject from its already-loaded
+    /// evidence (the caller shares one `loadEvidenceForProfile` across the strip).
+    /// Nil when no applied census needs loading and none has absorbable family.
+    func censusHouseholdProposal(for subject: Profile, evidence: [EvidenceRecord]) -> CensusHouseholdProposal? {
+        var absorb: CensusHouseholdProposal?
+        // The apply path marks an applied record `.savedAsLead` (a historical
+        // quirk the MCP notes call out) — that's the applied-census signal here.
+        for ev in evidence where ev.userStatus == .savedAsLead {
+            guard case .census(let c) = ev.record else { continue }
+            if Self.censusNeedsHousehold(ev.record) {
+                return .needsLoad(sourceRecordID: ev.sourceRecordID, censusYear: c.censusYear)
+            }
+            guard absorb == nil else { continue }
+            let newLinks = censusFamilyNetNewLinks(
+                CensusFamilyLinker.familyLinks(household: c.household ?? []),
+                subject: subject, censusYear: c.censusYear)
+            if !newLinks.isEmpty {
+                absorb = .canAbsorb(links: newLinks, censusYear: c.censusYear, sourceID: c.common.sourceID)
+            }
+        }
+        return absorb
+    }
+
+    /// Links NOT already on the tree — mirrors the per-relation skip logic in
+    /// `addCensusFamily` so the proposal never offers to add family the tree
+    /// already holds (or a second father/mother). Slight over-count is harmless:
+    /// `addCensusFamily` is idempotent and reports the real (added, skipped).
+    func censusFamilyNetNewLinks(
+        _ links: [CensusFamilyLinker.Link], subject: Profile, censusYear: Int?
+    ) -> [CensusFamilyLinker.Link] {
+        func present(_ m: HouseholdMember, among candidates: [Profile]) -> Bool {
+            candidates.contains {
+                CensusRelationshipReconciler.matches(member: m, profile: $0, censusYear: censusYear)
+            }
+        }
+        let existingParents = snapshot.parentsOf(subject.id)
+        let rosterHasParent = links.contains { $0.relation == .parent }
+        var out: [CensusFamilyLinker.Link] = []
+        for link in links {
+            switch link.relation {
+            case .parent:
+                // Skip if the subject already has a parent of this role.
+                let roleFilled: Bool = switch Self.censusMemberGender(link.member) {
+                case .male:   existingParents.contains { $0.gender == .male }
+                case .female: existingParents.contains { $0.gender == .female }
+                default:      false
+                }
+                if roleFilled || present(link.member, among: existingParents) { continue }
+            case .spouse:
+                if present(link.member, among: snapshot.spousesOf(subject.id)) { continue }
+            case .child:
+                if present(link.member, among: snapshot.childrenOf(subject.id)) { continue }
+            case .sibling:
+                // Siblings hang on the subject's parents; skip if none exist and
+                // none are coming from this roster.
+                if existingParents.isEmpty && !rosterHasParent { continue }
+                let existingSiblings = existingParents.flatMap { snapshot.childrenOf($0.id) }
+                if present(link.member, among: existingSiblings) { continue }
+            }
+            out.append(link)
+        }
+        return out
     }
 
     /// Absorb a census across the WHOLE household (owner request 2026-08-05): a
