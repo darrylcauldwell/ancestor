@@ -28,6 +28,12 @@ func bootstrapSources(registry: SourceRegistry) {
     // (Reverses the 2026-07-27 link-only retirement, restoring free-trio parity.)
     registry.register(FreeREGSource())
 
+    // Memorial inscriptions (Wishful Thinking), Chapman-templated: one on-demand
+    // parish page per lookup, never a crawl (TEMPLATED_NARRATIVE_SOURCE_SPEC).
+    // Terms permit personal research; the firewall keeps verbatim prose out of
+    // the Publisher. Only fires when a subject resolves to a parish + county.
+    registry.register(MemorialInscriptionRecordSource())
+
     // FamilySearch historical records over the official OAuth Platform API
     // (owner 2026-07-21: records ARE granted at our Beta tier — live-verified,
     // ~21k hits for a real subject — so the pivot's "records are walled"

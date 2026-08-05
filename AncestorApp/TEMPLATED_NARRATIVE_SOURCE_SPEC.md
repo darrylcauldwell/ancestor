@@ -56,10 +56,16 @@ required; **one on-demand page per lookup — never a crawl**.
   templating (`MemorialInscriptionSource`).
 - **Stage 1 — THIS.** Generic `TemplatedSourceConfig` + `TemplatedURLResolver` +
   the ToS-verified wishful-thinking config, tested. Adding a site is now a config.
-- **Stage 2 — DEFERRED.** Live `RecordSource` wiring — one on-demand fetch (reuse
-  `ProseCorpusSource` retrieval, single-page + paced), parser dispatch, then
-  firewall-gated pending evidence. `scopeHandling = .scoped` on the subject's
-  Chapman code, so it participates only when a parish resolves.
+- **Stage 2 — SHIPPED (source + wiring), live-run verify owed.**
+  `MemorialInscriptionRecordSource` (actor, `RecordSource`): templates one parish
+  page, fetches (injectable; production = one paced GET), parses, maps to burial
+  records (facts only). Registered in `SourceBootstrap`; the dispatcher's
+  `buildQueries` emits a `.memorialInscription` query when a subject resolves to a
+  Chapman code + a parish (burial place, else death place) — else no query.
+  `scopeHandling = .scoped`. Tested fixture-driven (fetch→parse→burials with birth
+  years); 36-test dispatch/cache regression green. **Owed:** a real research run
+  against the live volunteer site to confirm end-to-end behaviour (parser handles
+  the real HTML, pacing is polite).
 - **Stage 3 — DEFERRED.** User-add UI (paste a template, pick a parser, verify
   terms) + additional bundled configs after verifying each site's URL scheme and
   terms: **GENUKI** (`genuki.org.uk/big/eng/{chapman}/{parish}`), county **OPC**
