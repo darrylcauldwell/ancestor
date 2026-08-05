@@ -577,74 +577,14 @@ struct ClusterReviewView: View {
 
             // Records
             ForEach(liveRecords, id: \.id) { scored in
-                recordRow(scored, soleRecord: liveRecords.count == 1)
+                recordRow(scored, cluster: cluster, soleRecord: liveRecords.count == 1)
             }
 
-            // Household members — this roster is mined from the cluster's CENSUS
-            // record but renders at the bottom of the card, so without the census
-            // provenance in the heading it reads as belonging to the last record
-            // (a death, here). Label it so the source is unambiguous.
-            if !cluster.householdMembers.isEmpty {
-                Divider()
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(householdCensusYear(cluster).map { "Household members · \($0) census" }
-                         ?? "Household members")
-                        .font(AppTypography.cardMeta)
-                        .foregroundStyle(.secondary)
-                    ForEach(Array(cluster.householdMembers.enumerated()), id: \.offset) { _, member in
-                        HStack(spacing: 8) {
-                            Text(member.name)
-                                .font(AppTypography.cardBody)
-                            if let rel = member.relationship.nilIfEmpty {
-                                Text(rel)
-                                    .font(AppTypography.badge)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            if let age = member.age {
-                                Text("age \(age)")
-                                    .font(AppTypography.badge)
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                    }
-                    // Mine the roster into family links — parents, spouse,
-                    // children, siblings only; boarders/lodgers/servants are
-                    // excluded by CensusFamilyLinker. Human-confirmed via the
-                    // dialog before anything is written.
-                    if let ctx = censusFamilyContext(cluster), vm.selectedProfile != nil {
-                        Button {
-                            pendingCensusFamily = PendingCensusFamily(
-                                links: ctx.links, year: ctx.year, sourceID: ctx.sourceID)
-                        } label: {
-                            Label("Add \(ctx.links.count) family member\(ctx.links.count == 1 ? "" : "s")",
-                                  systemImage: "person.2.badge.plus")
-                        }
-                        .buttonStyle(.glass)
-                        .controlSize(.small)
-                        .padding(.top, 4)
-                        .help("Adds only the family rows (parents, spouse, children, siblings). Boarders, lodgers, visitors and servants are left out.")
-                    }
-                }
-                .confirmationDialog(
-                    "Add family from this census?",
-                    isPresented: Binding(
-                        get: { pendingCensusFamily != nil },
-                        set: { if !$0 { pendingCensusFamily = nil } }),
-                    presenting: pendingCensusFamily
-                ) { pending in
-                    Button("Add \(pending.links.count) to tree") {
-                        if let subject = vm.selectedProfile {
-                            _ = appState.addCensusFamily(
-                                links: pending.links, subject: subject,
-                                censusYear: pending.year, sourceID: pending.sourceID)
-                        }
-                        pendingCensusFamily = nil
-                    }
-                    Button("Cancel", role: .cancel) { pendingCensusFamily = nil }
-                } message: { pending in
-                    Text(censusFamilySummary(pending.links))
-                }
-            }
+            // Household roster + "Add family" now live inside the CENSUS record's
+            // expander (see recordRow) so they read as evidence of that record,
+            // not as free-floating card content. The confirmation dialog is
+            // hoisted to the card root below so it survives regardless of which
+            // record is expanded.
 
             Divider()
 
@@ -758,6 +698,29 @@ struct ClusterReviewView: View {
         .padding(14)
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
         .opacity(decision == .rejected ? 0.5 : 1.0)
+        // Hoisted from the (removed) card-bottom household block — the trigger
+        // (the "Add family" button) now lives inside the census record expander,
+        // but the dialog attaches to the card root so it presents no matter which
+        // record is expanded.
+        .confirmationDialog(
+            "Add family from this census?",
+            isPresented: Binding(
+                get: { pendingCensusFamily != nil },
+                set: { if !$0 { pendingCensusFamily = nil } }),
+            presenting: pendingCensusFamily
+        ) { pending in
+            Button("Add \(pending.links.count) to tree") {
+                if let subject = vm.selectedProfile {
+                    _ = appState.addCensusFamily(
+                        links: pending.links, subject: subject,
+                        censusYear: pending.year, sourceID: pending.sourceID)
+                }
+                pendingCensusFamily = nil
+            }
+            Button("Cancel", role: .cancel) { pendingCensusFamily = nil }
+        } message: { pending in
+            Text(censusFamilySummary(pending.links))
+        }
     }
 
     // MARK: - Record Row
@@ -781,17 +744,7 @@ struct ClusterReviewView: View {
         else { expandedRecords.insert(id) }
     }
 
-    /// Census year the cluster's household roster came from — used to label the
-    /// household section with its provenance (it renders at the card bottom and
-    /// otherwise looks like it belongs to whatever record sits above it).
-    private func householdCensusYear(_ cluster: LifeCluster) -> Int? {
-        for scored in cluster.records {
-            if case .census(let census) = scored.record { return census.censusYear }
-        }
-        return nil
-    }
-
-    private func recordRow(_ scored: ScoredRecord, soleRecord: Bool = false) -> some View {
+    private func recordRow(_ scored: ScoredRecord, cluster: LifeCluster, soleRecord: Bool = false) -> some View {
         let citation = CitationRenderer.cite(scored.record)
         // A lone record in its own cluster stays expanded — it IS the focus
         // and there's no list to scroll, so no view-tree cost to avoid.
@@ -970,10 +923,15 @@ struct ClusterReviewView: View {
                     // Census household — surface the full roster in the record
                     // detail so who is on the schedule is visible in-app, not only
                     // via the source link. Mirrors the applied-event census view.
+                    // The "Add family" action lives HERE, with its evidence, so
+                    // the roster and the button that mines it read as belonging to
+                    // this census record — not floating at the card bottom where
+                    // they looked like they belonged to whatever record sat above
+                    // (owner report 2026-08-04).
                     if case .census(let censusRec) = scored.record,
                        let household = censusRec.household, !household.isEmpty {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Household (\(household.count))")
+                            Text("Household (\(household.count)) · \(censusRec.censusYear) census")
                                 .font(AppTypography.cardMeta)
                                 .foregroundStyle(.secondary)
                             ForEach(Array(household.enumerated()), id: \.offset) { _, member in
@@ -993,6 +951,27 @@ struct ClusterReviewView: View {
                                     }
                                     Spacer()
                                 }
+                            }
+                            // Mine the roster into family links — parents, spouse,
+                            // children, siblings only; boarders/lodgers/servants
+                            // are excluded by CensusFamilyLinker. Styled as a
+                            // green prominent apply, matching the record-apply
+                            // vocabulary: adding family members writes to the tree
+                            // exactly as applying a record does. Human-confirmed
+                            // via the dialog before anything is written.
+                            if let ctx = censusFamilyContext(cluster), vm.selectedProfile != nil {
+                                Button {
+                                    pendingCensusFamily = PendingCensusFamily(
+                                        links: ctx.links, year: ctx.year, sourceID: ctx.sourceID)
+                                } label: {
+                                    Label("Add \(ctx.links.count) family member\(ctx.links.count == 1 ? "" : "s")",
+                                          systemImage: "person.2.badge.plus")
+                                }
+                                .buttonStyle(.glassProminent)
+                                .tint(.green)
+                                .controlSize(.small)
+                                .padding(.top, 6)
+                                .help("Adds only the family rows (parents, spouse, children, siblings). Boarders, lodgers, visitors and servants are left out.")
                             }
                         }
                     }
@@ -1169,11 +1148,26 @@ struct ClusterReviewView: View {
             addInt("Year", r.marriageYear)
             add("Quarter", r.quarter)
             add("District", r.district)
-            add("Spouse", r.spouseName)
+            let hasSpouse = !(r.spouseName?.trimmingCharacters(in: .whitespaces).isEmpty ?? true)
+            let hasInferred = !(r.partnerSurnameFromSamePage?.trimmingCharacters(in: .whitespaces).isEmpty ?? true)
+            if hasSpouse {
+                add("Spouse", r.spouseName)
+            } else if !hasInferred {
+                // The GRO marriage index does not pair the two parties before
+                // 1912 — each spouse is a separate index line sharing the same
+                // district/volume/page. So a blank spouse here is a limit of the
+                // free index, not lost data: say where to find it rather than
+                // showing nothing (owner report 2026-08-04).
+                let ref = [r.volume, r.page].compactMap { $0 }.joined(separator: "/")
+                let findVia = ref.isEmpty ? "on the certificate" : "via same page \(ref) or the certificate"
+                add("Spouse", (r.marriageYear ?? 0) < 1912
+                    ? "not in the free index (pre-1912 lines aren't paired) — find \(findVia)"
+                    : "not captured in the index — find \(findVia)")
+            }
             add("Volume", r.volume)
             add("Page", r.page)
-            if let inferred = r.partnerSurnameFromSamePage,
-               !inferred.trimmingCharacters(in: .whitespaces).isEmpty {
+            if hasInferred {
+                let inferred = r.partnerSurnameFromSamePage!
                 let ref = [r.volume, r.page].compactMap { $0 }.joined(separator: "/")
                 let suffix = ref.isEmpty ? "" : " at \(ref)"
                 add("Partner (inferred)", "\(inferred) — same-page entry\(suffix)")
