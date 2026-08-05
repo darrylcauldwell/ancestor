@@ -2688,21 +2688,33 @@ final class AppState {
     /// Nil when no applied census needs loading and none has absorbable family.
     func censusHouseholdProposal(for subject: Profile, evidence: [EvidenceRecord]) -> CensusHouseholdProposal? {
         // A census counts as applied when the apply path marked its evidence
-        // `.savedAsLead`, OR when a census life-event on this profile cites the
-        // same record. The parent-unlock apply path lands the census as a
+        // `.savedAsLead`, OR when a census LIFE EVENT projected from it already
+        // sits on this profile. The parent-unlock apply lands the census as a
         // life-event + facts WITHOUT stamping the evidence status (owner report
         // 2026-08-05: Albert Beresford's applied childhood census offered no
-        // household load). Match by the census's own detail URL, never its year —
-        // a profile can carry several same-year census namesakes as leads.
-        let appliedCensusURLs = Set((snapshot.lifeEvents[subject.id] ?? [])
+        // household load). Match on the deterministic life-event id (derived from
+        // profile + census record id) — it links evidence to its projected event
+        // exactly, works RETROACTIVELY for censuses applied before the stamp/
+        // citation fixes, and never confuses same-year census namesakes.
+        let appliedCensusLifeEventIDs = Set((snapshot.lifeEvents[subject.id] ?? [])
             .filter { $0.type == .census }
-            .flatMap { $0.sources }
+            .map { $0.id })
+        // The surest retroactive signal: a census whose OWN detail URL is cited by
+        // a confirmed fact on the profile was applied — no matter which path
+        // landed it or when (Albert Beresford's birth facts cite his 1891 census
+        // URL, though his evidence was never stamped and his life-event pre-dates
+        // the citation fix).
+        let appliedCitationURLs = Set(subject.sources.values.flatMap { $0 }
             .compactMap { $0.citation?.url })
         var absorb: CensusHouseholdProposal?
         for ev in evidence {
             guard case .census(let c) = ev.record else { continue }
+            let projectedID = SourceRecord.deterministicID(
+                profileID: subject.id, sourceRecordID: c.common.id)
+            let citedByFact = c.common.detailURL.map { appliedCitationURLs.contains($0) } ?? false
             let applied = ev.userStatus == .savedAsLead
-                || (c.common.detailURL.map { appliedCensusURLs.contains($0) } ?? false)
+                || appliedCensusLifeEventIDs.contains(projectedID)
+                || citedByFact
             guard applied else { continue }
             if Self.censusNeedsHousehold(ev.record) {
                 return .needsLoad(sourceRecordID: ev.sourceRecordID, censusYear: c.censusYear)
