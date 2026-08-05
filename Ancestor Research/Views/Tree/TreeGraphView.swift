@@ -652,7 +652,18 @@ struct TreeGraphView: View {
 
     private func selectInitialRoot() {
         guard treeVM.rootProfileID == nil, !appState.snapshot.profiles.isEmpty else { return }
-        if let rootID = naturalRootID {
+        // `treeVM` is view-local @State, so leaving the Tree tab (e.g. to run
+        // Research) and coming back builds a fresh view model with no root. Honour
+        // the app-wide selection FIRST — the profile whose card is open, set when
+        // the user "Focus Here"'d or clicked a name to come back — so we re-root on
+        // the person they're looking at rather than snapping to the natural
+        // default. Cold start (no valid selection) still falls back to the natural
+        // root. (Owner report 2026-08-05: Focus Here → research → back didn't
+        // return to the focused person.)
+        let selected = appState.selectedProfileID.flatMap {
+            appState.snapshot.profiles[$0] != nil ? $0 : nil
+        }
+        if let rootID = selected ?? naturalRootID {
             treeVM.rootProfileID = rootID
             treeVM.selectedProfileID = rootID
         }
