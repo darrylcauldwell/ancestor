@@ -577,28 +577,42 @@ struct CensusRelationshipReconcilerTests {
         appState.snapshot = try db.buildSnapshot()
 
         let household = [
-            HouseholdMember(name: "John Thompson", relationship: "Head", age: 55, sex: "M"),
-            HouseholdMember(name: "Elizabeth Thompson", relationship: "Wife", age: 38, sex: "F"),
+            HouseholdMember(name: "John Thompson", relationship: "Head", age: 55, sex: "M",
+                            birthCounty: "Staffordshire"),
+            HouseholdMember(name: "Elizabeth Thompson", relationship: "Wife", age: 38,
+                            birthPlace: "Kingsley", sex: "F", birthCounty: "Staffordshire"),
             HouseholdMember(name: "John W Thompson", relationship: "Son", age: 8, sex: "M", isTarget: true),
-            HouseholdMember(name: "William Burnett", relationship: "Fa-Law", age: 74, sex: "M"),
+            HouseholdMember(name: "William Burnett", relationship: "Fa-Law", age: 74,
+                            birthPlace: "Grindon", sex: "M", birthCounty: "Staffordshire"),
         ]
         let links = CensusFamilyLinker.familyLinks(household: household)
+        let subject = try #require(appState.snapshot.profiles["johnw"])
         let result = appState.addCensusFamily(
-            links: links, subject: try #require(appState.snapshot.profiles["johnw"]),
+            links: links, subject: subject,
             censusYear: 1861, sourceID: "freecen", household: household)
 
         // Father + mother + grandfather = 3 new people.
         #expect(result.added == 3)
         let profiles = appState.snapshot.profiles.values
-        // Elizabeth carries her maiden surname from the in-law, not "Thompson".
+        // Elizabeth carries her maiden surname from the in-law, not "Thompson",
+        // and her census birthplace (owner report: it was blank).
         let elizabeth = try #require(profiles.first { $0.firstName == "Elizabeth" })
         #expect(elizabeth.lastName == "Burnett", "the Fa-Law's surname is her maiden name")
         #expect(elizabeth.marriedSurname == "Thompson")
+        #expect(elizabeth.birthLocation == "Kingsley, Staffordshire")
         // William Burnett exists and is Elizabeth's father (John W's grandfather).
         let william = try #require(profiles.first { $0.firstName == "William" && $0.lastName == "Burnett" })
+        #expect(william.birthLocation == "Grindon, Staffordshire")
         let elizabethParents = appState.snapshot.parentsOf(elizabeth.id)
         #expect(elizabethParents.contains { $0.id == william.id },
                 "Burnett is wired as the mother's father — a maternal grandfather")
+
+        // Dedup: with the grandfather now on the tree, the in-law offer clears
+        // (the raw roster still lists him, but he's no longer net-new).
+        let subject2 = try #require(appState.snapshot.profiles["johnw"])
+        let stillNew = appState.censusInLawNetNew(
+            CensusFamilyLinker.inLawLinks(household: household), subject: subject2, censusYear: 1861)
+        #expect(stillNew.isEmpty, "the grandfather is already on the tree — no repeat offer")
     }
 
     /// A census address is a household fact: applying it broadcasts to the whole

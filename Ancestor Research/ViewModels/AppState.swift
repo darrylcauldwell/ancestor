@@ -2498,11 +2498,21 @@ final class AppState {
             let middle = tokens.count > 2 ? tokens[1..<(tokens.count - 1)].map(recase).joined(separator: " ") : nil
             let year: Int? = m.birthYear ?? (censusYear.flatMap { cy in m.age.map { cy - $0 } })
             let birth = year.map { GenealogicalDate(parsing: "abt \($0)") }
+            // Birthplace from the census row — "Place, County" (Kingsley,
+            // Staffordshire), either part optional (owner report 2026-08-05: an
+            // added census person had a blank birthplace though the roster carried
+            // one). The member's own row is their own attestation.
+            let birthLocation: String? = {
+                let parts = [m.birthPlace, m.birthCounty]
+                    .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                return parts.isEmpty ? nil : parts.joined(separator: ", ")
+            }()
             return Profile(id: UUID().uuidString, externalIDs: [:], firstName: first, middleName: middle,
                            lastName: marriedIn ? nil : censusSurname,
                            marriedSurname: marriedIn ? censusSurname : nil,
                            gender: genderOf(m), attributes: nil,
-                           birthDate: birth, birthLocation: nil, deathDate: nil, deathLocation: nil,
+                           birthDate: birth, birthLocation: birthLocation, deathDate: nil, deathLocation: nil,
                            bio: nil, isDeleted: false, sources: [:], disputes: [:])
         }
 
@@ -2667,8 +2677,10 @@ final class AppState {
         /// Applied census with a detail page but no roster yet — fetch it.
         case needsLoad(sourceRecordID: String, censusYear: Int)
         /// Roster present; these family members aren't on the tree yet. Carries
-        /// the full roster so `addCensusFamily` can also wire in-law grandparents.
-        case canAbsorb(links: [CensusFamilyLinker.Link], censusYear: Int, sourceID: String, household: [HouseholdMember])
+        /// the full roster so `addCensusFamily` can also wire in-law grandparents,
+        /// plus the count of in-law grandparents STILL net-new (so the offer
+        /// clears once they're added, not just the nuclear rows).
+        case canAbsorb(links: [CensusFamilyLinker.Link], censusYear: Int, sourceID: String, household: [HouseholdMember], inLawCount: Int)
     }
 
     /// Compute the census-household proposal for a subject from its already-loaded
@@ -2687,10 +2699,13 @@ final class AppState {
             let newLinks = censusFamilyNetNewLinks(
                 CensusFamilyLinker.familyLinks(household: c.household ?? []),
                 subject: subject, censusYear: c.censusYear)
-            let inLaws = CensusFamilyLinker.inLawLinks(household: c.household ?? [])
+            let inLaws = censusInLawNetNew(
+                CensusFamilyLinker.inLawLinks(household: c.household ?? []),
+                subject: subject, censusYear: c.censusYear)
             if !newLinks.isEmpty || !inLaws.isEmpty {
                 absorb = .canAbsorb(links: newLinks, censusYear: c.censusYear,
-                                    sourceID: c.common.sourceID, household: c.household ?? [])
+                                    sourceID: c.common.sourceID, household: c.household ?? [],
+                                    inLawCount: inLaws.count)
             }
         }
         return absorb
@@ -2735,6 +2750,25 @@ final class AppState {
             out.append(link)
         }
         return out
+    }
+
+    /// In-law links whose grandparent is NOT already on the tree — so once the
+    /// grandparent has been absorbed the offer clears (mirrors the in-law dedup
+    /// in `addCensusFamily`; without this the roster's raw in-law count made the
+    /// "Add … in-law grandparent" row persist forever — owner report 2026-08-05).
+    func censusInLawNetNew(
+        _ inLaws: [CensusFamilyLinker.InLawLink], subject: Profile, censusYear: Int?
+    ) -> [CensusFamilyLinker.InLawLink] {
+        inLaws.filter { il in
+            // The married-in person this in-law is the parent of, on the tree.
+            let target: Profile? = il.parentOfRelation == .parent
+                ? snapshot.parentsOf(subject.id).first(where: { $0.gender == .female })
+                : snapshot.spousesOf(subject.id).first(where: { $0.gender == .female })
+            guard let target else { return true }   // target not on tree yet → net-new
+            return !snapshot.parentsOf(target.id).contains {
+                CensusRelationshipReconciler.matches(member: il.member, profile: $0, censusYear: censusYear)
+            }
+        }
     }
 
     /// Absorb a census across the WHOLE household (owner request 2026-08-05): a
