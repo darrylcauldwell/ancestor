@@ -3617,7 +3617,8 @@ final class AppState {
         let evidence = (try? db.loadEvidenceForProfile(profileID)) ?? []
         let candidates = CensusParentUnlockAudit.candidates(from: evidence)
         guard let winner = ChildhoodCensusRanker.best(
-                subjectBirthYear: birthYear, subjectCounty: profile.birthLocation,
+                subjectBirthYear: birthYear,
+                subjectCounty: CensusParentUnlockAudit.resolvedCounty(profile.birthLocation),
                 candidates: candidates),
               let evidenceRow = evidence.first(where: { $0.id == winner.id }),
               case .census(let census) = evidenceRow.record else { return .noCandidate }

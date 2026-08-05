@@ -88,6 +88,32 @@ struct ChildhoodCensusRankerTests {
         #expect(ranked.first?.candidate.id == "hamptonwick")
     }
 
+    @Test func disqualifiesABirthCountyContradictingNamesake() {
+        // Owner report 2026-08-05: George Herbert Brooks, b.1883 BELPER (Derbyshire),
+        // had a born-COLEORTON (Leicestershire) census picked on age alone and got
+        // the wrong parents grafted on. With the subject county known, a census
+        // whose BIRTH county differs must be excluded, not merely penalised.
+        let cands = [
+            C(id: "coleorton", censusYear: 1891, impliedBirthYear: 1883,
+              place: "Coleorton, Leicestershire", birthCounty: "Leicestershire"),
+        ]
+        #expect(ChildhoodCensusRanker.best(
+            subjectBirthYear: 1883, subjectCounty: "Derbyshire", candidates: cands) == nil,
+            "a born-Leicestershire census is not a Derbyshire-born subject's parental home")
+
+        // A same-county census is still chosen.
+        let right = [
+            C(id: "belper", censusYear: 1891, impliedBirthYear: 1883,
+              place: "Belper, Derbyshire", birthCounty: "Derbyshire"),
+        ]
+        #expect(ChildhoodCensusRanker.best(
+            subjectBirthYear: 1883, subjectCounty: "Derbyshire", candidates: right)?.id == "belper")
+
+        // Unknown subject county → no disqualification, ranks on age (no regression).
+        #expect(ChildhoodCensusRanker.best(
+            subjectBirthYear: 1883, subjectCounty: nil, candidates: cands)?.id == "coleorton")
+    }
+
     @Test func normalizeCountyStripsChapmanCodeAndVillage() {
         #expect(ChildhoodCensusRanker.normalizeCounty("Halam, Nottinghamshire") == "nottinghamshire")
         #expect(ChildhoodCensusRanker.normalizeCounty("Farnsfield, Nottinghamshire (NTT)") == "nottinghamshire")

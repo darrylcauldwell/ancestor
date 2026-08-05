@@ -29,8 +29,24 @@ nonisolated enum CensusParentUnlockAudit {
             let implied = c.birthYear ?? c.age.map { c.censusYear - $0 }
             let place = c.birthCounty ?? c.birthPlace ?? c.district ?? c.parish
             return ChildhoodCensusRanker.Candidate(
-                id: e.id, censusYear: c.censusYear, impliedBirthYear: implied, place: place)
+                id: e.id, censusYear: c.censusYear, impliedBirthYear: implied,
+                place: place, birthCounty: c.birthCounty)
         }
+    }
+
+    /// Resolve a subject's birthplace to its COUNTY for the ranker's county
+    /// guard. A place already carrying a county (comma-form) passes through; a
+    /// bare registration district ("Belper") resolves to its county
+    /// ("Derbyshire") via the catalogue; a bare village with no match returns nil
+    /// — unknown county, so the ranker falls back to age with no false exclusion.
+    static func resolvedCounty(_ place: String?) -> String? {
+        guard let place = place?.trimmingCharacters(in: .whitespaces), !place.isEmpty else { return nil }
+        if place.contains(",") { return place }
+        if let chapman = ChapmanCodeResolver.chapmanCode(forPlaceText: place) {
+            let county = RecordScorer.countyName(forChapman: chapman)
+            if !county.isEmpty { return county }
+        }
+        return nil
     }
 
     /// The finding for a parentless profile with a rankable childhood census, else
@@ -43,7 +59,7 @@ nonisolated enum CensusParentUnlockAudit {
         guard !hasParents, let year = birthYear else { return nil }
         let cands = candidates(from: evidence)
         guard let best = ChildhoodCensusRanker.best(
-            subjectBirthYear: year, subjectCounty: birthLocation, candidates: cands)
+            subjectBirthYear: year, subjectCounty: resolvedCounty(birthLocation), candidates: cands)
         else { return nil }
 
         let where_ = ChildhoodCensusRanker.normalizeCounty(best.place)

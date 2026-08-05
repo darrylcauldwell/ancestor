@@ -24,6 +24,12 @@ nonisolated enum ChildhoodCensusRanker {
         let impliedBirthYear: Int?
         /// Census-stated place (residence or birthplace) — used for county match.
         let place: String?
+        /// The census's stated BIRTH county specifically (never the enumeration
+        /// place), when known. Used to DISQUALIFY a namesake whose birthplace
+        /// county contradicts the subject's — a person born in Leicestershire is
+        /// not one born in Derbyshire. Defaulted so existing callers/tests keep
+        /// compiling. (owner report 2026-08-05, George Herbert Brooks.)
+        var birthCounty: String? = nil
     }
 
     struct Ranked: Equatable, Sendable {
@@ -44,6 +50,20 @@ nonisolated enum ChildhoodCensusRanker {
         let ranked = candidates.compactMap { c -> Ranked? in
             let age = c.censusYear - subjectBirthYear
             guard age >= 0, age <= childhoodMaxAge else { return nil }  // childhood only
+
+            // DISQUALIFY a birthplace-contradicting namesake. When the census's
+            // stated BIRTH county is known AND the subject's birth county is known
+            // (the caller resolves a bare district like "Belper" → "Derbyshire")
+            // AND they differ, this is a different person — never their parents'
+            // home. A hard exclusion, not a penalty: without it the ranker fell
+            // back to age-alone and grafted the wrong parents (owner report
+            // 2026-08-05: George b.Belper/Derbyshire got a born-Coleorton/
+            // Leicestershire census). Fires ONLY when both counties are known, so
+            // an unresolvable subject county still ranks on age as before.
+            if let sc = subjCounty, !sc.isEmpty,
+               let cbc = normalizeCounty(c.birthCounty), !cbc.isEmpty, sc != cbc {
+                return nil
+            }
 
             var score = 0.0
             // County match is the strongest signal available without a family
