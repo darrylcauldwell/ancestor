@@ -467,6 +467,37 @@ struct CensusRelationshipReconcilerTests {
         #expect(george.marriedSurname == nil)
     }
 
+    /// Applying a SECOND child's census must not re-create siblings the tree
+    /// already holds: the roster lists the whole nuclear family, but the create
+    /// path dedups each member by name + birth year against the existing children
+    /// of the shared parents. (Owner report 2026-08-05: applying Sarah Ann's
+    /// census duplicated Mary A / Lydia, already added from Abraham's census.)
+    @MainActor
+    @Test func siblingAlreadyInTreeIsNotDuplicatedFromCensus() throws {
+        let db = try makeTempDB()
+        _ = try db.addProfile(person("george", "George", "Twyford", birthYear: 1857), source: .gedcom)
+        _ = try db.addProfile(person("sarah", "Sarah Ann", "Twyford", birthYear: 1882), source: .gedcom)
+        _ = try db.addProfile(person("mary", "Mary A", "Twyford", birthYear: 1884), source: .gedcom)
+        _ = try db.addRelationship(parentEdge("george", "sarah"))
+        _ = try db.addRelationship(parentEdge("george", "mary"))
+
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = try db.buildSnapshot()
+
+        // Sarah's census lists her existing sibling Mary A (b.~1884, age 7 in 1891).
+        let links = [CensusFamilyLinker.Link(
+            member: member("Mary A Twyford", "Dau", age: 7), relation: .sibling)]
+        let result = appState.addCensusFamily(
+            links: links, subject: try #require(appState.snapshot.profiles["sarah"]),
+            censusYear: 1891, sourceID: "freecen")
+
+        #expect(result.added == 0, "the existing sibling is not re-created")
+        #expect(result.skipped == 1)
+        #expect(appState.snapshot.profiles.values.filter { $0.firstName == "Mary A" }.count == 1,
+                "still exactly one Mary A in the tree")
+    }
+
     /// The Martha payoff end-to-end: a mother-in-law census row creates the
     /// in-law, links her as the spouse's mother, dates her from her census age,
     /// and fills the spouse's maiden name (moving the married surname across).

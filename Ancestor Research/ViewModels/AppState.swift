@@ -2475,6 +2475,18 @@ final class AppState {
             Relationship(id: UUID(), from: parentID, to: childID, type: .parent, role: role,
                          subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
         }
+        // Does an existing tree relative in `candidates` already match this roster
+        // member (same first name + surname, birth year within tolerance)? Guards
+        // every create below so applying a SECOND relative's census — which lists
+        // the same nuclear family — doesn't re-create people the tree already
+        // holds. Uses the reconciler's canonical matcher, so dedup here agrees
+        // with the missing/existing classification elsewhere. (Owner report
+        // 2026-08-05: applying Sarah Ann's census duplicated her siblings.)
+        func alreadyPresent(_ m: HouseholdMember, among candidates: [Profile]) -> Bool {
+            candidates.contains {
+                CensusRelationshipReconciler.matches(member: m, profile: $0, censusYear: censusYear)
+            }
+        }
 
         // 1. Parents first, so siblings can reference them.
         for link in links where link.relation == .parent {
@@ -2487,6 +2499,7 @@ final class AppState {
         }
         // 2. Spouse.
         for link in links where link.relation == .spouse {
+            if alreadyPresent(link.member, among: snapshot.spousesOf(subject.id)) { skipped += 1; continue }
             // A female spouse (a Wife) married into the household surname; a male
             // spouse (a Husband) carries his own birth surname.
             let p = build(link.member, marriedIn: genderOf(link.member) == .female); profiles.append(p)
@@ -2506,6 +2519,7 @@ final class AppState {
 
         // 3. Children — linked to the subject and their co-parent (the spouse).
         for link in links where link.relation == .child {
+            if alreadyPresent(link.member, among: snapshot.childrenOf(subject.id)) { skipped += 1; continue }
             let p = build(link.member); profiles.append(p)
             edges.append(parentEdge(from: subject.id, to: p.id, role: subjectRole))
             if let coParent { edges.append(parentEdge(from: coParent.id, to: p.id, role: coParent.role)) }
@@ -2514,6 +2528,10 @@ final class AppState {
         // 4. Siblings — as children of the subject's parents, never a direct edge.
         for link in links where link.relation == .sibling {
             guard !parents.isEmpty else { skipped += 1; continue }
+            // Skip a sibling the tree already holds under these parents — the
+            // common duplication path when a second child's census is applied.
+            let existingSiblings = parents.flatMap { snapshot.childrenOf($0.id) }
+            if alreadyPresent(link.member, among: existingSiblings) { skipped += 1; continue }
             let p = build(link.member); profiles.append(p)
             for parent in parents { edges.append(parentEdge(from: parent.id, to: p.id, role: parent.role)) }
             added += 1

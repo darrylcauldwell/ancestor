@@ -265,7 +265,11 @@ public nonisolated struct CensusRelationshipReconciler {
     /// b.1915), which would surface as a phantom contradiction. When a year is
     /// unknown on either side the pair is left unmatched (treated as "missing"
     /// rather than a wrongly-confident contradiction).
-    static func matches(member: HouseholdMember, profile: Profile, censusYear: Int?) -> Bool {
+    /// Public so write paths (e.g. `AppState.addCensusFamily`) can dedup a
+    /// roster member against relatives already in the tree before creating a
+    /// profile — otherwise applying a second sibling's census re-creates the
+    /// brothers/sisters the first one already added.
+    public static func matches(member: HouseholdMember, profile: Profile, censusYear: Int?) -> Bool {
         guard namesMatch(member: member, profile: profile) else { return false }
         guard let memberYear = memberBirthYear(member, censusYear: censusYear),
               let profileYear = profile.birthDate?.bestYear else { return false }
