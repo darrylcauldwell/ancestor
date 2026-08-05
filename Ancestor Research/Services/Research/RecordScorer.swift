@@ -902,6 +902,48 @@ nonisolated struct RecordScorer {
                 return GateResult(gate: .date, outcome: .impossible, reason: "died \(recordYear) but the subject is recorded alive in \(aliveAsOf) — a same-name namesake, not them")
             }
 
+            // DS-31 death-date exclusivity. A person dies once. When the
+            // subject's death date is a CONFIRMED PRECISE calendar date (full
+            // day+month+year — not a year-only value or an estimate, where the
+            // year itself may still move), a same-name death/burial record
+            // concerning a DIFFERENT date is a namesake, not them. Stronger
+            // than the ±year window below, which lets a same-name death one
+            // year off survive as a lead: for William Holmes (d. 19 Sep 1919,
+            // confirmed from GEDCOM) this sweeps the entire CWGC casualty pile
+            // — ~twenty same-name William Holmeses across 1914–1918, several
+            // inside the ±1 window — and the off-year FreeBMD deaths off Triage
+            // as `.impossible` instead of leaving them as leads. Probate is
+            // exempt: a grant can lag death by months to years and legitimately
+            // post-date the exact death by a year or more.
+            if effectiveType != .probate,
+               let confirmed = subject.deathDateOriginal.flatMap(Self.fullCalendarDate),
+               confirmed.day > 0, confirmed.month > 0,
+               let recDeath = recordDeathDate(from: record) {
+                let confirmedLabel = subject.deathDateOriginal ?? "\(confirmed.year)"
+                if recDeath.day > 0 && recDeath.month > 0 {
+                    // Both sides precise: same calendar date (±3 days for
+                    // transcription slop) is the same event; anything else is a
+                    // different person.
+                    let sameEvent = recDeath.year == confirmed.year
+                        && recDeath.month == confirmed.month
+                        && abs(recDeath.day - confirmed.day) <= 3
+                    if !sameEvent {
+                        return GateResult(gate: .date, outcome: .impossible, reason: "record's death date differs from the subject's confirmed death \(confirmedLabel) — a person dies once; same-name namesake, not them")
+                    }
+                } else {
+                    // Record is year/quarter-only (e.g. a FreeBMD death index
+                    // row). A different year than the confirmed exact death is
+                    // a namesake. The one legitimate cross-year case is a
+                    // very-late-year death whose GRO registration slips into the
+                    // next year's first quarter, so allow year+1 only when the
+                    // confirmed death fell in Nov/Dec.
+                    let registrationSlipOK = confirmed.month >= 11 && recDeath.year == confirmed.year + 1
+                    if recDeath.year != confirmed.year && !registrationSlipOK {
+                        return GateResult(gate: .date, outcome: .impossible, reason: "death year \(recDeath.year) ≠ the subject's confirmed death \(confirmedLabel) — a person dies once; same-name namesake, not them")
+                    }
+                }
+            }
+
             // First constraint: when subject's death year is known,
             // record year must match it within tolerance. Closes the
             // Ernest-Sr-1959 false positive against Ernest-Victor-died-
@@ -1793,6 +1835,28 @@ nonisolated struct RecordScorer {
         case .probate(let r): return r.deathYear
         case .parish(let r): return r.eventYear
         case .pedigree(let r): return r.birthYear
+        }
+    }
+
+    /// The record's DEATH date at the finest resolution it carries: full
+    /// (year, month, day) when the record has a calendar date string, else
+    /// just the death year (month/day = 0). Death-shape records only; returns
+    /// nil when the record carries no death year at all (e.g. a burial row with
+    /// only a birth year — comparing that to a death date would be nonsense).
+    /// Used by the death-date exclusivity rule in `checkDate`.
+    static func recordDeathDate(from record: SourceRecord) -> (year: Int, month: Int, day: Int)? {
+        func parse(_ raw: String?, fallbackYear: Int?) -> (Int, Int, Int)? {
+            if let full = fullCalendarDate(raw) { return (full.year, full.month, full.day) }
+            if let y = fallbackYear { return (y, 0, 0) }
+            return nil
+        }
+        switch record {
+        case .death(let r): return parse(r.deathDate, fallbackYear: r.deathYear)
+        case .burial(let r): return parse(r.deathDate, fallbackYear: r.deathYear)
+        case .military(let r): return parse(r.dateOfDeath, fallbackYear: r.deathYear)
+        case .probate(let r): return parse(r.deathDate, fallbackYear: r.deathYear)
+        case .parish(let r): return parse(r.eventDate, fallbackYear: r.eventYear)
+        default: return nil
         }
     }
 
