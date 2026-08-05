@@ -68,5 +68,8 @@ struct MemorialInscriptionRecordSourceTests {
         #expect(S.parish(fromLocation: nil) == nil)
         // County + country only — no specific parish remains.
         #expect(S.parish(fromLocation: "Derbyshire, England") == nil)
+        // A death abroad must NOT become a parish (William Holmes died in France).
+        #expect(S.parish(fromLocation: "France") == nil)
+        #expect(S.parish(fromLocation: "Ypres, Belgium") == nil)
     }
 }

@@ -114,15 +114,25 @@ actor MemorialInscriptionRecordSource: RecordSource {
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        func isCountryOrCounty(_ token: String) -> Bool {
+        // Anywhere in the string is FOREIGN (not England & Wales) → this is an
+        // overseas place with no E&W parish; bail (owner run 2026-08-05: William
+        // Holmes died in France and queried /DBY/France/MIs.html). Scotland /
+        // Ireland count as foreign for this England & Wales source.
+        let foreign: Set<String> = [
+            "scotland", "ireland", "france", "belgium", "germany", "italy",
+            "turkey", "greece", "egypt", "india", "usa", "united states",
+            "america", "canada", "australia", "new zealand", "south africa"]
+        if parts.contains(where: { foreign.contains($0.lowercased()) }) { return nil }
+
+        func isHomeCountryOrCounty(_ token: String) -> Bool {
             let t = token.lowercased()
             if ["england", "wales", "uk", "united kingdom", "gb", "great britain"].contains(t) { return true }
             if t.hasSuffix("shire") { return true }
             if token.contains("(") && token.contains(")") { return true }   // "Derbyshire (DBY)"
             return false
         }
-        // Peel country/county tokens off the END only — a leading "London" stays.
-        while let last = parts.last, isCountryOrCounty(last) { parts.removeLast() }
+        // Peel home-country/county tokens off the END only — a leading "London" stays.
+        while let last = parts.last, isHomeCountryOrCounty(last) { parts.removeLast() }
         return parts.last
     }
 
