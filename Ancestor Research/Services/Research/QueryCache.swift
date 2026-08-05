@@ -266,6 +266,10 @@ actor QueryCache {
             fagLimit = String(p.limit)
             fagYearWidth = String(p.yearRangeWidth)
             fagMaiden = p.includeMaidenName ? "maiden" : ""
+        case .memorialInscription(let p):
+            // The templated URL is (chapman, parish); fold both into the key so a
+            // Youlgreave lookup never serves a Bakewell page from cache.
+            chapmanCode = "\(p.chapmanCode)/\(p.parish)"
         case .cwgc, .probate, .generic:
             // CWGC conflict / Probate courtType / Wirksworth parishHint
             // never reach the wire request.

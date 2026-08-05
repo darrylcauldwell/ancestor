@@ -724,7 +724,20 @@ public nonisolated enum SourceQueryParams: Sendable {
     // with sourceID "wirksworth" remains valid; read-time classifiers keep
     // handling the ID).
     case freeREG(FreeREGParams)
+    /// Chapman-templated narrative source (TEMPLATED_NARRATIVE_SOURCE_SPEC) —
+    /// the county Chapman code + resolved parish the dispatcher fills a URL
+    /// template with. One on-demand page per lookup, never a crawl.
+    case memorialInscription(MemorialInscriptionParams)
     case generic
+}
+
+public nonisolated struct MemorialInscriptionParams: Sendable, Equatable {
+    public let chapmanCode: String
+    public let parish: String
+    public init(chapmanCode: String, parish: String) {
+        self.chapmanCode = chapmanCode
+        self.parish = parish
+    }
 }
 
 public nonisolated struct FreeBMDParams: Sendable {
