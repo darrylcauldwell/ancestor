@@ -611,7 +611,8 @@ struct SearchDispatcher {
         homeChapmanCode: String,
         countyQueriesEnabled: Bool,
         yearFrom: Int? = nil,
-        yearTo: Int? = nil
+        yearTo: Int? = nil,
+        surname: String? = nil
     ) -> [(districtCode: String?, countyCode: String?)] {
         switch scope {
         case .parish:
@@ -660,6 +661,18 @@ struct SearchDispatcher {
             }
             return axes
         case .national, .international:
+            // Never emit a national `districtid=""` FreeBMD query for a COMMON
+            // surname — it returns a massive set whose year-splitter fans out
+            // enough requests to throttle the volunteer source (owner report
+            // 2026-08-05: national Thompson marriages hammered FreeBMD). This is
+            // the single choke point every national FreeBMD query flows through
+            // (main sweep, FT-04 escalation, and the marriage pivot), so the
+            // common-surname block holds regardless of which path reached here.
+            // Common names still get county/adjacent coverage; national reach for
+            // them isn't worth the hammer.
+            if let surname, SurnameRarityRegistry.rarity(of: surname) == .common {
+                return []
+            }
             return [(districtCode: nil, countyCode: nil)]
         }
     }
@@ -881,7 +894,8 @@ struct SearchDispatcher {
                 homeChapmanCode: subject.homeChapmanCode,
                 countyQueriesEnabled: freeBMDCountyQueriesEnabled,
                 yearFrom: yearRange.from,
-                yearTo: yearRange.to
+                yearTo: yearRange.to,
+                surname: subject.surname
             )
             // FreeBMD's s_surname field is overloaded per record type
             // (see FreeBMDSource): spouse surname for marriages,

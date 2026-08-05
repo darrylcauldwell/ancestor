@@ -96,6 +96,26 @@ struct FreeBMDQueryShapeTests {
         #expect(axes.allSatisfy { ($0.districtCode ?? "").isEmpty == false })
     }
 
+    @Test func geoAxesNationalRefusesCommonSurname() {
+        // Owner report 2026-08-05: a national districtid="" FreeBMD query on a
+        // common surname (Thompson) hammered the volunteer source. The single
+        // national choke point drops it to ZERO axes; a rare surname still gets
+        // its one national axis. Every national path (main sweep, FT-04
+        // escalation, marriage pivot) flows through here.
+        #expect(SearchDispatcher.freeBMDGeoAxes(
+            scope: .national, homeChapmanCode: "DBY", countyQueriesEnabled: true,
+            surname: "Thompson").isEmpty)
+        let rare = SearchDispatcher.freeBMDGeoAxes(
+            scope: .national, homeChapmanCode: "DBY", countyQueriesEnabled: true,
+            surname: "Cauldwell")
+        #expect(rare.count == 1)
+        #expect(rare.first?.districtCode == nil && rare.first?.countyCode == nil)
+        // A common surname at COUNTY scope is unaffected — bounded, no hammer.
+        #expect(!SearchDispatcher.freeBMDGeoAxes(
+            scope: .county, homeChapmanCode: "DBY", countyQueriesEnabled: true,
+            surname: "Thompson").isEmpty)
+    }
+
     @Test func geoAxesCountyGateOnEmitsSingleCountyAxis() {
         let axes = SearchDispatcher.freeBMDGeoAxes(
             scope: .county, homeChapmanCode: "DBY", countyQueriesEnabled: true

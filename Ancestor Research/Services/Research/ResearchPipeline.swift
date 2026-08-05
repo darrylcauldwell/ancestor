@@ -2278,7 +2278,8 @@ final class ResearchPipeline {
             homeChapmanCode: runHomeChapmanCode,
             countyQueriesEnabled: FreeBMDParams.countyQueryEnabled,
             yearFrom: yearFrom,
-            yearTo: yearTo
+            yearTo: yearTo,
+            surname: surname
         )
         guard !geoAxes.isEmpty else { return [] }
 
