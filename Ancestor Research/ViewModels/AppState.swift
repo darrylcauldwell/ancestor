@@ -2687,11 +2687,23 @@ final class AppState {
     /// evidence (the caller shares one `loadEvidenceForProfile` across the strip).
     /// Nil when no applied census needs loading and none has absorbable family.
     func censusHouseholdProposal(for subject: Profile, evidence: [EvidenceRecord]) -> CensusHouseholdProposal? {
+        // A census counts as applied when the apply path marked its evidence
+        // `.savedAsLead`, OR when a census life-event on this profile cites the
+        // same record. The parent-unlock apply path lands the census as a
+        // life-event + facts WITHOUT stamping the evidence status (owner report
+        // 2026-08-05: Albert Beresford's applied childhood census offered no
+        // household load). Match by the census's own detail URL, never its year —
+        // a profile can carry several same-year census namesakes as leads.
+        let appliedCensusURLs = Set((snapshot.lifeEvents[subject.id] ?? [])
+            .filter { $0.type == .census }
+            .flatMap { $0.sources }
+            .compactMap { $0.citation?.url })
         var absorb: CensusHouseholdProposal?
-        // The apply path marks an applied record `.savedAsLead` (a historical
-        // quirk the MCP notes call out) — that's the applied-census signal here.
-        for ev in evidence where ev.userStatus == .savedAsLead {
+        for ev in evidence {
             guard case .census(let c) = ev.record else { continue }
+            let applied = ev.userStatus == .savedAsLead
+                || (c.common.detailURL.map { appliedCensusURLs.contains($0) } ?? false)
+            guard applied else { continue }
             if Self.censusNeedsHousehold(ev.record) {
                 return .needsLoad(sourceRecordID: ev.sourceRecordID, censusYear: c.censusYear)
             }
@@ -3606,6 +3618,10 @@ final class AppState {
             for event in scored.record.projectToLifeEvents(profileID: profile.id) {
                 try? db.addLifeEventIfAbsent(event)
             }
+            // Stamp the evidence as applied, mirroring `applyEvidenceRecord`, so
+            // the census-household proposal (and the tree-wide sweep) recognise
+            // this census and offer to load its roster + absorb the parents.
+            try? db.updateEvidenceUserStatus(evidenceID: evidenceRow.id, status: .savedAsLead)
             snapshot = try db.buildSnapshot()
             runPostLoadAudit()
             let hasHousehold = !(census.household ?? []).isEmpty
