@@ -194,7 +194,7 @@ struct EmptyThenBroadenTests {
         let outcomes = [Self.outcomeEntry(.init(resultCount: 0))]
         #expect(SearchDispatcher.shouldEscalateScope(
             source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
-            records: [], outcomes: outcomes))
+            records: [], outcomes: outcomes, surname: "Cauldwell"))
     }
 
     @Test func escalatePredicate_doesNotFireOnError() {
@@ -202,7 +202,7 @@ struct EmptyThenBroadenTests {
         let outcomes = [Self.outcomeEntry(.init(resultCount: 0, availability: .error(reason: "boom")))]
         #expect(!SearchDispatcher.shouldEscalateScope(
             source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
-            records: [], outcomes: outcomes))
+            records: [], outcomes: outcomes, surname: "Cauldwell"))
     }
 
     @Test func escalatePredicate_doesNotFireOnTruncated() {
@@ -210,14 +210,14 @@ struct EmptyThenBroadenTests {
         let outcomes = [Self.outcomeEntry(.init(resultCount: 0, totalAvailable: 999, truncated: true))]
         #expect(!SearchDispatcher.shouldEscalateScope(
             source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
-            records: [], outcomes: outcomes))
+            records: [], outcomes: outcomes, surname: "Cauldwell"))
     }
 
     @Test func escalatePredicate_doesNotFireOnThrottled() {
         let outcomes = [Self.outcomeEntry(.init(resultCount: 0, availability: .throttled))]
         #expect(!SearchDispatcher.shouldEscalateScope(
             source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
-            records: [], outcomes: outcomes))
+            records: [], outcomes: outcomes, surname: "Cauldwell"))
     }
 
     @Test func escalatePredicate_doesNotFireWhenAnyRecordsFound() {
@@ -225,7 +225,7 @@ struct EmptyThenBroadenTests {
         let rec = SourceRecord.death(DeathRecord(common: RecordCommon(id: "x", sourceID: "freebmd", rawFields: [:])))
         #expect(!SearchDispatcher.shouldEscalateScope(
             source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
-            records: [rec], outcomes: [Self.outcomeEntry(.init(resultCount: 1))]))
+            records: [rec], outcomes: [Self.outcomeEntry(.init(resultCount: 1))], surname: "Cauldwell"))
     }
 
     @Test func escalatePredicate_onlyFreeBMD() {
@@ -234,17 +234,17 @@ struct EmptyThenBroadenTests {
         let outcomes = [Self.outcomeEntry(.init(resultCount: 0), sourceID: "cwgc")]
         #expect(!SearchDispatcher.shouldEscalateScope(
             source: TierRecordingSource(emptyAt: [.strict], sourceID: "cwgc"),
-            scope: .county, mode: .extend, records: [], outcomes: outcomes))
+            scope: .county, mode: .extend, records: [], outcomes: outcomes, surname: "Cauldwell"))
     }
 
     @Test func escalatePredicate_notAtNationalOrParish() {
         let clean = [Self.outcomeEntry(.init(resultCount: 0))]
         #expect(!SearchDispatcher.shouldEscalateScope(
             source: ScopeRecordingFreeBMD(), scope: .national, mode: .extend,
-            records: [], outcomes: clean))
+            records: [], outcomes: clean, surname: "Cauldwell"))
         #expect(!SearchDispatcher.shouldEscalateScope(
             source: ScopeRecordingFreeBMD(), scope: .parish, mode: .extend,
-            records: [], outcomes: clean))
+            records: [], outcomes: clean, surname: "Cauldwell"))
     }
 
     @Test func escalatePredicate_notInAllMode() {
@@ -253,14 +253,37 @@ struct EmptyThenBroadenTests {
         let clean = [Self.outcomeEntry(.init(resultCount: 0))]
         #expect(!SearchDispatcher.shouldEscalateScope(
             source: ScopeRecordingFreeBMD(), scope: .county, mode: .all,
-            records: [], outcomes: clean))
+            records: [], outcomes: clean, surname: "Cauldwell"))
     }
 
     @Test func escalatePredicate_notOnEmptyOutcomes() {
         // No axes ran → nothing to escalate from.
         #expect(!SearchDispatcher.shouldEscalateScope(
             source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
-            records: [], outcomes: []))
+            records: [], outcomes: [], surname: "Cauldwell"))
+    }
+
+    @Test func escalatePredicate_doesNotFireForCommonSurname() {
+        // Owner report 2026-08-05: a clean-empty county search on a COMMON
+        // surname (Thompson) must NOT auto-escalate to a national FreeBMD
+        // scrape — that national query is what tripped the volunteer source's
+        // throttle. An uncommon surname (Cauldwell) with the same inputs still
+        // escalates (bounded national query, cross-county recall worth it).
+        let clean = [Self.outcomeEntry(.init(resultCount: 0))]
+        #expect(!SearchDispatcher.shouldEscalateScope(
+            source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
+            records: [], outcomes: clean, surname: "Thompson"))
+        #expect(!SearchDispatcher.shouldEscalateScope(
+            source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
+            records: [], outcomes: clean, surname: "Holmes"))
+        // Missing surname can't be vouched rare → also stays put.
+        #expect(!SearchDispatcher.shouldEscalateScope(
+            source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
+            records: [], outcomes: clean, surname: nil))
+        // The rare-surname control still escalates.
+        #expect(SearchDispatcher.shouldEscalateScope(
+            source: ScopeRecordingFreeBMD(), scope: .county, mode: .extend,
+            records: [], outcomes: clean, surname: "Cauldwell"))
     }
 
     @Test func dispatch_escalatesToNationalOnCountyCleanEmpty() async {

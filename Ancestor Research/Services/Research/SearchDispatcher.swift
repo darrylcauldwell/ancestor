@@ -258,7 +258,8 @@ struct SearchDispatcher {
         // the national stage.
         if allowScopeEscalation,
            Self.shouldEscalateScope(source: source, scope: scope, mode: mode,
-                                    records: accumulated, outcomes: outcomes) {
+                                    records: accumulated, outcomes: outcomes,
+                                    surname: subject.surname) {
             let (nationalRecords, nationalOutcomes) = await walkLadder(
                 source: source, subject: subject, recordType: recordType,
                 scope: .national, ladder: ladder, mode: mode,
@@ -288,11 +289,23 @@ struct SearchDispatcher {
         scope: ResearchScope,
         mode: ResearchMode,
         records: [SourceRecord],
-        outcomes: [SearchOutcomeEntry]
+        outcomes: [SearchOutcomeEntry],
+        surname: String?
     ) -> Bool {
         guard source.sourceID == "freebmd" else { return false }
         guard scope == .county || scope == .adjacent else { return false }
         guard mode != .all else { return false }
+        // Never auto-escalate to a NATIONAL FreeBMD scrape on a COMMON surname: a
+        // national districtid="" query on Thompson/Holmes/Smith returns a massive
+        // set and the source's year-splitter fans out enough requests to trip the
+        // volunteer source's throttle (owner report 2026-08-05). Cross-county
+        // recall for a common name needs a deliberate National-scope run. Rare
+        // surnames still auto-escalate — their national query is bounded, and the
+        // cross-county case (Lydia Kenworthy: registered a county over) is exactly
+        // where the extra recall earns its keep. A missing/blank surname can't be
+        // vouched rare, so it stays put too.
+        guard let surname, !surname.trimmingCharacters(in: .whitespaces).isEmpty,
+              SurnameRarityRegistry.rarity(of: surname) == .uncommon else { return false }
         guard records.isEmpty else { return false }
         // Must have actually searched something, and every outcome must be
         // a conclusive clean empty (availability ok, not truncated, zero

@@ -268,7 +268,7 @@ struct ScopeSkipVisibilityTests {
             outcome: .scopeSkip(reason: "no anchor"))
         #expect(!SearchDispatcher.shouldEscalateScope(
             source: FreeBMDSource(), scope: .county, mode: .extend,
-            records: [], outcomes: [entry]),
+            records: [], outcomes: [entry], surname: "Cauldwell"),
             "a skip is not a conclusive clean-empty — FT-04 must not fire national from it")
     }
 }
