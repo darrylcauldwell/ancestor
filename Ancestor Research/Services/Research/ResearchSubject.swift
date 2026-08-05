@@ -790,9 +790,30 @@ nonisolated extension ResearchSubject {
             .census, .residence, .occupation, .education,
             .militaryService, .religion, .immigration, .emigration,
         ]
-        let derivedAliveAsOf: Int? = subjectEvents
+        let lifeEventAliveAsOf: Int? = subjectEvents
             .filter { aliveImplyingTypes.contains($0.type) && !$0.sensitive }
             .compactMap { $0.date?.earliest }
+            .max()
+        // DS-15 family extension (owner report 2026-08-05: a CWGC naval death
+        // dated 27 May 1915 was about to apply to an Albert Beresford who married
+        // in Dec 1915 and fathered a child in 1920). The subject was demonstrably
+        // ALIVE to marry and to father/bear each child, so a death before that is
+        // a namesake — but these facts live on the family graph, not in life
+        // events, so the life-event sweep above misses them. Marriage year is a
+        // direct alive-year; a parent is alive at least the year BEFORE a child's
+        // birth (conception for a father, the birth itself for a mother), so
+        // `childBirthYear - 1` is a safe, conservative lower bound that never
+        // over-rejects. Relationship metadata is never sensitive.
+        let marriageAliveYears: [Int] = snapshot.relationships
+            .filter { $0.type == .spouse && ($0.from == profile.id || $0.to == profile.id) }
+            .compactMap { $0.marriageDate?.bestYear }
+        let childAliveYears: [Int] = children.compactMap { child in
+            child.birthDate?.earliest.map { $0 - 1 }
+        }
+        let derivedAliveAsOf: Int? = ([lifeEventAliveAsOf]
+            + marriageAliveYears.map(Optional.some)
+            + childAliveYears.map(Optional.some))
+            .compactMap { $0 }
             .max()
         let derivedResidenceAxes: [ResidenceAxis] = subjectEvents
             .filter { $0.type == .residence && !$0.sensitive }
