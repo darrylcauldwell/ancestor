@@ -4045,6 +4045,21 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// Re-encode just the `record_json` of an evidence row — used to fold in a
+    /// census household roster fetched on demand (FreeCen only enriches the top
+    /// search hit at search time). Touches record_json ONLY, so user_status,
+    /// applied_at, gates and the rest are preserved — an already-applied census
+    /// stays applied.
+    func updateEvidenceRecordJSON(evidenceID: String, record: SourceRecord) throws {
+        let json = Self.encodeJSON(record)
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE evidence_records SET record_json = ? WHERE id = ?",
+                arguments: [json, evidenceID]
+            )
+        }
+    }
+
     /// Set the user-review status on every evidence row in a profile that
     /// matches one of `sourceRecordIDs`. Used when the UI applies a decision
     /// at cluster level (a cluster contains multiple records; one click

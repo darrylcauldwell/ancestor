@@ -565,8 +565,67 @@ final class AppState {
             snapshot = try db.buildSnapshot()
             runConflictSweep(force: true)
             runPostLoadAudit()
+            // A census offers parent/sibling absorption only once its household
+            // roster is present; FreeCen enriches only the top search hit at
+            // search time, so fetch this specific census's household on demand
+            // (one detail-page GET) in the background.
+            if Self.censusNeedsHousehold(scored.record) {
+                Task { await self.loadCensusHousehold(sourceRecordID: sourceRecordID, profileID: profileID) }
+            }
         } catch {
             errorMessage = "Failed to apply record: \(error.localizedDescription)"
+        }
+    }
+
+    /// A FreeCen (or other detail-fetching) census whose household roster we could
+    /// still fetch: a census record with a detail URL but no roster yet. Pure —
+    /// testable without a database.
+    nonisolated static func censusNeedsHousehold(_ record: SourceRecord) -> Bool {
+        guard case .census(let c) = record else { return false }
+        return (c.household ?? []).isEmpty && (c.common.detailURL?.isEmpty == false)
+    }
+
+    /// Fetch a specific census's household roster on demand — one detail-page GET
+    /// via the source's `fetchDetail` — and fold it onto the evidence record and
+    /// the applied census life-event, so the parent/sibling absorption (which
+    /// reads the roster) can fire. FreeCen only enriches the top search hit at
+    /// search time, so a non-top-hit census (owner report 2026-08-05: John W
+    /// Thompson's 1861 census) otherwise never gets a household. Returns true when
+    /// a roster was fetched and stored.
+    @discardableResult
+    func loadCensusHousehold(sourceRecordID: String, profileID: String) async -> Bool {
+        guard let db = currentDatabase, let registry = attachedRegistry,
+              let evidence = (try? db.loadEvidenceForProfile(profileID))?
+                .first(where: { $0.sourceRecordID == sourceRecordID }),
+              case .census(let census) = evidence.record,
+              Self.censusNeedsHousehold(evidence.record),
+              let detailURL = census.common.detailURL,
+              let source = registry.allSources()
+                .first(where: { $0.sourceID == census.common.sourceID }) as? any DetailFetchingSource
+        else { return false }
+
+        guard case .results(let recs) = await source.fetchDetail(recordID: detailURL),
+              case .census(let enriched)? = recs.first,
+              let household = enriched.household, !household.isEmpty
+        else { return false }
+
+        do {
+            // The review card / cluster absorption reads the evidence record.
+            try db.updateEvidenceRecordJSON(evidenceID: evidence.id, record: .census(enriched))
+            // The applied census life-event(s) for this year get the roster too.
+            for var ev in (snapshot.lifeEvents[profileID] ?? [])
+                where ev.type == .census && ev.date?.bestYear == census.censusYear {
+                guard case .census(var c)? = ev.details, c.household.isEmpty else { continue }
+                c.household = household
+                ev.details = .census(c)
+                try db.updateLifeEvent(ev)
+            }
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+            return true
+        } catch {
+            errorMessage = "Failed to load census household: \(error.localizedDescription)"
+            return false
         }
     }
 

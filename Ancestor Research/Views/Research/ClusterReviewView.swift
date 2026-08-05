@@ -976,6 +976,29 @@ struct ClusterReviewView: View {
                         }
                     }
 
+                    // A census that arrived without its household schedule (FreeCen
+                    // enriches only the top search hit at search time, so a
+                    // non-top-hit census — owner report 2026-08-05, John W Thompson's
+                    // 1861 — has a detail page but no roster). One tap pulls that one
+                    // schedule page so the roster, and the "Add family" mining above,
+                    // appear. The on-apply path enriches future applies automatically;
+                    // this is the affordance for a census already applied roster-less.
+                    if AppState.censusNeedsHousehold(scored.record),
+                       let subjectID = vm.selectedProfile?.id {
+                        Button {
+                            Task {
+                                _ = await appState.loadCensusHousehold(
+                                    sourceRecordID: scored.record.id, profileID: subjectID)
+                            }
+                        } label: {
+                            Label("Load household from FreeCen", systemImage: "person.2.badge.plus")
+                        }
+                        .buttonStyle(.glass)
+                        .controlSize(.small)
+                        .padding(.top, 4)
+                        .help("Fetches this census's full schedule — one page from FreeCen — so its parents and siblings can be added.")
+                    }
+
                     // EVIDENCE_ABSORPTION_SPEC Change 5 — show every off-agenda
                     // fact this record will land on the profile BEFORE the user
                     // accepts it, so a lead's nuggets (birthplace, occupation,
