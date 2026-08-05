@@ -429,6 +429,44 @@ struct CensusRelationshipReconcilerTests {
         #expect(snap.profiles.values.filter { $0.firstName == "John" }.count == 1)
     }
 
+    /// A Wife added from a census lands under her MARRIED surname, not her
+    /// maiden name: a census gives only the household (husband's) surname, which
+    /// is her married name — her maiden `lastName` stays empty until a marriage
+    /// record or a child's BMD yields it. The father keeps the census surname as
+    /// his own birth surname. Gender is inferred from the "Wife" relationship
+    /// term (this roster has no Sex column). (Owner report 2026-08-04: "Lydia
+    /// Twyford" was created with Twyford as her maiden name.)
+    @MainActor
+    @Test func wifeAddedFromCensusGetsMarriedSurnameNotMaiden() throws {
+        let db = try makeTempDB()
+        // Subject is a child with NO parents in the tree — both Head and Wife
+        // are missing and get created.
+        _ = try db.addProfile(person("abraham", "Abraham", "Twyford", birthYear: 1888), source: .gedcom)
+
+        let base = try db.buildSnapshot()
+        let household = [
+            member("George Twyford", "Head", age: 30),
+            member("Lydia Twyford", "Wife", age: 29),
+            member("Abraham Twyford", "Son", age: 3, isTarget: true)]
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = FamilyGraphSnapshot(
+            profiles: base.profiles, relationships: base.relationships,
+            lifeEvents: ["abraham": [censusEvent("abraham", year: 1891, household: household)]])
+
+        appState.addMissingCensusRelatives(for: "abraham")
+
+        let snap = appState.snapshot
+        let lydia = try #require(snap.profiles.values.first { $0.firstName == "Lydia" }, "Lydia (Wife) created")
+        #expect(lydia.marriedSurname == "Twyford", "census surname is her married name")
+        #expect(lydia.lastName == nil, "maiden name is unknown from census — left empty")
+        #expect(lydia.gender == .female, "inferred female from the Wife relationship term")
+        // The father keeps the census surname as his birth surname.
+        let george = try #require(snap.profiles.values.first { $0.firstName == "George" }, "George (Head) created")
+        #expect(george.lastName == "Twyford")
+        #expect(george.marriedSurname == nil)
+    }
+
     /// The Martha payoff end-to-end: a mother-in-law census row creates the
     /// in-law, links her as the spouse's mother, dates her from her census age,
     /// and fills the spouse's maiden name (moving the married surname across).

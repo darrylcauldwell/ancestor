@@ -2413,8 +2413,22 @@ final class AppState {
             guard let s = sex?.trimmingCharacters(in: .whitespaces).uppercased(), let f = s.first else { return nil }
             return f == "F" ? .female : (f == "M" ? .male : nil)
         }
+        // Gender with a census-relationship fallback: many transcriptions omit
+        // the Sex column, but the "Relationship to Head" term is decisive — a
+        // "Wife" is female, a "Head"/"Father" male. Needed so a sexless Wife row
+        // is still recognised as the mother (for the parent-edge role) AND as a
+        // married-in woman (for the surname handling below).
+        func genderOf(_ m: HouseholdMember) -> Gender? {
+            if let g = gender(m.sex) { return g }
+            let rel = m.relationship.lowercased()
+            if rel.contains("wife") || rel.contains("widow") || rel.contains("mother")
+                || rel.hasPrefix("dau") || rel.contains("daughter") || rel.contains("sister") { return .female }
+            if rel.contains("husband") || rel.contains("widower") || rel.contains("father")
+                || rel.contains("son") || rel.contains("brother") { return .male }
+            return nil
+        }
         func role(for member: HouseholdMember) -> ParentRole {
-            switch gender(member.sex) {
+            switch genderOf(member) {
             case .female: return .mother
             case .male:   return .father
             default:      return .unspecified
@@ -2423,15 +2437,26 @@ final class AppState {
         func recase(_ token: String) -> String {
             (token == token.uppercased() || token == token.lowercased()) ? token.capitalized : token
         }
-        func build(_ m: HouseholdMember) -> Profile {
+        // `marriedIn` = this person took the household surname by marriage (a
+        // Wife, or the subject's mother). For them the census surname is the
+        // MARRIED name, not the maiden name — the tree stores women under their
+        // maiden (birth) surname, which a census never gives. So route the census
+        // surname to `marriedSurname` and leave the maiden `lastName` empty
+        // (unknown until a marriage record or a child's BMD yields it). Children
+        // and fathers keep the census surname as `lastName` — it IS their birth
+        // surname. (Owner report 2026-08-04: a Wife added from census landed
+        // "Twyford" as her maiden name.)
+        func build(_ m: HouseholdMember, marriedIn: Bool = false) -> Profile {
             let tokens = m.name.split(separator: " ").map(String.init)
-            let last = tokens.count >= 2 ? recase(tokens.last!) : nil
+            let censusSurname = tokens.count >= 2 ? recase(tokens.last!) : nil
             let first = tokens.first.map(recase)
             let middle = tokens.count > 2 ? tokens[1..<(tokens.count - 1)].map(recase).joined(separator: " ") : nil
             let year: Int? = m.birthYear ?? (censusYear.flatMap { cy in m.age.map { cy - $0 } })
             let birth = year.map { GenealogicalDate(parsing: "abt \($0)") }
             return Profile(id: UUID().uuidString, externalIDs: [:], firstName: first, middleName: middle,
-                           lastName: last, gender: gender(m.sex), attributes: nil,
+                           lastName: marriedIn ? nil : censusSurname,
+                           marriedSurname: marriedIn ? censusSurname : nil,
+                           gender: genderOf(m), attributes: nil,
                            birthDate: birth, birthLocation: nil, deathDate: nil, deathLocation: nil,
                            bio: nil, isDeleted: false, sources: [:], disputes: [:])
         }
@@ -2455,13 +2480,16 @@ final class AppState {
         for link in links where link.relation == .parent {
             let r = role(for: link.member)
             if r != .unspecified, parents.contains(where: { $0.role == r }) { skipped += 1; continue }
-            let p = build(link.member); profiles.append(p)
+            // A female parent is the mother — she married into the surname.
+            let p = build(link.member, marriedIn: r == .mother); profiles.append(p)
             edges.append(parentEdge(from: p.id, to: subject.id, role: r))
             parents.append((p.id, r)); added += 1
         }
         // 2. Spouse.
         for link in links where link.relation == .spouse {
-            let p = build(link.member); profiles.append(p)
+            // A female spouse (a Wife) married into the household surname; a male
+            // spouse (a Husband) carries his own birth surname.
+            let p = build(link.member, marriedIn: genderOf(link.member) == .female); profiles.append(p)
             edges.append(Relationship(id: UUID(), from: subject.id, to: p.id, type: .spouse, role: nil,
                                       subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil))
             added += 1
