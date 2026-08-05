@@ -1087,12 +1087,15 @@ struct HealthView: View {
         guard let base = appState.auditSummary else { auditVM.summary = nil; return }
         let citationGaps = appState.freeBMDCitationGapFindings()      // info
         let parentUnlocks = appState.censusParentUnlockFindings()     // warning
-        guard !citationGaps.isEmpty || !parentUnlocks.isEmpty else { auditVM.summary = base; return }
+        let censusUnabsorbed = appState.censusUnabsorbedFindings()    // warning
+        guard !citationGaps.isEmpty || !parentUnlocks.isEmpty || !censusUnabsorbed.isEmpty else {
+            auditVM.summary = base; return
+        }
         auditVM.summary = AuditSummary(
             errors: base.errors,
-            warnings: base.warnings + parentUnlocks,
+            warnings: base.warnings + parentUnlocks + censusUnabsorbed,
             info: base.info + citationGaps,
-            total: base.total + citationGaps.count + parentUnlocks.count,
+            total: base.total + citationGaps.count + parentUnlocks.count + censusUnabsorbed.count,
             profilesChecked: base.profilesChecked)
     }
 

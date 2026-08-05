@@ -3538,6 +3538,42 @@ final class AppState {
         }
     }
 
+    /// Tree-wide census under-absorption sweep (owner request 2026-08-05, while
+    /// FreeBMD is throttled and live research is paused): every profile whose
+    /// APPLIED census still has family to absorb — a loaded household with
+    /// members not yet on the tree, or a household that was never fetched.
+    /// NETWORK-FREE: reads stored evidence only via `censusHouseholdProposal`;
+    /// fetching a missing roster stays a deliberate per-profile action. Folds
+    /// into the Health tab so the whole backlog is visible at once. Reuses the
+    /// same net-new logic (nuclear + in-law) as the profile-card offer, so the
+    /// sweep and the card never disagree.
+    func censusUnabsorbedFindings() -> [AuditResult] {
+        guard let db = currentDatabase else { return [] }
+        var out: [AuditResult] = []
+        for (pid, profile) in snapshot.profiles where !profile.isDeleted {
+            let evidence = (try? db.loadEvidenceForProfile(pid)) ?? []
+            guard let proposal = censusHouseholdProposal(for: profile, evidence: evidence) else { continue }
+            let message: String
+            switch proposal {
+            case .needsLoad(_, let year):
+                message = "\(profile.displayName)'s \(year) census household isn't loaded — open their profile to fetch it and add parents & siblings."
+            case .canAbsorb(let links, let year, _, _, let inLawCount):
+                let total = links.count + inLawCount
+                let extra = inLawCount > 0
+                    ? " (incl. \(inLawCount) in-law grandparent\(inLawCount == 1 ? "" : "s"))" : ""
+                message = "\(profile.displayName)'s \(year) census has \(total) household family member\(total == 1 ? "" : "s") not on the tree\(extra) — absorb them from their profile."
+            }
+            out.append(AuditResult(
+                profileID: pid, profileName: profile.displayName,
+                severity: .warning, category: .gap,
+                ruleID: "censusUnabsorbed", message: message,
+                relatedProfileIDs: []))
+        }
+        return out.sorted {
+            $0.profileName.localizedCaseInsensitiveCompare($1.profileName) == .orderedAscending
+        }
+    }
+
     /// Whether the household lift surfaced — used by the Health fix button to
     /// tell the user what to do next.
     enum CensusParentUnlockResult { case applied(censusYear: Int, hasHousehold: Bool), noCandidate }
