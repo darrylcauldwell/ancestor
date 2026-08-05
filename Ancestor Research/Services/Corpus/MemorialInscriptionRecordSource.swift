@@ -143,6 +143,28 @@ actor MemorialInscriptionRecordSource: RecordSource {
         result.records.compactMap { if case .burial(let b) = $0 { return b } else { return nil } }
     }
 
+    /// Resolve the parish where a subject would be memorialised, for the
+    /// dispatcher to slot into the URL template: their burial or death place,
+    /// else a HOME/RESIDENCE parish (census). Residences are filtered to the
+    /// subject's own county (Chapman match, or unknown) so the returned parish
+    /// always pairs with `homeChapman` — never a foreign-county parish under the
+    /// home county's path. First candidate that resolves to an England & Wales
+    /// parish wins; nil when none does (→ the dispatcher emits no query).
+    nonisolated static func homeParish(
+        burialPlace: String?,
+        deathLocation: String?,
+        residences: [(place: String, chapmanCode: String?)],
+        homeChapman: String
+    ) -> String? {
+        var candidates: [String] = []
+        if let burialPlace { candidates.append(burialPlace) }
+        if let deathLocation { candidates.append(deathLocation) }
+        candidates += residences
+            .filter { $0.chapmanCode == nil || $0.chapmanCode == homeChapman }
+            .map(\.place)
+        return candidates.lazy.compactMap { parish(fromLocation: $0) }.first
+    }
+
     /// Single paced GET. Production fetch; not exercised by unit tests.
     nonisolated static func liveFetch(_ url: URL) async throws -> String {
         var request = URLRequest(url: url)

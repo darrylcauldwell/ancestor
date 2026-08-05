@@ -1156,13 +1156,20 @@ struct SearchDispatcher {
 
         case "wishful-thinking-mi":
             // TEMPLATED_NARRATIVE_SOURCE_SPEC Stage 2 — an MI is a burial-shaped
-            // record, so fill the URL template from the county Chapman code + a
-            // resolved parish (burial place, else death place). No parish, or no
-            // county anchor, means no query — one templated page per lookup, never
-            // a guessed URL, never a crawl.
+            // record. Fill the URL template from the county Chapman code + the
+            // parish where the subject would be memorialised: their burial or death
+            // place, else a HOME/RESIDENCE parish from the census. Residences are
+            // filtered to the subject's own county (chapman match, or unknown) so
+            // the parish always pairs with `homeChapmanCode` — never
+            // /home-county/other-county-parish/. First candidate that resolves to
+            // an England & Wales parish wins. No county anchor or no parish → no
+            // query. One templated page per lookup, never a guessed URL or a crawl.
             guard !subject.homeChapmanCode.isEmpty,
-                  let parish = MemorialInscriptionRecordSource.parish(
-                    fromLocation: subject.burialPlace ?? subject.deathLocation)
+                  let parish = MemorialInscriptionRecordSource.homeParish(
+                    burialPlace: subject.burialPlace,
+                    deathLocation: subject.deathLocation,
+                    residences: subject.residenceAxes.map { ($0.place, $0.chapmanCode) },
+                    homeChapman: subject.homeChapmanCode)
             else { return [] }
             return [RecordQuery(
                 surname: subject.surname, givenName: subject.givenName,

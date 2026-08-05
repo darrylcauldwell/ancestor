@@ -72,4 +72,36 @@ struct MemorialInscriptionRecordSourceTests {
         #expect(S.parish(fromLocation: "France") == nil)
         #expect(S.parish(fromLocation: "Ypres, Belgium") == nil)
     }
+
+    // MARK: - Home parish (burial/death → else home-county residence)
+
+    @Test func fallsBackToAHomeCountyResidenceParish() {
+        typealias S = MemorialInscriptionRecordSource
+        // No burial/death place; a died-abroad soldier who lived in Youlgreave
+        // (the William Holmes shape) still gets his HOME parish looked up.
+        #expect(S.homeParish(
+            burialPlace: nil, deathLocation: "France",
+            residences: [("Youlgreave", "DBY"), ("Bakewell", "DBY")],
+            homeChapman: "DBY") == "Youlgreave")
+
+        // Burial place wins when present.
+        #expect(S.homeParish(
+            burialPlace: "Wirksworth, Derbyshire", deathLocation: nil,
+            residences: [("Youlgreave", "DBY")], homeChapman: "DBY") == "Wirksworth")
+
+        // A residence in ANOTHER county is skipped — the parish must pair with the
+        // home Chapman code, never /DBY/<Notts-parish>/.
+        #expect(S.homeParish(
+            burialPlace: nil, deathLocation: nil,
+            residences: [("Mansfield", "NTT")], homeChapman: "DBY") == nil)
+
+        // Unknown-county residence (bare village) is allowed as a candidate.
+        #expect(S.homeParish(
+            burialPlace: nil, deathLocation: nil,
+            residences: [("Youlgreave", nil)], homeChapman: "DBY") == "Youlgreave")
+
+        // Nothing resolvable → nil (dispatcher emits no query).
+        #expect(S.homeParish(
+            burialPlace: nil, deathLocation: nil, residences: [], homeChapman: "DBY") == nil)
+    }
 }
