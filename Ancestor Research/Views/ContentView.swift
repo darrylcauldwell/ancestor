@@ -364,15 +364,15 @@ struct MainView: View {
             ReportPickerView()
         }
         // M8 W4 — surface the welcome-back prompt after openProject sets a
-        // resumableSession. Continue activates the focus set and switches
-        // the sidebar to the Workbench view.
+        // resumableSession. Continue reactivates the focus set (inside
+        // SessionResumeView) but must NOT force-switch to the Workbench tab:
+        // doing so on launch has dropped users into an empty Workbench with the
+        // sidebar collapsed and no way back — a hard navigation dead-end (owner
+        // report 2026-08-05, recurring). Stay on the working default (Tree); the
+        // user opens the Workbench themselves (⌘4 / sidebar) when they want it.
         .sheet(isPresented: resumableSessionBinding) {
             if let resumable = appState.resumableSession {
-                SessionResumeView(session: resumable) {
-                    if appState.workbenchHasContent {
-                        selectedTab = .workbench
-                    }
-                }
+                SessionResumeView(session: resumable) { }
             }
         }
         .alert("Welcome", isPresented: Binding(
