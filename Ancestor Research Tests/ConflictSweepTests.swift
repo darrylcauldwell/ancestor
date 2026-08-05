@@ -55,6 +55,58 @@ struct ConflictSweepTests {
         #expect(surnames.contains("HOOD"))        // an extra name form
     }
 
+    private func factMarriage(_ id: String, spouse: String, year: Int) -> ScoredRecord {
+        let m = MarriageRecord(
+            common: RecordCommon(id: id, sourceID: "freebmd", rawFields: [:]),
+            marriageYear: year, marriageDate: nil, marriagePlace: nil,
+            quarter: nil, district: nil, volume: nil, page: nil, spouseName: spouse)
+        return ScoredRecord(id: id, record: .marriage(m), verdict: .fact, gates: [], summary: "")
+    }
+
+    /// F4b must NOT fire a spouseIdentity conflict when there is no spouse edge to
+    /// contradict: a fact-grade marriage record naming a spouse on a profile with
+    /// no recorded marriage is a candidate to apply / a namesake to discriminate,
+    /// not a conflict. (Owner report 2026-08-05: Mary E Land — several "Mary Land"
+    /// marriage records in Belper, no spouse edge, spurious red Conflicts banner.)
+    @Test func marriageRecordWithoutSpouseEdgeOpensNoSpouseIdentityConflict() throws {
+        let db = try makeDB()
+        _ = try db.addProfile(profile("mary", firstName: "Mary", lastName: "Land"), source: .gedcom)
+        // Two fact-grade candidate marriages naming different spouses — exactly the
+        // Mary Land shape. No spouse edge exists.
+        try db.saveEvidence(profileID: "mary", scored: factMarriage("m-sanders", spouse: "John Sanders", year: 1941),
+                            citationFull: nil, citationURL: nil)
+        try db.saveEvidence(profileID: "mary", scored: factMarriage("m-watson", spouse: "Ada Watson", year: 1919),
+                            citationFull: nil, citationURL: nil)
+
+        let snapshot = try db.buildSnapshot()
+        _ = try ConflictSweep.run(db: db, snapshot: snapshot, force: true)
+
+        let open = try db.openDisputes(profileID: "mary")
+        #expect(!open.contains { $0.kind == .spouseIdentity },
+                "no spouse edge → candidate marriages raise no spouseIdentity conflict")
+    }
+
+    /// …but F4b STILL fires when a spouse EDGE exists and a fact-grade marriage
+    /// record names a different spouse — the genuine retroactive contradiction the
+    /// arm is for. (Guards against the fix over-suppressing.)
+    @Test func marriageRecordContradictingAnExistingSpouseEdgeStillConflicts() throws {
+        let db = try makeDB()
+        _ = try db.addProfile(profile("mary", firstName: "Mary", lastName: "Land"), source: .gedcom)
+        _ = try db.addProfile(profile("watson", firstName: "William", lastName: "Watson"), source: .gedcom)
+        _ = try db.addRelationship(Relationship(
+            id: UUID(), from: "mary", to: "watson", type: .spouse, role: nil,
+            subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil))
+        try db.saveEvidence(profileID: "mary", scored: factMarriage("m-sanders", spouse: "John Sanders", year: 1941),
+                            citationFull: nil, citationURL: nil)
+
+        let snapshot = try db.buildSnapshot()
+        _ = try ConflictSweep.run(db: db, snapshot: snapshot, force: true)
+
+        let open = try db.openDisputes(profileID: "mary")
+        #expect(open.contains { $0.kind == .spouseIdentity },
+                "record spouse (Sanders) contradicts the recorded spouse edge (Watson)")
+    }
+
     private func censusEvent(_ profileID: String, year: Int, location: String? = nil) -> LifeEvent {
         LifeEvent(
             id: UUID(), profileID: profileID, type: .census,

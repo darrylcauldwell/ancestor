@@ -160,22 +160,33 @@ nonisolated struct ConflictSweep {
                 profileID: profile.id, records: factRecords,
                 detectedBy: .consistencySweep))
 
-            for row in evidence where row.verdict == .fact {
-                guard case .marriage(let m) = row.record else { continue }
-                let raw = (m.spouseName ?? "").trimmingCharacters(in: .whitespaces)
-                guard let surname = raw.split(separator: " ").last.map(String.init)?.uppercased(),
-                      !surname.isEmpty else { continue }
-                let matchesEdge = spouseEdges.contains { edge in
-                    let otherID = edge.from == profile.id ? edge.to : edge.from
-                    guard let spouse = snapshot.profiles[otherID] else { return false }
-                    return Self.knownSurnames(of: spouse).contains(surname)
-                }
-                if !matchesEdge {
-                    conflicts.append(ConflictDetector.spouseIdentityConflict(
-                        marriage: m, recordSpouseSurname: surname,
-                        profileID: profile.id, spouseEdges: spouseEdges,
-                        snapshot: snapshot, origin: SourceOrigin(identifier: row.sourceID),
-                        detectedBy: .consistencySweep))
+            // F4b's contradiction is only meaningful when a spouse edge EXISTS to
+            // contradict. With no spouse recorded, "matches no spouse edge" is
+            // trivially true for EVERY marriage record, so a person with several
+            // namesake marriage candidates (and no applied spouse) collected one
+            // red spouseIdentity conflict per candidate — a Conflicts banner on a
+            // profile that has no marriage at all. Those competing candidates are
+            // an unresolved identity to discriminate in Triage, not a conflict.
+            // (Owner report 2026-08-05: Mary E Land — four "Mary/Mary E Land"
+            // marriage leads in Belper, no spouse edge.)
+            if !spouseEdges.isEmpty {
+                for row in evidence where row.verdict == .fact {
+                    guard case .marriage(let m) = row.record else { continue }
+                    let raw = (m.spouseName ?? "").trimmingCharacters(in: .whitespaces)
+                    guard let surname = raw.split(separator: " ").last.map(String.init)?.uppercased(),
+                          !surname.isEmpty else { continue }
+                    let matchesEdge = spouseEdges.contains { edge in
+                        let otherID = edge.from == profile.id ? edge.to : edge.from
+                        guard let spouse = snapshot.profiles[otherID] else { return false }
+                        return Self.knownSurnames(of: spouse).contains(surname)
+                    }
+                    if !matchesEdge {
+                        conflicts.append(ConflictDetector.spouseIdentityConflict(
+                            marriage: m, recordSpouseSurname: surname,
+                            profileID: profile.id, spouseEdges: spouseEdges,
+                            snapshot: snapshot, origin: SourceOrigin(identifier: row.sourceID),
+                            detectedBy: .consistencySweep))
+                    }
                 }
             }
 
