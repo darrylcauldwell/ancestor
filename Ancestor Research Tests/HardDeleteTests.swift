@@ -178,4 +178,28 @@ struct HardDeleteTests {
         )
         #expect(countAfter == 0)
     }
+
+    /// A SOFT delete must also drop the profile's relationship edges — otherwise
+    /// they dangle against the now-hidden profile and the parent keeps a phantom
+    /// child (owner report 2026-08-05: deleted duplicate children stayed edged to
+    /// both parents). Mirrors hard-delete's cascade; the parent itself survives.
+    @Test func softDeletingProfileCascadesToRelationshipEdges() throws {
+        let db = try makeTempDB()
+        _ = try insertProfile(db, id: "parent")
+        _ = try insertProfile(db, id: "child")
+        _ = try db.addRelationship(Relationship(
+            id: UUID(), from: "parent", to: "child", type: .parent, role: .father,
+            subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil))
+        #expect(try countRows(db, table: "relationships",
+                              where: "from_id = ? OR to_id = ?", args: ["child", "child"]) == 1)
+
+        _ = try db.softDeleteProfiles(ids: ["child"])
+
+        // The edge to the deleted child is gone — nothing dangles.
+        #expect(try countRows(db, table: "relationships",
+                              where: "from_id = ? OR to_id = ?", args: ["child", "child"]) == 0)
+        // The parent is untouched and still live.
+        #expect(try countRows(db, table: "profiles",
+                              where: "id = ? AND is_deleted = 0", args: ["parent"]) == 1)
+    }
 }

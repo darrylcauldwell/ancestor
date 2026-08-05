@@ -1603,6 +1603,23 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // One-time repair: prune dangling relationship edges — rows whose from_id
+        // or to_id no longer points at a LIVE profile (missing entirely, or
+        // is_deleted = 1). Before soft-delete cascaded its edges, deleting a
+        // profile left its parent/spouse/child edges behind, pointing at the
+        // hidden row; those phantom edges then inflated relationship counts and
+        // confused the census reconciler (owner report 2026-08-05: a deleted
+        // duplicate child stayed edged to both parents). Idempotent — it can only
+        // remove an edge that already fails the live-endpoint invariant, never a
+        // valid edge between two live profiles.
+        migrator.registerMigration("v57_prune_dangling_relationships") { db in
+            try db.execute(sql: """
+                DELETE FROM relationships
+                WHERE from_id NOT IN (SELECT id FROM profiles WHERE is_deleted = 0)
+                   OR to_id   NOT IN (SELECT id FROM profiles WHERE is_deleted = 0)
+                """)
+        }
+
         return migrator
     }
 
@@ -3000,6 +3017,16 @@ nonisolated extension ProjectDatabase {
     }
 
     /// Soft-delete profiles — sets is_deleted = 1. Reversible via restore.
+    ///
+    /// Also removes the deleted profiles' relationship edges, so a delete never
+    /// leaves a dangling edge pointing at a hidden profile (owner report
+    /// 2026-08-05: deleting duplicate children left George/Lydia with phantom
+    /// parent edges to the removed profiles, which then confused the census
+    /// reconciler). `hardDeleteProfile` already cascades edges the same way;
+    /// this brings the soft path in line. NOTE: because the edges are removed
+    /// (not soft-flagged — the relationships table has no is_deleted column),
+    /// `restoreProfiles` brings the profile back WITHOUT its former
+    /// relationships; re-link it, or recover from a backup if the edges matter.
     @discardableResult
     func softDeleteProfiles(ids: [String]) throws -> Transaction {
         let now = Date()
@@ -3033,6 +3060,12 @@ nonisolated extension ProjectDatabase {
                     INSERT INTO field_changes (id, transaction_id, entity_id, entity_kind, field, old_value, new_value, source, reason)
                     VALUES (?, ?, ?, 'profile', 'is_deleted', '0', '1', 'manual', 'soft delete')
                     """, arguments: [UUID().uuidString, transaction.id.uuidString, id])
+                // Cascade: drop the profile's relationship edges so none dangle
+                // against a now-hidden profile (mirrors hardDeleteProfile).
+                try db.execute(
+                    sql: "DELETE FROM relationships WHERE from_id = ? OR to_id = ?",
+                    arguments: [id, id]
+                )
             }
         }
 
