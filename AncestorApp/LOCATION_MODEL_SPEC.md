@@ -96,6 +96,29 @@ bare Chapman (`DBY`), RD = `DBY:Belper-RD`, place = `DBY:Turnditch`, parish =
   needs an ARK→fsId step + likely a full FS-tree regen. Decide keep/revert on
   the uncommitted `SearchDispatcher` soft-jurisdiction change. **Hard FS
   geo-filter stays parked** behind production verification.
+- **Stage 5 — birth registration district as a first-class profile field. DEFERRED (dogfood 2026-08-05).**
+  The place model already has `.registrationDistrict` as a `PlaceKind` with
+  `registrationDistrict(of:)` / `resolveDistrict(name:chapman:year:)` — but there
+  is nowhere on **Profile** to store one. `birthLocation` holds the event place
+  (e.g. `Alport, Youlgreave, Derbyshire`); the BMD **registration district**
+  (e.g. `Bakewell`) currently survives only inside the FreeBMD citation prose,
+  not a structured field. So the apply card's "applying adds the more precise
+  district" writes nothing durable or queryable, and birthplace-vs-district stay
+  conflated at the profile layer.
+  - **Consequence:** cannot cluster siblings by registration district, cannot
+    structurally verify/relocate the GRO record, and a bare-hamlet birthplace
+    (`Alport`) can't be distinguished from its RD (`Bakewell`) except by reading
+    citation text.
+  - **Direction:** add a typed `birthRegistrationDistrict` on `Profile` (a
+    PlaceAuthority id, e.g. `DBY:Bakewell-RD`), populated by the BMD apply via
+    `resolveDistrict`; `birthLocation` stays the event place. Extend to
+    death/marriage RD later. Check-before-overwrite; **never** write the RD into
+    `birthLocation` (the Abraham Twyford apply correctly preserved `Alport` — that
+    behaviour must hold).
+  - **Also surfaced (same session):** bare-hamlet birthplaces should resolve to a
+    full hierarchy (`Alport` → `Alport, Youlgreave, Derbyshire, England`) — a
+    driver for the `PlaceResolver` village→parent backfill blocked in Stage 2(b).
+  - Discovered dogfooding Abraham Twyford (`EAB1E5BE-…`): Alport birth, Bakewell RD.
 
 ## Invariants
 
