@@ -49,6 +49,36 @@ struct CitationRendererTests {
         #expect(citation.full.contains("1911"))
     }
 
+    // MARK: - Census age / birth-year fallback (FreeCen results carry a birth
+    // year, not an age — the row should read "b. 1886", not "age ?").
+
+    private func freeCenCensus(age: Int?, birthYear: Int?) -> SourceRecord {
+        .census(CensusRecord(
+            common: RecordCommon(
+                id: "fc1", sourceID: "freecen", name: "William Holmes",
+                surname: "Holmes", givenName: "William", detailURL: nil, rawFields: [:]),
+            censusYear: 1891, age: age, birthYear: birthYear,
+            birthPlace: "Beeley", district: "Bakewell"))
+    }
+
+    @Test func censusRowWithoutAgeShowsBirthYearNotQuestionMark() {
+        let citation = CitationRenderer.cite(freeCenCensus(age: nil, birthYear: 1886))
+        #expect(citation.full.contains("b. 1886"))
+        #expect(!citation.full.contains("age ?"))
+    }
+
+    @Test func censusRowWithAgePrefersTheTranscribedAge() {
+        let citation = CitationRenderer.cite(freeCenCensus(age: 20, birthYear: 1871))
+        #expect(citation.full.contains("age 20"))
+        #expect(!citation.full.contains("b. 1871"))
+    }
+
+    @Test func censusRowWithNeitherAgeNorBirthYearReadsHonestly() {
+        let citation = CitationRenderer.cite(freeCenCensus(age: nil, birthYear: nil))
+        #expect(citation.full.contains("age unknown"))
+        #expect(!citation.full.contains("age ?"))
+    }
+
     @Test func familySearchWithoutCollectionTitleStillCitesFamilySearch() {
         let bare = RecordCommon(
             id: "fs3", sourceID: "familysearch", name: "Barbara Ayre",

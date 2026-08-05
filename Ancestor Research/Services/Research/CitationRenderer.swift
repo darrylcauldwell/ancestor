@@ -174,9 +174,19 @@ nonisolated struct CitationRenderer {
         let parish = r.parish ?? r.district ?? ""
         let birthPlace = r.birthPlace ?? ""
 
+        // FreeCen's search-results grid carries a birth YEAR, not an age
+        // (the transcribed age lives on the household detail page). So prefer
+        // the age when present, fall back to the birth year — showing "b. 1886"
+        // instead of a broken-looking "age ?" for an un-enriched search row.
+        let ageOrBirth: String = {
+            if let age = r.age { return "age \(age)" }
+            if let by = r.birthYear { return "b. \(by)" }
+            return "age unknown"
+        }()
+
         let full = "\"\(r.censusYear) England Census,\" " +
                    "\(indexAttribution(for: r.common.sourceID, kind: "census transcription")), " +
-                   "\(name), age \(r.age.map(String.init) ?? "?"), " +
+                   "\(name), \(ageOrBirth), " +
                    "\(parish), born \(birthPlace)" +
                    "; accessed \(formatDate(accessedAt))."
 
