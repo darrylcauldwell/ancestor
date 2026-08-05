@@ -31,6 +31,21 @@ nonisolated extension SourceRecord {
             quality: nil, confidence: nil)]
     }
 
+    /// A citation source carrying a census record's detail URL, so the projected
+    /// census life event links back to its source. Also lets the census-household
+    /// proposal recognise an applied census by matching this URL (owner report
+    /// 2026-08-05: an applied childhood census offered no household load because
+    /// its projected life event was un-cited).
+    private static func censusSource(_ r: CensusRecord) -> [FieldSource] {
+        guard let url = r.common.detailURL, !url.isEmpty else { return [] }
+        return [FieldSource(
+            origin: SourceOrigin(identifier: r.common.sourceID),
+            raw: r.common.sourceID,
+            addedAt: Date(),
+            citation: Citation(url: url),
+            quality: nil, confidence: nil)]
+    }
+
     func projectToLifeEvent(profileID: String) -> LifeEvent? {
         switch self {
         case .birth, .death, .marriage, .pedigree:
@@ -120,7 +135,8 @@ nonisolated extension SourceRecord {
                     district: r.district,
                     parish: r.parish,
                     household: r.household ?? []
-                ))
+                )),
+                sources: Self.censusSource(r)
             )
 
         case .parish(let r):
