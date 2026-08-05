@@ -2548,6 +2548,88 @@ final class AppState {
         return (added, skipped)
     }
 
+    /// Absorb a census across the WHOLE household (owner request 2026-08-05): a
+    /// census is a household event, so its shared context (address, district,
+    /// parish, roster) and each member's own roster row (occupation) belong on
+    /// every tree member who was on the schedule — not just the person under
+    /// review. For the subject and each 1-hop relative that matches a roster row,
+    /// create or complete their census life-event for that year. Check-before-
+    /// overwrite: fills only empty fields, never clobbers existing data. Each
+    /// member's age is already represented by their profile's birth year (set
+    /// when the household was added); the census event carries occupation plus the
+    /// shared household context. Returns the number of members touched.
+    @discardableResult
+    func applyCensusToHousehold(subjectID: String, census: DiscoveryCensusHousehold) -> Int {
+        guard let db = currentDatabase, let subject = snapshot.profiles[subjectID] else { return 0 }
+
+        // Candidate tree profiles = the subject + immediate family (the household
+        // scope). Matching each row against these keeps a namesake elsewhere in
+        // the tree from being wrongly absorbed; the year-aware matcher tells the
+        // two Lydias (Wife 1862 vs Daughter 1886) apart.
+        var candidates: [Profile] = [subject]
+        candidates += snapshot.parentsOf(subjectID)
+        candidates += snapshot.childrenOf(subjectID)
+        candidates += snapshot.spousesOf(subjectID)
+        candidates += snapshot.siblingsOf(subjectID)
+        var seenIDs = Set<String>()
+        candidates = candidates.filter { seenIDs.insert($0.id).inserted }
+
+        func clean(_ s: String?) -> String? {
+            guard let s, !s.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+            return s
+        }
+
+        var touched = 0
+        do {
+            for member in census.household {
+                guard let profile = candidates.first(where: {
+                    CensusRelationshipReconciler.matches(member: member, profile: $0, censusYear: census.year)
+                }) else { continue }
+
+                let occupation = clean(member.occupation)
+                let existing = (snapshot.lifeEvents[profile.id] ?? []).first {
+                    $0.type == .census && $0.date?.bestYear == census.year
+                }
+                if var ev = existing {
+                    var c: CensusDetails
+                    if case .census(let existingC)? = ev.details { c = existingC } else { c = CensusDetails() }
+                    var changed = false
+                    if clean(c.address) == nil, let a = clean(census.address) { c.address = a; changed = true }
+                    if clean(c.occupation) == nil, let o = occupation { c.occupation = o; changed = true }
+                    if clean(c.district) == nil, let d = clean(census.district) { c.district = d; changed = true }
+                    if clean(c.parish) == nil, let p = clean(census.parish) { c.parish = p; changed = true }
+                    if c.household.isEmpty, !census.household.isEmpty { c.household = census.household; changed = true }
+                    if changed {
+                        ev.details = .census(c)
+                        try db.updateLifeEvent(ev)
+                        touched += 1
+                    }
+                } else {
+                    let ev = LifeEvent(
+                        id: UUID(), profileID: profile.id, type: .census,
+                        date: GenealogicalDate(parsing: String(census.year)),
+                        location: clean(census.address) ?? clean(census.parish),
+                        description: occupation,
+                        details: .census(CensusDetails(
+                            occupation: occupation,
+                            address: clean(census.address),
+                            district: clean(census.district),
+                            parish: clean(census.parish),
+                            household: census.household)))
+                    _ = try db.addLifeEventIfAbsent(ev)
+                    touched += 1
+                }
+            }
+            if touched > 0 {
+                snapshot = try db.buildSnapshot()
+                runPostLoadAudit()
+            }
+        } catch {
+            errorMessage = "Apply census to household failed: \(error.localizedDescription)"
+        }
+        return touched
+    }
+
     /// One-click "Add from census" for a subject flagged by `CensusRelationshipRule`
     /// with census relatives missing from the tree. Recomputes the missing set,
     /// then feeds ONLY those links to `addCensusFamily` (which creates fresh — not

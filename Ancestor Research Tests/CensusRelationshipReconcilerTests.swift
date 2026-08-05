@@ -498,6 +498,52 @@ struct CensusRelationshipReconcilerTests {
                 "still exactly one Mary A in the tree")
     }
 
+    /// A census address is a household fact: applying it broadcasts to the whole
+    /// household — the subject and each 1-hop relative that matches a roster row
+    /// gets a census life-event for that year carrying the shared address plus
+    /// their own occupation. (Owner request 2026-08-05.)
+    @MainActor
+    @Test func applyCensusToHouseholdWritesEventForEachMatchedMember() throws {
+        let db = try makeTempDB()
+        _ = try db.addProfile(person("abraham", "Abraham", "Twyford", birthYear: 1888), source: .gedcom)
+        _ = try db.addProfile(person("george", "George", "Twyford", birthYear: 1857), source: .gedcom)
+        _ = try db.addProfile(person("mary", "Mary", "Twyford", birthYear: 1884), source: .gedcom)
+        _ = try db.addRelationship(parentEdge("george", "abraham"))
+        _ = try db.addRelationship(parentEdge("george", "mary"))
+
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = try db.buildSnapshot()
+
+        let household = [
+            HouseholdMember(name: "George Twyford", relationship: "Head", age: 34, occupation: "Lead Miner", sex: "M"),
+            HouseholdMember(name: "Abraham Twyford", relationship: "Son", age: 3, sex: "M", isTarget: true),
+            HouseholdMember(name: "Mary Twyford", relationship: "Dau", age: 7, occupation: "Scholar", sex: "F")]
+        let census = DiscoveryCensusHousehold(
+            year: 1891, address: "Bakewell Rd", district: "Bakewell",
+            parish: "Youlgreave", household: household)
+
+        let n = appState.applyCensusToHousehold(subjectID: "abraham", census: census)
+        #expect(n == 3, "subject + father + sibling each matched a roster row")
+
+        let snap = appState.snapshot
+        func censusDetails(_ id: String) throws -> CensusDetails {
+            let ev = try #require(snap.lifeEvents[id]?.first {
+                $0.type == .census && $0.date?.bestYear == 1891 }, "\(id) has an 1891 census event")
+            guard case .census(let c)? = ev.details else {
+                Issue.record("\(id) census event has no census details"); return CensusDetails()
+            }
+            return c
+        }
+        // The shared address reached the whole household.
+        #expect(try censusDetails("abraham").address == "Bakewell Rd")
+        #expect(try censusDetails("george").address == "Bakewell Rd")
+        #expect(try censusDetails("mary").address == "Bakewell Rd")
+        // Each member kept their OWN roster occupation.
+        #expect(try censusDetails("george").occupation == "Lead Miner")
+        #expect(try censusDetails("mary").occupation == "Scholar")
+    }
+
     /// The Martha payoff end-to-end: a mother-in-law census row creates the
     /// in-law, links her as the spouse's mother, dates her from her census age,
     /// and fills the spouse's maiden name (moving the married surname across).

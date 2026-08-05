@@ -1755,6 +1755,17 @@ struct ClusterReviewView: View {
                             }
                             .buttonStyle(.link)
                             .font(AppTypography.badge)
+                        } else if let census = discovery.censusHousehold,
+                                  let subjectID = vm.selectedProfile?.id {
+                            // A census address/occupation is a HOUSEHOLD fact —
+                            // one click records it (plus each member's roster row)
+                            // on every tree member on the schedule, not just the
+                            // subject.
+                            Button(discovery.suggestedAction) {
+                                _ = appState.applyCensusToHousehold(subjectID: subjectID, census: census)
+                            }
+                            .buttonStyle(.link)
+                            .font(AppTypography.badge)
                         } else {
                             Text(discovery.suggestedAction)
                                 .font(AppTypography.badge)

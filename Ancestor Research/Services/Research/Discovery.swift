@@ -19,6 +19,19 @@ nonisolated struct DiscoveryPersonAdd: Sendable, Equatable {
     let sourceID: String?
 }
 
+/// Payload for a census discovery (address / occupation) that can be broadcast
+/// across the whole household — a census is a household event, so its shared
+/// fields plus each member's roster row belong on every tree member who was on
+/// the schedule, not just the subject under review. Carried so the review UI's
+/// button can apply it in one click.
+nonisolated struct DiscoveryCensusHousehold: Sendable, Equatable {
+    let year: Int
+    let address: String?
+    let district: String?
+    let parish: String?
+    let household: [HouseholdMember]
+}
+
 /// A first-class finding the research pipeline surfaces to the user.
 /// Discoveries are things the user didn't explicitly ask for but are genealogically significant.
 nonisolated struct Discovery: Identifiable, Sendable {
@@ -30,9 +43,13 @@ nonisolated struct Discovery: Identifiable, Sendable {
     let sourceID: String?
     /// Set when the discovery can be actioned by creating + linking a person.
     let personAdd: DiscoveryPersonAdd?
+    /// Set on census address/occupation discoveries so the action can absorb the
+    /// census across the whole household (see `AppState.applyCensusToHousehold`).
+    let censusHousehold: DiscoveryCensusHousehold?
 
     init(id: String, type: DiscoveryType, description: String, evidence: String,
-         suggestedAction: String, sourceID: String?, personAdd: DiscoveryPersonAdd? = nil) {
+         suggestedAction: String, sourceID: String?, personAdd: DiscoveryPersonAdd? = nil,
+         censusHousehold: DiscoveryCensusHousehold? = nil) {
         self.id = id
         self.type = type
         self.description = description
@@ -40,6 +57,7 @@ nonisolated struct Discovery: Identifiable, Sendable {
         self.suggestedAction = suggestedAction
         self.sourceID = sourceID
         self.personAdd = personAdd
+        self.censusHousehold = censusHousehold
     }
 }
 
@@ -265,8 +283,14 @@ nonisolated struct DiscoveryExtractor {
                             type: .addressFound,
                             description: "\(r.censusYear) census: \(address)",
                             evidence: "Census address field",
-                            suggestedAction: "Note address: \(address)",
-                            sourceID: scored.record.sourceID
+                            suggestedAction: "Apply to whole household",
+                            sourceID: scored.record.sourceID,
+                            censusHousehold: DiscoveryCensusHousehold(
+                                year: r.censusYear,
+                                address: address,
+                                district: r.district,
+                                parish: r.parish,
+                                household: r.household ?? [])
                         ))
                     }
                     // Unknown children (or siblings) — census roles are
