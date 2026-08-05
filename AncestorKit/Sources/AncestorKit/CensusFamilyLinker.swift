@@ -31,6 +31,27 @@ public nonisolated struct CensusFamilyLinker {
         }
     }
 
+    /// A proposed in-law edge: `member` is the parent of the Head's spouse (a
+    /// father/mother-in-law-of-Head row), and `parentOfRelation` says where that
+    /// spouse sits relative to the SUBJECT — so the caller knows how to wire it:
+    ///   • `.parent`  → the spouse is the subject's mother, so the in-law is the
+    ///     subject's GRANDPARENT (child subject — John W Thompson's 1861 case:
+    ///     "Fa-Law" William Burnett is the maternal grandfather, and his surname
+    ///     is the mother's maiden name).
+    ///   • `.spouse`  → the subject IS the Head, so the in-law is the parent of
+    ///     the subject's spouse.
+    /// Only father/mother-in-law of the Head are emitted — brother/sister/son/
+    /// daughter-in-law are ambiguous (spouse's sibling vs sibling's spouse) and
+    /// stay excluded ("when in doubt, split").
+    public struct InLawLink: Sendable, Equatable {
+        public let member: HouseholdMember
+        public let parentOfRelation: CensusRelation
+        public init(member: HouseholdMember, parentOfRelation: CensusRelation) {
+            self.member = member
+            self.parentOfRelation = parentOfRelation
+        }
+    }
+
     /// How a roster row relates to the Head, once ambiguous / non-family forms
     /// are filtered out.
     private enum Category { case head, spouse, child, parent, sibling }
@@ -58,6 +79,44 @@ public nonisolated struct CensusFamilyLinker {
             else { return nil }
             return Link(member: member, relation: relation)
         }
+    }
+
+    /// Father/mother-in-law-of-Head rows, resolved to how the Head's spouse (whose
+    /// parent they are) sits relative to the subject. Empty unless the subject is
+    /// the Head or a child of the Head — the two shapes where the wiring is
+    /// unambiguous. Nuclear `familyLinks` still excludes these rows; this is a
+    /// deliberately separate, opt-in output the caller wires with extra care.
+    public static func inLawLinks(household: [HouseholdMember]) -> [InLawLink] {
+        let targets = household.filter { $0.isTarget == true }
+        guard targets.count == 1,
+              let subject = targets.first,
+              let subjectCat = category(of: subject.relationship)
+        else { return [] }
+        // The in-law is the parent of the Head's spouse (the married-in Wife).
+        // Where that spouse sits relative to the subject decides the wiring.
+        let spouseOfHead: CensusRelation? = switch subjectCat {
+        case .head:  .spouse   // subject IS the Head → in-law is their spouse's parent
+        case .child: .parent   // the Wife is the subject's mother → in-law is a grandparent
+        case .spouse, .parent, .sibling: nil
+        }
+        guard let parentOf = spouseOfHead else { return [] }
+        return household.compactMap { member -> InLawLink? in
+            guard member.isTarget != true,
+                  !member.name.trimmingCharacters(in: .whitespaces).isEmpty,
+                  isParentInLawOfHead(member.relationship)
+            else { return nil }
+            return InLawLink(member: member, parentOfRelation: parentOf)
+        }
+    }
+
+    /// A father/mother-in-law row (of the Head). Handles FreeCen abbreviations
+    /// ("Fa-Law", "Mo-Law") and spelled forms ("father in law", "mother-in-law").
+    /// Brother/sister/son/daughter-in-law are intentionally NOT matched.
+    private static func isParentInLawOfHead(_ role: String) -> Bool {
+        let r = role.lowercased().trimmingCharacters(in: .whitespaces)
+        let inLaw = r.contains("in law") || r.contains("in-law") || r.hasSuffix("-law")
+        guard inLaw else { return false }
+        return r.hasPrefix("fa") || r.contains("father") || r.hasPrefix("mo") || r.contains("mother")
     }
 
     /// The member's relation to the subject, or nil when it falls outside the

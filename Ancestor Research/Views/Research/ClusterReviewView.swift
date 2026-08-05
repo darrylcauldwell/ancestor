@@ -713,7 +713,8 @@ struct ClusterReviewView: View {
                 if let subject = vm.selectedProfile {
                     _ = appState.addCensusFamily(
                         links: pending.links, subject: subject,
-                        censusYear: pending.year, sourceID: pending.sourceID)
+                        censusYear: pending.year, sourceID: pending.sourceID,
+                        household: pending.household)
                 }
                 pendingCensusFamily = nil
             }
@@ -962,7 +963,8 @@ struct ClusterReviewView: View {
                             if let ctx = censusFamilyContext(cluster), vm.selectedProfile != nil {
                                 Button {
                                     pendingCensusFamily = PendingCensusFamily(
-                                        links: ctx.links, year: ctx.year, sourceID: ctx.sourceID)
+                                        links: ctx.links, year: ctx.year, sourceID: ctx.sourceID,
+                                        household: cluster.householdMembers)
                                 } label: {
                                     Label("Add \(ctx.links.count) family member\(ctx.links.count == 1 ? "" : "s")",
                                           systemImage: "person.2.badge.plus")
@@ -1523,6 +1525,7 @@ struct ClusterReviewView: View {
         let links: [CensusFamilyLinker.Link]
         let year: Int?
         let sourceID: String
+        let household: [HouseholdMember]
     }
 
     @State private var pendingCensusFamily: PendingCensusFamily?

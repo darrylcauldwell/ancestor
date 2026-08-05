@@ -1183,19 +1183,25 @@ struct SharedProfileLayout: View {
                                     .buttonStyle(.glassProminent).controlSize(.mini)
                                     .help("Fetches this census's full schedule — one page from FreeCen — so its household family can be added.")
                                 }
-                            case .canAbsorb(let links, let year, let sourceID):
+                            case .canAbsorb(let links, let year, let sourceID, let household):
+                                // Nuclear family + any in-law grandparent (a
+                                // father/mother-in-law is a two-generation unlock).
+                                let inLaws = CensusFamilyLinker.inLawLinks(household: household).count
+                                let total = links.count + inLaws
                                 healthStripRow(
                                     icon: "person.2.badge.plus", tint: .blue,
-                                    text: "In the \(String(year)) census with \(links.count) household member\(links.count == 1 ? "" : "s") not on the tree"
+                                    text: inLaws > 0
+                                        ? "In the \(String(year)) census — \(links.count) household member\(links.count == 1 ? "" : "s") + \(inLaws) in-law grandparent\(inLaws == 1 ? "" : "s") not on the tree"
+                                        : "In the \(String(year)) census with \(links.count) household member\(links.count == 1 ? "" : "s") not on the tree"
                                 ) {
-                                    Button("Add \(links.count) family member\(links.count == 1 ? "" : "s")") {
+                                    Button("Add \(total) family member\(total == 1 ? "" : "s")") {
                                         _ = appState.addCensusFamily(
                                             links: links, subject: profile,
-                                            censusYear: year, sourceID: sourceID)
+                                            censusYear: year, sourceID: sourceID, household: household)
                                         reloadFactRecords()
                                     }
                                     .buttonStyle(.glassProminent).controlSize(.mini)
-                                    .help("Adds only the family rows (parents, spouse, children, siblings). Boarders, lodgers, visitors and servants are left out.")
+                                    .help("Adds the family rows (parents, spouse, children, siblings) plus a father/mother-in-law as a grandparent — which also gives the married-in parent their maiden surname. Boarders, lodgers, visitors and servants are left out.")
                                 }
                             }
                         }

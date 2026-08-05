@@ -541,6 +541,66 @@ struct CensusRelationshipReconcilerTests {
         #expect(!net.contains { $0.member.name == "John Thompson" })
     }
 
+    // MARK: - In-law capture (father/mother-in-law of the Head)
+
+    /// John W's real 1861 roster: the "Fa-Law" is the Head's father-in-law, so
+    /// relative to John W (a child) he's a maternal grandfather.
+    @Test func inLawLinkerEmitsParentInLawForAChildSubject() {
+        let household = [
+            member("John Thompson", "Head", age: 55),
+            member("Elizabeth Thompson", "Wife", age: 38),
+            member("John W Thompson", "Son", age: 8, isTarget: true),
+            member("William Burnett", "Fa-Law", age: 74),
+            member("Mary Kirkham", "Servnt", age: 18),          // excluded
+        ]
+        let inLaws = CensusFamilyLinker.inLawLinks(household: household)
+        #expect(inLaws.count == 1)
+        #expect(inLaws.first?.member.name == "William Burnett")
+        // For a child subject the in-law is the parent of the subject's mother.
+        #expect(inLaws.first?.parentOfRelation == .parent)
+        // Brother/sister/son/daughter-in-law are not emitted.
+        #expect(CensusFamilyLinker.inLawLinks(household: [
+            member("A B", "Head", age: 40),
+            member("C D", "Son", age: 10, isTarget: true),
+            member("E F", "Bro-Law", age: 30)]).isEmpty)
+    }
+
+    /// The full capture: adding John W's family from his 1861 census creates the
+    /// grandfather Burnett linked to Elizabeth AND stamps Elizabeth's maiden
+    /// surname (Burnett) — two generations from one roster.
+    @MainActor
+    @Test func addCensusFamilyWiresInLawGrandparentAndMaidenSurname() throws {
+        let db = try makeTempDB()
+        _ = try db.addProfile(person("johnw", "John W", "Thompson", birthYear: 1853), source: .gedcom)
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = try db.buildSnapshot()
+
+        let household = [
+            HouseholdMember(name: "John Thompson", relationship: "Head", age: 55, sex: "M"),
+            HouseholdMember(name: "Elizabeth Thompson", relationship: "Wife", age: 38, sex: "F"),
+            HouseholdMember(name: "John W Thompson", relationship: "Son", age: 8, sex: "M", isTarget: true),
+            HouseholdMember(name: "William Burnett", relationship: "Fa-Law", age: 74, sex: "M"),
+        ]
+        let links = CensusFamilyLinker.familyLinks(household: household)
+        let result = appState.addCensusFamily(
+            links: links, subject: try #require(appState.snapshot.profiles["johnw"]),
+            censusYear: 1861, sourceID: "freecen", household: household)
+
+        // Father + mother + grandfather = 3 new people.
+        #expect(result.added == 3)
+        let profiles = appState.snapshot.profiles.values
+        // Elizabeth carries her maiden surname from the in-law, not "Thompson".
+        let elizabeth = try #require(profiles.first { $0.firstName == "Elizabeth" })
+        #expect(elizabeth.lastName == "Burnett", "the Fa-Law's surname is her maiden name")
+        #expect(elizabeth.marriedSurname == "Thompson")
+        // William Burnett exists and is Elizabeth's father (John W's grandfather).
+        let william = try #require(profiles.first { $0.firstName == "William" && $0.lastName == "Burnett" })
+        let elizabethParents = appState.snapshot.parentsOf(elizabeth.id)
+        #expect(elizabethParents.contains { $0.id == william.id },
+                "Burnett is wired as the mother's father — a maternal grandfather")
+    }
+
     /// A census address is a household fact: applying it broadcasts to the whole
     /// household — the subject and each 1-hop relative that matches a roster row
     /// gets a census life-event for that year carrying the shared address plus

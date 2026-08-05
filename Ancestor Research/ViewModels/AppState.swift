@@ -2463,7 +2463,8 @@ final class AppState {
         links: [CensusFamilyLinker.Link],
         subject: Profile,
         censusYear: Int?,
-        sourceID: String
+        sourceID: String,
+        household: [HouseholdMember] = []
     ) -> (added: Int, skipped: Int) {
         guard let db = currentDatabase else { return (0, 0) }
         let source = SourceOrigin(identifier: sourceID)
@@ -2532,6 +2533,15 @@ final class AppState {
             }
         }
 
+        // The Head's spouse (the married-in Wife) is who any in-law is the parent
+        // of — the mother for a child subject, the spouse for a Head subject.
+        // Track her tree id + `profiles` index (when newly built) so an in-law
+        // can hang a grandparent off her AND stamp her maiden surname.
+        var marriedInMotherID: String? = snapshot.parentsOf(subject.id).first(where: { $0.gender == .female })?.id
+        var marriedInMotherNewIndex: Int?
+        var marriedInSpouseID: String? = snapshot.spousesOf(subject.id).first(where: { $0.gender == .female })?.id
+        var marriedInSpouseNewIndex: Int?
+
         // 1. Parents first, so siblings can reference them.
         for link in links where link.relation == .parent {
             let r = role(for: link.member)
@@ -2540,16 +2550,19 @@ final class AppState {
             let p = build(link.member, marriedIn: r == .mother); profiles.append(p)
             edges.append(parentEdge(from: p.id, to: subject.id, role: r))
             parents.append((p.id, r)); added += 1
+            if r == .mother { marriedInMotherID = p.id; marriedInMotherNewIndex = profiles.count - 1 }
         }
         // 2. Spouse.
         for link in links where link.relation == .spouse {
             if alreadyPresent(link.member, among: snapshot.spousesOf(subject.id)) { skipped += 1; continue }
             // A female spouse (a Wife) married into the household surname; a male
             // spouse (a Husband) carries his own birth surname.
-            let p = build(link.member, marriedIn: genderOf(link.member) == .female); profiles.append(p)
+            let female = genderOf(link.member) == .female
+            let p = build(link.member, marriedIn: female); profiles.append(p)
             edges.append(Relationship(id: UUID(), from: subject.id, to: p.id, type: .spouse, role: nil,
                                       subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil))
             added += 1
+            if female { marriedInSpouseID = p.id; marriedInSpouseNewIndex = profiles.count - 1 }
         }
         // The subject's co-parent for any children added here: the lone spouse,
         // if any. A census child of the Wife is equally the Head's child, so link
@@ -2578,6 +2591,41 @@ final class AppState {
             if alreadyPresent(link.member, among: existingSiblings) { skipped += 1; continue }
             let p = build(link.member); profiles.append(p)
             for parent in parents { edges.append(parentEdge(from: parent.id, to: p.id, role: parent.role)) }
+            added += 1
+        }
+        // 5. In-laws — father/mother-in-law of the Head, captured with extra care
+        //    (they're a two-generation unlock: the married-in parent/spouse's
+        //    MAIDEN surname AND a grandparent). Owner request 2026-08-05: John W
+        //    Thompson's "Fa-Law" William Burnett → Elizabeth's maiden name Burnett
+        //    + a maternal grandfather. `CensusFamilyLinker.inLawLinks` emits only
+        //    the unambiguous parent-in-law-of-Head rows.
+        for il in CensusFamilyLinker.inLawLinks(household: household) {
+            // The married-in person this in-law is the parent of.
+            let (targetID, newIndex): (String?, Int?) = il.parentOfRelation == .parent
+                ? (marriedInMotherID, marriedInMotherNewIndex)
+                : (marriedInSpouseID, marriedInSpouseNewIndex)
+            guard let target = targetID else { skipped += 1; continue }
+            // The in-law's surname IS the married-in person's maiden surname —
+            // stamp it, but only on a person we just created and left blank
+            // (never overwrite an existing/known maiden name).
+            let inLawSurname: String? = {
+                let toks = il.member.name.split(separator: " ").map(String.init)
+                return toks.count >= 2 ? recase(toks.last!) : nil
+            }()
+            if let idx = newIndex, let s = inLawSurname, (profiles[idx].lastName ?? "").isEmpty {
+                profiles[idx].lastName = s
+            }
+            // Add the in-law as that person's parent (grandparent of a child
+            // subject) — skip if a parent of this role is already recorded.
+            let ilRole = role(for: il.member)
+            let existingInLawParents = snapshot.parentsOf(target)
+            let roleTaken = ilRole != .unspecified && existingInLawParents.contains {
+                ($0.gender == .male && ilRole == .father) || ($0.gender == .female && ilRole == .mother)
+            }
+            if roleTaken || alreadyPresent(il.member, among: existingInLawParents) { skipped += 1; continue }
+            // A female in-law (a mother-in-law) married into the census surname.
+            let g = build(il.member, marriedIn: genderOf(il.member) == .female); profiles.append(g)
+            edges.append(parentEdge(from: g.id, to: target, role: ilRole))
             added += 1
         }
 
@@ -2618,8 +2666,9 @@ final class AppState {
     enum CensusHouseholdProposal: Equatable {
         /// Applied census with a detail page but no roster yet — fetch it.
         case needsLoad(sourceRecordID: String, censusYear: Int)
-        /// Roster present; these family members aren't on the tree yet.
-        case canAbsorb(links: [CensusFamilyLinker.Link], censusYear: Int, sourceID: String)
+        /// Roster present; these family members aren't on the tree yet. Carries
+        /// the full roster so `addCensusFamily` can also wire in-law grandparents.
+        case canAbsorb(links: [CensusFamilyLinker.Link], censusYear: Int, sourceID: String, household: [HouseholdMember])
     }
 
     /// Compute the census-household proposal for a subject from its already-loaded
@@ -2638,8 +2687,10 @@ final class AppState {
             let newLinks = censusFamilyNetNewLinks(
                 CensusFamilyLinker.familyLinks(household: c.household ?? []),
                 subject: subject, censusYear: c.censusYear)
-            if !newLinks.isEmpty {
-                absorb = .canAbsorb(links: newLinks, censusYear: c.censusYear, sourceID: c.common.sourceID)
+            let inLaws = CensusFamilyLinker.inLawLinks(household: c.household ?? [])
+            if !newLinks.isEmpty || !inLaws.isEmpty {
+                absorb = .canAbsorb(links: newLinks, censusYear: c.censusYear,
+                                    sourceID: c.common.sourceID, household: c.household ?? [])
             }
         }
         return absorb
