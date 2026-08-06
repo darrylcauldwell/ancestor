@@ -128,8 +128,32 @@ nonisolated struct ApplyEngine {
     /// - probate: explicit `birthDate`, else derived from `ageAtDeath`
     static func impliedBirthDate(for record: SourceRecord) -> GenealogicalDate? {
         switch record {
-        case .birth, .marriage, .pedigree, .parish:
+        case .birth, .marriage, .pedigree:
             return nil
+        case .parish(let r):
+            // PARISH_ABSORPTION_SPEC §4. A burial's deceased-age and a
+            // marriage principal's age each imply a (wide, `.calculated`)
+            // birth; a baptism's explicit birth_date is a precise birth.
+            // The baptism DATE is never treated as a birth date.
+            switch r.detail?.event {
+            case .burial(let b):
+                guard let age = b.deceased.ageInt,
+                      let year = parsedDateOrNil(b.deathDate)?.latest
+                        ?? parsedDateOrNil(r.eventDate)?.latest ?? r.eventYear
+                else { return nil }
+                return birthDateFromAge(age: age, at: year)
+            case .baptism(let bap):
+                return parsedDateOrNil(bap.birthDate)
+            case .marriage(let m):
+                let role = m.role(forGiven: r.common.givenName, surname: r.common.surname, gender: nil)
+                guard let age = m.principal(as: role).ageInt,
+                      let year = parsedDateOrNil(m.marriageDate)?.latest
+                        ?? parsedDateOrNil(r.eventDate)?.latest ?? r.eventYear
+                else { return nil }
+                return birthDateFromAge(age: age, at: year)
+            case nil:
+                return nil
+            }
         case .census(let r):
             if let year = r.birthYear { return yearGranularDate(year) }
             if let age = r.age { return birthDateFromAge(age: age, at: r.censusYear) }
@@ -159,8 +183,16 @@ nonisolated struct ApplyEngine {
     /// reaches no profile field at all.
     static func impliedDeathDate(for record: SourceRecord) -> GenealogicalDate? {
         switch record {
-        case .death, .birth, .census, .marriage, .pedigree, .parish:
+        case .death, .birth, .census, .marriage, .pedigree:
             return nil
+        case .parish(let r):
+            // PARISH_ABSORPTION_SPEC §4 — a burial dates a death to within
+            // days: prefer the entry's explicit death date, else the burial
+            // (event) date/year. Baptism/marriage imply no death.
+            guard case .burial(let b)? = r.detail?.event else { return nil }
+            return parsedDateOrNil(b.deathDate)
+                ?? parsedDateOrNil(r.eventDate)
+                ?? r.eventYear.map(yearGranularDate)
         case .burial(let r):
             return parsedDateOrNil(r.deathDate) ?? r.deathYear.map(yearGranularDate)
         case .probate(let r):

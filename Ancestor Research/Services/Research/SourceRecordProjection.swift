@@ -152,6 +152,17 @@ nonisolated extension SourceRecord {
             default: type = .other
             }
             guard let type else { return nil }
+            // PARISH_ABSORPTION_SPEC §6 — a burial entry's cause/place of death
+            // is genuine content the flat projection dropped; carry it in the
+            // event description rather than losing it to the typed payload.
+            let description: String? = {
+                guard case .burial(let b)? = r.detail?.event else { return nil }
+                return [b.causeOfDeath, b.placeOfDeath]
+                    .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "; ")
+                    .nilIfEmptyProjection
+            }()
             return LifeEvent(
                 id: Self.deterministicID(profileID: profileID, sourceRecordID: r.common.id),
                 profileID: profileID,
@@ -159,7 +170,7 @@ nonisolated extension SourceRecord {
                 date: r.eventDate.flatMap { GenealogicalDate.parsePreview($0).parsed }
                     ?? r.eventYear.map(yearOnlyDate),
                 location: [r.parish, r.county].compactMap { $0 }.joined(separator: ", ").nilIfEmptyProjection,
-                description: nil,
+                description: description,
                 details: nil
             )
         }
@@ -183,10 +194,58 @@ nonisolated extension SourceRecord {
             // residence ("late of …"); surface it on the residence axis, not
             // only buried in the probate event's details.
             events.append(contentsOf: Self.probateDerivedEvents(r, profileID: profileID))
+        case .parish(let r):
+            // PARISH_ABSORPTION_SPEC §6 — a marriage names the principal's
+            // occupation and abode; fan them onto the occupation/residence
+            // axes, mirroring census.
+            events.append(contentsOf: Self.parishDerivedEvents(r, profileID: profileID))
         default:
             break
         }
         return events
+    }
+
+    /// The off-agenda facts a parish MARRIAGE volunteers about its principal —
+    /// occupation and abode — each routed to its own typed event, dated to the
+    /// marriage year. The subject is the row principal (name-resolved), so a
+    /// bride-subject record contributes the bride's block, not the groom's.
+    /// Empty fields yield no event. (PARISH_ABSORPTION_SPEC §6.)
+    private static func parishDerivedEvents(_ r: ParishRecord, profileID: String) -> [LifeEvent] {
+        guard case .marriage(let m)? = r.detail?.event else { return [] }
+        let role = m.role(forGiven: r.common.givenName, surname: r.common.surname, gender: nil)
+        let p = m.principal(as: role)
+        guard let year = r.eventYear
+            ?? m.marriageDate.flatMap({ GenealogicalDate.parsePreview($0).parsed?.bestYear })
+        else { return [] }
+        let date = yearOnlyDate(year)
+        var out: [LifeEvent] = []
+        if let occupation = p.occupation?.trimmingCharacters(in: .whitespaces), !occupation.isEmpty {
+            out.append(LifeEvent(
+                id: deterministicID(profileID: profileID, sourceRecordID: r.common.id, discriminator: "occupation"),
+                profileID: profileID,
+                type: .occupation,
+                date: date,
+                location: p.abode?.nilIfEmptyProjection ?? r.parish,
+                description: occupation,
+                details: nil
+            ))
+        }
+        if let abode = p.abode?.trimmingCharacters(in: .whitespaces), !abode.isEmpty {
+            out.append(LifeEvent(
+                id: deterministicID(profileID: profileID, sourceRecordID: r.common.id, discriminator: "residence"),
+                profileID: profileID,
+                type: .residence,
+                // A marriage abode is attested for the wedding only — close the
+                // window so it can't shadow the subject's later life (same
+                // rationale as the census-derived residence).
+                date: date,
+                endDate: date,
+                location: abode,
+                description: nil,
+                details: nil
+            ))
+        }
+        return out
     }
 
     /// The off-agenda facts a census volunteers, each routed to its own typed

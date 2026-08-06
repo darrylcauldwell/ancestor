@@ -65,7 +65,15 @@ nonisolated extension SourceRecord {
             if let loc = ApplyEngine.censusBirthLocation(r) {
                 items.append(.stringField(.birthLocation, loc))
             }
-        case .burial, .military, .probate, .parish, .pedigree:
+        case .parish(let r):
+            // PARISH_ABSORPTION_SPEC §5 — a parish MARRIAGE fills the subject's
+            // spouse edge just like a BMD marriage, via a synthesized
+            // MarriageRecord (the existing spouse-edge executor handles it).
+            // Non-marriage parish events synthesize nil and fall through.
+            if let m = r.syntheticMarriageRecord {
+                items.append(.spouseEdge(m))
+            }
+        case .burial, .military, .probate, .pedigree:
             break  // no primary field write — corroboration below may still fire
         }
 
