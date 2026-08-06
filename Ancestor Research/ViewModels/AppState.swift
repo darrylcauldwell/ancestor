@@ -1326,6 +1326,8 @@ final class AppState {
         )
         do {
             try db.addLifeEvent(event)
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
             return event
         } catch {
             errorMessage = "Failed to create life event: \(error.localizedDescription)"
@@ -1337,6 +1339,8 @@ final class AppState {
         guard let db = currentDatabase else { return }
         do {
             try db.updateLifeEvent(event)
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
         } catch {
             errorMessage = "Failed to update life event: \(error.localizedDescription)"
         }
@@ -1346,6 +1350,12 @@ final class AppState {
         guard let db = currentDatabase else { return }
         do {
             try db.deleteLifeEvent(id: id)
+            // Rebuild so the UI drops the deleted event immediately — without
+            // this the DB row was removed but the in-memory snapshot kept it, so
+            // the event stayed on screen (owner report 2026-08-06: deleting a
+            // census life event "did nothing").
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
         } catch {
             errorMessage = "Failed to delete life event: \(error.localizedDescription)"
         }
