@@ -102,8 +102,16 @@ nonisolated struct EvidenceRecord: Sendable, Identifiable {
     /// green "Applied" while her Birth stayed empty — `.savedAsLead` alone
     /// must never read as applied.)
     func wasApplied(to profile: Profile?) -> Bool {
+        if userStatus == .discarded { return false }   // the user rejected it
         if appliedAt != nil { return true }
-        guard userStatus == .savedAsLead, let profile else { return false }
+        // Citation-fingerprint fallback: a confirmed fact on the profile that
+        // cites THIS record is proof the apply ran — whatever the userStatus.
+        // Previously this required `.savedAsLead`, but apply paths like
+        // parent-unlock land a census's facts + life event WITHOUT stamping the
+        // evidence, so a wrongly-applied census showed "Apply" (not "Remove") in
+        // the ledger and couldn't be undone (owner report 2026-08-06: George
+        // Herbert Brooks's Coleorton namesake census).
+        guard let profile else { return false }
         let trimmedFull = Self.trimAccessDate(citationFull)
         for sources in profile.sources.values {
             for source in sources {
