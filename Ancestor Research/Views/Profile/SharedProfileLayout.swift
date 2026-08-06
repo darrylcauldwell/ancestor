@@ -151,6 +151,9 @@ struct SharedProfileLayout: View {
     /// An applied census whose household roster can still be loaded (FreeCen
     /// enriches only the top hit) or absorbed into parents/siblings.
     @State private var censusHousehold: AppState.CensusHouseholdProposal?
+    /// An applied parish record (marriage / baptism / burial) naming spouse or
+    /// parents not yet on the tree (PARISH_ABSORPTION_SPEC §7).
+    @State private var parishFamily: AppState.ParishFamilyProposal?
     @State private var healthStripExpanded = false
 
     /// All evidence records for this profile (applied / researched / rejected),
@@ -1073,6 +1076,7 @@ struct SharedProfileLayout: View {
         profileBackfill = appState.censusBackfillProposal(for: profile.id)
         profileDeathAge = appState.deathAgeBackfillProposal(for: profile.id)
         censusHousehold = appState.censusHouseholdProposal(for: profile, evidence: evidence)
+        parishFamily = appState.parishFamilyProposal(for: profile, evidence: evidence)
     }
 
     private func removeAppliedRecord(_ rec: ProfileSourcesLedger.RecordDetail) {
@@ -1207,6 +1211,27 @@ struct SharedProfileLayout: View {
                                     .buttonStyle(.glassProminent).controlSize(.mini)
                                     .help("Adds the family rows (parents, spouse, children, siblings) plus a father/mother-in-law as a grandparent — which also gives the married-in parent their maiden surname. Boarders, lodgers, visitors and servants are left out.")
                                 }
+                            }
+                        }
+                        if case let .canAdd(links, year, sourceID, kind)? = parishFamily {
+                            let names = links.map(\.displayName).filter { !$0.isEmpty }
+                            let eventWord = switch kind {
+                            case .marriage: "marriage"
+                            case .baptism:  "baptism"
+                            case .burial:   "burial"
+                            }
+                            healthStripRow(
+                                icon: "person.crop.rectangle.badge.plus", tint: .blue,
+                                text: "\(String(year)) \(eventWord) names \(names.joined(separator: " + ")) — not on the tree"
+                            ) {
+                                Button("Add \(links.count) \(links.count == 1 ? "person" : "people")") {
+                                    _ = appState.addParishFamily(
+                                        links: links, subject: profile,
+                                        eventYear: year, sourceID: sourceID)
+                                    reloadFactRecords()
+                                }
+                                .buttonStyle(.glassProminent).controlSize(.mini)
+                                .help("Creates the spouse and/or parents this parish record names, linked to \(profile.displayName). A wrongly-created namesake is a later merge — the record's rich detail (marriage date, occupation, residence) is already on the profile.")
                             }
                         }
                         ForEach(profileFindings) { finding in

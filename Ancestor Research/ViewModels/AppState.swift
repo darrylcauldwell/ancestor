@@ -2887,6 +2887,231 @@ final class AppState {
         return touched
     }
 
+    // MARK: - Parish family proposal (PARISH_ABSORPTION_SPEC §7)
+
+    /// Which parish event a family proposal came from (drives the strip copy).
+    nonisolated enum ParishKind: Sendable, Equatable { case marriage, baptism, burial }
+
+    /// One person a parish register entry names but the tree lacks. `birthSurname`
+    /// is the person's own birth/maiden surname (→ `lastName`); `marriedSurname`
+    /// is the household surname they took by marriage (→ `marriedSurname`, e.g. a
+    /// bride's married name, a mother's married name).
+    nonisolated struct ParishFamilyLink: Sendable, Equatable, Identifiable {
+        enum Relation: Sendable, Equatable { case spouse, parent }
+        let relation: Relation
+        let given: String?
+        let birthSurname: String?
+        let marriedSurname: String?
+        let gender: Gender?
+        var id: String { "\(relation):\(gender?.rawValue ?? "?"):\((given ?? "").uppercased()):\((birthSurname ?? marriedSurname ?? "").uppercased())" }
+        /// Given + best available surname, for the strip label.
+        var displayName: String {
+            [given, birthSurname ?? marriedSurname].compactMap { $0 }.joined(separator: " ")
+        }
+    }
+
+    /// A parish record naming family not yet on the tree. Twin of
+    /// `CensusHouseholdProposal.canAbsorb` — facts already absorbed on apply;
+    /// this is the relatives-offer half.
+    nonisolated enum ParishFamilyProposal: Equatable {
+        case canAdd(links: [ParishFamilyLink], eventYear: Int, sourceID: String, kind: ParishKind)
+    }
+
+    /// Compute the parish-family proposal for a subject from its applied parish
+    /// evidence. Applied = the apply path stamped the evidence `.savedAsLead`,
+    /// OR one of the record's projected life events sits on the profile, OR a
+    /// confirmed fact cites the record's URL (retroactive) — the same three
+    /// signals the census proposal trusts. Nil when nothing net-new is named.
+    func parishFamilyProposal(for subject: Profile, evidence: [EvidenceRecord]) -> ParishFamilyProposal? {
+        let profileEventIDs = Set((snapshot.lifeEvents[subject.id] ?? []).map { $0.id })
+        let appliedCitationURLs = Set(subject.sources.values.flatMap { $0 }.compactMap { $0.citation?.url })
+        for ev in evidence {
+            guard case .parish(let r) = ev.record, let detail = r.detail else { continue }
+            let projectedIDs = Set(ev.record.projectToLifeEvents(profileID: subject.id).map { $0.id })
+            let citedByFact = r.common.detailURL.map { appliedCitationURLs.contains($0) } ?? false
+            let applied = ev.userStatus == .savedAsLead
+                || !projectedIDs.isDisjoint(with: profileEventIDs)
+                || citedByFact
+            guard applied else { continue }
+            let (links, kind) = Self.parishFamilyLinks(subject: subject, record: r, detail: detail)
+            let net = parishFamilyNetNewLinks(links, subject: subject)
+            if !net.isEmpty, let year = r.eventYear {
+                return .canAdd(links: net, eventYear: year, sourceID: r.common.sourceID, kind: kind)
+            }
+        }
+        return nil
+    }
+
+    /// Lift the family a parish entry names, per event kind (PARISH_ABSORPTION_SPEC
+    /// §7.1). Marriage → the subject's spouse + the SUBJECT's parents (never the
+    /// other party's — they are the spouse's kin). Baptism → both parents.
+    /// Burial → the named relative when the relationship marks them a parent.
+    /// A relative's absent surname inherits the subject's (a father shares his
+    /// child's surname), the same inference the BMD parent path makes.
+    nonisolated static func parishFamilyLinks(
+        subject: Profile, record r: ParishRecord, detail: FreeREGDetail
+    ) -> ([ParishFamilyLink], ParishKind) {
+        let subjSurname = subject.lastName?.trimmingCharacters(in: .whitespaces)
+        func nonEmpty(_ s: String?) -> String? {
+            guard let t = s?.trimmingCharacters(in: .whitespaces), !t.isEmpty else { return nil }
+            return t
+        }
+        func named(_ p: FreeREGPerson?) -> Bool { (p.map { nonEmpty($0.forename) != nil || $0.hasSurname }) ?? false }
+
+        switch detail.event {
+        case .marriage(let m):
+            let role = m.role(forGiven: subject.firstName, surname: subject.lastName, gender: subject.gender)
+            var links: [ParishFamilyLink] = []
+            // Spouse — the other party. A bride's surname is her MAIDEN name
+            // (→ lastName) and her married name is the subject's surname; a
+            // groom carries his own birth surname.
+            let other = m.spouse(of: role)
+            if named(other) {
+                let spouseFemale = role == .groom
+                links.append(ParishFamilyLink(
+                    relation: .spouse, given: nonEmpty(other.forename),
+                    birthSurname: nonEmpty(other.surname),
+                    marriedSurname: spouseFemale ? subjSurname : nil,
+                    gender: spouseFemale ? .female : .male))
+            }
+            // The SUBJECT's father (birth surname = subject's) and mother
+            // (maiden if stated, else her married name = subject's surname).
+            if let f = m.father(of: role), named(f) {
+                links.append(ParishFamilyLink(
+                    relation: .parent, given: nonEmpty(f.forename),
+                    birthSurname: nonEmpty(f.surname) ?? subjSurname,
+                    marriedSurname: nil, gender: .male))
+            }
+            if let mo = m.mother(of: role), named(mo) {
+                let maiden = nonEmpty(mo.surname)
+                links.append(ParishFamilyLink(
+                    relation: .parent, given: nonEmpty(mo.forename),
+                    birthSurname: maiden,
+                    marriedSurname: maiden == nil ? subjSurname : nil, gender: .female))
+            }
+            return (links, .marriage)
+
+        case .baptism(let bap):
+            var links: [ParishFamilyLink] = []
+            if let f = bap.father, named(f) {
+                links.append(ParishFamilyLink(
+                    relation: .parent, given: nonEmpty(f.forename),
+                    birthSurname: nonEmpty(f.surname) ?? subjSurname,
+                    marriedSurname: nil, gender: .male))
+            }
+            if named(bap.mother?.person) {
+                let mo = bap.mother!.person
+                let maiden = nonEmpty(mo.surname)
+                links.append(ParishFamilyLink(
+                    relation: .parent, given: nonEmpty(mo.forename),
+                    birthSurname: maiden,
+                    marriedSurname: maiden == nil ? subjSurname : nil, gender: .female))
+            }
+            return (links, .baptism)
+
+        case .burial(let b):
+            // "son of John Smith" / "dau of Jane Smith" — the relative is a
+            // PARENT of the deceased. Any other relationship (wife of, etc.)
+            // is not a parent, so it is not proposed as one.
+            let rel = (b.relationship ?? "").lowercased()
+            let isChildOf = rel.contains("son of") || rel.contains("dau") || rel.contains("child of")
+            guard isChildOf, let relative = b.relative, named(relative) else { return ([], .burial) }
+            let g: Gender? = relative.sex?.uppercased().hasPrefix("F") == true ? .female
+                : (relative.sex?.uppercased().hasPrefix("M") == true ? .male : nil)
+            return ([ParishFamilyLink(
+                relation: .parent, given: nonEmpty(relative.forename),
+                birthSurname: nonEmpty(relative.surname) ?? subjSurname,
+                marriedSurname: nil, gender: g)], .burial)
+        }
+    }
+
+    /// Links NOT already on the tree — skips a parent whose gender-role is
+    /// filled or that matches an existing parent by name, and a spouse that
+    /// matches an existing spouse. Mirrors `censusFamilyNetNewLinks`.
+    func parishFamilyNetNewLinks(_ links: [ParishFamilyLink], subject: Profile) -> [ParishFamilyLink] {
+        let existingParents = snapshot.parentsOf(subject.id)
+        let existingSpouses = snapshot.spousesOf(subject.id)
+        func nameMatch(_ p: Profile, _ link: ParishFamilyLink) -> Bool {
+            let given = (link.given ?? "").lowercased()
+            let pf = (p.firstName ?? "").lowercased()
+            guard !given.isEmpty, !pf.isEmpty, given == pf else { return false }
+            let surs = Set([p.lastName, p.marriedSurname].compactMap { $0?.uppercased() })
+            let cand = [link.birthSurname, link.marriedSurname].compactMap { $0?.uppercased() }
+            return cand.isEmpty || cand.contains { surs.contains($0) }
+        }
+        return links.filter { link in
+            switch link.relation {
+            case .parent:
+                let roleFilled: Bool = switch link.gender {
+                case .male:   existingParents.contains { $0.gender == .male }
+                case .female: existingParents.contains { $0.gender == .female }
+                default:      false
+                }
+                if roleFilled { return false }
+                return !existingParents.contains { nameMatch($0, link) }
+            case .spouse:
+                return !existingSpouses.contains { nameMatch($0, link) }
+            }
+        }
+    }
+
+    /// Create fresh profiles + edges for the accepted parish-family links.
+    /// Fresh (not placeholder) profiles, "when in doubt split" — a namesake
+    /// wrongly created is a later merge, never a wrong auto-link. Re-checks the
+    /// gender-role guard against the live snapshot so a double-tap can't add a
+    /// second father. Returns (added, skipped).
+    @discardableResult
+    func addParishFamily(
+        links: [ParishFamilyLink], subject: Profile, eventYear: Int?, sourceID: String
+    ) -> (added: Int, skipped: Int) {
+        guard let db = currentDatabase else { return (0, 0) }
+        let source = SourceOrigin(identifier: sourceID)
+        func recase(_ s: String?) -> String? {
+            guard let s = s?.trimmingCharacters(in: .whitespaces), !s.isEmpty else { return nil }
+            return (s == s.uppercased() || s == s.lowercased()) ? s.capitalized : s
+        }
+        func build(_ link: ParishFamilyLink) -> Profile {
+            Profile(id: UUID().uuidString, externalIDs: [:],
+                    firstName: recase(link.given), middleName: nil,
+                    lastName: recase(link.birthSurname), marriedSurname: recase(link.marriedSurname),
+                    gender: link.gender, attributes: nil,
+                    birthDate: nil, birthLocation: nil, deathDate: nil, deathLocation: nil,
+                    bio: nil, isDeleted: false, sources: [:], disputes: [:])
+        }
+        var parentRolesFilled = Set(snapshot.parentsOf(subject.id).compactMap(\.gender))
+        var profiles: [Profile] = []
+        var edges: [Relationship] = []
+        var added = 0, skipped = 0
+        for link in links {
+            switch link.relation {
+            case .parent:
+                if let g = link.gender, parentRolesFilled.contains(g) { skipped += 1; continue }
+                let p = build(link); profiles.append(p)
+                let role: ParentRole = link.gender == .male ? .father : (link.gender == .female ? .mother : .unspecified)
+                edges.append(Relationship(id: UUID(), from: p.id, to: subject.id, type: .parent,
+                                          role: role, subtype: .biological,
+                                          marriageDate: nil, marriageLocation: nil, divorceDate: nil))
+                if let g = link.gender { parentRolesFilled.insert(g) }
+                added += 1
+            case .spouse:
+                let p = build(link); profiles.append(p)
+                edges.append(Relationship(id: UUID(), from: subject.id, to: p.id, type: .spouse,
+                                          role: nil, subtype: .biological,
+                                          marriageDate: nil, marriageLocation: nil, divorceDate: nil))
+                added += 1
+            }
+        }
+        do {
+            for p in profiles { _ = try db.addProfile(p, source: source) }
+            for e in edges { _ = try db.addRelationship(e) }
+            snapshot = try db.buildSnapshot()
+            runPostLoadAudit()
+        } catch {
+            errorMessage = "Add family from parish record failed: \(error.localizedDescription)"
+        }
+        return (added, skipped)
+    }
+
     /// One-click "Add from census" for a subject flagged by `CensusRelationshipRule`
     /// with census relatives missing from the tree. Recomputes the missing set,
     /// then feeds ONLY those links to `addCensusFamily` (which creates fresh — not
