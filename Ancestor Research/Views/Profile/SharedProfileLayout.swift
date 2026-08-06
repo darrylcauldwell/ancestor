@@ -1081,7 +1081,11 @@ struct SharedProfileLayout: View {
         let evidence = (try? db.loadEvidenceForProfile(profile.id)) ?? []
         // Remove every underlying row this card collapsed (duplicate re-scrapes),
         // so a de-duplicated applied record is fully cleared, not left orphaned.
-        for ev in evidence where ids.contains(ev.sourceRecordID) && ev.userStatus == .savedAsLead {
+        // No `.savedAsLead` filter: the row is already classified `.applied`, and
+        // some apply paths (parent-unlock) never stamp the evidence — filtering on
+        // savedAsLead skipped them, so Remove silently did nothing (owner report
+        // 2026-08-06: George Herbert Brooks's Coleorton census wouldn't remove).
+        for ev in evidence where ids.contains(ev.sourceRecordID) {
             _ = appState.removeAppliedRecord(ev)
         }
         reloadFactRecords()
