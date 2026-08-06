@@ -194,7 +194,8 @@ public nonisolated struct CensusRelationshipReconciler {
                     entries.append(.init(member: member, censusRelation: relation, status: status))
                 } else if let sameRole = treeRelatives.first(where: {
                     $0.relation == relation
-                        && Self.matchesRoleScoped(member: member, profile: $0.profile, censusYear: year)
+                        && Self.sameRoleFallbackMatch(member: member, profile: $0.profile,
+                                                      relation: relation, censusYear: year)
                 }) {
                     // Name-matching relative in the SAME household role where
                     // EITHER side is undateable — the same person seen from
@@ -309,6 +310,35 @@ public nonisolated struct CensusRelationshipReconciler {
         guard memberBirthYear(member, censusYear: censusYear) == nil
                 || profile.birthDate?.bestYear == nil else { return false }
         return namesMatch(member: member, profile: profile)
+    }
+
+    /// The same-role classification fallback for a subject's own LINKED
+    /// relatives (used only after the year-corroborated pass found no match).
+    ///
+    /// For the SINGLETON roles — parent, spouse — a name match alone suffices
+    /// even when both sides are dated but disagree: census ages drift, and a
+    /// subject has one father, so "George TWYFORD (Head)" against the linked
+    /// father George Twyford is the same man whatever the age column says
+    /// (owner report 2026-08-06: father b.1857 vs Head age 30 → b.1861, four
+    /// years against a ±3 tolerance, read the linked father as "missing" and
+    /// offered a duplicating Add-father).
+    ///
+    /// For children and siblings the either-side-undateable guard stays:
+    /// families reused a dead child's name, so a DATED same-name sibling with
+    /// a different year is a genuinely distinct person the census may be
+    /// discovering — never silently welded onto the survivor.
+    static func sameRoleFallbackMatch(
+        member: HouseholdMember, profile: Profile,
+        relation: CensusRelation, censusYear: Int?
+    ) -> Bool {
+        guard namesMatch(member: member, profile: profile) else { return false }
+        switch relation {
+        case .parent, .spouse:
+            return true
+        default:
+            return memberBirthYear(member, censusYear: censusYear) == nil
+                || profile.birthDate?.bestYear == nil
+        }
     }
 
     /// Name-only agreement: first given-name token + a surname (birth or

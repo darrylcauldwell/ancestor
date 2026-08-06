@@ -861,4 +861,51 @@ struct CensusRelationshipReconcilerTests {
         let georgeEntry = recons.first?.entries.first { $0.member.name == "George TWYFORD" }
         #expect(georgeEntry?.status == .inTree(profileID: "george"))
     }
+
+    /// Singleton-role year drift (owner report 2026-08-06, second Twyford
+    /// variant): the linked father is DATED but the census age drifts past
+    /// tolerance (b.1857 vs Head age 30 → b.1861). A subject has one father,
+    /// so a name-matching linked father is him whatever the age column says —
+    /// in-tree, never "missing" with a duplicating Add-father offer.
+    @Test func reconciliationsAbsorbYearDriftOnLinkedParent() {
+        let abraham = person("abraham", "Abraham", "Twyford", birthYear: 1888)
+        let father = person("george", "George", "Twyford", birthYear: 1857)   // tree says 1857
+        let household = [
+            member("George TWYFORD", "Head", age: 30),                        // census says b.1861
+            member("Abraham TWYFORD", "Son", age: 3, isTarget: true),
+        ]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["abraham": abraham, "george": father],
+            relationships: [parentEdge("george", "abraham")],
+            lifeEvents: ["abraham": [censusEvent("abraham", year: 1891, household: household)]])
+
+        let recons = CensusRelationshipReconciler.reconciliations(for: abraham, in: snapshot)
+        let georgeEntry = recons.first?.entries.first { $0.member.name == "George TWYFORD" }
+        #expect(georgeEntry?.status == .inTree(profileID: "george"))
+        #expect(CensusRelationshipReconciler.findings(for: abraham, in: snapshot)
+            .filter { $0.kind == .missing }.isEmpty)
+    }
+
+    /// Reused-name safety: the year guard STAYS for siblings. A dated
+    /// same-name sibling with a genuinely different year (families reused a
+    /// dead child's name) is a distinct person the census is discovering —
+    /// still `.missing`, never welded onto the survivor.
+    @Test func datedSameNameSiblingWithWrongYearStaysMissing() {
+        let samuel = person("samuel", "Samuel", "Wheeldon", birthYear: 1853)
+        let dad = person("dad", "John", "Wheeldon", birthYear: 1824)
+        let laterGeorge = person("george2", "George", "Wheeldon", birthYear: 1870)  // later same-name child
+        let household = [
+            member("John Wheeldon", "Head", age: 37),
+            member("Samuel Wheeldon", "Son", age: 8, isTarget: true),
+            member("George Wheeldon", "Son", age: 2),                              // b.1859 — the earlier George
+        ]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["samuel": samuel, "dad": dad, "george2": laterGeorge],
+            relationships: [parentEdge("dad", "samuel"), parentEdge("dad", "george2")],
+            lifeEvents: ["samuel": [censusEvent("samuel", year: 1861, household: household)]])
+
+        let missing = CensusRelationshipReconciler.findings(for: samuel, in: snapshot)
+            .filter { $0.kind == .missing }
+        #expect(missing.contains { $0.member.name == "George Wheeldon" && $0.censusRelation == .sibling })
+    }
 }
