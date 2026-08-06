@@ -30,6 +30,32 @@ public nonisolated struct GenealogicalDate: Codable, Hashable, Sendable {
         }
     }
 
+    /// Intra-year precision rank, for breaking ties between two dates pinned to
+    /// the SAME single year (both year-span 0) — the case the span-based
+    /// overwrite policy can't separate. A day+month date ("30 Jan 1915", 3)
+    /// is finer than a bare month or registration quarter ("Mar 1915", 2),
+    /// which is finer than a bare year ("1915", 1). Returns 0 when the date
+    /// isn't a single pinned year (a range/open bound compares by span, not
+    /// this). Reads `original` because `earliest`/`latest` are year-only and so
+    /// carry no month/day. Higher = more precise.
+    public var intraYearPrecision: Int {
+        guard let e = earliest, let l = latest, e == l else { return 0 }
+        let lower = original.lowercased()
+        let months = ["jan", "feb", "mar", "apr", "may", "jun",
+                      "jul", "aug", "sep", "oct", "nov", "dec"]
+        let hasMonth = months.contains { lower.contains($0) }
+        // A 1–2 digit day number that isn't the 4-digit year.
+        let hasDay = original
+            .components(separatedBy: CharacterSet(charactersIn: " -/,."))
+            .contains { tok in
+                guard tok.count <= 2, let n = Int(tok), (1...31).contains(n) else { return false }
+                return true
+            }
+        if hasMonth && hasDay { return 3 }
+        if hasMonth { return 2 }
+        return 1
+    }
+
     /// Parse from a raw date string (GEDCOM or free text).
     /// Accepts GEDCOM qualifiers (ABT, BEF, AFT, BET...AND, EST, CAL)
     /// and natural language synonyms (circa, around, approximately, before, after).

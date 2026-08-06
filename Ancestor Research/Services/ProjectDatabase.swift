@@ -2635,7 +2635,7 @@ nonisolated extension ProjectDatabase {
 
             let candidateNarrower: Bool = {
                 guard let date = candidateDate else { return false }
-                if existingDate == nil { return true }
+                guard let existingDate else { return true }
                 let candidateSpan: Int = {
                     guard let e = date.earliest, let l = date.latest else { return .max }
                     return l - e
@@ -2644,7 +2644,16 @@ nonisolated extension ProjectDatabase {
                     guard let e = existingEarliest, let l = existingLatest else { return .max }
                     return l - e
                 }()
-                return candidateSpan < existingSpan
+                if candidateSpan != existingSpan { return candidateSpan < existingSpan }
+                // Same year-span (typically both pinned to one year): break the
+                // tie by intra-year precision, so a parish register's exact day
+                // ("30 Jan 1915") upgrades a FreeBMD registration quarter
+                // ("Mar 1915") that year-span alone can't separate. Reconstruct
+                // the existing date to read its original-string granularity.
+                let existing = GenealogicalDate(
+                    original: existingDate, earliest: existingEarliest,
+                    latest: existingLatest, isApproximate: false, qualifier: .exact)
+                return date.intraYearPrecision > existing.intraYearPrecision
             }()
 
             if candidateNarrower, let date = candidateDate {
@@ -2660,13 +2669,28 @@ nonisolated extension ProjectDatabase {
                         date.qualifier.rawValue, relationshipID.uuidString,
                     ])
             }
-            if (existingLocation ?? "").isEmpty,
-               let loc = candidateLocation?.trimmingCharacters(in: .whitespaces),
-               !loc.isEmpty {
-                try db.execute(
-                    sql: "UPDATE relationships SET marriage_location = ? WHERE id = ?",
-                    arguments: [loc, relationshipID.uuidString]
-                )
+            // Location: fill when empty, else prefer a MORE-SPECIFIC place. A
+            // marriage's true location is the church parish ("Kirk Ireton,
+            // Derbyshire"), while a FreeBMD index gives only the registration
+            // district ("Ashbourne") — the two never contain each other
+            // textually, so compare geographic components (comma-separated
+            // parts): more parts = more specific. Heuristic, but it only ever
+            // makes the place finer, and equal part-counts never overwrite (no
+            // churn between two records at the same granularity).
+            if let loc = candidateLocation?.trimmingCharacters(in: .whitespaces), !loc.isEmpty {
+                let existing = (existingLocation ?? "").trimmingCharacters(in: .whitespaces)
+                func specificity(_ s: String) -> Int {
+                    s.split(separator: ",").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count
+                }
+                let moreSpecific = existing.isEmpty
+                    || (existing.caseInsensitiveCompare(loc) != .orderedSame
+                        && specificity(loc) > specificity(existing))
+                if moreSpecific {
+                    try db.execute(
+                        sql: "UPDATE relationships SET marriage_location = ? WHERE id = ?",
+                        arguments: [loc, relationshipID.uuidString]
+                    )
+                }
             }
         }
 

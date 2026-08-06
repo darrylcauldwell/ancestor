@@ -215,4 +215,26 @@ struct GenealogicalDateTests {
         #expect(result.displayText.contains("Before"))
         #expect(result.displayText.contains("1900"))
     }
+
+    // MARK: intraYearPrecision (marriage-fill tie-break, PARISH_ABSORPTION follow-up)
+
+    @Test func intraYearPrecisionRanksDayOverMonthOverYear() {
+        // The Ernest Cauldwell case: a parish register's exact day must
+        // out-rank a FreeBMD registration quarter that shares the same year.
+        #expect(GenealogicalDate(parsing: "30 Jan 1915").intraYearPrecision == 3)
+        #expect(GenealogicalDate(parsing: "Mar 1915").intraYearPrecision == 2)
+        #expect(GenealogicalDate(parsing: "1915").intraYearPrecision == 1)
+    }
+
+    @Test func intraYearPrecisionHandlesFullMonthNamesAndLeadingDay() {
+        #expect(GenealogicalDate(parsing: "3 March 1887").intraYearPrecision == 3)
+        #expect(GenealogicalDate(parsing: "March 1887").intraYearPrecision == 2)
+        #expect(GenealogicalDate(parsing: "1 JAN 1887").intraYearPrecision == 3)
+    }
+
+    @Test func intraYearPrecisionZeroForMultiYearSpans() {
+        // A range/approximate date compares by span, not intra-year precision.
+        #expect(GenealogicalDate(parsing: "about 1890").intraYearPrecision == 0)
+        #expect(GenealogicalDate(parsing: "1880s").intraYearPrecision == 0)
+    }
 }
