@@ -192,19 +192,26 @@ public nonisolated struct CensusRelationshipReconciler {
                         ? .inTree(profileID: match.profile.id)
                         : .contradiction(treeRelativeID: match.profile.id, treeRelation: match.relation)
                     entries.append(.init(member: member, censusRelation: relation, status: status))
-                } else if Self.memberBirthYear(member, censusYear: year) == nil,
-                          let sameRole = treeRelatives.first(where: {
-                              $0.relation == relation && Self.namesMatch(member: member, profile: $0.profile)
-                          }) {
-                    // Undateable roster row (no age, no stated year) already
-                    // present in the SAME household role — the same person seen
-                    // from another relative's viewpoint (a household lists each
-                    // member once, so same census + same role + same name = same
-                    // person). Classify as in-tree so we neither re-offer the add
-                    // nor spawn a duplicate. Namesake safety is unaffected: this
-                    // fires only when the census cannot date the row at all — a
-                    // datable namesake still takes the year-corroborated path and
-                    // stays a distinct, missing person.
+                } else if let sameRole = treeRelatives.first(where: {
+                    $0.relation == relation
+                        && Self.matchesRoleScoped(member: member, profile: $0.profile, censusYear: year)
+                }) {
+                    // Name-matching relative in the SAME household role where
+                    // EITHER side is undateable — the same person seen from
+                    // another viewpoint (a household lists each member once, so
+                    // same census + same role + same name = same person):
+                    //   • undateable ROSTER row (no age, no stated year — an
+                    //     infant "7m"), or
+                    //   • undateable TREE PROFILE (a ghost parent with no birth
+                    //     date — owner report 2026-08-06: Abraham Twyford's
+                    //     linked-but-dateless father George read as "not in the
+                    //     tree" and grew an Add-father offer that would have
+                    //     duplicated him).
+                    // Classify as in-tree so we neither re-offer the add nor
+                    // spawn a duplicate. Namesake safety is unaffected: when
+                    // both sides carry a year, only the year-corroborated
+                    // branch above can match — a datable namesake with the
+                    // wrong year stays a distinct, missing person.
                     entries.append(.init(member: member, censusRelation: relation,
                                          status: .inTree(profileID: sameRole.profile.id)))
                 } else if let existing = snapshot.profiles.values.first(where: {
@@ -276,12 +283,13 @@ public nonisolated struct CensusRelationshipReconciler {
         return abs(memberYear - profileYear) <= yearTolerance
     }
 
-    /// Like `matches`, but when the census row is UNDATEABLE — no age AND no
-    /// stated birth year (an infant recorded as "7m", or a torn/blank age cell)
-    /// — it falls back to a name-only match. Safe ONLY when the candidate set is
-    /// already ROLE-SCOPED (the subject's own children / spouses / parents),
-    /// where a name match within that handful is unambiguous; a tree-wide
-    /// name-only match would over-pair namesakes.
+    /// Like `matches`, but when EITHER side is UNDATEABLE — the census row has
+    /// no age and no stated birth year (an infant recorded as "7m", a torn or
+    /// blank age cell), or the tree profile carries no birth date (a ghost
+    /// parent) — it falls back to a name-only match. Safe ONLY when the
+    /// candidate set is already ROLE-SCOPED (the subject's own children /
+    /// spouses / parents), where a name match within that handful is
+    /// unambiguous; a tree-wide name-only match would over-pair namesakes.
     ///
     /// The census DEDUP paths (`AppState.censusFamilyNetNewLinks` /
     /// `addCensusFamily`) use this so an age-less roster row isn't treated as a
@@ -289,11 +297,17 @@ public nonisolated struct CensusRelationshipReconciler {
     /// the "Add N family members" over-offer, the duplicate-on-apply, and the
     /// false "census unabsorbed" audit (owner report 2026-08-06: George
     /// Cauldwell, "7m" in the 1891 roster, offered as net-new and flagged
-    /// unabsorbed though already a linked child). A datable row still takes the
-    /// year-corroborated path, so namesake safety there is unchanged.
+    /// unabsorbed though already a linked child). The dateless-PROFILE arm is
+    /// the mirror case (same-day owner report: Abraham Twyford's linked-but-
+    /// dateless father George read as "not in the tree", with an Add-father
+    /// offer that would have duplicated him). When BOTH sides carry a year the
+    /// year-corroborated path alone decides — a datable member against a dated
+    /// profile with the wrong year still refuses, so namesake safety is
+    /// unchanged.
     public static func matchesRoleScoped(member: HouseholdMember, profile: Profile, censusYear: Int?) -> Bool {
         if matches(member: member, profile: profile, censusYear: censusYear) { return true }
-        guard memberBirthYear(member, censusYear: censusYear) == nil else { return false }
+        guard memberBirthYear(member, censusYear: censusYear) == nil
+                || profile.birthDate?.bestYear == nil else { return false }
         return namesMatch(member: member, profile: profile)
     }
 

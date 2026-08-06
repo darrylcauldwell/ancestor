@@ -827,4 +827,38 @@ struct CensusRelationshipReconcilerTests {
         let otherInfant = member("Henry Cauldwell", "Son", age: nil)
         #expect(CensusRelationshipReconciler.matchesRoleScoped(member: otherInfant, profile: george, censusYear: 1891) == false)
     }
+
+    /// The mirror arm (owner report 2026-08-06, Abraham Twyford): a DATABLE
+    /// census row must still dedup by name against a DATELESS tree profile —
+    /// a linked ghost father with no birth date otherwise reads as "not on
+    /// the tree" and grows a duplicate-creating Add offer.
+    @Test func matchesRoleScopedDedupesDatableRowAgainstDatelessProfile() {
+        let ghostFather = person("g", "George", "Twyford", birthYear: nil)
+        let headRow = member("George TWYFORD", "Head", age: 30)
+        #expect(CensusRelationshipReconciler.matches(member: headRow, profile: ghostFather, censusYear: 1891) == false)
+        #expect(CensusRelationshipReconciler.matchesRoleScoped(member: headRow, profile: ghostFather, censusYear: 1891))
+    }
+
+    /// End-to-end through `reconciliations`: the subject's linked-but-dateless
+    /// father, appearing as the datable Head of the subject's own census, is
+    /// classified in-tree — not `.missing` (which rendered as "a census lists
+    /// 1 of Abraham's relatives not in the tree" plus an Add-father offer).
+    @Test func reconciliationsClassifyDatelessLinkedParentAsInTree() {
+        let abraham = person("abraham", "Abraham", "Twyford", birthYear: 1888)
+        let ghostFather = person("george", "George", "Twyford", birthYear: nil)
+        let household = [
+            member("George TWYFORD", "Head", age: 30),
+            member("Abraham TWYFORD", "Son", age: 3, isTarget: true),
+        ]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["abraham": abraham, "george": ghostFather],
+            relationships: [parentEdge("george", "abraham")],
+            lifeEvents: ["abraham": [censusEvent("abraham", year: 1891, household: household)]])
+
+        let findings = CensusRelationshipReconciler.findings(for: abraham, in: snapshot)
+        #expect(findings.filter { $0.kind == .missing }.isEmpty)
+        let recons = CensusRelationshipReconciler.reconciliations(for: abraham, in: snapshot)
+        let georgeEntry = recons.first?.entries.first { $0.member.name == "George TWYFORD" }
+        #expect(georgeEntry?.status == .inTree(profileID: "george"))
+    }
 }

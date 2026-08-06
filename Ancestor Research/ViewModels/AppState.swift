@@ -2841,7 +2841,10 @@ final class AppState {
                 : snapshot.spousesOf(subject.id).first(where: { $0.gender == .female })
             guard let target else { return true }   // target not on tree yet → net-new
             return !snapshot.parentsOf(target.id).contains {
-                CensusRelationshipReconciler.matches(member: il.member, profile: $0, censusYear: censusYear)
+                // Role-scoped (the target's own parents): a dateless in-law
+                // grandparent on the tree must still dedup by name, else the
+                // "Add in-law grandparent" offer re-fires forever.
+                CensusRelationshipReconciler.matchesRoleScoped(member: il.member, profile: $0, censusYear: censusYear)
             }
         }
     }
