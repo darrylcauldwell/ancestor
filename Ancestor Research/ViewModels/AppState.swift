@@ -545,6 +545,40 @@ final class AppState {
         upsertAuditRuleOverride(override)
     }
 
+    /// Permanently dismiss an audit finding for ONE profile — the inline
+    /// "Dismiss" on a Health finding row. Creates a disabled `.profile`
+    /// override so the finding stops re-firing after every re-audit. This is
+    /// the escape hatch for a false positive the rule can't otherwise resolve
+    /// (owner report 2026-08-06: a "census unabsorbed" finding for a household
+    /// already fully on the tree, with no way to clear it — only Edit Profile /
+    /// Add Question). Re-enable later from the audit-rule overrides UI.
+    /// `AuditEngine` already honours `.profile` mutes for its built-in rules;
+    /// the injected findings (census-unabsorbed, parent-unlock, citation-gap)
+    /// are filtered by `isAuditFindingMuted` where they're folded in.
+    func dismissAuditFinding(ruleID: String, profileID: String) {
+        guard let db = currentDatabase else { return }
+        let scope = AuditOverrideScope.profile(id: profileID)
+        var override = (try? db.loadAuditRuleOverride(ruleID: ruleID, scope: scope))
+            ?? AuditRuleOverride(id: UUID(), ruleID: ruleID, scope: scope,
+                                 enabled: true, snoozedUntil: nil, thresholds: [:])
+        override.enabled = false
+        override.snoozedUntil = nil   // permanent, not a timed snooze
+        upsertAuditRuleOverride(override)
+    }
+
+    /// Whether a (ruleID, profileID) pair is currently muted by a per-profile
+    /// override — used to filter the injected findings that don't pass through
+    /// `AuditEngine`'s own per-profile mute (which already drops built-in-rule
+    /// findings for a muted profile).
+    func isAuditFindingMuted(ruleID: String, profileID: String) -> Bool {
+        let now = Date()
+        return loadAuditRuleOverrides().contains { ov in
+            ov.ruleID == ruleID
+                && ov.scope == .profile(id: profileID)
+                && ov.isCurrentlyMuted(asOf: now)
+        }
+    }
+
     /// Apply a single already-scored evidence record to its subject from the
     /// profile's per-fact evidence expander — the same write path a cluster
     /// Apply uses (overwrite-safe: fills nil fields, refines where the policy
@@ -2549,7 +2583,10 @@ final class AppState {
         // 2026-08-05: applying Sarah Ann's census duplicated her siblings.)
         func alreadyPresent(_ m: HouseholdMember, among candidates: [Profile]) -> Bool {
             candidates.contains {
-                CensusRelationshipReconciler.matches(member: m, profile: $0, censusYear: censusYear)
+                // Role-scoped: `candidates` is already the subject's own kin, so
+                // an age-less infant row ("7m") dedups by name — otherwise it's
+                // undateable and gets re-created as a duplicate.
+                CensusRelationshipReconciler.matchesRoleScoped(member: m, profile: $0, censusYear: censusYear)
             }
         }
 
@@ -2754,7 +2791,11 @@ final class AppState {
     ) -> [CensusFamilyLinker.Link] {
         func present(_ m: HouseholdMember, among candidates: [Profile]) -> Bool {
             candidates.contains {
-                CensusRelationshipReconciler.matches(member: m, profile: $0, censusYear: censusYear)
+                // Role-scoped candidates (the subject's spouses/children/…), so
+                // an age-less roster row dedups by name — without this an infant
+                // ("7m", undateable) counts as net-new and is offered/flagged as
+                // "not on the tree" though already linked.
+                CensusRelationshipReconciler.matchesRoleScoped(member: m, profile: $0, censusYear: censusYear)
             }
         }
         let existingParents = snapshot.parentsOf(subject.id)

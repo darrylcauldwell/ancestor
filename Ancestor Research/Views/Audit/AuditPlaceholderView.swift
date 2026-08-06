@@ -615,6 +615,21 @@ struct HealthView: View {
             .controlSize(.mini)
             .help("Track this as a research question — it appears in the Tasks tab to look into later")
             .accessibilityHint("Add this finding as an open research question that appears in the Tasks tab")
+
+            // Escape hatch for a false positive: silence THIS rule for THIS
+            // profile so it stops re-firing every re-audit (owner report
+            // 2026-08-06 — a census-unabsorbed finding that couldn't be
+            // resolved or cleared). Re-enable from the audit-rule overrides UI.
+            Button {
+                appState.dismissAuditFinding(ruleID: result.ruleID, profileID: result.profileID)
+                syncAuditSummary()
+            } label: {
+                Label("Dismiss", systemImage: "bell.slash")
+            }
+            .buttonStyle(.glass)
+            .controlSize(.mini)
+            .help("Dismiss this finding for \(result.profileName) — it won't re-appear after re-audit. Re-enable it in Settings → Audit Rules.")
+            .accessibilityHint("Silence this finding for this person")
         }
         if result.ruleID == "censusRelationship", result.severity == .info {
             censusReconciliationDetail(for: result)
@@ -1085,9 +1100,14 @@ struct HealthView: View {
     /// rather than vanishing on the next reset.
     private func syncAuditSummary() {
         guard let base = appState.auditSummary else { auditVM.summary = nil; return }
-        let citationGaps = appState.freeBMDCitationGapFindings()      // info
-        let parentUnlocks = appState.censusParentUnlockFindings()     // warning
-        let censusUnabsorbed = appState.censusUnabsorbedFindings()    // warning
+        // Injected findings bypass AuditEngine's per-profile mute, so honour a
+        // "Dismiss for this person" override here too (owner report 2026-08-06).
+        func kept(_ results: [AuditResult]) -> [AuditResult] {
+            results.filter { !appState.isAuditFindingMuted(ruleID: $0.ruleID, profileID: $0.profileID) }
+        }
+        let citationGaps = kept(appState.freeBMDCitationGapFindings())      // info
+        let parentUnlocks = kept(appState.censusParentUnlockFindings())     // warning
+        let censusUnabsorbed = kept(appState.censusUnabsorbedFindings())    // warning
         guard !citationGaps.isEmpty || !parentUnlocks.isEmpty || !censusUnabsorbed.isEmpty else {
             auditVM.summary = base; return
         }

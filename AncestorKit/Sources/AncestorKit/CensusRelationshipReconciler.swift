@@ -276,6 +276,27 @@ public nonisolated struct CensusRelationshipReconciler {
         return abs(memberYear - profileYear) <= yearTolerance
     }
 
+    /// Like `matches`, but when the census row is UNDATEABLE — no age AND no
+    /// stated birth year (an infant recorded as "7m", or a torn/blank age cell)
+    /// — it falls back to a name-only match. Safe ONLY when the candidate set is
+    /// already ROLE-SCOPED (the subject's own children / spouses / parents),
+    /// where a name match within that handful is unambiguous; a tree-wide
+    /// name-only match would over-pair namesakes.
+    ///
+    /// The census DEDUP paths (`AppState.censusFamilyNetNewLinks` /
+    /// `addCensusFamily`) use this so an age-less roster row isn't treated as a
+    /// NEW person merely because the census can't date it — the defect behind
+    /// the "Add N family members" over-offer, the duplicate-on-apply, and the
+    /// false "census unabsorbed" audit (owner report 2026-08-06: George
+    /// Cauldwell, "7m" in the 1891 roster, offered as net-new and flagged
+    /// unabsorbed though already a linked child). A datable row still takes the
+    /// year-corroborated path, so namesake safety there is unchanged.
+    public static func matchesRoleScoped(member: HouseholdMember, profile: Profile, censusYear: Int?) -> Bool {
+        if matches(member: member, profile: profile, censusYear: censusYear) { return true }
+        guard memberBirthYear(member, censusYear: censusYear) == nil else { return false }
+        return namesMatch(member: member, profile: profile)
+    }
+
     /// Name-only agreement: first given-name token + a surname (birth or
     /// married), case-insensitive. The weaker half of `matches` — used ALONE
     /// only to recognise a member the census can't date (no age, no stated

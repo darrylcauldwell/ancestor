@@ -796,4 +796,35 @@ struct CensusRelationshipReconcilerTests {
         #expect(snap.childrenOf("ruth").contains { $0.id == "maryLizzy" }, "orphan attached to sibling's parent")
         #expect(snap.siblingsOf("kezia").contains { $0.id == "maryLizzy" })
     }
+
+    // MARK: - matchesRoleScoped (age-less/infant rows, owner report 2026-08-06)
+
+    /// An age-less infant row ("7m" → no age, no birth year) must dedup by name
+    /// against the already-linked child — else it's offered as net-new,
+    /// duplicated on apply, and flagged "census unabsorbed" though present.
+    @Test func matchesRoleScopedDedupesUndateableInfantByName() {
+        let george = person("g", "George", "Cauldwell", birthYear: 1890)
+        let infantRow = member("George Cauldwell", "Son", age: nil)   // the "7m" case
+        // Plain matches() can't: the row is undateable.
+        #expect(CensusRelationshipReconciler.matches(member: infantRow, profile: george, censusYear: 1891) == false)
+        // Role-scoped falls back to the name match.
+        #expect(CensusRelationshipReconciler.matchesRoleScoped(member: infantRow, profile: george, censusYear: 1891))
+    }
+
+    /// Namesake safety is unchanged for DATABLE rows: a same-name row with a
+    /// wrong year must NOT match, even role-scoped (no name-only fallback fires
+    /// when the census can date the row).
+    @Test func matchesRoleScopedStillYearGatesDatableRows() {
+        let george = person("g", "George", "Cauldwell", birthYear: 1890)
+        let datableNamesake = member("George Cauldwell", "Son", age: 30)  // census 1891 → b.1861
+        #expect(CensusRelationshipReconciler.matchesRoleScoped(member: datableNamesake, profile: george, censusYear: 1891) == false)
+    }
+
+    /// The name still has to match — an age-less row with a different given name
+    /// is not silently absorbed.
+    @Test func matchesRoleScopedRequiresNameMatch() {
+        let george = person("g", "George", "Cauldwell", birthYear: 1890)
+        let otherInfant = member("Henry Cauldwell", "Son", age: nil)
+        #expect(CensusRelationshipReconciler.matchesRoleScoped(member: otherInfant, profile: george, censusYear: 1891) == false)
+    }
 }

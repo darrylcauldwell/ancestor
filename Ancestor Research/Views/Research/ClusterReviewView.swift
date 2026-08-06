@@ -1535,7 +1535,16 @@ struct ClusterReviewView: View {
     private func censusFamilyContext(_ cluster: LifeCluster) -> (links: [CensusFamilyLinker.Link], year: Int?, sourceID: String)? {
         for scored in cluster.records {
             if case .census(let r) = scored.record {
-                let links = CensusFamilyLinker.familyLinks(household: cluster.householdMembers)
+                let raw = CensusFamilyLinker.familyLinks(household: cluster.householdMembers)
+                guard !raw.isEmpty else { return nil }
+                // Dedup against the tree so the count + dialog reflect only the
+                // NET-NEW family — mirroring the profile-card offer and the
+                // "census unabsorbed" audit, which both use this same filter.
+                // Without it the review offered the whole nuclear household even
+                // when every member was already linked (owner report 2026-08-06).
+                let links = vm.selectedProfile.map {
+                    appState.censusFamilyNetNewLinks(raw, subject: $0, censusYear: r.censusYear)
+                } ?? raw
                 guard !links.isEmpty else { return nil }
                 return (links, r.censusYear, r.common.sourceID)
             }

@@ -259,4 +259,26 @@ struct AuditRuleOverrideTests {
         let parentOld = ParentSuspiciouslyOldRule().tunableThresholds
         #expect(parentOld.contains { $0.key == "maxYearsGap" && $0.defaultValue == 55 })
     }
+
+    // MARK: - Inline dismiss (owner report 2026-08-06)
+
+    /// The Health finding-row "Dismiss" creates a permanent, profile-scoped
+    /// mute — so a false positive stops re-firing, scoped to that person + rule.
+    @Test func dismissAuditFindingMutesThatProfileAndRuleOnly() throws {
+        let appState = try makeAppState()
+        #expect(appState.isAuditFindingMuted(ruleID: "censusUnabsorbed", profileID: "p1") == false)
+
+        appState.dismissAuditFinding(ruleID: "censusUnabsorbed", profileID: "p1")
+
+        #expect(appState.isAuditFindingMuted(ruleID: "censusUnabsorbed", profileID: "p1"))
+        // Scoped: a different profile or a different rule is untouched.
+        #expect(appState.isAuditFindingMuted(ruleID: "censusUnabsorbed", profileID: "p2") == false)
+        #expect(appState.isAuditFindingMuted(ruleID: "duplicateDetection", profileID: "p1") == false)
+        // Persisted as a DISABLED profile-scoped override (permanent, not a snooze).
+        let overrides = appState.loadAuditRuleOverrides()
+        #expect(overrides.contains {
+            $0.ruleID == "censusUnabsorbed" && $0.scope == .profile(id: "p1")
+                && !$0.enabled && $0.snoozedUntil == nil
+        })
+    }
 }
