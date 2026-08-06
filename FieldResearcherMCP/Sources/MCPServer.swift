@@ -425,7 +425,7 @@ actor MCPHandler {
                 ),
                 tool(
                     name: "get_profile",
-                    description: "Get full detail for a specific profile: names (incl. married surname / mother's maiden name), vitals, attributes, external identifiers, relationships (with direction on parent edges and marriage date on spouse edges), confirmed facts with structured citations, disputes with reasoning traces, actionable leads (joined to their scored-record verdict + citation where available), negative searches with freshness, not_duplicate_of verdicts, and research history.",
+                    description: "Get full detail for a specific profile: names (incl. married surname / mother's maiden name), vitals, attributes, external identifiers, relationships (with direction on parent edges and marriage date on spouse edges), confirmed facts with structured citations, life events (occupation / residence / census / baptism / burial / probate / military, with typed details), disputes with reasoning traces, actionable leads (joined to their scored-record verdict + citation where available), negative searches with freshness, not_duplicate_of verdicts, and research history.",
                     properties: [
                         "profile_id": ["type": "string", "description": "The profile ID to look up"],
                         "leads_status": ["type": "string", "description": "Comma-separated lead statuses to include (default 'new,investigating'; pass 'all' for everything incl. dismissed/promoted)."],
@@ -1403,6 +1403,14 @@ actor MCPHandler {
                 confirmedFacts.append(fact)
             }
             p["confirmed_facts"] = confirmedFacts
+
+            // Life events (occupation / residence / census / baptism / burial /
+            // probate / military). Previously absent from get_profile, so an
+            // applied record's occupation/residence facts couldn't be verified
+            // here at all. Omitted when the profile has none, to keep the
+            // payload lean.
+            let lifeEvents = try Self.lifeEventDicts(db, profileID: id)
+            if !lifeEvents.isEmpty { p["life_events"] = lifeEvents }
 
             // Active leads for this profile. MC5 — the old shape returned
             // EVERY lead ever (150+ observed, mostly dismissed/stale) with no
@@ -3039,43 +3047,49 @@ actor MCPHandler {
     /// / military). Returns the typed event plus its date and location.
     func lifeEventsForProfile(id: String) throws -> String {
         try db.read { db in
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT id, type, date_original, date_earliest, date_latest,
-                       end_date_original, location, description, confidence,
-                       details_json, sources_json, sensitive
-                FROM life_events
-                WHERE profile_id = ?
-                ORDER BY date_earliest NULLS LAST, date_original
-                """, arguments: [id])
+            Self.jsonString(try Self.lifeEventDicts(db, profileID: id))
+        }
+    }
 
-            let events = rows.map { row -> [String: Any] in
-                var e: [String: Any] = [
-                    "id": row["id"] as String? ?? "",
-                    "type": row["type"] as String? ?? "",
-                    "confidence": row["confidence"] as Int? ?? 0,
-                ]
-                if let v: String = row["date_original"] { e["date"] = v }
-                if let v: Int = row["date_earliest"] { e["year_earliest"] = v }
-                if let v: Int = row["date_latest"] { e["year_latest"] = v }
-                if let v: String = row["end_date_original"] { e["end_date"] = v }
-                if let v: String = row["location"] { e["location"] = v }
-                if let v: String = row["description"] { e["description"] = v }
-                // MC3 — the typed details payload (census household
-                // composition, military/probate/burial detail) is the richest
-                // structured data the table holds and was never exposed.
-                if let v: String = row["details_json"], let data = v.data(using: .utf8),
-                   let decoded = try? JSONSerialization.jsonObject(with: data) {
-                    e["details"] = decoded
-                }
-                if let v: String = row["sources_json"], let data = v.data(using: .utf8),
-                   let decoded = try? JSONSerialization.jsonObject(with: data) {
-                    e["sources"] = decoded
-                }
-                if let v: Bool = row["sensitive"], v { e["sensitive"] = true }
-                return e
+    /// The life-event rows for a profile as JSON-ready dicts. Shared by the
+    /// `ancestor://life_events/{id}` resource and `get_profile` (which used to
+    /// omit life events entirely — occupation/residence/census/baptism/burial
+    /// facts were invisible to the assistant, verifiable only in the app UI).
+    static func lifeEventDicts(_ db: Database, profileID: String) throws -> [[String: Any]] {
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT id, type, date_original, date_earliest, date_latest,
+                   end_date_original, location, description, confidence,
+                   details_json, sources_json, sensitive
+            FROM life_events
+            WHERE profile_id = ?
+            ORDER BY date_earliest NULLS LAST, date_original
+            """, arguments: [profileID])
+
+        return rows.map { row -> [String: Any] in
+            var e: [String: Any] = [
+                "id": row["id"] as String? ?? "",
+                "type": row["type"] as String? ?? "",
+                "confidence": row["confidence"] as Int? ?? 0,
+            ]
+            if let v: String = row["date_original"] { e["date"] = v }
+            if let v: Int = row["date_earliest"] { e["year_earliest"] = v }
+            if let v: Int = row["date_latest"] { e["year_latest"] = v }
+            if let v: String = row["end_date_original"] { e["end_date"] = v }
+            if let v: String = row["location"] { e["location"] = v }
+            if let v: String = row["description"] { e["description"] = v }
+            // MC3 — the typed details payload (census household
+            // composition, military/probate/burial detail) is the richest
+            // structured data the table holds and was never exposed.
+            if let v: String = row["details_json"], let data = v.data(using: .utf8),
+               let decoded = try? JSONSerialization.jsonObject(with: data) {
+                e["details"] = decoded
             }
-
-            return Self.jsonString(events)
+            if let v: String = row["sources_json"], let data = v.data(using: .utf8),
+               let decoded = try? JSONSerialization.jsonObject(with: data) {
+                e["sources"] = decoded
+            }
+            if let v: Bool = row["sensitive"], v { e["sensitive"] = true }
+            return e
         }
     }
 
