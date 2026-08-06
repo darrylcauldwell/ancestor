@@ -152,14 +152,19 @@ public nonisolated struct CensusAgeEnrichment {
         var proposals: [BirthYearProposal] = []
         for target in targets {
             var matches = candidates.filter { Self.nameMatches($0.member.name, target) }
-            // Role-aware tiebreak: if several roster rows share the name but we
-            // know how the target relates to the subject, keep only the rows
-            // whose census role is compatible (a parent → Head/Wife, not Son).
-            if matches.count > 1, let relation = relations[target.id] {
-                let refined = matches.filter { Self.roleIsCompatible($0.member.relationship, with: relation) }
-                if refined.count == 1 { matches = refined }
+            // Role GATE (owner dogfood 2026-08-06): when we KNOW how the target
+            // relates to the subject, a roster row in an incompatible
+            // generation is never a match — role compatibility used to be only
+            // a tiebreak for 2+ same-name rows, so a UNIQUE-but-wrong-
+            // generation name match sailed straight through: a dateless
+            // DAUGHTER namesake matched her mother's/grandmother's "Wife" row
+            // and was offered that row's birth (b.1844 / b.1861) as backfill
+            // (Elizabeth Keyworth, Elizabeth Cauldwell). Unknown relation
+            // keeps the old name-only behaviour.
+            if let relation = relations[target.id] {
+                matches = matches.filter { Self.roleIsCompatible($0.member.relationship, with: relation) }
             }
-            guard matches.count == 1 else { continue }        // 0 or still-ambiguous
+            guard matches.count == 1 else { continue }        // 0 or ambiguous
             let hit = matches[0]
             // Member-side uniqueness: this member must not also plausibly be a
             // different candidate relative.
@@ -192,10 +197,14 @@ public nonisolated struct CensusAgeEnrichment {
     }
 
     /// Whether a census roster role is consistent with the target's
-    /// relationship to the subject. Used only to break a name tie — a subject's
-    /// parent is a senior-generation row (Head/Wife/Father/Mother), never a
-    /// Son/Daughter, so "John, Head" wins over "John Henry, Son". Kept
-    /// deliberately loose: it narrows an ambiguous set, it doesn't gate.
+    /// relationship to the subject — a subject's parent is a senior-generation
+    /// row (Head/Wife/Father/Mother), never a Son/Daughter, so "John, Head"
+    /// wins over "John Henry, Son". Since 2026-08-06 this GATES matching
+    /// whenever the target's relation is known (it used to only break name
+    /// ties, which let a unique wrong-generation namesake through — see the
+    /// gate comment in `matchProposals`). Still deliberately loose in what it
+    /// accepts within a generation; name-only matching remains for targets
+    /// whose relation is unknown.
     static func roleIsCompatible(_ rosterRole: String, with relation: CensusRelation) -> Bool {
         let r = rosterRole.lowercased()
         let junior = ["son", "daughter", "grandson", "granddaughter", "stepson", "stepdaughter"]

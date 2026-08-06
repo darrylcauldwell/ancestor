@@ -190,4 +190,40 @@ struct CensusAgeEnrichmentTests {
             linkedRelatives: [liz], sourceID: nil)
         #expect(proposals.first?.estimatedBirthYear == 1861)
     }
+
+    /// Role GATE (owner dogfood 2026-08-06): a dateless DAUGHTER namesake must
+    /// NOT be matched to her mother's/grandmother's "Wife" row just because the
+    /// name match is unique — role compatibility used to be a tiebreak only,
+    /// so the wrong-generation match sailed through and offered the Wife's
+    /// birth (b.1861) as backfill onto a 20th-century woman.
+    @Test func knownChildRelationNeverMatchesWifeRow() {
+        let daughter = profile("dau", first: "Elizabeth", last: "Cauldwell")  // dateless namesake
+        let household = [
+            member("George CAULDWELL", "Head", age: 30),
+            member("Elizabeth CAULDWELL", "Wife", age: 30),   // the subject's MOTHER
+        ]
+        let proposals = CensusAgeEnrichment.proposals(
+            subjectID: "george-jr", household: household, censusYear: 1891,
+            linkedRelatives: [daughter], sourceID: nil,
+            relations: ["dau": .child])
+        #expect(proposals.isEmpty)
+    }
+
+    /// The gate cuts the other way too: a known-parent target still matches
+    /// the senior-generation row, and an unknown relation keeps the old
+    /// name-only behaviour.
+    @Test func knownParentRelationStillMatchesWifeRow() {
+        let mother = profile("mum", first: "Elizabeth", last: "Cauldwell")
+        let household = [member("Elizabeth CAULDWELL", "Wife", age: 30)]
+        let gated = CensusAgeEnrichment.proposals(
+            subjectID: "ernest", household: household, censusYear: 1891,
+            linkedRelatives: [mother], sourceID: nil,
+            relations: ["mum": .parent])
+        #expect(gated.first?.estimatedBirthYear == 1861)
+
+        let unknownRelation = CensusAgeEnrichment.proposals(
+            subjectID: "ernest", household: household, censusYear: 1891,
+            linkedRelatives: [mother], sourceID: nil)
+        #expect(unknownRelation.first?.estimatedBirthYear == 1861)
+    }
 }
