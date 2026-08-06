@@ -989,8 +989,20 @@ struct ClusterReviewView: View {
                        let subjectID = vm.selectedProfile?.id {
                         Button {
                             Task {
-                                _ = await appState.loadCensusHousehold(
+                                // On success, swap the enriched record into the
+                                // in-memory result so the roster (and richer
+                                // detail fields) actually appear — the fetch
+                                // only updates the DB, and this card renders
+                                // `currentResult` (owner report 2026-08-06:
+                                // the button seemed to do nothing). On failure,
+                                // say so instead of silently no-opping.
+                                let loaded = await appState.loadCensusHousehold(
                                     sourceRecordID: scored.record.id, profileID: subjectID)
+                                if loaded {
+                                    vm.refreshRecordFromEvidence(sourceRecordID: scored.record.id)
+                                } else if appState.errorMessage == nil {
+                                    appState.errorMessage = "Couldn't fetch this census's household from FreeCen — the source may be throttled or the schedule page unavailable. Try again shortly, or open it via View on FreeCEN."
+                                }
                             }
                         } label: {
                             Label("Load household from FreeCen", systemImage: "person.2.badge.plus")

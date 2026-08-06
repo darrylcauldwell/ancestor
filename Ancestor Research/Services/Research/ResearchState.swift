@@ -343,4 +343,40 @@ nonisolated struct ResearchResult: Sendable {
         confirmedFacts: [], leads: [], allScoredRecords: [],
         clusters: [], discrepancies: [], householdMembers: [], searchHistory: []
     )
+
+    /// A copy with `record` swapped in everywhere its source-record id appears
+    /// — clusters, confirmed facts, leads, allScoredRecords. Verdict, gates and
+    /// summary are kept; only the record payload changes. Used by the on-demand
+    /// census household fetch: the fetch enriches the PERSISTED evidence, but
+    /// the review renders this in-memory result, so without the swap the
+    /// fetched roster never appears on screen (owner report 2026-08-06 — the
+    /// "Load household from FreeCen" button seemed to do nothing).
+    func replacingRecord(_ record: SourceRecord) -> ResearchResult {
+        func swap(_ scored: ScoredRecord) -> ScoredRecord {
+            guard scored.record.id == record.id else { return scored }
+            return ScoredRecord(id: scored.id, record: record,
+                                verdict: scored.verdict, gates: scored.gates, summary: scored.summary)
+        }
+        var newClusters = clusters
+        for i in newClusters.indices {
+            newClusters[i].records = newClusters[i].records.map(swap)
+        }
+        return ResearchResult(
+            confirmedFacts: confirmedFacts.map(swap),
+            leads: leads.map(swap),
+            allScoredRecords: allScoredRecords.map(swap),
+            clusters: newClusters,
+            discrepancies: discrepancies,
+            householdMembers: householdMembers,
+            searchHistory: searchHistory,
+            searchOutcomes: searchOutcomes,
+            hypotheses: hypotheses,
+            parentLinkVerdict: parentLinkVerdict,
+            identityVerdict: identityVerdict,
+            spouseVerdict: spouseVerdict,
+            attrition: attrition,
+            consensusProposalCount: consensusProposalCount,
+            enrichmentRecordIDs: enrichmentRecordIDs
+        )
+    }
 }

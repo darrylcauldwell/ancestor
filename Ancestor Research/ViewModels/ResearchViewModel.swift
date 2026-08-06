@@ -795,6 +795,21 @@ final class ResearchViewModel {
     /// `life_events`. The LifeEvent.id is deterministic in (profileID,
     /// sourceRecordID), so re-clicking "Save as lead" on the same cluster
     /// is idempotent via `addLifeEventIfAbsent`.
+    /// Re-read one record's persisted evidence and swap the enriched payload
+    /// into the in-memory `currentResult`. The on-demand census household
+    /// fetch (`AppState.loadCensusHousehold`) updates `evidence_records`, but
+    /// the review card renders `currentResult` — a snapshot from research
+    /// time — so without this the fetched roster (and the richer detail
+    /// fields that ride with it) lands in the DB yet never appears on screen
+    /// (owner report 2026-08-06).
+    func refreshRecordFromEvidence(sourceRecordID: String) {
+        guard let db = appDatabase, let profileID = selectedProfile?.id,
+              let evidence = (try? db.loadEvidenceForProfile(profileID))?
+                  .first(where: { $0.sourceRecordID == sourceRecordID })
+        else { return }
+        currentResult = currentResult?.replacingRecord(evidence.record)
+    }
+
     func acceptCluster(_ cluster: LifeCluster) {
         // Decision only after the guard — see applyCluster.
         guard let db = appDatabase, let profileID = selectedProfile?.id else { return }
