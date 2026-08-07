@@ -2714,6 +2714,33 @@ final class AppState {
         return nil
     }
 
+    /// The town-level key of a place string: the leading comma-component,
+    /// lower-cased and trimmed ("Ashbourne, Derbyshire" → "ashbourne"). Nil for
+    /// empty/whitespace. County tails are dropped so "Milford" and
+    /// "Milford, Derbyshire" compare equal.
+    nonisolated static func placeTownKey(_ s: String?) -> String? {
+        guard let head = s?.split(separator: ",").first
+            .map(String.init)?.trimmingCharacters(in: .whitespaces).lowercased(),
+              !head.isEmpty else { return nil }
+        return head
+    }
+
+    /// Whether two place strings name DIFFERENT towns (leading component), with
+    /// each carrying a usable place. Used by the census-absorb capsule to decide
+    /// whether to surface the subject's census birthplace beside the profile's
+    /// recorded one — the namesake tell (owner dogfood 2026-08-07: George Ward's
+    /// applied Ashbourne birth vs a loaded household whose target row was born
+    /// Derby; grafting that household's parents would have adopted a namesake's
+    /// family). This is a DISPLAY cue only, never a block or an automated
+    /// conflict verdict: registration-district/town pairs that legitimately
+    /// differ at the token (Milford-in-Belper) still surface — a neutral
+    /// juxtaposition the human eye reads correctly. A principled place-nesting
+    /// check is deferred to the PlaceAuthority work (LOCATION_MODEL Stage 3).
+    nonisolated static func placesDivergeAtTown(_ a: String?, _ b: String?) -> Bool {
+        guard let ka = placeTownKey(a), let kb = placeTownKey(b) else { return false }
+        return ka != kb && !ka.contains(kb) && !kb.contains(ka)
+    }
+
     /// The household-roster state of a subject's APPLIED census, for the
     /// profile-card Health strip. FreeCen enriches only the top search hit at
     /// search time, so a non-top-hit census (owner report 2026-08-05: John W
