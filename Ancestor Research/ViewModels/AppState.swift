@@ -2490,7 +2490,13 @@ final class AppState {
             let first = tokens.first.map(recase)
             let middle = tokens.count > 2 ? tokens[1..<(tokens.count - 1)].map(recase).joined(separator: " ") : nil
             let year: Int? = m.birthYear ?? (censusYear.flatMap { cy in m.age.map { cy - $0 } })
-            let birth = year.map { GenealogicalDate(parsing: "abt \($0)") }
+            // Census age → year is arithmetic, precise to ±1 (birthday may not
+            // have passed on census night) — the `.calculated` (CAL, ±1)
+            // convention used by ApplyEngine / CensusAgeEnrichment. "abt" (±5)
+            // was over-wide: it fired false parent-age-gap red errors on
+            // comfortable ~22yr midpoint gaps and let namesake births at the
+            // window edge clear the date gate.
+            let birth = year.map { GenealogicalDate(parsing: "CAL \($0)") }
             // Birthplace from the census row — "Place, County" (Kingsley,
             // Staffordshire), either part optional (owner report 2026-08-05: an
             // added census person had a blank birthplace though the roster carried
@@ -3266,7 +3272,9 @@ final class AppState {
         let inLaw = Profile(
             id: UUID().uuidString, externalIDs: [:], firstName: inLawFirst, middleName: nil,
             lastName: inLawSurname, gender: kind == .mother ? .female : .male, attributes: nil,
-            birthDate: year.map { GenealogicalDate(parsing: "abt \($0)") },
+            // Census age → year is calculated ±1 (CAL), matching the nuclear
+            // build() above and the ApplyEngine / CensusAgeEnrichment convention.
+            birthDate: year.map { GenealogicalDate(parsing: "CAL \($0)") },
             birthLocation: nil, deathDate: nil, deathLocation: nil,
             bio: nil, isDeleted: false, sources: [:], disputes: [:])
         let role: ParentRole = kind == .mother ? .mother : .father
