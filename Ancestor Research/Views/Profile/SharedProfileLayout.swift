@@ -1184,7 +1184,7 @@ struct SharedProfileLayout: View {
                                     .buttonStyle(.glassProminent).controlSize(.mini)
                                     .help("Fetches this census's full schedule — one page from FreeCen — so its household family can be added.")
                                 }
-                            case .canAbsorb(let links, let year, let sourceID, let household, let inLaws):
+                            case .canAbsorb(let links, let year, let sourceID, let household, let inLaws, let citationURL):
                                 // Nuclear family + any in-law grandparent STILL
                                 // net-new (a father/mother-in-law is a two-
                                 // generation unlock; the count clears once added).
@@ -1199,7 +1199,8 @@ struct SharedProfileLayout: View {
                                         Button("Add \(total) family member\(total == 1 ? "" : "s")") {
                                             _ = appState.addCensusFamily(
                                                 links: links, subject: profile,
-                                                censusYear: year, sourceID: sourceID, household: household)
+                                                censusYear: year, sourceID: sourceID, household: household,
+                                                citationURL: citationURL)
                                             reloadFactRecords()
                                         }
                                         .buttonStyle(.glassProminent).controlSize(.mini)

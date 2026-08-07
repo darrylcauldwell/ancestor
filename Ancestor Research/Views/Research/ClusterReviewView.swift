@@ -714,7 +714,7 @@ struct ClusterReviewView: View {
                     _ = appState.addCensusFamily(
                         links: pending.links, subject: subject,
                         censusYear: pending.year, sourceID: pending.sourceID,
-                        household: pending.household)
+                        household: pending.household, citationURL: pending.citationURL)
                 }
                 pendingCensusFamily = nil
             }
@@ -964,7 +964,7 @@ struct ClusterReviewView: View {
                                 Button {
                                     pendingCensusFamily = PendingCensusFamily(
                                         links: ctx.links, year: ctx.year, sourceID: ctx.sourceID,
-                                        household: cluster.householdMembers)
+                                        household: cluster.householdMembers, citationURL: ctx.citationURL)
                                 } label: {
                                     Label("Add \(ctx.links.count) family member\(ctx.links.count == 1 ? "" : "s")",
                                           systemImage: "person.2.badge.plus")
@@ -1538,13 +1538,14 @@ struct ClusterReviewView: View {
         let year: Int?
         let sourceID: String
         let household: [HouseholdMember]
+        let citationURL: String?
     }
 
     @State private var pendingCensusFamily: PendingCensusFamily?
 
     /// The family links + census provenance for a cluster, or nil when the
     /// cluster has no census record or the roster yields no family rows.
-    private func censusFamilyContext(_ cluster: LifeCluster) -> (links: [CensusFamilyLinker.Link], year: Int?, sourceID: String)? {
+    private func censusFamilyContext(_ cluster: LifeCluster) -> (links: [CensusFamilyLinker.Link], year: Int?, sourceID: String, citationURL: String?)? {
         for scored in cluster.records {
             if case .census(let r) = scored.record {
                 let raw = CensusFamilyLinker.familyLinks(household: cluster.householdMembers)
@@ -1558,7 +1559,7 @@ struct ClusterReviewView: View {
                     appState.censusFamilyNetNewLinks(raw, subject: $0, censusYear: r.censusYear)
                 } ?? raw
                 guard !links.isEmpty else { return nil }
-                return (links, r.censusYear, r.common.sourceID)
+                return (links, r.censusYear, r.common.sourceID, r.common.detailURL)
             }
         }
         return nil

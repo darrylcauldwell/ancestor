@@ -2457,10 +2457,26 @@ final class AppState {
         subject: Profile,
         censusYear: Int?,
         sourceID: String,
-        household: [HouseholdMember] = []
+        household: [HouseholdMember] = [],
+        citationURL: String? = nil
     ) -> (added: Int, skipped: Int) {
         guard let db = currentDatabase else { return (0, 0) }
         let source = SourceOrigin(identifier: sourceID)
+        // Cite the created people's census-derived facts back to the household
+        // page (owner dogfood: an added person's "CAL 1843" carried the freecen
+        // origin but no citation URL, so it didn't trace to the schedule). Nil
+        // URL → no citation attached (unchanged for the reconciliation-panel
+        // callers, whose findings carry no record URL).
+        let familyCitation: Citation? = citationURL.flatMap { raw in
+            let url = raw.trimmingCharacters(in: .whitespaces)
+            guard !url.isEmpty else { return nil }
+            return Citation(
+                title: censusYear.map { "Census \($0)" } ?? "Census",
+                url: url,
+                dateAccessed: Date(),
+                notes: "Household schedule listing this person alongside \(subject.displayName); source \(sourceID)."
+            )
+        }
 
         // Gender with a census-relationship fallback (hoisted to a static so the
         // profile-card household proposal classifies the mother/father the same).
@@ -2662,6 +2678,22 @@ final class AppState {
         do {
             for p in profiles { _ = try db.addProfile(p, source: source) }
             for e in edges { _ = try db.addRelationship(e) }
+            // Layer the census citation onto each created person's census-derived
+            // facts, so their birth year/place trace to the household schedule.
+            if let cite = familyCitation {
+                for p in profiles {
+                    if p.birthDate != nil {
+                        try db.updateFieldSourceCitation(
+                            profileID: p.id, field: .birthDate, origin: source,
+                            citation: cite, quality: nil)
+                    }
+                    if p.birthLocation != nil {
+                        try db.updateFieldSourceCitation(
+                            profileID: p.id, field: .birthLocation, origin: source,
+                            citation: cite, quality: nil)
+                    }
+                }
+            }
             snapshot = try db.buildSnapshot()
             runPostLoadAudit()
         } catch {
@@ -2727,7 +2759,7 @@ final class AppState {
         /// the full roster so `addCensusFamily` can also wire in-law grandparents,
         /// plus the count of in-law grandparents STILL net-new (so the offer
         /// clears once they're added, not just the nuclear rows).
-        case canAbsorb(links: [CensusFamilyLinker.Link], censusYear: Int, sourceID: String, household: [HouseholdMember], inLawCount: Int)
+        case canAbsorb(links: [CensusFamilyLinker.Link], censusYear: Int, sourceID: String, household: [HouseholdMember], inLawCount: Int, citationURL: String?)
     }
 
     /// Compute the census-household proposal for a subject from its already-loaded
@@ -2776,7 +2808,7 @@ final class AppState {
             if !newLinks.isEmpty || !inLaws.isEmpty {
                 absorb = .canAbsorb(links: newLinks, censusYear: c.censusYear,
                                     sourceID: c.common.sourceID, household: c.household ?? [],
-                                    inLawCount: inLaws.count)
+                                    inLawCount: inLaws.count, citationURL: c.common.detailURL)
             }
         }
         return absorb
@@ -3862,7 +3894,7 @@ final class AppState {
             switch proposal {
             case .needsLoad(_, let year):
                 message = "\(profile.displayName)'s \(year) census household isn't loaded — open their profile to fetch it and add parents & siblings."
-            case .canAbsorb(let links, let year, _, _, let inLawCount):
+            case .canAbsorb(let links, let year, _, _, let inLawCount, _):
                 let total = links.count + inLawCount
                 let extra = inLawCount > 0
                     ? " (incl. \(inLawCount) in-law grandparent\(inLawCount == 1 ? "" : "s"))" : ""

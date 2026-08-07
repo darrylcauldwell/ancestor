@@ -699,6 +699,41 @@ struct CensusRelationshipReconcilerTests {
                 "re-applying must not create a duplicate spouse edge")
     }
 
+    /// A census-family add cites the created people's birth facts back to the
+    /// household schedule (owner dogfood: added births carried the freecen origin
+    /// but no citation URL, so they didn't trace to the page).
+    @MainActor
+    @Test func addCensusFamilyCitesCreatedProfilesToTheHouseholdPage() throws {
+        let db = try makeTempDB()
+        _ = try db.addProfile(person("johnw", "John W", "Thompson", birthYear: 1853), source: .gedcom)
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = try db.buildSnapshot()
+
+        let household = [
+            HouseholdMember(name: "John Thompson", relationship: "Head", age: 55, sex: "M"),
+            HouseholdMember(name: "Elizabeth Thompson", relationship: "Wife", age: 38,
+                            birthPlace: "Kingsley", sex: "F"),
+            HouseholdMember(name: "John W Thompson", relationship: "Son", age: 8, sex: "M", isTarget: true),
+        ]
+        let links = CensusFamilyLinker.familyLinks(household: household)
+        let subject = try #require(appState.snapshot.profiles["johnw"])
+        let url = "https://www.freecen.org.uk/search_records/abc123/thompson-1861"
+        _ = appState.addCensusFamily(
+            links: links, subject: subject,
+            censusYear: 1861, sourceID: "freecen", household: household, citationURL: url)
+
+        // The created father's birth year cites the household page.
+        let john = try #require(appState.snapshot.profiles.values.first {
+            $0.firstName == "John" && $0.lastName == "Thompson" })
+        #expect((john.sources[.birthDate] ?? []).contains { $0.citation?.url == url },
+                "the created parent's birth year must cite the household page")
+        // And the mother's census birthplace does too.
+        let elizabeth = try #require(appState.snapshot.profiles.values.first { $0.firstName == "Elizabeth" })
+        #expect((elizabeth.sources[.birthLocation] ?? []).contains { $0.citation?.url == url },
+                "the created mother's birthplace must cite the household page")
+    }
+
     /// A census address is a household fact: applying it broadcasts to the whole
     /// household — the subject and each 1-hop relative that matches a roster row
     /// gets a census life-event for that year carrying the shared address plus
