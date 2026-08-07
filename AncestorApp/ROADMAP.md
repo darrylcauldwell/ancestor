@@ -28,7 +28,6 @@ Core-correctness fixes from live-tree dogfooding (full repro cases in memory `pr
 - **Geography gate — registration-district gap** — the gate doesn't know registration districts (Ellen Brooks' own "Duffield" household row soft-failed "unknown district" while namesakes passed); reinforces the deferred location Stage 3 rebuild. Worst case on record: a US Florida 1945 state census accepted as a "childhood census" (hemisphere breach).
 
 **Census absorption (`addCensusFamily`):**
-- **Cite created profiles' facts** — `addCensusFamily`-created facts carry `source` but no citation URL, so "abt 1843" doesn't trace to the household page (ApplyEngine facts do carry it).
 - **Parent-unlock guards** — verify the Health Apply-childhood-census path enforces `CensusFamilyLinker`'s guards: a "Grnson" subject must not lift grandparents as parents; a "Son/Dau" row whose surname ≠ Head's (stepchild) must not propose the Head as biological father.
 - **Absorption-residue cascade-delete** — trace `addCensusFamily`-created profiles to their source record so backing out a namesake census offers to delete the now-orphaned creations (the Ann Brooks island).
 
