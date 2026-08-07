@@ -30,6 +30,20 @@ struct CensusRelationshipReconcilerTests {
         return try ProjectDatabase(path: path)
     }
 
+    /// Gendered variant — the parents' `parent` roles are derived from gender, so
+    /// an existing co-parent pair must carry gender for §1 to recognise (and skip)
+    /// them the way a real tree does.
+    private func person(_ id: String, _ first: String, _ last: String,
+                        birthYear: Int?, gender: Gender) -> Profile {
+        Profile(
+            id: id, externalIDs: [:],
+            firstName: first, lastName: last, gender: gender,
+            attributes: PersonAttributes(nameStatus: .known, lifeStatus: .normal, privacy: .normal),
+            birthDate: birthYear.map { GenealogicalDate(parsing: String($0)) },
+            birthLocation: nil, deathDate: nil, deathLocation: nil,
+            bio: nil, isDeleted: false, sources: [:], disputes: [:])
+    }
+
     private func parentEdge(_ parent: String, _ child: String) -> Relationship {
         Relationship(id: UUID(), from: parent, to: child, type: .parent, role: .unspecified,
                      subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil)
@@ -613,6 +627,76 @@ struct CensusRelationshipReconcilerTests {
         let stillNew = appState.censusInLawNetNew(
             CensusFamilyLinker.inLawLinks(household: household), subject: subject2, censusYear: 1861)
         #expect(stillNew.isEmpty, "the grandfather is already on the tree — no repeat offer")
+    }
+
+    /// Adding a child subject's Head + Wife as parents also marries them to each
+    /// other — otherwise the mother is a permanent `unlinkedSpouseForFemaleSubject`
+    /// finding (co-parent, married surname, no spouse edge). Both parents new.
+    @MainActor
+    @Test func addCensusFamilyMarriesNewHeadAndWife() throws {
+        let db = try makeTempDB()
+        _ = try db.addProfile(person("johnw", "John W", "Thompson", birthYear: 1853), source: .gedcom)
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = try db.buildSnapshot()
+
+        let household = [
+            HouseholdMember(name: "John Thompson", relationship: "Head", age: 55, sex: "M"),
+            HouseholdMember(name: "Elizabeth Thompson", relationship: "Wife", age: 38, sex: "F"),
+            HouseholdMember(name: "John W Thompson", relationship: "Son", age: 8, sex: "M", isTarget: true),
+        ]
+        let links = CensusFamilyLinker.familyLinks(household: household)
+        let subject = try #require(appState.snapshot.profiles["johnw"])
+        _ = appState.addCensusFamily(
+            links: links, subject: subject,
+            censusYear: 1861, sourceID: "freecen", household: household)
+
+        let profiles = appState.snapshot.profiles.values
+        let john = try #require(profiles.first { $0.firstName == "John" && $0.lastName == "Thompson" })
+        let elizabeth = try #require(profiles.first { $0.firstName == "Elizabeth" })
+        #expect(appState.snapshot.spousesOf(john.id).contains { $0.id == elizabeth.id },
+                "the child's Head + Wife parents must be married to each other")
+    }
+
+    /// The root fix for the recurring finding: an EXISTING co-parent pair that was
+    /// never married (both already parents of the subject, no spouse edge) gets
+    /// married when their census is (re-)applied — no new member is added.
+    @MainActor
+    @Test func addCensusFamilyMarriesExistingUnlinkedCoParents() throws {
+        let db = try makeTempDB()
+        _ = try db.addProfile(person("johnw", "John W", "Thompson", birthYear: 1853), source: .gedcom)
+        _ = try db.addProfile(person("john", "John", "Thompson", birthYear: 1806, gender: .male), source: .gedcom)
+        _ = try db.addProfile(person("liz", "Elizabeth", "Thompson", birthYear: 1823, gender: .female), source: .gedcom)
+        _ = try db.addRelationship(parentEdge("john", "johnw"))
+        _ = try db.addRelationship(parentEdge("liz", "johnw"))
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = try db.buildSnapshot()
+        // Precondition: co-parents but NOT spouses.
+        #expect(!appState.snapshot.spousesOf("john").contains { $0.id == "liz" })
+
+        let household = [
+            HouseholdMember(name: "John Thompson", relationship: "Head", age: 55, sex: "M"),
+            HouseholdMember(name: "Elizabeth Thompson", relationship: "Wife", age: 38, sex: "F"),
+            HouseholdMember(name: "John W Thompson", relationship: "Son", age: 8, sex: "M", isTarget: true),
+        ]
+        let links = CensusFamilyLinker.familyLinks(household: household)
+        let subject = try #require(appState.snapshot.profiles["johnw"])
+        let result = appState.addCensusFamily(
+            links: links, subject: subject,
+            censusYear: 1861, sourceID: "freecen", household: household)
+
+        #expect(result.added == 0, "both parents already exist — no new member, only the spouse edge")
+        #expect(appState.snapshot.spousesOf("john").contains { $0.id == "liz" },
+                "the existing co-parents are now married")
+
+        // Idempotent: applying again adds no second spouse edge.
+        let subject2 = try #require(appState.snapshot.profiles["johnw"])
+        _ = appState.addCensusFamily(
+            links: links, subject: subject2,
+            censusYear: 1861, sourceID: "freecen", household: household)
+        #expect(appState.snapshot.spousesOf("john").filter { $0.id == "liz" }.count == 1,
+                "re-applying must not create a duplicate spouse edge")
     }
 
     /// A census address is a household fact: applying it broadcasts to the whole

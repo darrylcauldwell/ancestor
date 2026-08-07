@@ -2564,6 +2564,24 @@ final class AppState {
             parents.append((p.id, r)); added += 1
             if r == .mother { marriedInMotherID = p.id; marriedInMotherNewIndex = profiles.count - 1 }
         }
+        // 1b. Marry the parents to EACH OTHER. §1 wires the Head as father and
+        // the Wife as mother of a child subject, but nothing links the couple —
+        // so they surface forever as `unlinkedSpouseForFemaleSubject` (the mother
+        // carries a married surname + co-parented children yet no spouse edge;
+        // the parish path already builds one via a synthetic MarriageRecord, the
+        // census path didn't). Link the lone father↔mother couple as spouses when
+        // no spouse edge already joins them — covering both a fresh add (both
+        // parents new) and an existing co-parent pair that was never married. Not
+        // an added "member" (an edge between people already counted/present); a
+        // repeat apply is idempotent because the rebuilt snapshot carries it.
+        if let fa = parents.first(where: { $0.role == .father }),
+           let mo = parents.first(where: { $0.role == .mother }),
+           parents.filter({ $0.role == .father }).count == 1,
+           parents.filter({ $0.role == .mother }).count == 1,
+           !snapshot.spousesOf(fa.id).contains(where: { $0.id == mo.id }) {
+            edges.append(Relationship(id: UUID(), from: fa.id, to: mo.id, type: .spouse, role: nil,
+                                      subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil))
+        }
         // 2. Spouse.
         for link in links where link.relation == .spouse {
             if alreadyPresent(link.member, among: snapshot.spousesOf(subject.id)) { skipped += 1; continue }
