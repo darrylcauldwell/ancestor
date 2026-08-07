@@ -29,7 +29,6 @@ Core-correctness fixes from live-tree dogfooding (full repro cases in memory `pr
 
 **Census absorption (`addCensusFamily`):**
 - **Emit a Head↔Wife spouse edge** — ROOT of the recurring `unlinkedSpouseForFemaleSubject` findings (5 live co-parent pairs). The parish path builds one via a synthetic MarriageRecord; the census path only wires co-parent edges, so the finding regenerates until this lands.
-- **Calculated ±1 dates, not "abt YYYY" (±5)** — the ±5 width fires false parent-age-gap red errors on comfortable midpoint gaps AND cascades into the date gate (a Mar-1879 namesake birth scored *fact* for an 1886 subject). One-line fix in `build()`.
 - **Cite created profiles' facts** — `addCensusFamily`-created facts carry `source` but no citation URL, so "abt 1843" doesn't trace to the household page (ApplyEngine facts do carry it).
 - **Parent-unlock guards** — verify the Health Apply-childhood-census path enforces `CensusFamilyLinker`'s guards: a "Grnson" subject must not lift grandparents as parents; a "Son/Dau" row whose surname ≠ Head's (stepchild) must not propose the Head as biological father.
 - **Absorption-residue cascade-delete** — trace `addCensusFamily`-created profiles to their source record so backing out a namesake census offers to delete the now-orphaned creations (the Ann Brooks island).
@@ -40,7 +39,7 @@ Core-correctness fixes from live-tree dogfooding (full repro cases in memory `pr
 
 **Data-quality ops / audits:**
 - **Safe child↔spouse role-change op** — a "change relationship role" that preserves the profile + its records (Herbert Brewell's research was destroyed because the only repair was rename-phantom + delete-real). Plus a missing **parent-younger-than-child** audit.
-- **Parent-age-gap severity / midpoint display** — the rule fires red ERRORs on comfortable ~22-year midpoint gaps (aggravated by the ±5 width above); soften with a midpoint/severity view.
+- **Parent-age-gap severity / midpoint display** — the census-derived false ERRORs are gone now that `addCensusFamily` writes ±1 dates (`2657ff4`); a midpoint/severity view is still worth it for genuinely-approximate imports that carry wide "abt" windows.
 
 ## Stage 2 — forward, sequenced (gate: core declared solid)
 
