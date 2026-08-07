@@ -581,9 +581,6 @@ struct ProfileDetailView: View {
                         // in another tab's sheet — otherwise the raise is a
                         // silent no-op and the stale Equatable value would
                         // suppress the next identical request.
-                        // On-demand FamilySearch hint enrichment (S6b) — drained
-                        // in ContentView (always mounted), so no tree-intent hop.
-                        Button("Fetch FamilySearch hints") { appState.requestFetchFSHints = profile.id }
                         // WT3 — assisted WikiTree write-back: preview sheet,
                         // then WikiTree's own review page in the browser.
                         Button("Contribute to WikiTree…") {

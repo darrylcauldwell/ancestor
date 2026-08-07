@@ -78,9 +78,9 @@ actor MCPHandler {
         "get_project_info", "get_pending_facts", "get_open_disputes",
         "get_recent_changes", "get_workbench_notes", "get_open_questions",
         "get_name_equivalences", "get_wikitree_contributions", "get_audit_findings",
-        "get_fs_upload_status", "get_fs_person_links", "get_fs_hints", "get_fs_request_status",
+        "get_fs_upload_status", "get_fs_person_links", "get_fs_request_status",
         "list_projects", "switch_project",
-        "kick_off_research", "request_fs_hints",
+        "kick_off_research",
     ]
 
     init(dbPath: String, posture: String? = nil) throws {
@@ -706,29 +706,12 @@ actor MCPHandler {
                     required: []
                 ),
                 tool(
-                    name: "get_fs_hints",
-                    description: "Read FamilySearch-sourced hint leads for a profile (leads joined to their FamilySearch evidence records): lead status, identifying fields, scorer verdict, and the FamilySearch citation URL.",
-                    properties: [
-                        "profile_id": ["type": "string", "description": "Profile whose FamilySearch hint leads to return."],
-                        "limit": ["type": "integer", "description": "Max rows (default 50, max 500). Newest first."],
-                    ],
-                    required: ["profile_id"]
-                ),
-                tool(
                     name: "get_fs_request_status",
-                    description: "Poll staged FamilySearch action requests (from request_fs_hints / request_fs_upload). With request_id returns that request; without, the latest 10. Status queued | running | completed | failed; note carries the outcome summary or error.",
+                    description: "Poll staged FamilySearch action requests (from request_fs_upload). With request_id returns that request; without, the latest 10. Status queued | running | completed | failed; note carries the outcome summary or error.",
                     properties: [
                         "request_id": ["type": "string", "description": "Optional: the id returned by a request_fs_* tool."],
                     ],
                     required: []
-                ),
-                tool(
-                    name: "request_fs_hints",
-                    description: "Stage a FamilySearch hints fetch for one profile. The app (running, project open, signed in to FamilySearch) executes it with its own auth; resulting leads land in Triage. Returns a request_id — poll get_fs_request_status, then read get_fs_hints.",
-                    properties: [
-                        "profile_id": ["type": "string", "description": "Profile to fetch FamilySearch record hints for."],
-                    ],
-                    required: ["profile_id"]
                 ),
                 tool(
                     name: "request_fs_upload",
@@ -850,12 +833,8 @@ actor MCPHandler {
             return ["content": [["type": "text", "text": try getFSUploadStatusResponseText(arguments)]]]
         case "get_fs_person_links":
             return ["content": [["type": "text", "text": try getFSPersonLinksResponseText(arguments)]]]
-        case "get_fs_hints":
-            return ["content": [["type": "text", "text": try getFSHintsResponseText(arguments)]]]
         case "get_fs_request_status":
             return ["content": [["type": "text", "text": try getFSRequestStatusResponseText(arguments)]]]
-        case "request_fs_hints":
-            return ["content": [["type": "text", "text": try requestFSHintsResponseText(arguments)]]]
         case "request_fs_upload":
             return ["content": [["type": "text", "text": try requestFSUploadResponseText(arguments)]]]
         case _ where name == "get_run_status" || name.hasPrefix("ancestor://run_status/"):
@@ -3789,46 +3768,6 @@ actor MCPHandler {
         }
     }
 
-    func getFSHintsResponseText(_ args: [String: Any]) throws -> String {
-        guard let profileID = args["profile_id"] as? String, !profileID.isEmpty else {
-            throw MCPError.invalidParams("get_fs_hints requires profile_id")
-        }
-        let limit = max(1, min((args["limit"] as? Int) ?? 50, 500))
-        let iso = ISO8601DateFormatter()
-        // Canonical lead→record join: a scored lead's id is
-        // 'lead_' + evidence_records.source_record_id (same join the app's
-        // backfillLeadAgePlace uses); source_id = 'familysearch' scopes to FS.
-        let payload: [[String: Any]] = try db.read { dbConn in
-            let rows = try Row.fetchAll(dbConn, sql: """
-                SELECT l.id, l.name, l.surname, l.given_name, l.birth_year, l.death_year,
-                       l.status, l.evidence, l.created_at, l.place,
-                       e.verdict, e.record_type, e.citation_url
-                FROM leads l
-                JOIN evidence_records e
-                  ON l.id = 'lead_' || e.source_record_id AND l.profile_id = e.profile_id
-                WHERE l.profile_id = ? AND e.source_id = 'familysearch'
-                ORDER BY l.created_at DESC LIMIT ?
-                """, arguments: [profileID, limit])
-            return rows.map { row in
-                var entry: [String: Any] = [
-                    "lead_id": row["id"] as String? ?? "",
-                    "name": row["name"] as String? ?? "",
-                    "status": row["status"] as String? ?? "",
-                    "verdict": row["verdict"] as String? ?? "",
-                    "record_type": row["record_type"] as String? ?? "",
-                    "evidence": row["evidence"] as String? ?? "",
-                ]
-                if let v: Int = row["birth_year"] { entry["birth_year"] = v }
-                if let v: Int = row["death_year"] { entry["death_year"] = v }
-                if let v: String = row["place"] { entry["place"] = v }
-                if let v: String = row["citation_url"] { entry["citation_url"] = v }
-                if let v: Date = row["created_at"] { entry["created_at"] = iso.string(from: v) }
-                return entry
-            }
-        }
-        return Self.jsonString(payload)
-    }
-
     func getFSRequestStatusResponseText(_ args: [String: Any]) throws -> String {
         let requestID = args["request_id"] as? String
         let iso = ISO8601DateFormatter()
@@ -3862,36 +3801,6 @@ actor MCPHandler {
                 return Self.jsonString(["error": "request_not_found", "request_id": requestID])
             }
             return Self.jsonString(payload)
-        } catch where Self.isMissingTable(error) {
-            return Self.fsSchemaOutOfDate
-        }
-    }
-
-    func requestFSHintsResponseText(_ args: [String: Any]) throws -> String {
-        guard let profileID = args["profile_id"] as? String, !profileID.isEmpty else {
-            throw MCPError.invalidParams("request_fs_hints requires profile_id")
-        }
-        do {
-            return try db.write { dbConn in
-                guard try Row.fetchOne(dbConn, sql: "SELECT id FROM profiles WHERE id = ?",
-                                       arguments: [profileID]) != nil else {
-                    return Self.jsonString(["error": "profile_not_found", "profile_id": profileID])
-                }
-                if let existing = try Row.fetchOne(dbConn, sql: """
-                    SELECT id, status FROM fs_action_requests
-                    WHERE kind = 'hints' AND profile_id = ? AND status IN ('queued', 'running')
-                    LIMIT 1
-                    """, arguments: [profileID]) {
-                    let id: String = existing["id"]
-                    return "A hints request for this profile is already \(existing["status"] as String? ?? "queued") — request_id: \(id). Poll get_fs_request_status."
-                }
-                let id = "fsreq_\(UUID().uuidString)"
-                try dbConn.execute(sql: """
-                    INSERT INTO fs_action_requests (id, kind, profile_id, status, requested_by, created_at)
-                    VALUES (?, 'hints', ?, 'queued', 'mcp', ?)
-                    """, arguments: [id, profileID, Date()])
-                return "FamilySearch hints request queued. request_id: \(id). The app executes it with its own FamilySearch sign-in; resulting leads land in Triage. Needs the app running with this project open and a FamilySearch session. Poll get_fs_request_status, then read get_fs_hints."
-            }
         } catch where Self.isMissingTable(error) {
             return Self.fsSchemaOutOfDate
         }

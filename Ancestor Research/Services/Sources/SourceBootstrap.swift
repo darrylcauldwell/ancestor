@@ -34,13 +34,19 @@ func bootstrapSources(registry: SourceRegistry) {
     // the Publisher. Only fires when a subject resolves to a parish + county.
     registry.register(MemorialInscriptionRecordSource())
 
-    // FamilySearch historical records over the official OAuth Platform API
-    // (owner 2026-07-21: records ARE granted at our Beta tier — live-verified,
-    // ~21k hits for a real subject — so the pivot's "records are walled"
-    // premise was empirically false). Search + score in memory; persistence is
-    // §16 pointer-only (ARKs + our verdicts, never record content/images).
-    // Beta (non-production) only until production certification.
-    registry.register(FamilySearchSource())
+    // FamilySearch is deliberately NOT registered as a record source.
+    // Owner decision 2026-08-07, confirmed by FamilySearch Developer Support
+    // (2026-08-05): historical-records collection access is permanently
+    // unavailable to third-party applications through the API — not a beta
+    // limitation, not a certifiable tier — for legal reasons (what a third
+    // party may display vs what FamilySearch may). The Beta "records ARE
+    // granted / ~21k hits" result that once justified registering it here was a
+    // beta-data mirage; production returns nothing (every `p_…` persona ARK
+    // 404s on the production host). FamilySearch's sanctioned role for us is a
+    // Family Tree READ/WRITE integration (the write leg + OAuth stay), never a
+    // records tap. The record engine stands on the six free sources above.
+    // `FamilySearchSource` and its parser remain in the tree only as reused
+    // internals (GEDCOM X decode); nothing wires them into the pipeline.
 
     // Tier 4: User-added prose corpora (parish records, local-history sites).
     // Failure to resolve Application Support is non-fatal — the user just

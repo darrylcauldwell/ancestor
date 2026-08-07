@@ -540,17 +540,10 @@ struct SharedProfileLayout: View {
                     }
                 }
                 Spacer()
-                // FamilySearch hints sits beside Search FreeREG so both
-                // find-more-evidence actions live on the profile face, matching
-                // the tree/■■■ context menu (owner request: both in both places).
-                Button {
-                    appState.requestFetchFSHints = profile.id
-                } label: {
-                    Label("FamilySearch hints", systemImage: "sparkle.magnifyingglass")
-                }
-                .buttonStyle(.glass)
-                .controlSize(.small)
-                .help("Fetch FamilySearch's record hints for this person (queries FamilySearch in-app). Sign in to FamilySearch in Settings first.")
+                // FamilySearch record hints were dropped 2026-08-07 (FamilySearch
+                // is a tree read/write integration, not a records source) — the
+                // manual "Search FreeREG" link-out is the find-more-evidence
+                // action on the profile face.
                 Link(destination: url) {
                     Label("Search FreeREG", systemImage: "arrow.up.right.square")
                 }

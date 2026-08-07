@@ -24,7 +24,6 @@ struct FamilySearchBetaSettingsView: View {
     @State private var probeGiven = ""
     @State private var probeSurname = ""
     @State private var probeYear = ""
-    @State private var probePersonID = ""
     @State private var treeProbing = false
     @State private var probeSummary: String?
     @State private var probeRaw: String = ""
@@ -132,9 +131,9 @@ struct FamilySearchBetaSettingsView: View {
 
     private var treeProbeSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("API probe (diagnostic)")
+            Text("Tree search (diagnostic)")
                 .font(AppTypography.cardTitle)
-            Text("Read-only calls through the real FamilySearch client. Records search answers whether our key is granted historical records; tree search + record hints exercise the enrichment surface. Shows HTTP status + decoded count + the raw body — a 4xx body is as useful as a 2xx (it reveals the tier wall).")
+            Text("Read-only Family Tree person search through the real FamilySearch client. Shows HTTP status + decoded count + the raw body. (Records search and record-hint probes were removed 2026-08-07 — FamilySearch doesn't grant third parties historical-records access; the integration is tree read/write only.)")
                 .font(AppTypography.badge)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -145,18 +144,9 @@ struct FamilySearchBetaSettingsView: View {
                 TextField("Birth year", text: $probeYear).textFieldStyle(.roundedBorder).frame(width: 90)
             }
             HStack {
-                Button(treeProbing ? "…" : "Records search") { runProbe(.records) }
-                    .buttonStyle(.glass).controlSize(.small)
-                    .disabled(treeProbing || probeSurname.trimmingCharacters(in: .whitespaces).isEmpty)
                 Button(treeProbing ? "…" : "Tree search") { runProbe(.tree) }
                     .buttonStyle(.glass).controlSize(.small)
                     .disabled(treeProbing || probeSurname.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            HStack {
-                TextField("Tree person id (e.g. LZ8X-…)", text: $probePersonID).textFieldStyle(.roundedBorder)
-                Button(treeProbing ? "…" : "Record hints") { runProbe(.hints) }
-                    .buttonStyle(.glass).controlSize(.small)
-                    .disabled(treeProbing || probePersonID.trimmingCharacters(in: .whitespaces).isEmpty)
             }
 
             if let probeSummary {
@@ -220,27 +210,23 @@ struct FamilySearchBetaSettingsView: View {
         }
     }
 
-    private enum ProbeKind { case records, tree, hints }
+    private enum ProbeKind { case tree }
 
-    /// Fire one read-only call through the real client and show status + a
-    /// decoded summary + the raw body. Uses `execute` (not the throwing typed
-    /// wrappers) so a 4xx body — e.g. an entitlement wall — is displayed, not
-    /// swallowed.
+    /// Fire one read-only Family Tree person search through the real client and
+    /// show status + a decoded summary + the raw body. Uses `execute` (not the
+    /// throwing typed wrappers) so a 4xx body is displayed, not swallowed.
     private func runProbe(_ kind: ProbeKind) {
         treeProbing = true
         probeSummary = "Calling…"
         probeRaw = ""
         let env = environment
         let query = buildProbeQuery()
-        let pid = probePersonID.trimmingCharacters(in: .whitespaces)
         Task {
             let client = FamilySearchClient(
                 environment: env,
                 tokenSource: KeychainFamilySearchTokenSource(environment: env))
             let url: URL = switch kind {
-            case .records: FamilySearchEndpoints.recordsPersonaSearch(env, query)
-            case .tree:    FamilySearchEndpoints.treeSearch(env, query)
-            case .hints:   FamilySearchEndpoints.personMatches(env, pid: pid, collection: .records)
+            case .tree: FamilySearchEndpoints.treeSearch(env, query)
             }
             do {
                 let response = try await client.execute(

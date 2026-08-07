@@ -709,36 +709,12 @@ struct FamilyContextAxisDispatchTests {
                 "fan-out must probe recorded + maiden spouse surnames; got \(spouseSurnames)")
     }
 
-    // FamilySearch axis test restored (owner 2026-07-21: the FS records source
-    // is back). FS's OAuth records API is GLOBAL, so the dispatcher's soft
-    // home-country axis (`q.anyPlace`) must fall back to the project's
-    // home-region nation when the subject itself carries no region — otherwise
-    // a region-less subject pulls worldwide same-surname namesakes (the live
-    // William Holmes finding). Config-derived; never a hardcoded region.
-
-    @MainActor
-    private func familySearchQueries(
-        dispatcher: SearchDispatcher,
-        subject: ResearchSubject,
-        recordType: RecordType
-    ) -> [RecordQuery] {
-        guard let source = dispatcher.registry.allSources().first(where: { $0.sourceID == "familysearch" }) else {
-            return []
-        }
-        return dispatcher.buildQueriesForTest(source: source, subject: subject, recordType: recordType, scope: .county)
-    }
-
-    @MainActor
-    @Test func familySearchAnyPlaceFallsBackToHomeChapmanNation() {
-        // Region-less subject (region: nil) + project home "DBY" → anyPlace "England".
-        let subject = subjectWithMotherSurname("Ward", birthYearFrom: 1887, birthYearTo: 1887)
-        let queries = familySearchQueries(dispatcher: makeDispatcher(), subject: subject, recordType: .birth)
-        #expect(!queries.isEmpty, "FamilySearch should produce queries at county scope")
-        for q in queries {
-            #expect(q.anyPlace == "England",
-                    "region-less subject must still get the home nation as the soft country axis; got \(q.anyPlace ?? "nil")")
-        }
-    }
+    // The FamilySearch records-source axis test (`familySearchAnyPlaceFalls…`)
+    // was removed 2026-08-07 when FamilySearch was dropped as a record source
+    // (it's a Family Tree read/write integration now — see
+    // project_familysearch_beta_program): there is no `familysearch` source in
+    // the registry to build record queries. The pure home-nation helper it
+    // leaned on stays covered by `homeCountryFromChapmanCodeDerivesNation` below.
 
     @Test func homeCountryFromChapmanCodeDerivesNation() {
         #expect(SearchDispatcher.homeCountry(fromChapmanCode: "DBY") == "England")

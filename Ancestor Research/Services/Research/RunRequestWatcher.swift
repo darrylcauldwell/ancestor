@@ -747,53 +747,15 @@ extension RunRequestWatcher {
             return
         }
         switch request.kind {
-        case "hints":
-            await executeFSHints(request, db: db)
         case "upload":
             await executeFSUpload(request, db: db)
         default:
-            db.markFSActionFailed(id: request.id, note: "Unknown request kind '\(request.kind)'.")
-        }
-    }
-
-    /// Headless twin of `AppState.fetchFamilySearchHints` — same core
-    /// (enrichment → scorer routing → persist), none of the UI side effects
-    /// (toasts, sign-in prompt, tab switch).
-    private func executeFSHints(_ request: FSActionRequest, db: ProjectDatabase) async {
-        guard let profileID = request.profileID else {
-            db.markFSActionFailed(id: request.id, note: "profile_id is required for a hints request.")
-            return
-        }
-        do {
-            guard let profile = try db.loadProfile(id: profileID) else {
-                db.markFSActionFailed(id: request.id, note: "Profile \(profileID) not found.")
-                return
-            }
-            let snapshot = try db.buildSnapshot()
-            let homeChapmanCode = (try? db.loadProjectMeta())?.resolvedHomeChapmanCode ?? ""
-            let subject = ResearchSubject.fromProfile(profile, snapshot: snapshot, homeChapmanCode: homeChapmanCode)
-            guard let surname = subject.surname, !surname.isEmpty else {
-                db.markFSActionFailed(id: request.id, note: "Profile has no surname to search FamilySearch with.")
-                return
-            }
-            let records = await FamilySearchEnrichmentService(environment: .beta)
-                .recordHintsAsSourceRecords(
-                    surname: surname, givenName: subject.givenName,
-                    birthYear: subject.birthYearFrom, deathYear: subject.deathYearFrom)
-            guard !records.isEmpty else {
-                db.markFSActionCompleted(id: request.id,
-                    note: "0 hints — the person may not be in FamilySearch's tree.")
-                return
-            }
-            let result = FamilySearchHintRouting.route(records: records, subject: subject)
-            _ = await ResearchRunService.persist(
-                result: result, mode: .extend,
-                sourceInfoMap: registry.buildSourceInfoMap(), registry: registry,
-                snapshot: snapshot, profileID: profileID, leadToFinalise: nil, db: db)
-            db.markFSActionCompleted(id: request.id,
-                note: "\(records.count) hint(s) reviewed — \(result.leads.count) lead(s) in Triage.")
-        } catch {
-            db.markFSActionFailed(id: request.id, note: "Hints fetch failed: \(error.localizedDescription)")
+            // "hints" was dropped 2026-08-07: FamilySearch record-hint
+            // ingestion pulled record personas into the scorer, which is the
+            // records capability FamilySearch does not grant third parties.
+            // FamilySearch is now tree read/write only; "upload" is the sole
+            // supported request kind.
+            db.markFSActionFailed(id: request.id, note: "Unsupported request kind '\(request.kind)'.")
         }
     }
 
