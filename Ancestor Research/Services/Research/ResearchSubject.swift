@@ -133,6 +133,18 @@ nonisolated struct ResearchSubject: Sendable {
     /// across every entry so her records aren't missed under the wrong married
     /// name. Empty for males and never-married-name-changed women.
     var marriedSurnames: [String] = []
+    /// The earliest year the subject held a married surname — her first
+    /// marriage year, or nil when no dated marriage is known. The name gate
+    /// uses this as a TEMPORAL BOUND on the married-surname axis: a married
+    /// surname is an acceptable match only for a record dated at/after this
+    /// year. Before her marriage she was recorded under her maiden name, so a
+    /// same-married-surname record that predates the marriage is a namesake —
+    /// the worst-class scorer bug it fixes silently fused two women (owner
+    /// dogfood: an 1891 census "Mary E HOLMES", born Holmes and an unmarried
+    /// daughter of a Holmes head, matched a subject who only became Holmes by a
+    /// 1915 marriage). Nil here, or an undated record, applies no bound
+    /// (conservative — never drops a legitimate record for want of a date).
+    var marriedSurnameEffectiveFrom: Int? = nil
     var givenName: String?
     /// Optional middle name(s). When present, the name gate uses it to reject
     /// records whose given-name field carries a different middle initial — so
@@ -885,6 +897,10 @@ nonisolated extension ResearchSubject {
             surname: profile.lastName,
             marriedSurname: derivedMarriedSurname,
             marriedSurnames: derivedMarriedSurnames,
+            // Earliest dated marriage year (nil if none dated) — the name gate's
+            // temporal bound on the married-surname axis. `marriageAliveYears`
+            // already collects every spouse-edge marriage year above.
+            marriedSurnameEffectiveFrom: marriageAliveYears.min(),
             givenName: profile.firstName,
             middleName: profile.middleName,
             birthYearFrom: birthFrom,

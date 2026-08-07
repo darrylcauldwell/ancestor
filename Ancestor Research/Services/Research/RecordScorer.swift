@@ -454,7 +454,22 @@ nonisolated struct RecordScorer {
             case .death, .burial, .probate, .military, .census: true
             default: false
             }
-            if acceptsMarried {
+            // TEMPORAL BOUND (owner dogfood — worst-class scorer defect, silently
+            // fuses two women): a married surname is only valid for a record
+            // dated at/after the subject's first marriage. Before it she was
+            // under her maiden name, so a same-married-surname record that
+            // predates the marriage is a namesake — an 1891 census "Mary E
+            // HOLMES" (born Holmes) must not match a subject who became Holmes by
+            // a 1915 marriage. Applied ONLY when both the marriage year and the
+            // record year are known; either unknown → no bound (never drops a
+            // legitimate record for want of a date).
+            let marriedAxisAllowed: Bool = {
+                guard acceptsMarried else { return false }
+                guard let marriedFrom = subject.marriedSurnameEffectiveFrom,
+                      let recordYear = extractYear(from: record) else { return true }
+                return recordYear >= marriedFrom
+            }()
+            if marriedAxisAllowed {
                 var marriedCandidates = subject.marriedSurnames
                 if let single = subject.marriedSurname { marriedCandidates.append(single) }
                 for raw in marriedCandidates {
