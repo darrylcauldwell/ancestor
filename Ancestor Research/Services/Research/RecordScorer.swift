@@ -1096,6 +1096,19 @@ nonisolated struct RecordScorer {
             return GateResult(gate: .date, outcome: .fail, reason: "married \(recordYear), age range inconsistent with birth \(windowLabel)")
 
         case .census:
+            // Census-year exclusivity (owner dogfood). A person is in exactly
+            // one place on census night. If the subject already has an APPLIED
+            // census for this record's year, a candidate whose household page
+            // differs is a namesake at another address — impossible (sibling of
+            // the death-once check). Fires only when both the applied census and
+            // this candidate carry a household-page URL, so it can prove they
+            // differ; otherwise it never bounds.
+            if case .census(let cr) = record,
+               let applied = subject.appliedCensusIdentitiesByYear[cr.censusYear], !applied.isEmpty,
+               let url = cr.common.detailURL?.trimmingCharacters(in: .whitespaces), !url.isEmpty,
+               !applied.contains(url) {
+                return GateResult(gate: .date, outcome: .impossible, reason: "the subject already has an applied \(cr.censusYear) census at a different address — a person is in one place on census night; same-name namesake, not them")
+            }
             if case .census(let cr) = record, let censusBirth = cr.birthYear {
                 // Census age misreporting is endemic in 19th-c. enumeration
                 // (round numbers, mis-remembered ages, intentional fudges).

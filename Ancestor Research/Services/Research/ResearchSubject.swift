@@ -166,6 +166,15 @@ nonisolated struct ResearchSubject: Sendable {
     /// each contribute, because an over-high value would wrongly drop a real
     /// death record. Nil when no such evidence exists.
     var aliveAsOf: Int? = nil
+    /// Census-year EXCLUSIVITY (owner dogfood): for each census year the
+    /// subject already has an APPLIED census for, the set of that census's
+    /// household-page URLs (its identity). A person is in exactly one place on
+    /// census night, so the date gate rejects a same-year census candidate
+    /// whose household page differs from an applied one — a namesake at another
+    /// address (sibling of the death-once check). Built from the subject's
+    /// applied census life-events; empty for a year → no bound (and a candidate
+    /// with no household-page URL is never rejected — can't prove it differs).
+    var appliedCensusIdentitiesByYear: [Int: Set<String>] = [:]
     /// Original date strings from the profile's GenealogicalDate (e.g.
     /// "DEC 1883", "10 MAR 1937"). Carried for the Level-2 strategist
     /// prompt so the MLX model has a precise anchor for age math
@@ -827,6 +836,18 @@ nonisolated extension ResearchSubject {
             + childAliveYears.map(Optional.some))
             .compactMap { $0 }
             .max()
+        // Applied-census identities per year (census-year exclusivity). Each
+        // applied census life-event contributes its household-page URL(s); a
+        // year with no URL-bearing census contributes nothing (so it never
+        // bounds a candidate we can't prove differs).
+        var derivedAppliedCensusIDs: [Int: Set<String>] = [:]
+        for ev in subjectEvents where ev.type == .census {
+            guard let year = ev.date?.bestYear else { continue }
+            let urls = ev.sources.compactMap { $0.citation?.url }
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            if !urls.isEmpty { derivedAppliedCensusIDs[year, default: []].formUnion(urls) }
+        }
         let derivedResidenceAxes: [ResidenceAxis] = subjectEvents
             .filter { $0.type == .residence && !$0.sensitive }
             .compactMap { event -> ResidenceAxis? in
@@ -908,6 +929,7 @@ nonisolated extension ResearchSubject {
             deathYearFrom: profile.deathDate?.earliest,
             deathYearTo: profile.deathDate?.latest,
             aliveAsOf: derivedAliveAsOf,
+            appliedCensusIdentitiesByYear: derivedAppliedCensusIDs,
             birthDateOriginal: profile.birthDate?.original,
             deathDateOriginal: profile.deathDate?.original,
             gender: profile.gender,
