@@ -23,7 +23,6 @@ Core-correctness fixes from live-tree dogfooding (full repro cases in memory `pr
 
 **Decision core (scorer / gates):**
 - **Married-surname — unmarried-child-of-same-surname-head negative** — the *temporal* half shipped (`f4c9ab9`: a married surname matches only records dated on/after the marriage). Remaining: for a post-marriage-dated census, an unmarried Dau of a *same-surname* head is a strong negative (a born-Holmes daughter, not the subject who married into Holmes) — needs household-role analysis, so census-only.
-- **Census-year exclusivity** — an applied census at one address demotes rival same-year candidates at other addresses to impossible (sibling of the shipped death-date exclusivity).
 - **Cross-record birthplace-consistency** — applied-fact birthplace vs a candidate/household target birthplace: mismatch demotes in ranking/verdicts AND gates the census-absorb capsule (George Ward Derby-vs-Ashbourne, Brooks/Ward salvages, Florida-1945). *The capsule now DISPLAYS the roster + target birthplace (shipped `c717fef`); the consistency GATE is still to build.*
 - **Geography gate — registration-district gap** — the gate doesn't know registration districts (Ellen Brooks' own "Duffield" household row soft-failed "unknown district" while namesakes passed); reinforces the deferred location Stage 3 rebuild. Worst case on record: a US Florida 1945 state census accepted as a "childhood census" (hemisphere breach).
 
