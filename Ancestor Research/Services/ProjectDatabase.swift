@@ -3976,9 +3976,14 @@ nonisolated extension ProjectDatabase {
                 // this record — never overwrite a citation that already links.
                 guard (citation.url?.trimmingCharacters(in: .whitespaces) ?? "").isEmpty
                 else { continue }
+                // Match case-insensitively: the SAME registration can render
+                // with different name casing across scrapes ("WILLIAM Cauldwell"
+                // vs "WILLIAM CAULDWELL"), which must not defeat the heal (owner
+                // dogfood 2026-08-10: William Cauldwell's death citation stayed
+                // bare after the re-fetched evidence arrived all-caps).
                 let notes = EvidenceRecord.trimAccessDate(citation.notes)?
-                    .trimmingCharacters(in: .whitespaces) ?? ""
-                guard notes == target else { continue }
+                    .trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+                guard notes == target.lowercased() else { continue }
                 citation.url = citationURL
                 let newJSON = String(data: try JSONEncoder().encode(citation), encoding: .utf8)
                 try db.execute(

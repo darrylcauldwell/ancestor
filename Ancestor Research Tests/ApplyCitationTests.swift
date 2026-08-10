@@ -202,4 +202,42 @@ struct ApplyCitationTests {
         #expect(cite?.url?.contains("265360753") == true,
                 "an already-linked evidence row must still heal its bare applied citation")
     }
+
+    /// The same GRO registration can render with different name casing across
+    /// scrapes ("WILLIAM Cauldwell" vs "WILLIAM CAULDWELL"); the fingerprint
+    /// match must be case-insensitive or the heal silently misses — owner dogfood
+    /// 2026-08-10: William Cauldwell's death citation stayed bare after the
+    /// re-fetched evidence arrived all-caps.
+    @Test func propagationMatchesCitationTextCaseInsensitively() throws {
+        let db = try makeDB()
+        let profile = Profile(
+            id: "p1", externalIDs: [:], firstName: "William", lastName: "Cauldwell",
+            gender: .male, attributes: nil, birthDate: nil, birthLocation: nil,
+            deathDate: nil, deathLocation: nil, bio: nil, isDeleted: false,
+            sources: [:], disputes: [:])
+        _ = try db.addProfile(profile, source: .gedcom)
+        let snapshot = try db.buildSnapshot()
+
+        let rec = SourceRecord.death(DeathRecord(
+            common: RecordCommon(id: "d1", sourceID: "freebmd", name: "William Cauldwell",
+                                 surname: "Cauldwell", givenName: "William",
+                                 detailURL: nil, rawFields: [:]),
+            deathYear: 1963, deathDate: nil, deathPlace: "Belper", age: nil,
+            quarter: "Mar", district: "Belper", volume: "3A", page: "46", spouseSurname: nil))
+        let scored = ScoredRecord(id: "d1", record: rec, verdict: .fact, gates: [], summary: "")
+        _ = ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: snapshot, db: db)
+
+        // A later scrape rendered the surname ALL-CAPS — same registration.
+        let appliedNotes = CitationRenderer.cite(rec).full
+        let allCaps = appliedNotes.replacingOccurrences(of: "Cauldwell", with: "CAULDWELL")
+        #expect(allCaps != appliedNotes, "test setup: the casing must actually differ")
+
+        let healed = try db.propagateCitationURLToAppliedFacts(
+            profileID: "p1", citationFull: allCaps,
+            citationURL: "https://www.freebmd.org.uk/cgi/information.pl?r=227323437:2671&d=bmd_1")
+        #expect(healed >= 1, "a case-differing citation text must still match and heal")
+        let after = try #require(try db.buildSnapshot().profiles["p1"])
+        let cite = (after.sources[.deathDate] ?? []).compactMap(\.citation).first
+        #expect(cite?.url?.contains("227323437") == true)
+    }
 }
