@@ -3866,13 +3866,30 @@ nonisolated extension ProjectDatabase {
     func reconcileFreeBMDCitationLinks(profileID: String) throws -> Int {
         let evidence = try loadEvidenceForProfile(profileID)
         let updates = FreeBMDCitationAudit.linkReconciliation(evidence: evidence)
-        guard !updates.isEmpty else { return 0 }
-        try dbQueue.write { db in
-            for update in updates {
-                try db.execute(
-                    sql: "UPDATE evidence_records SET citation_url = ? WHERE id = ?",
-                    arguments: [update.citationURL, update.evidenceID])
+        // The evidence-linking write is conditional on fresh cross-transcription
+        // reconciles; the applied-citation propagation below runs regardless.
+        if !updates.isEmpty {
+            try dbQueue.write { db in
+                for update in updates {
+                    try db.execute(
+                        sql: "UPDATE evidence_records SET citation_url = ? WHERE id = ?",
+                        arguments: [update.citationURL, update.evidenceID])
+                }
             }
+        }
+        // FREEBMD_CITATION_BACKFILL_SPEC Change 6 — propagate every linked
+        // FreeBMD evidence row's link onto the still-link-less applied citation
+        // it produced. Reload AFTER the write so rows reconciled just above are
+        // included; running over ALL linked rows (not only this run's fresh
+        // reconciles) also heals a row whose evidence was linked on an EARLIER
+        // run while its applied citation stayed bare (Abraham 2026-08-10).
+        // Idempotent — propagate skips any citation that already links.
+        let refreshed = try loadEvidenceForProfile(profileID)
+        for e in refreshed where e.sourceID == "freebmd" {
+            guard let url = e.citationURL?.trimmingCharacters(in: .whitespaces), !url.isEmpty
+            else { continue }
+            try propagateCitationURLToAppliedFacts(
+                profileID: profileID, citationFull: e.citationFull, citationURL: url)
         }
         return updates.count
     }
@@ -3906,6 +3923,70 @@ nonisolated extension ProjectDatabase {
             let newJSON = Self.encodeJSON(enriched)
             try db.execute(sql: "UPDATE evidence_records SET record_json = ? WHERE id = ?",
                            arguments: [newJSON, evidenceID])
+        }
+
+        // FREEBMD_CITATION_BACKFILL_SPEC Change 6 — carry the link onto the
+        // already-applied field_sources citation (same rationale as the
+        // reconcile writer above; see propagateCitationURLToAppliedFacts).
+        let identity = try dbQueue.read { db -> (profileID: String, citationFull: String?)? in
+            guard let row = try Row.fetchOne(
+                db, sql: "SELECT profile_id, citation_full FROM evidence_records WHERE id = ?",
+                arguments: [evidenceID]) else { return nil }
+            return (row["profile_id"] as String, row["citation_full"] as String?)
+        }
+        if let identity {
+            try propagateCitationURLToAppliedFacts(
+                profileID: identity.profileID,
+                citationFull: identity.citationFull,
+                citationURL: citationURL)
+        }
+    }
+
+    /// FREEBMD_CITATION_BACKFILL_SPEC Change 6 — propagate an enrich-in-place
+    /// link onto the ALREADY-APPLIED confirmed-fact citation. The two evidence
+    /// enrich writers above heal `evidence_records.citation_url`, but the
+    /// citation the apply copied onto `field_sources` at apply-time is a
+    /// snapshot: it stays link-less and is never re-rendered from evidence.
+    /// Match the applied citation by the same fingerprint `EvidenceRecord.
+    /// wasApplied` uses (access-date-trimmed `notes` == the record's citation
+    /// text) and only heal one whose own `url` is still empty — never overwrite
+    /// a citation that already links. Returns the number healed. Pure DB.
+    @discardableResult
+    func propagateCitationURLToAppliedFacts(
+        profileID: String, citationFull: String?, citationURL: String
+    ) throws -> Int {
+        let link = citationURL.trimmingCharacters(in: .whitespaces)
+        guard let target = EvidenceRecord.trimAccessDate(citationFull)?
+                .trimmingCharacters(in: .whitespaces),
+              !target.isEmpty, !link.isEmpty
+        else { return 0 }
+        return try dbQueue.write { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT rowid, citation_json FROM field_sources
+                WHERE entity_id = ? AND entity_kind = 'profile'
+                  AND citation_json IS NOT NULL
+                """, arguments: [profileID])
+            var healed = 0
+            for row in rows {
+                guard let json = row["citation_json"] as String?,
+                      let data = json.data(using: .utf8),
+                      var citation = try? JSONDecoder().decode(Citation.self, from: data)
+                else { continue }
+                // Only touch a link-less citation whose text fingerprints to
+                // this record — never overwrite a citation that already links.
+                guard (citation.url?.trimmingCharacters(in: .whitespaces) ?? "").isEmpty
+                else { continue }
+                let notes = EvidenceRecord.trimAccessDate(citation.notes)?
+                    .trimmingCharacters(in: .whitespaces) ?? ""
+                guard notes == target else { continue }
+                citation.url = citationURL
+                let newJSON = String(data: try JSONEncoder().encode(citation), encoding: .utf8)
+                try db.execute(
+                    sql: "UPDATE field_sources SET citation_json = ? WHERE rowid = ?",
+                    arguments: [newJSON, row["rowid"] as Int64])
+                healed += 1
+            }
+            return healed
         }
     }
 

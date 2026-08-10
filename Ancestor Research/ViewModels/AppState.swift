@@ -3803,7 +3803,8 @@ final class AppState {
         for (pid, profile) in snapshot.profiles where !profile.isDeleted {
             let evidence = (try? db.loadEvidenceForProfile(pid)) ?? []
             if let finding = FreeBMDCitationAudit.finding(
-                profileID: pid, profileName: profile.displayName, evidence: evidence) {
+                profileID: pid, profileName: profile.displayName, evidence: evidence,
+                profile: profile) {
                 out.append(finding)
             }
         }

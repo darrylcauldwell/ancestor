@@ -132,6 +132,86 @@ Shape:
   against a live 200 — blind scraper code is what this whole spec exists to undo.
 - Retire Change 4's whole-tree bulk button once this lands (keep the audit).
 
+## Change 6 — Propagate enrich-in-place link onto the applied citation
+
+Status: **Fix 1 + Fix 2 SHIPPED, live-verified on Abraham Twyford.**
+
+- **Fix 1 (propagation)** — `propagateCitationURLToAppliedFacts(profileID:
+  citationFull:citationURL:)` in `ProjectDatabase.swift`, wired into both
+  enrich-in-place writers (`reconcileFreeBMDCitationLinks` now propagates over
+  ALL linked FreeBMD evidence so already-healed rows self-heal;
+  `applyFreeBMDEnrichment`). After a live re-research, Abraham's `deathDate`/
+  `deathLocation` citations gained `…r=265360753…` in place (added_at unchanged).
+- **Fix 2 (audit reads the applied-fact layer)** — `FreeBMDCitationAudit.finding`
+  gained an optional `profile:` and now flags link-less applied *fact* citations
+  (`FieldSource.origin == .freebmd`, empty `url`) as well as link-less evidence
+  rows, deduped by citation-text fingerprint so a registration on two fields (or
+  in both layers) counts once. Both Health callers pass the profile. Closes the
+  layer-mismatch where a healed evidence row let the audit go falsely green while
+  the published citation stayed bare.
+- Tests: `ApplyCitationTests` (propagation) + `FreeBMDCitationAuditTests`
+  (fact-layer: fires-when-evidence-healed, silent-when-linked, ignores-non-FreeBMD,
+  two-fields-count-once) all green.
+
+The optional apply-time "prefer the linked sibling" guard remains queued — not
+needed now that both layers heal and the audit sees both.
+
+**Live learning (2026-08-10, dogfood).** The "Freebmd link missing" Health tab
+listed 9 profiles. Bucketing them by whether *any* local evidence row already
+carries the `information.pl?r=` link splits the tab cleanly:
+
+- **7 of 9 are pre-`c194066` legacy** (every row scored before forward capture) —
+  no local link exists, so Change 5's per-item **"Enrich from FreeBMD"** is the
+  correct and intended fix. Working as designed. (George Wheeldon, William H
+  Cauldwell, Lily Cauldwell, Samuel Cauldwell, Oswald Derbyshire, Ida Land
+  [death only — her marriage is already linked], Robert Cauldwell [2 unapplied
+  leads].)
+- **2 of 9 have the link already local** yet stay flagged — the bug below:
+  Abraham Twyford and Mary Ward.
+
+**Root cause — LIVE-VERIFIED 2026-08-10 (Abraham re-researched mid-session).**
+A re-research fired on Abraham; the result **disproves** the initial
+recordID-match-key theory and **confirms** a propagation gap instead:
+
+- **Enrich-in-place DID heal across sibling recordIDs.** The applied death
+  evidence row `freebmd_death_6_40_265353655` (previously no link) now carries
+  `citation_url = …r=265360753…` — backfilled from its twin `…_265360753`, a
+  *different* recordID for the same `6/40` registration. So healing already
+  matches by registration, not strictly `recordID`. The earlier "drop recordID
+  from the match key" fix is **moot — retracted.**
+- **But the applied `confirmed_facts` citation was NOT re-synced.** Abraham's
+  profile-level `deathDate` and `deathLocation` citations (added 2026-08-05)
+  still hold only `{title, notes}` with **no `url`**, even though the evidence
+  row backing them now has the link. Enrichment updates `evidence_records` but
+  does not re-render the already-applied fact citation. **This is the real,
+  confirmed bug.**
+- **Layer mismatch in the audit.** Change 2's rule fires on link-less *evidence*
+  records — now healed — so Abraham likely drops off the "FreeBMD link missing"
+  list, while the citation the user actually sees on the profile (and would
+  publish to WikiTree / a dossier) is *still* link-less. The audit measures the
+  evidence layer, not the applied-fact layer that reaches the end product.
+
+**Fix (revised):**
+1. **Propagate enrichment to the applied citation.** When enrich-in-place updates
+   an `evidence_record`'s `citationURL`, re-sync the derived `confirmed_facts`
+   citation(s) — match by `(field, value, registration)` — so the profile's
+   stored/published citation gains the link. Offline, testable.
+2. **Point the audit at the applied fact.** The link-missing rule should also (or
+   instead) check the `confirmed_facts` citation, since that's the user-facing /
+   published artifact; otherwise a healed evidence layer masks a link-less
+   profile.
+3. *(Optional guard)* apply-time prefer the linked sibling, so a fresh apply
+   never binds to a link-less row when a linked one exists.
+
+**Mary Ward = stale-audit false positive.** Both her 1915 marriage evidence rows
+carry the link (applied Aug 6). If her confirmed-fact citation also has it, the
+finding is a stale count — the audit didn't recompute after the Aug 6 apply
+(known open item, memory `project_census_reconciliation_followups`: "Health audit
+goes stale after research apply"). Recompute-on-apply clears it.
+
+**Net:** the tab is not 9 things to hand-fix. 7 are the intended Change 5 flow;
+2 are the recordID-key bug above; at least 1 of those 2 is also a stale count.
+
 ## Non-goals
 
 - Upgrading `r=&d=` links to the "official permanent" `cite=` token form (only

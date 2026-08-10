@@ -101,6 +101,70 @@ struct FreeBMDCitationAuditTests {
         #expect(f?.message.contains("mother's maiden name") == false)
     }
 
+    // MARK: - Change 6 Fix 2 — the audit also reads the applied-fact layer
+
+    /// A profile carrying a link-less FreeBMD field-source citation on the given
+    /// field(s). `notes` is the citation text the fingerprint dedupes on.
+    private func profileWithFreeBMDFact(
+        url: String?, on fields: [ProfileField] = [.deathDate],
+        notes: String = "Death: ABRAHAM TWYFORD, Jun 1980, BAKEWELL, vol. 6/40; accessed 5 Aug 2026."
+    ) -> Profile {
+        let cite = Citation(title: "Death", url: url, notes: notes)
+        var sources: [ProfileField: [FieldSource]] = [:]
+        for field in fields {
+            sources[field] = [FieldSource(origin: .freebmd, raw: "x",
+                                          addedAt: Date(timeIntervalSince1970: 0), citation: cite)]
+        }
+        return Profile(
+            id: "@P1@", externalIDs: [:], firstName: "Abraham", lastName: "Twyford",
+            gender: .male, attributes: nil, birthDate: nil, birthLocation: nil,
+            deathDate: nil, deathLocation: nil, bio: nil, isDeleted: false,
+            sources: sources, disputes: [:])
+    }
+
+    @Test func firesWhenAppliedFactCitationIsLinkLessEvenIfEvidenceHealed() {
+        // Abraham 2026-08-10: the evidence row was link-healed on re-research but
+        // the published citation stayed bare — evidence-only would go falsely green.
+        let healed = evidence(sourceID: "freebmd",
+            citationURL: "https://www.freebmd.org.uk/cgi/information.pl?r=9:9&d=bmd_9")
+        let f = FreeBMDCitationAudit.finding(
+            profileID: "@P1@", profileName: "Abraham Twyford",
+            evidence: [healed], profile: profileWithFreeBMDFact(url: nil))
+        #expect(f != nil, "a bare published citation must flag even when evidence is healed")
+        #expect(f?.message.contains("1 FreeBMD record") == true)
+    }
+
+    @Test func silentWhenFactCitationCarriesItsLink() {
+        let f = FreeBMDCitationAudit.finding(
+            profileID: "@P1@", profileName: "Abraham Twyford", evidence: [],
+            profile: profileWithFreeBMDFact(
+                url: "https://www.freebmd.org.uk/cgi/information.pl?r=1:2&d=bmd_9"))
+        #expect(f == nil)
+    }
+
+    @Test func ignoresNonFreeBMDFactCitations() {
+        let cite = Citation(title: "Census", url: nil, notes: "FreeCen 1891 census")
+        let fs = FieldSource(origin: .freecen, raw: "1891",
+                             addedAt: Date(timeIntervalSince1970: 0), citation: cite)
+        let profile = Profile(
+            id: "@P1@", externalIDs: [:], firstName: "A", lastName: "B", gender: .male,
+            attributes: nil, birthDate: nil, birthLocation: nil, deathDate: nil,
+            deathLocation: nil, bio: nil, isDeleted: false,
+            sources: [.birthDate: [fs]], disputes: [:])
+        let f = FreeBMDCitationAudit.finding(
+            profileID: "@P1@", profileName: "A B", evidence: [], profile: profile)
+        #expect(f == nil, "only FreeBMD-origin citations are our concern")
+    }
+
+    @Test func countsOneRegistrationCitedOnTwoFieldsOnce() {
+        // deathDate + deathLocation cite the SAME registration — one record.
+        let f = FreeBMDCitationAudit.finding(
+            profileID: "@P1@", profileName: "Abraham Twyford", evidence: [],
+            profile: profileWithFreeBMDFact(url: nil, on: [.deathDate, .deathLocation]))
+        #expect(f?.message.contains("1 FreeBMD record") == true,
+                "same registration on two fields must count once")
+    }
+
     @Test func aggregatesMultipleRecordsIntoOneFinding() {
         let f = FreeBMDCitationAudit.finding(
             profileID: "@P1@", profileName: "Nora",

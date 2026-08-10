@@ -16,16 +16,51 @@ nonisolated enum FreeBMDCitationAudit {
 
     /// The one info-gap finding for a profile that has ≥1 applied FreeBMD record
     /// with no citation link. nil when the profile has none.
+    ///
+    /// Change 6 Fix 2 — checks BOTH layers: link-less applied *evidence* rows
+    /// AND link-less applied *fact* citations (`field_sources`). The enrich path
+    /// can heal the evidence row while the published citation stays bare
+    /// (Abraham 2026-08-10), which would leave an evidence-only audit falsely
+    /// green while the profile you'd publish still has no link. `profile` is
+    /// optional so pure evidence-layer callers/tests need not pass it — but the
+    /// Health sweeps do, so the finding reflects the layer that reaches print.
     static func finding(profileID: String, profileName: String,
-                        evidence: [EvidenceRecord]) -> AuditResult? {
+                        evidence: [EvidenceRecord],
+                        profile: Profile? = nil) -> AuditResult? {
         let missing = evidence.filter {
             $0.sourceID == "freebmd"
                 && $0.userStatus == .savedAsLead   // applied/kept
                 && ($0.citationURL?.trimmingCharacters(in: .whitespaces).isEmpty ?? true)
         }
-        guard !missing.isEmpty else { return nil }
 
-        let n = missing.count
+        // Fact-layer gap: an applied FreeBMD field-source citation whose own url
+        // is empty. Deduped by access-date-trimmed notes so a registration cited
+        // on two fields (deathDate + deathLocation) counts once.
+        var linklessFactTexts: Set<String> = []
+        if let profile {
+            for sources in profile.sources.values {
+                for source in sources where source.origin == .freebmd {
+                    guard let citation = source.citation,
+                          (citation.url?.trimmingCharacters(in: .whitespaces) ?? "").isEmpty,
+                          let notes = EvidenceRecord.trimAccessDate(citation.notes)?
+                              .trimmingCharacters(in: .whitespaces), !notes.isEmpty
+                    else { continue }
+                    linklessFactTexts.insert(notes)
+                }
+            }
+        }
+
+        // Count = every link-less applied evidence row (each its own record),
+        // PLUS every link-less fact citation whose registration is not already
+        // represented by one of those evidence rows — so the same registration
+        // appearing in BOTH layers (or cited on two fields) counts once, while
+        // genuinely distinct records each count.
+        let evidenceKeys = Set(missing.compactMap {
+            EvidenceRecord.trimAccessDate($0.citationFull)?.trimmingCharacters(in: .whitespaces)
+        }.filter { !$0.isEmpty })
+        let factOnly = linklessFactTexts.subtracting(evidenceKeys)
+        let n = missing.count + factOnly.count
+        guard n > 0 else { return nil }
         // The mother's maiden name only entered the GRO birth index from Sep
         // 1911 (`ScoringRules.mothersMaidenNameStart`). A pre-1911 birth never
         // carried one, so its absence is not a "missing" field and unlocks
