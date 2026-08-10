@@ -3002,7 +3002,12 @@ final class AppState {
         let profileEventIDs = Set((snapshot.lifeEvents[subject.id] ?? []).map { $0.id })
         let appliedCitationURLs = Set(subject.sources.values.flatMap { $0 }.compactMap { $0.citation?.url })
         for ev in evidence {
-            guard case .parish(let r) = ev.record, let detail = r.detail else { continue }
+            guard case .parish(let r) = ev.record else { continue }
+            // Results-table FreeREG rows carry no typed detail — the marriage's
+            // other party lives only in the raw `co_persons` cell. Synthesize a
+            // marriage detail from it so the spouse still reaches the offer.
+            guard let detail = r.detail
+                ?? Self.marriageDetailFromCoPersons(subject: subject, record: r) else { continue }
             let projectedIDs = Set(ev.record.projectToLifeEvents(profileID: subject.id).map { $0.id })
             let citedByFact = r.common.detailURL.map { appliedCitationURLs.contains($0) } ?? false
             let applied = ev.userStatus == .savedAsLead
@@ -3016,6 +3021,34 @@ final class AppState {
             }
         }
         return nil
+    }
+
+    /// Results-table FreeREG rows carry the marriage's other party only in the
+    /// raw `co_persons` cell (no typed `detail`), so the spouse never reached the
+    /// family offer — owner dogfood 2026-08-10: William CAILDWELL's marriage
+    /// applied but his wife Nellie STENSON was silently dropped. Synthesize the
+    /// minimal marriage detail from `co_persons` when the record lacks typed
+    /// detail. The subject fills the block matching their gender, so
+    /// `parishFamilyLinks`' role resolution and spouse-gender derivation are
+    /// correct. nil for non-marriage events or an empty `co_persons`.
+    nonisolated static func marriageDetailFromCoPersons(
+        subject: Profile, record r: ParishRecord
+    ) -> FreeREGDetail? {
+        guard (r.eventType ?? "").lowercased().contains("marriage") else { return nil }
+        guard let other = r.common.rawFields["co_persons"]?
+                .split(separator: ";").first
+                .map({ $0.trimmingCharacters(in: .whitespaces) }), !other.isEmpty
+        else { return nil }
+        // "Nellie STENSON" → forename(s) + last-token surname.
+        let tokens = other.split(separator: " ").map(String.init).filter { !$0.isEmpty }
+        let spouse: FreeREGPerson = tokens.count >= 2
+            ? FreeREGPerson(forename: tokens.dropLast().joined(separator: " "), surname: tokens.last)
+            : FreeREGPerson(forename: tokens.first, surname: nil)
+        let subjectPerson = FreeREGPerson(forename: subject.firstName, surname: subject.lastName)
+        let marriage: FreeREGMarriage = subject.gender == .female
+            ? FreeREGMarriage(groom: spouse, bride: subjectPerson, marriageDate: r.eventDate)
+            : FreeREGMarriage(groom: subjectPerson, bride: spouse, marriageDate: r.eventDate)
+        return FreeREGDetail(event: .marriage(marriage))
     }
 
     /// Lift the family a parish entry names, per event kind (PARISH_ABSORPTION_SPEC

@@ -69,6 +69,61 @@ struct ParishFamilyProposalTests {
         #expect(!links.contains { $0.given == "John" })
     }
 
+    // MARK: - co_persons fallback (results-table rows carry no typed detail)
+
+    /// Regression — owner dogfood 2026-08-10: William CAILDWELL's FreeREG
+    /// marriage applied but his wife Nellie STENSON was dropped, because the
+    /// results-table row carried her only in the raw `co_persons` cell (no typed
+    /// detail). Synthesizing the detail must surface her as the spouse.
+    @Test func coPersonsMarriageSynthesizesSpouseWhenNoTypedDetail() throws {
+        let rec = ParishRecord(
+            common: RecordCommon(id: "m2", sourceID: "freereg", name: "William Caildwell",
+                                 surname: "Caildwell", givenName: "William",
+                                 rawFields: ["event_type": "marriage", "co_persons": "Nellie STENSON"]),
+            eventType: "marriage", eventDate: "12 May 1907", eventYear: 1907,
+            parish: "Belper", county: "Derbyshire", detail: nil)
+        let subj = subject(given: "William", surname: "Cauldwell", gender: .male)
+        let detail = try #require(AppState.marriageDetailFromCoPersons(subject: subj, record: rec))
+        let (links, kind) = AppState.parishFamilyLinks(subject: subj, record: rec, detail: detail)
+        #expect(kind == .marriage)
+        let spouse = links.first { $0.relation == .spouse }
+        #expect(spouse?.given == "Nellie")
+        #expect(spouse?.birthSurname == "STENSON")          // her maiden surname
+        #expect(spouse?.marriedSurname == "Cauldwell")      // took the subject's surname
+        #expect(spouse?.gender == .female)
+    }
+
+    /// Symmetric for a female subject — the co-person becomes a male spouse.
+    @Test func coPersonsMarriageFemaleSubjectSpouseIsMale() throws {
+        let rec = ParishRecord(
+            common: RecordCommon(id: "m3", sourceID: "freereg", name: "Mary Ward",
+                                 surname: "Ward", givenName: "Mary",
+                                 rawFields: ["co_persons": "Ernest CAULDWELL"]),
+            eventType: "marriage", eventYear: 1915, detail: nil)
+        let subj = subject(given: "Mary", surname: "Ward", gender: .female)
+        let detail = try #require(AppState.marriageDetailFromCoPersons(subject: subj, record: rec))
+        let (links, _) = AppState.parishFamilyLinks(subject: subj, record: rec, detail: detail)
+        let spouse = links.first { $0.relation == .spouse }
+        #expect(spouse?.given == "Ernest")
+        #expect(spouse?.birthSurname == "CAULDWELL")
+        #expect(spouse?.gender == .male)
+    }
+
+    @Test func coPersonsFallbackIgnoresNonMarriageAndEmpty() {
+        let subj = subject(given: "William", surname: "Cauldwell", gender: .male)
+        let baptism = ParishRecord(
+            common: RecordCommon(id: "b", sourceID: "freereg", name: "William Cauldwell",
+                                 surname: "Cauldwell", givenName: "William",
+                                 rawFields: ["co_persons": "Nellie STENSON"]),
+            eventType: "baptism", eventYear: 1907, detail: nil)
+        #expect(AppState.marriageDetailFromCoPersons(subject: subj, record: baptism) == nil)
+        let noCoPersons = ParishRecord(
+            common: RecordCommon(id: "m", sourceID: "freereg", name: "William Cauldwell",
+                                 surname: "Cauldwell", givenName: "William", rawFields: [:]),
+            eventType: "marriage", eventYear: 1907, detail: nil)
+        #expect(AppState.marriageDetailFromCoPersons(subject: subj, record: noCoPersons) == nil)
+    }
+
     @Test func baptismProposesBothParents() {
         let bap = FreeREGBaptism(
             child: FreeREGPerson(forename: "Sarah", surname: "Ward"),

@@ -273,3 +273,30 @@ a parked bucket.
 - The spouse's parents (the *other* party's parents on a marriage) are not
   absorbed onto the subject; they belong to the spouse and are a later
   refinement once the spouse profile exists.
+
+## 10. Fix — results-table `co_persons` reaches the spouse offer (SHIPPED 2026-08-10)
+
+**Bug (owner dogfood):** applying a FreeREG marriage found via the **results
+table** (not a fetched detail page) applied the record but silently dropped the
+spouse — William CAILDWELL's marriage landed with no "add Nellie STENSON" offer.
+
+**Root cause:** the results-table parser writes the other party only to the raw
+`co_persons` cell (`FreeREGSource.parseResultsTable`), leaving `ParishRecord.detail
+== nil`. Both absorption legs read the typed `detail`: `parishFamilyProposal`
+guarded `let detail = r.detail` and bailed, and `syntheticMarriageRecord` requires
+`detail?.event == .marriage`. So the spouse in `co_persons` never reached either
+the offer (Change D) or the fill (Change B). Changes B/D assumed the typed detail
+always carries both principals; the results-table-only case was unaddressed.
+
+**Fix:** `AppState.marriageDetailFromCoPersons(subject:record:)` synthesizes a
+minimal marriage `FreeREGDetail` from `co_persons` when the record has no typed
+detail, placing the **subject in the block matching its gender** so
+`parishFamilyLinks`' role resolution and spouse-gender derivation stay correct.
+`parishFamilyProposal` now uses `r.detail ?? marriageDetailFromCoPersons(...)`.
+Scoped to the Change-D offer (spouse creation), not the fill path, so no spurious
+DS-12 dispute fires for a subject with no existing edge. Tests in
+`ParishFamilyProposalTests` (male + female subject, non-marriage/empty guards).
+
+Not addressed: filling the marriage DATE onto the created edge from a
+`co_persons`-only record (the edge is created dateless; the FreeBMD + parish
+citations document the marriage). Minor; deferred.
