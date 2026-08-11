@@ -157,9 +157,15 @@ and the Bakewell/Basford/Derby namesakes fall — provably, without hand-editing
 
 ## Slices (dependency order; B is the high-value first cut)
 
-**Slice A — single entry point + file hygiene.** Make `PlaceAuthorityRegistry` the only
-loader of the raw catalogues; delete `fs-place-ids.json`; add `Regions/README.md`.
-*Accept:* grep shows no service reads the raw JSON except the registry. *Risk:* low.
+**Slice A — single entry point + file hygiene. SHIPPED 2026-08-11.** Deleted the dead
+`fs-place-ids.json` (0 code refs); added `Resources/Regions/README.md` naming each survivor and its
+single owning loader. **Deviation from the literal acceptance ("registry is the ONLY loader"):** the
+raw JSON is owned by three clean single-owner loader singletons — `LocationGazetteer` (uk-places),
+`FreeBMDDistrictCatalogue` (freebmd-districts), `UKChapmanCodes` (uk-chapman-codes) — plus
+`RegionConfig` (county-adjacency); `PlaceAuthorityRegistry` *composes* them. Collapsing all four into
+the registry would make it a god-object and break the resolvers that read the loaders directly, so
+the better design (one owner per file, no ad-hoc reads, README-documented) was kept intentionally.
+The "one entry point" *intent* (no ad-hoc raw reads; canonical resolvers downstream) holds.
 
 **Slice B — wire the resolver into the two live checks that still bypass it (fixes Mary).**
 **B(i) SHIPPED 2026-08-11** — `RecordScorer.conflictsWithConfirmedBirth` now resolves the
@@ -250,11 +256,16 @@ builds a **dry-run `Report`**: an unambiguous `PlaceResolver`/gazetteer hit → 
 (`apply(_:in:)` refuses a non-confident proposal), and **preserves display strings** — only the code
 column is filled, one field at a time via `setProfileLocationCode`. **Zero wrong-resolution is
 auto-committed** (nothing writes without a tick).
-  - **Deferred (gated follow-up):** the **local-model proposer** for the left-freeform tail, and
-    **life-event locations** (birth/death fields only for now). The deterministic backbone + review
-    is what makes a model tier safe to add later (each model proposal still verified against the
-    authority + human-reviewed — never a blind batch write); per the tiered-architecture rule,
-    deterministic ships first and the model tier routes up only at the wall.
+  - **Life-event locations — DONE 2026-08-11 (extension).** The normaliser now scans residence/
+    occupation/burial/etc. `LifeEvent.location` too (`report(for:lifeEvents:)`), the `Proposal.Target`
+    generalised to `profileField | lifeEvent`, applied via `setLifeEventLocationCode` (check-before-
+    overwrite on the existing v15 `location_code` column), surfaced in the same review sheet. Tests:
+    life-event report/skip-coded/skip-deleted-owner/apply-preserves-display.
+  - **Deferred (gated follow-up):** ONLY the **local-model proposer** for the left-freeform tail
+    remains. The deterministic backbone + review is what makes a model tier safe to add later (each
+    model proposal still verified against the authority + human-reviewed — never a blind batch
+    write); per the tiered-architecture rule, deterministic ships first and the model tier routes up
+    only at the wall.
   *Accept (met):* dry-run report with deterministic / left-freeform counts; per-proposal apply;
   display preserved; no blind writes. `LocationNormalizeTests` (report split, skip-coded/empty/
   soft-deleted, apply-writes-code-preserves-display, refuse-non-confident, only-touches-named-field).
@@ -266,10 +277,18 @@ Parishes in `freebmd-districts.json` resolve to their RD (Hognaston→Ashbourne 
 coverage. Not a blocker for the running Mary case.
 
 ## Status (2026-08-11)
-**B, C, D, E all SHIPPED** (in that order — B was taken first as the provable Mary win). **Slice A**
-(single canonical entry point + delete the dead `fs-place-ids.json` + a `Regions/README`) is the only
-remaining item — pure housekeeping, no behaviour change; do it opportunistically. The deterministic
-location model is now end-to-end: picker writes codes for new input (D), apply derives the RD (C),
-the review layer discriminates by RD (B), and the batch normaliser structures the legacy freeform
-tail under review (E). Open follow-ups live in each slice above (E's local-model tier +
-life-event locations; D's era-window data; C's sibling-by-RD clustering consumer).
+**A, B, C, D, E all SHIPPED.** The deterministic location model is end-to-end: file hygiene + single
+owner per catalogue (A), picker writes codes for new input incl. Add Person (D), apply derives the RD
+(C), the review layer discriminates by RD (B), and the batch normaliser structures the legacy
+freeform tail — profile birth/death **and** life-event places — under review (E).
+
+**Two honest remainders, both by choice/dependency, not oversight:**
+1. **D "era-aware" picker filtering** — the code path is data-blocked: `GazetteerEntry` carries
+   `validFrom`/`validTo` but the bundled `uk-places.json` populates neither, so any era filter would
+   filter nothing. Unblocks with the GENUKI/village backfill (Part I Stage 2(b)/4). Not built to
+   avoid dead UI over absent data.
+2. **E local-model proposer** for the ambiguous freeform tail — a separate MLX effort the spec itself
+   gates ("do last"); deterministic ships first per the tiered-architecture rule. The backbone that
+   makes it safe (verified-against-authority, human-reviewed, no blind writes) is in place.
+
+Downstream consumer not part of any slice: **sibling-by-RD clustering** (a consumer of C's field).

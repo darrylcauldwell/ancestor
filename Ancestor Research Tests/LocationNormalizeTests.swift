@@ -46,7 +46,7 @@ struct LocationNormalizeTests {
     @Test func reportProposesConfidentMatchForCountyName() {
         let r = LocationNormalizer.report(for: [profile("a", birth: "Derbyshire")])
         let p = try! #require(r.deterministic.first)
-        #expect(p.field == .birthLocation)
+        #expect(p.target == .profileField(.birthLocation))
         #expect(p.currentText == "Derbyshire")
         #expect(p.proposedCode == "DBY")     // the county node
         #expect(p.confident)
@@ -95,11 +95,61 @@ struct LocationNormalizeTests {
     @Test func applyRefusesNonConfidentProposal() throws {
         let db = try makeDB()
         let freeform = LocationNormalizer.Proposal(
-            id: "x|birthLocation", profileID: "x", profileName: "X", field: .birthLocation,
+            id: "x|birthLocation", profileID: "x", profileName: "X",
+            target: .profileField(.birthLocation),
             currentText: "Qwxzptv Farm", proposedCode: nil, proposedDisplay: nil, method: .leftFreeform)
         #expect(throws: LocationNormalizer.ApplyError.notConfident) {
             try LocationNormalizer.apply(freeform, in: db)
         }
+    }
+
+    // MARK: - E: life-event locations
+
+    private func residence(_ profileID: String, location: String?, code: String? = nil) -> LifeEvent {
+        LifeEvent(id: UUID(), profileID: profileID, type: .residence,
+                  date: nil, endDate: nil, location: location, locationCode: code,
+                  description: nil, details: nil, sources: [], confidence: .standard,
+                  createdByTransactionID: nil)
+    }
+
+    @Test func reportProposesForLifeEventLocation() {
+        let r = LocationNormalizer.report(
+            for: [profile("a")],
+            lifeEvents: [residence("a", location: "Derbyshire")])
+        let p = try! #require(r.deterministic.first)
+        if case .lifeEvent(_, let type) = p.target { #expect(type == "residence") }
+        else { Issue.record("expected a life-event target") }
+        #expect(p.proposedCode == "DBY")
+        #expect(p.fieldLabel == "Residence")
+    }
+
+    @Test func reportSkipsCodedLifeEventAndDeletedOwner() {
+        var gone = profile("gone")
+        gone.isDeleted = true
+        let r = LocationNormalizer.report(
+            for: [profile("a"), gone],
+            lifeEvents: [
+                residence("a", location: "Derbyshire", code: "DBY"),  // already coded
+                residence("gone", location: "Derbyshire"),            // owner soft-deleted
+            ])
+        #expect(r.proposals.isEmpty)
+    }
+
+    @Test func applyWritesLifeEventCodePreservingDisplay() throws {
+        let db = try makeDB()
+        _ = try db.addProfile(profile("a"), source: .gedcom)
+        let event = residence("a", location: "Derbyshire")
+        _ = try db.addLifeEvent(event)
+
+        let r = LocationNormalizer.report(
+            for: Array(try db.buildSnapshot().profiles.values),
+            lifeEvents: try db.loadAllLifeEvents())
+        let p = try #require(r.deterministic.first)
+        try LocationNormalizer.apply(p, in: db)
+
+        let after = try #require(try db.loadLifeEvents(profileID: "a").first)
+        #expect(after.locationCode == "DBY")
+        #expect(after.location == "Derbyshire", "life-event display string is preserved")
     }
 
     @Test func applyOnlyTouchesTheNamedField() throws {
@@ -109,7 +159,7 @@ struct LocationNormalizeTests {
         _ = try db.addProfile(profile("a", birth: "Derbyshire", death: "Belper", deathCode: "DBY:Belper"),
                               source: .gedcom)
         let r = LocationNormalizer.report(for: Array(try db.buildSnapshot().profiles.values))
-        let birthProp = try #require(r.deterministic.first { $0.profileID == "a" && $0.field == .birthLocation })
+        let birthProp = try #require(r.deterministic.first { $0.profileID == "a" && $0.target == .profileField(.birthLocation) })
         try LocationNormalizer.apply(birthProp, in: db)
 
         let after = try #require(try db.loadProfile(id: "a"))

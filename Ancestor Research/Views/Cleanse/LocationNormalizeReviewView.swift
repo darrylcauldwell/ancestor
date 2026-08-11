@@ -45,7 +45,7 @@ struct LocationNormalizeReviewView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Normalise locations")
                 .font(AppTypography.cardTitle)
-            Text("Match existing freeform birth and death places to the place gazetteer. Nothing is written until you apply — display text is kept exactly as it is; only the structured code is added.")
+            Text("Match existing freeform birth, death, and life-event places to the place gazetteer. Nothing is written until you apply — display text is kept exactly as it is; only the structured code is added.")
                 .font(AppTypography.cardMeta)
                 .foregroundStyle(.secondary)
             if let report {
@@ -88,7 +88,7 @@ struct LocationNormalizeReviewView: View {
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(p.profileName).fontWeight(.medium)
                                     HStack(spacing: 4) {
-                                        Text(fieldLabel(p.field)).foregroundStyle(.secondary)
+                                        Text("\(p.fieldLabel):").foregroundStyle(.secondary)
                                         Text("“\(p.currentText)”")
                                         Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
                                         Text(p.proposedDisplay ?? "").foregroundStyle(.green)
@@ -109,7 +109,7 @@ struct LocationNormalizeReviewView: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(p.profileName).fontWeight(.medium)
                             HStack(spacing: 4) {
-                                Text(fieldLabel(p.field)).foregroundStyle(.secondary)
+                                Text("\(p.fieldLabel):").foregroundStyle(.secondary)
                                 Text("“\(p.currentText)”")
                                 Text("— no confident gazetteer match").foregroundStyle(.tertiary)
                             }
@@ -160,7 +160,8 @@ struct LocationNormalizeReviewView: View {
 
     private func buildReport() {
         let profiles = Array(appState.snapshot.profiles.values)
-        let r = LocationNormalizer.report(for: profiles)
+        let lifeEvents = Array(appState.snapshot.lifeEvents.values.joined())
+        let r = LocationNormalizer.report(for: profiles, lifeEvents: lifeEvents)
         report = r
         // Default-tick every confident match (the common "apply them all" path);
         // preserve any prior selection that's still present after a rebuild.
@@ -191,7 +192,4 @@ struct LocationNormalizeReviewView: View {
         buildReport()   // applied fields now carry a code and drop off the list
     }
 
-    private func fieldLabel(_ field: ProfileField) -> String {
-        field == .birthLocation ? "Birth:" : "Death:"
-    }
 }

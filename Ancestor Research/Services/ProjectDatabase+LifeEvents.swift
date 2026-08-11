@@ -72,6 +72,25 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// Set a life event's structured location code (Slice E — the normaliser
+    /// applies one approved life-event proposal at a time). Fills only the
+    /// `location_code` column, leaving the freeform `location` display string and
+    /// every other field untouched. Check-before-overwrite: writes only when the
+    /// column is currently empty, so a user-set code is never clobbered and
+    /// re-apply is a no-op.
+    func setLifeEventLocationCode(eventID: UUID, code: String) throws {
+        let trimmed = code.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE life_events
+                SET location_code = ?
+                WHERE id = ?
+                  AND (location_code IS NULL OR location_code = '')
+                """, arguments: [trimmed, eventID.uuidString])
+        }
+    }
+
     func loadLifeEvents(profileID: String) throws -> [LifeEvent] {
         try dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
