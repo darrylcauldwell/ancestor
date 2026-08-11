@@ -78,7 +78,8 @@ struct LocationPicker: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                         .font(.caption)
-                    Text("Matched: \(entry.displayName)")
+                    Text(registrationDistrict(for: entry).map { "Matched: \(entry.displayName) · \($0) district" }
+                            ?? "Matched: \(entry.displayName)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Button {
@@ -100,6 +101,15 @@ struct LocationPicker: View {
         LocationGazetteer.shared.match(text)
     }
 
+    /// The registration district a gazetteer place sits in ("Crich" → "Belper"),
+    /// or nil for a county entry / a place with no catalogue district. Uses the
+    /// id's Chapman prefix as the county anchor.
+    private func registrationDistrict(for entry: GazetteerEntry) -> String? {
+        guard entry.kind != "county" else { return nil }
+        let chapman = entry.id.split(separator: ":").first.map(String.init)
+        return RegistrationDistrictResolver.districtName(forPlace: entry.name, chapman: chapman)
+    }
+
     private var matchesDropdown: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(currentMatches) { entry in
@@ -115,7 +125,20 @@ struct LocationPicker: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(entry.name)
                                 .fontWeight(.medium)
+                            // Hierarchy line place → RD → county → country. The
+                            // registration district (Slice C) is resolved on the
+                            // fly via the same canonical resolver the scorer/apply
+                            // use, so what the user sees here is exactly what an
+                            // applied birth record would record.
                             HStack(spacing: 4) {
+                                if let rd = registrationDistrict(for: entry) {
+                                    Text(rd)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text("·")
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                }
                                 if entry.kind != "county" {
                                     Text(entry.county)
                                         .font(.caption)

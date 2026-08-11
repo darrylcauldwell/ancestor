@@ -22,8 +22,10 @@ struct AddPersonView: View {
     @State private var gender: Gender = .unknown
     @State private var birthDateText: String = ""
     @State private var birthLocation: String = ""
+    @State private var birthLocationCode: String? = nil
     @State private var deathDateText: String = ""
     @State private var deathLocation: String = ""
+    @State private var deathLocationCode: String? = nil
     @State private var bio: String = ""
     @State private var source: SourceOrigin = .manualMemory
 
@@ -131,13 +133,13 @@ struct AddPersonView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Dates & Places")
             DateParsePreviewField(label: "Birth date", text: $birthDateText)
-            TextField("Birth location", text: $birthLocation)
-                .textFieldStyle(.roundedBorder)
-            locationSuggestions(target: $birthLocation)
+            // Slice D — the canonical gazetteer picker (typeahead, structured
+            // code + display string, hierarchy, freeform escape hatch) replaces
+            // the raw field on the Add-Person surface too, so every new profile's
+            // birthplace is captured against the one place authority.
+            LocationPicker(label: "Birth location", text: $birthLocation, locationCode: $birthLocationCode)
             DateParsePreviewField(label: "Death date", text: $deathDateText)
-            TextField("Death location", text: $deathLocation)
-                .textFieldStyle(.roundedBorder)
-            locationSuggestions(target: $deathLocation)
+            LocationPicker(label: "Death location", text: $deathLocation, locationCode: $deathLocationCode)
         }
     }
 
@@ -190,22 +192,6 @@ struct AddPersonView: View {
                 .padding(.top, 6)
             } label: {
                 Text("Advanced").font(AppTypography.cardBody.weight(.medium))
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func locationSuggestions(target: Binding<String>) -> some View {
-        let suggestions = AutoSuggestService.locations(snapshot: appState.snapshot)
-            .filter { !$0.isEmpty }
-            .prefix(5)
-        if !suggestions.isEmpty && target.wrappedValue.isEmpty {
-            HStack(spacing: 6) {
-                ForEach(Array(suggestions), id: \.self) { loc in
-                    Button(loc) { target.wrappedValue = loc }
-                        .buttonStyle(.glass)
-                        .controlSize(.mini)
-                }
             }
         }
     }
@@ -291,9 +277,14 @@ struct AddPersonView: View {
             gender: gender == .unknown ? nil : gender,
             attributes: attributes == .default ? nil : attributes,
             birthDate: birth,
-            birthLocation: AutoSuggestService.normaliseName(birthLocation),
+            // A gazetteer-matched place is already the canonical displayName —
+            // keep it verbatim so it still equals the entry (normaliseName would
+            // recase it and break the match); only freeform text is normalised.
+            birthLocation: birthLocationCode != nil ? birthLocation : AutoSuggestService.normaliseName(birthLocation),
+            birthLocationCode: birthLocationCode,
             deathDate: death,
-            deathLocation: AutoSuggestService.normaliseName(deathLocation),
+            deathLocation: deathLocationCode != nil ? deathLocation : AutoSuggestService.normaliseName(deathLocation),
+            deathLocationCode: deathLocationCode,
             bio: bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : bio,
             isDeleted: false,
             sources: [:],

@@ -61,6 +61,25 @@ nonisolated enum RegistrationDistrictResolver {
         return PlaceResolver.resolveDistrict(name: districtName, chapman: chapman, year: year)
     }
 
+    /// The canonical registration-district NAME a place resolves to ("Crich" →
+    /// "Belper", "Ashborne" → "Ashbourne"), for display in the hierarchy line of
+    /// the location picker. A parish resolves via its containing district; a bare
+    /// district name canonicalises to itself. nil when the place isn't a known
+    /// parish or district (a hamlet with no catalogue entry, or a county) — the
+    /// caller then shows no RD line rather than guessing. Shares the exact
+    /// parish→district / canonicalisation logic `districtID` uses, so the picker's
+    /// displayed RD and the id the scorer/apply resolve can never disagree.
+    static func districtName(forPlace place: String, chapman: String?) -> String? {
+        let token = (place.split(separator: ",").first.map(String.init) ?? place)
+            .trimmingCharacters(in: .whitespaces)
+        guard !token.isEmpty else { return nil }
+        if let chapman,
+           let rd = FreeBMDDistrictCatalogue.shared.district(forParish: token, inChapman: chapman) {
+            return rd.name
+        }
+        return canonicalName(token, chapman: chapman)
+    }
+
     /// Map a possibly-variant registration-district name to the catalogue's
     /// canonical spelling — FreeBMD indexes "Ashborne" where UKBMD's catalogue
     /// has "Ashbourne". Exact match first; else a consonant-skeleton match
