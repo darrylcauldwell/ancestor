@@ -127,3 +127,90 @@ bare Chapman (`DBY`), RD = `DBY:Belper-RD`, place = `DBY:Turnditch`, parish =
 - No hardcoded regions — everything from the bundled catalogues (`UKChapmanCodes`,
   `FreeBMDDistrictCatalogue`, `uk-places.json`), never Derbyshire-specific code.
 - Check-before-overwrite preserved on any place write.
+
+---
+
+# Part II — Canonical authority, uniform fields, and picker (plan, 2026-08-11)
+
+Owner direction: **(1)** one canonical location source everything uses; **(2)** every
+profile location field in one aligned typed format; **(3)** user input via a picker so
+only correct formats are entered. Reconciled against Part I: the canonical model
+(`PlaceAuthority`) and its resolvers already ship — this Part finishes *connecting* it,
+adds the *picker* (new), and *migrates* legacy freeform. Running acceptance case:
+**Mary Ward** (census birthplace Hognaston → Ashbourne RD; `freebmd-districts.json`
+confirms Hognaston ∈ Ashbourne's 75 parishes) so her birth registration **7b/662** rises
+and the Bakewell/Basford/Derby namesakes fall — provably, without hand-editing.
+
+## Guiding rules (extend Part I invariants)
+- **One entry point.** All place data flows through `PlaceAuthorityRegistry`/`PlaceResolver`.
+  Raw catalogues (`uk-places.json`, `freebmd-districts.json`) are its *private inputs*, not
+  loaded ad-hoc. `fs-place-ids.json` is dead (0 code refs) → delete; add `Regions/README.md`
+  naming each survivor's role.
+- **Canonicalise the claim, preserve the evidence.** Resolve the *profile's own* fields to
+  PlaceAuthority ids; keep *source-record* place text **as-transcribed + best-effort code**.
+  Never overwrite a display string with a resolved guess (Abraham's `Alport` must survive).
+- **Deterministic decides; the model only proposes, verified.** Per ADR-004 the gate/dispatch
+  never trust an AI place claim; the local model may *normalise freeform text*, and each
+  proposal is resolved against the authority (declined if not confident) before use.
+- **Graceful fallback everywhere.** Unresolved place → today's behaviour (county fan-out /
+  substring). No place is worse off than now.
+
+## Slices (dependency order; B is the high-value first cut)
+
+**Slice A — single entry point + file hygiene.** Make `PlaceAuthorityRegistry` the only
+loader of the raw catalogues; delete `fs-place-ids.json`; add `Regions/README.md`.
+*Accept:* grep shows no service reads the raw JSON except the registry. *Risk:* low.
+
+**Slice B — wire the resolver into the two live checks that still bypass it (fixes Mary).**
+**B(i) SHIPPED 2026-08-11** — `RecordScorer.conflictsWithConfirmedBirth` now resolves the
+subject's birthplace and the record's district to registration-district ids and compares by
+identity (Hognaston→Ashbourne accepts, Bakewell/Basford reject). Three sub-fixes fell out of
+build: (a) read the Chapman code from the stored `"(DBY)"` suffix rather than the county-name
+resolver, whose `UKChapmanCodes.shared` singleton is parallel-fragile (was failing the full
+suite non-deterministically); (b) a consonant-skeleton, county-scoped, unique-or-decline
+canonicaliser maps FreeBMD's "Ashborne" to the catalogue's "Ashbourne"; (c) substring
+fallback preserved for unresolved places. `LocationBirthDistrictTests`; full suite green.
+**B(ii) (FreeBMD dispatch district-narrowing) remains.**
+Stage 3 rebuilt `checkGeography`, but two decisions were **not** covered:
+  - (i) `RecordScorer.conflictsWithConfirmedBirth` → `districtsCompatible` still does naive
+    token/substring matching (compares record RD "Ashborne" against birthplace "Hognaston"
+    as strings). Replace with a `PlaceResolver`-backed compare (resolve both → same RD or
+    overlapping ⇒ compatible; substring fallback when unresolved).
+  - (ii) FreeBMD dispatch fans out **all** home-county districts. When the subject's birthplace
+    resolves to an RD (`districts(forParish:)` / `resolveDistrict`), **narrow the district
+    axis** to that RD (+ adjacent for boundary parishes); fall back to county fan-out when
+    unresolved. (Relates to the parked Stage-4 "soft-jurisdiction" dispatch change.)
+*Accept:* Mary — search returns few, 7b/662 rises and matches; wrong-district namesakes drop;
+unresolved places unchanged. *Risk:* medium (decision-core + dispatch) → test-first, fallback held.
+
+**Slice C — `birthRegistrationDistrict` as a first-class Profile field (= Part I Stage 5).**
+Typed PlaceAuthority id (e.g. `DBY:Ashbourne-RD`), populated by BMD apply via `resolveDistrict`;
+`birthLocation` stays the event place; check-before-overwrite; never write RD into `birthLocation`.
+*Accept:* Abraham keeps `Alport`, gains `Bakewell-RD`; enables sibling-by-RD clustering.
+*Risk:* schema add + apply-path change.
+
+**Slice D — location picker (NEW, pillar 3).** A `PlaceAuthority`-backed type-ahead used by
+*every* location input (Add Person, edit, manual fact). Era-aware, shows hierarchy
+place→RD→county→country, writes **both** display string and code. **Escape hatch required:**
+"not found → free-text + resolve-later flag" so obscure hamlets and **foreign/abroad** places
+(Lijssenthoek) are never blocked. *Accept:* new person's birthplace populates both fields via
+picker; foreign place takes the flagged free-text path. *Risk:* UI surface + escape-hatch design.
+
+**Slice E — migrate legacy freeform → codes (the un-muddle; do last, human-in-loop).** One-pass
+normaliser over existing `birthLocation`/`deathLocation`/life-event locations: deterministic for
+structured/Chapman-suffixed forms; **local model proposes** for the freeform tail, each proposal
+**verified** against the authority (decline if not confident) and surfaced for **review** — never
+a blind batch write. Display strings preserved. *Accept:* dry-run report (deterministic /
+model-proposed-verified / left-freeform counts); zero wrong-resolution auto-committed. *Risk:*
+high (wrong-resolution) → dry-run + review surface, gated behind A–D.
+
+## Known coverage limit (carry forward)
+Parishes in `freebmd-districts.json` resolve to their RD (Hognaston→Ashbourne works); a
+**non-parish hamlet/farm/address** may not resolve below county until the village→RD backfill
+(Part I Stage 2(b)/Stage 4). Slices B–D degrade gracefully to county for those; Stage 4 improves
+coverage. Not a blocker for the running Mary case.
+
+## Suggested order to implement now
+**A → B → C → D → E.** B is the first real cut: it's self-contained, uses only shipped primitives
+(`PlaceResolver`, `FreeBMDDistrictCatalogue`), and turns Mary's 11-way tie into a clean 1 — the
+provable win that justifies the rest.
