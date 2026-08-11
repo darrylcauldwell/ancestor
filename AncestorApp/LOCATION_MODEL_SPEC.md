@@ -221,20 +221,43 @@ never written into `birthLocation`. As built:
 enables sibling-by-RD clustering (a downstream consumer, not part of C). *Risk:* schema add +
 apply-path change — contained by the additive/derived design and the full-suite gate.
 
-**Slice D — location picker (NEW, pillar 3).** A `PlaceAuthority`-backed type-ahead used by
-*every* location input (Add Person, edit, manual fact). Era-aware, shows hierarchy
-place→RD→county→country, writes **both** display string and code. **Escape hatch required:**
-"not found → free-text + resolve-later flag" so obscure hamlets and **foreign/abroad** places
-(Lijssenthoek) are never blocked. *Accept:* new person's birthplace populates both fields via
-picker; foreign place takes the flagged free-text path. *Risk:* UI surface + escape-hatch design.
+**Slice D — location picker (NEW, pillar 3). SHIPPED 2026-08-11.** The `LocationPicker`
+type-ahead (gazetteer-backed, writes **both** the display string and the structured `*_location_code`)
+already backed the edit / manual-fact / life-event / relationship surfaces; D closed the gaps:
+  - **Coverage** — wired into `AddPersonView` (the one Add-Person surface still on a raw
+    `TextField` + tree-derived `AutoSuggestService`), so every new profile's birthplace is captured
+    against the one place authority. The now-dead `locationSuggestions` helper was removed.
+  - **Hierarchy line** — the dropdown row and the matched-chip now show place → **RD** → county →
+    country. The RD is resolved on the fly through the **same** `RegistrationDistrictResolver` the
+    scorer/apply use (new `districtName(forPlace:chapman:)`), so what the user sees equals what an
+    applied birth record would record — Slice C surfaced in the UI.
+  - **Escape hatch** — the picker's existing "no gazetteer match → saved as freeform text" path is
+    the escape hatch; a **nil code on non-empty text IS the resolve-later flag** (no new column —
+    it's exactly what Slice E's normaliser targets). Foreign/abroad places (Lijssenthoek) take this
+    path unblocked.
+  - **Era-aware** — deferred as a no-op: `GazetteerEntry` already carries `validFrom`/`validTo`, but
+    the bundled `uk-places.json` leaves them nil, so there is nothing to filter until the
+    GENUKI/village backfill (Part I Stage 2(b)/4) populates windows. Wiring exists; data doesn't.
+  *Accept (met):* a new person's birthplace populates both fields via the picker; an unmatched
+  foreign place takes the flagged free-text path. `LocationNormalizeTests` covers the resolver line.
 
-**Slice E — migrate legacy freeform → codes (the un-muddle; do last, human-in-loop).** One-pass
-normaliser over existing `birthLocation`/`deathLocation`/life-event locations: deterministic for
-structured/Chapman-suffixed forms; **local model proposes** for the freeform tail, each proposal
-**verified** against the authority (decline if not confident) and surfaced for **review** — never
-a blind batch write. Display strings preserved. *Accept:* dry-run report (deterministic /
-model-proposed-verified / left-freeform counts); zero wrong-resolution auto-committed. *Risk:*
-high (wrong-resolution) → dry-run + review surface, gated behind A–D.
+**Slice E — migrate legacy freeform → codes (the un-muddle). SHIPPED 2026-08-11 (deterministic
+tier).** `LocationNormalizer` (pure) scans every profile's freeform, code-less birth/death place and
+builds a **dry-run `Report`**: an unambiguous `PlaceResolver`/gazetteer hit → a *deterministic*
+(apply-eligible) proposal; anything ambiguous/unknown → *left-freeform* (reported, never resolved —
+"when in doubt, split"). The `LocationNormalizeReviewView` sheet (Settings → Data Cleansing →
+"Normalise locations…") shows the confident matches ticked, applies **only** the ones the user keeps
+(`apply(_:in:)` refuses a non-confident proposal), and **preserves display strings** — only the code
+column is filled, one field at a time via `setProfileLocationCode`. **Zero wrong-resolution is
+auto-committed** (nothing writes without a tick).
+  - **Deferred (gated follow-up):** the **local-model proposer** for the left-freeform tail, and
+    **life-event locations** (birth/death fields only for now). The deterministic backbone + review
+    is what makes a model tier safe to add later (each model proposal still verified against the
+    authority + human-reviewed — never a blind batch write); per the tiered-architecture rule,
+    deterministic ships first and the model tier routes up only at the wall.
+  *Accept (met):* dry-run report with deterministic / left-freeform counts; per-proposal apply;
+  display preserved; no blind writes. `LocationNormalizeTests` (report split, skip-coded/empty/
+  soft-deleted, apply-writes-code-preserves-display, refuse-non-confident, only-touches-named-field).
 
 ## Known coverage limit (carry forward)
 Parishes in `freebmd-districts.json` resolve to their RD (Hognaston→Ashbourne works); a
@@ -242,7 +265,11 @@ Parishes in `freebmd-districts.json` resolve to their RD (Hognaston→Ashbourne 
 (Part I Stage 2(b)/Stage 4). Slices B–D degrade gracefully to county for those; Stage 4 improves
 coverage. Not a blocker for the running Mary case.
 
-## Suggested order to implement now
-**A → B → C → D → E.** B is the first real cut: it's self-contained, uses only shipped primitives
-(`PlaceResolver`, `FreeBMDDistrictCatalogue`), and turns Mary's 11-way tie into a clean 1 — the
-provable win that justifies the rest.
+## Status (2026-08-11)
+**B, C, D, E all SHIPPED** (in that order — B was taken first as the provable Mary win). **Slice A**
+(single canonical entry point + delete the dead `fs-place-ids.json` + a `Regions/README`) is the only
+remaining item — pure housekeeping, no behaviour change; do it opportunistically. The deterministic
+location model is now end-to-end: picker writes codes for new input (D), apply derives the RD (C),
+the review layer discriminates by RD (B), and the batch normaliser structures the legacy freeform
+tail under review (E). Open follow-ups live in each slice above (E's local-model tier +
+life-event locations; D's era-window data; C's sibling-by-RD clustering consumer).

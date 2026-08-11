@@ -3548,6 +3548,25 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// Set a single structured location code (Slice E — the normaliser applies
+    /// one approved proposal at a time). Updates only the column for `field`,
+    /// leaving the other code and the freeform display string untouched
+    /// (LOCATION_MODEL_SPEC "display strings preserved"). Only birth/death
+    /// location fields have a code column; any other field is a no-op.
+    func setProfileLocationCode(profileID: String, field: ProfileField, code: String) throws {
+        let column: String
+        switch field {
+        case .birthLocation: column = "birth_location_code"
+        case .deathLocation: column = "death_location_code"
+        default: return
+        }
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE profiles SET \(column) = ? WHERE id = ?",
+                arguments: [code, profileID])
+        }
+    }
+
     /// Set the structured birth registration district (LOCATION_MODEL_SPEC Part
     /// II, Slice C). Derived metadata like the location codes — bypasses the
     /// per-field source path (its provenance is the birth record already cited on

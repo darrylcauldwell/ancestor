@@ -7,6 +7,7 @@ struct SettingsPlaceholderView: View {
     @Environment(SourceRegistry.self) private var sourceRegistry
     @State private var wikiTreePassword = ""
     @State private var cleansePresentation: CleansePresentation?
+    @State private var showingLocationNormalize = false
     @State private var unresolvableFlagCount: Int = 0
     /// M16.11 — controls whether the tree canvas draws note dots, open-question
     /// markers, focus rings, and tentative-fact glyphs. Hidden state is useful
@@ -254,6 +255,17 @@ struct SettingsPlaceholderView: View {
                     .font(AppTypography.badge)
                     .foregroundStyle(.tertiary)
 
+                // Slice E — batch normaliser for existing freeform locations: a
+                // dry-run review that structures the confident matches in one
+                // pass (the per-profile cleanse above does it one at a time).
+                Button("Normalise locations…") {
+                    showingLocationNormalize = true
+                }
+                .buttonStyle(.glass)
+                Text("Match existing freeform birth/death places to the gazetteer in one review pass — apply the confident matches, leave the rest as freeform.")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.tertiary)
+
                 if unresolvableFlagCount > 0 {
                     HStack {
                         Text("Unresolvable flags: \(unresolvableFlagCount)")
@@ -282,6 +294,11 @@ struct SettingsPlaceholderView: View {
         .onAppear(perform: refreshUnresolvableFlagCount)
         .sheet(item: $cleansePresentation) { presentation in
             ProfileCleanseWizard(mode: presentation.mode)
+        }
+        // Content is unconditional (no `if let`) so this avoids the
+        // `.sheet(isPresented:) + if let` EmptyView-rectangle race.
+        .sheet(isPresented: $showingLocationNormalize) {
+            LocationNormalizeReviewView()
         }
     }
 
