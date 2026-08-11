@@ -170,18 +170,31 @@ resolver, whose `UKChapmanCodes.shared` singleton is parallel-fragile (was faili
 suite non-deterministically); (b) a consonant-skeleton, county-scoped, unique-or-decline
 canonicaliser maps FreeBMD's "Ashborne" to the catalogue's "Ashbourne"; (c) substring
 fallback preserved for unresolved places. `LocationBirthDistrictTests`; full suite green.
-**B(ii) (FreeBMD dispatch district-narrowing) remains.**
-Stage 3 rebuilt `checkGeography`, but two decisions were **not** covered:
-  - (i) `RecordScorer.conflictsWithConfirmedBirth` → `districtsCompatible` still does naive
-    token/substring matching (compares record RD "Ashborne" against birthplace "Hognaston"
-    as strings). Replace with a `PlaceResolver`-backed compare (resolve both → same RD or
-    overlapping ⇒ compatible; substring fallback when unresolved).
-  - (ii) FreeBMD dispatch fans out **all** home-county districts. When the subject's birthplace
-    resolves to an RD (`districts(forParish:)` / `resolveDistrict`), **narrow the district
-    axis** to that RD (+ adjacent for boundary parishes); fall back to county fan-out when
-    unresolved. (Relates to the parked Stage-4 "soft-jurisdiction" dispatch change.)
-*Accept:* Mary — search returns few, 7b/662 rises and matches; wrong-district namesakes drop;
-unresolved places unchanged. *Risk:* medium (decision-core + dispatch) → test-first, fallback held.
+**B(ii) — WON'T DO, SUPERSEDED BY THE SHIPPED FT-01 COUNTY-QUERY GATE (decided 2026-08-11).**
+The sub-fix (i) below (replace the naive `districtsCompatible` token/substring compare with a
+`PlaceResolver`-backed one) was **delivered as part of B(i)** — `conflictsWithConfirmedBirth`
+now resolves both sides to RD ids and compares by identity, with the substring compare kept
+only as an unresolved-places fallback. Sub-fix (ii) — narrow the FreeBMD dispatch to the
+subject's birth registration district — was **investigated and declined**:
+  - Its premise ("the dispatch fans out **all** home-county districts") is false under the
+    shipping config. `FreeBMDParams.countyQueryEnabled = true` (`RecordTypes.swift:764`), so
+    `freeBMDGeoAxes` takes the county branch (`SearchDispatcher.swift:626–639`) and emits **one
+    `countyid` query** for the home county — not a per-district fan-out. The per-district loop
+    only runs with that gate deliberately flipped off (`FreeBMDCountyProbeTests`).
+  - So narrowing to the birth district would keep the request count at **1** (no efficiency
+    win), trade the county query's **maximal recall** (a superset of every district) for a
+    **recall-regression risk** on boundary/imprecise births registered in a neighbour district,
+    and only marginally reduce namesake noise that **B(i) already filters at the review layer**.
+    The one situational upside (a common surname overflowing the year-splitter) is already
+    handled by the national common-surname guard (`SearchDispatcher.swift:663+`) + adaptive
+    year-split. Net-negative → not built.
+  - Additionally, `ResearchSubject` carries no birthplace (only county-level `homeChapmanCode`);
+    B(ii) would first need a birth-district signal plumbed through `fromProfile` — cost with no
+    payoff.
+**Slice B is therefore COMPLETE at B(i):** the county query stays wide + polite (FT-01), and
+B(i) discriminates wrong-district namesakes at review — Mary's Ashbourne 7b/662 accepts, her
+Bakewell/Basford namesakes reject. *Result:* the correctness win is banked; efficiency was
+already delivered by FT-01.
 
 **Slice C — `birthRegistrationDistrict` as a first-class Profile field (= Part I Stage 5).**
 Typed PlaceAuthority id (e.g. `DBY:Ashbourne-RD`), populated by BMD apply via `resolveDistrict`;
