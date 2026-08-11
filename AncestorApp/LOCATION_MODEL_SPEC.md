@@ -196,11 +196,30 @@ B(i) discriminates wrong-district namesakes at review — Mary's Ashbourne 7b/66
 Bakewell/Basford namesakes reject. *Result:* the correctness win is banked; efficiency was
 already delivered by FT-01.
 
-**Slice C — `birthRegistrationDistrict` as a first-class Profile field (= Part I Stage 5).**
-Typed PlaceAuthority id (e.g. `DBY:Ashbourne-RD`), populated by BMD apply via `resolveDistrict`;
-`birthLocation` stays the event place; check-before-overwrite; never write RD into `birthLocation`.
-*Accept:* Abraham keeps `Alport`, gains `Bakewell-RD`; enables sibling-by-RD clustering.
-*Risk:* schema add + apply-path change.
+**Slice C — `birthRegistrationDistrict` as a first-class Profile field (= Part I Stage 5).
+SHIPPED 2026-08-11.** Typed PlaceAuthority id (e.g. `DBY:Ashbourne-RD`), populated by BMD-birth
+apply via the resolver; `birthLocation` stays the event place; check-before-overwrite; the RD is
+never written into `birthLocation`. As built:
+  - **Model** (`Profile.birthRegistrationDistrict: String?`) — additive, mirrors the
+    `birthLocationCode` posture: derived metadata, **no `ProfileField` case / no `FieldSource`**
+    (its provenance is the birth citation already on `birthDate`/`birthLocation`). Codable is
+    back-compatible (absent key → nil).
+  - **DB** — migration `v58_birth_registration_district` (nullable TEXT); load/insert wired;
+    `setBirthRegistrationDistrictIfEmpty` enforces check-before-overwrite in SQL (fills only a
+    NULL/empty column, so a user-set or earlier RD is never clobbered and re-apply is a no-op).
+  - **Resolver** — B(i)'s district logic extracted to `RegistrationDistrictResolver` (one
+    canonical path; `RecordScorer` now delegates to it), so the review layer and the apply layer
+    resolve districts identically, including FreeBMD's "Ashborne"→"Ashbourne" tolerance.
+  - **Apply** — `ApplyEngine.applyFactToSubject` resolves a **`.birth`** record's `district` (a
+    death/marriage `district` is a different event and is ignored) to the RD id after the
+    absorption-plan walk, and writes it via the check-before-overwrite path.
+  - **Tests** — `BirthRegistrationDistrictTests` (8): Codable round-trip + pre-Slice-C back-compat,
+    DB persistence, check-before-overwrite, resolver "Ashborne" tolerance, chapman-from-suffix,
+    apply populates (Abraham keeps his place, gains the RD), death-record-doesn't-populate. Full
+    suite green.
+*Accept (met):* a birth apply leaves `birthLocation` untouched and adds the structured RD;
+enables sibling-by-RD clustering (a downstream consumer, not part of C). *Risk:* schema add +
+apply-path change — contained by the additive/derived design and the full-suite gate.
 
 **Slice D — location picker (NEW, pillar 3).** A `PlaceAuthority`-backed type-ahead used by
 *every* location input (Add Person, edit, manual fact). Era-aware, shows hierarchy

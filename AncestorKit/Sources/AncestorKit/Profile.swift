@@ -91,6 +91,17 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
     /// Display strings remain in birthLocation; this powers hierarchical scope
     /// (parish/district/county) and cleanse-wizard ambiguity detection.
     public var birthLocationCode: String?
+    /// Structured registration-district `PlaceAuthority` id (e.g.
+    /// "DBY:Ashbourne-RD") derived from an applied BMD birth record's `district`
+    /// field via `RegistrationDistrictResolver` (LOCATION_MODEL_SPEC Part II,
+    /// Slice C). Distinct from `birthLocationCode` (the *place* of birth): this is
+    /// the GRO *registration district* the birth was registered in, the axis
+    /// FreeBMD indexes and the unit sibling-by-RD clustering keys on. Derived
+    /// metadata, not an independently-cited fact — its provenance is the birth
+    /// record already cited on `birthDate`/`birthLocation`, so it carries no
+    /// FieldSource (same posture as `birthLocationCode`). nil until a birth record
+    /// with a resolvable district is applied.
+    public var birthRegistrationDistrict: String?
     public var deathDate: GenealogicalDate?
     public var deathLocation: String?
     public var deathLocationCode: String?
@@ -109,7 +120,7 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
     /// sites may pass `externalIdentifiers:` directly for typed records
     /// (primary + deprecated + persistent). When both are supplied, the record
     /// list is the base and the legacy map is merged in on top losslessly.
-    public init(id: String, externalIDs: [String: String] = [:], externalIdentifiers: [ExternalIdentifier] = [], firstName: String? = nil, middleName: String? = nil, lastName: String? = nil, marriedSurname: String? = nil, nickName: String? = nil, mothersMaidenName: String? = nil, nameForms: [NameForm] = [], gender: Gender? = nil, attributes: PersonAttributes? = nil, birthDate: GenealogicalDate? = nil, birthLocation: String? = nil, birthLocationCode: String? = nil, deathDate: GenealogicalDate? = nil, deathLocation: String? = nil, deathLocationCode: String? = nil, bio: String? = nil, isDeleted: Bool, sources: [ProfileField: [FieldSource]], disputes: [ProfileField: FieldDispute]) {
+    public init(id: String, externalIDs: [String: String] = [:], externalIdentifiers: [ExternalIdentifier] = [], firstName: String? = nil, middleName: String? = nil, lastName: String? = nil, marriedSurname: String? = nil, nickName: String? = nil, mothersMaidenName: String? = nil, nameForms: [NameForm] = [], gender: Gender? = nil, attributes: PersonAttributes? = nil, birthDate: GenealogicalDate? = nil, birthLocation: String? = nil, birthLocationCode: String? = nil, birthRegistrationDistrict: String? = nil, deathDate: GenealogicalDate? = nil, deathLocation: String? = nil, deathLocationCode: String? = nil, bio: String? = nil, isDeleted: Bool, sources: [ProfileField: [FieldSource]], disputes: [ProfileField: FieldDispute]) {
         self.id = id
         self.externalIdentifiers = externalIdentifiers.mergingLegacyMap(externalIDs)
         self.firstName = firstName
@@ -124,6 +135,7 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
         self.birthDate = birthDate
         self.birthLocation = birthLocation
         self.birthLocationCode = birthLocationCode
+        self.birthRegistrationDistrict = birthRegistrationDistrict
         self.deathDate = deathDate
         self.deathLocation = deathLocation
         self.deathLocationCode = deathLocationCode
@@ -309,7 +321,7 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, externalIdentifiers, externalIDs
         case firstName, middleName, lastName, marriedSurname, nickName, mothersMaidenName, nameForms
-        case gender, attributes, birthDate, birthLocation, birthLocationCode
+        case gender, attributes, birthDate, birthLocation, birthLocationCode, birthRegistrationDistrict
         case deathDate, deathLocation, deathLocationCode, bio, isDeleted, sources, disputes
     }
 
@@ -334,6 +346,9 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
         self.birthDate = try c.decodeIfPresent(GenealogicalDate.self, forKey: .birthDate)
         self.birthLocation = try c.decodeIfPresent(String.self, forKey: .birthLocation)
         self.birthLocationCode = try c.decodeIfPresent(String.self, forKey: .birthLocationCode)
+        // Absent on pre-Slice-C blobs → nil (populated only once a birth record
+        // with a resolvable district has been applied).
+        self.birthRegistrationDistrict = try c.decodeIfPresent(String.self, forKey: .birthRegistrationDistrict)
         self.deathDate = try c.decodeIfPresent(GenealogicalDate.self, forKey: .deathDate)
         self.deathLocation = try c.decodeIfPresent(String.self, forKey: .deathLocation)
         self.deathLocationCode = try c.decodeIfPresent(String.self, forKey: .deathLocationCode)
@@ -361,6 +376,7 @@ public nonisolated struct Profile: Codable, Identifiable, Sendable {
         try c.encodeIfPresent(birthDate, forKey: .birthDate)
         try c.encodeIfPresent(birthLocation, forKey: .birthLocation)
         try c.encodeIfPresent(birthLocationCode, forKey: .birthLocationCode)
+        try c.encodeIfPresent(birthRegistrationDistrict, forKey: .birthRegistrationDistrict)
         try c.encodeIfPresent(deathDate, forKey: .deathDate)
         try c.encodeIfPresent(deathLocation, forKey: .deathLocation)
         try c.encodeIfPresent(deathLocationCode, forKey: .deathLocationCode)

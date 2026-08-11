@@ -1620,6 +1620,17 @@ nonisolated final class ProjectDatabase: Sendable {
                 """)
         }
 
+        // Slice C (LOCATION_MODEL_SPEC Part II): the structured GRO registration
+        // district a birth was registered in, as a `PlaceAuthority` id
+        // ("DBY:Ashbourne-RD"). Derived metadata like `birth_location_code` — no
+        // FieldSource — populated by BMD-birth apply. Nullable; pre-existing rows
+        // stay NULL until a birth record with a resolvable district is applied.
+        migrator.registerMigration("v58_birth_registration_district") { db in
+            try db.alter(table: "profiles") { t in
+                t.add(column: "birth_registration_district", .text)
+            }
+        }
+
         return migrator
     }
 
@@ -1873,6 +1884,7 @@ nonisolated final class ProjectDatabase: Sendable {
             birthDate: birthDate,
             birthLocation: row["birth_location"],
             birthLocationCode: row["birth_location_code"],
+            birthRegistrationDistrict: row["birth_registration_district"],
             deathDate: deathDate,
             deathLocation: row["death_location"],
             deathLocationCode: row["death_location_code"],
@@ -2097,10 +2109,10 @@ nonisolated final class ProjectDatabase: Sendable {
                 name_forms,
                 gender, attributes, is_deleted,
                 birth_date_original, birth_date_earliest, birth_date_latest, birth_date_qualifier,
-                birth_location, birth_location_code,
+                birth_location, birth_location_code, birth_registration_district,
                 death_date_original, death_date_earliest, death_date_latest, death_date_qualifier,
                 death_location, death_location_code, bio, created_by_transaction_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
                 profile.id, externalIDsJSON, externalIdentifiersJSON,
                 profile.firstName, profile.middleName, profile.lastName,
@@ -2111,7 +2123,7 @@ nonisolated final class ProjectDatabase: Sendable {
                 attributesJSON, profile.isDeleted,
                 profile.birthDate?.original, profile.birthDate?.earliest, profile.birthDate?.latest,
                 profile.birthDate?.qualifier.rawValue,
-                profile.birthLocation, profile.birthLocationCode,
+                profile.birthLocation, profile.birthLocationCode, profile.birthRegistrationDistrict,
                 profile.deathDate?.original, profile.deathDate?.earliest, profile.deathDate?.latest,
                 profile.deathDate?.qualifier.rawValue,
                 profile.deathLocation, profile.deathLocationCode, profile.bio, transactionID.uuidString,
@@ -3533,6 +3545,26 @@ nonisolated extension ProjectDatabase {
                 SET birth_location_code = ?, death_location_code = ?
                 WHERE id = ?
                 """, arguments: [birthCode, deathCode, profileID])
+        }
+    }
+
+    /// Set the structured birth registration district (LOCATION_MODEL_SPEC Part
+    /// II, Slice C). Derived metadata like the location codes — bypasses the
+    /// per-field source path (its provenance is the birth record already cited on
+    /// birthDate/birthLocation). **Check-before-overwrite:** writes only when the
+    /// column is currently empty, so a user-set or earlier-resolved RD is never
+    /// clobbered by a later derived guess, and re-applying the same record is a
+    /// no-op. Pass a non-nil `district`; a nil/blank is ignored.
+    func setBirthRegistrationDistrictIfEmpty(profileID: String, district: String) throws {
+        let trimmed = district.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE profiles
+                SET birth_registration_district = ?
+                WHERE id = ?
+                  AND (birth_registration_district IS NULL OR birth_registration_district = '')
+                """, arguments: [trimmed, profileID])
         }
     }
 

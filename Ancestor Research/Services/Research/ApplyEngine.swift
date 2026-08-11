@@ -83,12 +83,39 @@ nonisolated struct ApplyEngine {
                 break  // executed by the caller via projectToLifeEvents
             }
         }
+        // Slice C (LOCATION_MODEL_SPEC Part II) — populate the structured birth
+        // registration district from an applied BMD birth record. Derived
+        // metadata, not a cited fact: its provenance is the birth citation the
+        // plan already wrote onto birthDate/birthLocation, so it takes no
+        // FieldSource (same posture as birthLocationCode). Check-before-overwrite
+        // is enforced by the writer — a user-set or earlier-resolved RD wins, and
+        // re-applying the same record is a no-op.
+        if let rdID = birthRegistrationDistrictID(for: scored.record, profile: profile) {
+            try? db.setBirthRegistrationDistrictIfEmpty(profileID: profile.id, district: rdID)
+        }
         // v56 — record that the apply ACTION ran for this record (even a
         // fully-blocked apply was a deliberate act; Remove clears it). This
         // is what lets external consumers distinguish applied evidence from
         // merely-scored evidence.
         try? db.markEvidenceApplied(evidenceID: "\(profile.id)|\(scored.id)")
         return failures
+    }
+
+    /// The registration-district `PlaceAuthority` id an applied birth record
+    /// implies, for `Profile.birthRegistrationDistrict` (Slice C). Only a
+    /// `.birth` record carries a GRO *birth* registration district; every other
+    /// shape returns nil (a death/marriage/census `district` is a different
+    /// event's district, not the birth one). The subject's own birthplace
+    /// supplies the Chapman anchor that disambiguates a district name shared
+    /// across counties; a nil anchor is tolerated (the resolver still resolves a
+    /// nationally-unique name, else declines).
+    private static func birthRegistrationDistrictID(for record: SourceRecord, profile: Profile) -> String? {
+        guard case .birth(let r) = record,
+              let district = r.district?.trimmingCharacters(in: .whitespaces), !district.isEmpty
+        else { return nil }
+        let chapman = RegistrationDistrictResolver.chapman(forProfile: profile)
+        return RegistrationDistrictResolver.districtID(
+            forPlaceOrDistrict: district, chapman: chapman, year: r.birthYear)
     }
 
     /// The profile's current value for a plan-emitted date field.

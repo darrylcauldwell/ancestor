@@ -84,65 +84,20 @@ extension RecordScorer {
         return false
     }
 
-    /// The subject's county Chapman code — from its coded birthplace
-    /// (`DBY:Hognaston` → `DBY`), else parsed from the free-text birthplace.
+    /// The subject's county Chapman code. Delegates to the shared
+    /// `RegistrationDistrictResolver` (extracted in Slice C so the review and
+    /// apply layers resolve districts identically).
     private nonisolated static func subjectChapman(_ subject: Profile) -> String? {
-        if let code = subject.birthLocationCode,
-           let c = code.split(separator: ":").first, !c.isEmpty { return String(c) }
-        guard let text = subject.birthLocation, !text.isEmpty else { return nil }
-        // A stored display usually carries the Chapman code in a trailing
-        // "(DBY)" — read it directly. Deterministic, and it avoids the
-        // county-name resolver's bundle singleton (`UKChapmanCodes.shared`),
-        // the parallel-fragile hop.
-        if let open = text.lastIndex(of: "("), let close = text.lastIndex(of: ")"), open < close {
-            let inside = text[text.index(after: open)..<close]
-                .trimmingCharacters(in: .whitespaces).uppercased()
-            if inside.count == 3, inside.allSatisfy(\.isLetter) { return inside }
-        }
-        return ChapmanCodeResolver.chapmanCode(forPlaceText: text)
+        RegistrationDistrictResolver.chapman(forProfile: subject)
     }
 
     /// Resolve a place-or-district string to its registration-district
-    /// `PlaceAuthority` id. A parish (Hognaston) resolves via its containing
-    /// district's name; a bare district name (Belper, or a record's `district`
-    /// field) resolves directly. nil when unresolvable — the caller then falls
-    /// back to substring matching.
+    /// `PlaceAuthority` id. Delegates to the shared resolver; nil when
+    /// unresolvable — the caller then falls back to substring matching.
     private nonisolated static func registrationDistrictID(
         for placeOrDistrict: String, chapman: String?, year: Int?
     ) -> String? {
-        let token = (placeOrDistrict.split(separator: ",").first.map(String.init) ?? placeOrDistrict)
-            .trimmingCharacters(in: .whitespaces)
-        guard !token.isEmpty else { return nil }
-        let districtName: String
-        if let chapman,
-           let rd = FreeBMDDistrictCatalogue.shared.district(forParish: token, inChapman: chapman) {
-            districtName = rd.name                         // parish → its district
-        } else if let canonical = canonicalDistrictName(token, chapman: chapman) {
-            districtName = canonical                        // FreeBMD "Ashborne" → "Ashbourne"
-        } else {
-            districtName = token
-        }
-        return PlaceResolver.resolveDistrict(name: districtName, chapman: chapman, year: year)
-    }
-
-    /// Map a possibly-variant registration-district name to the catalogue's
-    /// canonical spelling — FreeBMD indexes "Ashborne" where UKBMD's catalogue
-    /// has "Ashbourne". Exact match first; else a consonant-skeleton match
-    /// (vowels dropped) scoped to the same Chapman county and accepted ONLY when
-    /// unique, so a transcription variant resolves but distinct districts never
-    /// collide. nil when unresolved or ambiguous.
-    private nonisolated static func canonicalDistrictName(_ name: String, chapman: String?) -> String? {
-        if let d = FreeBMDDistrictCatalogue.shared.district(named: name) { return d.name }
-        guard let chapman else { return nil }
-        func skeleton(_ s: String) -> String {
-            String(s.lowercased().filter { $0.isLetter && !"aeiou".contains($0) })
-        }
-        let target = skeleton(name)
-        guard !target.isEmpty else { return nil }
-        let names = Set(FreeBMDDistrictCatalogue.shared.districts(forChapmanCode: chapman)
-            .filter { skeleton($0.name) == target }
-            .map(\.name))
-        return names.count == 1 ? names.first : nil
+        RegistrationDistrictResolver.districtID(forPlaceOrDistrict: placeOrDistrict, chapman: chapman, year: year)
     }
 
     /// Loose place match (fallback for unresolved places): a bare registration
