@@ -20,6 +20,38 @@ struct AuditFixButton: View {
     var onCompare: ((_ leftID: String, _ rightID: String) -> Void)? = nil
     var onEnriched: ((_ profileID: String, _ profileName: String, _ count: Int) -> Void)? = nil
 
+    /// Gap rules whose missing value can only be *found*, not typed — so the
+    /// row offers a Research launch instead of leaning on Edit Profile (which
+    /// can't fill an unknown field). Kept as data, not just switch cases, so
+    /// it's unit-testable and can't silently drift out of sync with the rules.
+    /// Deliberately EXCLUDES rules that already have their own affordance:
+    /// `fertilityGap` / `freebmdLinkMissing` have bespoke research/enrich
+    /// buttons; `missingBio` is synthesis, not search; `datelessReadsAsLiving`
+    /// is fixed by inferring a date from family anchors, not research.
+    /// (Owner sweep 2026-08-12: these gaps rendered only Edit/Add-Question/
+    /// Dismiss — none of which fills a value that has to be discovered.)
+    nonisolated static let researchResolvableGapRuleIDs: Set<String> = [
+        "missingParents", "missingBirthDate", "missingBirthLocation",
+        "missingDeathDate", "missingDeathLocation", "ancestorExtension",
+        "completenessScore", "unlinkedSpouseForFemaleSubject", "incompleteName",
+    ]
+
+    /// Rule-tailored help for the plain Research button.
+    nonisolated static func researchGapHelp(forRuleID id: String) -> String {
+        switch id {
+        case "ancestorExtension":
+            return "Search parish and christening records for this end-of-line ancestor's parents, to extend the tree another generation"
+        case "missingParents":
+            return "Search the record sources for this person's parents — a birth or marriage record often names them"
+        case "unlinkedSpouseForFemaleSubject":
+            return "Search for the marriage that names her husband, so the spouse can be linked"
+        case "incompleteName":
+            return "Search the record sources to complete the name — a surname-only spouse usually needs a maiden name from the marriage record"
+        default:
+            return "This detail can't be filled by editing until it's found — search the record sources for it"
+        }
+    }
+
     var body: some View {
         switch result.ruleID {
         case "fertilityGap":
@@ -182,6 +214,17 @@ struct AuditFixButton: View {
                 .buttonStyle(.glassProminent).controlSize(.mini)
                 .help("Create all \(missingCount) census relatives missing from the tree and link them, citing the census")
             }
+        case let id where Self.researchResolvableGapRuleIDs.contains(id):
+            // A gap whose missing value can't be typed — it has to be found.
+            // Reuse the exact research launch fertilityGap uses, so these rows
+            // gain the one action that can actually resolve them.
+            Button {
+                appState.researchProfileID = result.profileID
+            } label: {
+                Label("Research", systemImage: "magnifyingglass")
+            }
+            .buttonStyle(.glassProminent).controlSize(.mini)
+            .help(Self.researchGapHelp(forRuleID: id))
         default:
             EmptyView()
         }
