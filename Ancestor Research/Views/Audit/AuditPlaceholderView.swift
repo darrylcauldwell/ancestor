@@ -637,6 +637,9 @@ struct HealthView: View {
         if result.ruleID == "censusUnabsorbed" {
             censusHouseholdDetail(for: result)
         }
+        if result.ruleID == "parishFamilyUnabsorbed" {
+            parishFamilyDetail(for: result)
+        }
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
@@ -654,6 +657,23 @@ struct HealthView: View {
            let evidence = try? db.loadEvidenceForProfile(result.profileID),
            let proposal = appState.censusHouseholdProposal(for: profile, evidence: evidence) {
             CensusHouseholdFixRow(
+                profile: profile, proposal: proposal,
+                onChanged: { refreshAudit() },
+                reviewInProfile: { onOpenProfile?(result.profileID) })
+            .padding(.leading, 34)
+        }
+    }
+
+    /// The parish-family absorb row for a `parishFamilyUnabsorbed` finding — the
+    /// SAME `ParishFamilyFixRow` the profile card shows, hosted here so the
+    /// (tree-mutating) add, routed to the profile for context, is available from
+    /// the Health tab without a click-through.
+    @ViewBuilder private func parishFamilyDetail(for result: AuditResult) -> some View {
+        if let db = appState.currentDatabase,
+           let profile = appState.snapshot.profiles[result.profileID],
+           let evidence = try? db.loadEvidenceForProfile(result.profileID),
+           let proposal = appState.parishFamilyProposal(for: profile, evidence: evidence) {
+            ParishFamilyFixRow(
                 profile: profile, proposal: proposal,
                 onChanged: { refreshAudit() },
                 reviewInProfile: { onOpenProfile?(result.profileID) })
@@ -1130,14 +1150,17 @@ struct HealthView: View {
         let citationGaps = kept(appState.freeBMDCitationGapFindings())      // info
         let parentUnlocks = kept(appState.censusParentUnlockFindings())     // warning
         let censusUnabsorbed = kept(appState.censusUnabsorbedFindings())    // warning
-        guard !citationGaps.isEmpty || !parentUnlocks.isEmpty || !censusUnabsorbed.isEmpty else {
+        let parishUnabsorbed = kept(appState.parishFamilyUnabsorbedFindings()) // warning
+        guard !citationGaps.isEmpty || !parentUnlocks.isEmpty
+            || !censusUnabsorbed.isEmpty || !parishUnabsorbed.isEmpty else {
             auditVM.summary = base; return
         }
         auditVM.summary = AuditSummary(
             errors: base.errors,
-            warnings: base.warnings + parentUnlocks + censusUnabsorbed,
+            warnings: base.warnings + parentUnlocks + censusUnabsorbed + parishUnabsorbed,
             info: base.info + citationGaps,
-            total: base.total + citationGaps.count + parentUnlocks.count + censusUnabsorbed.count,
+            total: base.total + citationGaps.count + parentUnlocks.count
+                + censusUnabsorbed.count + parishUnabsorbed.count,
             profilesChecked: base.profilesChecked)
     }
 

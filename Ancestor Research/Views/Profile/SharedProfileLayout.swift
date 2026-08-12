@@ -1175,25 +1175,11 @@ struct SharedProfileLayout: View {
                                 reloadFactRecords()
                             }
                         }
-                        if case let .canAdd(links, year, sourceID, kind)? = parishFamily {
-                            let names = links.map(\.displayName).filter { !$0.isEmpty }
-                            let eventWord = switch kind {
-                            case .marriage: "marriage"
-                            case .baptism:  "baptism"
-                            case .burial:   "burial"
-                            }
-                            healthStripRow(
-                                icon: "person.crop.rectangle.badge.plus", tint: .blue,
-                                text: "\(String(year)) \(eventWord) names \(names.joined(separator: " + ")) — not on the tree"
-                            ) {
-                                Button("Add \(links.count) \(links.count == 1 ? "person" : "people")") {
-                                    _ = appState.addParishFamily(
-                                        links: links, subject: profile,
-                                        eventYear: year, sourceID: sourceID)
-                                    reloadFactRecords()
-                                }
-                                .buttonStyle(.glassProminent).controlSize(.mini)
-                                .help("Creates the spouse and/or parents this parish record names, linked to \(profile.displayName). A wrongly-created namesake is a later merge — the record's rich detail (marriage date, occupation, residence) is already on the profile.")
+                        if let pf = parishFamily {
+                            // Shared with the Health tab's parishFamilyUnabsorbed
+                            // row — one component, two hosts (see ParishFamilyFixRow).
+                            ParishFamilyFixRow(profile: profile, proposal: pf) {
+                                reloadFactRecords()
                             }
                         }
                         ForEach(profileFindings) { finding in

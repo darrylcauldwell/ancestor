@@ -3968,6 +3968,38 @@ final class AppState {
         }
     }
 
+    /// Tree-wide parish-family under-absorption sweep — the FreeREG twin of
+    /// `censusUnabsorbedFindings`: every profile whose APPLIED baptism / marriage
+    /// / burial names a spouse or parents still missing from the tree. NETWORK-
+    /// FREE (reads stored evidence via `parishFamilyProposal`). Folds into the
+    /// Health tab so the backlog is visible; the same proposal drives the
+    /// profile-card offer, so the sweep and the card never disagree.
+    func parishFamilyUnabsorbedFindings() -> [AuditResult] {
+        guard let db = currentDatabase else { return [] }
+        var out: [AuditResult] = []
+        for (pid, profile) in snapshot.profiles where !profile.isDeleted {
+            let evidence = (try? db.loadEvidenceForProfile(pid)) ?? []
+            guard case let .canAdd(links, year, _, kind)? =
+                    parishFamilyProposal(for: profile, evidence: evidence) else { continue }
+            let eventWord: String
+            switch kind {
+            case .marriage: eventWord = "marriage"
+            case .baptism:  eventWord = "baptism"
+            case .burial:   eventWord = "burial"
+            }
+            let names = links.map(\.displayName).filter { !$0.isEmpty }
+            let message = "\(profile.displayName)'s \(year) \(eventWord) names \(names.joined(separator: " + ")) not on the tree — add them from their profile."
+            out.append(AuditResult(
+                profileID: pid, profileName: profile.displayName,
+                severity: .warning, category: .gap,
+                ruleID: "parishFamilyUnabsorbed", message: message,
+                relatedProfileIDs: []))
+        }
+        return out.sorted {
+            $0.profileName.localizedCaseInsensitiveCompare($1.profileName) == .orderedAscending
+        }
+    }
+
     /// Whether the household lift surfaced — used by the Health fix button to
     /// tell the user what to do next.
     enum CensusParentUnlockResult { case applied(censusYear: Int, hasHousehold: Bool), noCandidate }
