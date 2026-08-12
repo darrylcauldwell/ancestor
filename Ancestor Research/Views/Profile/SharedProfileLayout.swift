@@ -1169,51 +1169,10 @@ struct SharedProfileLayout: View {
                             }
                         }
                         if let ch = censusHousehold {
-                            switch ch {
-                            case .needsLoad(let sourceRecordID, let year):
-                                healthStripRow(
-                                    icon: "person.2.badge.plus", tint: .blue,
-                                    text: "The \(String(year)) census household isn't loaded — fetch it to add parents & siblings"
-                                ) {
-                                    Button("Load household") {
-                                        Task {
-                                            _ = await appState.loadCensusHousehold(
-                                                sourceRecordID: sourceRecordID, profileID: profile.id)
-                                            reloadFactRecords()
-                                        }
-                                    }
-                                    .buttonStyle(.glassProminent).controlSize(.mini)
-                                    .help("Fetches this census's full schedule — one page from FreeCen — so its household family can be added.")
-                                }
-                            case .canAbsorb(let links, let year, let sourceID, let household, let inLaws, let citationURL):
-                                // Nuclear family + any in-law grandparent STILL
-                                // net-new (a father/mother-in-law is a two-
-                                // generation unlock; the count clears once added).
-                                let total = links.count + inLaws
-                                VStack(alignment: .leading, spacing: 3) {
-                                    healthStripRow(
-                                        icon: "person.2.badge.plus", tint: .blue,
-                                        text: inLaws > 0
-                                            ? "In the \(String(year)) census — \(links.count) household member\(links.count == 1 ? "" : "s") + \(inLaws) in-law grandparent\(inLaws == 1 ? "" : "s") not on the tree"
-                                            : "In the \(String(year)) census with \(links.count) household member\(links.count == 1 ? "" : "s") not on the tree"
-                                    ) {
-                                        Button("Add \(total) family member\(total == 1 ? "" : "s")") {
-                                            _ = appState.addCensusFamily(
-                                                links: links, subject: profile,
-                                                censusYear: year, sourceID: sourceID, household: household,
-                                                citationURL: citationURL)
-                                            reloadFactRecords()
-                                        }
-                                        .buttonStyle(.glassProminent).controlSize(.mini)
-                                        .help("Adds the family rows (parents, spouse, children, siblings) plus a father/mother-in-law as a grandparent — which also gives the married-in parent their maiden surname. Boarders, lodgers, visitors and servants are left out.")
-                                    }
-                                    // Show WHO would be added + the subject's own
-                                    // census birthplace — evidence at the point of
-                                    // the click, so a namesake household (a target
-                                    // row born elsewhere than the profile records)
-                                    // is caught before its parents are grafted on.
-                                    censusAbsorbRoster(links: links, household: household)
-                                }
+                            // Shared with the Health tab's censusUnabsorbed row —
+                            // one component, two hosts (see CensusHouseholdFixRow).
+                            CensusHouseholdFixRow(profile: profile, proposal: ch) {
+                                reloadFactRecords()
                             }
                         }
                         if case let .canAdd(links, year, sourceID, kind)? = parishFamily {
@@ -1268,67 +1227,6 @@ struct SharedProfileLayout: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             action()
-        }
-    }
-
-    /// The named roster behind a census-absorb capsule: the people who would be
-    /// added (name · relation-to-subject · age · birthplace), plus the subject's
-    /// OWN census row birthplace shown against the profile's recorded birthplace.
-    /// The count alone hid the namesake tell (owner dogfood 2026-08-07: George
-    /// Ward's "Add 3" would have grafted a Derby-born household onto an Ashbourne
-    /// man); showing the evidence at the click is the fix.
-    @ViewBuilder
-    private func censusAbsorbRoster(
-        links: [CensusFamilyLinker.Link], household: [HouseholdMember]
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            ForEach(Array(links.enumerated()), id: \.offset) { _, link in
-                Text(censusRosterLine(link))
-                    .font(AppTypography.badge)
-                    .foregroundStyle(.secondary)
-            }
-            if let target = household.first(where: { $0.isTarget == true }),
-               let born = target.birthPlace?.trimmingCharacters(in: .whitespaces),
-               !born.isEmpty {
-                // Neutral juxtaposition — the profile's recorded birthplace is
-                // appended only when it names a different town, never as a
-                // verdict (a district/town pair like Milford-in-Belper still
-                // shows; the human reads it correctly).
-                let recorded = profile.birthLocation
-                let suffix = AppState.placesDivergeAtTown(born, recorded)
-                    ? " · profile records \(recorded ?? "")" : ""
-                Text("census lists this person born \(born)\(suffix)")
-                    .font(AppTypography.badge)
-                    .foregroundStyle(.secondary)
-                    .italic()
-            }
-        }
-        .padding(.leading, 24)
-    }
-
-    /// One roster line: "• Name — father · age 56 · born Wigan".
-    private func censusRosterLine(_ link: CensusFamilyLinker.Link) -> String {
-        let m = link.member
-        var parts = ["\(m.name) — \(censusRelationLabel(link))"]
-        if let a = m.age { parts.append("age \(a)") }
-        else if let raw = m.rawAge?.trimmingCharacters(in: .whitespaces), !raw.isEmpty {
-            parts.append("age \(raw)")
-        }
-        if let bp = m.birthPlace?.trimmingCharacters(in: .whitespaces), !bp.isEmpty {
-            parts.append("born \(bp)")
-        }
-        return "• " + parts.joined(separator: " · ")
-    }
-
-    /// The member's relation to the SUBJECT, sexed where the roster allows
-    /// (father/mother, son/daughter, brother/sister).
-    private func censusRelationLabel(_ link: CensusFamilyLinker.Link) -> String {
-        let g = AppState.censusMemberGender(link.member)
-        switch link.relation {
-        case .parent:  return g == .female ? "mother" : g == .male ? "father" : "parent"
-        case .child:   return g == .female ? "daughter" : g == .male ? "son" : "child"
-        case .sibling: return g == .female ? "sister" : g == .male ? "brother" : "sibling"
-        case .spouse:  return "spouse"
         }
     }
 

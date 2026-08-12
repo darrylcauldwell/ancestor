@@ -634,9 +634,30 @@ struct HealthView: View {
         if result.ruleID == "censusRelationship", result.severity == .info {
             censusReconciliationDetail(for: result)
         }
+        if result.ruleID == "censusUnabsorbed" {
+            censusHouseholdDetail(for: result)
+        }
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
+    }
+
+    /// The census-household absorption row for a `censusUnabsorbed` finding — the
+    /// SAME `CensusHouseholdFixRow` the profile card shows, hosted here so the
+    /// Load-household / Add-N action (and its roster preview) is available in the
+    /// Health tab without a click-through into the profile. Bounded: only the
+    /// (few) censusUnabsorbed rows re-derive the proposal, reusing the exact
+    /// stored-evidence read the finding itself used.
+    @ViewBuilder private func censusHouseholdDetail(for result: AuditResult) -> some View {
+        if let db = appState.currentDatabase,
+           let profile = appState.snapshot.profiles[result.profileID],
+           let evidence = try? db.loadEvidenceForProfile(result.profileID),
+           let proposal = appState.censusHouseholdProposal(for: profile, evidence: evidence) {
+            CensusHouseholdFixRow(profile: profile, proposal: proposal) {
+                refreshAudit()
+            }
+            .padding(.leading, 34)
+        }
     }
 
     // MARK: - Conflict (open dispute) row
