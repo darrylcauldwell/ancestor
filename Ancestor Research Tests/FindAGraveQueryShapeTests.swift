@@ -127,19 +127,30 @@ struct FindAGraveQueryShapeTests {
         #expect(params.birthYearRange == 1887...1887)
     }
 
-    @Test func bothAxesPopulatedWhenBothKnown() {
+    /// FINDAGRAVE_DEATH_SEARCH_SPEC Fix 1 — birth year is NEVER a wire filter on
+    /// a burial search. FAG is burial-only, a gravestone often carries only
+    /// death + age (no birth date), and FAG's `birthyearfilter` HARD-excludes
+    /// any memorial without a birth year in tolerance. Regression: Ernest
+    /// Cauldwell (memorial 216193076, birth "unknown", d.1959) was excluded from
+    /// every search by the birthyear filter, while his birth-dated wife's
+    /// memorial was found. The dispatcher still carries the subject's birth
+    /// window; the connector just must not turn it into a wire filter.
+    @Test func birthYearNeverBecomesAFilterOnABurialSearch() {
         let queries = burialQueries(for: subject(
-            birthFrom: 1887, birthTo: 1887, deathFrom: 2017, deathTo: 2017
+            birthFrom: 1886, birthTo: 1886, deathFrom: 1959, deathTo: 1959
         ))
         guard let query = queries.first, let params = fagParams(query) else {
             Issue.record("expected one FAG query with findAGrave params")
             return
         }
-        #expect(params.birthYearRange == 1887...1887)
-        #expect(params.deathYearRange == 2017...2017)
+        #expect(params.birthYearRange == 1886...1886)
+        #expect(params.deathYearRange == 1959...1959)
         let wire = FindAGraveSource.searchRequestParams(query: query, params: params)
-        #expect(wire["birthyear"] == "1887" && wire["birthyearfilter"] == "5")
-        #expect(wire["deathyear"] == "2017" && wire["deathyearfilter"] == "5")
+        #expect(wire["birthyear"] == nil,
+                "a burial search must not send birthyear — it excludes birth-unknown memorials (Ernest 216193076)")
+        #expect(wire["birthyearfilter"] == nil)
+        #expect(wire["deathyear"] == "1959" && wire["deathyearfilter"] == "5",
+                "the death-year narrowing must stay — it's the right axis for a burial search")
     }
 
     @Test func fuzzySubjectWindowsCarriedVerbatim() {

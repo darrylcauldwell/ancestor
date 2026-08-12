@@ -278,7 +278,20 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         // year params at all — name-and-location search remains the
         // fallback narrowing, with the scorer's date gate catching
         // wrong-year hits downstream.
-        if let birth = yearAxis(range: fagParams.birthYearRange, floor: fagParams.yearRangeWidth) {
+        // Birth year is NEVER a filter for a death-shape (`.burial`) search —
+        // and Find a Grave is burial-only, so this drops it for every FAG query.
+        // Most gravestones carry death + age, no birth date, and FAG's
+        // `birthyearfilter` HARD-excludes any memorial lacking a birth year in
+        // tolerance. Sending it silently loses correct memorials (dogfood
+        // 2026-08-12: Ernest Cauldwell memorial 216193076 — birth "unknown",
+        // d.1959 — was excluded from every search despite an exact death-year
+        // match, while his birth-dated wife's memorial 216193100 was found). The
+        // deathyear axis + name/location narrow the search; the scorer's date
+        // gate rejects wrong-year hits downstream. See FINDAGRAVE_DEATH_SEARCH_SPEC.md.
+        // Guarded on record type (not removed) so a future birth-shape FAG type
+        // still gets a birth-year narrowing.
+        if query.recordType != .burial,
+           let birth = yearAxis(range: fagParams.birthYearRange, floor: fagParams.yearRangeWidth) {
             params["birthyear"] = String(birth.center)
             if let tolerance = birth.tolerance {
                 params["birthyearfilter"] = String(tolerance)
