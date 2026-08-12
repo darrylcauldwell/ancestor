@@ -1631,7 +1631,51 @@ nonisolated final class ProjectDatabase: Sendable {
             }
         }
 
+        // FamilySearch was dropped as a RECORD source on 2026-08-07 (SourceBootstrap
+        // stopped registering `FamilySearchSource`; the FS records API is
+        // permanently unavailable to third parties — project_familysearch_beta_program).
+        // Unregistering the source stopped NEW FS record rows but never purged the
+        // ones already in the tree, so historical FS record-search evidence lingers
+        // — surfacing in review as description-less "Skipped" rows and inflating
+        // candidate counts (owner report 2026-08-12, Mary Ward). This is the cleanup
+        // that decoupling owed. It removes ONLY FS *record-search* rows; the FS
+        // *tree* integration (familysearch_* tables, person links, uploads) and any
+        // already-applied facts (field_sources) are untouched. FS records can never
+        // be re-fetched, so the loss is of provably-dead data.
+        migrator.registerMigration("v59_purge_familysearch_record_evidence") { db in
+            try Self.purgeFamilySearchRecordRows(db)
+        }
+
         return migrator
+    }
+
+    /// Delete every FamilySearch *record-search* row across the pipeline tables,
+    /// leaving the FS *tree* integration and applied facts alone. Shared by the
+    /// v59 migration and a test hook so both exercise identical SQL. The table
+    /// list is a hard-coded literal set (never user input), so the interpolation
+    /// is injection-safe.
+    static func purgeFamilySearchRecordRows(_ db: Database) throws {
+        // Non-terminal leads backed by an FS record would orphan once their
+        // evidence row is gone (the lead↔evidence join is `id = 'lead_' ||
+        // source_record_id`). Drop those; KEEP promoted/dismissed leads — the user
+        // already acted on them, and a promoted lead's profile stands on its own.
+        try db.execute(sql: """
+            DELETE FROM leads
+            WHERE status IN ('new', 'investigating', 'investigated')
+              AND id IN (
+                SELECT 'lead_' || source_record_id
+                FROM evidence_records WHERE source_id = 'familysearch'
+              )
+            """)
+        for table in ["evidence_records", "research_records", "negative_searches",
+                      "research_discrepancies", "source_budget_state"] {
+            try db.execute(sql: "DELETE FROM \(table) WHERE source_id = 'familysearch'")
+        }
+    }
+
+    /// Test/maintenance hook: run the FS record-evidence purge on demand.
+    func purgeFamilySearchRecordEvidence() throws {
+        try dbQueue.write { try Self.purgeFamilySearchRecordRows($0) }
     }
 
     /// Deterministic backfill of `NameForm`s from a legacy profile's flat name
