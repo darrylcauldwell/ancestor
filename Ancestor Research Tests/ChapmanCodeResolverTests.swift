@@ -36,6 +36,30 @@ struct ChapmanCodeResolverTests {
         #expect(ChapmanCodeResolver.chapmanCode(forPlaceText: "Belper, Nowhereshire") == "DBY")
     }
 
+    // MARK: - Ambiguous town: a stated county beats a cross-county district collision
+
+    /// 2026-08-12 dogfood (John William Thompson, b. Middleton-by-Youlgreave,
+    /// Bakewell RD, Derbyshire): "Middleton" is a **Lancashire** registration
+    /// district *and* a Derbyshire parish inside Bakewell RD. The old order ran
+    /// the per-component district scan before the county scan, so "Middleton,
+    /// Derbyshire" matched the Lancashire district and scoped his entire
+    /// research run to LAN — the explicit ", Derbyshire" was discarded. A
+    /// stated, valid county must outrank a bare-town-as-district guess.
+    @Test func statedCountyBeatsCrossCountyDistrictNameCollision() {
+        #expect(ChapmanCodeResolver.chapmanCode(forPlaceText: "Middleton, Derbyshire") == "DBY")
+        #expect(ChapmanCodeResolver.chapmanCode(
+            forPlaceText: "Middleton by Youlgreave, Bakewell, Derbyshire") == "DBY")
+    }
+
+    /// The guard is specifically "a *valid* county wins". With no real county
+    /// token, the district-name match still applies (an invalid trailing token
+    /// is treated as absent), so a bare-town collision can still resolve — the
+    /// honest remaining limitation when the text carries no county signal.
+    @Test func bareAmbiguousTownStillMatchesDistrictWhenNoValidCounty() {
+        #expect(ChapmanCodeResolver.chapmanCode(forPlaceText: "Middleton") == "LAN")
+        #expect(ChapmanCodeResolver.chapmanCode(forPlaceText: "Middleton, Nowhereshire") == "LAN")
+    }
+
     // MARK: - Non-resolving inputs
 
     @Test func declinesEmptyAndUnknown() {
