@@ -560,6 +560,29 @@ final class AppState {
         }
     }
 
+    /// Reject a researched-but-not-applied evidence record from the profile
+    /// card's "Researched — not applied" bucket — the symmetric partner to
+    /// `applyEvidenceRecord`. Marks it `discarded` (moves it to the "You
+    /// rejected" bucket) and remembers the rejection so a future research run
+    /// won't re-surface it. Reversible: the record stays in history and can be
+    /// re-applied from the "You rejected" bucket.
+    ///
+    /// Deliberately lean — it changes no facts, so it skips the snapshot rebuild
+    /// / conflict sweep the apply path runs; the card refreshes its buckets from
+    /// the DB via `reloadFactRecords`. This keeps rejecting a long namesake pile
+    /// (300+ rows) responsive click-to-click.
+    func rejectEvidenceRecord(sourceRecordID: String, profileID: String) {
+        guard let db = currentDatabase else { return }
+        do {
+            let records = try db.loadEvidenceForProfile(profileID)
+            guard let evidence = records.first(where: { $0.sourceRecordID == sourceRecordID }) else { return }
+            try db.updateEvidenceUserStatus(evidenceID: evidence.id, status: .discarded)
+            try db.saveRejection(profileID: profileID, recordID: sourceRecordID)
+        } catch {
+            errorMessage = "Failed to reject record: \(error.localizedDescription)"
+        }
+    }
+
     /// A FreeCen (or other detail-fetching) census whose household roster we could
     /// still fetch: a census record with a detail URL but no roster yet. Pure —
     /// testable without a database.

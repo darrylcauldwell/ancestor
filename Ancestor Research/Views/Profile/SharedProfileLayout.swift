@@ -1485,6 +1485,23 @@ struct SharedProfileLayout: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.green)
                     .help("Apply this record: fills any blank fields, refines where allowed, and attaches its citation — your existing more-precise values are kept.")
+                    // Reject — the symmetric partner to Apply, only on the
+                    // "Researched — not applied" bucket. Prunes a namesake pile:
+                    // moves the row to "You rejected" and won't be re-surfaced by
+                    // research. (Not shown for already-rejected rows — they keep
+                    // just Apply, which is how you un-reject.)
+                    if rec.standing == .researched {
+                        Button {
+                            appState.rejectEvidenceRecord(sourceRecordID: rec.id, profileID: profile.id)
+                            reloadFactRecords()
+                        } label: {
+                            Label("Reject", systemImage: "xmark.circle")
+                                .font(AppTypography.badge)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.red)
+                        .help("Reject this record — moves it to \u{201C}You rejected\u{201D} and remembers it so research won\u{2019}t re-add it. Reversible: re-apply it from that bucket anytime.")
+                    }
                 } else {
                     // Un-apply a record applied in error — reverts the fields it
                     // set, removes its life events, and remembers the rejection.
