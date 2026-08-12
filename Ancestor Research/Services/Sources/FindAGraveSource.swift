@@ -960,6 +960,39 @@ actor FindAGraveSource: RecordSource, DetailFetchingSource {
         return String(data: data, encoding: .utf8)
     }
 
+    /// Inverse of `encodeFamilyLinks` — the family links stashed on a fetched
+    /// memorial's `rawFields["familyLinks"]`. `[]` on any decode failure.
+    nonisolated static func decodeFamilyLinks(_ json: String) -> [FamilyLink] {
+        guard let data = json.data(using: .utf8),
+              let links = try? JSONDecoder().decode([FamilyLink].self, from: data)
+        else { return [] }
+        return links
+    }
+
+    /// FINDAGRAVE_DEATH_SEARCH_SPEC Fix 2 — the memorial id this record points at
+    /// as a SPOUSE, i.e. the partner's memorial. Reads the `familyLinks` parsed
+    /// onto a fetched memorial (`parseMemorialDetail` → `rawFields["familyLinks"]`)
+    /// and returns the spouse link's `memorialID` — the recovery hop for a
+    /// partner whose own name+year search missed (dogfood: Mary's memorial
+    /// 216193100 links to Ernest 216193076, which was invisible to search).
+    ///
+    /// A remarried person has multiple spouse links, so `matchingSurname` (the
+    /// subject we're recovering) disambiguates: prefer a spouse link whose name
+    /// carries that surname; with no surname match, take the link only when it is
+    /// the sole spouse ("when in doubt, split" — never guess between two spouses).
+    /// nil for a non-burial record, no `familyLinks`, or an unresolved ambiguity.
+    nonisolated static func spouseLinkedMemorialID(fromRecord record: SourceRecord, matchingSurname: String? = nil) -> Int? {
+        guard case .burial(let b) = record,
+              let json = b.common.rawFields["familyLinks"] else { return nil }
+        let spouseLinks = decodeFamilyLinks(json).filter { $0.relation == "spouse" }
+        guard !spouseLinks.isEmpty else { return nil }
+        if let surname = matchingSurname?.trimmingCharacters(in: .whitespaces).uppercased(), !surname.isEmpty,
+           let hit = spouseLinks.first(where: { $0.name.uppercased().contains(surname) }) {
+            return hit.memorialID
+        }
+        return spouseLinks.count == 1 ? spouseLinks.first?.memorialID : nil
+    }
+
     /// Extract birth and death years from free-text memorial inscription or
     /// biography. Find a Grave memorials sometimes lack schema.org itemprop
     /// dates but carry dates in the inscription ("1919 — 2017") or bio

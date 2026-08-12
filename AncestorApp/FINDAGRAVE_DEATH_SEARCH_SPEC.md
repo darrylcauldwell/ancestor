@@ -1,9 +1,13 @@
 # Find a Grave — death-search birthyear filter + spouse-link recovery
 
-**Status:** Proposed (2026-08-12). Not started.
+**Status:** SHIPPED 2026-08-12. **Fix 1** — birthyear-drop on burial searches
+(`FindAGraveSource.searchRequestParams`, `birthYearNeverBecomesAFilterOnABurialSearch`). **Fix 2** —
+spouse-link recovery (`FindAGraveSource.spouseLinkedMemorialID`/`decodeFamilyLinks` +
+`ResearchPipeline.fetchSpouseLinkedMemorials`, folded into the iteration batch beside the marriage
+directed-fetch; `FindAGraveSpouseLinkTests`). Full suite green.
 **Driver (dogfood, Ernest Cauldwell @I_1564810712@):** an existing Find a Grave memorial with a
 **perfect death-year match** was never found by the app, because it has no birth date and the app
-always sends a hard `birthyear` filter.
+always sent a hard `birthyear` filter.
 
 ## The confirmed failure
 

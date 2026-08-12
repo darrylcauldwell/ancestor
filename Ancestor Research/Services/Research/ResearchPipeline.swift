@@ -348,7 +348,15 @@ final class ResearchPipeline {
                 scope: config.scope,
                 cache: queryCache
             )
-            let batch = directed.isEmpty ? records : records + directed
+            // FINDAGRAVE_DEATH_SEARCH_SPEC Fix 2 — the Find a Grave twin of the
+            // directed fetch: recover the subject's own memorial by following a
+            // tree-spouse's memorial spouse-link, for a memorial that name+year
+            // search misses (Ernest 216193076 via Mary 216193100).
+            let spouseLinked = await fetchSpouseLinkedMemorials(
+                subject: state.subject,
+                alreadyHeld: records + directed + state.scoredRecords.map(\.record)
+            )
+            let batch = records + directed + spouseLinked
 
             // Same-page-couple pairing: pre-Sep-1912 FreeBMD marriage entries
             // don't carry the spouse-surname column, so a subject-side marriage
@@ -2578,6 +2586,73 @@ final class ResearchPipeline {
         }
         if !out.isEmpty {
             logger.info("Cross-profile directed fetch: pulled \(out.count) subject-side marriage record(s) from \(targets.count) spouse-held reference(s)")
+        }
+        return out
+    }
+
+    // MARK: - Cross-profile Find a Grave spouse-link recovery
+
+    /// FINDAGRAVE_DEATH_SEARCH_SPEC Fix 2 — recover the subject's own Find a Grave
+    /// memorial by following the SPOUSE link on a tree-spouse's memorial, for the
+    /// subject whose memorial a name+year search misses (birth-unknown memorials,
+    /// indexing gaps). Dogfood: Mary's memorial 216193100 links to Ernest's
+    /// 216193076, which was invisible to every search of his own. The FAG twin of
+    /// the marriage directed-fetch above: read the tree-spouse's held FAG memorial
+    /// → fetch it → follow its spouse family-link back to the subject → fetch that
+    /// memorial and fold it into the batch to be scored. Firewall-clean (scored
+    /// like any candidate), and skipped entirely when the subject already holds a
+    /// FAG memorial. Bounded by the FAG-bridge per-iteration fetch cap.
+    private func fetchSpouseLinkedMemorials(
+        subject: ResearchSubject,
+        alreadyHeld: [SourceRecord]
+    ) async -> [SourceRecord] {
+        guard let subjectProfileID = subject.profileID,
+              let subjectSurname = subject.surname?.trimmingCharacters(in: .whitespaces), !subjectSurname.isEmpty,
+              let evidenceLookup = spouseEvidenceLookup,
+              let fagAny = dispatcher.registry.allSources().first(where: { $0.sourceID == "findagrave" }),
+              let fagDetail = fagAny as? any DetailFetchingSource
+        else { return [] }
+
+        // Only recover when the subject has NO Find a Grave memorial of their own
+        // — the ordinary search already reaches an existing one, so the hop would
+        // be wasted network.
+        let heldFAGIDs = Set(alreadyHeld.compactMap { rec -> Int? in
+            guard case .burial(let b) = rec, rec.sourceID == "findagrave" else { return nil }
+            return b.memorialID
+        })
+        let subjectHasFAG = !heldFAGIDs.isEmpty
+            || evidenceLookup(subjectProfileID).contains {
+                $0.record.sourceID == "findagrave" && $0.userStatus != .discarded && $0.verdict != .impossible
+            }
+        guard !subjectHasFAG else { return [] }
+
+        var out: [SourceRecord] = []
+        var fetches = 0
+        for spouse in snapshot.spousesOf(subjectProfileID) {
+            guard fetches < Self.maxFagBridgeFetchesPerIteration else { break }
+            // The tree-spouse's own FAG memorial id (non-discarded, non-impossible).
+            guard let spouseMemorialID = evidenceLookup(spouse.id)
+                .filter({ $0.record.sourceID == "findagrave" && $0.userStatus != .discarded && $0.verdict != .impossible })
+                .compactMap({ ev -> Int? in
+                    if case .burial(let b) = ev.record { return b.memorialID }
+                    return nil
+                }).first
+            else { continue }
+
+            fetches += 1
+            guard case .results(let spouseRecs) = await fagDetail.fetchDetail(recordID: "findagrave_\(spouseMemorialID)"),
+                  let spouseRec = spouseRecs.first,
+                  let targetID = FindAGraveSource.spouseLinkedMemorialID(fromRecord: spouseRec, matchingSurname: subjectSurname),
+                  targetID != spouseMemorialID, !heldFAGIDs.contains(targetID)
+            else { continue }
+
+            guard fetches < Self.maxFagBridgeFetchesPerIteration else { break }
+            fetches += 1
+            guard case .results(let subjectRecs) = await fagDetail.fetchDetail(recordID: "findagrave_\(targetID)"),
+                  let subjectRec = subjectRecs.first
+            else { continue }
+            logger.info("FAG spouse-link: recovered memorial \(targetID) for \(subjectProfileID) via spouse \(spouse.id) memorial \(spouseMemorialID)")
+            out.append(subjectRec)
         }
         return out
     }
