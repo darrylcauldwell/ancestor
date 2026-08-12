@@ -23,6 +23,12 @@ struct CensusHouseholdFixRow: View {
     let profile: Profile
     let proposal: AppState.CensusHouseholdProposal
     var onChanged: () -> Void = {}
+    /// When set (the Health-list host), the mutating "Add N" becomes "Review in
+    /// profile" — adding people is a tree change and must be confirmed with the
+    /// profile's full context (existing family, this person's own record) in
+    /// view. Nil (the profile card) → the inline add commits, since that host
+    /// IS the context. The safe fetch (`.needsLoad`) stays inline in both.
+    var reviewInProfile: (() -> Void)? = nil
 
     var body: some View {
         switch proposal {
@@ -48,15 +54,24 @@ struct CensusHouseholdFixRow: View {
                     text: inLaws > 0
                         ? "In the \(String(year)) census — \(links.count) household member\(links.count == 1 ? "" : "s") + \(inLaws) in-law grandparent\(inLaws == 1 ? "" : "s") not on the tree"
                         : "In the \(String(year)) census with \(links.count) household member\(links.count == 1 ? "" : "s") not on the tree") {
-                    Button("Add \(total) family member\(total == 1 ? "" : "s")") {
-                        _ = appState.addCensusFamily(
-                            links: links, subject: profile,
-                            censusYear: year, sourceID: sourceID, household: household,
-                            citationURL: citationURL)
-                        onChanged()
+                    if let reviewInProfile {
+                        // Health-list host: adding N people is a tree change, so
+                        // route to the profile to confirm in full context rather
+                        // than committing from a list row.
+                        Button("Review in profile") { reviewInProfile() }
+                            .buttonStyle(.glassProminent).controlSize(.mini)
+                            .help("Adding these people changes the tree — open the profile to add them with full context (existing family, this person's own record) so a namesake household isn't grafted on.")
+                    } else {
+                        Button("Add \(total) family member\(total == 1 ? "" : "s")") {
+                            _ = appState.addCensusFamily(
+                                links: links, subject: profile,
+                                censusYear: year, sourceID: sourceID, household: household,
+                                citationURL: citationURL)
+                            onChanged()
+                        }
+                        .buttonStyle(.glassProminent).controlSize(.mini)
+                        .help("Adds the family rows (parents, spouse, children, siblings) plus a father/mother-in-law as a grandparent — which also gives the married-in parent their maiden surname. Boarders, lodgers, visitors and servants are left out.")
                     }
-                    .buttonStyle(.glassProminent).controlSize(.mini)
-                    .help("Adds the family rows (parents, spouse, children, siblings) plus a father/mother-in-law as a grandparent — which also gives the married-in parent their maiden surname. Boarders, lodgers, visitors and servants are left out.")
                 }
                 // Show WHO would be added + the subject's own census birthplace —
                 // evidence at the point of the click, so a namesake household (a

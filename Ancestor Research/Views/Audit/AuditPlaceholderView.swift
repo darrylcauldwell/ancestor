@@ -653,9 +653,10 @@ struct HealthView: View {
            let profile = appState.snapshot.profiles[result.profileID],
            let evidence = try? db.loadEvidenceForProfile(result.profileID),
            let proposal = appState.censusHouseholdProposal(for: profile, evidence: evidence) {
-            CensusHouseholdFixRow(profile: profile, proposal: proposal) {
-                refreshAudit()
-            }
+            CensusHouseholdFixRow(
+                profile: profile, proposal: proposal,
+                onChanged: { refreshAudit() },
+                reviewInProfile: { onOpenProfile?(result.profileID) })
             .padding(.leading, 34)
         }
     }
