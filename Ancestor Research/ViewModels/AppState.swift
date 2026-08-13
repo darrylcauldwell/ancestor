@@ -2892,6 +2892,22 @@ final class AppState {
                 let existingSiblings = existingParents.flatMap { snapshot.childrenOf($0.id) }
                 if present(link.member, among: existingSiblings) { continue }
             }
+            // Global-existence guard: the role-scoped switch above only dedups a
+            // member against the SUBJECT'S OWN relatives, so a person who already
+            // exists on the tree but is linked to a DIFFERENT profile slips
+            // through as net-new — and absorbing then CREATES A DUPLICATE (owner
+            // dogfood 2026-08-13: Elizabeth Barker, on the tree under her father
+            // Samson, was offered net-new on a namesake Joseph Barker's 1861
+            // household). Skip any member that matches an existing profile
+            // anywhere on the tree; `CensusRelationshipReconciler` surfaces those
+            // separately as `.unlinkedInTree` ("link the existing profile
+            // instead"). Uses the strict year-corroborated `matches`, never the
+            // tree-wide-unsafe name-only `matchesRoleScoped`.
+            if snapshot.profiles.values.contains(where: {
+                $0.id != subject.id && !$0.isDeleted
+                    && CensusRelationshipReconciler.matchesTreeWide(
+                        member: link.member, profile: $0, censusYear: censusYear)
+            }) { continue }
             out.append(link)
         }
         return out

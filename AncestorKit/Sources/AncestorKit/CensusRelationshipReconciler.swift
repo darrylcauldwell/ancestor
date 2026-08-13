@@ -284,6 +284,40 @@ public nonisolated struct CensusRelationshipReconciler {
         return abs(memberYear - profileYear) <= yearTolerance
     }
 
+    /// Tree-wide-safe existence match for the census net-new guard: the member is
+    /// "already on the tree" when the name matches AND either the birth YEAR
+    /// corroborates (the strict path, identical to `matches`) OR — for a roster
+    /// row the census cannot date (an infant like "3w" / "7m", a torn age cell) —
+    /// the town-level BIRTHPLACE corroborates. Birthplace disambiguates namesakes
+    /// where a bare name (undateable) would over-pair, so this stays safe across
+    /// the WHOLE tree — unlike `matchesRoleScoped`'s name-only fallback, which is
+    /// safe only within the subject's own relatives. Used by
+    /// `AppState.censusFamilyNetNewLinks` so a person already on the tree (linked
+    /// to a DIFFERENT profile) isn't offered net-new and duplicated on absorb
+    /// (owner dogfood 2026-08-13: Elizabeth Barker, "age 3w · born Weston
+    /// Underwood", already on the tree under her father Samson, was offered
+    /// net-new on a namesake Joseph Barker's 1861 household).
+    public static func matchesTreeWide(member: HouseholdMember, profile: Profile, censusYear: Int?) -> Bool {
+        guard namesMatch(member: member, profile: profile) else { return false }
+        if let memberYear = memberBirthYear(member, censusYear: censusYear),
+           let profileYear = profile.birthDate?.bestYear {
+            return abs(memberYear - profileYear) <= yearTolerance
+        }
+        // Undateable roster row → require a town-level birthplace match, so a
+        // namesake born elsewhere is not falsely paired.
+        guard let memberTown = town(of: member.birthPlace) else { return false }
+        return memberTown == town(of: profile.birthLocation)
+    }
+
+    /// First comma-component, lowercased/trimmed — the town, so a census
+    /// "Weston Underwood" matches a profile "Weston Underwood, Derbyshire".
+    /// nil when the string is empty.
+    static func town(of place: String?) -> String? {
+        guard let t = place?.split(separator: ",").first?
+            .trimmingCharacters(in: .whitespaces).lowercased(), !t.isEmpty else { return nil }
+        return t
+    }
+
     /// Like `matches`, but when EITHER side is UNDATEABLE — the census row has
     /// no age and no stated birth year (an infant recorded as "7m", a torn or
     /// blank age cell), or the tree profile carries no birth date (a ghost

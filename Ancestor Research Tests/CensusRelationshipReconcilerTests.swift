@@ -1027,4 +1027,56 @@ struct CensusRelationshipReconcilerTests {
             .filter { $0.kind == .missing }
         #expect(missing.contains { $0.member.name == "George Wheeldon" && $0.censusRelation == .sibling })
     }
+
+    // MARK: - Tree-wide existence match (census net-new guard, dogfood 2026-08-13)
+
+    private func personWithPlace(_ id: String, _ first: String, _ last: String,
+                                 birthYear: Int?, place: String?) -> Profile {
+        Profile(
+            id: id, externalIDs: [:], firstName: first, lastName: last, gender: nil,
+            attributes: PersonAttributes(nameStatus: .known, lifeStatus: .normal, privacy: .normal),
+            birthDate: birthYear.map { GenealogicalDate(parsing: String($0)) },
+            birthLocation: place, deathDate: nil, deathLocation: nil,
+            bio: nil, isDeleted: false, sources: [:], disputes: [:])
+    }
+
+    /// A datable member matches an on-tree profile by name + year, and a
+    /// wrong-year namesake is refused.
+    @Test func matchesTreeWideDatesByYearWhenAvailable() {
+        let existing = personWithPlace("e", "Elizabeth", "Barker", birthYear: 1861, place: nil)
+        #expect(CensusRelationshipReconciler.matchesTreeWide(
+            member: member("Elizabeth Barker", "Daughter", age: 0), profile: existing, censusYear: 1861))
+        #expect(!CensusRelationshipReconciler.matchesTreeWide(
+            member: member("Elizabeth Barker", "Daughter", age: 20), profile: existing, censusYear: 1861))
+    }
+
+    /// The reported case: an UNDATEABLE infant ("age 3w", no year) must still
+    /// match an on-tree profile via town-level birthplace — else the census
+    /// absorb would duplicate her — while a same-name infant born elsewhere, or a
+    /// different name, must NOT match (tree-wide namesake safety).
+    @Test func matchesTreeWideFallsBackToBirthplaceForUndateableInfant() {
+        let existing = personWithPlace("e", "Elizabeth", "Barker",
+                                       birthYear: 1861, place: "Weston Underwood, Derbyshire")
+        let infantHere = HouseholdMember(name: "Elizabeth Barker", relationship: "Daughter",
+                                         birthPlace: "Weston Underwood", rawAge: "3w")
+        #expect(CensusRelationshipReconciler.matchesTreeWide(
+            member: infantHere, profile: existing, censusYear: 1861),
+            "an undateable infant must match by town-level birthplace")
+
+        let infantElsewhere = HouseholdMember(name: "Elizabeth Barker", relationship: "Daughter",
+                                              birthPlace: "Ilkeston", rawAge: "3w")
+        #expect(!CensusRelationshipReconciler.matchesTreeWide(
+            member: infantElsewhere, profile: existing, censusYear: 1861))
+
+        // No profile birthplace to corroborate an undateable row → no match.
+        let placeless = personWithPlace("e2", "Elizabeth", "Barker", birthYear: nil, place: nil)
+        #expect(!CensusRelationshipReconciler.matchesTreeWide(
+            member: infantHere, profile: placeless, censusYear: 1861))
+
+        // Different given name → never matches, birthplace notwithstanding.
+        let alice = HouseholdMember(name: "Alice Barker", relationship: "Daughter",
+                                    birthPlace: "Weston Underwood", rawAge: "1")
+        #expect(!CensusRelationshipReconciler.matchesTreeWide(
+            member: alice, profile: existing, censusYear: 1861))
+    }
 }
