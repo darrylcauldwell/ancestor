@@ -56,4 +56,21 @@ struct AuditFixButtonResearchGapTests {
         // Unknown / generic ids still get a non-empty, sensible fallback.
         #expect(!AuditFixButton.researchGapHelp(forRuleID: "completenessScore").isEmpty)
     }
+
+    /// Freshness gate (scope-I follow-up): the Research button relabels to
+    /// "Re-research" and annotates the age once the host knows a last-run date,
+    /// so a recently-searched profile isn't re-hammered on a whim.
+    @Test func researchButtonRelabelsAndAnnotatesByFreshness() {
+        // Never searched → plain "Research", no age note.
+        #expect(AuditFixButton.researchButtonTitle(lastResearched: nil) == "Research")
+        #expect(AuditFixButton.researchAgeNote(lastResearched: nil) == "")
+        // Known completion → "Re-research" + a human age note.
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(AuditFixButton.researchButtonTitle(lastResearched: now) == "Re-research")
+        #expect(AuditFixButton.researchAgeNote(lastResearched: now, now: now).contains("today"))
+        #expect(AuditFixButton.researchAgeNote(
+            lastResearched: now.addingTimeInterval(-3 * 86_400), now: now).contains("3 days ago"))
+        #expect(AuditFixButton.researchAgeNote(
+            lastResearched: now.addingTimeInterval(-86_400), now: now).contains("1 day ago"))
+    }
 }

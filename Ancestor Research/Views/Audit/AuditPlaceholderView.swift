@@ -71,6 +71,11 @@ struct HealthView: View {
     /// (DECISION_CORE_PAIR follow-up). Computed once on appear (reads
     /// evidence per profile).
     @State private var contradictoryFindings: [ContradictoryFactsAudit.Finding] = []
+    /// Per-profile last research-completion date (the Gaps view's freshness
+    /// feed), loaded once on open. Drives the Research button's "Research" vs
+    /// "Re-research (Nd ago)" label so a recently-searched profile isn't
+    /// re-hammered blindly (scope-I follow-up 2026-08-12).
+    @State private var researchDates: [String: Date] = [:]
     /// Sentinel `ruleFilter` value for the synthetic "Contradictory facts" chip.
     private let contradictoryFactsFilterID = "__contradictoryFacts"
     /// Sentinel `ruleFilter` value for the synthetic "Conflicts" chip — the
@@ -239,6 +244,7 @@ struct HealthView: View {
             censusCorroborations = appState.censusCorroborationProposals()
             contradictoryFindings = appState.contradictoryFactsFindings()
             openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
+            researchDates = appState.lastResearchCompletions()
         }
         .sheet(item: $resolvingDispute, onDismiss: {
             // Resolving writes through AppState.resolveDispute (re-runs the audit);
@@ -1122,6 +1128,7 @@ struct HealthView: View {
     @ViewBuilder private func fixButton(for r: AuditResult) -> some View {
         AuditFixButton(
             result: r,
+            lastResearched: researchDates[r.profileID],
             onFixed: { refreshAudit() },
             onCompare: { left, right in comparePair = ComparePair(leftID: left, rightID: right) },
             onEnriched: { profileID, profileName, count in

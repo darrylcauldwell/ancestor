@@ -16,6 +16,11 @@ struct AuditFixButton: View {
     @Environment(SourceRegistry.self) private var registry
 
     let result: AuditResult
+    /// The profile's last research-completion date when the host knows it (the
+    /// Health list loads it once). Nil → the Research button reads "Research";
+    /// set → "Re-research" with an age note in the help, so a recently-searched
+    /// profile isn't re-hammered on a whim. Informational — never blocks.
+    var lastResearched: Date? = nil
     var onFixed: () -> Void = {}
     var onCompare: ((_ leftID: String, _ rightID: String) -> Void)? = nil
     var onEnriched: ((_ profileID: String, _ profileName: String, _ count: Int) -> Void)? = nil
@@ -52,18 +57,41 @@ struct AuditFixButton: View {
         }
     }
 
+    /// "Research" when never searched, "Re-research" once a completion date is known.
+    nonisolated static func researchButtonTitle(lastResearched: Date?) -> String {
+        lastResearched == nil ? "Research" : "Re-research"
+    }
+
+    /// A leading "Last researched N ago. " note for the Research help text, or ""
+    /// when never searched. `now` is injectable for tests.
+    nonisolated static func researchAgeNote(lastResearched: Date?, now: Date = Date()) -> String {
+        guard let date = lastResearched else { return "" }
+        let days = max(0, Int(now.timeIntervalSince(date) / 86_400))
+        let ago = days == 0 ? "today" : "\(days) day\(days == 1 ? "" : "s") ago"
+        return "Last researched \(ago). "
+    }
+
+    /// The freshness-aware Research launch, shared by fertilityGap and the
+    /// find-it-not-type-it gaps. A single-profile launch is gentle, so freshness
+    /// informs (label + age note) rather than blocks.
+    @ViewBuilder
+    private func researchButton(help: String) -> some View {
+        Button {
+            appState.researchProfileID = result.profileID
+        } label: {
+            Label(Self.researchButtonTitle(lastResearched: lastResearched),
+                  systemImage: "magnifyingglass")
+        }
+        .buttonStyle(.glassProminent).controlSize(.mini)
+        .help(Self.researchAgeNote(lastResearched: lastResearched) + help)
+    }
+
     var body: some View {
         switch result.ruleID {
         case "fertilityGap":
             // No deterministic data-fix exists (the missing children's
             // names are unknown) — the affordance is a research launch.
-            Button {
-                appState.researchProfileID = result.profileID
-            } label: {
-                Label("Research", systemImage: "magnifyingglass")
-            }
-            .buttonStyle(.glassProminent).controlSize(.mini)
-            .help("Search the record sources for the children her 1911 census statement says are missing from the tree")
+            researchButton(help: "Search the record sources for the children her 1911 census statement says are missing from the tree")
         case "marriedSurnameFromSpouse":
             if let her = appState.snapshot.profiles[result.profileID],
                let s = MarriedSurnameFromSpouseRule.suggestion(for: her, in: appState.snapshot) {
@@ -216,15 +244,7 @@ struct AuditFixButton: View {
             }
         case let id where Self.researchResolvableGapRuleIDs.contains(id):
             // A gap whose missing value can't be typed — it has to be found.
-            // Reuse the exact research launch fertilityGap uses, so these rows
-            // gain the one action that can actually resolve them.
-            Button {
-                appState.researchProfileID = result.profileID
-            } label: {
-                Label("Research", systemImage: "magnifyingglass")
-            }
-            .buttonStyle(.glassProminent).controlSize(.mini)
-            .help(Self.researchGapHelp(forRuleID: id))
+            researchButton(help: Self.researchGapHelp(forRuleID: id))
         default:
             EmptyView()
         }
