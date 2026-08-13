@@ -99,12 +99,40 @@ nonisolated enum FreeBMDCitationAudit {
     /// sibling transcription that carries the link. nil for record types with
     /// no vol/page.
     static func volPage(_ record: SourceRecord) -> (vol: String?, page: String?) {
-        switch record {
-        case .birth(let r): return (r.volume, r.page)
-        case .death(let r): return (r.volume, r.page)
-        case .marriage(let r): return (r.volume, r.page)
-        default: return (nil, nil)
+        let typed: (vol: String?, page: String?) = switch record {
+        case .birth(let r): (r.volume, r.page)
+        case .death(let r): (r.volume, r.page)
+        case .marriage(let r): (r.volume, r.page)
+        default: (nil, nil)
         }
+        // Typed fields present → use them.
+        if let v = typed.vol?.trimmingCharacters(in: .whitespaces), !v.isEmpty,
+           let p = typed.page?.trimmingCharacters(in: .whitespaces), !p.isEmpty {
+            return (v, p)
+        }
+        // Fallback: an applied/imported FreeBMD row can carry vol/page ONLY in
+        // its stable id — built as "freebmd_{type}_{vol}_{page}_{row}"
+        // (FreeBMDSource:911) — while the typed volume/page never populated. It's
+        // the same GRO reference, so recover it so the citation enricher can
+        // re-locate the entry instead of falsely reporting "no volume/page"
+        // (owner dogfood 2026-08-13: three profiles' applied death facts).
+        if let recovered = volPageFromFreeBMDID(record.common.id) {
+            return (recovered.vol, recovered.page)
+        }
+        return typed
+    }
+
+    /// Parse (vol, page) from a FreeBMD source-record id of the shape
+    /// "freebmd_{type}_{vol}_{page}_{row}" — e.g. "freebmd_death_6_122_264339957"
+    /// → ("6","122"); "freebmd_birth_7b_933_51" → ("7b","933"). nil when the id
+    /// isn't that shape (never guesses).
+    static func volPageFromFreeBMDID(_ id: String) -> (vol: String, page: String)? {
+        let parts = id.split(separator: "_", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 5, parts[0] == "freebmd" else { return nil }
+        let vol = parts[2].trimmingCharacters(in: .whitespaces)
+        let page = parts[3].trimmingCharacters(in: .whitespaces)
+        guard !vol.isEmpty, !page.isEmpty else { return nil }
+        return (vol, page)
     }
 
     /// After a run, `saveEvidence`'s ON CONFLICT already re-links a *re-scraped

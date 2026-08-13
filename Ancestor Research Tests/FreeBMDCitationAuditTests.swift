@@ -252,4 +252,44 @@ struct FreeBMDCitationAuditTests {
         let fresh = result(vol: "7b", page: "1902", url: "https://new")
         #expect(FreeBMDCitationAudit.enrichmentUpdates(flagged: [alreadyLinked], results: [fresh]).isEmpty)
     }
+
+    // MARK: - vol/page recovery from the stable record id (dogfood 2026-08-13)
+
+    @Test func volPageFromFreeBMDIDParsesTheStableID() {
+        #expect(FreeBMDCitationAudit.volPageFromFreeBMDID("freebmd_death_6_122_264339957")?.vol == "6")
+        #expect(FreeBMDCitationAudit.volPageFromFreeBMDID("freebmd_death_6_122_264339957")?.page == "122")
+        #expect(FreeBMDCitationAudit.volPageFromFreeBMDID("freebmd_birth_7b_933_51")?.vol == "7b")
+        #expect(FreeBMDCitationAudit.volPageFromFreeBMDID("freebmd_marriage_8_1465_99")?.page == "1465")
+        // Non-freebmd / malformed → nil, never a guess.
+        #expect(FreeBMDCitationAudit.volPageFromFreeBMDID("findagrave_216193100") == nil)
+        #expect(FreeBMDCitationAudit.volPageFromFreeBMDID("freebmd_death") == nil)
+    }
+
+    /// The three-profile bug: an applied death record whose TYPED volume/page
+    /// never populated (nil) but whose id carries the GRO reference must still
+    /// yield vol/page — so the enricher stops falsely reporting "no volume/page".
+    @Test func volPageRecoversFromIDWhenTypedFieldsAreEmpty() {
+        let rec = SourceRecord.death(DeathRecord(
+            common: RecordCommon(id: "freebmd_death_6_122_264339957", sourceID: "freebmd",
+                                 name: "Annie Smith", surname: "SMITH", givenName: "ANNIE",
+                                 detailURL: nil, rawFields: [:]),
+            deathYear: 1979, deathDate: nil, deathPlace: nil, age: 74, quarter: "Dec",
+            district: "Basford", volume: nil, page: nil, spouseSurname: nil))
+        let vp = FreeBMDCitationAudit.volPage(rec)
+        #expect(vp.vol == "6")
+        #expect(vp.page == "122")
+    }
+
+    /// Typed fields win when present — the id fallback is a backstop, not an override.
+    @Test func volPagePrefersTypedFieldsOverID() {
+        let rec = SourceRecord.death(DeathRecord(
+            common: RecordCommon(id: "freebmd_death_9_999_1", sourceID: "freebmd",
+                                 name: "X Y", surname: "Y", givenName: "X",
+                                 detailURL: nil, rawFields: [:]),
+            deathYear: 1979, deathDate: nil, deathPlace: nil, age: 74, quarter: "Dec",
+            district: "Basford", volume: "6", page: "122", spouseSurname: nil))
+        let vp = FreeBMDCitationAudit.volPage(rec)
+        #expect(vp.vol == "6")   // typed, not the id's "9"
+        #expect(vp.page == "122")
+    }
 }
