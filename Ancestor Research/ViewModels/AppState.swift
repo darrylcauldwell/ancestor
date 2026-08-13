@@ -1015,6 +1015,21 @@ final class AppState {
         return (try? db.loadNotes(attachedToKind: "profile", id: profileID)) ?? []
     }
 
+    /// Narrative findings attached to a profile — surfaced in the Notes block so
+    /// a stranded or wrong-profile finding is visible and deletable. The pending
+    /// badge counts only `pending_facts`, so a narrative-only profile was
+    /// otherwise a review dead-end (owner dogfood 2026-08-13).
+    func narrativeFindingsForProfile(_ profileID: String) -> [NarrativeFindingRow] {
+        guard let db = currentDatabase else { return [] }
+        return (try? db.loadNarrativeFindingRows(profileID: profileID)) ?? []
+    }
+
+    /// Delete a narrative finding (human dismissal — see the ProjectDatabase
+    /// counterpart). Hard delete so it can never reach bio synthesis.
+    func deleteNarrativeFinding(id: String) {
+        try? currentDatabase?.deleteNarrativeFinding(id: id)
+    }
+
     /// Notes attached to a specific hypothesis.
     func notesForHypothesis(_ id: UUID) -> [WorkbenchNote] {
         guard let db = currentDatabase else { return [] }

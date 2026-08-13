@@ -28,6 +28,22 @@ extension ProjectDatabase {
         }
     }
 
+    /// Delete a narrative finding by id — the human-dismissal path for the
+    /// firewall's `narrative_findings` queue. A stranded or wrong-profile
+    /// finding (e.g. a namesake's evidence) must never reach bio synthesis, so
+    /// this is a hard delete: a rejected narrative carries no value to retain,
+    /// and leaving it `pending` risks polluting the assembled prose. Surfaced
+    /// from the profile's Notes block because the pending badge counts only
+    /// `pending_facts`, which left a narrative-only profile with no review path.
+    func deleteNarrativeFinding(id: String) throws {
+        try dbQueue.write { writeDB in
+            try writeDB.execute(
+                sql: "DELETE FROM narrative_findings WHERE id = ?",
+                arguments: [id]
+            )
+        }
+    }
+
     /// Write a human-accepted pending fact straight onto the profile columns.
     ///
     /// NOTE: deliberately bypasses `editProfile` — no `transactions`/

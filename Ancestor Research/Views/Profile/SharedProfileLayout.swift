@@ -105,6 +105,93 @@ private struct SpouseMarriageEditRow: View {
     }
 }
 
+/// Firewall-queued narrative findings for one profile, rendered inside the
+/// Notes block. Owns its own reload state so a delete removes the card in
+/// place (the parent layout reads notes from `@Observable` AppState, but
+/// narratives are read straight from the database on demand). Empty when the
+/// profile has no narrative findings — the whole block collapses to nothing.
+private struct NarrativeFindingsBlock: View {
+    @Environment(AppState.self) private var appState
+    let profileID: String
+    @State private var rows: [NarrativeFindingRow] = []
+    @State private var pendingDelete: NarrativeFindingRow?
+
+    var body: some View {
+        Group {
+            if !rows.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Research findings")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(rows) { row in
+                        card(row)
+                    }
+                }
+                .padding(.top, 4)
+            }
+        }
+        .onAppear(perform: reload)
+        .confirmationDialog(
+            "Delete this research finding?",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }),
+            presenting: pendingDelete
+        ) { row in
+            Button("Delete", role: .destructive) {
+                appState.deleteNarrativeFinding(id: row.id)
+                pendingDelete = nil
+                reload()
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: { row in
+            Text("“\(row.description)” will be permanently removed from this profile.")
+        }
+    }
+
+    private func card(_ row: NarrativeFindingRow) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(row.category)
+                        .font(.caption2)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .glassEffect(.regular, in: .capsule)
+                    if let period = row.dateOrPeriod, !period.isEmpty {
+                        Text(period)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                }
+                Text(row.description)
+                    .font(.caption)
+                    .multilineTextAlignment(.leading)
+                if let url = URL(string: row.sourceURL) {
+                    Link(row.sourceTitle, destination: url)
+                        .font(.caption2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button(role: .destructive) {
+                pendingDelete = row
+            } label: {
+                Image(systemName: "trash")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.glass)
+            .controlSize(.mini)
+            .help("Delete this research finding")
+        }
+        .padding(10)
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+    }
+
+    private func reload() {
+        rows = appState.narrativeFindingsForProfile(profileID)
+    }
+}
+
 struct SharedProfileLayout: View {
     let profile: Profile
     let snapshot: FamilyGraphSnapshot
@@ -603,6 +690,12 @@ struct SharedProfileLayout: View {
                     .buttonStyle(.plain)
                 }
             }
+
+            // Firewall-queued narrative findings (unstructured biographical
+            // evidence). Surfaced here so a stranded or wrong-profile finding is
+            // visible and deletable — the pending badge counts only pending
+            // facts, which left a narrative-only profile with no review path.
+            NarrativeFindingsBlock(profileID: profile.id)
         }
     }
 
