@@ -240,4 +240,48 @@ struct ApplyCitationTests {
         let cite = (after.sources[.deathDate] ?? []).compactMap(\.citation).first
         #expect(cite?.url?.contains("227323437") == true)
     }
+
+    /// The Enrich button decides "healed vs nothing" purely from the reconcile
+    /// RETURN value. Before the fix it counted only cross-transcription EVIDENCE
+    /// reconciles (0 here) even though it propagated the link onto the bare fact
+    /// citation — so the button falsely reported "no volume/page" (owner dogfood
+    /// 2026-08-13: Barbara Holmes, whose one applied FreeBMD evidence row already
+    /// had the link while her birthDate/birthLocation citations stayed bare). The
+    /// return must now include the applied-citation propagations.
+    @Test func reconcileReturnCountsAppliedCitationPropagations() throws {
+        let db = try makeDB()
+        let profile = Profile(
+            id: "p1", externalIDs: [:], firstName: "Barbara", lastName: "Holmes",
+            gender: .female, attributes: nil, birthDate: nil, birthLocation: nil,
+            deathDate: nil, deathLocation: nil, bio: nil, isDeleted: false,
+            sources: [:], disputes: [:])
+        _ = try db.addProfile(profile, source: .gedcom)
+        let snapshot = try db.buildSnapshot()
+
+        let rec = SourceRecord.birth(BirthRecord(
+            common: RecordCommon(id: "b1", sourceID: "freebmd", name: "Barbara M Holmes",
+                                 surname: "Holmes", givenName: "Barbara",
+                                 detailURL: nil, rawFields: [:]),
+            birthYear: 1942, birthDate: nil, birthPlace: "Belper",
+            quarter: "Dec", district: "Belper", volume: "7b", page: "1019",
+            mothersMaidenName: nil))
+        let full = CitationRenderer.cite(rec).full
+        let scored = ScoredRecord(id: "b1", record: rec, verdict: .fact, gates: [], summary: "")
+        // Apply → the bare (link-less) citation lands on the profile …
+        _ = ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: snapshot, db: db)
+        // … while the SAME evidence row already carries the link (no cross-
+        // transcription work to do — the case that returned 0 before the fix).
+        let link = "https://www.freebmd.org.uk/cgi/information.pl?r=185815725:4503&d=bmd_1"
+        try db.saveEvidence(profileID: "p1", scored: scored, citationFull: full, citationURL: link)
+        try db.updateEvidenceUserStatus(
+            evidenceID: EvidenceRecord.compositeID(profileID: "p1", sourceRecordID: "b1"),
+            status: .savedAsLead)
+
+        let n = try db.reconcileFreeBMDCitationLinks(profileID: "p1")
+        #expect(n >= 1, "the return must count the fact-citation heal, not only cross-transcription reconciles")
+
+        let after = try #require(try db.buildSnapshot().profiles["p1"])
+        let cite = (after.sources[.birthDate] ?? []).compactMap(\.citation).first
+        #expect(cite?.url?.contains("185815725") == true, "the bare citation must gain the link")
+    }
 }

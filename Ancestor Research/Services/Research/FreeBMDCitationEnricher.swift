@@ -32,13 +32,25 @@ enum FreeBMDCitationEnricher {
         /// record lacked a vol/page to re-locate on — nothing was even asked of
         /// FreeBMD, so "no match" would be a lie.
         var queriesRun: Int = 0
+        /// Applied field-source citations linked LOCALLY from already-linked
+        /// evidence (network-free) — a FACT-layer-only gap where the evidence row
+        /// had the link but the published citation was bare. Non-zero means the
+        /// button healed something even when no re-query ran.
+        var healed: Int = 0
     }
 
     /// Enrich one profile's link-less applied FreeBMD records.
     static func enrich(profileID: String, registry: SourceRegistry,
                        db: ProjectDatabase) async -> Outcome {
+        // Network-free FIRST: heal any FACT-layer citation gap locally — an
+        // applied field-source citation can be bare while the evidence row that
+        // produced it already carries the link (Change 6). This is the ONLY fix
+        // needed when there's no link-less EVIDENCE row to re-query, and the case
+        // that previously fell through to the misleading "no volume/page" dialog.
+        let healed = (try? db.reconcileFreeBMDCitationLinks(profileID: profileID)) ?? 0
+
         guard let source = registry.source(for: "freebmd") else {
-            return Outcome(enriched: 0, throttled: false)
+            return Outcome(enriched: 0, throttled: false, healed: healed)
         }
         let evidence = (try? db.loadEvidenceForProfile(profileID)) ?? []
         let flagged = evidence.filter {
@@ -46,7 +58,7 @@ enum FreeBMDCitationEnricher {
                 && $0.userStatus == .savedAsLead
                 && ($0.citationURL?.trimmingCharacters(in: .whitespaces).isEmpty ?? true)
         }
-        guard !flagged.isEmpty else { return Outcome(enriched: 0, throttled: false) }
+        guard !flagged.isEmpty else { return Outcome(enriched: 0, throttled: false, healed: healed) }
 
         var results: [SourceRecord] = []
         var throttled = false
@@ -76,7 +88,8 @@ enum FreeBMDCitationEnricher {
                 mothersMaidenName: update.mothersMaidenName)
         }
         return Outcome(enriched: updates.count, throttled: throttled,
-                       unavailableReason: unavailableReason, queriesRun: queriesRun)
+                       unavailableReason: unavailableReason, queriesRun: queriesRun,
+                       healed: healed)
     }
 
     /// A single narrow query that RE-LOCATES a known GRO entry: surname + given +

@@ -3980,13 +3980,20 @@ nonisolated extension ProjectDatabase {
         // run while its applied citation stayed bare (Abraham 2026-08-10).
         // Idempotent — propagate skips any citation that already links.
         let refreshed = try loadEvidenceForProfile(profileID)
+        var propagated = 0
         for e in refreshed where e.sourceID == "freebmd" {
             guard let url = e.citationURL?.trimmingCharacters(in: .whitespaces), !url.isEmpty
             else { continue }
-            try propagateCitationURLToAppliedFacts(
+            propagated += try propagateCitationURLToAppliedFacts(
                 profileID: profileID, citationFull: e.citationFull, citationURL: url)
         }
-        return updates.count
+        // Total healed = cross-transcription evidence reconciles + applied-citation
+        // links propagated from already-linked evidence. Counting the propagations
+        // is what lets a FACT-layer-only gap (evidence linked, published citation
+        // bare) report a fix even when no evidence row needed re-querying — the
+        // Enrich button read only `updates.count`, so it falsely said "no
+        // volume/page" (owner dogfood 2026-08-13: Barbara Holmes et al.).
+        return updates.count + propagated
     }
 
     /// FREEBMD_CITATION_BACKFILL_SPEC Change 5 — apply a targeted enrichment to

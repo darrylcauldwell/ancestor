@@ -139,6 +139,12 @@ struct AuditFixButton: View {
                                 appState.successMessage = "Enriched \(outcome.enriched) FreeBMD link\(outcome.enriched == 1 ? "" : "s") for \(result.profileName) — the mother's maiden name may unlock new parents on the next research."
                                 appState.successResearchProfileID = result.profileID
                             }
+                        } else if outcome.healed > 0 {
+                            // No re-query needed: the evidence already carried the
+                            // link, it just wasn't on the published citation — fixed
+                            // locally (the case that used to hit the false error).
+                            appState.successMessage = "Linked \(outcome.healed) applied FreeBMD citation\(outcome.healed == 1 ? "" : "s") for \(result.profileName) from evidence already on file — no re-query needed."
+                            appState.successResearchProfileID = result.profileID
                         } else if outcome.queriesRun == 0 {
                             appState.errorMessage = "\(result.profileName)'s FreeBMD records carry no volume/page, so there's nothing to re-locate. The missing link is only provenance."
                         } else {
