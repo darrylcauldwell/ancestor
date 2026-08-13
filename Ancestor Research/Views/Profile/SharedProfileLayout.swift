@@ -117,20 +117,22 @@ private struct NarrativeFindingsBlock: View {
     @State private var pendingDelete: NarrativeFindingRow?
 
     var body: some View {
-        Group {
+        // The outer VStack always renders (even with zero rows) so the loader
+        // below actually runs: `.onAppear`/`.task` never fires on an empty
+        // `Group`, which would leave `rows` empty forever. `.task(id:)` also
+        // reloads when the view is reused for a different profile.
+        VStack(alignment: .leading, spacing: 6) {
             if !rows.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Research findings")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    ForEach(rows) { row in
-                        card(row)
-                    }
+                Text("Research findings")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ForEach(rows) { row in
+                    card(row)
                 }
-                .padding(.top, 4)
             }
         }
-        .onAppear(perform: reload)
+        .padding(.top, rows.isEmpty ? 0 : 4)
+        .task(id: profileID) { reload() }
         .confirmationDialog(
             "Delete this research finding?",
             isPresented: Binding(
