@@ -1079,4 +1079,49 @@ struct CensusRelationshipReconcilerTests {
         #expect(!CensusRelationshipReconciler.matchesTreeWide(
             member: alice, profile: existing, censusYear: 1861))
     }
+
+    // MARK: - Nickname-aware member recognition (owner dogfood 2026-08-14)
+
+    /// The reported case: Ernest Wheeldon's 1891 household carried "Samuel",
+    /// "Joseph" and "Kate" while the tree holds the same people as Sam, Joe
+    /// and Kathleen — string-equal given-name matching recognised none of
+    /// them, and "Add 4 family members" would have minted three duplicates.
+    /// Recognition must route given names through the name-similarity ladder
+    /// at the nickname threshold.
+    @Test func recognisesPetFormGivenNamesWithYearCorroboration() {
+        let sam = personWithPlace("s", "Sam", "Wheeldon", birthYear: 1879, place: nil)
+        #expect(CensusRelationshipReconciler.matchesTreeWide(
+            member: member("Samuel Wheeldon", "Son", age: 11), profile: sam, censusYear: 1891))
+
+        let joe = personWithPlace("j", "Joe", "Wheeldon", birthYear: 1888, place: nil)
+        #expect(CensusRelationshipReconciler.matchesTreeWide(
+            member: member("Joseph Wheeldon", "Son", age: 3), profile: joe, censusYear: 1891))
+
+        let kathleen = personWithPlace("k", "Kathleen", "Wheeldon", birthYear: 1890, place: nil)
+        #expect(CensusRelationshipReconciler.matchesTreeWide(
+            member: member("Kate Wheeldon", "Dau", age: 1), profile: kathleen, censusYear: 1891))
+    }
+
+    /// The looser similarity rungs must NOT leak into recognition: a
+    /// single-edit near-name (Dale/Gale, 0.7) and a containment pair
+    /// (Hannah/Susannah, 0.8) both sit below the 0.85 nickname threshold —
+    /// dedup welding two distinct people is worse than an over-offer.
+    @Test func nearNamesBelowNicknameThresholdStillRefuse() {
+        let dale = personWithPlace("d", "Dale", "Wheeldon", birthYear: 1879, place: nil)
+        #expect(!CensusRelationshipReconciler.matchesTreeWide(
+            member: member("Gale Wheeldon", "Son", age: 11), profile: dale, censusYear: 1891))
+
+        let hannah = personWithPlace("h", "Hannah", "Wheeldon", birthYear: 1879, place: nil)
+        #expect(!CensusRelationshipReconciler.matchesTreeWide(
+            member: member("Susannah Wheeldon", "Dau", age: 11), profile: hannah, censusYear: 1891))
+    }
+
+    /// Nickname recognition still requires the usual corroboration: a
+    /// pet-form name match with the WRONG year refuses (families reused
+    /// names; Sam b.1879 is not a namesake Samuel b.1899).
+    @Test func petFormMatchStillYearGated() {
+        let sam = personWithPlace("s", "Sam", "Wheeldon", birthYear: 1879, place: nil)
+        #expect(!CensusRelationshipReconciler.matchesTreeWide(
+            member: member("Samuel Wheeldon", "Son", age: 1), profile: sam, censusYear: 1900))
+    }
 }

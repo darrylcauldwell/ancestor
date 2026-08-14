@@ -395,7 +395,19 @@ public nonisolated struct CensusRelationshipReconciler {
             .compactMap { $0?.lowercased().trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         guard !profileGiven.isEmpty, !profileSurnames.isEmpty else { return false }
-        return memberGiven == profileGiven && profileSurnames.contains(memberSurname)
+        guard profileSurnames.contains(memberSurname) else { return false }
+        // Given names compare through the name-similarity ladder at the
+        // nickname threshold, not by string equality — a census "Samuel" must
+        // recognise the tree's "Sam", "Joseph" its "Joe" (owner dogfood
+        // 2026-08-14: Ernest's 1891 household offered "Add 4 family members"
+        // for a roster where five of six relatives were already on the tree,
+        // three hidden behind pet-form names — pressing it would have minted
+        // three duplicates). 0.85 admits exact matches, AU/OU spelling
+        // normalisation and the nickname table; it EXCLUDES the looser
+        // containment (0.8) and single-edit (0.7) rungs, so Dale/Gale-style
+        // near-names still refuse — dedup must never be laxer than that.
+        return memberGiven == profileGiven
+            || nameSimilarity(memberGiven, profileGiven) >= 0.85
     }
 
     /// The member's birth year — stated, or derived from census-year − age.

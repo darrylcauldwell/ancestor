@@ -1145,10 +1145,11 @@ public nonisolated func nameSimilarity(_ a: String, _ b: String) -> Double {
         .replacingOccurrences(of: "OU", with: "O")
     if aNorm == bNorm { return 0.95 }
 
-    // One contains the other (Mary Ann / Mary)
-    if a.contains(b) || b.contains(a) { return 0.8 }
-
-    // Nickname equivalents
+    // Nickname equivalents — checked BEFORE containment: a known pet-form
+    // pair (SAM/SAMUEL, JOE/JOSEPH) is stronger evidence than raw substring
+    // containment, and the containment rung's 0.8 would otherwise shadow the
+    // 0.85 these pairs deserve (dedup thresholds at 0.85 — owner dogfood
+    // 2026-08-14, Ernest Wheeldon's household).
     let nicknames: [String: String] = [
         "JACK": "JOHN", "JOHN": "JACK",
         "HARRY": "HENRY", "HENRY": "HARRY",
@@ -1160,7 +1161,8 @@ public nonisolated func nameSimilarity(_ a: String, _ b: String) -> Double {
         "BETTY": "ELIZABETH", "ELIZABETH": "BETTY",
         "NELL": "ELLEN", "ELLEN": "NELL",
         "JOE": "JOSEPH", "JOSEPH": "JOE",
-        "KATE": "CATHERINE", "CATHERINE": "KATE",
+        "SAM": "SAMUEL", "SAMUEL": "SAM",
+        "KATE": "CATHERINE", "CATHERINE": "KATE", "KATHLEEN": "KATE",
         "WILLIE": "WILLIAM",
         "NELLIE": "ELLEN",
         "LIZZIE": "ELIZABETH",
@@ -1172,6 +1174,14 @@ public nonisolated func nameSimilarity(_ a: String, _ b: String) -> Double {
         "ADELAIDE": "ADA", "ADELINE": "ADA", "ADELA": "ADA", "ADELINA": "ADA",
     ]
     if nicknames[a] == b || nicknames[b] == a { return 0.85 }
+    // Two diminutives of one formal name (WILLIE ~ BILL via WILLIAM) — the
+    // flat pair table can't express transitivity; the shared canonical can
+    // (kept in step with ScoringRules.givenNameVariants' cluster walk).
+    if let canonA = nicknames[a], let canonB = nicknames[b], canonA == canonB { return 0.85 }
+
+    // One contains the other (Mary Ann / Mary)
+    if a.contains(b) || b.contains(a) { return 0.8 }
+
 
     // A single edit away — a substitution on equal-length names (DALE/GALE) or
     // one insertion/deletion for names of 4+ letters (GLAYS/GLADYS, a dropped
