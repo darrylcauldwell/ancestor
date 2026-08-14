@@ -137,8 +137,14 @@ nonisolated struct EvidenceFirewall {
                 ?? String(data: data, encoding: .isoLatin1)
                 ?? ""
 
-            let normalisedEvidence = normalise(evidenceText)
-            let normalisedPage = normalise(pageText)
+            // Match against the page's RENDERED text, not its raw markup:
+            // table-based sources (FreeCEN/FreeREG record pages) interleave
+            // `</td><td>` between every field, so a faithful multi-cell quote
+            // could never match raw HTML and every such fact false-rejected
+            // (owner report 2026-08-14: Mary A Gibbs 1861 census fact bounced
+            // with "evidence text not found" despite the page containing it).
+            let normalisedEvidence = normalise(stripHTMLTags(evidenceText))
+            let normalisedPage = normalise(stripHTMLTags(pageText))
 
             if normalisedEvidence.isEmpty || normalisedPage.contains(normalisedEvidence) {
                 return .verified(pageData: data, pageHash: sha256(data))
@@ -191,6 +197,19 @@ nonisolated struct EvidenceFirewall {
               let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               let range = Range(match.range(at: 1), in: text) else { return nil }
         return Int(text[range])
+    }
+
+    /// Reduce HTML to its rendered text: tags become whitespace (so adjacent
+    /// table cells separate rather than concatenate) and the handful of
+    /// entities common in record pages decode. Applied to BOTH sides of the
+    /// content match — evidence text is usually tag-free, so this is a no-op
+    /// there — before `normalise` collapses whitespace.
+    static func stripHTMLTags(_ text: String) -> String {
+        var out = text.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+        for (entity, ch) in [("&amp;", "&"), ("&#39;", "'"), ("&quot;", "\""), ("&nbsp;", " "), ("&lt;", "<"), ("&gt;", ">")] {
+            out = out.replacingOccurrences(of: entity, with: ch)
+        }
+        return out
     }
 
     /// Normalise text for content matching: lowercase, collapse whitespace, strip punctuation.

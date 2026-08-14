@@ -190,7 +190,9 @@ nonisolated enum HallucinationRecheck {
         // A page that carries no meaningful content once normalised (empty,
         // or whitespace/markup-only) can't corroborate anything — bounce it
         // distinctly from "content present but claim absent".
-        let normalisedPage = EvidenceFirewall.normalise(fetched.text)
+        // stripHTMLTags first — identical semantics to verifyURL, so a quote
+        // spanning table cells matches the rendered text on both passes.
+        let normalisedPage = EvidenceFirewall.normalise(EvidenceFirewall.stripHTMLTags(fetched.text))
         guard !normalisedPage.isEmpty else {
             return audit(claim, .bounced(flag: .emptyPage), servedFromCache: fetched.servedFromCache, at: now)
         }

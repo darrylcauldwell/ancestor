@@ -153,4 +153,35 @@ struct EvidenceFirewallTests {
         )
         #expect(key1 != key2)
     }
+
+    // MARK: - Rendered-text content matching (owner report 2026-08-14)
+
+    /// A faithful quote of a table-rendered record (FreeCEN/FreeREG) spans
+    /// `</td><td>` boundaries in the raw HTML, so raw-substring matching
+    /// false-rejected every such fact. Verification must match against the
+    /// RENDERED text: tags become whitespace, common entities decode.
+    @Test func tableCellQuoteMatchesRenderedText() {
+        let html = """
+        <tr><td>GIBBS</td><td>John</td><td>Head</td><td>M</td><td>M</td>\
+        <td>32</td><td>Farmer 56 Acres(Em&#39;ee)</td><td>Derbyshire</td><td>Taddington</td></tr>
+        """
+        let quote = "GIBBS John Head M M 32 Farmer 56 Acres(Em'ee) Derbyshire Taddington"
+        let page = EvidenceFirewall.normalise(EvidenceFirewall.stripHTMLTags(html))
+        let evidence = EvidenceFirewall.normalise(EvidenceFirewall.stripHTMLTags(quote))
+        #expect(page.contains(evidence))
+    }
+
+    /// Tag-stripping must SEPARATE adjacent cells, not concatenate them —
+    /// "GIBBSJohn" would silently match nothing real.
+    @Test func strippedTagsBecomeWhitespaceNotConcatenation() {
+        let stripped = EvidenceFirewall.stripHTMLTags("<td>GIBBS</td><td>John</td>")
+        #expect(EvidenceFirewall.normalise(stripped) == "gibbs john")
+    }
+
+    /// Plain-text evidence is untouched by the strip — the pre-fix behaviour
+    /// for non-HTML sources is preserved.
+    @Test func plainTextEvidenceUnchangedByStrip() {
+        let text = "Mary Ann GIBBS, 1853 D Quarter, Bakewell"
+        #expect(EvidenceFirewall.stripHTMLTags(text) == text)
+    }
 }
