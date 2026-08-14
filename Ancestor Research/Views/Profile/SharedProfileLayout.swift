@@ -1627,6 +1627,17 @@ struct SharedProfileLayout: View {
                     .help("Open the \(source.origin.identifier.uppercased()) record")
                     .accessibilityLabel("Source \(source.origin.identifier)")
                     .accessibilityHint("Opens the source record in your browser")
+                } else if let citation = source.citation, !citation.formatted.isEmpty {
+                    // A text-only citation (e.g. a purchased GRO image with no
+                    // URL) was stored but rendered NOWHERE — the user's manual
+                    // citation work was invisible (owner report 2026-08-14,
+                    // William Wilfred Holmes's birth entry). Surface it: the
+                    // badge gains a document glyph and its tooltip carries the
+                    // full formatted citation.
+                    sourceBadgeLabel(source, clickable: false, hasCitation: true)
+                        .help(citation.formatted)
+                        .accessibilityLabel("Source \(source.origin.identifier), cited")
+                        .accessibilityHint(citation.formatted)
                 } else {
                     sourceBadgeLabel(source, clickable: false)
                         .help(sourceConfidenceHelp(source.confidence))
@@ -1641,7 +1652,7 @@ struct SharedProfileLayout: View {
     /// plain variants share one rendering. When `clickable`, a small arrow
     /// glyph signals the badge opens the source record.
     @ViewBuilder
-    private func sourceBadgeLabel(_ source: FieldSource, clickable: Bool) -> some View {
+    private func sourceBadgeLabel(_ source: FieldSource, clickable: Bool, hasCitation: Bool = false) -> some View {
         HStack(spacing: 3) {
             // M24 — colourblind / high-contrast users see a glyph
             // (`?` for tentative, `✓` for well evidenced) in place
@@ -1663,6 +1674,12 @@ struct SharedProfileLayout: View {
                 .font(.system(size: 8, weight: .bold))
             if clickable {
                 Image(systemName: "arrow.up.right")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(.secondary)
+            } else if hasCitation {
+                // Text-only citation on board — hover the badge for the
+                // full formatted reference.
+                Image(systemName: "doc.text")
                     .font(.system(size: 7, weight: .bold))
                     .foregroundStyle(.secondary)
             }
