@@ -1580,11 +1580,24 @@ actor MCPHandler {
         ) ?? "{}"
 
         try db.write { db in
+            // Upsert: a resubmission with the same canonical id (same
+            // profile/field/value/url) refreshes the evidence text and
+            // reasoning and re-queues verification — INSERT OR IGNORE
+            // silently discarded corrected quotes (owner report 2026-08-14:
+            // a fixed evidence_text never replaced the failing original).
+            // Human decisions are never overturned: the update only touches
+            // rows still awaiting review.
             try db.execute(sql: """
-                INSERT OR IGNORE INTO pending_facts
+                INSERT INTO pending_facts
                 (id, profile_id, fact_kind, value_json, sources_json, review_status, created_at,
                  source_url, source_title, evidence_text, reasoning, agent_id, verification_status)
                 VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 'field-researcher', 'pending')
+                ON CONFLICT(id) DO UPDATE SET
+                    evidence_text = excluded.evidence_text,
+                    reasoning = excluded.reasoning,
+                    source_title = excluded.source_title,
+                    verification_status = 'pending'
+                WHERE pending_facts.review_status = 'pending'
                 """, arguments: [
                     id, profileID, field, value, sourcesJSON, Date(),
                     sourceURL, sourceTitle, cappedEvidence, reasoning,

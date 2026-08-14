@@ -289,6 +289,29 @@ struct PendingFactsReviewView: View {
                         .font(AppTypography.badge)
                         .foregroundStyle(.tertiary)
                 }
+            } else if finding.status == .rejected {
+                // Auto-rejection is a flag, not a veto — the human keeps final
+                // say (owner report 2026-08-14: a GRO index citation is real
+                // but its results page is unfetchable, so content verification
+                // can never pass; the fact was stranded with no actions).
+                // "Accept anyway" records `human_attested`, not `verified`.
+                Divider()
+                HStack {
+                    Button("Accept anyway") {
+                        acceptFinding(finding, humanAttested: true)
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+                    .help("Override the failed URL check — use when you have verified the source yourself (e.g. a login-walled index). Provenance records your attestation, not a machine pass.")
+
+                    Button("Dismiss") {
+                        rejectFinding(finding)
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+
+                    Spacer()
+                }
             }
         }
         .padding(14)
@@ -372,11 +395,15 @@ struct PendingFactsReviewView: View {
 
     // MARK: - Actions
 
-    private func acceptFinding(_ finding: ProcessedFinding) {
+    private func acceptFinding(_ finding: ProcessedFinding, humanAttested: Bool = false) {
         guard let db = appState.currentDatabase else { return }
 
-        // 1. Mark pending fact as accepted
-        try? db.updatePendingFactStatus(id: finding.id, status: "accepted", verificationStatus: "verified")
+        // 1. Mark pending fact as accepted. A human override of a failed URL
+        // verification records `human_attested`, never `verified` — provenance
+        // must not claim the machine check passed when it didn't.
+        try? db.updatePendingFactStatus(
+            id: finding.id, status: "accepted",
+            verificationStatus: humanAttested ? "human_attested" : "verified")
 
         // 2. Apply the fact to the tree profile
         applyFactToProfile(finding: finding, db: db)
