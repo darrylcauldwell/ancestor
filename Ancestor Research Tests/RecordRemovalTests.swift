@@ -311,4 +311,30 @@ struct RecordRemovalTests {
         #expect(try db.loadRejections(profileID: "p").contains("b1"),
                 "rejection memory still recorded")
     }
+
+    /// Regression (owner report 2026-08-14, Mary Ann's 7b/1007 marriage): a
+    /// review-side Discard after apply sets user_status = .discarded WITHOUT
+    /// reverting the absorption. Removal must still invert such a row — the
+    /// ledger lists it, so the bin must work on it. (The old ProfileDetailView
+    /// guard filtered on .savedAsLead and silently no-opped.)
+    @Test func removalInvertsARecordAlreadyDiscardedInReview() throws {
+        let db = try makeDB()
+        try db.addProfile(profile(), source: .gedcom)
+        let evidence = try applyAndKeep(birthRecord("b1", year: 1883), db: db)
+        // Review-side discard: status flips, absorption untouched.
+        try db.updateEvidenceUserStatus(profileID: "p", sourceRecordIDs: ["b1"], status: .discarded)
+        #expect(!(try fieldSourceRows(db, field: .birthDate)).isEmpty,
+                "discard alone must not have reverted the absorption (precondition)")
+
+        _ = evidence
+        let discarded = try #require(try db.loadEvidenceForProfile("p")
+            .first { $0.sourceRecordID == "b1" })
+        #expect(discarded.userStatus == .discarded)
+        let report = try db.removeAppliedRecord(discarded)
+
+        #expect(report.revertedFields.contains(.birthDate))
+        #expect(try fieldSourceRows(db, field: .birthDate).isEmpty,
+                "removal inverted the applied value despite the discarded status")
+        #expect(try db.loadRejections(profileID: "p").contains("b1"))
+    }
 }

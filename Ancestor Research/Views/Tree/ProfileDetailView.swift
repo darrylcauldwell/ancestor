@@ -475,9 +475,16 @@ struct ProfileDetailView: View {
     /// refreshes the ledger. The record itself stays in research history, so
     /// removal is reversible by re-applying from research.
     private func removeLedgerRecord(_ entry: ProfileSourcesLedger.Entry) {
+        // No `.savedAsLead` filter — twin of the SharedProfileLayout fix
+        // (2026-08-06): the ledger only lists applied records, and the row's
+        // review status may already be `.discarded` (a review-side Discard
+        // after apply sets the status without reverting the absorption).
+        // Filtering on savedAsLead made the bin silently do nothing for such
+        // rows (owner report 2026-08-14: Mary Ann's 7b/1007 marriage wouldn't
+        // remove). The DB-level inversion is status-agnostic and idempotent.
         guard let db = appState.currentDatabase,
               let evidence = (try? db.loadEvidenceForProfile(profile.id))?
-                  .first(where: { $0.sourceRecordID == entry.id && $0.userStatus == .savedAsLead })
+                  .first(where: { $0.sourceRecordID == entry.id })
         else { return }
         appState.removeAppliedRecord(evidence)
         reloadLedger()
