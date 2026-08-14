@@ -65,6 +65,11 @@ private struct SpouseMarriageEditRow: View {
     let edgeID: UUID
     @State private var date: String
     @State private var location: String
+    /// Transient post-save state: the tick flashes green so the user knows the
+    /// write landed. Without it the commit was silent and indistinguishable
+    /// from a no-op (owner report 2026-08-14: "clicked the tick but the write
+    /// doesn't seem to occur" — it had, invisibly).
+    @State private var justSaved = false
 
     init(edgeID: UUID, initialDate: String, initialLocation: String) {
         self.edgeID = edgeID
@@ -85,12 +90,14 @@ private struct SpouseMarriageEditRow: View {
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(commit)
             Button(action: commit) {
+                // Explicit Color on both arms — the ShapeStyle ternary trap
+                // rejects mixing .tint with a Color.
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(justSaved ? Color.green : Color.accentColor)
             }
             .buttonStyle(.plain)
-            .help("Save marriage date and place")
-            .accessibilityLabel("Save marriage")
+            .help(justSaved ? "Saved" : "Save marriage date and place")
+            .accessibilityLabel(justSaved ? "Marriage saved" : "Save marriage")
         }
         .font(.caption2)
     }
@@ -102,6 +109,11 @@ private struct SpouseMarriageEditRow: View {
             id: edgeID,
             date: trimmedDate.isEmpty ? nil : GenealogicalDate(parsing: trimmedDate),
             location: trimmedLoc.isEmpty ? nil : trimmedLoc)
+        withAnimation { justSaved = true }
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            withAnimation { justSaved = false }
+        }
     }
 }
 
