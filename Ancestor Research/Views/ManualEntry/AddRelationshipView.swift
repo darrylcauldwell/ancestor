@@ -283,7 +283,8 @@ struct AddRelationshipView: View {
             LocationPicker(
                 label: "Marriage location",
                 text: $marriageLocation,
-                locationCode: $marriageLocationCode
+                locationCode: $marriageLocationCode,
+                eventYear: GenealogicalDate.parsePreview(marriageDateText).parsed?.bestYear
             )
         }
     }
@@ -344,11 +345,22 @@ struct AddRelationshipView: View {
         default: nil
         }
         let birth = np.birthYear.map { GenealogicalDate(parsing: "CAL \($0)") }
+        // Code the birthplace where the gazetteer is unambiguous about it.
+        // Promoting a census household member used to write the transcribed
+        // string and nothing else, so every profile created this way — often
+        // several at once — started life uncoded even when the place was one the
+        // app knows perfectly well. `PlaceResolver.resolve` declines on any
+        // ambiguity, so this only ever fills in the certain cases; the display
+        // string is untouched either way.
+        let birthCode = np.birthPlace.flatMap { place -> String? in
+            let trimmed = place.trimmingCharacters(in: .whitespaces)
+            return trimmed.isEmpty ? nil : PlaceResolver.resolve(placeText: trimmed)
+        }
         return Profile(
             id: UUID().uuidString, externalIDs: [:],
             firstName: first, middleName: nil, lastName: last,
             gender: gender, attributes: nil,
-            birthDate: birth, birthLocation: np.birthPlace,
+            birthDate: birth, birthLocation: np.birthPlace, birthLocationCode: birthCode,
             deathDate: nil, deathLocation: nil,
             bio: nil, isDeleted: false, sources: [:], disputes: [:])
     }

@@ -8,6 +8,18 @@ struct CensusFieldsSection: View {
     @Binding var censusType: CensusType
     @Binding var yearText: String
     @Binding var address: String
+    /// The parish or town the household was enumerated in — a real place, and a
+    /// different thing from the street `address`.
+    ///
+    /// They used to be one field, and the street went into the life event's
+    /// `location`. That put "12 Chapel Street" where the automated absorption
+    /// path puts a parish (`NarrativeAssembler.swift:141` uses `parish ?? district`),
+    /// so hand-entered census events and applied ones disagreed about what
+    /// `location` means — and every hand-entered one arrived uncoded, for the
+    /// whole household at once. A picker on the street field would have been the
+    /// wrong fix: a street is not a gazetteer entry and never resolves.
+    @Binding var place: String
+    @Binding var placeCode: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -28,9 +40,15 @@ struct CensusFieldsSection: View {
                 TextField("Year", text: $yearText)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 100)
-                TextField("Address", text: $address)
+                TextField("Street address", text: $address)
                     .textFieldStyle(.roundedBorder)
             }
+            LocationPicker(
+                label: "Parish or town",
+                text: $place,
+                locationCode: $placeCode,
+                eventYear: Int(yearText.trimmingCharacters(in: .whitespaces))
+            )
         }
     }
 

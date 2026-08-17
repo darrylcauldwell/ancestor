@@ -14,16 +14,42 @@ struct LocationPicker: View {
     let label: String
     @Binding var text: String
     @Binding var locationCode: String?
-    /// The year of the event this place belongs to, when the surrounding form
-    /// knows it. Registration districts open and close, so without it the
-    /// district line can name one that did not exist — "Crich · Amber Valley"
-    /// for a Victorian birth, Amber Valley RD having begun in 1994.
-    var eventYear: Int?
+    /// The year of the event this place belongs to. Registration districts open
+    /// and close, so without it the district line can name one that did not
+    /// exist — "Crich · Amber Valley" for a Victorian birth, Amber Valley RD
+    /// having begun in 1994.
+    let eventYear: Int?
     /// Optional callback for callers that need to react to a confirmed selection
     /// (e.g. trigger an audit re-run when the structured code changes).
     var onSelect: ((GazetteerEntry?) -> Void)?
 
+    /// **`eventYear` has no default on purpose.** Swift hands optional properties
+    /// an implicit `nil` in the synthesised memberwise init, and when this
+    /// parameter was added that silently left five of the ten embeds date-blind —
+    /// still offering districts that would not exist for another century. An
+    /// explicit init makes every call site state the year or state that it has
+    /// none, so the omission cannot happen again by inattention.
+    init(
+        label: String,
+        text: Binding<String>,
+        locationCode: Binding<String?>,
+        eventYear: Int?,
+        onSelect: ((GazetteerEntry?) -> Void)? = nil
+    ) {
+        self.label = label
+        self._text = text
+        self._locationCode = locationCode
+        self.eventYear = eventYear
+        self.onSelect = onSelect
+    }
+
     @FocusState private var isFocused: Bool
+    /// Set once the user types in THIS field, so the unmatched notice below
+    /// distinguishes "you just typed this and picked nothing" from "this row
+    /// arrived uncoded from an import". Without it the notice would appear
+    /// against most of the tree on first render, which is nagging rather than
+    /// informative.
+    @State private var userEdited: Bool = false
 
     /// Derived — show the dropdown whenever the field is focused, the user has
     /// typed something, and the gazetteer has at least one match. Pure computed
@@ -49,6 +75,7 @@ struct LocationPicker: View {
                        entry.displayName == newValue {
                         return
                     }
+                    userEdited = true
                     if locationCode != nil { locationCode = nil }
                 }
                 .onAppear {
@@ -74,6 +101,34 @@ struct LocationPicker: View {
                 } else {
                     matchesDropdown
                 }
+            }
+
+            // THE QUIET FAILURE. Typing "Derby" and clicking away leaves real
+            // text and no code — and said nothing at all, because the
+            // no-gazetteer-match notice above is suppressed whenever matches
+            // exist, and the green chip below only renders once a code is set.
+            // That is the commonest way a place ends up uncoded: the app knew
+            // the place, the user just never picked it from the list.
+            //
+            // Deliberately NOT an error, and deliberately not shown for text
+            // that arrived uncoded from an import — only for a field the user
+            // edited in this session and left unmatched. Unresolved places must
+            // keep working (LOCATION_MODEL_SPEC "Never block"); the point is
+            // that the user should know it happened.
+            if userEdited, !isFocused, locationCode == nil,
+               !text.trimmingCharacters(in: .whitespaces).isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "questionmark.circle")
+                        .foregroundStyle(.orange)
+                        .font(.caption)
+                    Text(currentMatches.isEmpty
+                         ? "Saved as text — no gazetteer match."
+                         : "Saved as text — you didn't pick from the list.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 4)
+                .help("Places kept as plain text still work, but they can't be matched to a registration district. Settle them in the Places tab.")
             }
 
             // When code is set, show a small confirmation chip so the user

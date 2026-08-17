@@ -3615,6 +3615,27 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// A structured place code that names nothing.
+    ///
+    /// SQLite cannot catch this: `PlaceAuthority` is materialised from bundled
+    /// JSON at launch, not a table, so no foreign key is possible and "the schema
+    /// will stop it" is never true here. The check has to live at each writer.
+    enum PlaceCodeError: Error, Equatable {
+        case unknownPlaceAuthorityID(String)
+    }
+
+    /// Reject a code that does not name a real place, county or registration
+    /// district. Callers all source their codes from the gazetteer picker, the
+    /// resolver or the Places tab, so this should never fire in normal use — it
+    /// exists because every one of these setters was a bare `UPDATE` that would
+    /// persist any string at all, and a code that resolves to nothing is
+    /// invisible afterwards: the picker's chip simply does not render.
+    static func validatePlaceCode(_ code: String?) throws {
+        guard let code, !code.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        guard PlaceAuthorityRegistry.shared.place(id: code) == nil else { return }
+        throw PlaceCodeError.unknownPlaceAuthorityID(code)
+    }
+
     /// Update the structured location codes on a profile. Bypasses the per-field
     /// source attribution path because the codes are derived metadata from the
     /// gazetteer picker, not facts from an external source. Codes can be `nil`
@@ -3624,6 +3645,8 @@ nonisolated extension ProjectDatabase {
         birthCode: String?,
         deathCode: String?
     ) throws {
+        try Self.validatePlaceCode(birthCode)
+        try Self.validatePlaceCode(deathCode)
         try dbQueue.write { db in
             try db.execute(sql: """
                 UPDATE profiles
@@ -3645,6 +3668,7 @@ nonisolated extension ProjectDatabase {
         case .deathLocation: column = "death_location_code"
         default: return
         }
+        try Self.validatePlaceCode(code)
         try dbQueue.write { db in
             try db.execute(
                 sql: "UPDATE profiles SET \(column) = ? WHERE id = ?",
@@ -3662,6 +3686,7 @@ nonisolated extension ProjectDatabase {
     func setBirthRegistrationDistrictIfEmpty(profileID: String, district: String) throws {
         let trimmed = district.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
+        try Self.validatePlaceCode(trimmed)
         try dbQueue.write { db in
             try db.execute(sql: """
                 UPDATE profiles

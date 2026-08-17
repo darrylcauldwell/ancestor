@@ -13,6 +13,9 @@ nonisolated extension ProjectDatabase {
     /// (text, scope). One write transaction so a crash cannot leave a string
     /// with two live decisions or none.
     func recordPlaceDecision(_ decision: PlaceDecision) throws {
+        // The migration's NOT NULL is the only other constraint, and no foreign
+        // key is possible — PlaceAuthority is bundled JSON, not a table.
+        try ProjectDatabase.validatePlaceCode(decision.placeAuthorityID)
         try dbQueue.write { db in
             try db.execute(sql: """
                 UPDATE place_decisions SET superseded_at = ?

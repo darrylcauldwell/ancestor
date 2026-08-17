@@ -31,6 +31,8 @@ struct AddFamilyView: View {
     @State private var censusType: CensusType = .census1881
     @State private var censusYearText: String = "1881"
     @State private var censusAddress: String = ""
+    @State private var censusPlace: String = ""
+    @State private var censusPlaceCode: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,7 +51,9 @@ struct AddFamilyView: View {
                         CensusFieldsSection(
                             censusType: $censusType,
                             yearText: $censusYearText,
-                            address: $censusAddress
+                            address: $censusAddress,
+                            place: $censusPlace,
+                            placeCode: $censusPlaceCode
                         )
                     }
                     parentSection(label: "Father", slot: $fatherSlot, defaultGender: .male)
@@ -117,7 +121,8 @@ struct AddFamilyView: View {
             LocationPicker(
                 label: "Marriage location",
                 text: $marriageLocation,
-                locationCode: $marriageLocationCode
+                locationCode: $marriageLocationCode,
+                eventYear: GenealogicalDate.parsePreview(marriageDateText).parsed?.bestYear
             )
         }
     }
@@ -236,7 +241,8 @@ struct AddFamilyView: View {
             LocationPicker(
                 label: "Birth location",
                 text: slot.birthLocation,
-                locationCode: slot.birthLocationCode
+                locationCode: slot.birthLocationCode,
+                eventYear: GenealogicalDate.parsePreview(slot.birthDateText.wrappedValue).parsed?.bestYear
             )
         }
     }
@@ -337,20 +343,29 @@ struct AddFamilyView: View {
     /// the resolved profile. Skipped when census-mode is off — see save().
     private func attachCensusLifeEvents(slotProfileIDs: [UUID: String]) {
         let address = censusAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        let place = censusPlace.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A place OR an address is enough to be worth recording; previously an
+        // address was required, which is the wrong half to insist on.
         guard let yearText = parsedCensusYear.map({ String($0) }),
-              !address.isEmpty
+              !(address.isEmpty && place.isEmpty)
         else { return }
 
         let allSlots = [fatherSlot, motherSlot] + childSlots
         for slot in allSlots {
             guard let profileID = slotProfileIDs[slot.id] else { continue }
             let occupation = slot.censusOccupation.trimmingCharacters(in: .whitespacesAndNewlines)
+            // `location` is the PARISH, matching what the absorption path
+            // writes; the street goes in the description beside the occupation,
+            // where it reads as the detail it is.
+            let detail = [address.isEmpty ? nil : address, occupation.isEmpty ? nil : occupation]
+                .compactMap { $0 }.joined(separator: " — ")
             _ = appState.createLifeEvent(
                 profileID: profileID,
                 type: .census,
                 date: GenealogicalDate(parsing: yearText),
-                location: address,
-                description: occupation.isEmpty ? nil : occupation,
+                location: place.isEmpty ? nil : place,
+                locationCode: censusPlaceCode,
+                description: detail.isEmpty ? nil : detail,
                 sources: [],
                 confidence: .standard
             )

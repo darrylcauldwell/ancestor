@@ -173,7 +173,8 @@ struct OnboardingWizardView: View {
                 LocationPicker(
                     label: "Marriage location",
                     text: $input.marriageLocation,
-                    locationCode: $input.marriageLocationCode
+                    locationCode: $input.marriageLocationCode,
+                    eventYear: GenealogicalDate.parsePreview(input.marriageDateText).parsed?.bestYear
                 )
             }
         }
@@ -409,7 +410,8 @@ struct OnboardingWizardView: View {
                 LocationPicker(
                     label: "Birth location",
                     text: input.birthLocation,
-                    locationCode: input.birthLocationCode
+                    locationCode: input.birthLocationCode,
+                    eventYear: GenealogicalDate.parsePreview(input.birthDateText.wrappedValue).parsed?.bestYear
                 )
             }
         }

@@ -81,6 +81,7 @@ nonisolated extension ProjectDatabase {
     func setLifeEventLocationCode(eventID: UUID, code: String) throws {
         let trimmed = code.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
+        try ProjectDatabase.validatePlaceCode(trimmed)
         try dbQueue.write { db in
             try db.execute(sql: """
                 UPDATE life_events
