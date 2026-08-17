@@ -53,43 +53,100 @@ nonisolated enum RegistrationDistrictResolver {
         // bare first segment can match a same-named district in the wrong
         // county. "Middleton, Derbyshire" resolved to LAN:Middleton-RD until
         // this was added — a wrong-county answer, worse than none.
-        // Reuses `chapman(birthLocationCode:birthLocation:)`, which reads an
-        // explicit "(DBY)" suffix BEFORE falling back to the county-name
-        // resolver. Order matters: `ChapmanCodeResolver` alone does not
-        // understand the suffix form, so "Middleton, Derbyshire (DBY)" — the
-        // app's own coded display format — resolved to Lancashire while the
-        // plain "Middleton, Derbyshire" resolved correctly.
-        let chapman = chapman ?? Self.chapman(birthLocationCode: nil, birthLocation: placeOrDistrict)
+        let chapman = chapman ?? statedChapman(in: placeOrDistrict)
         for token in segments(of: placeOrDistrict) {
-            let districtName: String
-            if let chapman,
-               let rd = FreeBMDDistrictCatalogue.shared.district(forParish: token, inChapman: chapman) {
-                districtName = rd.name                          // parish → its district
-            } else if let canonical = canonicalName(token, chapman: chapman) {
-                districtName = canonical                         // FreeBMD "Ashborne" → "Ashbourne"
-            } else {
-                districtName = token
-            }
+            // 1. PARISH HOP, era-aware. Was `district(forParish:inChapman:)` —
+            //    first-match and validity-blind, so "Middleton" for an 1824
+            //    birth answered Bakewell RD, which did not exist until 1839.
+            //    `districts(forParish:year:chapman:)` filters on the validity
+            //    window and returns EVERY candidate, so an impossible district
+            //    is eliminated rather than silently chosen. It also works with
+            //    no county, which the old lookup could not do at all.
+            let parishCandidates = PlaceAuthorityRegistry.shared.places
+                .districts(forParish: token, year: year, chapman: chapman)
+
+            // Ties are the NORM, not an edge case: UKBMD's Table 1 lists a
+            // parish under every district that ever covered part of it, so
+            // Cromford is in both Bakewell and Belper at 1861. Declining on a
+            // tie would gut coverage. Declining only on a CROSS-COUNTY tie is
+            // the line that matters — a wrong county mis-scores the geography
+            // gate, whereas a rival district in the right county does not.
+            //
+            // Within a county the answer is chosen deterministically (by id) so
+            // this stays a canonicalisation: `conflictsWithConfirmedBirth`
+            // compares two resolutions of different strings and needs the same
+            // input to give the same output, not the "true" district. Callers
+            // that need to KNOW it was a tie ask `candidates(…)`, which is what
+            // the confidence score is built from.
+            // County taken from the id prefix ("DBY:Bakewell-RD"), not from
+            // `county(of:)`: a compactMap over that silently DROPS candidates
+            // whose county node fails to resolve, so a genuinely cross-county
+            // tie could collapse to one entry and slip through. Bare
+            // "Middleton" did exactly that and resolved into Lancashire.
+            let counties = Set(parishCandidates.map {
+                String($0.id.split(separator: ":").first ?? "").uppercased()
+            })
+            if counties.count > 1 { continue }
+            if let best = parishCandidates.map(\.id).sorted().first { return best }
+
+            // 2. Registration-district name, canonicalised where needed
+            //    (FreeBMD indexes "Ashborne"; the catalogue has "Ashbourne").
+            let districtName = canonicalName(token, chapman: chapman) ?? token
             if let id = PlaceResolver.resolveDistrict(name: districtName, chapman: chapman, year: year) {
                 return id
             }
+        }
+        return nil
+    }
 
-            // No county anywhere — not passed, and none stated in the string
-            // ("Wirksworth", "Winster"). The parish tier is otherwise skipped
-            // entirely, because `district(forParish:inChapman:)` requires a
-            // code. Fall back to the ambiguity-PRESERVING lookup and accept it
-            // only when every candidate agrees on one county, which is the same
-            // unique-or-decline rule the geography gate uses. A name that spans
-            // counties still declines rather than picking one.
-            if chapman == nil {
-                let candidates = PlaceAuthorityRegistry.shared.places
-                    .districts(forParish: token, year: year, chapman: nil)
-                let counties = Set(candidates.compactMap {
-                    PlaceAuthorityRegistry.shared.places.county(of: $0.id)?.id.uppercased()
-                })
-                if counties.count == 1, let only = candidates.first, candidates.count == 1 {
-                    return only.id
-                }
+    /// The Chapman code a place string STATES about itself — an explicit
+    /// "(DBY)" suffix, or a segment that is literally a county name
+    /// ("Alport, Youlgreave, Derbyshire").
+    ///
+    /// Deliberately NOT `ChapmanCodeResolver.chapmanCode(forPlaceText:)`, which
+    /// also matches place names and so answers confidently for text that states
+    /// no county at all: a bare "Middleton" returns **LAN**. Scoping resolution
+    /// by that guess made every countyless Middleton Lancastrian. A county the
+    /// string names is a fact; a county inferred from a place name is a guess,
+    /// and a guess must not narrow the search.
+    static func statedChapman(in placeText: String) -> String? {
+        if let open = placeText.lastIndex(of: "("), let close = placeText.lastIndex(of: ")"), open < close {
+            let inside = placeText[placeText.index(after: open)..<close]
+                .trimmingCharacters(in: .whitespaces).uppercased()
+            if inside.count == 3, inside.allSatisfy(\.isLetter) { return inside }
+        }
+        for segment in segments(of: placeText) {
+            if let code = UKChapmanCodes.shared.chapmanCode(forCountyName: segment) { return code }
+        }
+        return nil
+    }
+
+    /// Every registration district a place string could mean, with the segment
+    /// that produced them — the ambiguity `districtID` has to collapse in order
+    /// to stay a canonicalisation.
+    ///
+    /// This is the input to a confidence score: one candidate is near-certain,
+    /// four rival Middletons is a coin-flip that a human should settle. It
+    /// exists so the ambiguity is REPORTED rather than silently resolved —
+    /// "Middleton, Derbyshire" for an 1824 birth answered Bakewell RD, a
+    /// district that did not exist until 1839, and nothing surfaced that.
+    ///
+    /// Returns the candidates for the FIRST segment that matches anything, so
+    /// "Alport, Youlgreave, Derbyshire" reports Youlgreave's districts rather
+    /// than Derbyshire's entire set.
+    static func candidates(
+        forPlaceOrDistrict placeOrDistrict: String, chapman: String?, year: Int?
+    ) -> (matchedSegment: String, districts: [PlaceAuthority])? {
+        let chapman = chapman ?? statedChapman(in: placeOrDistrict)
+        for token in segments(of: placeOrDistrict) {
+            let parishCandidates = PlaceAuthorityRegistry.shared.places
+                .districts(forParish: token, year: year, chapman: chapman)
+            if !parishCandidates.isEmpty { return (token, parishCandidates) }
+
+            let districtName = canonicalName(token, chapman: chapman) ?? token
+            if let id = PlaceResolver.resolveDistrict(name: districtName, chapman: chapman, year: year),
+               let node = PlaceAuthorityRegistry.shared.places.place(id: id) {
+                return (token, [node])
             }
         }
         return nil

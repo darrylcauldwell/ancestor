@@ -18,6 +18,16 @@ import Foundation
 @MainActor
 struct GazetteerTreeCoverageTests {
 
+    /// Corpus checks resolve against a representative event year, because
+    /// EVERY production caller supplies one — `ApplyEngine` passes the record's
+    /// `birthYear`, `RecordScorer` passes the record/subject year. Resolving
+    /// with `year: nil` exercises a path the app does not use, and answers
+    /// conservatively by design: a parish that moved between districts has more
+    /// than one valid answer when the era is unknown, and the resolver declines
+    /// rather than picking one. 1861 is a census year in the middle of the
+    /// tree's documented range.
+    static let representativeYear = 1861
+
     /// Every distinct `Profile.location` in the tree, verbatim — including the
     /// malformed ones, which are part of the test.
     static let treeLocations: [String] = [
@@ -118,7 +128,7 @@ struct GazetteerTreeCoverageTests {
             let acceptable: Set<String> = asserted == "YKS"
                 ? ["YKS", "NRY", "ERY", "WRY"] : [asserted]
             guard let id = RegistrationDistrictResolver.districtID(
-                forPlaceOrDistrict: loc, chapman: nil, year: nil
+                forPlaceOrDistrict: loc, chapman: nil, year: Self.representativeYear
             ) else { continue }
             let resolvedChapman = String(id.split(separator: ":").first ?? "").uppercased()
             if !acceptable.contains(resolvedChapman) {
@@ -151,7 +161,7 @@ struct GazetteerTreeCoverageTests {
         var misses: [String] = []
         for (loc, expectedChapman) in known {
             guard let id = RegistrationDistrictResolver.districtID(
-                forPlaceOrDistrict: loc, chapman: nil, year: nil
+                forPlaceOrDistrict: loc, chapman: nil, year: Self.representativeYear
             ) else {
                 misses.append("\(loc) — did not resolve at all")
                 continue
@@ -184,10 +194,12 @@ struct GazetteerTreeCoverageTests {
             "Priestcliffe, Derbyshire",
             "Stanton-in-Peak, Derbyshire",
 
-            // (b) CORRECTLY DECLINED — ambiguous with no county to scope by.
-            // A registration district is being asked for and more than one
-            // answer fits; guessing would be the wrong behaviour.
-            "Turnditch", "Winster", "Wirksworth", "Weston Underwood",
+            // (b) CORRECTLY DECLINED — the name spans more than one COUNTY and
+            // the string names none, so resolving it would pick a county on the
+            // caller's behalf. A same-county tie does NOT decline (see
+            // rivalDistrictsAreReportedRatherThanHidden) — only a cross-county
+            // one, because that is the tie the geography gate would mis-score.
+            "Weston Underwood",
 
             // (c) NOT A DISTRICT — a county is not a registration district.
             "Derbyshire", "Warwickshire, England", "Sheffield, Yorkshire",
@@ -202,12 +214,88 @@ struct GazetteerTreeCoverageTests {
             "Leland",               // typo: Leyland
         ]
         let unresolved = Set(Self.treeLocations.filter {
-            RegistrationDistrictResolver.districtID(forPlaceOrDistrict: $0, chapman: nil, year: nil) == nil
+            RegistrationDistrictResolver.districtID(forPlaceOrDistrict: $0, chapman: nil, year: Self.representativeYear) == nil
         })
         let newlyBroken = unresolved.subtracting(expected)
         let newlyFixed = expected.subtracting(unresolved)
         #expect(newlyBroken.isEmpty, "regression — these stopped resolving:\n\(newlyBroken.sorted().joined(separator: "\n"))")
         #expect(newlyFixed.isEmpty, "improvement — shorten the pinned list:\n\(newlyFixed.sorted().joined(separator: "\n"))")
+    }
+
+    // MARK: - Era elimination
+    //
+    // Derbyshire alone has four Middletons: Middleton by Wirksworth (Ashbourne
+    // RD), a bare Middleton (Bakewell RD, 1839–), Middleton & Smerrill and
+    // Stoney Middleton (Bakewell from 1839, Matlock to 1838). Ruth Brailsford
+    // was born "Middleton, Derbyshire" in 1824 and the app answered Bakewell —
+    // a district that did not exist for another fifteen years.
+
+    @Test func aDistrictThatDidNotYetExistIsNotAnAnswer() {
+        let id = RegistrationDistrictResolver.districtID(
+            forPlaceOrDistrict: "Middleton, Derbyshire", chapman: nil, year: 1824
+        )
+        #expect(id?.contains("Bakewell") != true,
+                "Bakewell RD began in 1839 and cannot hold an 1824 event — got \(id ?? "nil")")
+    }
+
+    /// Ambiguity is REPORTED, not hidden. `districtID` must stay a
+    /// canonicalisation — `conflictsWithConfirmedBirth` compares resolutions of
+    /// two different strings and needs determinism, not truth — so it answers
+    /// even when rivals exist. `candidates(…)` is where the rivals surface, and
+    /// it is what a confidence score is computed from.
+    ///
+    /// Declining on every tie was tried and rejected on the evidence: UKBMD
+    /// lists a parish under every district that ever covered part of it, so
+    /// Cromford is in both Bakewell and Belper at 1861. Ties are the norm and
+    /// declining on them cost 15 real places.
+    @Test func rivalDistrictsAreReportedRatherThanHidden() {
+        let result = RegistrationDistrictResolver.candidates(
+            forPlaceOrDistrict: "Middleton, Derbyshire", chapman: nil, year: nil)
+        #expect((result?.districts.count ?? 0) > 1,
+                "Derbyshire has four Middletons — the rivals must be visible to the caller")
+        #expect(RegistrationDistrictResolver.districtID(
+            forPlaceOrDistrict: "Middleton, Derbyshire", chapman: nil, year: nil) != nil,
+                "…while the canonicalising API still answers deterministically")
+    }
+
+    /// A cross-COUNTY tie is different in kind and still declines: a wrong
+    /// county mis-scores the geography gate, where a rival district in the
+    /// right county does not.
+    @Test func aCrossCountyTieStillDeclines() {
+        // "Middleton" bare, no county stated anywhere — DBY, LAN, NBL, ERY…
+        let id = RegistrationDistrictResolver.districtID(
+            forPlaceOrDistrict: "Middleton", chapman: nil, year: nil)
+        #expect(id == nil, "a name spanning counties must not be resolved into one of them — got \(id ?? "nil")")
+    }
+
+    /// Era elimination must not cost coverage where the answer is unambiguous:
+    /// a parish valid in the year still resolves.
+    @Test func eraFilteringDoesNotBreakAnUnambiguousDatedPlace() {
+        let id = RegistrationDistrictResolver.districtID(
+            forPlaceOrDistrict: "Wensley And Snitterton, Derbyshire", chapman: nil, year: 1861
+        )
+        #expect(id?.contains("Bakewell") == true,
+                "1861 is inside Bakewell's window (from 1839) — got \(id ?? "nil")")
+    }
+
+    /// The no-year path is deliberately conservative, and that is a contract
+    /// worth pinning: a parish that moved between districts (Taddington sat in
+    /// Matlock to 1838 and Bakewell from 1839) has no single right answer when
+    /// the era is unknown, so it declines. Callers that know the year get the
+    /// answer; callers that don't get an honest nil rather than a coin-flip.
+    @Test func anEventYearNarrowsTheCandidateSet() {
+        // Taddington sat in Matlock RD to 1838 and Bakewell RD from 1839, so
+        // supplying the year is what turns two answers into one. This is the
+        // whole value of era elimination, stated as a property rather than a
+        // single case.
+        let undated = RegistrationDistrictResolver.candidates(
+            forPlaceOrDistrict: "Taddington, Derbyshire", chapman: nil, year: nil)
+        let dated = RegistrationDistrictResolver.candidates(
+            forPlaceOrDistrict: "Taddington, Derbyshire", chapman: nil, year: 1861)
+        #expect((dated?.districts.count ?? 0) < (undated?.districts.count ?? 0),
+                "a known year must eliminate districts that did not exist then")
+        #expect(dated?.districts.allSatisfy { !$0.id.contains("Matlock") } == true,
+                "Matlock RD ended in 1838 and cannot hold an 1861 event")
     }
 
     /// Non-places and typos must NOT resolve. A wrong confident answer for
