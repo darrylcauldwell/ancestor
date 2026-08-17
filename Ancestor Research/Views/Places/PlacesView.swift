@@ -43,12 +43,17 @@ struct PlacesView: View {
             } else {
                 HSplitView {
                     list
-                        .frame(minWidth: 320, idealWidth: 400)
+                        .frame(minWidth: 320, idealWidth: 400, maxHeight: .infinity)
                     detail
-                        .frame(minWidth: 340)
+                        .frame(minWidth: 340, maxHeight: .infinity)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        // Fill the detail pane and pin to the top. Without this the VStack sizes
+        // to its content and the split view gets centred vertically, leaving a
+        // band of empty window above the title — which is what shipped.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task(id: appState.snapshot.profiles.count) { rebuild() }
     }
 
