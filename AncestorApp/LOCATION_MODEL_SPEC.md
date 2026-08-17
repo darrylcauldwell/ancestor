@@ -1,6 +1,6 @@
 # LOCATION_MODEL_SPEC
 
-**Status:** Stages 0–3 SHIPPED; Part II Slices A–E SHIPPED; **Part III Slice 0 SHIPPED 2026-08-17** — the village→district blocker was never a data gap (the catalogue already held the parishes; four code defects hid them), so Stage 2(b) / Stage 4 / Slice D era-filtering are unblocked without any import. Stage 3 (decision-core geography-gate rebuild) SHIPPED 2026-07-31 as Fix B of `DECISION_CORE_PAIR_SPEC.md` (#DC3) — subject-derived accepted-county set, hierarchy+validity walk with substring fallback, absence-of-knowledge never vetoes family-confirmed records. Stage 4 gated on FS production-verify + village→district data.
+**Status:** Stages 0–3 SHIPPED; Part II Slices A–E SHIPPED; **Part III Slices 0, 0b and A SHIPPED 2026-08-17** (Places tab live) — the village→district blocker was never a data gap (the catalogue already held the parishes; four code defects hid them), so Stage 2(b) / Stage 4 / Slice D era-filtering are unblocked without any import. Stage 3 (decision-core geography-gate rebuild) SHIPPED 2026-07-31 as Fix B of `DECISION_CORE_PAIR_SPEC.md` (#DC3) — subject-derived accepted-county set, hierarchy+validity walk with substring fallback, absence-of-knowledge never vetoes family-confirmed records. Stage 4 gated on FS production-verify + village→district data.
 **Origin:** the 2026-07-25 location audit + the 2026-07-27 "full pass" decision.
 
 ## Problem
@@ -372,7 +372,51 @@ Three findings, each from the exhaustive corpus rather than from reasoning:
   literally a county name. *A county the string names is a fact; a county inferred from
   a place name is a guess.*
 
-## Slice A — the Places surface (SPEC, not built)
+## Slice A — the Places surface (SHIPPED 2026-08-17, `84fd193` + `7389c19`)
+
+**Built:** `Services/Cleanse/PlaceInventory.swift` (scoring, bind, set-aside),
+`Views/Places/PlacesView.swift` (the tab), `RegistrationDistrictResolver.Candidates`
+(parishes + eliminations), `PlaceAuthority.parishRecords(named:year:chapman:)`.
+Tests: `PlaceInventoryTests` (13), `PlaceInventoryDecisionTests` (6), plus 4 in
+`GeographyParishTierTests`. Full suite 3,734 / 405 green.
+
+**Three corrections the build forced on this spec — each was a real defect:**
+
+1. **Ambiguity is counted in PLACES, not surviving districts.** The table below says
+   "surviving candidates: 1 → high". That is wrong in both directions, and the first
+   implementation shipped the wrong answer because of it. "Warslow" is ONE settlement
+   filed under two districts (Leek, then Staffordshire Moorlands after 1974) and scored
+   as contested. "Middleton, Derbyshire" at 1824 is TWO settlements whose districts
+   collapse to one once era filtering rules out Bakewell — and it scored **High**, which
+   is exactly the Bakewell failure returning through the front door. The score now
+   counts distinct parish names, unfiltered by year (a parish record inherits its
+   district's window, so year-filtering answers "was this jurisdiction in force", not
+   "did this village exist").
+2. **A county filed only under subdivisions must expand, not veto.** `YKS` owns no
+   registration districts — they all sit under `WRY`/`ERY`/`NRY` — so scoping
+   "Sheffield, Yorkshire" to YKS matched nothing at all: a string that said MORE about
+   where it was resolved to LESS. Dropping the county instead resolved a Yorkshire
+   "Clayton" into Staffordshire and Sussex, which is worse. `statedChapmanScope(in:)`
+   expands to the subdivisions and keeps the constraint the text supplied.
+3. **Confidence floors at low, never unresolved, when candidates exist.** Enough
+   deductions drove "City Hospital, Derby" to zero, and the row then read "Unresolved"
+   while listing three candidate districts. `.unresolved` means the catalogue knows
+   nothing about the text, and must keep meaning only that.
+
+**Deferred from this slice (not built, still wanted):**
+- *Administrative co-occurrence* (candidate RD already in this family's applied records)
+  — the one score signal not implemented.
+- *Recording the reason with the choice.* Binding writes the code; it does not persist
+  why. A later session can still re-litigate it.
+- *Per-field binding.* Shipped behaviour binds every unbound use of the string at once
+  (the spec's "apply to all N" convenience) rather than offering per-field. Acceptable
+  for one family's tree, wrong in general — see the rule below.
+- *The picker's "4 possible matches — choose"* at point of use.
+- *"Show all N nationally"* escape hatch.
+
+---
+
+### Original spec (below) — retained for the rules, which still hold
 
 **Owner direction (2026-08-17), and it overrides the author's first design.** The
 original draft split rows into "ambiguous → ask" and "resolved → stay quiet". That was
