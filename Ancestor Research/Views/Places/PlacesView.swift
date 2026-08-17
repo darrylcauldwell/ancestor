@@ -298,11 +298,30 @@ private struct PlaceDetailView: View {
 
     private var bindable: [PlaceInventory.Occurrence] { row.occurrences.filter { !$0.isBound } }
 
-    /// Pre-tick every use only when they all belong to ONE person. Across two
-    /// people the same word can name two places, which is the whole hazard, so
-    /// there the user ticks deliberately.
+    /// Pre-tick every use unless the NAME itself could mean different places for
+    /// different people — which is exactly `placeNames.count > 1`.
+    ///
+    /// The first rule was "only when one person uses it", and Bolehill showed
+    /// why that is the wrong test: one 1891 household, six people, seventeen
+    /// life events, and not a tick among them. Nothing about Bolehill is
+    /// ambiguous — the gazetteer simply lacks it — so making someone tick
+    /// seventeen boxes protects against nothing. Middleton, where two real
+    /// villages share a word, is where deliberate ticking earns its keep.
     private var defaultSelection: Set<String> {
-        row.profileCount == 1 ? Set(bindable.map(\.id)) : []
+        row.placeNames.count > 1 ? [] : Set(bindable.map(\.id))
+    }
+
+    /// Occurrences collapsed to one row per person. A single census generates a
+    /// census, an occupation and a residence event at the same address, so six
+    /// people arrive as seventeen checkboxes — noise that hides the decision.
+    /// The meaningful unit within one string is the PERSON.
+    private var peopleUsingThis: [(profileID: String, name: String, occurrences: [PlaceInventory.Occurrence])] {
+        let grouped = Dictionary(grouping: row.occurrences, by: \.profileID)
+        return grouped
+            .map { (profileID: $0.key,
+                    name: $0.value.first?.profileName ?? "",
+                    occurrences: $0.value.sorted { $0.fieldKey < $1.fieldKey }) }
+            .sorted { $0.name == $1.name ? $0.profileID < $1.profileID : $0.name < $1.name }
     }
 
     var body: some View {
@@ -390,32 +409,6 @@ private struct PlaceDetailView: View {
                     }
                 }
 
-                if !bindable.isEmpty {
-                    section("Why (recorded with your choice)") {
-                        TextField("e.g. Middleton by Wirksworth — her father's 1841 census entry",
-                                  text: $reason, axis: .vertical)
-                            .textFieldStyle(.roundedBorder)
-                            .lineLimit(1...3)
-                        Text("Optional, but it is what stops a later session re-litigating this.")
-                            .font(AppTypography.badge)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-
-                if row.confidence == .unresolved && proposal == nil {
-                    Button {
-                        onAskModel()
-                    } label: {
-                        if isAsking {
-                            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Asking…") }
-                        } else {
-                            Text("Ask the local model")
-                        }
-                    }
-                    .font(AppTypography.controlLabel)
-                    .disabled(isAsking)
-                }
-
                 // WHERE IS IT? The affordance an unresolved row cannot do
                 // without. The catalogue has never heard of Bolehill or
                 // Pilhough — both real settlements — so there are no candidates
@@ -459,19 +452,51 @@ private struct PlaceDetailView: View {
                     }
                 }
 
-                section(bindable.isEmpty ? "Used by" : "Apply to which uses?") {
-                    ForEach(row.occurrences) { occurrence in
-                        occurrenceRow(occurrence)
+                if !bindable.isEmpty {
+                    section("Why (recorded with your choice)") {
+                        TextField("e.g. Middleton by Wirksworth — her father's 1841 census entry",
+                                  text: $reason, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(1...3)
+                        Text("Optional, but it is what stops a later session re-litigating this.")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.tertiary)
                     }
+                }
+
+                section(bindable.isEmpty ? "Used by" : "Apply to which uses?") {
+                    // Controls first — they were below seventeen rows, which is
+                    // past the fold on a real household.
                     if bindable.count > 1 {
                         HStack(spacing: 12) {
                             Button("Select all \(bindable.count)") {
                                 selection = Set(bindable.map(\.id))
                             }
                             Button("Select none") { selection.removeAll() }
+                            Spacer()
+                            Text("\(selection.count) of \(bindable.count) selected")
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.tertiary)
                         }
                         .font(AppTypography.controlLabel)
                     }
+                    ForEach(peopleUsingThis, id: \.profileID) { person in
+                        personRow(person)
+                    }
+                }
+
+                if row.confidence == .unresolved && proposal == nil {
+                    Button {
+                        onAskModel()
+                    } label: {
+                        if isAsking {
+                            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Asking…") }
+                        } else {
+                            Text("Ask the local model")
+                        }
+                    }
+                    .font(AppTypography.controlLabel)
+                    .disabled(isAsking)
                 }
 
                 if !row.isNotAPlace {
@@ -521,29 +546,39 @@ private struct PlaceDetailView: View {
         return reason.isEmpty ? suffix : "\(reason) — \(suffix)"
     }
 
-    @ViewBuilder private func occurrenceRow(_ occurrence: PlaceInventory.Occurrence) -> some View {
-        HStack(spacing: 6) {
-            if occurrence.isBound {
+    /// One person, however many of their fields use this string. The checkbox
+    /// toggles all their unbound uses at once; the fields are named beneath so
+    /// nothing is hidden, only compressed.
+    @ViewBuilder private func personRow(
+        _ person: (profileID: String, name: String, occurrences: [PlaceInventory.Occurrence])
+    ) -> some View {
+        let unbound = person.occurrences.filter { !$0.isBound }
+        let allTicked = !unbound.isEmpty && unbound.allSatisfy { selection.contains($0.id) }
+        let fields = person.occurrences
+            .map { o in o.year.map { "\(o.fieldLabel) \($0)" } ?? o.fieldLabel }
+            .joined(separator: " · ")
+
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if unbound.isEmpty {
                 Image(systemName: "checkmark.circle.fill")
                     .font(AppTypography.badge)
                     .foregroundStyle(.green)
-                    .help("Already coded — a district choice here will not overwrite it")
+                    .help("Already settled — a choice here will not overwrite it")
             } else {
                 Toggle(isOn: Binding(
-                    get: { selection.contains(occurrence.id) },
+                    get: { allTicked },
                     set: { on in
-                        if on { selection.insert(occurrence.id) } else { selection.remove(occurrence.id) }
+                        for o in unbound {
+                            if on { selection.insert(o.id) } else { selection.remove(o.id) }
+                        }
                     }
                 )) { EmptyView() }
                 .labelsHidden()
                 .toggleStyle(.checkbox)
             }
-            Text(occurrence.profileName).font(AppTypography.cardMeta)
-            Text(occurrence.fieldLabel)
-                .font(AppTypography.badge)
-                .foregroundStyle(.secondary)
-            if let year = occurrence.year {
-                Text(String(year))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(person.name).font(AppTypography.cardMeta)
+                Text(fields)
                     .font(AppTypography.badge)
                     .foregroundStyle(.tertiary)
             }

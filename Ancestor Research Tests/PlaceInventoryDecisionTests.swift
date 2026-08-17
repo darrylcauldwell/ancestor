@@ -138,6 +138,35 @@ struct PlaceInventoryDecisionTests {
         #expect(try db.loadPlaceDecisions().isEmpty)
     }
 
+    /// The pre-tick rule keys on whether the NAME is ambiguous, not on how many
+    /// people use it. Bolehill is one 1891 household — six people, seventeen
+    /// life events — and nothing about the name is ambiguous, so making someone
+    /// tick seventeen boxes protects against nothing.
+    @Test func anUnambiguousNameIsPreTickedHoweverManyPeopleUseIt() throws {
+        let db = try makeDB()
+        for id in ["a", "b", "c"] {
+            _ = try addPerson(db, id: id, birthLocation: "Bolehill")
+        }
+        guard let row = try rows(db).first(where: { $0.text == "Bolehill" }) else {
+            Issue.record("row missing"); return
+        }
+        #expect(row.profileCount == 3)
+        #expect(row.placeNames.count <= 1, "precondition: the name itself is not ambiguous")
+    }
+
+    /// …but Middleton, where two real villages share a word, is exactly where
+    /// deliberate ticking earns its keep.
+    @Test func anAmbiguousNameIsNotPreTicked() throws {
+        let db = try makeDB()
+        _ = try addPerson(db, id: "a", birthLocation: "Middleton, Derbyshire")
+        _ = try addPerson(db, id: "b", birthLocation: "Middleton, Derbyshire")
+        guard let row = try rows(db).first(where: { $0.text == "Middleton, Derbyshire" }) else {
+            Issue.record("row missing"); return
+        }
+        #expect(row.placeNames.count > 1,
+                "two settlements share this word — got \(row.placeNames)")
+    }
+
     // MARK: - The national escape hatch
 
     /// The stated county is normally the best constraint available, but it is
