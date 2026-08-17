@@ -344,3 +344,106 @@ CC-BY-SA into a closed binary), C (learned place edges — precedent `name_equiv
 has no production reader or writer), and D (MLX proposer — measured 2/12 correct RDs,
 **0 abstentions in 15** including an invented honeypot) were evaluated and rejected;
 see the 2026-08-17 options panel. Decide the tab on the real number, not the assumed one.
+
+## Slice 0b — era elimination + reported ambiguity (SHIPPED 2026-08-17, `22e6091`)
+
+The parish hop was validity-blind, so **"Middleton, Derbyshire" for Ruth Brailsford's
+1824 birth answered Bakewell RD — a district that did not exist until 1839.** Every
+production caller already passed a year; the resolver discarded it. Now routed through
+`PlaceAuthority.districts(forParish:year:chapman:)`.
+
+Three findings, each from the exhaustive corpus rather than from reasoning:
+
+- **Ties are the NORM.** UKBMD lists a parish under every district that ever covered
+  part of it — Cromford is in both Bakewell and Belper at 1861. "Decline on any tie"
+  was tried and cost 15 real places. The line that matters is **cross-county**: a wrong
+  county mis-scores the gate; a rival district in the right county does not. Within a
+  county the answer is chosen deterministically by id, keeping `districtID` a
+  **canonicalisation** — `conflictsWithConfirmedBirth` compares two resolutions and
+  needs determinism, not truth.
+- **Ambiguity is reported, not hidden.** New
+  `RegistrationDistrictResolver.candidates(forPlaceOrDistrict:chapman:year:)` returns
+  every surviving district plus the segment that produced it. **This is the input the
+  Slice A confidence score is computed from.**
+- **A guessed county must not narrow the search.** Deriving the county via
+  `ChapmanCodeResolver.chapmanCode(forPlaceText:)` also matches place NAMES and returns
+  **LAN** for a bare "Middleton", making every countyless Middleton Lancastrian.
+  Replaced by `statedChapman(in:)` — an explicit `(DBY)` suffix, or a segment that is
+  literally a county name. *A county the string names is a fact; a county inferred from
+  a place name is a guess.*
+
+## Slice A — the Places surface (SPEC, not built)
+
+**Owner direction (2026-08-17), and it overrides the author's first design.** The
+original draft split rows into "ambiguous → ask" and "resolved → stay quiet". That was
+wrong for the same reason the Bakewell bug was wrong: **it let the app decide which
+cases the user is allowed to see.** The boundary is also arbitrary — resolution
+confidence is a continuum, not two states.
+
+**Therefore: one uniform list. Every distinct location string in the tree, each with a
+confidence score. Sorted ascending, so the work floats to the top; high-confidence rows
+are a glance and a tick. The human always decides.**
+
+### The score
+
+Computed, explainable, no black box — every component is a reason string, because a
+bare number becomes something you learn to ignore.
+
+| Signal | Effect |
+|---|---|
+| Surviving candidates (`candidates(…)`) | 1 → high · 2+ → drops sharply |
+| Match quality | exact parish > `&`/`and` variant > constituent of a compound > later comma segment |
+| County | stated in the string > none (**never** inferred — see Slice 0b) |
+| Era | event year known and it eliminated candidates > no year available |
+| Administrative co-occurrence | candidate's RD already appears in this family's applied records |
+
+Reads as *"Low — 4 candidates in Derbyshire; matched the bare parish name; no event
+year applied"* versus *"High — exact parish, county stated, single candidate."*
+
+**No geographic distance.** `uk-places.json` carries no coordinates (verified), so
+"2 miles from Cromford" is not computable. Proximity must be **administrative**
+(shared RD with family records), and must not be presented as distance.
+
+### Three outcomes per row
+
+1. **Bind** to a `PlaceAuthority` id — via the shipped `setProfileLocationCode` /
+   `setLifeEventLocationCode` (`LocationNormalizer.swift:140-150`).
+2. **Not a place** — a first-class outcome, not a forced mapping. Darley Hall is a
+   house; City Hospital is a hospital. Precedent: `cleanse_unresolvable_flags` (v22).
+3. **Leave** — undecided is allowed and must not nag.
+
+### Rules
+
+- **Bind per FIELD, not per string.** Binding "Middleton, Derbyshire" globally assumes
+  every occurrence is the same Middleton — true for one family, false in general. Offer
+  "apply to all N occurrences" as a convenience, never the default.
+- **Record the REASON with the choice**, so a later session doesn't re-litigate it and a
+  wrong binding is auditable.
+- **Show what's at stake** — "affects 5 records across 2 people" — so highest-impact
+  rows can be done first.
+- **Nothing may score high that cannot be justified.** Middleton scoring high is a test
+  failure; that property is exactly what was missing when it silently became Bakewell.
+- **Never block.** Unresolved places keep working (existing invariant).
+
+### Surfaces
+
+- **The tab** — the backlog: every string, grouped by state, sorted by confidence.
+- **The picker** (shipped, Slice D) — point of use. It already renders place → RD →
+  county → country; it should also show *"4 possible matches — choose"* rather than
+  silently taking the first.
+
+### Narrowing before asking
+
+Never present 25 national Middletons. County from the string → 4. Event year → fewer
+still (1824 eliminates Bakewell). Then rank, with reasons. Keep a **"show all N
+nationally"** escape hatch, because the county in the string is itself sometimes wrong
+(emigrants, transcription errors) and a locked list would trap those.
+
+### Acceptance
+
+Ruth Brailsford's "Middleton, Derbyshire" (b. 1824) appears near the top of the list
+scored LOW, showing Middleton-by-Wirksworth → Ashbourne RD and Middleton & Smerrill →
+Matlock RD as candidates, with Bakewell **eliminated and shown as eliminated** ("began
+1839"). Binding Wirksworth records the choice and its reason, and the row leaves the
+queue. `GazetteerTreeCoverageTests` still passes — no binding may introduce a
+contradictory county.
