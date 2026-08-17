@@ -187,6 +187,98 @@ struct PlaceAuthorityRegistryTests {
         #expect(!places.contains { $0.id.hasPrefix("DBY") })
     }
 
+    // MARK: - Catalogue hygiene: HTML entities, prose rows, compound parishes
+    //
+    // The parish lists were scraped from UKBMD's HTML and kept the entities:
+    // 685 distinct parish names carry a literal "&amp;". Nothing on the
+    // resolution path unescaped, while the RECORD side does
+    // (FreeCenSource.swift:847) — so a census district could never match a
+    // catalogue parish containing an ampersand. "Wensley & Snitterton" ships
+    // under DBY/Bakewell and DBY/Matlock and was unreachable.
+
+    @Test func decodeEntitiesUnescapesScrapedParishNames() {
+        #expect(FreeBMDDistrictCatalogue.decodeEntities("Wensley &amp; Snitterton")
+                == "Wensley & Snitterton")
+        #expect(FreeBMDDistrictCatalogue.decodeEntities("St Mary&#39;s") == "St Mary's")
+    }
+
+    @Test func proseRowsAreNotIndexedAsPlaces() {
+        #expect(FreeBMDDistrictCatalogue.isProseNotAPlace(
+            "abolished 1.4.1935 and added to the parish of Ashwellthorpe."))
+        #expect(FreeBMDDistrictCatalogue.isProseNotAPlace("See also Table 2, note (c)."))
+        #expect(!FreeBMDDistrictCatalogue.isProseNotAPlace("Wensley & Snitterton"))
+        #expect(!FreeBMDDistrictCatalogue.isProseNotAPlace("Youlgreave"))
+    }
+
+    @Test func lookupNamesExposesConstituentsOfACompoundParish() {
+        let names = FreeBMDDistrictCatalogue.lookupNames(forParish: "Wensley &amp; Snitterton")
+        #expect(names.contains("Wensley & Snitterton"))
+        #expect(names.contains("Wensley and Snitterton"))
+        #expect(names.contains("Wensley"))
+        #expect(names.contains("Snitterton"))
+    }
+
+    @Test func lookupNamesHandlesThreePartCompounds() {
+        let names = FreeBMDDistrictCatalogue.lookupNames(forParish: "Dethick, Lea &amp; Holloway")
+        #expect(names.contains("Dethick"))
+        #expect(names.contains("Lea"))
+        #expect(names.contains("Holloway"))
+    }
+
+    @Test func lookupNamesLeavesASimpleParishAlone() {
+        #expect(FreeBMDDistrictCatalogue.lookupNames(forParish: "Youlgreave") == ["Youlgreave"])
+    }
+
+    /// The settlement a census prints reaches its registration district through
+    /// the compound parish it belongs to. Synthetic county so this proves the
+    /// derivation is data-driven, not Derbyshire-shaped.
+    @Test func aCompoundParishIsReachableByEachConstituent() {
+        let districts = [
+            FreeBMDDistrict(name: "Marketon", code: "901", chapmanCode: "LEI",
+                            startYear: nil, endYear: nil,
+                            parishes: ["Foxton &amp; Gumley", "Lubenham"]),
+        ]
+        let places = PlaceAuthorityRegistry.derive(gazetteer: [], districts: districts)
+        #expect(places.districts(forParish: "Foxton", chapman: "LEI").map(\.name) == ["Marketon"])
+        #expect(places.districts(forParish: "Gumley", chapman: "LEI").map(\.name) == ["Marketon"])
+        #expect(places.districts(forParish: "Foxton & Gumley", chapman: "LEI").map(\.name) == ["Marketon"])
+        #expect(places.districts(forParish: "Foxton and Gumley", chapman: "LEI").map(\.name) == ["Marketon"])
+    }
+
+    /// Era-awareness survives the alias route: the same compound parish moved
+    /// between districts, and a constituent must resolve to the one valid in
+    /// the record's year. This is the shape of Wensley & Snitterton — Matlock
+    /// to 1838, Bakewell from 1839.
+    @Test func constituentLookupStaysEraAware() {
+        let districts = [
+            FreeBMDDistrict(name: "Oldminster", code: "902", chapmanCode: "LEI",
+                            startYear: nil, endYear: 1838,
+                            parishes: ["Foxton &amp; Gumley"]),
+            FreeBMDDistrict(name: "Newminster", code: "903", chapmanCode: "LEI",
+                            startYear: 1839, endYear: nil,
+                            parishes: ["Foxton &amp; Gumley"]),
+        ]
+        let places = PlaceAuthorityRegistry.derive(gazetteer: [], districts: districts)
+        #expect(places.districts(forParish: "Foxton", year: 1835, chapman: "LEI").map(\.name) == ["Oldminster"])
+        #expect(places.districts(forParish: "Foxton", year: 1861, chapman: "LEI").map(\.name) == ["Newminster"])
+    }
+
+    /// Ambiguity must be PRESERVED, not resolved by first-match. A name in two
+    /// counties returns both, so the geography gate can decline rather than
+    /// guess — the guard against bare "Wensley" silently becoming Derbyshire.
+    @Test func aNameInTwoCountiesReturnsBothCandidates() {
+        let districts = [
+            FreeBMDDistrict(name: "Marketon", code: "901", chapmanCode: "LEI",
+                            startYear: nil, endYear: nil, parishes: ["Ambridge"]),
+            FreeBMDDistrict(name: "Northtown", code: "904", chapmanCode: "NBL",
+                            startYear: nil, endYear: nil, parishes: ["Ambridge"]),
+        ]
+        let places = PlaceAuthorityRegistry.derive(gazetteer: [], districts: districts)
+        let all = places.districts(forParish: "Ambridge")
+        #expect(all.count == 2, "both counties' candidates must survive for the caller to disambiguate")
+        #expect(places.districts(forParish: "Ambridge", chapman: "LEI").map(\.name) == ["Marketon"])
+    }
+
     @Test func deriveGivesParishesTheirDistrictsValidityWindow() {
         // A parish inherits the district's validity so temporal parish→district
         // resolution works (AC2), derived from the catalogue's startYear/endYear.

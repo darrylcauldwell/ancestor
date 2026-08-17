@@ -46,19 +46,76 @@ nonisolated enum RegistrationDistrictResolver {
     /// field, including FreeBMD's "Ashborne" spelling) resolves directly. nil
     /// when unresolvable.
     static func districtID(forPlaceOrDistrict placeOrDistrict: String, chapman: String?, year: Int?) -> String? {
-        let token = (placeOrDistrict.split(separator: ",").first.map(String.init) ?? placeOrDistrict)
-            .trimmingCharacters(in: .whitespaces)
-        guard !token.isEmpty else { return nil }
-        let districtName: String
-        if let chapman,
-           let rd = FreeBMDDistrictCatalogue.shared.district(forParish: token, inChapman: chapman) {
-            districtName = rd.name                          // parish → its district
-        } else if let canonical = canonicalName(token, chapman: chapman) {
-            districtName = canonical                         // FreeBMD "Ashborne" → "Ashbourne"
-        } else {
-            districtName = token
+        // When the caller supplies no county, take the one the STRING states.
+        // Genealogical place text carries it — "Alport, Youlgreave, Derbyshire"
+        // — and without it two things break: the parish tier is skipped
+        // entirely (`district(forParish:inChapman:)` requires a code), and a
+        // bare first segment can match a same-named district in the wrong
+        // county. "Middleton, Derbyshire" resolved to LAN:Middleton-RD until
+        // this was added — a wrong-county answer, worse than none.
+        // Reuses `chapman(birthLocationCode:birthLocation:)`, which reads an
+        // explicit "(DBY)" suffix BEFORE falling back to the county-name
+        // resolver. Order matters: `ChapmanCodeResolver` alone does not
+        // understand the suffix form, so "Middleton, Derbyshire (DBY)" — the
+        // app's own coded display format — resolved to Lancashire while the
+        // plain "Middleton, Derbyshire" resolved correctly.
+        let chapman = chapman ?? Self.chapman(birthLocationCode: nil, birthLocation: placeOrDistrict)
+        for token in segments(of: placeOrDistrict) {
+            let districtName: String
+            if let chapman,
+               let rd = FreeBMDDistrictCatalogue.shared.district(forParish: token, inChapman: chapman) {
+                districtName = rd.name                          // parish → its district
+            } else if let canonical = canonicalName(token, chapman: chapman) {
+                districtName = canonical                         // FreeBMD "Ashborne" → "Ashbourne"
+            } else {
+                districtName = token
+            }
+            if let id = PlaceResolver.resolveDistrict(name: districtName, chapman: chapman, year: year) {
+                return id
+            }
+
+            // No county anywhere — not passed, and none stated in the string
+            // ("Wirksworth", "Winster"). The parish tier is otherwise skipped
+            // entirely, because `district(forParish:inChapman:)` requires a
+            // code. Fall back to the ambiguity-PRESERVING lookup and accept it
+            // only when every candidate agrees on one county, which is the same
+            // unique-or-decline rule the geography gate uses. A name that spans
+            // counties still declines rather than picking one.
+            if chapman == nil {
+                let candidates = PlaceAuthorityRegistry.shared.places
+                    .districts(forParish: token, year: year, chapman: nil)
+                let counties = Set(candidates.compactMap {
+                    PlaceAuthorityRegistry.shared.places.county(of: $0.id)?.id.uppercased()
+                })
+                if counties.count == 1, let only = candidates.first, candidates.count == 1 {
+                    return only.id
+                }
+            }
         }
-        return PlaceResolver.resolveDistrict(name: districtName, chapman: chapman, year: year)
+        return nil
+    }
+
+    /// A place string's comma segments, narrowest first — "Alport, Youlgreave,
+    /// Derbyshire" → ["Alport", "Youlgreave", "Derbyshire"].
+    ///
+    /// Only the FIRST segment used to be tried, so a hamlet that the catalogue
+    /// does not list ("Alport") lost the parish sitting right beside it in the
+    /// same string ("Youlgreave", a real Bakewell parish). Genealogical place
+    /// text is written narrowest-to-widest by convention, so walking outwards
+    /// takes the most precise answer available and stops there — it never
+    /// widens past the first segment that resolves. Trailing Chapman suffixes
+    /// ("(DBY)") and empty fragments are dropped.
+    static func segments(of placeText: String) -> [String] {
+        placeText
+            .split(separator: ",")
+            .map { seg -> String in
+                var s = String(seg)
+                if let open = s.firstIndex(of: "("), let close = s.lastIndex(of: ")"), open < close {
+                    s.removeSubrange(open...close)
+                }
+                return s.trimmingCharacters(in: .whitespaces)
+            }
+            .filter { !$0.isEmpty }
     }
 
     /// The canonical registration-district NAME a place resolves to ("Crich" →
@@ -70,14 +127,14 @@ nonisolated enum RegistrationDistrictResolver {
     /// parish→district / canonicalisation logic `districtID` uses, so the picker's
     /// displayed RD and the id the scorer/apply resolve can never disagree.
     static func districtName(forPlace place: String, chapman: String?) -> String? {
-        let token = (place.split(separator: ",").first.map(String.init) ?? place)
-            .trimmingCharacters(in: .whitespaces)
-        guard !token.isEmpty else { return nil }
-        if let chapman,
-           let rd = FreeBMDDistrictCatalogue.shared.district(forParish: token, inChapman: chapman) {
-            return rd.name
+        for token in segments(of: place) {
+            if let chapman,
+               let rd = FreeBMDDistrictCatalogue.shared.district(forParish: token, inChapman: chapman) {
+                return rd.name
+            }
+            if let canonical = canonicalName(token, chapman: chapman) { return canonical }
         }
-        return canonicalName(token, chapman: chapman)
+        return nil
     }
 
     /// Map a possibly-variant registration-district name to the catalogue's
@@ -87,8 +144,24 @@ nonisolated enum RegistrationDistrictResolver {
     /// unique, so a transcription variant resolves but distinct districts never
     /// collide. nil when unresolved or ambiguous.
     static func canonicalName(_ name: String, chapman: String?) -> String? {
-        if let d = FreeBMDDistrictCatalogue.shared.district(named: name) { return d.name }
-        guard let chapman else { return nil }
+        // County-scoped exact match FIRST when the county is known. The
+        // unscoped `district(named:)` returns whichever same-named district
+        // sorts first in the catalogue, so "Middleton" for a Derbyshire subject
+        // came back as Lancashire's Middleton RD. Scoping is only a preference,
+        // not a filter — an unscoped fallback still runs below, so a district
+        // that genuinely has no entry in the stated county still resolves.
+        if let chapman,
+           let scoped = FreeBMDDistrictCatalogue.shared.districts(forChapmanCode: chapman)
+            .first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            return scoped.name
+        }
+        // Unscoped exact match only when NO county is known. If the county IS
+        // known and the name isn't in it, resolving to some other county's
+        // district would be overruling what the string says about itself —
+        // decline instead and let the next segment try.
+        guard let chapman else {
+            return FreeBMDDistrictCatalogue.shared.district(named: name)?.name
+        }
         func skeleton(_ s: String) -> String {
             String(s.lowercased().filter { $0.isLetter && !"aeiou".contains($0) })
         }

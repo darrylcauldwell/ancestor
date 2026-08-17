@@ -193,6 +193,15 @@ nonisolated final class PlaceAuthorityRegistry: Sendable {
             // successor resolves to the correct one for a given year (AC2).
             for parishName in district.parishes ?? [] {
                 let parishID = "\(districtID)/\(parishName)"
+                // Aliases carry the `&`↔`and` variant and, for a compound civil
+                // parish, its constituent townships — a census names the
+                // settlement ("Wensley"), not the registration parish
+                // ("Wensley & Snitterton"). `districts(forParish:year:chapman:)`
+                // already matches on `[name] + aliases`, so this is what makes
+                // the settlement reachable without loosening that lookup.
+                let aliases = FreeBMDDistrictCatalogue
+                    .lookupNames(forParish: parishName)
+                    .filter { $0.caseInsensitiveCompare(parishName) != .orderedSame }
                 records.append(PlaceAuthority(
                     id: parishID,
                     name: parishName,
@@ -202,7 +211,7 @@ nonisolated final class PlaceAuthorityRegistry: Sendable {
                     validTo: district.endYear,
                     county: nil,
                     country: nil,
-                    aliases: []
+                    aliases: aliases
                 ))
             }
         }

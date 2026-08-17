@@ -1462,6 +1462,38 @@ nonisolated struct RecordScorer {
                 reason: "\(districtClean) is in \(countyNode.name), outside the subject's counties")
         }
 
+        // PARISH TIER. `resolveDistrict` only matches nodes whose kind is
+        // `.registrationDistrict` (`PlaceAuthority+Resolution.swift:162`), so a
+        // name that is a PARISH — which is what a census prints in its district
+        // column — could never resolve, even when the catalogue held it. That is
+        // how "Wensley And Snitterton" scored "unknown district" against a
+        // catalogue containing it under DBY/Bakewell and DBY/Matlock.
+        //
+        // Deliberately resolved with `chapman: nil`. Scoping to the subject's
+        // own county would let an ambiguous name always find an in-area answer
+        // and pass — the gate would be marking its own homework. Instead the
+        // parish must land in exactly ONE county to be trusted: an unambiguous
+        // out-of-county parish then correctly soft-fails, and a genuinely
+        // ambiguous one (bare "Wensley" — DBY via alias, NRY exact) declines to
+        // today's behaviour rather than guessing.
+        let year = Self.extractYear(from: record)
+        let parishDistricts = PlaceAuthorityRegistry.shared.places
+            .districts(forParish: districtClean, year: year, chapman: nil)
+        if !parishDistricts.isEmpty {
+            let counties = Set(parishDistricts.compactMap {
+                PlaceAuthorityRegistry.shared.places.county(of: $0.id)?.id.uppercased()
+            })
+            if counties.count == 1, let countyID = counties.first,
+               let countyNode = PlaceAuthorityRegistry.shared.places.place(id: countyID) {
+                if acceptedCodes.contains(countyID) {
+                    return GateResult(gate: .geography, outcome: .pass,
+                        reason: "\(districtClean) is a parish in \(countyNode.name) — the subject's research area")
+                }
+                return GateResult(gate: .geography, outcome: .softFail,
+                    reason: "\(districtClean) is a parish in \(countyNode.name), outside the subject's counties")
+            }
+        }
+
         for code in acceptedCodes {
             if ScoringRules.isLocalDistrict(districtClean, forHomeChapman: code) {
                 return GateResult(gate: .geography, outcome: .pass, reason: "\(districtClean) is in research area")
