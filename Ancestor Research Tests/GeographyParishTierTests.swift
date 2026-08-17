@@ -148,4 +148,40 @@ struct GeographyParishTierTests {
         )
         #expect(geography(result)?.outcome != .pass)
     }
+
+    // MARK: - Counties filed under their subdivisions
+
+    /// Every English registration district sits under a riding (WRY/ERY/NRY),
+    /// never under YKS. Scoping "Sheffield, Yorkshire" to YKS matched nothing:
+    /// a string that said MORE about where it was resolved to LESS.
+    @Test func aCountyFiledUnderRidingsExpandsToThem() {
+        #expect(RegistrationDistrictResolver.subdivisions(of: "YKS") == ["ERY", "NRY", "WRY"])
+        #expect(RegistrationDistrictResolver.statedChapmanScope(in: "Sheffield, Yorkshire")
+                == ["ERY", "NRY", "WRY"])
+    }
+
+    /// A county that owns districts directly is not expanded — Derbyshire must
+    /// stay exactly DBY.
+    @Test func anOrdinaryCountyIsNotExpanded() {
+        #expect(RegistrationDistrictResolver.statedChapmanScope(in: "Bonsall, Derbyshire") == ["DBY"])
+        #expect(RegistrationDistrictResolver.subdivisions(of: "DBY").isEmpty)
+    }
+
+    @Test func sheffieldResolvesWithinYorkshire() {
+        let id = RegistrationDistrictResolver.districtID(
+            forPlaceOrDistrict: "Sheffield, Yorkshire", chapman: nil, year: 1861)
+        #expect(id?.hasPrefix("WRY:") == true, "got \(id ?? "nil")")
+    }
+
+    /// The expansion must stay a CONSTRAINT, not a licence to search nationally.
+    /// Dropping the county instead resolved a Yorkshire "Clayton" into
+    /// Staffordshire and Sussex — a wrong county is the one geography error the
+    /// gate cannot recover from, so declining is the correct answer here.
+    @Test func expandingACountyNeverEscapesIt() {
+        let id = RegistrationDistrictResolver.districtID(
+            forPlaceOrDistrict: "Clayton, Yorkshire", chapman: nil, year: 1861)
+        #expect(id == nil || id?.hasPrefix("WRY:") == true || id?.hasPrefix("NRY:") == true
+                || id?.hasPrefix("ERY:") == true,
+                "resolved outside Yorkshire: \(id ?? "nil")")
+    }
 }

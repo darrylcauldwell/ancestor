@@ -101,12 +101,36 @@ public nonisolated extension Array where Element == PlaceAuthority {
     /// Returns every distinct matching district (usually one). Deterministic
     /// order: by district id.
     func districts(forParish parish: String, year: Int? = nil, chapman: String? = nil) -> [PlaceAuthority] {
+        // Resolve each to its district, filter districts by validity in `year`.
+        var byID: [String: PlaceAuthority] = [:]
+        for p in parishRecords(named: parish, year: year, chapman: chapman) {
+            guard let district = registrationDistrict(of: p.id) else { continue }
+            if let y = year, !district.valid(in: y) { continue }
+            byID[district.id] = district
+        }
+        return byID.values.sorted { $0.id < $1.id }
+    }
+
+    /// The parish records a name (or alias) matches — the step `districts(forParish:)`
+    /// takes before collapsing to districts.
+    ///
+    /// Exposed because the two counts answer different questions and only one of
+    /// them is ambiguity. "Warslow" matches ONE parish ("Warslow & Elkstones")
+    /// filed under two districts, because Leek was reorganised into Staffordshire
+    /// Moorlands in 1974 — same place, two jurisdictions. "Middleton" in Derbyshire
+    /// matches TWO parishes ("Middleton" under Bakewell, "Middleton & Smerrill"
+    /// under Matlock) — two different settlements that share a name. Counting
+    /// districts calls the first ambiguous and, once a validity window has knocked
+    /// one district out, calls the second certain. Counting distinct parish names
+    /// gets both right, which is what the place inventory's confidence score needs.
+    ///
+    /// Deterministic order: by id.
+    func parishRecords(named parish: String, year: Int? = nil, chapman: String? = nil) -> [PlaceAuthority] {
         let needle = parish.trimmingCharacters(in: .whitespaces).lowercased()
         guard !needle.isEmpty else { return [] }
         let chapmanUpper = chapman?.trimmingCharacters(in: .whitespaces).uppercased()
 
-        // Candidate parish records matching the name (or an alias).
-        let candidateParishes = filter { p in
+        return filter { p in
             guard p.kind == .parish else { return false }
             let names = ([p.name] + p.aliases).map { $0.lowercased() }
             guard names.contains(needle) else { return false }
@@ -122,15 +146,7 @@ public nonisolated extension Array where Element == PlaceAuthority {
             }
             return true
         }
-
-        // Resolve each to its district, filter districts by validity in `year`.
-        var byID: [String: PlaceAuthority] = [:]
-        for p in candidateParishes {
-            guard let district = registrationDistrict(of: p.id) else { continue }
-            if let y = year, !district.valid(in: y) { continue }
-            byID[district.id] = district
-        }
-        return byID.values.sorted { $0.id < $1.id }
+        .sorted { $0.id < $1.id }
     }
 
     /// Registration districts belonging to a county (by Chapman code), optionally

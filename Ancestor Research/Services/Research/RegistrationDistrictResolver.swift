@@ -53,7 +53,8 @@ nonisolated enum RegistrationDistrictResolver {
         // bare first segment can match a same-named district in the wrong
         // county. "Middleton, Derbyshire" resolved to LAN:Middleton-RD until
         // this was added — a wrong-county answer, worse than none.
-        let chapman = chapman ?? statedChapman(in: placeOrDistrict)
+        let scope: [String?] = chapman.map { [$0] }
+            ?? { let s = statedChapmanScope(in: placeOrDistrict); return s.isEmpty ? [nil] : s }()
         for token in segments(of: placeOrDistrict) {
             // 1. PARISH HOP, era-aware. Was `district(forParish:inChapman:)` —
             //    first-match and validity-blind, so "Middleton" for an 1824
@@ -62,8 +63,9 @@ nonisolated enum RegistrationDistrictResolver {
             //    window and returns EVERY candidate, so an impossible district
             //    is eliminated rather than silently chosen. It also works with
             //    no county, which the old lookup could not do at all.
-            let parishCandidates = PlaceAuthorityRegistry.shared.places
-                .districts(forParish: token, year: year, chapman: chapman)
+            let parishCandidates = dedupedByID(scope.flatMap {
+                PlaceAuthorityRegistry.shared.places.districts(forParish: token, year: year, chapman: $0)
+            })
 
             // Ties are the NORM, not an edge case: UKBMD's Table 1 lists a
             // parish under every district that ever covered part of it, so
@@ -91,10 +93,18 @@ nonisolated enum RegistrationDistrictResolver {
 
             // 2. Registration-district name, canonicalised where needed
             //    (FreeBMD indexes "Ashborne"; the catalogue has "Ashbourne").
-            let districtName = canonicalName(token, chapman: chapman) ?? token
-            if let id = PlaceResolver.resolveDistrict(name: districtName, chapman: chapman, year: year) {
-                return id
-            }
+            // Ids, not nodes: `resolveDistrict` can return an id the authority
+            // registry has no node for, and looking one up to dedupe would drop a
+            // resolution that used to work. The county is in the id prefix anyway.
+            let byName = Set(scope.compactMap { code in
+                PlaceResolver.resolveDistrict(
+                    name: canonicalName(token, chapman: code) ?? token, chapman: code, year: year)
+            })
+            let nameCounties = Set(byName.map {
+                String($0.split(separator: ":").first ?? "").uppercased()
+            })
+            if nameCounties.count > 1 { continue }
+            if let id = byName.sorted().first { return id }
         }
         return nil
     }
@@ -121,6 +131,39 @@ nonisolated enum RegistrationDistrictResolver {
         return nil
     }
 
+    /// The county codes a place string's stated county permits — normally the one
+    /// code `statedChapman` found, but every subdivision when that county is
+    /// filed only under its parts.
+    ///
+    /// "Sheffield, Yorkshire" states YKS. No registration district is filed under
+    /// YKS; they all sit under WRY, ERY and NRY. Scoping to YKS therefore matched
+    /// nothing — a string that said MORE about where it was resolved to LESS.
+    /// Widening to "no county" instead would be worse: bare "Clayton" then
+    /// resolves into Staffordshire and Sussex, and a wrong county is the one
+    /// error the geography gate cannot recover from. Expanding YKS to its three
+    /// ridings keeps the constraint the text actually supplied.
+    ///
+    /// Empty means unscoped.
+    static func statedChapmanScope(in placeText: String) -> [String] {
+        guard let code = statedChapman(in: placeText) else { return [] }
+        if !FreeBMDDistrictCatalogue.shared.districts(forChapmanCode: code).isEmpty { return [code] }
+        return subdivisions(of: code)
+    }
+
+    /// County codes whose catalogue name extends `code`'s — "Yorkshire" →
+    /// "Yorkshire — East Riding", "… North Riding", "… West Riding". Matched on
+    /// the name because the Chapman list records no parent/child link.
+    static func subdivisions(of code: String) -> [String] {
+        let all = UKChapmanCodes.shared.codes
+        guard let parent = all.first(where: { $0.code.caseInsensitiveCompare(code) == .orderedSame })
+        else { return [] }
+        let prefix = parent.name.lowercased() + " "
+        return all
+            .filter { $0.code != parent.code && $0.name.lowercased().hasPrefix(prefix) }
+            .map(\.code)
+            .sorted()
+    }
+
     /// Every registration district a place string could mean, with the segment
     /// that produced them — the ambiguity `districtID` has to collapse in order
     /// to stay a canonicalisation.
@@ -134,22 +177,96 @@ nonisolated enum RegistrationDistrictResolver {
     /// Returns the candidates for the FIRST segment that matches anything, so
     /// "Alport, Youlgreave, Derbyshire" reports Youlgreave's districts rather
     /// than Derbyshire's entire set.
+    ///
+    /// `parishes` are the distinct settlements the segment names — the honest
+    /// measure of ambiguity, which `districts` is not (see
+    /// `PlaceAuthority.parishRecords(named:year:chapman:)`). `eliminated` are the
+    /// districts the year ruled out, kept rather than dropped so a narrowing can
+    /// be shown as a narrowing: "Bakewell — began 1839" is the difference between
+    /// an answer a user can check and one they have to trust.
+    struct Candidates: Sendable {
+        let matchedSegment: String
+        /// Every parish record the segment matches, deliberately NOT year-filtered.
+        /// A parish record inherits its district's validity window, so filtering
+        /// by year answers "was this jurisdiction in force" — not "did this
+        /// settlement exist". Bakewell's `Middleton` record disappears at 1824
+        /// because Bakewell RD began in 1839; the village did not disappear, and
+        /// it is still a rival reading of the word "Middleton".
+        let parishes: [PlaceAuthority]
+        let districts: [PlaceAuthority]
+        let eliminated: [(district: PlaceAuthority, reason: String)]
+
+        /// Distinct settlements sharing this name. Two records for one parish
+        /// under successive districts count once.
+        var distinctPlaceNames: [String] {
+            Array(Set(parishes.map(\.name))).sorted()
+        }
+    }
+
     static func candidates(
         forPlaceOrDistrict placeOrDistrict: String, chapman: String?, year: Int?
-    ) -> (matchedSegment: String, districts: [PlaceAuthority])? {
-        let chapman = chapman ?? statedChapman(in: placeOrDistrict)
-        for token in segments(of: placeOrDistrict) {
-            let parishCandidates = PlaceAuthorityRegistry.shared.places
-                .districts(forParish: token, year: year, chapman: chapman)
-            if !parishCandidates.isEmpty { return (token, parishCandidates) }
+    ) -> Candidates? {
+        // `[nil]` means "one unscoped pass"; a stated county contributes one pass
+        // per permitted code, so a county filed under subdivisions (Yorkshire →
+        // the three ridings) still constrains the search instead of vetoing it.
+        let scope: [String?] = chapman.map { [$0] }
+            ?? { let s = statedChapmanScope(in: placeOrDistrict); return s.isEmpty ? [nil] : s }()
+        let places = PlaceAuthorityRegistry.shared.places
 
-            let districtName = canonicalName(token, chapman: chapman) ?? token
-            if let id = PlaceResolver.resolveDistrict(name: districtName, chapman: chapman, year: year),
-               let node = PlaceAuthorityRegistry.shared.places.place(id: id) {
-                return (token, [node])
+        for token in segments(of: placeOrDistrict) {
+            let parishRecords = scope.flatMap { places.parishRecords(named: token, year: nil, chapman: $0) }
+            let districts = dedupedByID(scope.flatMap {
+                places.districts(forParish: token, year: year, chapman: $0)
+            })
+            if !districts.isEmpty {
+                return Candidates(matchedSegment: token, parishes: dedupedByID(parishRecords),
+                                  districts: districts,
+                                  eliminated: eliminatedByYear(token, scope: scope,
+                                                               year: year, surviving: districts))
+            }
+
+            let nodes = dedupedByID(scope.compactMap { code -> PlaceAuthority? in
+                let districtName = canonicalName(token, chapman: code) ?? token
+                guard let id = PlaceResolver.resolveDistrict(name: districtName, chapman: code, year: year)
+                else { return nil }
+                return places.place(id: id)
+            })
+            if !nodes.isEmpty {
+                return Candidates(matchedSegment: token, parishes: [], districts: nodes,
+                                  eliminated: eliminatedByYear(token, scope: scope,
+                                                               year: year, surviving: nodes))
             }
         }
         return nil
+    }
+
+    private static func dedupedByID(_ places: [PlaceAuthority]) -> [PlaceAuthority] {
+        var byID: [String: PlaceAuthority] = [:]
+        for p in places { byID[p.id] = p }
+        return byID.values.sorted { $0.id < $1.id }
+    }
+
+    /// Districts the year removed, each with the window that removed it.
+    private static func eliminatedByYear(
+        _ token: String, scope: [String?], year: Int?, surviving: [PlaceAuthority]
+    ) -> [(district: PlaceAuthority, reason: String)] {
+        guard let year else { return [] }
+        let survivingIDs = Set(surviving.map(\.id))
+        return dedupedByID(scope.flatMap {
+            PlaceAuthorityRegistry.shared.places.districts(forParish: token, year: nil, chapman: $0)
+        })
+            .filter { !survivingIDs.contains($0.id) }
+            .map { district in
+                let reason: String
+                if let from = district.validFrom, year < from {
+                    reason = "began \(from)"
+                } else if let to = district.validTo, year > to {
+                    reason = "ended \(to)"
+                } else {
+                    reason = "not valid in \(year)"
+                }
+                return (district, reason)
+            }
     }
 
     /// A place string's comma segments, narrowest first — "Alport, Youlgreave,

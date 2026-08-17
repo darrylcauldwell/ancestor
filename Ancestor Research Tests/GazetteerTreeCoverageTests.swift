@@ -202,7 +202,10 @@ struct GazetteerTreeCoverageTests {
             "Weston Underwood",
 
             // (c) NOT A DISTRICT — a county is not a registration district.
-            "Derbyshire", "Warwickshire, England", "Sheffield, Yorkshire",
+            // "Sheffield, Yorkshire" left this list once a stated county filed
+            // only under subdivisions (YKS → WRY/ERY/NRY) began expanding to
+            // them instead of vetoing the search.
+            "Derbyshire", "Warwickshire, England",
 
             // (d) NOT PLACES / MALFORMED — typos and non-settlements. These
             // want correcting in the tree, not adding to a gazetteer.
