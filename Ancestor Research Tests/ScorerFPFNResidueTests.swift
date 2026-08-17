@@ -354,4 +354,127 @@ struct ScorerFPFNResidueTests {
             spouseName: spouse
         ))
     }
+
+    // MARK: - DS-12P: parish marriages (FreeREG) naming a different spouse
+    //
+    // FreeREG projects every register row — baptism, marriage and burial —
+    // as `.parish`, so the DS-12 arm above (which keys on `case .marriage`)
+    // never saw a parish marriage. Owner dogfood 2026-08-17: 17 Derbyshire
+    // "John WHEELDON" marriages surfaced as leads on one subject, every
+    // bride a different woman, because the family gate never ran at all.
+
+    @Test func parishMarriageWithContradictingSpouseSoftFailsFamilyGate() {
+        let result = RecordScorer.classify(
+            record: parishMarriage(coPersons: "Mary HUDSON"),
+            subject: wheeldonSubject(spouseName: "Ruth Brailsford", spouseSurname: "Brailsford"),
+            searchType: .marriage
+        )
+        let family = result.gates.first { $0.gate == .familyContext }
+        #expect(family?.outcome == .softFail,
+                "a parish marriage naming a different bride must soft-fail — got \(String(describing: family?.outcome))")
+        #expect(result.verdict != .fact,
+                "must not reach .fact — got \(result.verdict)")
+    }
+
+    @Test func parishMarriageWithMatchingSpousePassesFamilyGate() {
+        let result = RecordScorer.classify(
+            record: parishMarriage(coPersons: "Ruth BRAILSFORD"),
+            subject: wheeldonSubject(spouseName: "Ruth Brailsford", spouseSurname: "Brailsford"),
+            searchType: .marriage
+        )
+        #expect(result.gates.first { $0.gate == .familyContext }?.outcome == .pass)
+    }
+
+    /// The false-positive this arm has to avoid. When a wife is stored under
+    /// her MARRIED surname — the state Ruth Wheeldon was in until her maiden
+    /// name was recorded — the subject's own side of the register entry
+    /// ("John WHEELDON") would match `spouseSurname` "Wheeldon" and pass
+    /// every wrong marriage. The subject's own party must be dropped first.
+    @Test func parishMarriageIgnoresTheSubjectsOwnSide() {
+        let result = RecordScorer.classify(
+            record: parishMarriageTyped(groom: ("John", "WHEELDON"), bride: ("Mary", "HUDSON")),
+            subject: wheeldonSubject(spouseName: nil, spouseSurname: "Wheeldon"),
+            searchType: .marriage
+        )
+        let family = result.gates.first { $0.gate == .familyContext }
+        #expect(family?.outcome == .softFail,
+                "the groom is the subject himself — matching on his own surname would pass every wrong marriage")
+    }
+
+    /// ...but a genuine same-surname spouse must still be compared, not
+    /// discarded as the subject. Dalbury 1855 really was John Wheeldon
+    /// marrying a Mary Wheeldon; identity is tested on given AND surname.
+    @Test func parishMarriageKeepsASameSurnameSpouse() {
+        let result = RecordScorer.classify(
+            record: parishMarriageTyped(groom: ("John", "WHEELDON"), bride: ("Mary", "WHEELDON")),
+            subject: wheeldonSubject(spouseName: "Mary Wheeldon", spouseSurname: "Wheeldon"),
+            searchType: .marriage
+        )
+        #expect(result.gates.first { $0.gate == .familyContext }?.outcome == .pass,
+                "the bride shares the surname but not the given name — she is the spouse, not the subject")
+    }
+
+    /// A subject with no recorded spouse has nothing to compare against, so
+    /// the arm must stay silent rather than soft-fail every marriage.
+    @Test func parishMarriageWithNoKnownSpouseDoesNotSoftFail() {
+        let result = RecordScorer.classify(
+            record: parishMarriage(coPersons: "Mary HUDSON"),
+            subject: wheeldonSubject(spouseName: nil, spouseSurname: nil),
+            searchType: .marriage
+        )
+        #expect(result.gates.first { $0.gate == .familyContext }?.outcome != .softFail,
+                "no known spouse means nothing to contradict")
+    }
+
+    private func parishMarriage(coPersons: String) -> SourceRecord {
+        .parish(ParishRecord(
+            common: RecordCommon(
+                id: "pm-\(coPersons)", sourceID: "freereg", name: nil,
+                surname: "WHEELDON", givenName: "John", detailURL: nil,
+                rawFields: ["co_persons": coPersons]
+            ),
+            eventType: "marriage", eventDate: nil, eventYear: 1847,
+            parish: "Trusley", county: "DBY",
+            fatherName: nil, motherName: nil
+        ))
+    }
+
+    private func parishMarriageTyped(
+        groom: (given: String, surname: String),
+        bride: (given: String, surname: String)
+    ) -> SourceRecord {
+        .parish(ParishRecord(
+            common: RecordCommon(
+                id: "pmt-\(groom.given)-\(bride.given)", sourceID: "freereg", name: nil,
+                surname: "WHEELDON", givenName: "John", detailURL: nil, rawFields: [:]
+            ),
+            eventType: "marriage", eventDate: nil, eventYear: 1847,
+            parish: "Dalbury", county: "DBY",
+            fatherName: nil, motherName: nil,
+            detail: FreeREGDetail(
+                event: .marriage(FreeREGMarriage(
+                    groom: FreeREGPerson(forename: groom.given, surname: groom.surname),
+                    bride: FreeREGPerson(forename: bride.given, surname: bride.surname)
+                ))
+            )
+        ))
+    }
+
+    private func wheeldonSubject(spouseName: String?, spouseSurname: String?) -> ResearchSubject {
+        ResearchSubject(
+            surname: "Wheeldon",
+            givenName: "John",
+            birthYearFrom: 1822,
+            birthYearTo: 1826,
+            gender: .male,
+            region: .englandAndWales,
+            mode: .extend,
+            familyContext: FamilyContext(
+                spouseName: spouseName, spouseSurname: spouseSurname, spouseGivenName: nil,
+                spouseFatherSurname: nil, childNames: [],
+                fatherName: nil, fatherSurname: nil, fatherGivenName: nil,
+                motherName: nil, motherSurname: nil, motherGivenName: nil
+            )
+        )
+    }
 }

@@ -1825,6 +1825,92 @@ nonisolated struct RecordScorer {
             }
         }
 
+        // DS-12P — parish-MARRIAGE spouse cross-check. The DS-12 arm above
+        // keys on `case .marriage`, but FreeREG marriages arrive as `.parish`
+        // records (FreeREGSource projects every register row that way), so
+        // that arm never sees them: a marriage scored on name + date +
+        // geography alone, and any "John WHEELDON" marrying ANY bride in the
+        // right decade looked plausible. Owner dogfood 2026-08-17 surfaced 17
+        // wrong Derbyshire marriages as leads on one subject — every bride a
+        // different woman, none of them his.
+        //
+        // The other party IS carried, two ways: typed as
+        // FreeREGMarriage.groom/.bride on an enriched detail page, else flat
+        // in rawFields["co_persons"], which FreeREGSource fills from the
+        // results row's <br>-separated principals cell.
+        //
+        // The subject's OWN side is dropped first. The typed detail carries
+        // both groom and bride, one of whom is the subject — and leaving them
+        // in lets a wrong record pass on the subject's own surname whenever
+        // the tree stores a wife under her MARRIED name (spouseSurname
+        // "Wheeldon" would match the groom "John Wheeldon"). Identity is
+        // tested on given AND surname together, so a same-surname spouse
+        // (Dalbury 1855, John Wheeldon × Mary Wheeldon) is still kept.
+        if case .parish(let parish) = record, {
+            if let t = parish.eventType?.lowercased(), t.contains("marr") { return true }
+            if case .marriage = parish.detail?.event { return true }
+            return false
+        }() {
+            let subjectSurname = (subject.surname ?? "").trimmingCharacters(in: .whitespaces).uppercased()
+            let subjectGiven = (subject.givenName ?? "").trimmingCharacters(in: .whitespaces).uppercased()
+            let isSubjectsOwnSide: (String) -> Bool = { party in
+                guard !subjectSurname.isEmpty, !subjectGiven.isEmpty else { return false }
+                let tokens = party.uppercased().split(separator: " ").map(String.init)
+                guard let partySurname = tokens.last, tokens.count > 1 else { return false }
+                let partyGiven = tokens.dropLast().joined(separator: " ")
+                return ScoringRules.nameSimilarity(partySurname, subjectSurname) >= 0.7
+                    && ScoringRules.nameSimilarity(partyGiven, subjectGiven) >= 0.7
+            }
+
+            var parties: [String] = []
+            if case .marriage(let m)? = parish.detail?.event {
+                for person in [m.groom, m.bride] {
+                    let full = [person.forename, person.surname]
+                        .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                        .joined(separator: " ")
+                    if !full.isEmpty { parties.append(full) }
+                }
+            }
+            if parties.isEmpty, let coPersons = record.rawFields["co_persons"] {
+                parties = coPersons.split(separator: ";")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+            }
+            parties = parties.filter { !isSubjectsOwnSide($0) }
+
+            let knownFull = context.spouseName?.trimmingCharacters(in: .whitespaces)
+            let knownSurname = context.spouseSurname?.trimmingCharacters(in: .whitespaces)
+            let haveKnownSpouse = !(knownFull ?? "").isEmpty || !(knownSurname ?? "").isEmpty
+
+            if !parties.isEmpty, haveKnownSpouse {
+                for party in parties {
+                    let partyUpper = party.uppercased()
+                    if let knownFull, !knownFull.isEmpty,
+                       ScoringRules.nameSimilarity(partyUpper, knownFull.uppercased()) >= 0.7 {
+                        return GateResult(
+                            gate: .familyContext, outcome: .pass,
+                            reason: "marriage party matches the subject's known spouse: \(party)")
+                    }
+                    // Surname alone: the register writes the bride under her
+                    // MAIDEN name, which is what a correctly-recorded wife
+                    // carries in `lastName` — so this is the arm that fires
+                    // on a real match, and the reason a wife stored under her
+                    // married surname disarms this gate entirely.
+                    if let knownSurname, !knownSurname.isEmpty,
+                       let partySurname = partyUpper.split(separator: " ").last,
+                       ScoringRules.nameSimilarity(String(partySurname), knownSurname.uppercased()) >= 0.7 {
+                        return GateResult(
+                            gate: .familyContext, outcome: .pass,
+                            reason: "marriage party surname matches the subject's known spouse: \(party)")
+                    }
+                }
+                return GateResult(
+                    gate: .familyContext, outcome: .softFail,
+                    reason: "marriage names \(parties.joined(separator: " and ")), which doesn't match the subject's known spouse")
+            }
+        }
+
         // Slice 9 — validate-enrichment-parents.
         // Mirrors Python `validate_enrichment_parents` (`agent/rules.py:525`).
         // When a record carries the mother's maiden surname AND the subject
