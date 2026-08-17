@@ -56,8 +56,12 @@ nonisolated enum PlaceInventory {
         /// The event's year, used for era elimination — a birth location takes
         /// the birth year, a life event its own date.
         let year: Int?
-        /// Already bound to a PlaceAuthority id; such rows need no decision.
+        /// Already settled — either a pre-existing structured code on the field,
+        /// or a live decision in the Places tab.
         let isBound: Bool
+        /// The decision governing this use, when one exists. Carries the reason
+        /// the user gave, so a later session can check it instead of re-deciding.
+        let decision: PlaceDecision?
         /// The user has said this field's text names no place.
         let isNotAPlace: Bool
 
@@ -120,7 +124,8 @@ nonisolated enum PlaceInventory {
     ///     Omitting them costs ranking, never correctness.
     static func build(
         profiles: [Profile], relationships: [Relationship] = [],
-        lifeEvents: [LifeEvent] = [], dismissed: Set<String> = []
+        lifeEvents: [LifeEvent] = [], dismissed: Set<String> = [],
+        decisions: PlaceDecisionSet = .empty
     ) -> [Row] {
         var byText: [String: [Occurrence]] = [:]
         let live = profiles.filter { !$0.isDeleted }
@@ -131,10 +136,13 @@ nonisolated enum PlaceInventory {
                  target: LocationNormalizer.Target, key: String, year: Int?) {
             guard let raw = text?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return }
             let id = "\(profileID)|\(key)"
+            let decision = decisions.decision(for: raw, occurrenceID: id, year: year)
             byText[raw, default: []].append(Occurrence(
                 id: id, profileID: profileID, profileName: profileName,
                 target: target, fieldKey: key, year: year,
-                isBound: !((code ?? "").trimmingCharacters(in: .whitespaces).isEmpty),
+                isBound: decision != nil
+                    || !((code ?? "").trimmingCharacters(in: .whitespaces).isEmpty),
+                decision: decision,
                 isNotAPlace: dismissed.contains(id)))
         }
 
@@ -153,7 +161,7 @@ nonisolated enum PlaceInventory {
                 key: "event:\(e.id.uuidString)", year: e.sortYear)
         }
 
-        let districtsByProfile = knownDistricts(of: live)
+        let districtsByProfile = knownDistricts(of: live, decisions: decisions)
         let kin = kinIndex(relationships, among: liveIDs)
 
         return byText.map { text, occurrences in
@@ -189,7 +197,9 @@ nonisolated enum PlaceInventory {
     /// apply from a cited birth record) and any birth/death location code that
     /// rolls up to a district. Free text is deliberately excluded: corroborating
     /// an unresolved string with another unresolved string is circular.
-    static func knownDistricts(of profiles: [Profile]) -> [String: Set<KnownDistrict>] {
+    static func knownDistricts(
+        of profiles: [Profile], decisions: PlaceDecisionSet = .empty
+    ) -> [String: Set<KnownDistrict>] {
         let places = PlaceAuthorityRegistry.shared.places
         var byProfile: [String: Set<KnownDistrict>] = [:]
 
@@ -210,6 +220,18 @@ nonisolated enum PlaceInventory {
                                  (p.deathLocationCode, p.deathLocation)] {
                 guard let code, !code.isEmpty, let id = districtID(for: code) else { continue }
                 found.insert(KnownDistrict(districtID: id, fromText: text))
+            }
+            // Decisions count as established districts too — a place the user
+            // settled is exactly as real as a coded one. `fromText` carries the
+            // string that was settled, so `corroboration` can still refuse to
+            // let a decision vouch for itself while a decision about a DIFFERENT
+            // string in the family goes on counting.
+            for (field, text) in [(ProfileField.birthLocation.rawValue, p.birthLocation),
+                                  (ProfileField.deathLocation.rawValue, p.deathLocation)] {
+                guard let text, !text.isEmpty,
+                      let decision = decisions.decision(for: text, occurrenceID: "\(p.id)|\(field)")
+                else { continue }
+                found.insert(KnownDistrict(districtID: decision.placeAuthorityID, fromText: text))
             }
             if !found.isEmpty { byProfile[p.id] = found }
         }
@@ -279,6 +301,21 @@ nonisolated enum PlaceInventory {
 
     // MARK: - Decisions
 
+    enum BindError: Error, Equatable {
+        /// The chosen district's validity window excludes years on this row.
+        case districtCannotHoldYears(district: String, validFrom: Int?, validTo: Int?, years: [Int])
+
+        var message: String {
+            switch self {
+            case .districtCannotHoldYears(let district, let from, let to, let years):
+                let window = [from.map { "from \($0)" }, to.map { "to \($0)" }]
+                    .compactMap { $0 }.joined(separator: " ")
+                let list = years.map(String.init).joined(separator: ", ")
+                return "\(district) existed \(window), so it cannot hold \(list)."
+            }
+        }
+    }
+
     /// Bind specific uses of `row.text` to the district the user picked.
     ///
     /// **Per field, not per string.** Binding every occurrence at once assumes
@@ -299,29 +336,69 @@ nonisolated enum PlaceInventory {
     /// Returns the number of fields written.
     @discardableResult
     static func bind(
-        _ row: Row, occurrenceIDs: Set<String>, to code: String, in db: ProjectDatabase
+        _ row: Row, occurrenceIDs: Set<String>, to code: String,
+        reason: String = "", in db: ProjectDatabase, now: Date = Date()
     ) throws -> Int {
-        var written = 0
-        for occurrence in row.occurrences
-        where occurrenceIDs.contains(occurrence.id) && !occurrence.isBound {
-            switch occurrence.target {
-            case .profileField(let field):
-                try db.setProfileLocationCode(profileID: occurrence.profileID, field: field, code: code)
-            case .lifeEvent(let id, _):
-                try db.setLifeEventLocationCode(eventID: id, code: code)
-            }
-            // Binding answers the question the flag was raised about.
-            try db.clearCleanseUnresolvable(profileID: occurrence.profileID, field: occurrence.fieldKey)
-            written += 1
+        // Window the decision to the chosen district's own validity. Bind
+        // "Middleton, Derbyshire" to Bakewell RD and the decision starts in 1839,
+        // so Ruth Brailsford's 1824 birth can never inherit it — the bug that
+        // started this work is structurally unreachable rather than merely fixed.
+        let district = PlaceAuthorityRegistry.shared.places.place(id: code)
+        let targets = row.occurrences.filter { occurrenceIDs.contains($0.id) && !$0.isBound }
+        guard !targets.isEmpty else { return 0 }
+
+        // Refuse a district that cannot hold the years being settled, at the
+        // moment the human tries it. Bakewell RD began in 1839; binding it to
+        // Ruth Brailsford's 1824 birth is the original bug, and rejecting it here
+        // is both earlier and more explicable than quietly declining to apply
+        // the decision later.
+        let impossible = PlaceDecision.yearsOutsideWindow(
+            targets.compactMap(\.year), from: district?.validFrom, to: district?.validTo)
+        guard impossible.isEmpty else {
+            throw BindError.districtCannotHoldYears(
+                district: district?.name ?? code,
+                validFrom: district?.validFrom, validTo: district?.validTo,
+                years: impossible)
         }
-        return written
+
+        for occurrence in targets {
+            // A fresh id per decision INSTANCE, not per (text, field): the table
+            // keeps every answer ever given, so a deterministic key would collide
+            // with the very row it is meant to supersede the moment someone
+            // changes their mind.
+            try db.recordPlaceDecision(PlaceDecision(
+                id: UUID().uuidString,
+                placeText: PlaceDecision.canonicalKey(row.text),
+                displayText: row.text,
+                scopeField: occurrence.id,
+                placeAuthorityID: code,
+                yearFrom: district?.validFrom, yearTo: district?.validTo,
+                reason: reason, decidedAt: now, supersededAt: nil))
+            // Binding answers the question the set-aside flag was raised about.
+            try db.clearCleanseUnresolvable(profileID: occurrence.profileID, field: occurrence.fieldKey)
+        }
+        return targets.count
     }
 
     /// The "apply to all N occurrences" convenience — an explicit choice the user
     /// makes after seeing who is affected, not the default path.
     @discardableResult
-    static func bindAll(_ row: Row, to code: String, in db: ProjectDatabase) throws -> Int {
-        try bind(row, occurrenceIDs: Set(row.occurrences.map(\.id)), to: code, in: db)
+    static func bindAll(
+        _ row: Row, to code: String, reason: String = "",
+        in db: ProjectDatabase, now: Date = Date()
+    ) throws -> Int {
+        try bind(row, occurrenceIDs: Set(row.occurrences.map(\.id)), to: code,
+                 reason: reason, in: db, now: now)
+    }
+
+    /// Undo — retires every live decision this row carries. The rows stay in the
+    /// table; a changed mind is history, not a mistake to erase.
+    static func unbind(_ row: Row, decisions: PlaceDecisionSet, in db: ProjectDatabase) throws {
+        for occurrence in row.occurrences {
+            guard let decision = decisions.decision(
+                for: row.text, occurrenceID: occurrence.id, year: occurrence.year) else { continue }
+            try db.supersedePlaceDecision(id: decision.id)
+        }
     }
 
     /// Record that this text names no place — a house ("Darley Hall"), a

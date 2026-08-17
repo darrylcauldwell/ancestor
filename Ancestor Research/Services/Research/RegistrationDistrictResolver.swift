@@ -64,7 +64,7 @@ nonisolated enum RegistrationDistrictResolver {
             //    is eliminated rather than silently chosen. It also works with
             //    no county, which the old lookup could not do at all.
             let parishCandidates = dedupedByID(scope.flatMap {
-                PlaceAuthorityRegistry.shared.places.districts(forParish: token, year: year, chapman: $0)
+                PlaceAuthorityRegistry.shared.districts(forParish: token, year: year, chapman: $0)
             })
 
             // Ties are the NORM, not an edge case: UKBMD's Table 1 lists a
@@ -214,9 +214,11 @@ nonisolated enum RegistrationDistrictResolver {
         let places = PlaceAuthorityRegistry.shared.places
 
         for token in segments(of: placeOrDistrict) {
-            let parishRecords = scope.flatMap { places.parishRecords(named: token, year: nil, chapman: $0) }
+            let parishRecords = scope.flatMap {
+                PlaceAuthorityRegistry.shared.parishRecords(named: token, year: nil, chapman: $0)
+            }
             let districts = dedupedByID(scope.flatMap {
-                places.districts(forParish: token, year: year, chapman: $0)
+                PlaceAuthorityRegistry.shared.districts(forParish: token, year: year, chapman: $0)
             })
             if !districts.isEmpty {
                 return Candidates(matchedSegment: token, parishes: dedupedByID(parishRecords),
@@ -253,7 +255,7 @@ nonisolated enum RegistrationDistrictResolver {
     static func nationalCandidates(forPlaceOrDistrict placeOrDistrict: String) -> [PlaceAuthority] {
         let places = PlaceAuthorityRegistry.shared.places
         for token in segments(of: placeOrDistrict) {
-            let districts = dedupedByID(places.districts(forParish: token, year: nil, chapman: nil))
+            let districts = dedupedByID(PlaceAuthorityRegistry.shared.districts(forParish: token, year: nil, chapman: nil))
             if !districts.isEmpty { return districts }
             if let id = PlaceResolver.resolveDistrict(name: token, chapman: nil, year: nil),
                let node = places.place(id: id) {
@@ -276,7 +278,7 @@ nonisolated enum RegistrationDistrictResolver {
         guard let year else { return [] }
         let survivingIDs = Set(surviving.map(\.id))
         return dedupedByID(scope.flatMap {
-            PlaceAuthorityRegistry.shared.places.districts(forParish: token, year: nil, chapman: $0)
+            PlaceAuthorityRegistry.shared.districts(forParish: token, year: nil, chapman: $0)
         })
             .filter { !survivingIDs.contains($0.id) }
             .map { district in

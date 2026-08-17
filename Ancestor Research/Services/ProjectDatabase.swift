@@ -1646,6 +1646,47 @@ nonisolated final class ProjectDatabase: Sendable {
             try Self.purgeFamilySearchRecordRows(db)
         }
 
+        // The Places tab's decisions (LOCATION_MODEL_SPEC Part III, Slice A) — the
+        // user-built layer over the bundled gazetteer. A row is one human answer
+        // to "what place does this text name", with the reason they gave.
+        //
+        // Its own table rather than a column on `profiles`, for two reasons.
+        // First, the decision is about a STRING, and the same string is used by
+        // many fields across many people; a per-profile column cannot express
+        // "every use of this text". Second, the obvious column —
+        // `birth_location_code` — is owned by `LocationPicker`, whose onChange
+        // clears any code the 275-entry gazetteer cannot resolve. A registration
+        // district id is never in that gazetteer, so a decision stored there is
+        // erased the moment someone edits the field. Storing decisions here means
+        // no other surface can silently drop one.
+        //
+        // `superseded_at` rather than UPDATE-in-place, mirroring `field_disputes`:
+        // changing your mind is itself a fact worth keeping, and it is what makes
+        // "why is this place recorded as Ashbourne?" answerable later.
+        // `scope_field` is NOT NULL DEFAULT '' because SQLite treats NULLs as
+        // distinct in a UNIQUE index, so a nullable column would quietly admit
+        // duplicate live decisions for the same string.
+        migrator.registerMigration("v60_place_decisions") { db in
+            try db.create(table: "place_decisions") { t in
+                t.column("id", .text).primaryKey()
+                t.column("place_text", .text).notNull()      // canonicalised for lookup
+                t.column("display_text", .text).notNull()    // verbatim, what the user saw
+                t.column("scope_field", .text).notNull().defaults(to: "")
+                t.column("place_authority_id", .text).notNull()
+                t.column("year_from", .integer)
+                t.column("year_to", .integer)
+                t.column("reason", .text).notNull().defaults(to: "")
+                t.column("decided_at", .datetime).notNull()
+                t.column("superseded_at", .datetime)
+            }
+            try db.execute(sql: """
+                CREATE UNIQUE INDEX idx_place_decisions_live
+                ON place_decisions(place_text, scope_field) WHERE superseded_at IS NULL
+                """)
+            try db.execute(sql:
+                "CREATE INDEX idx_place_decisions_text ON place_decisions(place_text)")
+        }
+
         return migrator
     }
 

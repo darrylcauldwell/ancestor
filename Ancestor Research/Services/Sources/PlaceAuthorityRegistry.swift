@@ -36,6 +36,12 @@ nonisolated final class PlaceAuthorityRegistry: Sendable {
     /// id → record index for O(1) lookup on the hot resolution paths.
     private let byID: [String: PlaceAuthority]
 
+    /// Folded parish name (and alias) → records. The place-text resolvers used to
+    /// linear-scan all ~38,000 records per name lookup, three to four times per
+    /// `candidates(…)` call — and the location picker calls that once per
+    /// dropdown row per keystroke. Built once at load, alongside `byID`.
+    private let parishesByName: [String: [PlaceAuthority]]
+
     private static let logger = Logger(
         subsystem: "dev.dreamfold.Ancestor-Research",
         category: "PlaceAuthorityRegistry"
@@ -47,7 +53,18 @@ nonisolated final class PlaceAuthorityRegistry: Sendable {
             districts: FreeBMDDistrictCatalogue.shared.all()
         )
         self.byID = Dictionary(places.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        self.parishesByName = Self.indexParishes(places)
         Self.logger.info("Derived \(self.places.count) place-authority records")
+    }
+
+    static func indexParishes(_ places: [PlaceAuthority]) -> [String: [PlaceAuthority]] {
+        var index: [String: [PlaceAuthority]] = [:]
+        for place in places where place.kind == .parish {
+            for name in [place.name] + place.aliases {
+                index[PlaceAuthority.foldedName(name), default: []].append(place)
+            }
+        }
+        return index
     }
 
     /// Testable derivation seam — the initialiser wires in the shared singletons;
@@ -230,5 +247,27 @@ nonisolated final class PlaceAuthorityRegistry: Sendable {
     /// Registration district a code/id rolls up to.
     func registrationDistrict(ofID id: String) -> PlaceAuthority? {
         places.registrationDistrict(of: id)
+    }
+
+    /// Indexed `parishRecords(named:year:chapman:)`. Same answer as the array
+    /// version — the name match comes from the index, then the identical county
+    /// and validity predicate runs via `refineParishRecords`, so the two cannot
+    /// drift on the thing they decide (which district a place resolves to).
+    /// `PlaceAuthorityRegistryTests.theIndexAgreesWithTheLinearScan` pins that.
+    func parishRecords(named parish: String, year: Int? = nil, chapman: String? = nil) -> [PlaceAuthority] {
+        let candidates = parishesByName[PlaceAuthority.foldedName(parish)] ?? []
+        guard !candidates.isEmpty else { return [] }
+        return places.refineParishRecords(candidates, year: year, chapman: chapman)
+    }
+
+    /// Indexed `districts(forParish:year:chapman:)`.
+    func districts(forParish parish: String, year: Int? = nil, chapman: String? = nil) -> [PlaceAuthority] {
+        var byDistrictID: [String: PlaceAuthority] = [:]
+        for p in parishRecords(named: parish, year: year, chapman: chapman) {
+            guard let district = places.registrationDistrict(of: p.id) else { continue }
+            if let y = year, !district.valid(in: y) { continue }
+            byDistrictID[district.id] = district
+        }
+        return byDistrictID.values.sorted { $0.id < $1.id }
     }
 }

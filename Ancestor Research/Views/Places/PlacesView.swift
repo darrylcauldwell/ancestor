@@ -20,6 +20,11 @@ struct PlacesView: View {
     @State private var search: String = ""
     @State private var selectedID: String?
     @State private var lastAction: String?
+    @State private var decisions: PlaceDecisionSet = .empty
+    /// Local-model suggestions, keyed by location text. Session-only: a
+    /// suggestion is not a decision and is not persisted until someone accepts it.
+    @State private var proposals: [String: PlaceProposer.Proposal] = [:]
+    @State private var asking: Set<String> = []
 
     enum Filter: String, CaseIterable, Identifiable {
         case needsDecision = "Needs a decision"
@@ -168,9 +173,13 @@ struct PlacesView: View {
         if let row = rows.first(where: { $0.id == selectedID }) {
             PlaceDetailView(
                 row: row,
-                onBind: { code, ids in bind(row, occurrenceIDs: ids, to: code) },
+                proposal: proposals[row.id],
+                isAsking: asking.contains(row.id),
+                onBind: { code, ids, reason in bind(row, occurrenceIDs: ids, to: code, reason: reason) },
                 onNotAPlace: { markNotAPlace(row) },
-                onRestore: { restore(row) }
+                onRestore: { restore(row) },
+                onUnbind: { unbind(row) },
+                onAskModel: { Task { await askModel(row) } }
             )
             .id(row.id)
         } else {
@@ -189,24 +198,57 @@ struct PlacesView: View {
         let lifeEvents = (try? db.loadAllLifeEvents()) ?? []
         let dismissed = Set(((try? db.loadCleanseUnresolvableFlags()) ?? [])
             .map { "\($0.profileID)|\($0.field)" })
+        decisions = PlaceDecisionSet(decisions: (try? db.loadPlaceDecisions()) ?? [])
         rows = PlaceInventory.build(
             profiles: Array(appState.snapshot.profiles.values),
             relationships: appState.snapshot.relationships,
             lifeEvents: lifeEvents,
-            dismissed: dismissed)
+            dismissed: dismissed,
+            decisions: decisions)
     }
 
-    private func bind(_ row: PlaceInventory.Row, occurrenceIDs: Set<String>, to code: String) {
+    private func bind(
+        _ row: PlaceInventory.Row, occurrenceIDs: Set<String>, to code: String, reason: String
+    ) {
         guard let db = appState.currentDatabase, !occurrenceIDs.isEmpty else { return }
         do {
-            let written = try PlaceInventory.bind(row, occurrenceIDs: occurrenceIDs, to: code, in: db)
-            if let snap = try? db.buildSnapshot() { appState.snapshot = snap }
+            let written = try PlaceInventory.bind(
+                row, occurrenceIDs: occurrenceIDs, to: code, reason: reason, in: db)
             let name = PlaceAuthorityRegistry.shared.places.place(id: code)?.name ?? code
-            lastAction = "Bound \(written) field\(written == 1 ? "" : "s") to \(name)"
+            lastAction = "Settled \(written) field\(written == 1 ? "" : "s") as \(name)"
+        } catch let error as PlaceInventory.BindError {
+            lastAction = error.message
         } catch {
             lastAction = "Could not save: \(error.localizedDescription)"
         }
         rebuild()
+    }
+
+    private func unbind(_ row: PlaceInventory.Row) {
+        guard let db = appState.currentDatabase else { return }
+        do {
+            try PlaceInventory.unbind(row, decisions: decisions, in: db)
+            lastAction = "\"\(row.text)\" reopened"
+        } catch {
+            lastAction = "Could not save: \(error.localizedDescription)"
+        }
+        rebuild()
+    }
+
+    /// Ask the local model which parish an unresolved hamlet sits in. The answer
+    /// is a suggestion in the pane, never a write — see `PlaceProposer`.
+    private func askModel(_ row: PlaceInventory.Row) async {
+        asking.insert(row.id)
+        defer { asking.remove(row.id) }
+        let year = row.occurrences.compactMap(\.year).min()
+        switch await PlaceProposer.propose(for: row.text, year: year) {
+        case .success(let proposal)?:
+            proposals[row.id] = proposal
+        case .failure(let rejection)?:
+            lastAction = "No suggestion: \(rejection.rawValue)"
+        case nil:
+            lastAction = "No local model loaded"
+        }
     }
 
     private func markNotAPlace(_ row: PlaceInventory.Row) {
@@ -232,14 +274,21 @@ struct PlacesView: View {
 
 private struct PlaceDetailView: View {
     let row: PlaceInventory.Row
-    let onBind: (String, Set<String>) -> Void
+    let proposal: PlaceProposer.Proposal?
+    let isAsking: Bool
+    let onBind: (String, Set<String>, String) -> Void
     let onNotAPlace: () -> Void
     let onRestore: () -> Void
+    let onUnbind: () -> Void
+    let onAskModel: () -> Void
 
     /// Which uses a district choice will be written to. Per FIELD, not per
     /// string — see `PlaceInventory.bind`.
     @State private var selection: Set<String> = []
     @State private var showingNational = false
+    @State private var reason: String = ""
+
+    private var settled: PlaceDecision? { row.occurrences.compactMap(\.decision).first }
 
     private var bindable: [PlaceInventory.Occurrence] { row.occurrences.filter { !$0.isBound } }
 
@@ -270,6 +319,48 @@ private struct PlaceDetailView: View {
                     }
                 }
 
+                if let settled {
+                    section("Settled") {
+                        Text("\(PlaceAuthorityRegistry.shared.places.place(id: settled.placeAuthorityID)?.name ?? settled.placeAuthorityID)"
+                             + " — decided \(settled.decidedAt.formatted(date: .abbreviated, time: .omitted))")
+                            .font(AppTypography.cardBody)
+                        if !settled.reason.isEmpty {
+                            Text("\u{201C}\(settled.reason)\u{201D}")
+                                .font(AppTypography.cardMeta)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if settled.yearFrom != nil || settled.yearTo != nil {
+                            Text("Applies \(settled.yearFrom.map(String.init) ?? "…")–\(settled.yearTo.map(String.init) ?? "…")")
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.tertiary)
+                        }
+                        Button("Reopen this", action: onUnbind)
+                            .font(AppTypography.controlLabel)
+                    }
+                }
+
+                // A model suggestion is a suggestion. It is labelled, it carries
+                // the model's own words, and accepting it is an ordinary bind
+                // that records who decided — the app never writes it itself.
+                if let proposal {
+                    section("Local model suggests") {
+                        Text("\(proposal.parish) → \(proposal.districtName) district")
+                            .font(AppTypography.cardBody)
+                        Text("\u{201C}\(proposal.rationale)\u{201D}")
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("Suggested by the local model from a list of real parishes. Check it before accepting.")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Accept this") { onBind(proposal.districtID, selection, reasonOrDefault(proposal)) }
+                            .font(AppTypography.controlLabel)
+                            .disabled(selection.isEmpty)
+                    }
+                }
+
                 if !row.candidates.isEmpty {
                     section(row.candidates.count == 1 ? "District" : "Which district?") {
                         ForEach(row.candidates, id: \.id) { district in
@@ -281,6 +372,32 @@ private struct PlaceDetailView: View {
                                 .foregroundStyle(.orange)
                         }
                     }
+                }
+
+                if !bindable.isEmpty {
+                    section("Why (recorded with your choice)") {
+                        TextField("e.g. Middleton by Wirksworth — her father's 1841 census entry",
+                                  text: $reason, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(1...3)
+                        Text("Optional, but it is what stops a later session re-litigating this.")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                if row.confidence == .unresolved && proposal == nil {
+                    Button {
+                        onAskModel()
+                    } label: {
+                        if isAsking {
+                            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Asking…") }
+                        } else {
+                            Text("Ask the local model")
+                        }
+                    }
+                    .font(AppTypography.controlLabel)
+                    .disabled(isAsking)
                 }
 
                 // The escape hatch. The stated county is normally the best
@@ -365,10 +482,17 @@ private struct PlaceDetailView: View {
                 }
             }
             Spacer()
-            Button("Use this") { onBind(district.id, selection) }
+            Button("Use this") { onBind(district.id, selection, reason) }
                 .font(AppTypography.controlLabel)
                 .disabled(selection.isEmpty)
         }
+    }
+
+    /// A model-suggested binding always records HOW it was reached, even when the
+    /// user typed nothing — otherwise the trail says a person decided it.
+    private func reasonOrDefault(_ proposal: PlaceProposer.Proposal) -> String {
+        let suffix = "Accepted from local-model suggestion: \(proposal.rationale)"
+        return reason.isEmpty ? suffix : "\(reason) — \(suffix)"
     }
 
     @ViewBuilder private func occurrenceRow(_ occurrence: PlaceInventory.Occurrence) -> some View {
@@ -418,7 +542,7 @@ private struct PlaceDetailView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("Use this") { onBind(district.id, selection) }
+                        Button("Use this") { onBind(district.id, selection, reason) }
                             .font(AppTypography.controlLabel)
                             .disabled(selection.isEmpty)
                     }

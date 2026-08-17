@@ -158,4 +158,14 @@ public nonisolated struct PlaceAuthority: Codable, Hashable, Sendable, Identifia
     public func valid(in year: Int) -> Bool {
         overlaps(years: year...year)
     }
+
+    /// The form a place name is matched and indexed by: trimmed, case-folded.
+    ///
+    /// Deliberately conservative — it normalises presentation, not spelling.
+    /// Folding punctuation or the `&`/`and` variant here would merge names the
+    /// catalogue distinguishes, and those variants are already carried as
+    /// explicit aliases where they are genuinely the same parish.
+    public static func foldedName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespaces).lowercased()
+    }
 }

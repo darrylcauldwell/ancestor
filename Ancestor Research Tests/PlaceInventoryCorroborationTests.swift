@@ -179,6 +179,44 @@ struct PlaceInventoryCorroborationTests {
         #expect(rows.first { $0.text == "Wirksworth, Derbyshire" }?.corroboration["DBY:Belper-RD"] == 1)
     }
 
+    /// A settled place is as real as a coded one, so decisions must corroborate
+    /// too — otherwise moving bindings into their own table (which is what
+    /// stopped the picker erasing them) would quietly blind the ranking.
+    @Test func aDecisionOnADifferentStringCorroborates() {
+        let now = Date()
+        let decisions = PlaceDecisionSet(decisions: [
+            PlaceDecision(id: "d", placeText: PlaceDecision.canonicalKey("Belper, Derbyshire"),
+                          displayText: "Belper, Derbyshire", scopeField: "sibling|birthLocation",
+                          placeAuthorityID: "DBY:Belper-RD", yearFrom: nil, yearTo: nil,
+                          reason: "census", decidedAt: now, supersededAt: nil),
+        ])
+        let rows = PlaceInventory.build(
+            profiles: [person("child", birthLocation: "Wirksworth, Derbyshire"),
+                       person("sibling", birthLocation: "Belper, Derbyshire"),
+                       person("father")],
+            relationships: [parentEdge("father", "child"), parentEdge("father", "sibling")],
+            decisions: decisions)
+        #expect(rows.first { $0.text == "Wirksworth, Derbyshire" }?.corroboration["DBY:Belper-RD"] == 1)
+    }
+
+    /// …but a decision on the SAME string still does not vouch for itself.
+    @Test func aDecisionOnTheSameStringStillDoesNotCorroborate() {
+        let now = Date()
+        let decisions = PlaceDecisionSet(decisions: [
+            PlaceDecision(id: "d", placeText: PlaceDecision.canonicalKey("Wirksworth, Derbyshire"),
+                          displayText: "Wirksworth, Derbyshire", scopeField: "sibling|birthLocation",
+                          placeAuthorityID: "DBY:Belper-RD", yearFrom: nil, yearTo: nil,
+                          reason: "", decidedAt: now, supersededAt: nil),
+        ])
+        let rows = PlaceInventory.build(
+            profiles: [person("child", birthLocation: "Wirksworth, Derbyshire"),
+                       person("sibling", birthLocation: "Wirksworth, Derbyshire"),
+                       person("father")],
+            relationships: [parentEdge("father", "child"), parentEdge("father", "sibling")],
+            decisions: decisions)
+        #expect(rows.first { $0.text == "Wirksworth, Derbyshire" }?.corroboration.isEmpty == true)
+    }
+
     /// Omitting relationships costs ranking, never correctness — every caller
     /// that has not been updated must still get the same candidates.
     @Test func omittingRelationshipsChangesOnlyOrderNotContent() {
@@ -188,5 +226,52 @@ struct PlaceInventoryCorroborationTests {
         #expect(Set(withEdges.first?.candidates.map(\.id) ?? []) ==
                 Set(without.first?.candidates.map(\.id) ?? []))
         #expect(withEdges.first?.confidence == without.first?.confidence)
+    }
+}
+
+/// The parish-name index added for the location picker's hot path.
+///
+/// Two implementations of "which parish records does this name match" would
+/// drift, and that predicate decides which district a place resolves to. The
+/// index supplies only the name match; the county and validity filtering is the
+/// same `refineParishRecords` the linear scan uses. These pin the equality.
+@MainActor
+struct PlaceAuthorityIndexTests {
+
+    private var places: [PlaceAuthority] { PlaceAuthorityRegistry.shared.places }
+
+    @Test func theIndexAgreesWithTheLinearScan() {
+        let registry = PlaceAuthorityRegistry.shared
+        let names = ["Youlgreave", "Middleton", "Middleton & Smerrill", "Warslow",
+                     "Cromford", "Taddington", "Wensley", "Hognaston", "Sheffield",
+                     "Crich", "nonexistent place", "", "  Youlgreave  "]
+        for name in names {
+            for year in [nil, 1824, 1861, 2000] as [Int?] {
+                for chapman in [nil, "DBY", "STS", "WRY"] as [String?] {
+                    let indexed = registry.parishRecords(named: name, year: year, chapman: chapman)
+                    let scanned = places.parishRecords(named: name, year: year, chapman: chapman)
+                    #expect(indexed.map(\.id) == scanned.map(\.id),
+                            "\(name) year=\(year.map(String.init) ?? "nil") chapman=\(chapman ?? "nil")")
+                }
+            }
+        }
+    }
+
+    @Test func theIndexedDistrictLookupAgreesToo() {
+        let registry = PlaceAuthorityRegistry.shared
+        for name in ["Youlgreave", "Middleton", "Cromford", "Warslow", "Taddington"] {
+            for year in [nil, 1824, 1861] as [Int?] {
+                let indexed = registry.districts(forParish: name, year: year, chapman: "DBY")
+                let scanned = places.districts(forParish: name, year: year, chapman: "DBY")
+                #expect(indexed.map(\.id) == scanned.map(\.id), "\(name) \(year.map(String.init) ?? "nil")")
+            }
+        }
+    }
+
+    /// Aliases are indexed too — that is how a constituent township reaches its
+    /// compound registration parish ("Warslow" → "Warslow & Elkstones").
+    @Test func aliasesAreIndexed() {
+        #expect(!PlaceAuthorityRegistry.shared
+            .parishRecords(named: "Warslow", year: 1861, chapman: "STS").isEmpty)
     }
 }

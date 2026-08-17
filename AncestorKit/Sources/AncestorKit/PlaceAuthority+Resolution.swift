@@ -126,14 +126,25 @@ public nonisolated extension Array where Element == PlaceAuthority {
     ///
     /// Deterministic order: by id.
     func parishRecords(named parish: String, year: Int? = nil, chapman: String? = nil) -> [PlaceAuthority] {
-        let needle = parish.trimmingCharacters(in: .whitespaces).lowercased()
+        let needle = PlaceAuthority.foldedName(parish)
         guard !needle.isEmpty else { return [] }
-        let chapmanUpper = chapman?.trimmingCharacters(in: .whitespaces).uppercased()
+        let byName = filter { p in
+            p.kind == .parish
+                && ([p.name] + p.aliases).contains { PlaceAuthority.foldedName($0) == needle }
+        }
+        return refineParishRecords(byName, year: year, chapman: chapman)
+    }
 
-        return filter { p in
-            guard p.kind == .parish else { return false }
-            let names = ([p.name] + p.aliases).map { $0.lowercased() }
-            guard names.contains(needle) else { return false }
+    /// The county and validity filters `parishRecords(named:)` applies once its
+    /// name match is done. Split out so an indexed caller
+    /// (`PlaceAuthorityRegistry.parishRecords`) can skip the linear name scan and
+    /// still apply byte-identical filtering — two implementations of this
+    /// predicate would drift, and it decides which district a place resolves to.
+    func refineParishRecords(
+        _ candidates: [PlaceAuthority], year: Int?, chapman: String?
+    ) -> [PlaceAuthority] {
+        let chapmanUpper = chapman?.trimmingCharacters(in: .whitespaces).uppercased()
+        return candidates.filter { p in
             // Chapman scoping: the parish's district ancestor must be in-county.
             if let cu = chapmanUpper, let parentID = p.parentID {
                 let districtChapman = place(id: parentID)?.parentID // district → county id

@@ -30,12 +30,13 @@ struct PlaceInventoryDecisionTests {
         let dismissed = Set(try db.loadCleanseUnresolvableFlags().map { "\($0.profileID)|\($0.field)" })
         return PlaceInventory.build(profiles: Array(try db.buildSnapshot().profiles.values),
                                     lifeEvents: (try? db.loadAllLifeEvents()) ?? [],
-                                    dismissed: dismissed)
+                                    dismissed: dismissed,
+                                    decisions: PlaceDecisionSet(decisions: try db.loadPlaceDecisions()))
     }
 
     // MARK: - Binding
 
-    @Test func bindingWritesTheCodeToEveryUseOfTheString() throws {
+    @Test func bindingRecordsADecisionForEveryUseOfTheString() throws {
         let db = try makeDB()
         _ = try addPerson(db, id: "a", birthLocation: "Middleton, Derbyshire")
         _ = try addPerson(db, id: "b", birthLocation: "Middleton, Derbyshire")
@@ -46,8 +47,9 @@ struct PlaceInventoryDecisionTests {
         let written = try PlaceInventory.bindAll(row, to: "DBY:Ashbourne-RD", in: db)
 
         #expect(written == 2, "one decision settles every use of the same string")
-        #expect(try db.loadProfile(id: "a")?.birthLocationCode == "DBY:Ashbourne-RD")
-        #expect(try db.loadProfile(id: "b")?.birthLocationCode == "DBY:Ashbourne-RD")
+        let settled = try rows(db).first { $0.text == "Middleton, Derbyshire" }
+        #expect(settled?.occurrences.allSatisfy { $0.decision?.placeAuthorityID == "DBY:Ashbourne-RD" } == true)
+        #expect(settled?.needsDecision == false)
     }
 
     /// Check-before-overwrite. A code someone set earlier — by any route — is not
@@ -66,7 +68,11 @@ struct PlaceInventoryDecisionTests {
         #expect(written == 1)
         #expect(try db.loadProfile(id: "settled")?.birthLocationCode == "DBY:Bakewell-RD",
                 "an existing code must survive a decision about the same string")
-        #expect(try db.loadProfile(id: "open")?.birthLocationCode == "DBY:Ashbourne-RD")
+        let after = try rows(db).first { $0.text == "Middleton, Derbyshire" }
+        #expect(after?.occurrences.first { $0.profileID == "open" }?.decision?.placeAuthorityID
+                == "DBY:Ashbourne-RD")
+        #expect(after?.occurrences.first { $0.profileID == "settled" }?.decision == nil,
+                "an already-coded field is not re-decided")
     }
 
     @Test func aBoundRowLeavesTheQueue() throws {
@@ -100,8 +106,9 @@ struct PlaceInventoryDecisionTests {
                                               to: "DBY:Ashbourne-RD", in: db)
 
         #expect(written == 1)
-        #expect(try db.loadProfile(id: "a")?.birthLocationCode == "DBY:Ashbourne-RD")
-        #expect((try db.loadProfile(id: "b")?.birthLocationCode ?? "").isEmpty,
+        let after = try rows(db).first { $0.text == "Middleton, Derbyshire" }
+        #expect(after?.occurrences.first { $0.profileID == "a" }?.decision != nil)
+        #expect(after?.occurrences.first { $0.profileID == "b" }?.decision == nil,
                 "the other person's Middleton is a separate decision")
     }
 
@@ -128,7 +135,7 @@ struct PlaceInventoryDecisionTests {
             Issue.record("row missing"); return
         }
         #expect(try PlaceInventory.bind(row, occurrenceIDs: [], to: "DBY:Ashbourne-RD", in: db) == 0)
-        #expect((try db.loadProfile(id: "a")?.birthLocationCode ?? "").isEmpty)
+        #expect(try db.loadPlaceDecisions().isEmpty)
     }
 
     // MARK: - The national escape hatch
