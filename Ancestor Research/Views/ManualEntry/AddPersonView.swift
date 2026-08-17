@@ -137,9 +137,13 @@ struct AddPersonView: View {
             // code + display string, hierarchy, freeform escape hatch) replaces
             // the raw field on the Add-Person surface too, so every new profile's
             // birthplace is captured against the one place authority.
-            LocationPicker(label: "Birth location", text: $birthLocation, locationCode: $birthLocationCode)
+            LocationPicker(label: "Birth location", text: $birthLocation,
+                           locationCode: $birthLocationCode,
+                           eventYear: GenealogicalDate.parsePreview(birthDateText).parsed?.bestYear)
             DateParsePreviewField(label: "Death date", text: $deathDateText)
-            LocationPicker(label: "Death location", text: $deathLocation, locationCode: $deathLocationCode)
+            LocationPicker(label: "Death location", text: $deathLocation,
+                           locationCode: $deathLocationCode,
+                           eventYear: GenealogicalDate.parsePreview(deathDateText).parsed?.bestYear)
         }
     }
 

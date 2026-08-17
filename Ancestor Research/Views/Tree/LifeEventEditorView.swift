@@ -116,7 +116,8 @@ struct LifeEventEditorView: View {
                         LocationPicker(
                             label: "Town, county, country",
                             text: $location,
-                            locationCode: $locationCode
+                            locationCode: $locationCode,
+                            eventYear: GenealogicalDate.parsePreview(dateText).parsed?.bestYear
                         )
                     }
 

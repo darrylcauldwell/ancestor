@@ -158,7 +158,8 @@ nonisolated enum PlaceInventory {
 
         return byText.map { text, occurrences in
             score(text: text, occurrences: occurrences,
-                  corroboration: corroboration(for: occurrences, kin: kin, districts: districtsByProfile))
+                  corroboration: corroboration(for: occurrences, rowText: text,
+                                               kin: kin, districts: districtsByProfile))
         }
         // Ascending confidence, then by how much of the tree it affects, so the
         // top of the list is both the least certain and the most consequential.
@@ -173,24 +174,42 @@ nonisolated enum PlaceInventory {
 
     // MARK: - Family corroboration
 
+    /// A district a profile is already established in, and the location string it
+    /// was derived from (nil when it came from an applied record rather than a
+    /// coded place).
+    struct KnownDistrict: Sendable, Hashable {
+        let districtID: String
+        /// The tree text this was derived from. Carried so corroboration can
+        /// refuse to count a decision as evidence for itself.
+        let fromText: String?
+    }
+
     /// Districts each profile is already established in, from the structured
-    /// fields only — the typed birth registration district (Slice C) and any
-    /// birth/death location code that rolls up to a district. Free text is
-    /// deliberately excluded: corroborating an unresolved string with another
-    /// unresolved string is circular.
-    static func knownDistricts(of profiles: [Profile]) -> [String: Set<String>] {
+    /// fields only — the typed birth registration district (Slice C, written by
+    /// apply from a cited birth record) and any birth/death location code that
+    /// rolls up to a district. Free text is deliberately excluded: corroborating
+    /// an unresolved string with another unresolved string is circular.
+    static func knownDistricts(of profiles: [Profile]) -> [String: Set<KnownDistrict>] {
         let places = PlaceAuthorityRegistry.shared.places
-        var byProfile: [String: Set<String>] = [:]
+        var byProfile: [String: Set<KnownDistrict>] = [:]
+
+        func districtID(for code: String) -> String? {
+            if let district = places.registrationDistrict(of: code) { return district.id }
+            // Already a district id — the Places tab binds these directly.
+            return code.hasSuffix("-RD") ? code : nil
+        }
+
         for p in profiles {
-            var found: Set<String> = []
-            if let rd = p.birthRegistrationDistrict, !rd.isEmpty { found.insert(rd) }
-            for code in [p.birthLocationCode, p.deathLocationCode].compactMap({ $0 }) where !code.isEmpty {
-                if let district = places.registrationDistrict(of: code) {
-                    found.insert(district.id)
-                } else if code.hasSuffix("-RD") {
-                    // Already a district id — the Places tab binds these directly.
-                    found.insert(code)
-                }
+            var found: Set<KnownDistrict> = []
+            // No source text: this came from an applied, cited birth record, so
+            // it is independent of anything decided in the Places tab.
+            if let rd = p.birthRegistrationDistrict, !rd.isEmpty {
+                found.insert(KnownDistrict(districtID: rd, fromText: nil))
+            }
+            for (code, text) in [(p.birthLocationCode, p.birthLocation),
+                                 (p.deathLocationCode, p.deathLocation)] {
+                guard let code, !code.isEmpty, let id = districtID(for: code) else { continue }
+                found.insert(KnownDistrict(districtID: id, fromText: text))
             }
             if !found.isEmpty { byProfile[p.id] = found }
         }
@@ -231,8 +250,15 @@ nonisolated enum PlaceInventory {
     /// which is not changed by where the family lived. Putting the corroborated
     /// candidate first, with the count stated, makes the decision fast without
     /// ever making it for the user.
+    ///
+    /// **A decision is never evidence for itself.** Binding "Middleton,
+    /// Derbyshire" for one person writes a code that would otherwise come back as
+    /// independent corroboration when their sibling's identical "Middleton,
+    /// Derbyshire" is scored — the same choice echoed, wearing the clothes of a
+    /// second opinion. Districts derived from `rowText` are therefore excluded.
     static func corroboration(
-        for occurrences: [Occurrence], kin: [String: Set<String>], districts: [String: Set<String>]
+        for occurrences: [Occurrence], rowText: String,
+        kin: [String: Set<String>], districts: [String: Set<KnownDistrict>]
     ) -> [String: Int] {
         var counts: [String: Int] = [:]
         for profileID in Set(occurrences.map(\.profileID)) {
@@ -241,8 +267,10 @@ nonisolated enum PlaceInventory {
             var circle = kin[profileID] ?? []
             circle.insert(profileID)
             for relative in circle {
-                for district in districts[relative] ?? [] {
-                    counts[district, default: 0] += 1
+                for known in districts[relative] ?? [] {
+                    if let from = known.fromText,
+                       from.caseInsensitiveCompare(rowText) == .orderedSame { continue }
+                    counts[known.districtID, default: 0] += 1
                 }
             }
         }

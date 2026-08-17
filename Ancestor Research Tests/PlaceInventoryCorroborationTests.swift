@@ -146,6 +146,39 @@ struct PlaceInventoryCorroborationTests {
         #expect(rows.first { $0.text == "Wirksworth, Derbyshire" }?.corroboration["DBY:Belper-RD"] == 1)
     }
 
+    /// A decision must not become evidence for itself. Binding "Wirksworth,
+    /// Derbyshire" for one sibling writes a code that would otherwise return as
+    /// independent corroboration when the other sibling's identical string is
+    /// scored — the same choice echoed, wearing the clothes of a second opinion.
+    @Test func aDecisionIsNotEvidenceForItself() {
+        let profiles = [
+            person("child", birthLocation: "Wirksworth, Derbyshire"),
+            // Already bound by an earlier pass through the Places tab.
+            person("sibling", birthLocation: "Wirksworth, Derbyshire", birthCode: "DBY:Belper-RD"),
+            person("father"),
+        ]
+        let rows = PlaceInventory.build(
+            profiles: profiles,
+            relationships: [parentEdge("father", "child"), parentEdge("father", "sibling")])
+        let row = rows.first { $0.text == "Wirksworth, Derbyshire" }
+        #expect(row?.corroboration.isEmpty == true,
+                "the same string settled elsewhere is the same decision, not corroboration: \(row?.corroboration ?? [:])")
+    }
+
+    /// But a DIFFERENT string in the family still corroborates — that is a real
+    /// second data point, and excluding it would gut the signal.
+    @Test func aDifferentStringInTheFamilyStillCorroborates() {
+        let profiles = [
+            person("child", birthLocation: "Wirksworth, Derbyshire"),
+            person("sibling", birthLocation: "Belper, Derbyshire", birthCode: "DBY:Belper-RD"),
+            person("father"),
+        ]
+        let rows = PlaceInventory.build(
+            profiles: profiles,
+            relationships: [parentEdge("father", "child"), parentEdge("father", "sibling")])
+        #expect(rows.first { $0.text == "Wirksworth, Derbyshire" }?.corroboration["DBY:Belper-RD"] == 1)
+    }
+
     /// Omitting relationships costs ranking, never correctness — every caller
     /// that has not been updated must still get the same candidates.
     @Test func omittingRelationshipsChangesOnlyOrderNotContent() {

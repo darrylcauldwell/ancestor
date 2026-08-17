@@ -929,7 +929,8 @@ struct SharedProfileLayout: View {
                     LocationPicker(
                         label: "Birth location",
                         text: b.birthLocation,
-                        locationCode: b.birthLocationCode
+                        locationCode: b.birthLocationCode,
+                        eventYear: GenealogicalDate.parsePreview(b.birthDateText.wrappedValue).parsed?.bestYear
                     )
                 }
                 editableFieldRow("Death date", field: .deathDate) {
@@ -939,7 +940,8 @@ struct SharedProfileLayout: View {
                     LocationPicker(
                         label: "Death location",
                         text: b.deathLocation,
-                        locationCode: b.deathLocationCode
+                        locationCode: b.deathLocationCode,
+                        eventYear: GenealogicalDate.parsePreview(b.deathDateText.wrappedValue).parsed?.bestYear
                     )
                 }
             }

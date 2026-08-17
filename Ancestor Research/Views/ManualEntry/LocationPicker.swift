@@ -1,4 +1,5 @@
 import SwiftUI
+import AncestorKit
 
 /// Typeahead location picker. Replaces freeform TextField for birth/death
 /// location entry — as the user types, a dropdown shows up to 10 matching
@@ -13,6 +14,11 @@ struct LocationPicker: View {
     let label: String
     @Binding var text: String
     @Binding var locationCode: String?
+    /// The year of the event this place belongs to, when the surrounding form
+    /// knows it. Registration districts open and close, so without it the
+    /// district line can name one that did not exist — "Crich · Amber Valley"
+    /// for a Victorian birth, Amber Valley RD having begun in 1994.
+    var eventYear: Int?
     /// Optional callback for callers that need to react to a confirmed selection
     /// (e.g. trigger an audit re-run when the structured code changes).
     var onSelect: ((GazetteerEntry?) -> Void)?
@@ -78,10 +84,11 @@ struct LocationPicker: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                         .font(.caption)
-                    Text(registrationDistrict(for: entry).map { "Matched: \(entry.displayName) · \($0) district" }
+                    Text(districtLabel(for: entry).map { "Matched: \(entry.displayName) · \($0) district" }
                             ?? "Matched: \(entry.displayName)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .help(districtHelp(for: entry))
                     Button {
                         locationCode = nil
                         onSelect?(nil)
@@ -101,13 +108,44 @@ struct LocationPicker: View {
         LocationGazetteer.shared.match(text)
     }
 
-    /// The registration district a gazetteer place sits in ("Crich" → "Belper"),
-    /// or nil for a county entry / a place with no catalogue district. Uses the
-    /// id's Chapman prefix as the county anchor.
-    private func registrationDistrict(for entry: GazetteerEntry) -> String? {
-        guard entry.kind != "county" else { return nil }
+    /// The registration district(s) a gazetteer place sits in ("Crich" →
+    /// "Belper"), or nil for a county entry / a place with no catalogue district.
+    ///
+    /// Was `districtName(forPlace:chapman:)`, a first-match over the county's
+    /// districts in file order with no year. 97 of the 219 gazetteer places match
+    /// more than one district inside their own county, so roughly two rows in
+    /// five silently displayed a rival — and, having no year, some of those were
+    /// districts that did not exist yet: "Crich · Amber Valley" (from 1994),
+    /// "Matlock · Bakewell" (from 1839). Naming one of several as though it were
+    /// the answer is the same fault the Places tab was built to fix, one surface
+    /// down.
+    ///
+    /// Now era-aware and honest about ties. It does not offer a *choice* — there
+    /// is nowhere to store a district here (the picker's job is to pick a place;
+    /// the district is derived), and offering a choice with no home for the
+    /// answer would be worse than naming the ambiguity. Deciding between rivals
+    /// belongs in the Places tab, which has the room to show eliminations and
+    /// reasons.
+    private func districts(for entry: GazetteerEntry) -> [PlaceAuthority] {
+        guard entry.kind != "county" else { return [] }
         let chapman = entry.id.split(separator: ":").first.map(String.init)
-        return RegistrationDistrictResolver.districtName(forPlace: entry.name, chapman: chapman)
+        return RegistrationDistrictResolver.candidates(
+            forPlaceOrDistrict: entry.name, chapman: chapman, year: eventYear)?.districts ?? []
+    }
+
+    /// "Belper", or "Belper or 2 others" when the place spans rival districts.
+    private func districtLabel(for entry: GazetteerEntry) -> String? {
+        let found = districts(for: entry)
+        guard let first = found.first else { return nil }
+        return found.count == 1 ? first.name : "\(first.name) or \(found.count - 1) other\(found.count == 2 ? "" : "s")"
+    }
+
+    private func districtHelp(for entry: GazetteerEntry) -> String {
+        let found = districts(for: entry)
+        guard found.count > 1 else { return "" }
+        return "This place spans \(found.count) registration districts"
+            + (eventYear.map { " in \($0)" } ?? "")
+            + ": \(found.map(\.name).joined(separator: ", ")). Settle it in the Places tab."
     }
 
     private var matchesDropdown: some View {
@@ -125,16 +163,19 @@ struct LocationPicker: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(entry.name)
                                 .fontWeight(.medium)
-                            // Hierarchy line place → RD → county → country. The
-                            // registration district (Slice C) is resolved on the
-                            // fly via the same canonical resolver the scorer/apply
-                            // use, so what the user sees here is exactly what an
-                            // applied birth record would record.
+                            // Hierarchy line place → RD → county → country,
+                            // resolved through the same canonical resolver the
+                            // scorer and apply use — and, since the year is now
+                            // passed in, filtered to districts that existed at
+                            // the event. Where rivals remain the row says so
+                            // rather than naming the first.
                             HStack(spacing: 4) {
-                                if let rd = registrationDistrict(for: entry) {
+                                if let rd = districtLabel(for: entry) {
                                     Text(rd)
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(districts(for: entry).count > 1
+                                                         ? AnyShapeStyle(.orange)
+                                                         : AnyShapeStyle(.secondary))
                                     Text("·")
                                         .font(.caption)
                                         .foregroundStyle(.tertiary)
