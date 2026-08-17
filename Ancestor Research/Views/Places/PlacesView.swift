@@ -180,7 +180,11 @@ struct PlacesView: View {
                 row: row,
                 proposal: proposals[row.id],
                 isAsking: asking.contains(row.id),
-                onBind: { code, ids, reason in bind(row, occurrenceIDs: ids, to: code, reason: reason) },
+                variants: rows.filter { $0.variantKey == row.variantKey && $0.id != row.id },
+                onBind: { code, ids, reason, alsoVariants in
+                    bind(row, occurrenceIDs: ids, to: code, reason: reason,
+                         alsoVariants: alsoVariants)
+                },
                 onNotAPlace: { markNotAPlace(row) },
                 onRestore: { restore(row) },
                 onUnbind: { unbind(row) },
@@ -213,12 +217,22 @@ struct PlacesView: View {
     }
 
     private func bind(
-        _ row: PlaceInventory.Row, occurrenceIDs: Set<String>, to code: String, reason: String
+        _ row: PlaceInventory.Row, occurrenceIDs: Set<String>, to code: String,
+        reason: String, alsoVariants: Bool
     ) {
         guard let db = appState.currentDatabase, !occurrenceIDs.isEmpty else { return }
         do {
-            let written = try PlaceInventory.bind(
+            var written = try PlaceInventory.bind(
                 row, occurrenceIDs: occurrenceIDs, to: code, reason: reason, in: db)
+            // Other spellings of the same village, settled by the same decision
+            // — each still recorded against its own string, so the trail says
+            // what was decided about what.
+            if alsoVariants {
+                for sibling in rows where sibling.variantKey == row.variantKey && sibling.id != row.id {
+                    written += (try? PlaceInventory.bindAll(
+                        sibling, to: code, reason: reason, in: db)) ?? 0
+                }
+            }
             let name = PlaceAuthorityRegistry.shared.places.place(id: code)?.name ?? code
             lastAction = "Settled \(written) field\(written == 1 ? "" : "s") as \(name)"
         } catch let error as PlaceInventory.BindError {
@@ -281,7 +295,9 @@ private struct PlaceDetailView: View {
     let row: PlaceInventory.Row
     let proposal: PlaceProposer.Proposal?
     let isAsking: Bool
-    let onBind: (String, Set<String>, String) -> Void
+    /// Other rows that spell the same place differently.
+    let variants: [PlaceInventory.Row]
+    let onBind: (String, Set<String>, String, Bool) -> Void
     let onNotAPlace: () -> Void
     let onRestore: () -> Void
     let onUnbind: () -> Void
@@ -293,6 +309,7 @@ private struct PlaceDetailView: View {
     @State private var showingNational = false
     @State private var reason: String = ""
     @State private var placeSearch: String = ""
+    @State private var applyToVariants: Bool = true
 
     private var settled: PlaceDecision? { row.occurrences.compactMap(\.decision).first }
 
@@ -320,7 +337,12 @@ private struct PlaceDetailView: View {
         return grouped
             .map { (profileID: $0.key,
                     name: $0.value.first?.profileName ?? "",
-                    occurrences: $0.value.sorted { $0.fieldKey < $1.fieldKey }) }
+                    // Year, then label. Sorting by fieldKey put life events in
+                    // UUID order, so one person read "Census · Residence" and
+                    // the next "Residence · Occupation · Census".
+                    occurrences: $0.value.sorted {
+                        ($0.year ?? 0, $0.fieldLabel) < ($1.year ?? 0, $1.fieldLabel)
+                    }) }
             .sorted { $0.name == $1.name ? $0.profileID < $1.profileID : $0.name < $1.name }
     }
 
@@ -390,7 +412,7 @@ private struct PlaceDetailView: View {
                             .font(AppTypography.badge)
                             .foregroundStyle(.orange)
                             .fixedSize(horizontal: false, vertical: true)
-                        Button("Accept this") { onBind(proposal.districtID, selection, reasonOrDefault(proposal)) }
+                        Button("Accept this") { onBind(proposal.districtID, selection, reasonOrDefault(proposal), applyToVariants) }
                             .font(AppTypography.controlLabel)
                             .disabled(selection.isEmpty)
                     }
@@ -464,6 +486,25 @@ private struct PlaceDetailView: View {
                     }
                 }
 
+                // The same village spelled four ways is four rows and one
+                // decision. Each variant still records its own decision against
+                // its own string, so the trail stays honest about what was
+                // settled and when — this only saves repeating yourself.
+                if !variants.isEmpty {
+                    section("Same place, other spellings") {
+                        Toggle(isOn: $applyToVariants) {
+                            Text("Also settle \(variants.count) other spelling\(variants.count == 1 ? "" : "s")")
+                                .font(AppTypography.cardMeta)
+                        }
+                        .toggleStyle(.checkbox)
+                        ForEach(variants) { variant in
+                            Text("\(variant.text) · \(variant.profileCount) \(variant.profileCount == 1 ? "person" : "people")")
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+
                 section(bindable.isEmpty ? "Used by" : "Apply to which uses?") {
                     // Controls first — they were below seventeen rows, which is
                     // past the fold on a real household.
@@ -533,7 +574,7 @@ private struct PlaceDetailView: View {
                 }
             }
             Spacer()
-            Button("Use this") { onBind(district.id, selection, reason) }
+            Button("Use this") { onBind(district.id, selection, reason, applyToVariants) }
                 .font(AppTypography.controlLabel)
                 .disabled(selection.isEmpty)
         }
@@ -617,7 +658,7 @@ private struct PlaceDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("It's here") { onBind(hit.place.id, selection, reason) }
+                    Button("It's here") { onBind(hit.place.id, selection, reason, applyToVariants) }
                         .font(AppTypography.controlLabel)
                         .disabled(selection.isEmpty)
                 }
@@ -648,7 +689,7 @@ private struct PlaceDetailView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("Use this") { onBind(district.id, selection, reason) }
+                        Button("Use this") { onBind(district.id, selection, reason, applyToVariants) }
                             .font(AppTypography.controlLabel)
                             .disabled(selection.isEmpty)
                     }

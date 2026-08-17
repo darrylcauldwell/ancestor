@@ -97,6 +97,10 @@ nonisolated enum PlaceInventory {
         /// something you learn to ignore, and an unexplained low score is not
         /// actionable.
         let reasons: [String]
+        /// Rows sharing this key are spellings of the same place — "Wirksworth",
+        /// "Wirksworth, Derbyshire", "Wirksworth, Derbyshire (DBY)" and
+        /// "Wirksworth, Derbyshire, England" are four rows and one village.
+        let variantKey: String
         /// Candidate districts this family already has records in, with how many.
         /// Ranks `candidates`; deliberately does NOT move `confidence` — see
         /// `corroboration(…)`.
@@ -423,6 +427,32 @@ nonisolated enum PlaceInventory {
 
     // MARK: - Scoring
 
+    /// The place a string names, with trailing county and country dropped.
+    ///
+    /// "Wirksworth, Derbyshire, England" and "Wirksworth" are the same village
+    /// recorded two ways; on the live tree Wirksworth appears under four
+    /// spellings across 21 people, and settling each separately is most of the
+    /// work in the queue.
+    ///
+    /// Only county and country tokens are dropped, never a qualifier: "Middleton"
+    /// and "Middleton By Wirksworth" stay distinct, because they are two
+    /// different villages and merging them would be the Bakewell mistake again.
+    static func variantKey(for text: String) -> String {
+        var parts = RegistrationDistrictResolver.segments(of: text)
+        let countries: Set<String> = ["england", "scotland", "wales", "uk",
+                                      "united kingdom", "great britain", "gb"]
+        // Never strip the LAST segment. "Derbyshire" is entirely county, and
+        // emptying it would give every bare county the same key — so the tab
+        // would offer to settle Warwickshire as another spelling of Derbyshire.
+        while parts.count > 1, let last = parts.last?.lowercased() {
+            guard countries.contains(last)
+                    || UKChapmanCodes.shared.chapmanCode(forCountyName: parts[parts.count - 1]) != nil
+            else { break }
+            parts.removeLast()
+        }
+        return parts.joined(separator: ", ").lowercased()
+    }
+
     static func score(
         text: String, occurrences: [Occurrence], corroboration: [String: Int] = [:]
     ) -> Row {
@@ -439,7 +469,8 @@ nonisolated enum PlaceInventory {
             if stated == nil { reasons.append("No county stated, so nothing narrows the search.") }
             return Row(id: text, text: text, occurrences: occurrences, candidates: [],
                        eliminated: [], placeNames: [], matchedSegment: nil,
-                       confidence: .unresolved, reasons: reasons, corroboration: [:])
+                       confidence: .unresolved, reasons: reasons,
+                       variantKey: variantKey(for: text), corroboration: [:])
         }
 
         let firstSegment = RegistrationDistrictResolver.segments(of: text).first
@@ -529,6 +560,7 @@ nonisolated enum PlaceInventory {
         return Row(id: text, text: text, occurrences: occurrences,
                    candidates: ranked, eliminated: result.eliminated,
                    placeNames: distinctPlaces.sorted(), matchedSegment: result.matchedSegment,
-                   confidence: confidence, reasons: reasons, corroboration: relevant)
+                   confidence: confidence, reasons: reasons,
+                   variantKey: variantKey(for: text), corroboration: relevant)
     }
 }

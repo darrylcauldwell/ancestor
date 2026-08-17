@@ -55,7 +55,7 @@ nonisolated enum RegistrationDistrictResolver {
         // this was added — a wrong-county answer, worse than none.
         let scope: [String?] = chapman.map { [$0] }
             ?? { let s = statedChapmanScope(in: placeOrDistrict); return s.isEmpty ? [nil] : s }()
-        for token in segments(of: placeOrDistrict) {
+        for token in segments(of: placeOrDistrict) where !isStreetAddress(token) {
             // 1. PARISH HOP, era-aware. Was `district(forParish:inChapman:)` —
             //    first-match and validity-blind, so "Middleton" for an 1824
             //    birth answered Bakewell RD, which did not exist until 1839.
@@ -213,7 +213,7 @@ nonisolated enum RegistrationDistrictResolver {
             ?? { let s = statedChapmanScope(in: placeOrDistrict); return s.isEmpty ? [nil] : s }()
         let places = PlaceAuthorityRegistry.shared.places
 
-        for token in segments(of: placeOrDistrict) {
+        for token in segments(of: placeOrDistrict) where !isStreetAddress(token) {
             let parishRecords = scope.flatMap {
                 PlaceAuthorityRegistry.shared.parishRecords(named: token, year: nil, chapman: $0)
             }
@@ -254,7 +254,7 @@ nonisolated enum RegistrationDistrictResolver {
     /// person has decided the narrow list is missing their answer.
     static func nationalCandidates(forPlaceOrDistrict placeOrDistrict: String) -> [PlaceAuthority] {
         let places = PlaceAuthorityRegistry.shared.places
-        for token in segments(of: placeOrDistrict) {
+        for token in segments(of: placeOrDistrict) where !isStreetAddress(token) {
             let districts = dedupedByID(PlaceAuthorityRegistry.shared.districts(forParish: token, year: nil, chapman: nil))
             if !districts.isEmpty { return districts }
             if let id = PlaceResolver.resolveDistrict(name: token, chapman: nil, year: nil),
@@ -292,6 +292,31 @@ nonisolated enum RegistrationDistrictResolver {
                 }
                 return (district, reason)
             }
+    }
+
+    /// Words that make a token a STREET rather than a settlement.
+    ///
+    /// "Bakewell Rd" resolved to Bakewell registration district and scored
+    /// Medium — the app confidently placing a road as a town. Streets carrying a
+    /// settlement's name are common in exactly the county the settlement is in,
+    /// so this is not a rare edge. Declining costs a row that the user settles
+    /// by hand; resolving costs a wrong district asserted with confidence, and
+    /// "when in doubt, split" says which way to err.
+    ///
+    /// Matched only as a whole trailing token, so "Ridgeway" and "Broadway"
+    /// (real place names) are untouched.
+    static let streetSuffixes: Set<String> = [
+        "rd", "road", "st", "street", "lane", "ln", "row", "ave", "avenue",
+        "close", "terrace", "crescent", "drive", "way", "court", "yard",
+        "walk", "gardens", "grove", "mews", "square", "parade",
+    ]
+
+    /// Whether a segment names a street rather than a place.
+    static func isStreetAddress(_ token: String) -> Bool {
+        let words = token.split(whereSeparator: { $0.isWhitespace })
+        guard words.count >= 2, let last = words.last else { return false }
+        return streetSuffixes.contains(String(last).lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".,")))
     }
 
     /// A place string's comma segments, narrowest first — "Alport, Youlgreave,

@@ -173,3 +173,68 @@ struct UnresolvedPlaceBindingTests {
         #expect(try db.loadProfile(id: "jen")?.birthLocation == "Bolehill")
     }
 }
+
+/// Streets that carry a settlement's name, and spellings of one village.
+@MainActor
+struct PlaceVariantAndStreetTests {
+
+    // MARK: - Streets
+
+    /// "Bakewell Rd" resolved to Bakewell registration district and scored
+    /// Medium — the app confidently placing a road as a town.
+    @Test func aStreetNamedAfterATownDoesNotResolveToIt() {
+        let hit = RegistrationDistrictResolver.candidates(
+            forPlaceOrDistrict: "Bakewell Rd", chapman: nil, year: 1891)
+        #expect(hit == nil, "got \(hit?.districts.map(\.name) ?? [])")
+        #expect(RegistrationDistrictResolver.districtID(
+            forPlaceOrDistrict: "Bakewell Rd", chapman: nil, year: 1891) == nil)
+    }
+
+    @Test func streetSuffixesAreRecognised() {
+        for street in ["Bakewell Rd", "Chapel Row", "South Church St", "Kilton Rd",
+                       "Burn Lane", "Speedwell Old Row", "Church Street"] {
+            #expect(RegistrationDistrictResolver.isStreetAddress(street), "\(street)")
+        }
+    }
+
+    /// Only a trailing WORD counts, so real place names survive.
+    @Test func realPlacesEndingInThoseLettersAreUntouched() {
+        for place in ["Ridgeway", "Broadway", "Wirksworth", "Holloway", "Alstonefield"] {
+            #expect(!RegistrationDistrictResolver.isStreetAddress(place), "\(place)")
+        }
+        // A street token inside a fuller string still leaves the place segment usable.
+        #expect(RegistrationDistrictResolver.districtID(
+            forPlaceOrDistrict: "Bakewell Rd, Bakewell, Derbyshire", chapman: nil, year: 1891) != nil)
+    }
+
+    // MARK: - Variants
+
+    @Test func spellingsOfOneVillageShareAKey() {
+        let keys = ["Wirksworth", "Wirksworth, Derbyshire", "Wirksworth, Derbyshire (DBY)",
+                    "Wirksworth, Derbyshire, England"].map(PlaceInventory.variantKey(for:))
+        #expect(Set(keys).count == 1, "got \(keys)")
+        #expect(keys.first == "wirksworth")
+    }
+
+    @Test func pilhoughAndTurnditchVariantsCollapseToo() {
+        #expect(PlaceInventory.variantKey(for: "Pilhough")
+                == PlaceInventory.variantKey(for: "Pilhough, Derbyshire"))
+        #expect(PlaceInventory.variantKey(for: "Turnditch")
+                == PlaceInventory.variantKey(for: "Turnditch, Derbyshire (DBY)"))
+    }
+
+    /// A QUALIFIER is never dropped. Middleton and Middleton By Wirksworth are
+    /// two different villages, and merging them would be the Bakewell mistake
+    /// wearing a new hat.
+    @Test func aQualifierKeepsTwoVillagesApart() {
+        #expect(PlaceInventory.variantKey(for: "Middleton, Derbyshire (DBY)")
+                != PlaceInventory.variantKey(for: "Middleton By Wirksworth, Derbyshire, England"))
+        #expect(PlaceInventory.variantKey(for: "Alport, Derbyshire")
+                != PlaceInventory.variantKey(for: "Alport, Youlgreave, Derbyshire"))
+    }
+
+    @Test func aBareCountyDoesNotCollapseToNothing() {
+        #expect(!PlaceInventory.variantKey(for: "Derbyshire").isEmpty,
+                "stripping every segment would group all counties together")
+    }
+}
