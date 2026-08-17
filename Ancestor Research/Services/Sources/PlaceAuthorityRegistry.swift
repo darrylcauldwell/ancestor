@@ -260,6 +260,73 @@ nonisolated final class PlaceAuthorityRegistry: Sendable {
         return places.refineParishRecords(candidates, year: year, chapman: chapman)
     }
 
+    /// One searchable place, with the hierarchy line needed to tell two
+    /// same-named parishes apart.
+    nonisolated struct SearchHit: Sendable, Identifiable, Equatable {
+        let place: PlaceAuthority
+        /// "Wirksworth · Belper district · Derbyshire"
+        let hierarchy: String
+        var id: String { place.id }
+    }
+
+    /// Free-text search over parishes and registration districts.
+    ///
+    /// The affordance an **unresolved** row has to have. A string the catalogue
+    /// has never heard of — Bolehill, Pilhough, a farm, a street — produces no
+    /// candidates, so "pick one of these districts" offers nothing and the only
+    /// remaining action is to declare it not a place, which for a real hamlet is
+    /// false. This lets a person say where it *is*: search Wirksworth, bind
+    /// Bolehill to it.
+    ///
+    /// Parishes rank above districts, and exact names above prefixes above
+    /// substrings, because the parish is the more precise answer and the one a
+    /// genealogist thinks in.
+    func search(_ query: String, year: Int? = nil, limit: Int = 25) -> [SearchHit] {
+        let needle = PlaceAuthority.foldedName(query)
+        guard needle.count >= 2 else { return [] }
+
+        func rank(_ p: PlaceAuthority) -> Int? {
+            let name = PlaceAuthority.foldedName(p.name)
+            let names = [name] + p.aliases.map(PlaceAuthority.foldedName)
+            if names.contains(needle) { return 0 }
+            if names.contains(where: { $0.hasPrefix(needle) }) { return 1 }
+            if names.contains(where: { $0.contains(needle) }) { return 2 }
+            return nil
+        }
+
+        return places
+            .filter { $0.kind == .parish || $0.kind == .registrationDistrict }
+            .filter { place in year.map { place.valid(in: $0) } ?? true }
+            .compactMap { p -> (Int, PlaceAuthority)? in rank(p).map { ($0, p) } }
+            .sorted {
+                if $0.0 != $1.0 { return $0.0 < $1.0 }
+                // Parish before district at equal rank — the precise answer first.
+                let ak = $0.1.kind == .parish ? 0 : 1, bk = $1.1.kind == .parish ? 0 : 1
+                if ak != bk { return ak < bk }
+                return $0.1.id < $1.1.id
+            }
+            .prefix(limit)
+            .map { SearchHit(place: $0.1, hierarchy: hierarchyLine(for: $0.1)) }
+    }
+
+    /// "Wirksworth · Belper district · Derbyshire" — enough to distinguish the
+    /// two Wirksworth parish records (Bakewell's and Belper's) in a picker.
+    func hierarchyLine(for place: PlaceAuthority) -> String {
+        var parts: [String] = [place.name]
+        if place.kind == .parish, let district = places.registrationDistrict(of: place.id) {
+            parts.append("\(district.name) district")
+        } else if place.kind == .registrationDistrict {
+            parts.append("district")
+        }
+        if let county = places.county(of: place.id) { parts.append(county.name) }
+        if let from = place.validFrom ?? place.validTo {
+            let window = [place.validFrom.map { "from \($0)" }, place.validTo.map { "to \($0)" }]
+                .compactMap { $0 }.joined(separator: " ")
+            if !window.isEmpty { parts.append(window) } else { _ = from }
+        }
+        return parts.joined(separator: " · ")
+    }
+
     /// Indexed `districts(forParish:year:chapman:)`.
     func districts(forParish parish: String, year: Int? = nil, chapman: String? = nil) -> [PlaceAuthority] {
         var byDistrictID: [String: PlaceAuthority] = [:]

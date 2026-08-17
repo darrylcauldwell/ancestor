@@ -292,6 +292,7 @@ private struct PlaceDetailView: View {
     @State private var selection: Set<String> = []
     @State private var showingNational = false
     @State private var reason: String = ""
+    @State private var placeSearch: String = ""
 
     private var settled: PlaceDecision? { row.occurrences.compactMap(\.decision).first }
 
@@ -329,6 +330,16 @@ private struct PlaceDetailView: View {
                         Text("\(PlaceAuthorityRegistry.shared.places.place(id: settled.placeAuthorityID)?.name ?? settled.placeAuthorityID)"
                              + " — decided \(settled.decidedAt.formatted(date: .abbreviated, time: .omitted))")
                             .font(AppTypography.cardBody)
+                        // A decision that is not one of the row's own candidates
+                        // was a human placing the text somewhere the catalogue
+                        // never matched. Saying so keeps the app from later
+                        // presenting a hand-made judgement as a lookup.
+                        if !row.candidates.contains(where: { $0.id == settled.placeAuthorityID }) {
+                            Label("Placed by hand — the gazetteer did not match this text",
+                                  systemImage: "hand.point.up.left")
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.orange)
+                        }
                         if !settled.reason.isEmpty {
                             Text("\u{201C}\(settled.reason)\u{201D}")
                                 .font(AppTypography.cardMeta)
@@ -405,12 +416,22 @@ private struct PlaceDetailView: View {
                     .disabled(isAsking)
                 }
 
+                // WHERE IS IT? The affordance an unresolved row cannot do
+                // without. The catalogue has never heard of Bolehill or
+                // Pilhough — both real settlements — so there are no candidates
+                // to choose from, and without this the only action left is
+                // "this isn't a place", which for a hamlet is simply false.
+                // Nothing in the data separates an unlisted village from a
+                // street name; only a person knows, which is the whole reason
+                // this tab exists.
+                placeSearchSection
+
                 // The escape hatch. The stated county is normally the best
                 // constraint there is, but it is sometimes simply wrong —
                 // emigrants described by where they ended up, a transcription
                 // error, a boundary that moved. A list locked to it would trap
                 // exactly those cases.
-                if !row.candidates.isEmpty || row.confidence == .unresolved {
+                if !row.candidates.isEmpty {
                     nationalEscapeHatch
                 }
 
@@ -525,6 +546,51 @@ private struct PlaceDetailView: View {
                 Text(String(year))
                     .font(AppTypography.badge)
                     .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    /// Search the gazetteer for the parish or district this place sits in, and
+    /// bind to it. Parishes rank first because that is the precise answer and
+    /// the one a genealogist thinks in — "Bolehill is in Wirksworth", not
+    /// "Bolehill is in Belper registration district".
+    @ViewBuilder private var placeSearchSection: some View {
+        let year = row.occurrences.compactMap(\.year).min()
+        let hits = PlaceAuthorityRegistry.shared.search(placeSearch, year: year)
+
+        section(row.candidates.isEmpty ? "Where is it?" : "Somewhere else?") {
+            if row.candidates.isEmpty {
+                Text("The gazetteer has no entry for this. If it is a real place, say which parish it sits in.")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            TextField("Search parishes and districts…", text: $placeSearch)
+                .textFieldStyle(.roundedBorder)
+
+            if !placeSearch.isEmpty && hits.isEmpty {
+                Text("Nothing matches \u{201C}\(placeSearch)\u{201D}.")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(hits) { hit in
+                HStack {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(hit.place.name).font(AppTypography.cardBody)
+                        Text(hit.hierarchy)
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("It's here") { onBind(hit.place.id, selection, reason) }
+                        .font(AppTypography.controlLabel)
+                        .disabled(selection.isEmpty)
+                }
+            }
+            if !hits.isEmpty && selection.isEmpty && !bindable.isEmpty {
+                Text("Tick which uses below this applies to.")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.orange)
             }
         }
     }
