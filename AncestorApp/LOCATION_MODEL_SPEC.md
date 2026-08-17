@@ -1,6 +1,6 @@
 # LOCATION_MODEL_SPEC
 
-**Status:** Stages 0–3 SHIPPED. Stage 3 (decision-core geography-gate rebuild) SHIPPED 2026-07-31 as Fix B of `DECISION_CORE_PAIR_SPEC.md` (#DC3) — subject-derived accepted-county set, hierarchy+validity walk with substring fallback, absence-of-knowledge never vetoes family-confirmed records. Stage 4 gated on FS production-verify + village→district data.
+**Status:** Stages 0–3 SHIPPED; Part II Slices A–E SHIPPED; **Part III Slice 0 SHIPPED 2026-08-17** — the village→district blocker was never a data gap (the catalogue already held the parishes; four code defects hid them), so Stage 2(b) / Stage 4 / Slice D era-filtering are unblocked without any import. Stage 3 (decision-core geography-gate rebuild) SHIPPED 2026-07-31 as Fix B of `DECISION_CORE_PAIR_SPEC.md` (#DC3) — subject-derived accepted-county set, hierarchy+validity walk with substring fallback, absence-of-knowledge never vetoes family-confirmed records. Stage 4 gated on FS production-verify + village→district data.
 **Origin:** the 2026-07-25 location audit + the 2026-07-27 "full pass" decision.
 
 ## Problem
@@ -292,3 +292,55 @@ freeform tail — profile birth/death **and** life-event places — under review
    makes it safe (verified-against-authority, human-reviewed, no blind writes) is in place.
 
 Downstream consumer not part of any slice: **sibling-by-RD clustering** (a consumer of C's field).
+
+---
+
+# Part III — the village→district unblock (Slice 0 SHIPPED 2026-08-17)
+
+**The premise of Stage 2(b)/Stage 4 was wrong.** Three items in this spec were parked
+waiting on "a village→district data source (the FS full tree / GENUKI import)": Part I
+Stage 2(b), Part II Slice D's era-aware filtering, and the "Known coverage limit". No
+import was needed. **The data already ships.** `Wensley & Snitterton` — a subject
+family's home township across two censuses, scoring `unknown district` — is in
+`freebmd-districts.json` under DBY/Bakewell (from 1839) and DBY/Matlock (to 1838).
+
+Four defects sat between the catalogue and the gate (commit `00fc0b0`):
+
+1. **HTML entities survived the scrape.** 685 distinct parish names carry a literal
+   `&amp;`; nothing on the resolution path unescaped, while the record side does
+   (`FreeCenSource.swift:847`). Two namespaces that could never meet. Also ~98 rows
+   are footnote prose ("abolished 1.4.1935 and added to the parish of …"), not places.
+2. **The gate never consulted the parish tier.** `PlaceResolver.resolveDistrict`
+   matches only `kind == .registrationDistrict` (`PlaceAuthority+Resolution.swift:162`),
+   but a census prints the civil PARISH in its district column.
+3. **A compound civil parish was unreachable by its constituents.** A census names the
+   settlement ("Wensley"), not the registration parish ("Wensley & Snitterton").
+4. **Only the first comma segment was tried, and the county in the string ignored.**
+   "Alport, Youlgreave, Derbyshire" lost the parish beside it; "Middleton, Derbyshire"
+   resolved to **LAN**:Middleton-RD.
+
+**Design note — the gate resolves parishes with `chapman: nil` deliberately.** Scoping
+to the subject's own county would let any ambiguous name find an in-area answer and
+pass: the gate marking its own homework. A parish must land in exactly ONE county to be
+trusted, so bare "Wensley" (DBY via alias, NRY exact) declines rather than conveniently
+becoming Derbyshire. `RegistrationDistrictResolver` derives the county from the place
+TEXT instead, which is legitimate — the string states it.
+
+**Verification was exhaustive, not sampled** (`GazetteerTreeCoverageTests`): all 88
+distinct location strings from the live tree, asserting none resolves into a county it
+contradicts. That check found defect 4; a ten-item spot check had passed. Coverage rose
+from 42/88 to 64/88 with **zero contradictory-county resolutions**.
+
+**The residue is pinned and categorised** — and it reframes Part III's remaining work:
+- **9 strings / 8 places** are a genuine coverage gap (Alport, Pilhough, Darley Bridge,
+  Bolehill, Priestcliffe, Stanton-in-Peak, Longcliffe Wharf, Holmgate).
+- The rest are **ambiguous-by-design** (Turnditch, Winster, Wirksworth, Weston
+  Underwood — correctly declined), **counties not districts**, or **typos to fix in the
+  tree** (Ashborne, Bishop Storford, Leland, Darley Hall, a literal "-").
+
+**Consequence for the curated-overlay tab (was the headline proposal):** its scope is
+~9 strings, not the ~46 assumed. Options B (bulk import: GENUKI unusable, GB1900
+CC-BY-SA into a closed binary), C (learned place edges — precedent `name_equivalences`
+has no production reader or writer), and D (MLX proposer — measured 2/12 correct RDs,
+**0 abstentions in 15** including an invented honeypot) were evaluated and rejected;
+see the 2026-08-17 options panel. Decide the tab on the real number, not the assumed one.
