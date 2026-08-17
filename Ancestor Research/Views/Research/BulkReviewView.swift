@@ -696,7 +696,23 @@ struct BulkReviewView: View {
     /// creates the ghost + edge and marks the lead promoted.
     private func addAsParent(_ group: GroupedLead) {
         guard let db = appState.currentDatabase else { return }
-        guard (try? db.promoteLeadToProfile(group.representative.lead)) != nil else { return }
+        let lead = group.representative.lead
+        // Create-on-accept dedup, matching the ResearchViewModel promote
+        // path. Without it this button minted a fresh node every time, so a
+        // second click — or a lead resubmitted with better data — produced a
+        // duplicate parent rather than reusing the one already there (owner
+        // dogfood 2026-08-17: two identical Hannah Pidcocks on one subject).
+        // `.multipleMatches` still creates new, deliberately: "when in doubt,
+        // split" — a wrong duplicate is easy to merge, a wrong merge is not.
+        let existingID: String?
+        switch ProposalDedup.decide(
+            query: ProposalDedup.Query(lead: lead),
+            candidates: Array(appState.snapshot.profiles.values)
+        ) {
+        case .matched(let matchedID): existingID = matchedID
+        case .noMatch, .multipleMatches: existingID = nil
+        }
+        guard (try? db.promoteLeadToProfile(lead, attachingTo: existingID)) != nil else { return }
         if let snap = try? db.buildSnapshot() { appState.snapshot = snap }
         for member in group.members { campaignLeads.removeAll { $0.id == member.id } }
         processedCount += 1

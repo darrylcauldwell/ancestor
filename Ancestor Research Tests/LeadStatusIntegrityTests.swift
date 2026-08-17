@@ -90,6 +90,43 @@ struct LeadStatusIntegrityTests {
         #expect(reloaded.first?.resolution == .promoted)
     }
 
+    /// Create-on-accept dedup. `attachingTo` lets a caller that has already
+    /// matched the lead to somebody in the tree wire the edge to THAT person
+    /// instead of minting another node. Without it, clicking "Add as mother"
+    /// twice produced two identical mothers (owner dogfood 2026-08-17).
+    @Test func promoteLeadAttachingToExistingProfileMintsNoDuplicate() throws {
+        let db = try makeTempDB()
+        try insertProfile(id: "@P1@", into: db)
+        try insertProfile(id: "@EXISTING@", into: db)
+        let before = try db.buildSnapshot().profiles.count
+
+        let lead = makeLead(relationship: "father")
+        try db.saveLead(lead)
+        let returnedID = try db.promoteLeadToProfile(lead, attachingTo: "@EXISTING@")
+
+        #expect(returnedID == "@EXISTING@",
+                "must return the profile it attached to, not a fresh ghost")
+        #expect(try db.buildSnapshot().profiles.count == before,
+                "attaching to an existing profile must not create another one")
+        #expect(try db.loadLeads(profileID: "@P1@").first?.status == .promoted,
+                "the lead is still resolved even though no ghost was minted")
+    }
+
+    /// The default path is unchanged — no `attachingTo`, so a ghost IS created.
+    @Test func promoteLeadWithoutAttachingStillCreatesAProfile() throws {
+        let db = try makeTempDB()
+        try insertProfile(id: "@P1@", into: db)
+        let before = try db.buildSnapshot().profiles.count
+
+        let lead = makeLead(relationship: "father")
+        try db.saveLead(lead)
+        let ghostID = try db.promoteLeadToProfile(lead)
+
+        #expect(ghostID != "@P1@")
+        #expect(try db.buildSnapshot().profiles.count == before + 1,
+                "the create-new path must still mint exactly one ghost")
+    }
+
     @Test func finaliseInvestigatedFlipSurvivesReload() throws {
         // Mirrors the ResearchRunService finalise write (now upsertLead).
         let db = try makeTempDB()

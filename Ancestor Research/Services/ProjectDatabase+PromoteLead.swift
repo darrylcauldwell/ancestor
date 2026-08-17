@@ -67,8 +67,21 @@ nonisolated extension ProjectDatabase {
     /// but callers can still query `expansionBoundReason(for:)` to show the
     /// status. When enforced and out of bounds, throws
     /// `ExpansionBoundExceeded` carrying the queryable reason.
+    ///
+    /// `attachingTo` is the create-on-accept dedup escape hatch. When the
+    /// caller has already decided the lead describes somebody the tree
+    /// ALREADY holds, it passes that profile's ID and no ghost is minted —
+    /// only the relationship edge is wired, to the existing person. Without
+    /// it every call mints a new node, so clicking "Add as mother" twice
+    /// produced two identical mothers (owner dogfood 2026-08-17: George
+    /// Stevenson ended up with four parents — two Hannah Pidcocks and both
+    /// spellings of John Stevenson/Stephenson).
     @discardableResult
-    func promoteLeadToProfile(_ lead: Lead, enforceBound: Bool = false) throws -> String {
+    func promoteLeadToProfile(
+        _ lead: Lead,
+        enforceBound: Bool = false,
+        attachingTo existingProfileID: String? = nil
+    ) throws -> String {
         if enforceBound {
             let reason = try expansionBoundReason(for: lead)
             guard reason.permitsPromotion else {
@@ -76,8 +89,10 @@ nonisolated extension ProjectDatabase {
             }
         }
 
-        let ghostID = UUID().uuidString
-        let ghost = Self.makeGhostProfile(id: ghostID, fromLead: lead)
+        let ghostID = existingProfileID ?? UUID().uuidString
+        let ghost: Profile? = existingProfileID == nil
+            ? Self.makeGhostProfile(id: ghostID, fromLead: lead)
+            : nil
 
         var relationships: [Relationship] = []
         var edgeExistence: [UUID: RelationshipExistenceEvidence] = [:]
@@ -101,7 +116,7 @@ nonisolated extension ProjectDatabase {
         }
 
         _ = try addFamily(
-            profiles: [ghost],
+            profiles: [ghost].compactMap { $0 },
             relationships: relationships,
             source: .freebmd,
             edgeExistenceEvidence: edgeExistence
