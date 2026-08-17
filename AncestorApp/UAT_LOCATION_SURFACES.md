@@ -274,37 +274,29 @@ throwaway values, and Add Person has a Cancel button. Tree → add a person.
 | 6.5 | Put `1861` back, and type `Cromford` | District text in **orange**, reading **"Bakewell or 1 other"** (Belper is the other; Matlock ended 1838) |
 | 6.6 | Hover the orange text | A tooltip listing the rival districts and pointing you at the Places tab |
 | 6.7 | Type something absent, e.g. `Pilhough` | *"No gazetteer match — will be saved as freeform text."* You are **not blocked** |
-| 6.8 | Now type `Derby` and **click away without picking from the dropdown** | ⚠️ **Expected to be poor.** Matches exist, so the "no gazetteer match" message is suppressed — but you picked nothing, so no code is saved either. **You get no message at all.** The only signal is the absence of the green "Matched:" chip |
+| 6.8 | Now type `Derby` and **click away without picking from the dropdown** | An orange **?** and *"Saved as text — you didn't pick from the list."* Previously this said **nothing at all** |
 | 6.9 | **Cancel the sheet** | Nothing saved |
 
 ☐ **PASS** ☐ **FAIL** — notes:
 
 **6.8 is the one I most want your read on.** It is the commonest way a location
-ends up uncoded — you typed a real place, the app knew it, and you moved on
-without selecting it. The app says nothing. Is the missing green chip enough of a
-signal, or should it say something?
+ends up uncoded — you typed a real place, the app knew it, and moved on without
+selecting it. It now says so. Judge the wording and the weight: is an orange
+caption right, or too loud for something that is explicitly allowed? Note it
+appears **only for fields you edited this session**, never against text that
+arrived from an import — otherwise most of your tree would wear it.
 
-### 6.10 The era fix is **incomplete** — confirm the gap
+### 6.10 The era fix now covers every embed
 
-I wired the event year into only 5 of the 9 picker embeds today. These four are
-still date-blind:
+There are **ten** picker embeds; five were date-blind until this build.
 
-| Where | Field |
-|---|---|
-| Add Family (`AddFamilyView.swift:117`) | marriage location |
-| Add Family (`:236`) | a new person's birth location |
-| Add Relationship (`:283`) | marriage location |
-| Onboarding wizard (`:173`, `:409`) | marriage, birth |
-
-| # | Do | Expect (the gap) |
+| # | Do | Expect |
 |---|---|---|
-| 6.10 | Open **Add Family**, put `1861` in a birth date, and type `Crich` in the birth location beside it | **"Amber Valley" reappears** — the 1994 district, on an 1861 birth. Cancel the sheet |
+| 6.10 | Open **Add Family**, put `1861` in a birth date, type `Crich` in the birth location beside it | **Crich · Belper** — *not* Amber Valley. Same answer as Add Person gives |
+| 6.11 | Same sheet, marriage section: `1861` marriage date, type `Cromford` | Era-filtered, and orange if rivals remain |
+| 6.12 | Cancel the sheet | Nothing saved |
 
-☐ **CONFIRMED GAP** — notes:
-
-Compare directly with 6.2–6.3 in Add Person, which is correct. Same component,
-same place, same year, different answer — because only one of them is told the
-year.
+☐ **PASS** ☐ **FAIL** — notes:
 
 6.3 is the regression check. Before this build the picker asked without a year
 and took whichever district sorted first — about two rows in five showed a rival,
@@ -325,15 +317,33 @@ These are **expected to be wrong**. Confirm they are, so we agree the list is co
 | 7.2 | Open a burial life event and look at **Cemetery** | Plain text, no gazetteer |
 | 7.3 | Health tab → look for location findings | Only **Suspect Location**, which checks *formatting* (stray commas, ALL CAPS, "?") — never whether the place exists. `Notaplace Magna` passes it |
 | 7.4 | Check whether Health mentions any of Part 3.5's unresolved hamlets | It does **not**. The Places tab is the only surface that reports gazetteer coverage |
-| 7.5 | **Add Family** → census transcription section → the **Address** field | Plain text box. Whatever you type becomes a `location` on a census life event **for every person in the household at once**, always uncoded. It surfaces later in Places, and nowhere else |
-| 7.6 | From a cluster review, promote a census household member to a new profile | Their transcribed birthplace is copied to the new profile **verbatim and uncoded** (`AddRelationshipView.swift:351`). Every profile created this way starts life unresolved |
-
 ☐ **CONFIRMED** — notes:
 
-7.5 and 7.6 are bulk uncoded-entry routes I had missed in my first inventory —
-they were found by an adversarial audit after the script was written. A census
-household is the fastest way to add several people at once, and it is also the
-route that codes the fewest of their places.
+### 7.5 Census entry — now two fields, please sanity-check the split
+
+**Add Family** → census transcription section.
+
+| # | Do | Expect |
+|---|---|---|
+| 7.5 | Look at the fields | **Street address** (plain text) *and* **Parish or town** (gazetteer picker) — they used to be one box |
+| 7.6 | Fill both and save | The census life event's **location is the parish**, coded; the street appears in the description beside the occupation |
+
+Previously the street went into `location` for the whole household at once, always
+uncoded — while the automated absorption path puts a *parish* there. The two
+disagreed about what `location` meant.
+
+**Your call:** is splitting them right, or do you actually want the street as the
+location on a census event? You transcribe these more than anyone.
+
+☐ **PASS** ☐ **FAIL** — notes:
+
+### 7.7 Promoting someone out of a census household
+
+| # | Do | Expect |
+|---|---|---|
+| 7.7 | From a cluster review, promote a household member to a new profile | Their birthplace is preserved **verbatim**, and now also **coded** when the gazetteer is unambiguous about it. An ambiguous or unknown place stays uncoded |
+
+☐ **PASS** ☐ **FAIL** — notes:
 
 ---
 
