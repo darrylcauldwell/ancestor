@@ -17,6 +17,8 @@ struct SidebarView: View {
                 return true
             case .tasks:
                 return appState.tasksTabVisible
+            case .places:
+                return appState.placesTabVisible
             case .sourcing:
                 return appState.sourcingTabVisible
             case .workbench:
@@ -78,6 +80,7 @@ nonisolated extension SidebarTab {
         case .sourcing: "checkmark.seal"
         case .research: "magnifyingglass"
         case .triage: "checklist.checked"
+        case .places: "mappin.and.ellipse"
         case .health: "heart.text.square"
         case .workbench: "rectangle.grid.2x2"
         case .settings: "gear"

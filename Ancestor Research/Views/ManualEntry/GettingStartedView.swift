@@ -34,6 +34,8 @@ struct GettingStartedView: View {
               blurb: "Review what research found. Accept the records that match onto the profile; discard the rest — discards are remembered so they don't come back."),
         Entry(tab: .tasks, icon: "checklist",
               blurb: "Your research worklist — open questions and tentative facts you're actively working, so you always know what to do next."),
+        Entry(tab: .places, icon: "mappin.and.ellipse",
+              blurb: "Every place your tree names, and how confidently it maps to a registration district. Confident matches are listed too, so you decide what's settled — a place like “Middleton” can mean four different Derbyshire villages, and the app shows you the rivals rather than picking one."),
         Entry(tab: .health, icon: "heart.text.square",
               blurb: "The tree's data quality at a glance — cruft, impossibilities, duplicates, garbled names, suspect places, and missing facts across the whole tree, many with a one-click fix."),
         Entry(tab: .sourcing, icon: "doc.text.magnifyingglass",

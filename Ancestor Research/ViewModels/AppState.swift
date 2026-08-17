@@ -385,6 +385,16 @@ final class AppState {
     /// Whether the Sourcing sidebar item should be visible. Hidden until
     /// the user has at least one citation entered — until then there's no
     /// integrity story to surface.
+    /// Places appears once the tree names anywhere at all. There is nothing to
+    /// score before that, and no threshold worth waiting for after it — one
+    /// unresolvable birthplace is already a decision someone has to make.
+    var placesTabVisible: Bool {
+        snapshot.profiles.values.contains { profile in
+            [profile.birthLocation, profile.deathLocation]
+                .contains { !($0 ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+        }
+    }
+
     var sourcingTabVisible: Bool {
         snapshot.profiles.values.contains { profile in
             profile.sources.values.contains { sources in

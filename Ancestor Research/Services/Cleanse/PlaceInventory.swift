@@ -46,15 +46,28 @@ nonisolated enum PlaceInventory {
     /// One field that uses a location string. The year matters: it is what lets
     /// era elimination rule out a district that did not exist yet.
     struct Occurrence: Sendable, Equatable, Identifiable {
-        let id: String                       // "profileID|targetKey"
+        let id: String                       // "profileID|fieldKey"
         let profileID: String
         let profileName: String
         let target: LocationNormalizer.Target
+        /// Which field this is, as the unresolvable-flag table keys it
+        /// ("birthLocation", "event:<uuid>").
+        let fieldKey: String
         /// The event's year, used for era elimination — a birth location takes
         /// the birth year, a life event its own date.
         let year: Int?
         /// Already bound to a PlaceAuthority id; such rows need no decision.
         let isBound: Bool
+        /// The user has said this field's text names no place.
+        let isNotAPlace: Bool
+
+        /// Short label for the field ("Birth", "Death", "Residence").
+        var fieldLabel: String {
+            switch target {
+            case .profileField(let f): f == .birthLocation ? "Birth" : "Death"
+            case .lifeEvent(_, let type): type.capitalized
+            }
+        }
     }
 
     /// One distinct location string, everything known about it.
@@ -82,12 +95,25 @@ nonisolated enum PlaceInventory {
         let reasons: [String]
 
         var profileCount: Int { Set(occurrences.map(\.profileID)).count }
-        var needsDecision: Bool { confidence < .high && occurrences.contains { !$0.isBound } }
+
+        /// Every use of this text has been dismissed as naming no place.
+        var isNotAPlace: Bool { !occurrences.isEmpty && occurrences.allSatisfy(\.isNotAPlace) }
+
+        /// Still owed a human decision. A row leaves the queue two ways: it
+        /// resolves confidently, or a person settles it — by binding a district
+        /// or by saying it names no place. Nothing leaves silently.
+        var needsDecision: Bool {
+            !isNotAPlace && confidence < .high && occurrences.contains { !$0.isBound }
+        }
     }
 
     // MARK: - Build
 
-    static func build(profiles: [Profile], lifeEvents: [LifeEvent] = []) -> [Row] {
+    /// - Parameter dismissed: occurrence ids (`"profileID|fieldKey"`) the user has
+    ///   marked as naming no place — `ProjectDatabase.loadCleanseUnresolvableFlags`.
+    static func build(
+        profiles: [Profile], lifeEvents: [LifeEvent] = [], dismissed: Set<String> = []
+    ) -> [Row] {
         var byText: [String: [Occurrence]] = [:]
         let live = profiles.filter { !$0.isDeleted }
         let nameByID = Dictionary(live.map { ($0.id, $0.displayName) }, uniquingKeysWith: { a, _ in a })
@@ -96,10 +122,12 @@ nonisolated enum PlaceInventory {
         func add(_ text: String?, code: String?, profileID: String, profileName: String,
                  target: LocationNormalizer.Target, key: String, year: Int?) {
             guard let raw = text?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return }
+            let id = "\(profileID)|\(key)"
             byText[raw, default: []].append(Occurrence(
-                id: "\(profileID)|\(key)", profileID: profileID, profileName: profileName,
-                target: target, year: year,
-                isBound: !((code ?? "").trimmingCharacters(in: .whitespaces).isEmpty)))
+                id: id, profileID: profileID, profileName: profileName,
+                target: target, fieldKey: key, year: year,
+                isBound: !((code ?? "").trimmingCharacters(in: .whitespaces).isEmpty),
+                isNotAPlace: dismissed.contains(id)))
         }
 
         for p in live {
@@ -128,6 +156,58 @@ nonisolated enum PlaceInventory {
                 : ($0.occurrences.count != $1.occurrences.count
                    ? $0.occurrences.count > $1.occurrences.count
                    : $0.text < $1.text)
+        }
+    }
+
+    // MARK: - Decisions
+
+    /// Bind every unbound use of `row.text` to the district the user picked.
+    ///
+    /// Deliberately not `LocationNormalizer.apply`, which refuses anything the
+    /// resolver did not decide by itself. That guard is right for the cleanse
+    /// wizard — it stops a *declined* proposal being written as if confident —
+    /// but here the decision came from a person looking at the rival candidates
+    /// and the eliminations, which is the strongest provenance the app has.
+    ///
+    /// Already-bound fields are left alone (check-before-overwrite): a code
+    /// someone set earlier, by any route, is not clobbered by a later decision
+    /// about the same string.
+    ///
+    /// Returns the number of fields written.
+    @discardableResult
+    static func bind(_ row: Row, to code: String, in db: ProjectDatabase) throws -> Int {
+        var written = 0
+        for occurrence in row.occurrences where !occurrence.isBound {
+            switch occurrence.target {
+            case .profileField(let field):
+                try db.setProfileLocationCode(profileID: occurrence.profileID, field: field, code: code)
+            case .lifeEvent(let id, _):
+                try db.setLifeEventLocationCode(eventID: id, code: code)
+            }
+            // Binding answers the question the flag was raised about.
+            try db.clearCleanseUnresolvable(profileID: occurrence.profileID, field: occurrence.fieldKey)
+            written += 1
+        }
+        return written
+    }
+
+    /// Record that this text names no place — a house ("Darley Hall"), a
+    /// hospital, a typo, a fragment. Flagged rather than coded so it stops
+    /// reappearing in the queue while staying visible and reversible; the tree
+    /// text is never edited from here, because correcting it is a different
+    /// decision from saying it cannot be resolved.
+    @discardableResult
+    static func markNotAPlace(_ row: Row, in db: ProjectDatabase) throws -> Int {
+        for occurrence in row.occurrences {
+            try db.markCleanseUnresolvable(profileID: occurrence.profileID, field: occurrence.fieldKey)
+        }
+        return row.occurrences.count
+    }
+
+    /// Undo `markNotAPlace`.
+    static func clearNotAPlace(_ row: Row, in db: ProjectDatabase) throws {
+        for occurrence in row.occurrences {
+            try db.clearCleanseUnresolvable(profileID: occurrence.profileID, field: occurrence.fieldKey)
         }
     }
 
