@@ -75,6 +75,36 @@ struct PlaceSearchTests {
                 "\(lines)")
     }
 
+    /// The hierarchy line must NOT carry the district's validity window.
+    ///
+    /// Wirksworth is filed under Bakewell (from 1839) and Belper (to 1994), and
+    /// printing those beside two otherwise identical rows read as "choose by
+    /// year" — when both cover every event from 1839 to 1994. The catalogue
+    /// files a parish under every district that ever covered part of it; the
+    /// year discriminates nothing.
+    @Test func theHierarchyLineDoesNotImplyAYearChoice() {
+        for hit in registry.search("Wirksworth").filter({ $0.place.kind == .parish }) {
+            #expect(!hit.hierarchy.contains("from 1"), "\(hit.hierarchy)")
+            #expect(!hit.hierarchy.contains("to 1"), "\(hit.hierarchy)")
+        }
+    }
+
+    /// Both Wirksworth records really are live in 1891 — the premise of the
+    /// objection above.
+    @Test func bothWirksworthRecordsCoverAVictorianEvent() {
+        let districts = registry.districts(forParish: "Wirksworth", year: 1891, chapman: "DBY")
+        #expect(districts.count == 2, "got \(districts.map(\.name))")
+    }
+
+    /// Every hit knows the district it rolls up to, so family corroboration can
+    /// be shown against it — the only real signal on this screen.
+    @Test func everyHitCarriesItsDistrict() {
+        for hit in registry.search("Wirksworth", year: 1891) {
+            #expect(hit.districtID != nil, "\(hit.place.id)")
+            #expect(hit.districtID?.hasSuffix("-RD") == true, "\(hit.districtID ?? "nil")")
+        }
+    }
+
     // MARK: - Era awareness
 
     /// A district that had not opened cannot be offered as somewhere to put an

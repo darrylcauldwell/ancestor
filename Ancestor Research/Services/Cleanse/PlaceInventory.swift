@@ -105,6 +105,10 @@ nonisolated enum PlaceInventory {
         /// Ranks `candidates`; deliberately does NOT move `confidence` — see
         /// `corroboration(…)`.
         let corroboration: [String: Int]
+        /// The same counts for EVERY district, not just the ones on offer. The
+        /// search results need it: that is the screen with least to go on, and
+        /// where the family already has records is the only real signal there.
+        let allCorroboration: [String: Int]
 
         var profileCount: Int { Set(occurrences.map(\.profileID)).count }
 
@@ -470,7 +474,8 @@ nonisolated enum PlaceInventory {
             return Row(id: text, text: text, occurrences: occurrences, candidates: [],
                        eliminated: [], placeNames: [], matchedSegment: nil,
                        confidence: .unresolved, reasons: reasons,
-                       variantKey: variantKey(for: text), corroboration: [:])
+                       variantKey: variantKey(for: text),
+                       corroboration: [:], allCorroboration: corroboration)
         }
 
         let firstSegment = RegistrationDistrictResolver.segments(of: text).first
@@ -561,6 +566,7 @@ nonisolated enum PlaceInventory {
                    candidates: ranked, eliminated: result.eliminated,
                    placeNames: distinctPlaces.sorted(), matchedSegment: result.matchedSegment,
                    confidence: confidence, reasons: reasons,
-                   variantKey: variantKey(for: text), corroboration: relevant)
+                   variantKey: variantKey(for: text),
+                   corroboration: relevant, allCorroboration: corroboration)
     }
 }

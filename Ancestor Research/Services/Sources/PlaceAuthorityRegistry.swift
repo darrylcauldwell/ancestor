@@ -266,6 +266,9 @@ nonisolated final class PlaceAuthorityRegistry: Sendable {
         let place: PlaceAuthority
         /// "Wirksworth · Belper district · Derbyshire"
         let hierarchy: String
+        /// The registration district this hit rolls up to — the key family
+        /// corroboration is counted against.
+        let districtID: String?
         var id: String { place.id }
     }
 
@@ -306,7 +309,12 @@ nonisolated final class PlaceAuthorityRegistry: Sendable {
                 return $0.1.id < $1.1.id
             }
             .prefix(limit)
-            .map { SearchHit(place: $0.1, hierarchy: hierarchyLine(for: $0.1)) }
+            .map { hit in
+                SearchHit(place: hit.1, hierarchy: hierarchyLine(for: hit.1),
+                          districtID: hit.1.kind == .registrationDistrict
+                              ? hit.1.id
+                              : places.registrationDistrict(of: hit.1.id)?.id)
+            }
     }
 
     /// "Wirksworth · Belper district · Derbyshire" — enough to distinguish the
@@ -319,11 +327,6 @@ nonisolated final class PlaceAuthorityRegistry: Sendable {
             parts.append("district")
         }
         if let county = places.county(of: place.id) { parts.append(county.name) }
-        if let from = place.validFrom ?? place.validTo {
-            let window = [place.validFrom.map { "from \($0)" }, place.validTo.map { "to \($0)" }]
-                .compactMap { $0 }.joined(separator: " ")
-            if !window.isEmpty { parts.append(window) } else { _ = from }
-        }
         return parts.joined(separator: " · ")
     }
 

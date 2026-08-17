@@ -649,13 +649,35 @@ private struct PlaceDetailView: View {
                     .font(AppTypography.cardMeta)
                     .foregroundStyle(.secondary)
             }
+            // A parish listed under two districts is not a choice about DATES.
+            // UKBMD files a parish under every district that ever covered any
+            // part of it, so Wirksworth appears under Bakewell (from 1839) and
+            // Belper (to 1994) and BOTH cover any Victorian event. Printing
+            // those windows beside two otherwise identical rows implied "pick by
+            // year", which is exactly the wrong inference — the honest signal is
+            // where this family's records already are.
+            let duplicated = Set(hits.map { PlaceAuthority.foldedName($0.place.name) })
+                .filter { name in hits.filter { PlaceAuthority.foldedName($0.place.name) == name }.count > 1 }
+            if !duplicated.isEmpty {
+                Text("Some parishes are listed under more than one district — the catalogue files a parish under every district that ever covered part of it, so more than one can be right for the same year.")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             ForEach(hits) { hit in
+                let corroborated = hit.districtID.flatMap { row.allCorroboration[$0] }
                 HStack {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(hit.place.name).font(AppTypography.cardBody)
                         Text(hit.hierarchy)
                             .font(AppTypography.cardMeta)
                             .foregroundStyle(.secondary)
+                        if let corroborated {
+                            Label("\(corroborated) record\(corroborated == 1 ? "" : "s") in this family already",
+                                  systemImage: "person.2")
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.blue)
+                        }
                     }
                     Spacer()
                     Button("It's here") { onBind(hit.place.id, selection, reason, applyToVariants) }
