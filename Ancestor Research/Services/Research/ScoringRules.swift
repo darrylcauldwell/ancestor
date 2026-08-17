@@ -289,6 +289,19 @@ nonisolated struct ScoringRules {
         "POLLY": "MARY", "MARY": "POLLY",
         "PEGGY": "MARGARET", "MARGARET": "PEGGY",
         "BETTY": "ELIZABETH", "ELIZABETH": "BETTY",
+        // Sally/Sarah, Nancy/Ann, Molly/Mary — the same 18th-century pet-form
+        // construction as POLLY/MARY and BETTY/ELIZABETH above, and the parish
+        // clerk wrote whichever form the family actually used. Their absence
+        // hid a real ancestor: Sarah Wain's 1786 Warslow baptism is indexed as
+        // "Sally Wain", so every search for SARAH missed her, and a whole
+        // wrong parentage survived an hour longer than it should have (owner
+        // dogfood 2026-08-15, Stevenson line). MOLLY is one-way because MARY
+        // already maps to POLLY — a second "MARY" key would be a duplicate and
+        // crash the literal; the shared-canonical rung below still matches
+        // MOLLY to POLLY.
+        "SALLY": "SARAH", "SARAH": "SALLY",
+        "NANCY": "ANN", "ANN": "NANCY",
+        "MOLLY": "MARY",
         "NELL": "ELLEN", "ELLEN": "NELL",
         "JOE": "JOSEPH", "JOSEPH": "JOE",
         "SAM": "SAMUEL", "SAMUEL": "SAM",

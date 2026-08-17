@@ -1159,6 +1159,14 @@ public nonisolated func nameSimilarity(_ a: String, _ b: String) -> Double {
         "POLLY": "MARY", "MARY": "POLLY",
         "PEGGY": "MARGARET", "MARGARET": "PEGGY",
         "BETTY": "ELIZABETH", "ELIZABETH": "BETTY",
+        // Sally/Sarah, Nancy/Ann, Molly/Mary — same pet-form construction as
+        // the three pairs above (owner dogfood 2026-08-15: a Warslow baptism
+        // indexed as "Sally Wain" was invisible to every search for SARAH).
+        // MOLLY is one-way — MARY already maps to POLLY and a duplicate key
+        // would crash the literal; the shared-canonical rung covers the rest.
+        "SALLY": "SARAH", "SARAH": "SALLY",
+        "NANCY": "ANN", "ANN": "NANCY",
+        "MOLLY": "MARY",
         "NELL": "ELLEN", "ELLEN": "NELL",
         "JOE": "JOSEPH", "JOSEPH": "JOE",
         "SAM": "SAMUEL", "SAMUEL": "SAM",
