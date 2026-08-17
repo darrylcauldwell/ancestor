@@ -43,7 +43,7 @@ struct PlaceInventoryDecisionTests {
         guard let row = try rows(db).first(where: { $0.text == "Middleton, Derbyshire" }) else {
             Issue.record("row missing"); return
         }
-        let written = try PlaceInventory.bind(row, to: "DBY:Ashbourne-RD", in: db)
+        let written = try PlaceInventory.bindAll(row, to: "DBY:Ashbourne-RD", in: db)
 
         #expect(written == 2, "one decision settles every use of the same string")
         #expect(try db.loadProfile(id: "a")?.birthLocationCode == "DBY:Ashbourne-RD")
@@ -61,7 +61,7 @@ struct PlaceInventoryDecisionTests {
         guard let row = try rows(db).first(where: { $0.text == "Middleton, Derbyshire" }) else {
             Issue.record("row missing"); return
         }
-        let written = try PlaceInventory.bind(row, to: "DBY:Ashbourne-RD", in: db)
+        let written = try PlaceInventory.bindAll(row, to: "DBY:Ashbourne-RD", in: db)
 
         #expect(written == 1)
         #expect(try db.loadProfile(id: "settled")?.birthLocationCode == "DBY:Bakewell-RD",
@@ -77,9 +77,84 @@ struct PlaceInventoryDecisionTests {
         }
         #expect(before.needsDecision)
 
-        try PlaceInventory.bind(before, to: "DBY:Ashbourne-RD", in: db)
+        try PlaceInventory.bindAll(before, to: "DBY:Ashbourne-RD", in: db)
         let after = try rows(db).first { $0.text == "Middleton, Derbyshire" }
         #expect(after?.needsDecision == false)
+    }
+
+    // MARK: - Per-field binding
+
+    /// The reason `bind` takes explicit ids. Two unrelated people can both be
+    /// born in "a Middleton" and mean different villages; settling one must not
+    /// silently settle the other.
+    @Test func bindingOneFieldLeavesTheOtherUsesUntouched() throws {
+        let db = try makeDB()
+        _ = try addPerson(db, id: "a", birthLocation: "Middleton, Derbyshire")
+        _ = try addPerson(db, id: "b", birthLocation: "Middleton, Derbyshire")
+
+        guard let row = try rows(db).first(where: { $0.text == "Middleton, Derbyshire" }),
+              let justA = row.occurrences.first(where: { $0.profileID == "a" }) else {
+            Issue.record("row missing"); return
+        }
+        let written = try PlaceInventory.bind(row, occurrenceIDs: [justA.id],
+                                              to: "DBY:Ashbourne-RD", in: db)
+
+        #expect(written == 1)
+        #expect(try db.loadProfile(id: "a")?.birthLocationCode == "DBY:Ashbourne-RD")
+        #expect((try db.loadProfile(id: "b")?.birthLocationCode ?? "").isEmpty,
+                "the other person's Middleton is a separate decision")
+    }
+
+    /// A partially-bound row still owes a decision — otherwise settling one
+    /// person would quietly drop everyone else off the queue.
+    @Test func aPartiallyBoundRowStaysInTheQueue() throws {
+        let db = try makeDB()
+        _ = try addPerson(db, id: "a", birthLocation: "Middleton, Derbyshire")
+        _ = try addPerson(db, id: "b", birthLocation: "Middleton, Derbyshire")
+
+        guard let row = try rows(db).first(where: { $0.text == "Middleton, Derbyshire" }),
+              let justA = row.occurrences.first(where: { $0.profileID == "a" }) else {
+            Issue.record("row missing"); return
+        }
+        try PlaceInventory.bind(row, occurrenceIDs: [justA.id], to: "DBY:Ashbourne-RD", in: db)
+
+        #expect(try rows(db).first { $0.text == "Middleton, Derbyshire" }?.needsDecision == true)
+    }
+
+    @Test func bindingAnEmptySelectionWritesNothing() throws {
+        let db = try makeDB()
+        _ = try addPerson(db, id: "a", birthLocation: "Middleton, Derbyshire")
+        guard let row = try rows(db).first(where: { $0.text == "Middleton, Derbyshire" }) else {
+            Issue.record("row missing"); return
+        }
+        #expect(try PlaceInventory.bind(row, occurrenceIDs: [], to: "DBY:Ashbourne-RD", in: db) == 0)
+        #expect((try db.loadProfile(id: "a")?.birthLocationCode ?? "").isEmpty)
+    }
+
+    // MARK: - The national escape hatch
+
+    /// The stated county is normally the best constraint available, but it is
+    /// sometimes wrong — emigrants, transcription errors, moved boundaries. A
+    /// list locked to it would trap exactly those cases.
+    @Test func theNationalListIgnoresTheStatedCounty() {
+        let scoped = RegistrationDistrictResolver.candidates(
+            forPlaceOrDistrict: "Middleton, Derbyshire", chapman: nil, year: 1861)?.districts ?? []
+        let national = RegistrationDistrictResolver.nationalCandidates(
+            forPlaceOrDistrict: "Middleton, Derbyshire")
+
+        #expect(national.count > scoped.count, "widening must actually widen")
+        let counties = Set(national.map { String($0.id.split(separator: ":").first ?? "") })
+        #expect(counties.count > 1, "got only \(counties)")
+        #expect(counties.contains("LAN"), "Lancashire's Middleton must be reachable: \(counties.sorted())")
+    }
+
+    /// It also ignores dates — a district ruled out by the event year is still
+    /// offered, because the year can be wrong too.
+    @Test func theNationalListIgnoresValidityWindows() {
+        let national = RegistrationDistrictResolver.nationalCandidates(
+            forPlaceOrDistrict: "Middleton, Derbyshire").map(\.id)
+        #expect(national.contains { $0.contains("Bakewell") },
+                "Bakewell is era-eliminated for 1824 but must remain reachable: \(national)")
     }
 
     // MARK: - Not a place
@@ -135,7 +210,7 @@ struct PlaceInventoryDecisionTests {
         guard let aside = try rows(db).first(where: { $0.text == "Middleton, Derbyshire" }) else {
             Issue.record("row missing"); return
         }
-        try PlaceInventory.bind(aside, to: "DBY:Ashbourne-RD", in: db)
+        try PlaceInventory.bindAll(aside, to: "DBY:Ashbourne-RD", in: db)
 
         let after = try rows(db).first { $0.text == "Middleton, Derbyshire" }
         #expect(after?.isNotAPlace == false, "a bound row is answered, not set aside")

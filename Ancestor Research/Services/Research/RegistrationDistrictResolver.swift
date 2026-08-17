@@ -240,6 +240,29 @@ nonisolated enum RegistrationDistrictResolver {
         return nil
     }
 
+    /// Every district in the country a place string could name, ignoring the
+    /// county the string states and any validity window.
+    ///
+    /// The escape hatch behind the scored list. The stated county is normally the
+    /// best constraint available, but it is sometimes simply WRONG — emigrants
+    /// described by where they ended up, a transcription error, a county boundary
+    /// that moved under the family. A list locked to the stated county would trap
+    /// exactly those cases with no way out, so the user can always widen. Never
+    /// the default: this returns dozens of Middletons and is only useful once a
+    /// person has decided the narrow list is missing their answer.
+    static func nationalCandidates(forPlaceOrDistrict placeOrDistrict: String) -> [PlaceAuthority] {
+        let places = PlaceAuthorityRegistry.shared.places
+        for token in segments(of: placeOrDistrict) {
+            let districts = dedupedByID(places.districts(forParish: token, year: nil, chapman: nil))
+            if !districts.isEmpty { return districts }
+            if let id = PlaceResolver.resolveDistrict(name: token, chapman: nil, year: nil),
+               let node = places.place(id: id) {
+                return [node]
+            }
+        }
+        return []
+    }
+
     private static func dedupedByID(_ places: [PlaceAuthority]) -> [PlaceAuthority] {
         var byID: [String: PlaceAuthority] = [:]
         for p in places { byID[p.id] = p }

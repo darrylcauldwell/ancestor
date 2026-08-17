@@ -168,10 +168,11 @@ struct PlacesView: View {
         if let row = rows.first(where: { $0.id == selectedID }) {
             PlaceDetailView(
                 row: row,
-                onBind: { code in bind(row, to: code) },
+                onBind: { code, ids in bind(row, occurrenceIDs: ids, to: code) },
                 onNotAPlace: { markNotAPlace(row) },
                 onRestore: { restore(row) }
             )
+            .id(row.id)
         } else {
             ContentUnavailableView(
                 "Select a place",
@@ -190,16 +191,18 @@ struct PlacesView: View {
             .map { "\($0.profileID)|\($0.field)" })
         rows = PlaceInventory.build(
             profiles: Array(appState.snapshot.profiles.values),
+            relationships: appState.snapshot.relationships,
             lifeEvents: lifeEvents,
             dismissed: dismissed)
     }
 
-    private func bind(_ row: PlaceInventory.Row, to code: String) {
-        guard let db = appState.currentDatabase else { return }
+    private func bind(_ row: PlaceInventory.Row, occurrenceIDs: Set<String>, to code: String) {
+        guard let db = appState.currentDatabase, !occurrenceIDs.isEmpty else { return }
         do {
-            let written = try PlaceInventory.bind(row, to: code, in: db)
+            let written = try PlaceInventory.bind(row, occurrenceIDs: occurrenceIDs, to: code, in: db)
             if let snap = try? db.buildSnapshot() { appState.snapshot = snap }
-            lastAction = "Bound \(written) field\(written == 1 ? "" : "s") to \(code)"
+            let name = PlaceAuthorityRegistry.shared.places.place(id: code)?.name ?? code
+            lastAction = "Bound \(written) field\(written == 1 ? "" : "s") to \(name)"
         } catch {
             lastAction = "Could not save: \(error.localizedDescription)"
         }
@@ -229,9 +232,23 @@ struct PlacesView: View {
 
 private struct PlaceDetailView: View {
     let row: PlaceInventory.Row
-    let onBind: (String) -> Void
+    let onBind: (String, Set<String>) -> Void
     let onNotAPlace: () -> Void
     let onRestore: () -> Void
+
+    /// Which uses a district choice will be written to. Per FIELD, not per
+    /// string — see `PlaceInventory.bind`.
+    @State private var selection: Set<String> = []
+    @State private var showingNational = false
+
+    private var bindable: [PlaceInventory.Occurrence] { row.occurrences.filter { !$0.isBound } }
+
+    /// Pre-tick every use only when they all belong to ONE person. Across two
+    /// people the same word can name two places, which is the whole hazard, so
+    /// there the user ticks deliberately.
+    private var defaultSelection: Set<String> {
+        row.profileCount == 1 ? Set(bindable.map(\.id)) : []
+    }
 
     var body: some View {
         ScrollView {
@@ -256,19 +273,23 @@ private struct PlaceDetailView: View {
                 if !row.candidates.isEmpty {
                     section(row.candidates.count == 1 ? "District" : "Which district?") {
                         ForEach(row.candidates, id: \.id) { district in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(district.name).font(AppTypography.cardBody)
-                                    Text(validity(district))
-                                        .font(AppTypography.cardMeta)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Button("Use this") { onBind(district.id) }
-                                    .font(AppTypography.controlLabel)
-                            }
+                            candidateRow(district, corroborated: row.corroboration[district.id])
+                        }
+                        if selection.isEmpty && !bindable.isEmpty {
+                            Text("Tick which uses below this applies to.")
+                                .font(AppTypography.cardMeta)
+                                .foregroundStyle(.orange)
                         }
                     }
+                }
+
+                // The escape hatch. The stated county is normally the best
+                // constraint there is, but it is sometimes simply wrong —
+                // emigrants described by where they ended up, a transcription
+                // error, a boundary that moved. A list locked to it would trap
+                // exactly those cases.
+                if !row.candidates.isEmpty || row.confidence == .unresolved {
+                    nationalEscapeHatch
                 }
 
                 // Eliminations are shown, not dropped. An answer reached by
@@ -295,24 +316,18 @@ private struct PlaceDetailView: View {
                     }
                 }
 
-                section("Used by") {
+                section(bindable.isEmpty ? "Used by" : "Apply to which uses?") {
                     ForEach(row.occurrences) { occurrence in
-                        HStack(spacing: 6) {
-                            Text(occurrence.profileName).font(AppTypography.cardMeta)
-                            Text(occurrence.fieldLabel)
-                                .font(AppTypography.badge)
-                                .foregroundStyle(.secondary)
-                            if let year = occurrence.year {
-                                Text(String(year))
-                                    .font(AppTypography.badge)
-                                    .foregroundStyle(.tertiary)
+                        occurrenceRow(occurrence)
+                    }
+                    if bindable.count > 1 {
+                        HStack(spacing: 12) {
+                            Button("Select all \(bindable.count)") {
+                                selection = Set(bindable.map(\.id))
                             }
-                            if occurrence.isBound {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(AppTypography.badge)
-                                    .foregroundStyle(.green)
-                            }
+                            Button("Select none") { selection.removeAll() }
                         }
+                        .font(AppTypography.controlLabel)
                     }
                 }
 
@@ -324,6 +339,102 @@ private struct PlaceDetailView: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .onAppear { selection = defaultSelection }
+    }
+
+    // MARK: - Rows
+
+    @ViewBuilder private func candidateRow(_ district: PlaceAuthority, corroborated: Int?) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(district.name).font(AppTypography.cardBody)
+                HStack(spacing: 6) {
+                    Text(validity(district))
+                        .font(AppTypography.cardMeta)
+                        .foregroundStyle(.secondary)
+                    // Family corroboration ranks the list and says so. It is
+                    // never folded into the confidence score — a family that
+                    // stayed put would otherwise vouch for every ambiguous
+                    // place in the same district, compounding each time.
+                    if let corroborated {
+                        Label("\(corroborated) family record\(corroborated == 1 ? "" : "s")",
+                              systemImage: "person.2")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.blue)
+                    }
+                }
+            }
+            Spacer()
+            Button("Use this") { onBind(district.id, selection) }
+                .font(AppTypography.controlLabel)
+                .disabled(selection.isEmpty)
+        }
+    }
+
+    @ViewBuilder private func occurrenceRow(_ occurrence: PlaceInventory.Occurrence) -> some View {
+        HStack(spacing: 6) {
+            if occurrence.isBound {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.green)
+                    .help("Already coded — a district choice here will not overwrite it")
+            } else {
+                Toggle(isOn: Binding(
+                    get: { selection.contains(occurrence.id) },
+                    set: { on in
+                        if on { selection.insert(occurrence.id) } else { selection.remove(occurrence.id) }
+                    }
+                )) { EmptyView() }
+                .labelsHidden()
+                .toggleStyle(.checkbox)
+            }
+            Text(occurrence.profileName).font(AppTypography.cardMeta)
+            Text(occurrence.fieldLabel)
+                .font(AppTypography.badge)
+                .foregroundStyle(.secondary)
+            if let year = occurrence.year {
+                Text(String(year))
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    @ViewBuilder private var nationalEscapeHatch: some View {
+        if showingNational {
+            let national = RegistrationDistrictResolver.nationalCandidates(forPlaceOrDistrict: row.text)
+            section("All \(national.count) nationally") {
+                Text("Ignoring the county in the text and any date. Use this when the stated county is itself wrong.")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(national, id: \.id) { district in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("\(district.name) · \(countyName(district))")
+                                .font(AppTypography.cardBody)
+                            Text(validity(district))
+                                .font(AppTypography.cardMeta)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Use this") { onBind(district.id, selection) }
+                            .font(AppTypography.controlLabel)
+                            .disabled(selection.isEmpty)
+                    }
+                }
+                Button("Hide") { showingNational = false }
+                    .font(AppTypography.controlLabel)
+            }
+        } else {
+            Button("Show all matches nationally") { showingNational = true }
+                .font(AppTypography.controlLabel)
+        }
+    }
+
+    private func countyName(_ district: PlaceAuthority) -> String {
+        let chapman = String(district.id.split(separator: ":").first ?? "")
+        return PlaceAuthorityRegistry.shared.places.place(id: chapman)?.name ?? chapman
     }
 
     private func validity(_ district: PlaceAuthority) -> String {

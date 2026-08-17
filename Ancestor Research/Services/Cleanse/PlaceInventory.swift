@@ -93,6 +93,10 @@ nonisolated enum PlaceInventory {
         /// something you learn to ignore, and an unexplained low score is not
         /// actionable.
         let reasons: [String]
+        /// Candidate districts this family already has records in, with how many.
+        /// Ranks `candidates`; deliberately does NOT move `confidence` — see
+        /// `corroboration(…)`.
+        let corroboration: [String: Int]
 
         var profileCount: Int { Set(occurrences.map(\.profileID)).count }
 
@@ -109,10 +113,14 @@ nonisolated enum PlaceInventory {
 
     // MARK: - Build
 
-    /// - Parameter dismissed: occurrence ids (`"profileID|fieldKey"`) the user has
-    ///   marked as naming no place — `ProjectDatabase.loadCleanseUnresolvableFlags`.
+    /// - Parameters:
+    ///   - dismissed: occurrence ids (`"profileID|fieldKey"`) the user has marked as
+    ///     naming no place — `ProjectDatabase.loadCleanseUnresolvableFlags`.
+    ///   - relationships: used only to rank candidates by family corroboration.
+    ///     Omitting them costs ranking, never correctness.
     static func build(
-        profiles: [Profile], lifeEvents: [LifeEvent] = [], dismissed: Set<String> = []
+        profiles: [Profile], relationships: [Relationship] = [],
+        lifeEvents: [LifeEvent] = [], dismissed: Set<String> = []
     ) -> [Row] {
         var byText: [String: [Occurrence]] = [:]
         let live = profiles.filter { !$0.isDeleted }
@@ -145,8 +153,12 @@ nonisolated enum PlaceInventory {
                 key: "event:\(e.id.uuidString)", year: e.sortYear)
         }
 
+        let districtsByProfile = knownDistricts(of: live)
+        let kin = kinIndex(relationships, among: liveIDs)
+
         return byText.map { text, occurrences in
-            score(text: text, occurrences: occurrences)
+            score(text: text, occurrences: occurrences,
+                  corroboration: corroboration(for: occurrences, kin: kin, districts: districtsByProfile))
         }
         // Ascending confidence, then by how much of the tree it affects, so the
         // top of the list is both the least certain and the most consequential.
@@ -159,9 +171,93 @@ nonisolated enum PlaceInventory {
         }
     }
 
+    // MARK: - Family corroboration
+
+    /// Districts each profile is already established in, from the structured
+    /// fields only — the typed birth registration district (Slice C) and any
+    /// birth/death location code that rolls up to a district. Free text is
+    /// deliberately excluded: corroborating an unresolved string with another
+    /// unresolved string is circular.
+    static func knownDistricts(of profiles: [Profile]) -> [String: Set<String>] {
+        let places = PlaceAuthorityRegistry.shared.places
+        var byProfile: [String: Set<String>] = [:]
+        for p in profiles {
+            var found: Set<String> = []
+            if let rd = p.birthRegistrationDistrict, !rd.isEmpty { found.insert(rd) }
+            for code in [p.birthLocationCode, p.deathLocationCode].compactMap({ $0 }) where !code.isEmpty {
+                if let district = places.registrationDistrict(of: code) {
+                    found.insert(district.id)
+                } else if code.hasSuffix("-RD") {
+                    // Already a district id — the Places tab binds these directly.
+                    found.insert(code)
+                }
+            }
+            if !found.isEmpty { byProfile[p.id] = found }
+        }
+        return byProfile
+    }
+
+    /// Immediate family for each profile: parents, children, spouses, siblings.
+    /// Deliberately one hop plus siblings, not a transitive walk — at three hops
+    /// a Derbyshire tree is one connected blob and every district "corroborates"
+    /// everything.
+    static func kinIndex(_ relationships: [Relationship], among live: Set<String>) -> [String: Set<String>] {
+        var kin: [String: Set<String>] = [:]
+        var childrenOf: [String: Set<String>] = [:]
+
+        for r in relationships where live.contains(r.from) && live.contains(r.to) {
+            kin[r.from, default: []].insert(r.to)
+            kin[r.to, default: []].insert(r.from)
+            if r.type == .parent { childrenOf[r.from, default: []].insert(r.to) }
+        }
+        // Siblings: everyone sharing a parent.
+        for (_, siblings) in childrenOf where siblings.count > 1 {
+            for child in siblings {
+                kin[child, default: []].formUnion(siblings.subtracting([child]))
+            }
+        }
+        return kin
+    }
+
+    /// How many of this row's people have family already recorded in each
+    /// candidate district.
+    ///
+    /// **This ranks; it must never raise confidence.** A family that stayed put
+    /// corroborates *every* ambiguous place in the same district, so a boost would
+    /// be near-uniform — it would discriminate almost nothing while manufacturing
+    /// high scores. Worse, it compounds: one wrong binding makes the next
+    /// ambiguous place score higher toward the same wrong district, and the round
+    /// after that higher still. Confidence answers "how ambiguous is this text",
+    /// which is not changed by where the family lived. Putting the corroborated
+    /// candidate first, with the count stated, makes the decision fast without
+    /// ever making it for the user.
+    static func corroboration(
+        for occurrences: [Occurrence], kin: [String: Set<String>], districts: [String: Set<String>]
+    ) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for profileID in Set(occurrences.map(\.profileID)) {
+            // The person's own established districts count too — a known death
+            // district is evidence about how to read their birthplace.
+            var circle = kin[profileID] ?? []
+            circle.insert(profileID)
+            for relative in circle {
+                for district in districts[relative] ?? [] {
+                    counts[district, default: 0] += 1
+                }
+            }
+        }
+        return counts
+    }
+
     // MARK: - Decisions
 
-    /// Bind every unbound use of `row.text` to the district the user picked.
+    /// Bind specific uses of `row.text` to the district the user picked.
+    ///
+    /// **Per field, not per string.** Binding every occurrence at once assumes
+    /// every use of "Middleton, Derbyshire" in the tree means the same Middleton
+    /// — true within one family, false in general, and silently wrong in exactly
+    /// the case this feature exists to catch. The caller names the fields;
+    /// `bindAll` is the convenience, never the default.
     ///
     /// Deliberately not `LocationNormalizer.apply`, which refuses anything the
     /// resolver did not decide by itself. That guard is right for the cleanse
@@ -170,14 +266,16 @@ nonisolated enum PlaceInventory {
     /// and the eliminations, which is the strongest provenance the app has.
     ///
     /// Already-bound fields are left alone (check-before-overwrite): a code
-    /// someone set earlier, by any route, is not clobbered by a later decision
-    /// about the same string.
+    /// someone set earlier, by any route, is not clobbered by a later decision.
     ///
     /// Returns the number of fields written.
     @discardableResult
-    static func bind(_ row: Row, to code: String, in db: ProjectDatabase) throws -> Int {
+    static func bind(
+        _ row: Row, occurrenceIDs: Set<String>, to code: String, in db: ProjectDatabase
+    ) throws -> Int {
         var written = 0
-        for occurrence in row.occurrences where !occurrence.isBound {
+        for occurrence in row.occurrences
+        where occurrenceIDs.contains(occurrence.id) && !occurrence.isBound {
             switch occurrence.target {
             case .profileField(let field):
                 try db.setProfileLocationCode(profileID: occurrence.profileID, field: field, code: code)
@@ -189,6 +287,13 @@ nonisolated enum PlaceInventory {
             written += 1
         }
         return written
+    }
+
+    /// The "apply to all N occurrences" convenience — an explicit choice the user
+    /// makes after seeing who is affected, not the default path.
+    @discardableResult
+    static func bindAll(_ row: Row, to code: String, in db: ProjectDatabase) throws -> Int {
+        try bind(row, occurrenceIDs: Set(row.occurrences.map(\.id)), to: code, in: db)
     }
 
     /// Record that this text names no place — a house ("Darley Hall"), a
@@ -213,7 +318,9 @@ nonisolated enum PlaceInventory {
 
     // MARK: - Scoring
 
-    static func score(text: String, occurrences: [Occurrence]) -> Row {
+    static func score(
+        text: String, occurrences: [Occurrence], corroboration: [String: Int] = [:]
+    ) -> Row {
         // Era elimination needs a year. Use the earliest occurrence's year: the
         // narrowest constraint any use of this string carries.
         let year = occurrences.compactMap(\.year).min()
@@ -227,7 +334,7 @@ nonisolated enum PlaceInventory {
             if stated == nil { reasons.append("No county stated, so nothing narrows the search.") }
             return Row(id: text, text: text, occurrences: occurrences, candidates: [],
                        eliminated: [], placeNames: [], matchedSegment: nil,
-                       confidence: .unresolved, reasons: reasons)
+                       confidence: .unresolved, reasons: reasons, corroboration: [:])
         }
 
         let firstSegment = RegistrationDistrictResolver.segments(of: text).first
@@ -289,6 +396,25 @@ nonisolated enum PlaceInventory {
             reasons.append("No event year available, so districts outside their window could not be ruled out.")
         }
 
+        // Family corroboration RANKS, and only ranks. See `corroboration(…)` for
+        // why a boost would be both near-useless and self-reinforcing.
+        let relevant = corroboration.filter { key, _ in result.districts.contains { $0.id == key } }
+        if !relevant.isEmpty {
+            let described = relevant
+                .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+                .compactMap { key, count -> String? in
+                    guard let district = result.districts.first(where: { $0.id == key }) else { return nil }
+                    return "\(district.name) (\(count) record\(count == 1 ? "" : "s"))"
+                }
+                .joined(separator: ", ")
+            reasons.append("This family already has records in: \(described). "
+                           + "That orders the list; it does not decide.")
+        }
+        let ranked = result.districts.sorted {
+            let a = relevant[$0.id] ?? 0, b = relevant[$1.id] ?? 0
+            return a != b ? a > b : $0.id < $1.id
+        }
+
         // Floor at `.low`, never `.unresolved`: enough deductions can drive a row
         // that DID match to zero, and "Unresolved" then claims nothing was found
         // while the row lists three candidate districts. "City Hospital, Derby"
@@ -296,8 +422,8 @@ nonisolated enum PlaceInventory {
         // this text, and it must keep meaning only that.
         let confidence = Confidence(rawValue: max(1, min(3, score))) ?? .low
         return Row(id: text, text: text, occurrences: occurrences,
-                   candidates: result.districts, eliminated: result.eliminated,
+                   candidates: ranked, eliminated: result.eliminated,
                    placeNames: distinctPlaces.sorted(), matchedSegment: result.matchedSegment,
-                   confidence: confidence, reasons: reasons)
+                   confidence: confidence, reasons: reasons, corroboration: relevant)
     }
 }
