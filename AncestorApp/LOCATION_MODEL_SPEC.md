@@ -403,16 +403,65 @@ Tests: `PlaceInventoryTests` (13), `PlaceInventoryDecisionTests` (6), plus 4 in
    while listing three candidate districts. `.unresolved` means the catalogue knows
    nothing about the text, and must keep meaning only that.
 
-**Deferred from this slice (not built, still wanted):**
-- *Administrative co-occurrence* (candidate RD already in this family's applied records)
-  — the one score signal not implemented.
-- *Recording the reason with the choice.* Binding writes the code; it does not persist
-  why. A later session can still re-litigate it.
-- *Per-field binding.* Shipped behaviour binds every unbound use of the string at once
-  (the spec's "apply to all N" convenience) rather than offering per-field. Acceptable
-  for one family's tree, wrong in general — see the rule below.
-- *The picker's "4 possible matches — choose"* at point of use.
-- *"Show all N nationally"* escape hatch.
+**All five deferrals CLOSED 2026-08-17** (`93e4547`, `d21417f`, `2108dc6`), plus Part II
+Slice D's era-aware picker filtering and Slice E's local-model proposer:
+
+- **Administrative co-occurrence — built, but RANKS ONLY.** The table below lists it as a
+  score signal; it must not be one. A family that stayed in one district corroborates
+  *every* ambiguous place in it, so a boost discriminates almost nothing while
+  manufacturing high scores — and it compounds, one wrong binding raising the next
+  ambiguous place toward the same wrong district. It sorts the candidates, states its
+  count in words, and leaves confidence untouched (regression test asserts the score is
+  identical with and without corroborating kin). Scope is one hop plus siblings; a
+  transitive walk makes a county-bound tree one blob. **A decision never corroborates
+  itself** — districts derived from the row's own text are excluded.
+- **Recording the reason — built.** Migration v60 `place_decisions`: text, chosen
+  district, reason, when, scope, era window. Supersede-then-insert, never update or
+  delete, so the history answers "why is this recorded as Ashbourne?" later.
+- **Per-field binding — built.** `bind` takes explicit occurrence ids; `bindAll` is the
+  convenience. The pane pre-ticks every use only when they all belong to one person.
+- **The picker's rival districts — built**, and it was a live bug, not just a gap.
+  `districtName(forPlace:chapman:)` was a first-match with no year: 97 of 219 gazetteer
+  places match more than one district inside their own county, so ~2 rows in 5 showed a
+  rival, some of which did not exist yet ("Crich · Amber Valley", from 1994). It now
+  resolves era-aware through `candidates(…)` and says "Belper or 2 others" rather than
+  naming the first. It does NOT offer a choice — there is nowhere to store a district
+  there — and routes that decision to this tab.
+- **"Show all N nationally" — built** (`nationalCandidates(forPlaceOrDistrict:)`),
+  ignoring both the stated county and every validity window.
+- **Slice D "era-aware picker filtering"** — recorded in Part II as data-blocked because
+  `uk-places.json` leaves `validFrom`/`validTo` nil. The DISTRICT catalogue carries
+  `startYear`/`endYear`, which is the side that was actually needed. **Unblocked and shipped.**
+- **Slice E local-model proposer — built** (`PlaceProposer`). The model is handed the
+  closed list of parishes in the stated county and told to pick one or decline; the
+  answer is verified against that list and rejected if it is not on it, near-misses
+  included. Suggestions are labelled and never written without acceptance.
+
+**Two defects the build exposed and fixed:**
+1. *Data loss.* Binding wrote an `-RD` id into `birth_location_code`, and
+   `LocationPicker`'s onChange clears any code the 275-entry gazetteer cannot resolve —
+   which an `-RD` id never is. Decisions now live in their own table; binding does not
+   touch the profile's location columns.
+2. *The era window was inverted.* A windowed decision refusing to apply on an undated
+   event made the feature inert exactly where it is needed (almost every district is
+   windowed; undated events are what the resolver already declines on). The guard moved
+   to bind time: a district that cannot hold the row's years is refused as the human
+   tries it, naming the window and the year.
+
+**Deliberately NOT built — the boundary, and why:**
+- **Decisions do not reach the scorer, the geography gate, or the research pipeline.**
+  They govern the Places tab only. An adversarial pass found four ways a naive
+  injection subverts the deterministic sandwich: `RecordScorer.conflictsWithConfirmedBirth`
+  computes ONE chapman and passes it to BOTH the record and the subject side, so a
+  decided county would silently re-scope the *evidence*; `checkGeography` does not use
+  this resolver at all (it goes via `PlaceResolver` unscoped, deliberately `chapman: nil`
+  so the gate cannot mark its own homework); `acceptedChapmanCodes` derives the accepted
+  county set from subject place TEXT and would widen what Gate 3 accepts; and
+  `ResearchRunFactBridge` uses the subject-less `wouldApply` overload, so the unattended
+  pipeline bypasses the guard entirely. **Routing decisions into any of these is a
+  product decision with self-confirming risk and belongs in its own slice.**
+- **No MCP write tool for decisions.** A decision is an input to the accept predicate
+  with no review queue behind it — exactly what an agent is confidently wrong about.
 
 ---
 
