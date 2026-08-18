@@ -109,6 +109,12 @@ nonisolated enum PlaceInventory {
         /// search results need it: that is the screen with least to go on, and
         /// where the family already has records is the only real signal there.
         let allCorroboration: [String: Int]
+        /// District boundaries that fall INSIDE this row's own span of years —
+        /// "Bakewell opened in 1839" on a row holding events from 1830 and 1891.
+        /// Such a row is really two questions, and settling it in one go either
+        /// hides a legitimate answer (candidates are filtered by the earliest
+        /// year) or gets refused at bind time.
+        let boundariesCrossed: [(year: Int, districtName: String, opened: Bool)]
 
         var profileCount: Int { Set(occurrences.map(\.profileID)).count }
 
@@ -457,6 +463,43 @@ nonisolated enum PlaceInventory {
         return parts.joined(separator: ", ").lowercased()
     }
 
+    /// District openings and closings that fall strictly inside `years`.
+    ///
+    /// A row whose uses straddle one is two questions wearing one row: the era
+    /// filter narrows candidates by the EARLIEST year, so a district that is
+    /// right for the later events is ruled out on account of the earlier ones.
+    static func boundaries(
+        crossedBy years: [Int], districts: [PlaceAuthority]
+    ) -> [(year: Int, districtName: String, opened: Bool)] {
+        guard let low = years.min(), let high = years.max(), low < high else { return [] }
+        var out: [(year: Int, districtName: String, opened: Bool)] = []
+        for district in districts {
+            if let from = district.validFrom, from > low, from <= high {
+                out.append((from, district.name, true))
+            }
+            if let to = district.validTo, to >= low, to < high {
+                out.append((to, district.name, false))
+            }
+        }
+        return out.sorted { $0.year != $1.year ? $0.year < $1.year : $0.districtName < $1.districtName }
+    }
+
+    /// The uses a district can actually hold — those whose year sits inside its
+    /// validity window, plus any that carry no year at all.
+    static func occurrenceIDsFitting(
+        _ row: Row, districtID: String, within ids: Set<String>
+    ) -> Set<String> {
+        let district = PlaceAuthorityRegistry.shared.places.place(id: districtID)
+        return Set(row.occurrences
+            .filter { ids.contains($0.id) && !$0.isBound }
+            .filter { occurrence in
+                guard let year = occurrence.year else { return true }
+                return PlaceDecision.yearsOutsideWindow(
+                    [year], from: district?.validFrom, to: district?.validTo).isEmpty
+            }
+            .map(\.id))
+    }
+
     static func score(
         text: String, occurrences: [Occurrence], corroboration: [String: Int] = [:]
     ) -> Row {
@@ -475,7 +518,8 @@ nonisolated enum PlaceInventory {
                        eliminated: [], placeNames: [], matchedSegment: nil,
                        confidence: .unresolved, reasons: reasons,
                        variantKey: variantKey(for: text),
-                       corroboration: [:], allCorroboration: corroboration)
+                       corroboration: [:], allCorroboration: corroboration,
+                       boundariesCrossed: [])
         }
 
         let firstSegment = RegistrationDistrictResolver.segments(of: text).first
@@ -567,6 +611,9 @@ nonisolated enum PlaceInventory {
                    placeNames: distinctPlaces.sorted(), matchedSegment: result.matchedSegment,
                    confidence: confidence, reasons: reasons,
                    variantKey: variantKey(for: text),
-                   corroboration: relevant, allCorroboration: corroboration)
+                   corroboration: relevant, allCorroboration: corroboration,
+                   boundariesCrossed: boundaries(
+                       crossedBy: occurrences.compactMap(\.year),
+                       districts: ranked + result.eliminated.map(\.district)))
     }
 }

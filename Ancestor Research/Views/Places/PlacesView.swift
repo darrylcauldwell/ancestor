@@ -25,6 +25,18 @@ struct PlacesView: View {
     /// suggestion is not a decision and is not persisted until someone accepts it.
     @State private var proposals: [String: PlaceProposer.Proposal] = [:]
     @State private var asking: Set<String> = []
+    /// A bind the era guard refused, kept so the pane can offer the subset that
+    /// does fit rather than leaving the user to work that out.
+    @State private var refused: RefusedBind?
+
+    struct RefusedBind: Equatable {
+        let rowID: String
+        let code: String
+        let districtName: String
+        let reason: String
+        let fitting: Set<String>
+        let message: String
+    }
 
     enum Filter: String, CaseIterable, Identifiable {
         case needsDecision = "Needs a decision"
@@ -181,6 +193,12 @@ struct PlacesView: View {
                 proposal: proposals[row.id],
                 isAsking: asking.contains(row.id),
                 variants: rows.filter { $0.variantKey == row.variantKey && $0.id != row.id },
+                refused: refused?.rowID == row.id ? refused : nil,
+                onBindFitting: {
+                    guard let r = refused, r.rowID == row.id else { return }
+                    bind(row, occurrenceIDs: r.fitting, to: r.code,
+                         reason: r.reason, alsoVariants: false)
+                },
                 onBind: { code, ids, reason, alsoVariants in
                     bind(row, occurrenceIDs: ids, to: code, reason: reason,
                          alsoVariants: alsoVariants)
@@ -235,8 +253,15 @@ struct PlacesView: View {
             }
             let name = PlaceAuthorityRegistry.shared.places.place(id: code)?.name ?? code
             lastAction = "Settled \(written) field\(written == 1 ? "" : "s") as \(name)"
+            refused = nil
         } catch let error as PlaceInventory.BindError {
             lastAction = error.message
+            let fitting = PlaceInventory.occurrenceIDsFitting(
+                row, districtID: code, within: occurrenceIDs)
+            refused = fitting.isEmpty ? nil : RefusedBind(
+                rowID: row.id, code: code,
+                districtName: PlaceAuthorityRegistry.shared.places.place(id: code)?.name ?? code,
+                reason: reason, fitting: fitting, message: error.message)
         } catch {
             lastAction = "Could not save: \(error.localizedDescription)"
         }
@@ -297,6 +322,8 @@ private struct PlaceDetailView: View {
     let isAsking: Bool
     /// Other rows that spell the same place differently.
     let variants: [PlaceInventory.Row]
+    let refused: PlacesView.RefusedBind?
+    let onBindFitting: () -> Void
     let onBind: (String, Set<String>, String, Bool) -> Void
     let onNotAPlace: () -> Void
     let onRestore: () -> Void
@@ -362,6 +389,41 @@ private struct PlaceDetailView: View {
                             .font(AppTypography.cardMeta)
                             .foregroundStyle(.secondary)
                         Button("Put it back in the queue", action: onRestore)
+                            .font(AppTypography.controlLabel)
+                    }
+                }
+
+                // A row whose uses straddle a district opening or closing is two
+                // questions in one. Candidates are filtered by the EARLIEST year,
+                // so a district that is right for the later events is ruled out
+                // on account of the earlier ones — and binding them together is
+                // refused. Saying so before the attempt beats explaining it after.
+                if !row.boundariesCrossed.isEmpty {
+                    section("These uses span a boundary") {
+                        ForEach(row.boundariesCrossed, id: \.year) { boundary in
+                            Text(boundary.opened
+                                 ? "\(boundary.districtName) opened in \(boundary.year)."
+                                 : "\(boundary.districtName) closed in \(boundary.year).")
+                                .font(AppTypography.cardMeta)
+                                .foregroundStyle(.orange)
+                        }
+                        Text("Events either side may belong to different districts. Tick one group, settle it, then do the other.")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                // The guard refused this bind. It already knows which uses do
+                // fit, so offer them rather than leaving the user to deduce it.
+                if let refused {
+                    section("Not all of those fit") {
+                        Text(refused.message)
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Settle just the \(refused.fitting.count) that fit \(refused.districtName)",
+                               action: onBindFitting)
                             .font(AppTypography.controlLabel)
                     }
                 }

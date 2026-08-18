@@ -268,3 +268,129 @@ struct PlaceVariantAndStreetTests {
                 "stripping every segment would group all counties together")
     }
 }
+
+/// Rows whose uses straddle a district opening or closing.
+@MainActor
+struct BoundarySpanningTests {
+
+    private func makeDB() throws -> ProjectDatabase {
+        try ProjectDatabase(path: NSTemporaryDirectory() + UUID().uuidString + ".sqlite")
+    }
+
+    private func add(_ db: ProjectDatabase, _ id: String, _ year: String, _ place: String) throws {
+        _ = try db.addProfile(
+            Profile(id: id, firstName: id, lastName: "X", gender: .male,
+                    birthDate: GenealogicalDate(parsing: year), birthLocation: place,
+                    isDeleted: false, sources: [:], disputes: [:]),
+            source: .manual)
+    }
+
+    private func row(_ db: ProjectDatabase, _ text: String) throws -> PlaceInventory.Row {
+        PlaceInventory.build(
+            profiles: Array(try db.buildSnapshot().profiles.values),
+            decisions: PlaceDecisionSet(decisions: try db.loadPlaceDecisions())
+        ).first { $0.text == text }!
+    }
+
+    // MARK: - Detection
+
+    /// Bakewell RD opened in 1839. A row holding 1830 and 1891 events straddles
+    /// it, and the era filter rules Bakewell out for the WHOLE row on account of
+    /// the earlier event — hiding a legitimate answer for the later one.
+    @Test func anOpeningInsideTheSpanIsReported() throws {
+        let db = try makeDB()
+        try add(db, "early", "1830", "Wirksworth")
+        try add(db, "late", "1891", "Wirksworth")
+
+        let r = try row(db, "Wirksworth")
+        #expect(r.boundariesCrossed.contains { $0.year == 1839 && $0.opened },
+                "got \(r.boundariesCrossed.map { "\($0.districtName) \($0.year)" })")
+        #expect(r.candidates.map(\.name) == ["Belper"], "precondition: filtered by the earliest year")
+    }
+
+    @Test func aClosingInsideTheSpanIsReported() throws {
+        let db = try makeDB()
+        try add(db, "mid", "1980", "Cromford")
+        try add(db, "modern", "2000", "Cromford")
+
+        let r = try row(db, "Cromford")
+        #expect(r.boundariesCrossed.contains { $0.year == 1994 && !$0.opened },
+                "got \(r.boundariesCrossed.map { "\($0.districtName) \($0.year)" })")
+    }
+
+    /// A row that does not straddle anything says nothing — the warning has to
+    /// stay rare or it becomes wallpaper.
+    @Test func aSingleEraRowReportsNothing() throws {
+        let db = try makeDB()
+        try add(db, "a", "1861", "Wirksworth")
+        try add(db, "b", "1871", "Wirksworth")
+        #expect(try row(db, "Wirksworth").boundariesCrossed.isEmpty)
+    }
+
+    @Test func undatedUsesCannotStraddleAnything() throws {
+        let db = try makeDB()
+        _ = try db.addProfile(
+            Profile(id: "n", firstName: "No", lastName: "Date", gender: .male,
+                    birthLocation: "Wirksworth", isDeleted: false, sources: [:], disputes: [:]),
+            source: .manual)
+        #expect(try row(db, "Wirksworth").boundariesCrossed.isEmpty)
+    }
+
+    // MARK: - The subset that fits
+
+    @Test func theFittingSubsetExcludesWhatTheDistrictCannotHold() throws {
+        let db = try makeDB()
+        try add(db, "mid", "1980", "Cromford")
+        try add(db, "modern", "2000", "Cromford")
+
+        let r = try row(db, "Cromford")
+        let all = Set(r.occurrences.map(\.id))
+        let fitting = PlaceInventory.occurrenceIDsFitting(r, districtID: "DBY:Belper-RD", within: all)
+
+        #expect(fitting.count == 1, "Belper closed in 1994")
+        let fittingYear = r.occurrences.first { fitting.contains($0.id) }?.year
+        #expect(fittingYear == 1980)
+    }
+
+    /// An undated use fits anything — refusing it would strand rows that have no
+    /// year at all, which is most of an imported tree.
+    @Test func anUndatedUseFitsAnyDistrict() throws {
+        let db = try makeDB()
+        _ = try db.addProfile(
+            Profile(id: "n", firstName: "No", lastName: "Date", gender: .male,
+                    birthLocation: "Cromford", isDeleted: false, sources: [:], disputes: [:]),
+            source: .manual)
+        let r = try row(db, "Cromford")
+        let fitting = PlaceInventory.occurrenceIDsFitting(
+            r, districtID: "DBY:Belper-RD", within: Set(r.occurrences.map(\.id)))
+        #expect(fitting.count == 1)
+    }
+
+    /// End to end: the refused bind, then the subset, then the remainder.
+    @Test func aSpanningRowSettlesInTwoPasses() throws {
+        let db = try makeDB()
+        try add(db, "mid", "1980", "Cromford")
+        try add(db, "modern", "2000", "Cromford")
+        let r = try row(db, "Cromford")
+        let all = Set(r.occurrences.map(\.id))
+
+        #expect(throws: PlaceInventory.BindError.self) {
+            try PlaceInventory.bind(r, occurrenceIDs: all, to: "DBY:Belper-RD", in: db)
+        }
+
+        let fitting = PlaceInventory.occurrenceIDsFitting(r, districtID: "DBY:Belper-RD", within: all)
+        #expect(try PlaceInventory.bind(r, occurrenceIDs: fitting, to: "DBY:Belper-RD", in: db) == 1)
+
+        // The remainder settles independently against a district that can hold it.
+        let after = try row(db, "Cromford")
+        let remaining = Set(after.occurrences.filter { !$0.isBound }.map(\.id))
+        #expect(remaining.count == 1)
+        #expect(try PlaceInventory.bind(after, occurrenceIDs: remaining,
+                                        to: "DBY:Bakewell-RD", in: db) == 1)
+
+        let settled = try row(db, "Cromford")
+        #expect(settled.needsDecision == false, "both halves settled, different districts")
+        #expect(Set(settled.occurrences.compactMap(\.decision?.placeAuthorityID)).count == 2,
+                "one string, two answers — which is the whole point of per-field decisions")
+    }
+}
