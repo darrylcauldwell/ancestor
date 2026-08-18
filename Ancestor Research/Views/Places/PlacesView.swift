@@ -80,8 +80,14 @@ struct PlacesView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 10) {
+                let settledCount = rows.filter(\.isSettled).count
+                if settledCount > 0 {
+                    Label("\(settledCount) settled", systemImage: "checkmark.seal.fill")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.green)
+                }
                 ForEach(PlaceInventory.Confidence.allCases.reversed(), id: \.self) { level in
-                    let count = rows.filter { $0.confidence == level }.count
+                    let count = rows.filter { $0.confidence == level && !$0.isSettled }.count
                     if count > 0 {
                         Label("\(count) \(level.label.lowercased())", systemImage: level.symbol)
                             .font(AppTypography.badge)
@@ -140,8 +146,8 @@ struct PlacesView: View {
     private var list: some View {
         List(visibleRows, selection: $selectedID) { row in
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: row.confidence.symbol)
-                    .foregroundStyle(row.confidence.tint)
+                Image(systemName: row.isSettled ? "checkmark.seal.fill" : row.confidence.symbol)
+                    .foregroundStyle(row.isSettled ? Color.green : row.confidence.tint)
                     .font(AppTypography.badge)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.text)
@@ -425,9 +431,10 @@ private struct PlaceDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(row.text).font(.title3)
-                    Label(row.confidence.label, systemImage: row.confidence.symbol)
+                    Label(row.isSettled ? "Settled" : row.confidence.label,
+                          systemImage: row.isSettled ? "checkmark.seal.fill" : row.confidence.symbol)
                         .font(AppTypography.badge)
-                        .foregroundStyle(row.confidence.tint)
+                        .foregroundStyle(row.isSettled ? Color.green : row.confidence.tint)
                 }
 
                 if row.isNotAPlace {
@@ -445,7 +452,7 @@ private struct PlaceDetailView: View {
                 // so a district that is right for the later events is ruled out
                 // on account of the earlier ones — and binding them together is
                 // refused. Saying so before the attempt beats explaining it after.
-                if !row.boundariesCrossed.isEmpty {
+                if !row.isSettled, !row.boundariesCrossed.isEmpty {
                     section("These uses span a boundary") {
                         ForEach(row.boundariesCrossed, id: \.year) { boundary in
                             Text(boundary.opened
@@ -463,7 +470,7 @@ private struct PlaceDetailView: View {
 
                 // The guard refused this bind. It already knows which uses do
                 // fit, so offer them rather than leaving the user to deduce it.
-                if let refused {
+                if !row.isSettled, let refused {
                     section("Not all of those fit") {
                         Text(refused.message)
                             .font(AppTypography.cardMeta)
@@ -501,7 +508,13 @@ private struct PlaceDetailView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         if settled.yearFrom != nil || settled.yearTo != nil {
-                            Text("Applies \(settled.yearFrom.map(String.init) ?? "…")–\(settled.yearTo.map(String.init) ?? "…")")
+                            let window: String = switch (settled.yearFrom, settled.yearTo) {
+                            case (let from?, let to?): "Applies \(from)–\(to)"
+                            case (let from?, nil): "Applies from \(from)"
+                            case (nil, let to?): "Applies up to \(to)"
+                            case (nil, nil): ""
+                            }
+                            Text(window)
                                 .font(AppTypography.badge)
                                 .foregroundStyle(.tertiary)
                         }
@@ -513,7 +526,7 @@ private struct PlaceDetailView: View {
                 // A model suggestion is a suggestion. It is labelled, it carries
                 // the model's own words, and accepting it is an ordinary bind
                 // that records who decided — the app never writes it itself.
-                if let proposal {
+                if !row.isSettled, let proposal {
                     section("Local model suggests") {
                         Text("\(proposal.parish) → \(proposal.districtName) district")
                             .font(AppTypography.cardBody)
@@ -531,7 +544,7 @@ private struct PlaceDetailView: View {
                     }
                 }
 
-                if !row.candidates.isEmpty {
+                if !row.isSettled, !row.candidates.isEmpty {
                     section(row.candidates.count == 1 ? "District" : "Which district?") {
                         ForEach(row.candidates, id: \.id) { district in
                             candidateRow(district, corroborated: row.corroboration[district.id])
@@ -552,14 +565,14 @@ private struct PlaceDetailView: View {
                 // Nothing in the data separates an unlisted village from a
                 // street name; only a person knows, which is the whole reason
                 // this tab exists.
-                placeSearchSection
+                if !row.isSettled { placeSearchSection }
 
                 // The escape hatch. The stated county is normally the best
                 // constraint there is, but it is sometimes simply wrong —
                 // emigrants described by where they ended up, a transcription
                 // error, a boundary that moved. A list locked to it would trap
                 // exactly those cases.
-                if !row.candidates.isEmpty {
+                if !row.isSettled, !row.candidates.isEmpty {
                     nationalEscapeHatch
                 }
 
@@ -587,7 +600,7 @@ private struct PlaceDetailView: View {
                     }
                 }
 
-                if !bindable.isEmpty {
+                if !row.isSettled, !bindable.isEmpty {
                     section("Why (recorded with your choice)") {
                         TextField("e.g. Middleton by Wirksworth — her father's 1841 census entry",
                                   text: $reason, axis: .vertical)
@@ -603,7 +616,7 @@ private struct PlaceDetailView: View {
                 // decision. Each variant still records its own decision against
                 // its own string, so the trail stays honest about what was
                 // settled and when — this only saves repeating yourself.
-                if !variants.isEmpty {
+                if !row.isSettled, !variants.isEmpty {
                     section("Same place, other spellings") {
                         Toggle(isOn: $applyToVariants) {
                             Text("Also settle \(variants.count) other spelling\(variants.count == 1 ? "" : "s")")
@@ -618,7 +631,7 @@ private struct PlaceDetailView: View {
                     }
                 }
 
-                section(bindable.isEmpty ? "Used by" : "Apply to which uses?") {
+                section(row.isSettled || bindable.isEmpty ? "Used by" : "Apply to which uses?") {
                     // Controls first — they were below seventeen rows, which is
                     // past the fold on a real household.
                     // Count PEOPLE, because people are what the list shows. The
@@ -739,7 +752,14 @@ private struct PlaceDetailView: View {
     /// which case the per-hit windows are doing the work on their own.
     private func overlapNote(_ hits: [PlaceAuthorityRegistry.SearchHit]) -> String? {
         let places = PlaceAuthorityRegistry.shared.places
-        let districts = Set(hits.compactMap(\.districtID)).compactMap { places.place(id: $0) }
+        // ONLY districts of the same parish. Listing every district across every
+        // hit read "Ashbourne and Bakewell and Belper overlap" — but Ashbourne
+        // is Middleton by Wirksworth's district, a different village entirely,
+        // and naming it as a rival for Wirksworth is simply wrong.
+        let byParish = Dictionary(grouping: hits) { PlaceAuthority.foldedName($0.place.name) }
+        guard let contested = byParish.values.filter({ $0.count > 1 })
+            .max(by: { $0.count < $1.count }) else { return nil }
+        let districts = Set(contested.compactMap(\.districtID)).compactMap { places.place(id: $0) }
         guard districts.count > 1 else { return nil }
 
         let years = row.occurrences.compactMap(\.year)
@@ -751,7 +771,10 @@ private struct PlaceDetailView: View {
         let low = districts.compactMap(\.validFrom).max() ?? 1837
         let high = districts.compactMap(\.validTo).min()
         let span = high.map { "\(low)–\($0)" } ?? "\(low) onwards"
-        let names = districts.map(\.name).sorted().joined(separator: " and ")
+        let sorted = districts.map(\.name).sorted()
+        let names = sorted.count == 2
+            ? sorted.joined(separator: " and ")
+            : sorted.dropLast().joined(separator: ", ") + " and " + (sorted.last ?? "")
         let event = years.min().map { years.max() == $0 ? " \($0)" : "" } ?? ""
 
         return "\(names) overlap for \(span), so\(event.isEmpty ? " these years" : event) "

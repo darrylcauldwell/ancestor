@@ -121,6 +121,13 @@ nonisolated enum PlaceInventory {
         /// Every use of this text has been dismissed as naming no place.
         var isNotAPlace: Bool { !occurrences.isEmpty && occurrences.allSatisfy(\.isNotAPlace) }
 
+        /// Every use carries a decision or an existing code. `confidence` still
+        /// describes how well the TEXT resolves — the gazetteer has not learned
+        /// anything about "Bolehill" — but the row itself is answered, and
+        /// showing it as "Unresolved" after the user settled it is the app
+        /// contradicting them.
+        var isSettled: Bool { !occurrences.isEmpty && occurrences.allSatisfy(\.isBound) }
+
         /// Still owed a human decision. A row leaves the queue two ways: it
         /// resolves confidently, or a person settles it — by binding a district
         /// or by saying it names no place. Nothing leaves silently.

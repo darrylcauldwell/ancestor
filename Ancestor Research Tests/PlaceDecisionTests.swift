@@ -146,6 +146,43 @@ struct PlaceDecisionTests {
         #expect(decision.applies(year: 1700))
     }
 
+    /// A settled row is settled, whatever the gazetteer thinks of its text.
+    ///
+    /// `confidence` still says "unresolved" — the catalogue has learned nothing
+    /// about "Bolehill" — but the row is answered, and the pane showing
+    /// "Unresolved" after the user settled it is the app contradicting them.
+    @Test func aSettledRowReadsAsSettledNotUnresolved() throws {
+        let db = try makeDB()
+        try addPerson(db, id: "a", birthLocation: "Bolehill")
+        let row = try rows(db).first { $0.text == "Bolehill" }!
+        #expect(row.confidence == .unresolved)
+        #expect(row.isSettled == false)
+
+        guard let parish = PlaceAuthorityRegistry.shared.search("Wirksworth")
+            .first(where: { $0.place.kind == .parish }) else { return }
+        try PlaceInventory.bindAll(row, to: parish.place.id, reason: "hamlet", in: db)
+
+        let after = try rows(db).first { $0.text == "Bolehill" }!
+        #expect(after.isSettled, "the row is answered")
+        #expect(after.confidence == .unresolved, "but the TEXT still resolves to nothing")
+        #expect(after.needsDecision == false)
+    }
+
+    /// A partially-settled row is not settled — otherwise settling one person
+    /// would mark the whole row done.
+    @Test func aPartiallySettledRowIsNotSettled() throws {
+        let db = try makeDB()
+        try addPerson(db, id: "a", birthLocation: "Bolehill")
+        try addPerson(db, id: "b", birthLocation: "Bolehill")
+        let row = try rows(db).first { $0.text == "Bolehill" }!
+        guard let one = row.occurrences.first,
+              let parish = PlaceAuthorityRegistry.shared.search("Wirksworth")
+                .first(where: { $0.place.kind == .parish }) else { return }
+
+        try PlaceInventory.bind(row, occurrenceIDs: [one.id], to: parish.place.id, in: db)
+        #expect(try rows(db).first { $0.text == "Bolehill" }?.isSettled == false)
+    }
+
     // MARK: - History
 
     /// Changing your mind is a fact worth keeping — it is what makes "why is
