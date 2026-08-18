@@ -213,3 +213,55 @@ struct ResearchSubjectHomeChapmanDerivationTests {
         #expect(subject.homeChapmanCode == "")
     }
 }
+
+/// The anchor must prefer the subject's OWN places to a project-wide default.
+///
+/// Birth used to be the only field consulted, so someone with no birthplace fell
+/// straight through to the project's home county. A person who lived and died in
+/// Staffordshire, in a Derbyshire-anchored project, was searched as Derbyshire —
+/// not a missing anchor but the wrong one, asserted confidently.
+@MainActor
+struct HomeChapmanFallsBackToOwnPlacesTests {
+
+    private func person(birth: String? = nil, death: String? = nil,
+                        deathCode: String? = nil) -> Profile {
+        Profile(id: "p", firstName: "A", lastName: "B", gender: .male,
+                birthLocation: birth,
+                deathDate: nil, deathLocation: death, deathLocationCode: deathCode,
+                isDeleted: false, sources: [:], disputes: [:])
+    }
+
+    @Test func aDeathCountyBeatsTheProjectDefault() {
+        let code = ResearchSubject.deriveHomeChapmanCode(
+            from: person(death: "Leek, Staffordshire"), projectFallback: "DBY")
+        #expect(code == "STS", "their own death place outranks a project-wide default — got \(code)")
+    }
+
+    @Test func aCodedDeathPlaceIsUsedToo() {
+        let code = ResearchSubject.deriveHomeChapmanCode(
+            from: person(deathCode: "STS:Leek"), projectFallback: "DBY")
+        #expect(code == "STS")
+    }
+
+    /// Birth still wins — it is the most common anchor and the one the record
+    /// sources index by.
+    @Test func birthStillOutranksDeath() {
+        let code = ResearchSubject.deriveHomeChapmanCode(
+            from: person(birth: "Wirksworth, Derbyshire", death: "Leek, Staffordshire"),
+            projectFallback: "")
+        #expect(code == "DBY", "got \(code)")
+    }
+
+    /// With neither, the project default is still the answer.
+    @Test func theProjectDefaultRemainsTheLastResort() {
+        #expect(ResearchSubject.deriveHomeChapmanCode(
+            from: person(), projectFallback: "DBY") == "DBY")
+    }
+
+    /// And with nothing at all, still empty — which the dispatcher turns into a
+    /// visible scope-skip rather than a silent national sweep.
+    @Test func nothingAtAllStillYieldsNoAnchor() {
+        #expect(ResearchSubject.deriveHomeChapmanCode(
+            from: person(), projectFallback: "").isEmpty)
+    }
+}

@@ -973,6 +973,21 @@ nonisolated extension ResearchSubject {
            let code = Self.chapmanCode(forPlaceText: name) {
             return code
         }
+        // The subject's OWN death county, before any project-wide default.
+        //
+        // Birth used to be the only field consulted, so a person with no
+        // birthplace fell straight through to the project's home county — and
+        // someone who lived and died in Staffordshire, in a Derbyshire-anchored
+        // project, was searched as Derbyshire. That is not a missing anchor, it
+        // is the wrong one, asserted confidently. A death place the user
+        // recorded outranks a default they set once at project creation.
+        if let code = chapmanCodeFromLocationCode(profile.deathLocationCode) {
+            return code
+        }
+        if let name = profile.deathLocation,
+           let code = Self.chapmanCode(forPlaceText: name) {
+            return code
+        }
         return projectFallback
     }
 
