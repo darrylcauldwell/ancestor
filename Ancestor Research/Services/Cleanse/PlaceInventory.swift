@@ -437,6 +437,45 @@ nonisolated enum PlaceInventory {
 
     // MARK: - Scoring
 
+    /// The settled place in full: settlement, parish, district, county —
+    /// "Bolehill, Wirksworth, Belper, Derbyshire".
+    ///
+    /// Settling does not rename anything. The tree still says "Bolehill", and
+    /// that is the most precise name in the chain — a real settlement the
+    /// catalogue has never listed. What the decision adds is where it SITS, so
+    /// the display keeps the user's own word at the front and appends what the
+    /// authority knows above it. That composed line is the user-built layer over
+    /// the bundled gazetteer, made visible.
+    ///
+    /// A name already present is not repeated: settling "Wirksworth" itself to
+    /// Wirksworth parish reads "Wirksworth, Belper, Derbyshire", not
+    /// "Wirksworth, Wirksworth, Belper, Derbyshire".
+    static func hierarchyDisplay(text: String, placeAuthorityID: String) -> String {
+        let places = PlaceAuthorityRegistry.shared.places
+        var parts: [String] = []
+
+        // The settlement as the tree names it, without trailing county/country.
+        if let settlement = RegistrationDistrictResolver.segments(of: text).first {
+            parts.append(settlement)
+        }
+        if let bound = places.place(id: placeAuthorityID), bound.kind == .parish {
+            parts.append(bound.name)
+        }
+        if let district = places.registrationDistrict(of: placeAuthorityID) {
+            parts.append(district.name)
+        }
+        if let county = places.county(of: placeAuthorityID) {
+            parts.append(county.name)
+        }
+
+        // Collapse repeats while preserving order — "Wirksworth, Wirksworth" is
+        // the common one, but a district and parish can share a name too.
+        var seen: Set<String> = []
+        return parts
+            .filter { seen.insert($0.lowercased()).inserted }
+            .joined(separator: ", ")
+    }
+
     /// The place a string names, with trailing county and country dropped.
     ///
     /// "Wirksworth, Derbyshire, England" and "Wirksworth" are the same village

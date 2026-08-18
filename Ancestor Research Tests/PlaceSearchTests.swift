@@ -394,3 +394,55 @@ struct BoundarySpanningTests {
                 "one string, two answers — which is the whole point of per-field decisions")
     }
 }
+
+/// The settled place, shown in full: settlement, parish, district, county.
+@MainActor
+struct PlaceHierarchyDisplayTests {
+
+    private func parishID(_ name: String, district: String) -> String {
+        PlaceAuthorityRegistry.shared.search(name)
+            .first { $0.place.kind == .parish && ($0.hierarchy.contains(district)) }?.place.id ?? ""
+    }
+
+    /// The case that prompted it. Bolehill is a real settlement the catalogue
+    /// has never listed; settling it records where it SITS, and the display
+    /// keeps the tree's own word at the front.
+    @Test func aSettlementKeepsItsNameAndGainsItsChain() {
+        let wirksworth = parishID("Wirksworth", district: "Belper")
+        #expect(!wirksworth.isEmpty, "precondition: Wirksworth parish under Belper")
+
+        let line = PlaceInventory.hierarchyDisplay(text: "Bolehill", placeAuthorityID: wirksworth)
+        #expect(line == "Bolehill, Wirksworth, Belper, Derbyshire", "got \(line)")
+    }
+
+    /// The county and country the tree wrote are dropped from the front — they
+    /// reappear at the end from the authority, in the right order.
+    @Test func trailingCountyAndCountryAreNotDuplicated() {
+        let wirksworth = parishID("Wirksworth", district: "Belper")
+        let line = PlaceInventory.hierarchyDisplay(
+            text: "Bolehill, Derbyshire, England", placeAuthorityID: wirksworth)
+        #expect(line == "Bolehill, Wirksworth, Belper, Derbyshire", "got \(line)")
+    }
+
+    /// Settling a parish to itself must not stutter.
+    @Test func aNameAlreadyInTheChainIsNotRepeated() {
+        let wirksworth = parishID("Wirksworth", district: "Belper")
+        let line = PlaceInventory.hierarchyDisplay(
+            text: "Wirksworth, Derbyshire", placeAuthorityID: wirksworth)
+        #expect(line == "Wirksworth, Belper, Derbyshire", "got \(line)")
+    }
+
+    /// Binding straight to a DISTRICT (no parish in between) still composes.
+    @Test func aDistrictBindingHasNoParishRung() {
+        let line = PlaceInventory.hierarchyDisplay(
+            text: "Burn Lane", placeAuthorityID: "DBY:Belper-RD")
+        #expect(line == "Burn Lane, Belper, Derbyshire", "got \(line)")
+    }
+
+    /// An id the authority does not know contributes nothing rather than
+    /// crashing or printing a raw id.
+    @Test func anUnknownIDLeavesJustTheSettlement() {
+        #expect(PlaceInventory.hierarchyDisplay(text: "Bolehill", placeAuthorityID: "XXX:Nowhere")
+                == "Bolehill")
+    }
+}

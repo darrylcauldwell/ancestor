@@ -477,9 +477,13 @@ private struct PlaceDetailView: View {
 
                 if let settled {
                     section("Settled") {
-                        Text("\(PlaceAuthorityRegistry.shared.places.place(id: settled.placeAuthorityID)?.name ?? settled.placeAuthorityID)"
-                             + " — decided \(settled.decidedAt.formatted(date: .abbreviated, time: .omitted))")
+                        Text(PlaceInventory.hierarchyDisplay(
+                            text: row.text, placeAuthorityID: settled.placeAuthorityID))
                             .font(AppTypography.cardBody)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("Decided \(settled.decidedAt.formatted(date: .abbreviated, time: .omitted))")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.tertiary)
                         // A decision that is not one of the row's own candidates
                         // was a human placing the text somewhere the catalogue
                         // never matched. Saying so keeps the app from later
