@@ -408,6 +408,7 @@ private struct PlaceDetailView: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -622,20 +623,16 @@ private struct PlaceDetailView: View {
                     }
                 }
 
-                if row.confidence == .unresolved && proposal == nil {
-                    Button {
-                        onAskModel()
-                    } label: {
-                        if isAsking {
-                            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Asking…") }
-                        } else {
-                            Text("Ask the local model")
-                        }
-                    }
-                    .font(AppTypography.controlLabel)
-                    .disabled(isAsking)
-                }
-
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        // Pinned, not scrolled. These were below the uses list, so a six-person
+        // household pushed them off-screen — and for a typo like "Ashborne" or a
+        // stray "-", correcting the text is the PRIMARY action, not an
+        // afterthought to be scrolled to.
+        Divider()
+        VStack(alignment: .leading, spacing: 8) {
                 // THE THIRD ANSWER. "Ashborne" is a misspelling of a district the
                 // app knows; "-" is a stray character. Neither settling them nor
                 // setting them aside is true — the text itself is wrong. This is
@@ -674,9 +671,9 @@ private struct PlaceDetailView: View {
                     Button("This isn't a place", action: onNotAPlace)
                         .font(AppTypography.controlLabel)
                 }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         }
         .onAppear { selection = defaultSelection }
     }
