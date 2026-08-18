@@ -393,6 +393,18 @@ private struct PlaceDetailView: View {
     /// census, an occupation and a residence event at the same address, so six
     /// people arrive as seventeen checkboxes — noise that hides the decision.
     /// The meaningful unit within one string is the PERSON.
+    /// People with at least one use still to settle — the unit the list shows.
+    private var peopleWithUnbound: [(profileID: String, name: String, occurrences: [PlaceInventory.Occurrence])] {
+        peopleUsingThis.filter { person in person.occurrences.contains { !$0.isBound } }
+    }
+
+    /// People all of whose unsettled uses are ticked.
+    private var selectedPeopleCount: Int {
+        peopleWithUnbound.filter { person in
+            person.occurrences.filter { !$0.isBound }.allSatisfy { selection.contains($0.id) }
+        }.count
+    }
+
     private var peopleUsingThis: [(profileID: String, name: String, occurrences: [PlaceInventory.Occurrence])] {
         let grouped = Dictionary(grouping: row.occurrences, by: \.profileID)
         return grouped
@@ -605,14 +617,19 @@ private struct PlaceDetailView: View {
                 section(bindable.isEmpty ? "Used by" : "Apply to which uses?") {
                     // Controls first — they were below seventeen rows, which is
                     // past the fold on a real household.
-                    if bindable.count > 1 {
+                    // Count PEOPLE, because people are what the list shows. The
+                    // labels used to count occurrences — "Select all 16" above
+                    // six rows — which was accurate about the fields and wrong
+                    // about the thing on screen. The field count is still stated,
+                    // because fields are what actually get written.
+                    if peopleWithUnbound.count > 1 {
                         HStack(spacing: 12) {
-                            Button("Select all \(bindable.count)") {
+                            Button("Select all \(peopleWithUnbound.count)") {
                                 selection = Set(bindable.map(\.id))
                             }
                             Button("Select none") { selection.removeAll() }
                             Spacer()
-                            Text("\(selection.count) of \(bindable.count) selected")
+                            Text("\(selectedPeopleCount) of \(peopleWithUnbound.count) people · \(selection.count) field\(selection.count == 1 ? "" : "s")")
                                 .font(AppTypography.badge)
                                 .foregroundStyle(.tertiary)
                         }
