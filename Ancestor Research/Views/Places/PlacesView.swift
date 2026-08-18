@@ -133,32 +133,25 @@ struct PlacesView: View {
 
     // MARK: - List
 
-    /// The place a settled row was settled to, if any.
-    private func settledCode(_ row: PlaceInventory.Row) -> String? {
-        guard row.isSettled else { return nil }
-        return row.occurrences.compactMap(\.decision?.placeAuthorityID).first
-    }
-
     /// Other rows that are the same place, spelled differently, AND settled to
     /// the same authority. Merging on a shared spelling alone would be a guess;
     /// merging once the user has settled both to one place is merging on their
     /// own assertion.
     private func collapsedSiblings(of row: PlaceInventory.Row) -> [PlaceInventory.Row] {
-        guard let code = settledCode(row) else { return [] }
+        guard let code = PlaceInventory.settledCode(row) else { return [] }
         return rows.filter {
-            $0.id != row.id && $0.variantKey == row.variantKey && settledCode($0) == code
+            $0.id != row.id && $0.variantKey == row.variantKey
+                && PlaceInventory.settledCode($0) == code
         }
     }
 
     private var visibleRows: [PlaceInventory.Row] {
-        // The row kept for each collapsed group is the first the sort yields,
-        // which is the one used by the most fields — so the survivor is the
-        // spelling that dominates the tree.
-        var groupsSeen: Set<String> = []
-        return rows.filter { row in
-            guard let code = settledCode(row) else { return true }
-            return groupsSeen.insert("\(row.variantKey)|\(code)").inserted
-        }
+        // Keep the spelling MOST of the tree uses (pure + tested in
+        // PlaceVariantCollapseTests). Relying on the global sort order picked
+        // whichever row came first, and once one spelling resolved on its own
+        // the confidence tiers diverged and the 1-person row won.
+        let survivors = PlaceInventory.collapsedSurvivorIDs(rows)
+        return rows.filter { survivors.contains($0.id) }
         .filter { row in
             let matchesFilter: Bool
             switch filter {
@@ -476,7 +469,11 @@ private struct PlaceDetailView: View {
     }
 
     private var peopleUsingThis: [(profileID: String, name: String, occurrences: [PlaceInventory.Occurrence])] {
-        let grouped = Dictionary(grouping: row.occurrences, by: \.profileID)
+        // Include the spellings this row stands for, or the subtitle counts the
+        // whole group while the list beneath shows one person — which is how
+        // "7 people" sat above a single name.
+        let all = row.occurrences + collapsed.flatMap(\.occurrences)
+        let grouped = Dictionary(grouping: all, by: \.profileID)
         return grouped
             .map { (profileID: $0.key,
                     name: $0.value.first?.profileName ?? "",

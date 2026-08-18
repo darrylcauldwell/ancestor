@@ -385,6 +385,38 @@ struct PlaceVariantCollapseTests {
         #expect(codes.count == 2, "different answers must not be merged away")
     }
 
+    /// The survivor is the spelling MOST fields use — not whichever the sort
+    /// happened to yield first. Once one spelling resolved on its own the
+    /// confidence tiers diverged and the 1-person row won the group, so the
+    /// merged row was titled by the rarer spelling.
+    @Test func theDominantSpellingSurvivesTheMerge() throws {
+        let db = try makeDB()
+        for id in ["a", "b", "c"] { try add(db, id, "Bolehill") }
+        try add(db, "lonely", "Bolehill, Derbyshire, England")
+        guard let parish = belperWirksworth() else { Issue.record("no parish"); return }
+
+        for text in ["Bolehill", "Bolehill, Derbyshire, England"] {
+            let row = try rows(db).first { $0.text == text }!
+            try PlaceInventory.bindAll(row, to: parish, reason: "hamlet", in: db)
+        }
+
+        let all = try rows(db)
+        let survivors = PlaceInventory.collapsedSurvivorIDs(all)
+        let kept = all.filter { survivors.contains($0.id) }
+        #expect(kept.count == 1, "one row per settled group")
+        #expect(kept.first?.text == "Bolehill",
+                "the spelling three people use, not the one — got \(kept.first?.text ?? "nil")")
+    }
+
+    /// Unsettled rows always survive, whatever their spelling.
+    @Test func everyUnsettledRowSurvives() throws {
+        let db = try makeDB()
+        try add(db, "a", "Bolehill")
+        try add(db, "b", "Bolehill, Derbyshire, England")
+        let all = try rows(db)
+        #expect(PlaceInventory.collapsedSurvivorIDs(all).count == all.count)
+    }
+
     /// An UNSETTLED variant is never collapsed — that would hide a question.
     @Test func unsettledSpellingsAreNeverCollapsed() throws {
         let db = try makeDB()

@@ -505,6 +505,30 @@ nonisolated enum PlaceInventory {
         return candidates.count == 1 ? candidates[0] : nil
     }
 
+    /// The place a settled row was settled to.
+    static func settledCode(_ row: Row) -> String? {
+        guard row.isSettled else { return nil }
+        return row.occurrences.compactMap(\.decision?.placeAuthorityID).first
+    }
+
+    /// Of the rows settled to the same place under the same variant key, the ids
+    /// to KEEP in the list — one per group, the spelling most fields use.
+    ///
+    /// Unsettled rows are always kept: collapsing one would hide a question
+    /// rather than a duplicate. Rows settled to DIFFERENT places are never
+    /// grouped — that is a distinction the user drew deliberately.
+    static func collapsedSurvivorIDs(_ rows: [Row]) -> Set<String> {
+        var best: [String: Row] = [:]
+        for row in rows {
+            guard let code = settledCode(row) else { continue }
+            let key = "\(row.variantKey)|\(code)"
+            if let held = best[key], held.occurrences.count >= row.occurrences.count { continue }
+            best[key] = row
+        }
+        let winners = Set(best.values.map(\.id))
+        return Set(rows.filter { settledCode($0) == nil || winners.contains($0.id) }.map(\.id))
+    }
+
     /// The settled place in full: settlement, parish, district, county —
     /// "Bolehill, Wirksworth, Belper, Derbyshire".
     ///
