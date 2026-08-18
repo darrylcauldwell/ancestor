@@ -612,7 +612,8 @@ struct SearchDispatcher {
         countyQueriesEnabled: Bool,
         yearFrom: Int? = nil,
         yearTo: Int? = nil,
-        surname: String? = nil
+        surname: String? = nil,
+        extraCounties: [String] = []
     ) -> [(districtCode: String?, countyCode: String?)] {
         switch scope {
         case .parish:
@@ -621,6 +622,18 @@ struct SearchDispatcher {
             var counties = [homeChapmanCode]
             if scope == .adjacent {
                 counties += RegionConfig.adjacentCounties(homeChapmanCode)
+            }
+            // ADDITIVE — the scope's own county is never dropped. FreeCen
+            // already merges residence counties and FreeREG already appends a
+            // burial county, each for the same reason: the events that matter
+            // most are the ones that happened away from where a person was
+            // born. FreeBMD never grew that arm, and it is the source where the
+            // consequence bites hardest — a death registered in Staffordshire
+            // for a Derbyshire-born subject was simply unreachable at county
+            // scope. Costs at most one extra county query, and only for
+            // subjects who actually moved.
+            for extra in extraCounties where !extra.isEmpty && !counties.contains(extra) {
+                counties.append(extra)
             }
             let axes: [(districtCode: String?, countyCode: String?)]
             if countyQueriesEnabled {
@@ -889,13 +902,32 @@ struct SearchDispatcher {
             //                surfaces as a truncated envelope, never as a
             //                silent empty.
             guard subject.surname != nil else { return [] }
+            // A death or burial is registered where the person DIED, which for
+            // anyone who moved is not their birth county. Death-shaped record
+            // types therefore also probe the subject's own death and burial
+            // counties. Birth and marriage are unchanged: a birth belongs to the
+            // birth county by definition, and a marriage is registered in the
+            // bride's district, which we do not hold.
+            var deathShapedCounties: [String] = []
+            if recordType == .death || recordType == .burial {
+                if let deathCounty = subject.deathLocation
+                    .flatMap({ ResearchSubject.chapmanCode(forPlaceText: $0) }) {
+                    deathShapedCounties.append(deathCounty)
+                }
+                if let burialCounty = subject.burialChapmanCode {
+                    deathShapedCounties.append(burialCounty)
+                }
+            }
             let geoAxes = Self.freeBMDGeoAxes(
                 scope: scope,
                 homeChapmanCode: subject.homeChapmanCode,
                 countyQueriesEnabled: freeBMDCountyQueriesEnabled,
                 yearFrom: yearRange.from,
                 yearTo: yearRange.to,
-                surname: subject.surname
+                surname: subject.surname,
+                extraCounties: deathShapedCounties.flatMap {
+                    RegionConfig.expandUmbrellaChapmanCode($0)
+                }
             )
             // FreeBMD's s_surname field is overloaded per record type
             // (see FreeBMDSource): spouse surname for marriages,

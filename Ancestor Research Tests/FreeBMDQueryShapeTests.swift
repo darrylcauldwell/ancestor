@@ -576,3 +576,69 @@ final class SequencedFormHTTPClient: HTTPClient, @unchecked Sendable {
         return Data(body.utf8)
     }
 }
+
+/// FreeBMD's county axis was the birth county alone, so a death registered
+/// where the person actually died was unreachable at county scope.
+///
+/// FreeCen already merges residence counties and FreeREG already appends a
+/// burial county — each because the events that matter most are the ones that
+/// happened away from where a person was born. FreeBMD never grew that arm, and
+/// it is the source where the consequence bites hardest, because it IS the death
+/// registration index.
+@MainActor
+struct FreeBMDDeathCountyAxisTests {
+
+    private func axes(extra: [String], scope: ResearchScope = .county)
+        -> [(districtCode: String?, countyCode: String?)] {
+        SearchDispatcher.freeBMDGeoAxes(
+            scope: scope, homeChapmanCode: "DBY", countyQueriesEnabled: true,
+            yearFrom: 1880, yearTo: 1900, surname: "Cauldwell", extraCounties: extra)
+    }
+
+    private func counties(_ a: [(districtCode: String?, countyCode: String?)]) -> [String] {
+        a.compactMap(\.countyCode)
+    }
+
+    @Test func aDeathCountyIsProbedAlongsideTheHomeCounty() {
+        let with = counties(axes(extra: ["STS"]))
+        let without = counties(axes(extra: []))
+        #expect(with.count == without.count + 1, "one extra county query, not a fan-out")
+        #expect(with.count > without.count)
+    }
+
+    /// ADDITIVE — the home county is never dropped. Narrowing to the death
+    /// county would lose the birth registration.
+    @Test func theHomeCountyIsNeverReplaced() {
+        let home = counties(axes(extra: []))
+        let widened = counties(axes(extra: ["STS"]))
+        for id in home {
+            #expect(widened.contains(id), "home county axis \(id) must survive")
+        }
+    }
+
+    @Test func aDeathCountyEqualToTheHomeCountyAddsNothing() {
+        #expect(counties(axes(extra: ["DBY"])).count == counties(axes(extra: [])).count,
+                "someone who died where they were born needs no extra query")
+    }
+
+    @Test func emptyAndDuplicateExtrasAreIgnored() {
+        let base = counties(axes(extra: []))
+        #expect(counties(axes(extra: ["", "", "DBY", "DBY"])).count == base.count)
+    }
+
+    /// Callers that pass nothing — including the marriage-enrichment probe —
+    /// behave exactly as before.
+    @Test func omittingExtrasIsUnchangedBehaviour() {
+        let explicit = counties(axes(extra: []))
+        let omitted = counties(SearchDispatcher.freeBMDGeoAxes(
+            scope: .county, homeChapmanCode: "DBY", countyQueriesEnabled: true,
+            yearFrom: 1880, yearTo: 1900, surname: "Cauldwell"))
+        #expect(explicit == omitted)
+    }
+
+    /// Parish still returns nothing — this widening does not resurrect a scope
+    /// FreeBMD cannot serve.
+    @Test func parishScopeIsStillEmpty() {
+        #expect(axes(extra: ["STS"], scope: .parish).isEmpty)
+    }
+}

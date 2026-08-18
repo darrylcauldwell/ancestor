@@ -197,6 +197,7 @@ actor QueryCache {
         var districtCode = ""
         var countyCode = ""
         var chapmanCode = ""
+        var freeREGPlaceIDs = ""
         var birthChapmanCode = ""
         var censusYear = ""
         var birthYearRange = ""
@@ -249,6 +250,10 @@ actor QueryCache {
             // FT-25/FT-28: same batched-set keying as FreeCen's residence
             // axis — a batched multi-county query is a distinct wire request.
             chapmanCode = Self.residenceChapmanKeyComponent(single: p.chapmanCode, batch: p.chapmanCodes)
+            // FT-19 — the parish axis (`search_query[place_ids][]`) is
+            // wire-affecting and MUST be keyed. Sorted so the key is stable
+            // whatever order the ids arrive in.
+            freeREGPlaceIDs = (p.placeIDs ?? []).filter { !$0.isEmpty }.sorted().joined(separator: ",")
         case .findAGrave(let p):
             // T1-16 / T1-23: every one of these changes the outbound
             // search URL — year axes (birthyear/deathyear + their
@@ -328,6 +333,22 @@ actor QueryCache {
             // #Change6-followup — soft country axis (FS q.anyPlace). Appended,
             // preserving prior positions; wire-affecting for FamilySearch.
             query.anyPlace ?? "",
+            // FT-19 addition — appended, preserving prior positions.
+            //
+            // Wire-affecting for FreeREG: without it a parish-scoped query and a
+            // county-wide one produce the SAME key, so a parish search finding
+            // nothing would suppress the county search on the next run — and a
+            // suppression is indistinguishable from a clean empty, so the loss
+            // would be silent. Added now, while `placeIDs` is still nil in
+            // production and the change is behaviourally inert, rather than
+            // alongside the parish work where a re-fire storm and a new feature
+            // would land together and neither could be blamed for the other.
+            //
+            // One-time cost, same as every prior addition: existing FreeREG
+            // negative_searches rows were written under the old key shape and
+            // stop matching, so the next run re-fires those queries instead of
+            // skipping them. They would have aged out at 90 days regardless.
+            freeREGPlaceIDs,
         ]
         return parts.joined(separator: "|")
     }
