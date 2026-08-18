@@ -74,6 +74,31 @@ struct PlaceFromRecordTests {
         #expect(line == "Shining Row, Turnditch, Belper, Derbyshire", "got \(line)")
     }
 
+    /// The headline answer, not a bare district four rungs down from the useful
+    /// word. "Belper" alone does not tell you where Shining Row is.
+    @Test func theResolvedChainIsStatedUpFront() throws {
+        let db = try makeDB()
+        try household(db, profileID: "john", address: "Shining Row",
+                      parish: "Turnditch", district: "Belper", year: 1891)
+        let row = try row(db, "Shining Row")
+        #expect(row?.resolvedDisplay == "Shining Row, Turnditch, Belper, Derbyshire",
+                "got \(row?.resolvedDisplay ?? "nil")")
+    }
+
+    /// With rival districts there is no single chain to state, so none is.
+    @Test func rivalsLeaveNoHeadlineChain() throws {
+        let db = try makeDB()
+        _ = try db.addProfile(
+            Profile(id: "p", firstName: "P", lastName: "X", gender: .male,
+                    birthDate: GenealogicalDate(parsing: "1861"),
+                    birthLocation: "Wirksworth, Derbyshire",
+                    isDeleted: false, sources: [:], disputes: [:]),
+            source: .manual)
+        let row = try row(db, "Wirksworth, Derbyshire")
+        #expect(row?.candidates.count ?? 0 > 1, "precondition: rivals")
+        #expect(row?.resolvedDisplay == nil)
+    }
+
     // MARK: - When the records disagree
 
     /// The same address string in two parishes is a finding, not an answer.

@@ -431,6 +431,15 @@ private struct PlaceDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(row.text).font(.title3)
+                    // The whole chain, up front. "Belper" alone is the least
+                    // informative rung, and the parish that actually answers
+                    // "where is it" was four sections down in the reasons.
+                    if let chain = row.resolvedDisplay, chain != row.text {
+                        Text(chain)
+                            .font(AppTypography.cardBody)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     Label(row.isSettled ? "Settled" : row.confidence.label,
                           systemImage: row.isSettled ? "checkmark.seal.fill" : row.confidence.symbol)
                         .font(AppTypography.badge)

@@ -116,6 +116,11 @@ nonisolated enum PlaceInventory {
         /// search results need it: that is the screen with least to go on, and
         /// where the family already has records is the only real signal there.
         let allCorroboration: [String: Int]
+        /// The whole chain when the row resolves — "Shining Row, Turnditch,
+        /// Belper, Derbyshire". The headline answer: a bare district name is the
+        /// least informative rung, and burying the parish in a reason line meant
+        /// the pane said "Belper" while the useful word sat four sections down.
+        let resolvedDisplay: String?
         /// Parish/district pairs the RECORDS state for this text, with the years
         /// they were stated in. One pair is an answer; several disagreeing pairs
         /// is a finding of its own — the same address string in two parishes.
@@ -636,7 +641,9 @@ nonisolated enum PlaceInventory {
                            matchedSegment: nil, confidence: .high, reasons: reasons,
                            variantKey: variantKey(for: text),
                            corroboration: corroboration.filter { $0.key == district.id },
-                           allCorroboration: corroboration, recordPlaces: fromRecords,
+                           allCorroboration: corroboration,
+                           resolvedDisplay: hierarchyDisplay(text: text, placeAuthorityID: parish.id),
+                           recordPlaces: fromRecords,
                            boundariesCrossed: [])
             }
             if fromRecords.count > 1 {
@@ -653,6 +660,7 @@ nonisolated enum PlaceInventory {
                        confidence: .unresolved, reasons: reasons,
                        variantKey: variantKey(for: text),
                        corroboration: [:], allCorroboration: corroboration,
+                       resolvedDisplay: nil,
                        recordPlaces: fromRecords, boundariesCrossed: [])
         }
 
@@ -746,6 +754,10 @@ nonisolated enum PlaceInventory {
                    confidence: confidence, reasons: reasons,
                    variantKey: variantKey(for: text),
                    corroboration: relevant, allCorroboration: corroboration,
+                   // Only when one district survives — with rivals on the table
+                   // there is no single chain to state.
+                   resolvedDisplay: ranked.count == 1
+                       ? hierarchyDisplay(text: text, placeAuthorityID: ranked[0].id) : nil,
                    recordPlaces: fromRecords,
                    boundariesCrossed: boundaries(
                        crossedBy: occurrences.compactMap(\.year),
