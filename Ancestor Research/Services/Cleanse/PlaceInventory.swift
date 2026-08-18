@@ -505,6 +505,23 @@ nonisolated enum PlaceInventory {
         return candidates.count == 1 ? candidates[0] : nil
     }
 
+    /// Whether a settled row went somewhere the app's own resolution never
+    /// offered — a genuine hand placement rather than agreement.
+    ///
+    /// Compares the decision's REGISTRATION DISTRICT against the row's
+    /// candidates. Comparing the ids directly cannot work: a decision usually
+    /// names a parish ("DBY:Belper-RD/Wirksworth") while candidates are
+    /// districts ("DBY:Belper-RD"), so the marker fired on every search-bound
+    /// decision — including ones the census schedule corroborated word for word,
+    /// which left the pane saying "the gazetteer did not match this text"
+    /// directly beneath "the 1891 record names the parish itself".
+    static func wasPlacedByHand(_ row: Row) -> Bool {
+        guard let code = settledCode(row) else { return false }
+        guard !row.candidates.isEmpty else { return true }
+        let decided = PlaceAuthorityRegistry.shared.registrationDistrict(ofID: code)?.id ?? code
+        return !row.candidates.contains { $0.id == decided }
+    }
+
     /// The place a settled row was settled to.
     static func settledCode(_ row: Row) -> String? {
         guard row.isSettled else { return nil }

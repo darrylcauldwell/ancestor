@@ -440,3 +440,91 @@ struct PlaceVariantCollapseTests {
         #expect(try db.loadProfile(id: "b")?.birthLocation == "Bolehill, Derbyshire, England")
     }
 }
+
+/// "Placed by hand" must mean it, or the pane contradicts itself.
+@MainActor
+struct PlacedByHandTests {
+
+    private func makeDB() throws -> ProjectDatabase {
+        try ProjectDatabase(path: NSTemporaryDirectory() + UUID().uuidString + ".sqlite")
+    }
+
+    private func rows(_ db: ProjectDatabase) throws -> [PlaceInventory.Row] {
+        PlaceInventory.build(
+            profiles: Array(try db.buildSnapshot().profiles.values),
+            lifeEvents: try db.loadAllLifeEvents(),
+            decisions: PlaceDecisionSet(decisions: try db.loadPlaceDecisions()))
+    }
+
+    /// Binding a PARISH under a district the app already offered is agreement,
+    /// not a hand placement. The marker compared a parish id against a list of
+    /// district ids, which can never match, so it fired on every search-bound
+    /// decision — including ones the census schedule corroborated exactly.
+    @Test func bindingAParishUnderAnOfferedDistrictIsNotHandPlacement() throws {
+        let db = try makeDB()
+        _ = try db.addProfile(
+            Profile(id: "p", firstName: "P", lastName: "X", gender: .male,
+                    birthDate: GenealogicalDate(parsing: "1891"),
+                    birthLocation: "Wirksworth, Derbyshire",
+                    isDeleted: false, sources: [:], disputes: [:]),
+            source: .manual)
+
+        let row = try rows(db).first { $0.text == "Wirksworth, Derbyshire" }!
+        #expect(row.candidates.contains { $0.name == "Belper" }, "precondition: Belper is offered")
+
+        guard let parish = PlaceAuthorityRegistry.shared.search("Wirksworth")
+            .first(where: { $0.place.kind == .parish && $0.hierarchy.contains("Belper") })
+        else { Issue.record("no Belper-filed Wirksworth"); return }
+        try PlaceInventory.bindAll(row, to: parish.place.id, reason: "census", in: db)
+
+        let settled = try rows(db).first { $0.text == "Wirksworth, Derbyshire" }!
+        #expect(PlaceInventory.wasPlacedByHand(settled) == false,
+                "the app offered this district — that is agreement")
+    }
+
+    /// A text the app could not resolve at all IS a hand placement.
+    @Test func bindingSomethingTheAppNeverOfferedIsHandPlacement() throws {
+        let db = try makeDB()
+        _ = try db.addProfile(
+            Profile(id: "p", firstName: "P", lastName: "X", gender: .male,
+                    birthLocation: "Pilhough", isDeleted: false, sources: [:], disputes: [:]),
+            source: .manual)
+        let row = try rows(db).first { $0.text == "Pilhough" }!
+        #expect(row.candidates.isEmpty, "precondition: nothing offered")
+
+        guard let parish = PlaceAuthorityRegistry.shared.search("Youlgreave")
+            .first(where: { $0.place.kind == .parish }) else { return }
+        try PlaceInventory.bindAll(row, to: parish.place.id, reason: "hamlet there", in: db)
+
+        #expect(PlaceInventory.wasPlacedByHand(try rows(db).first { $0.text == "Pilhough" }!))
+    }
+
+    /// Overruling the app — binding a district it did NOT offer — is also a hand
+    /// placement, and the one most worth flagging.
+    @Test func overrulingTheAppIsHandPlacement() throws {
+        let db = try makeDB()
+        _ = try db.addProfile(
+            Profile(id: "p", firstName: "P", lastName: "X", gender: .male,
+                    birthDate: GenealogicalDate(parsing: "1891"),
+                    birthLocation: "Wirksworth, Derbyshire",
+                    isDeleted: false, sources: [:], disputes: [:]),
+            source: .manual)
+        let row = try rows(db).first { $0.text == "Wirksworth, Derbyshire" }!
+        #expect(!row.candidates.contains { $0.name == "Ashbourne" }, "precondition")
+
+        guard let elsewhere = PlaceAuthorityRegistry.shared.search("Middleton by Wirksworth")
+            .first(where: { $0.place.kind == .parish }) else { return }
+        try PlaceInventory.bindAll(row, to: elsewhere.place.id, reason: "I know better", in: db)
+
+        #expect(PlaceInventory.wasPlacedByHand(try rows(db).first { $0.text == "Wirksworth, Derbyshire" }!))
+    }
+
+    @Test func anUnsettledRowIsNeitherThingYet() throws {
+        let db = try makeDB()
+        _ = try db.addProfile(
+            Profile(id: "p", firstName: "P", lastName: "X", gender: .male,
+                    birthLocation: "Pilhough", isDeleted: false, sources: [:], disputes: [:]),
+            source: .manual)
+        #expect(PlaceInventory.wasPlacedByHand(try rows(db).first { $0.text == "Pilhough" }!) == false)
+    }
+}

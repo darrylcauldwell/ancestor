@@ -561,15 +561,19 @@ private struct PlaceDetailView: View {
                         Text("Decided \(settled.decidedAt.formatted(date: .abbreviated, time: .omitted))")
                             .font(AppTypography.badge)
                             .foregroundStyle(.tertiary)
-                        // A decision that is not one of the row's own candidates
-                        // was a human placing the text somewhere the catalogue
-                        // never matched. Saying so keeps the app from later
-                        // presenting a hand-made judgement as a lookup.
-                        if !row.candidates.contains(where: { $0.id == settled.placeAuthorityID }) {
+                        // Saying so keeps the app from later presenting a
+                        // hand-made judgement as a lookup — but only when it IS
+                        // one. See PlaceInventory.wasPlacedByHand.
+                        if PlaceInventory.wasPlacedByHand(row) {
                             Label("Placed by hand — the gazetteer did not match this text",
                                   systemImage: "hand.point.up.left")
                                 .font(AppTypography.badge)
                                 .foregroundStyle(.orange)
+                        } else {
+                            Label("Agrees with what the app resolved independently",
+                                  systemImage: "checkmark.seal")
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.green)
                         }
                         if !settled.reason.isEmpty {
                             Text("\u{201C}\(settled.reason)\u{201D}")
