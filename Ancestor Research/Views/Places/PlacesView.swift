@@ -629,11 +629,15 @@ private struct PlaceDetailView: View {
                             }
                             Button("Select none") { selection.removeAll() }
                             Spacer()
-                            Text("\(selectedPeopleCount) of \(peopleWithUnbound.count) people · \(selection.count) field\(selection.count == 1 ? "" : "s")")
-                                .font(AppTypography.badge)
-                                .foregroundStyle(.tertiary)
                         }
                         .font(AppTypography.controlLabel)
+                        // Its own line: beside two buttons in a ~340pt pane the
+                        // summary gets squeezed and loses its leading half, so
+                        // "6 of 6 people · 16 fields" arrived as "16 fields".
+                        Text("\(selectedPeopleCount) of \(peopleWithUnbound.count) people · \(selection.count) field\(selection.count == 1 ? "" : "s") will be settled")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     ForEach(peopleUsingThis, id: \.profileID) { person in
                         personRow(person)
@@ -722,6 +726,31 @@ private struct PlaceDetailView: View {
                 .font(AppTypography.controlLabel)
                 .disabled(selection.isEmpty)
         }
+    }
+
+    /// "Belper 1837–1994 · covers 1891" — the district's lifetime and whether it
+    /// spans the years this row actually holds.
+    ///
+    /// A nil `validFrom` means "since civil registration began", which is July
+    /// 1837 — a more useful thing to print than a blank.
+    private func windowLine(_ hit: PlaceAuthorityRegistry.SearchHit) -> String? {
+        guard let districtID = hit.districtID,
+              let district = PlaceAuthorityRegistry.shared.places.place(id: districtID)
+        else { return nil }
+        let from = district.validFrom.map(String.init) ?? "1837"
+        let to = district.validTo.map(String.init) ?? "present"
+        var line = "\(district.name) \(from)–\(to)"
+
+        let years = row.occurrences.compactMap(\.year)
+        if let low = years.min(), let high = years.max() {
+            let span = low == high ? "\(low)" : "\(low)–\(high)"
+            let outside = PlaceDecision.yearsOutsideWindow(
+                years, from: district.validFrom, to: district.validTo)
+            line += outside.isEmpty
+                ? " · covers \(span)"
+                : " · does NOT cover \(outside.map(String.init).joined(separator: ", "))"
+        }
+        return line
     }
 
     /// A model-suggested binding always records HOW it was reached, even when the
@@ -816,6 +845,18 @@ private struct PlaceDetailView: View {
                         Text(hit.hierarchy)
                             .font(AppTypography.cardMeta)
                             .foregroundStyle(.secondary)
+                        // The district's lifetime, and whether it covers THIS
+                        // row's years. A first cut printed the bare window and
+                        // it read as "choose by year"; removing it lost real
+                        // information, because outside 1839–1994 only one of the
+                        // two Wirksworth records is possible at all. Stating the
+                        // window AND the coverage gives the data back without
+                        // implying it is the discriminator when it is not.
+                        if let window = windowLine(hit) {
+                            Text(window)
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.tertiary)
+                        }
                         if let corroborated {
                             Label("\(corroborated) record\(corroborated == 1 ? "" : "s") in this family already",
                                   systemImage: "person.2")
