@@ -314,3 +314,97 @@ struct PlaceDecisionTests {
         #expect(set.isEmpty)
     }
 }
+
+/// Collapsing spellings in the LIST once they are settled to the same place.
+///
+/// Merging on a shared spelling alone would be a guess. Merging once the user
+/// has settled both to one place is merging on their own assertion — and the
+/// tree keeps both spellings either way.
+@MainActor
+struct PlaceVariantCollapseTests {
+
+    private func makeDB() throws -> ProjectDatabase {
+        try ProjectDatabase(path: NSTemporaryDirectory() + UUID().uuidString + ".sqlite")
+    }
+
+    private func add(_ db: ProjectDatabase, _ id: String, _ place: String) throws {
+        _ = try db.addProfile(
+            Profile(id: id, firstName: id, lastName: "X", gender: .male,
+                    birthDate: GenealogicalDate(parsing: "1891"),
+                    birthLocation: place, isDeleted: false, sources: [:], disputes: [:]),
+            source: .manual)
+    }
+
+    private func rows(_ db: ProjectDatabase) throws -> [PlaceInventory.Row] {
+        PlaceInventory.build(
+            profiles: Array(try db.buildSnapshot().profiles.values),
+            decisions: PlaceDecisionSet(decisions: try db.loadPlaceDecisions()))
+    }
+
+    private func belperWirksworth() -> String? {
+        PlaceAuthorityRegistry.shared.search("Wirksworth")
+            .first { $0.place.kind == .parish && $0.hierarchy.contains("Belper") }?.place.id
+    }
+
+    /// Two spellings, both settled to the same parish, share a group key.
+    @Test func settledSpellingsOfOnePlaceGroupTogether() throws {
+        let db = try makeDB()
+        try add(db, "a", "Bolehill")
+        try add(db, "b", "Bolehill, Derbyshire, England")
+        guard let parish = belperWirksworth() else { Issue.record("no parish"); return }
+
+        for text in ["Bolehill", "Bolehill, Derbyshire, England"] {
+            let row = try rows(db).first { $0.text == text }!
+            try PlaceInventory.bindAll(row, to: parish, reason: "hamlet", in: db)
+        }
+
+        let settled = try rows(db).filter { $0.isSettled }
+        #expect(settled.count == 2, "both rows still exist in the model")
+        #expect(Set(settled.map(\.variantKey)).count == 1, "same place")
+        #expect(Set(settled.compactMap { $0.occurrences.compactMap(\.decision?.placeAuthorityID).first }).count == 1,
+                "settled the same way — which is what licenses the merge")
+    }
+
+    /// Settled DIFFERENTLY is not a group. Two spellings the user deliberately
+    /// sent to different parishes must both stay visible.
+    @Test func spellingsSettledDifferentlyDoNotGroup() throws {
+        let db = try makeDB()
+        try add(db, "a", "Middleton")
+        try add(db, "b", "Middleton, Derbyshire")
+        let hits = PlaceAuthorityRegistry.shared.search("Wirksworth")
+            .filter { $0.place.kind == .parish }
+        guard hits.count > 1 else { Issue.record("need two parishes"); return }
+
+        let first = try rows(db).first { $0.text == "Middleton" }!
+        try PlaceInventory.bindAll(first, to: hits[0].place.id, in: db)
+        let second = try rows(db).first { $0.text == "Middleton, Derbyshire" }!
+        try PlaceInventory.bindAll(second, to: hits[1].place.id, in: db)
+
+        let codes = Set(try rows(db).filter(\.isSettled)
+            .compactMap { $0.occurrences.compactMap(\.decision?.placeAuthorityID).first })
+        #expect(codes.count == 2, "different answers must not be merged away")
+    }
+
+    /// An UNSETTLED variant is never collapsed — that would hide a question.
+    @Test func unsettledSpellingsAreNeverCollapsed() throws {
+        let db = try makeDB()
+        try add(db, "a", "Bolehill")
+        try add(db, "b", "Bolehill, Derbyshire, England")
+        let unsettled = try rows(db).filter { !$0.isSettled }
+        #expect(unsettled.count == 2)
+    }
+
+    /// The tree's own words are untouched by any of this.
+    @Test func collapsingNeverRewritesTheTree() throws {
+        let db = try makeDB()
+        try add(db, "a", "Bolehill")
+        try add(db, "b", "Bolehill, Derbyshire, England")
+        guard let parish = belperWirksworth() else { return }
+        for text in ["Bolehill", "Bolehill, Derbyshire, England"] {
+            let row = try rows(db).first { $0.text == text }!
+            try PlaceInventory.bindAll(row, to: parish, reason: "hamlet", in: db)
+        }
+        #expect(try db.loadProfile(id: "a")?.birthLocation == "Bolehill")
+        #expect(try db.loadProfile(id: "b")?.birthLocation == "Bolehill, Derbyshire, England")
+    }
+}

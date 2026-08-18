@@ -133,8 +133,33 @@ struct PlacesView: View {
 
     // MARK: - List
 
+    /// The place a settled row was settled to, if any.
+    private func settledCode(_ row: PlaceInventory.Row) -> String? {
+        guard row.isSettled else { return nil }
+        return row.occurrences.compactMap(\.decision?.placeAuthorityID).first
+    }
+
+    /// Other rows that are the same place, spelled differently, AND settled to
+    /// the same authority. Merging on a shared spelling alone would be a guess;
+    /// merging once the user has settled both to one place is merging on their
+    /// own assertion.
+    private func collapsedSiblings(of row: PlaceInventory.Row) -> [PlaceInventory.Row] {
+        guard let code = settledCode(row) else { return [] }
+        return rows.filter {
+            $0.id != row.id && $0.variantKey == row.variantKey && settledCode($0) == code
+        }
+    }
+
     private var visibleRows: [PlaceInventory.Row] {
-        rows.filter { row in
+        // The row kept for each collapsed group is the first the sort yields,
+        // which is the one used by the most fields — so the survivor is the
+        // spelling that dominates the tree.
+        var groupsSeen: Set<String> = []
+        return rows.filter { row in
+            guard let code = settledCode(row) else { return true }
+            return groupsSeen.insert("\(row.variantKey)|\(code)").inserted
+        }
+        .filter { row in
             let matchesFilter: Bool
             switch filter {
             case .all: matchesFilter = true
@@ -185,7 +210,11 @@ struct PlacesView: View {
     }
 
     private func subtitle(_ row: PlaceInventory.Row) -> String {
-        let people = row.profileCount == 1 ? "1 person" : "\(row.profileCount) people"
+        let siblings = collapsedSiblings(of: row)
+        let profiles = Set((row.occurrences + siblings.flatMap(\.occurrences)).map(\.profileID))
+        let people = profiles.count == 1 ? "1 person" : "\(profiles.count) people"
+        let spellings = siblings.isEmpty
+            ? "" : " · \(siblings.count + 1) spellings"
 
         // The chain, minus its leading term — the row title already says that
         // word, and repeating it reads as a stutter. A settled row took its
@@ -200,18 +229,18 @@ struct PlacesView: View {
         if let decision = row.occurrences.compactMap(\.decision).first,
            let rest = tail(of: PlaceInventory.hierarchyDisplay(
                text: row.text, placeAuthorityID: decision.placeAuthorityID)) {
-            return "\(people) · \(rest)"
+            return "\(people) · \(rest)\(spellings)"
         }
         if let chain = row.resolvedDisplay, let rest = tail(of: chain) {
-            return "\(people) · \(rest)"
+            return "\(people) · \(rest)\(spellings)"
         }
         if let district = row.candidates.first, row.candidates.count == 1 {
-            return "\(people) · \(district.name)"
+            return "\(people) · \(district.name)\(spellings)"
         }
         if row.candidates.count > 1 {
-            return "\(people) · \(row.candidates.count) possible districts"
+            return "\(people) · \(row.candidates.count) possible districts\(spellings)"
         }
-        return people
+        return people + spellings
     }
 
     // MARK: - Detail
@@ -223,6 +252,7 @@ struct PlacesView: View {
                 proposal: proposals[row.id],
                 isAsking: asking.contains(row.id),
                 variants: rows.filter { $0.variantKey == row.variantKey && $0.id != row.id },
+                collapsed: collapsedSiblings(of: row),
                 refused: refused?.rowID == row.id ? refused : nil,
                 onBindFitting: {
                     guard let r = refused, r.rowID == row.id else { return }
@@ -235,7 +265,12 @@ struct PlacesView: View {
                 },
                 onNotAPlace: { markNotAPlace(row) },
                 onRestore: { restore(row) },
-                onUnbind: { unbind(row) },
+                onUnbind: {
+                    unbind(row)
+                    // The collapsed siblings are not on screen; leaving them
+                    // settled would strand them, visible nowhere.
+                    for sibling in collapsedSiblings(of: row) { unbind(sibling) }
+                },
                 onCorrectText: { newText in correctText(row, to: newText) },
                 onAskModel: { Task { await askModel(row) } },
                 onOpenProfile: onOpenProfile
@@ -384,6 +419,9 @@ private struct PlaceDetailView: View {
     let isAsking: Bool
     /// Other rows that spell the same place differently.
     let variants: [PlaceInventory.Row]
+    /// Variants this row now STANDS FOR in the list, because they are settled to
+    /// the same place. Collapsing them without naming them would hide data.
+    let collapsed: [PlaceInventory.Row]
     let refused: PlacesView.RefusedBind?
     let onBindFitting: () -> Void
     let onBind: (String, Set<String>, String, Bool) -> Void
@@ -552,6 +590,21 @@ private struct PlaceDetailView: View {
                             Text(window)
                                 .font(AppTypography.badge)
                                 .foregroundStyle(.tertiary)
+                        }
+                        if !collapsed.isEmpty {
+                            Text("Also covers \(collapsed.count) other spelling\(collapsed.count == 1 ? "" : "s"), settled the same way:")
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 2)
+                            ForEach(collapsed) { other in
+                                Text("\(other.text) · \(other.profileCount) \(other.profileCount == 1 ? "person" : "people")")
+                                    .font(AppTypography.badge)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text("Your tree keeps both spellings — only this list merges them.")
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.tertiary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         Button("Reopen this", action: onUnbind)
                             .font(AppTypography.controlLabel)
