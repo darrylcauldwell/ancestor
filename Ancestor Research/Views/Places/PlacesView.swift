@@ -206,6 +206,7 @@ struct PlacesView: View {
                 onNotAPlace: { markNotAPlace(row) },
                 onRestore: { restore(row) },
                 onUnbind: { unbind(row) },
+                onCorrectText: { newText in correctText(row, to: newText) },
                 onAskModel: { Task { await askModel(row) } }
             )
             .id(row.id)
@@ -262,6 +263,36 @@ struct PlacesView: View {
                 rowID: row.id, code: code,
                 districtName: PlaceAuthorityRegistry.shared.places.place(id: code)?.name ?? code,
                 reason: reason, fitting: fitting, message: error.message)
+        } catch {
+            lastAction = "Could not save: \(error.localizedDescription)"
+        }
+        rebuild()
+    }
+
+    /// Rewrite the tree's own words. The only honest answer for a misspelling
+    /// (`Ashborne`) or a stray character (`-`), where neither settling nor
+    /// setting aside is true.
+    private func correctText(_ row: PlaceInventory.Row, to newText: String) {
+        guard let db = appState.currentDatabase else { return }
+        var profileFields: [(profileID: String, field: ProfileField)] = []
+        var eventIDs: [UUID] = []
+        for occurrence in row.occurrences {
+            switch occurrence.target {
+            case .profileField(let field):
+                profileFields.append((occurrence.profileID, field))
+            case .lifeEvent(let id, _):
+                eventIDs.append(id)
+            }
+        }
+        do {
+            let n = try db.correctLocationText(
+                profileFields: profileFields, lifeEventIDs: eventIDs, to: newText)
+            if let snap = try? db.buildSnapshot() { appState.snapshot = snap }
+            let trimmed = newText.trimmingCharacters(in: .whitespaces)
+            lastAction = trimmed.isEmpty
+                ? "Cleared \(n) field\(n == 1 ? "" : "s")"
+                : "Rewrote \(n) field\(n == 1 ? "" : "s") as \"\(trimmed)\""
+            selectedID = nil
         } catch {
             lastAction = "Could not save: \(error.localizedDescription)"
         }
@@ -328,6 +359,7 @@ private struct PlaceDetailView: View {
     let onNotAPlace: () -> Void
     let onRestore: () -> Void
     let onUnbind: () -> Void
+    let onCorrectText: (String) -> Void
     let onAskModel: () -> Void
 
     /// Which uses a district choice will be written to. Per FIELD, not per
@@ -337,6 +369,8 @@ private struct PlaceDetailView: View {
     @State private var reason: String = ""
     @State private var placeSearch: String = ""
     @State private var applyToVariants: Bool = true
+    @State private var correcting = false
+    @State private var correctedText = ""
 
     private var settled: PlaceDecision? { row.occurrences.compactMap(\.decision).first }
 
@@ -600,6 +634,40 @@ private struct PlaceDetailView: View {
                     }
                     .font(AppTypography.controlLabel)
                     .disabled(isAsking)
+                }
+
+                // THE THIRD ANSWER. "Ashborne" is a misspelling of a district the
+                // app knows; "-" is a stray character. Neither settling them nor
+                // setting them aside is true — the text itself is wrong. This is
+                // the one action in the tab that edits your tree, so it is
+                // explicit, it shows exactly what it will change, and it goes
+                // through the same undo machinery as any other profile edit.
+                section("Is the text itself wrong?") {
+                    if correcting {
+                        TextField("Corrected place name — leave empty to clear it",
+                                  text: $correctedText)
+                            .textFieldStyle(.roundedBorder)
+                        Text(correctedText.trimmingCharacters(in: .whitespaces).isEmpty
+                             ? "Will CLEAR this place from \(row.occurrences.count) field\(row.occurrences.count == 1 ? "" : "s")."
+                             : "Will rewrite \(row.occurrences.count) field\(row.occurrences.count == 1 ? "" : "s") to \u{201C}\(correctedText.trimmingCharacters(in: .whitespaces))\u{201D}.")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 12) {
+                            Button("Rewrite the tree") { onCorrectText(correctedText) }
+                            Button("Cancel") { correcting = false }
+                        }
+                        .font(AppTypography.controlLabel)
+                    } else {
+                        Button("Correct the text…") {
+                            correctedText = row.text
+                            correcting = true
+                        }
+                        .font(AppTypography.controlLabel)
+                        Text("Changes what your tree says, not just how it resolves. Undoable.")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
 
                 if !row.isNotAPlace {

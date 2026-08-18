@@ -1,6 +1,7 @@
 # UAT — how locations are surfaced
 
-**Build:** the 2026-08-17 location work (`84fd193` … `e093f3b`).
+**Build:** the 2026-08-17/18 location work (`84fd193` … head). Rewritten after the
+first UAT pass changed the app nine times — the steps below match what ships now.
 **Time:** ~35 minutes for the full script, ~10 for Parts 1–2 alone.
 **What you are judging:** not whether the answers are *right* — you know the
 genealogy better than the app does — but whether the app **tells you what it
@@ -202,41 +203,40 @@ because that is one place across a boundary change, not two rival places.
 
 ---
 
-## Part 4 — Making a decision (8 min)
+## Part 4 — Making a decision (10 min)
 
-Use **`Calling Low, Youlgreave, Derbyshire`** (Mary Thompson, b. 24 Oct 1882) —
-one person, one candidate district, and genealogically uncontroversial.
+Use **`Bolehill`** — a real hamlet the gazetteer has never listed, six people, one
+1891 household. It exercises everything at once.
 
 | # | Do | Expect |
 |---|---|---|
-| 4.1 | Select it and look at **Apply to which uses?** | One occurrence with a checkbox, **pre-ticked** — every use belongs to one person |
-| 4.2 | Now select **`Loscoe, Derbyshire, England`** (Ernest 1919, George 1915, Kenneth 1917) | **Nothing pre-ticked**, an orange *"Tick which uses below this applies to."*, and **"Use this" disabled** until you tick something |
-| 4.3 | Back on Calling Low, type a reason, e.g. *"Calling Low is a farm in Youlgreave parish"* | — |
-| 4.4 | Click **Use this** on Bakewell | Header note: *"Settled 1 field as Bakewell"*. The row leaves **Needs a decision** |
-| 4.5 | Switch the filter to **Settled** and re-select the row | A **Settled** block: the district, the date, your reason in quotes, and the years it applies to |
-| 4.6 | Click **Reopen this** | Row returns to the queue |
-| 4.7 | Settle it again with a *different* reason, then reopen once more | Each decision supersedes the last; nothing is deleted |
+| 4.1 | Select it | **Where is it?** first, with a search box; then Why this score; then the reason field; then the uses |
+| 4.2 | Look at **Apply to which uses?** | **Six rows, one per person** — not seventeen. Each lists its fields (`Census 1891 · Occupation 1891 · Residence 1891`). All **pre-ticked**, `16 of 16 selected`, Select all / none **above** the list |
+| 4.3 | Check **Same place, other spellings** | *"Also settle 1 other spelling"*, ticked, naming `Bolehill, Derbyshire, England` |
+| 4.4 | Type `Wirk` in the search | Parish rows first, each with `Wirksworth · <district> · Derbyshire`. **No year ranges.** A note explaining that a parish can be filed under several districts. `Wirksworth · Belper district` shows **"1 record in this family already"** |
+| 4.5 | Reason: *"Bolehill is a hamlet in Wirksworth parish"*, then **It's here** on Belper | Both Bolehill rows settle; unresolved drops by 2 |
+| 4.6 | Filter **Settled**, reselect | Orange **"Placed by hand — the gazetteer did not match this text"**, your reason, and the years it covers |
+| 4.7 | **Reopen this** | Back in the queue |
 
 ☐ **PASS** ☐ **FAIL** — notes:
 
-**4.2 is the safety property.** Two unrelated people can both be "born in a
-Middleton" and mean different villages. The app pre-ticks only when every use
-belongs to one person; across several it makes you choose. Judge whether that
-reads as careful or as friction.
-
-### 4.8 The refusal — try to make the original bug happen
+### 4.8 Ambiguity still makes you tick deliberately
 
 | # | Do | Expect |
 |---|---|---|
-| 4.8 | Select Ruth's **`Middleton, Derbyshire (DBY)`**, tick her birth, and try to bind **Bakewell** | **Refused**, with a message naming the window and the year: *"Bakewell existed from 1839, so it cannot hold 1824."* Nothing is saved |
+| 4.8 | Select **`Middleton, Derbyshire (DBY)`** | **Nothing pre-ticked** — two real villages share that word, so the app will not choose for you. Bolehill pre-ticks because nothing about it is ambiguous |
 
 ☐ **PASS** ☐ **FAIL**
 
-*If Bakewell is not even offered as a candidate, that is also a pass* — it was
-era-eliminated before you got there. Try it from **Show all matches nationally**
-instead, which deliberately ignores dates.
+### 4.9 The refusal, and the way through it
 
----
+| # | Do | Expect |
+|---|---|---|
+| 4.9 | Select **`Cromford, Derbyshire`** | If its uses straddle 1839 or 1994: **"These uses span a boundary"** naming the year and district |
+| 4.10 | Try to bind a district that cannot hold them all | Refused by name and year, **plus a button**: *"Settle just the N that fit \<district>"* |
+| 4.11 | Use it, then settle the remainder against a district that can hold it | One string, two answers — which is the point of per-field decisions |
+
+☐ **PASS** ☐ **FAIL**
 
 ## Part 5 — Escape hatches (5 min)
 
@@ -293,6 +293,7 @@ There are **ten** picker embeds; five were date-blind until this build.
 | # | Do | Expect |
 |---|---|---|
 | 6.10 | Open **Add Family**, put `1861` in a birth date, type `Crich` in the birth location beside it | **Crich · Belper** — *not* Amber Valley. Same answer as Add Person gives |
+| 6.10b | In the same sheet, find the census transcription section | **Street address** *and* **Parish or town** are separate fields; only the parish has a picker. A street is not a gazetteer entry |
 | 6.11 | Same sheet, marriage section: `1861` marriage date, type `Cromford` | Era-filtered, and orange if rivals remain |
 | 6.12 | Cancel the sheet | Nothing saved |
 
@@ -307,45 +308,36 @@ makes that feel like a considered choice or like a failure.
 
 ---
 
-## Part 7 — Known gaps (3 min)
+## Part 7 — Typos, junk, and the remaining gaps (5 min)
 
-These are **expected to be wrong**. Confirm they are, so we agree the list is complete.
+### 7.1 Correcting the text — the third answer
+
+`Ashborne` is a misspelling of a district the app knows. `-` is a stray
+character. Neither *settling* nor *setting aside* is true of either, so there is
+now a third action — the **only** one in this tab that edits your tree.
+
+| # | Do | Expect |
+|---|---|---|
+| 7.1 | Select **`Ashborne`** (3 people) → **Correct the text…** | A field pre-filled with `Ashborne`, and a line stating exactly how many fields will change |
+| 7.2 | Change it to `Ashbourne` → **Rewrite the tree** | The `Ashborne` row **disappears** and merges into `Ashbourne`, which resolves on its own — it was always a real place |
+| 7.3 | Select **`-`** (3 people) → **Correct the text…**, leave it **empty** | Warns it will **CLEAR** 3 fields. Do it; the row vanishes entirely |
+| 7.4 | Check the profile history for one of those people | The change is there as a normal edit — undoable, not a silent overwrite |
+
+☐ **PASS** ☐ **FAIL** — notes:
+
+**Judgement call:** `Cottage`, `Hill Side` and `Park Nook` could be house names,
+hamlets, or transcription fragments. Three actions now fit them — settle,
+set aside, or correct. Does having all three make the choice clear or crowded?
+
+### 7.5 Still genuinely missing
 
 | # | Do | Expect (the gap) |
 |---|---|---|
-| 7.1 | Find a couple with a marriage place and edit it inline on the tree card (the `m. [date] [place] ✓` row) | A **plain text box, no picker, no dropdown, no district line.** Marriage places typed here get no structured code |
-| 7.2 | Open a burial life event and look at **Cemetery** | Plain text, no gazetteer |
-| 7.3 | Health tab → look for location findings | Only **Suspect Location**, which checks *formatting* (stray commas, ALL CAPS, "?") — never whether the place exists. `Notaplace Magna` passes it |
-| 7.4 | Check whether Health mentions any of Part 3.5's unresolved hamlets | It does **not**. The Places tab is the only surface that reports gazetteer coverage |
+| 7.5 | Edit a marriage place inline on the tree card (`m. [date] [place] ✓`) | **Plain text box, no picker** — marriage places typed there still get no structured code |
+| 7.6 | Open a burial life event → **Cemetery** | Plain text, no gazetteer |
+| 7.7 | Health tab | Only **Suspect Location**, which checks *formatting* — never whether a place exists. `Notaplace Magna` passes it |
+
 ☐ **CONFIRMED** — notes:
-
-### 7.5 Census entry — now two fields, please sanity-check the split
-
-**Add Family** → census transcription section.
-
-| # | Do | Expect |
-|---|---|---|
-| 7.5 | Look at the fields | **Street address** (plain text) *and* **Parish or town** (gazetteer picker) — they used to be one box |
-| 7.6 | Fill both and save | The census life event's **location is the parish**, coded; the street appears in the description beside the occupation |
-
-Previously the street went into `location` for the whole household at once, always
-uncoded — while the automated absorption path puts a *parish* there. The two
-disagreed about what `location` meant.
-
-**Your call:** is splitting them right, or do you actually want the street as the
-location on a census event? You transcribe these more than anyone.
-
-☐ **PASS** ☐ **FAIL** — notes:
-
-### 7.7 Promoting someone out of a census household
-
-| # | Do | Expect |
-|---|---|---|
-| 7.7 | From a cluster review, promote a household member to a new profile | Their birthplace is preserved **verbatim**, and now also **coded** when the gazetteer is unambiguous about it. An ambiguous or unknown place stays uncoded |
-
-☐ **PASS** ☐ **FAIL** — notes:
-
----
 
 ## What to tell me afterwards
 
