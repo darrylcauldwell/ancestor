@@ -13,6 +13,11 @@ import AncestorKit
 /// A high-confidence row is still a row. It is a glance and a tick, not a
 /// hidden decision.
 struct PlacesView: View {
+    /// Jump to a person's profile, opened for editing — the same hand-off Health
+    /// findings use. A place is only ever a property of people, so the names in
+    /// "Used by" are the natural way back to the record that needs changing.
+    var onOpenProfile: ((String) -> Void)?
+
     @Environment(AppState.self) private var appState
 
     @State private var rows: [PlaceInventory.Row] = []
@@ -232,7 +237,8 @@ struct PlacesView: View {
                 onRestore: { restore(row) },
                 onUnbind: { unbind(row) },
                 onCorrectText: { newText in correctText(row, to: newText) },
-                onAskModel: { Task { await askModel(row) } }
+                onAskModel: { Task { await askModel(row) } },
+                onOpenProfile: onOpenProfile
             )
             .id(row.id)
         } else {
@@ -386,6 +392,7 @@ private struct PlaceDetailView: View {
     let onUnbind: () -> Void
     let onCorrectText: (String) -> Void
     let onAskModel: () -> Void
+    let onOpenProfile: ((String) -> Void)?
 
     /// Which uses a district choice will be written to. Per FIELD, not per
     /// string — see `PlaceInventory.bind`.
@@ -872,7 +879,17 @@ private struct PlaceDetailView: View {
                 .toggleStyle(.checkbox)
             }
             VStack(alignment: .leading, spacing: 1) {
-                Text(person.name).font(AppTypography.cardMeta)
+                if let onOpenProfile {
+                    Button { onOpenProfile(person.profileID) } label: {
+                        Text(person.name)
+                            .font(AppTypography.cardMeta)
+                            .underline()
+                    }
+                    .buttonStyle(.link)
+                    .help("Open \(person.name) for editing")
+                } else {
+                    Text(person.name).font(AppTypography.cardMeta)
+                }
                 Text(fields)
                     .font(AppTypography.badge)
                     .foregroundStyle(.tertiary)

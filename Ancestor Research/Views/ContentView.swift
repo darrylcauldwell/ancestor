@@ -162,7 +162,7 @@ struct MainView: View {
             case .triage:
                 ResearchView(researchVM: researchVM, role: .triage)
             case .places:
-                PlacesView()
+                PlacesView(onOpenProfile: openProfileInEdit)
             case .health:
                 HealthView(
                     onOpenProfile: openProfileDetail,
