@@ -158,8 +158,11 @@ struct PlaceDecisionTests {
         #expect(row.confidence == .unresolved)
         #expect(row.isSettled == false)
 
+        // Explicitly the Belper-filed Wirksworth — search returns the Bakewell
+        // one first, and this asserts the chain, so the rung must be pinned.
         guard let parish = PlaceAuthorityRegistry.shared.search("Wirksworth")
-            .first(where: { $0.place.kind == .parish }) else { return }
+            .first(where: { $0.place.kind == .parish && $0.hierarchy.contains("Belper") })
+        else { Issue.record("no Belper-filed Wirksworth"); return }
         try PlaceInventory.bindAll(row, to: parish.place.id, reason: "hamlet", in: db)
 
         let after = try rows(db).first { $0.text == "Bolehill" }!
@@ -181,6 +184,32 @@ struct PlaceDecisionTests {
 
         try PlaceInventory.bind(row, occurrenceIDs: [one.id], to: parish.place.id, in: db)
         #expect(try rows(db).first { $0.text == "Bolehill" }?.isSettled == false)
+    }
+
+    /// A settled row must be able to state its chain even when the gazetteer
+    /// never matched the text — that is exactly the case with no candidates, and
+    /// the list showed such rows with no place at all.
+    @Test func aSettledRowKnowsItsChainWithoutAnyCandidates() throws {
+        let db = try makeDB()
+        try addPerson(db, id: "jen", birthLocation: "Bolehill, Derbyshire, England")
+        let row = try rows(db).first { $0.text == "Bolehill, Derbyshire, England" }!
+        #expect(row.candidates.isEmpty, "precondition: the gazetteer matches nothing")
+
+        // Pin the Belper-filed Wirksworth: search returns the Bakewell one first
+        // and this asserts the composed chain, so the rung cannot be left to
+        // ordering.
+        guard let parish = PlaceAuthorityRegistry.shared.search("Wirksworth")
+            .first(where: { $0.place.kind == .parish && $0.hierarchy.contains("Belper") })
+        else { Issue.record("no Belper-filed Wirksworth"); return }
+        try PlaceInventory.bindAll(row, to: parish.place.id, reason: "hamlet", in: db)
+
+        let settled = try rows(db).first { $0.text == "Bolehill, Derbyshire, England" }!
+        guard let decision = settled.occurrences.compactMap(\.decision).first else {
+            Issue.record("no decision"); return
+        }
+        let chain = PlaceInventory.hierarchyDisplay(
+            text: settled.text, placeAuthorityID: decision.placeAuthorityID)
+        #expect(chain == "Bolehill, Wirksworth, Belper, Derbyshire", "got \(chain)")
     }
 
     // MARK: - History

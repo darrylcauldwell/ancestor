@@ -181,6 +181,25 @@ struct PlacesView: View {
 
     private func subtitle(_ row: PlaceInventory.Row) -> String {
         let people = row.profileCount == 1 ? "1 person" : "\(row.profileCount) people"
+
+        // The chain, minus its leading term — the row title already says that
+        // word, and repeating it reads as a stutter. A settled row took its
+        // answer from a DECISION, which `candidates` knows nothing about: a text
+        // the gazetteer never matched has no candidates at all, so settled rows
+        // like "Bolehill, Derbyshire, England" showed no place whatsoever.
+        func tail(of chain: String) -> String? {
+            let rest = chain.split(separator: ",").dropFirst()
+                .joined(separator: ",").trimmingCharacters(in: .whitespaces)
+            return rest.isEmpty ? nil : rest
+        }
+        if let decision = row.occurrences.compactMap(\.decision).first,
+           let rest = tail(of: PlaceInventory.hierarchyDisplay(
+               text: row.text, placeAuthorityID: decision.placeAuthorityID)) {
+            return "\(people) · \(rest)"
+        }
+        if let chain = row.resolvedDisplay, let rest = tail(of: chain) {
+            return "\(people) · \(rest)"
+        }
         if let district = row.candidates.first, row.candidates.count == 1 {
             return "\(people) · \(district.name)"
         }
