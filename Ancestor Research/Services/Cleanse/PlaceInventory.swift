@@ -64,6 +64,13 @@ nonisolated enum PlaceInventory {
         let decision: PlaceDecision?
         /// The user has said this field's text names no place.
         let isNotAPlace: Bool
+        /// The parish and district the RECORD states, when this use came from a
+        /// census. "Shining Row" is an address; the schedule it sits on names
+        /// Turnditch parish, Belper district. That is evidence with a citation
+        /// behind it, not a guess — and the inventory used to ignore it and ask
+        /// the user instead.
+        let recordParish: String?
+        let recordDistrict: String?
 
         /// Short label for the field ("Birth", "Death", "Residence").
         var fieldLabel: String {
@@ -109,6 +116,10 @@ nonisolated enum PlaceInventory {
         /// search results need it: that is the screen with least to go on, and
         /// where the family already has records is the only real signal there.
         let allCorroboration: [String: Int]
+        /// Parish/district pairs the RECORDS state for this text, with the years
+        /// they were stated in. One pair is an answer; several disagreeing pairs
+        /// is a finding of its own — the same address string in two parishes.
+        let recordPlaces: [(parish: String, district: String, years: [Int])]
         /// District boundaries that fall INSIDE this row's own span of years —
         /// "Bakewell opened in 1839" on a row holding events from 1830 and 1891.
         /// Such a row is really two questions, and settling it in one go either
@@ -154,7 +165,8 @@ nonisolated enum PlaceInventory {
         let liveIDs = Set(live.map(\.id))
 
         func add(_ text: String?, code: String?, profileID: String, profileName: String,
-                 target: LocationNormalizer.Target, key: String, year: Int?) {
+                 target: LocationNormalizer.Target, key: String, year: Int?,
+                 recordParish: String? = nil, recordDistrict: String? = nil) {
             guard let raw = text?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return }
             let id = "\(profileID)|\(key)"
             let decision = decisions.decision(for: raw, occurrenceID: id, year: year)
@@ -164,7 +176,8 @@ nonisolated enum PlaceInventory {
                 isBound: decision != nil
                     || !((code ?? "").trimmingCharacters(in: .whitespaces).isEmpty),
                 decision: decision,
-                isNotAPlace: dismissed.contains(id)))
+                isNotAPlace: dismissed.contains(id),
+                recordParish: recordParish, recordDistrict: recordDistrict))
         }
 
         for p in live {
@@ -176,10 +189,12 @@ nonisolated enum PlaceInventory {
                 year: p.deathDate?.bestYear)
         }
         for e in lifeEvents where liveIDs.contains(e.profileID) {
+            let census: CensusDetails? = if case .census(let d) = e.details { d } else { nil }
             add(e.location, code: e.locationCode, profileID: e.profileID,
                 profileName: nameByID[e.profileID] ?? "",
                 target: .lifeEvent(id: e.id, type: e.type.rawValue),
-                key: "event:\(e.id.uuidString)", year: e.sortYear)
+                key: "event:\(e.id.uuidString)", year: e.sortYear,
+                recordParish: census?.parish, recordDistrict: census?.district)
         }
 
         let districtsByProfile = knownDistricts(of: live, decisions: decisions)
@@ -444,6 +459,47 @@ nonisolated enum PlaceInventory {
 
     // MARK: - Scoring
 
+    /// The distinct parish/district pairs the source records state for a row.
+    ///
+    /// "Shining Row" is an address; the 1891 schedule it appears on names
+    /// Turnditch parish, Belper district. That is the answer, already cited,
+    /// sitting in the same record the address came from.
+    static func recordPlaces(
+        in occurrences: [Occurrence]
+    ) -> [(parish: String, district: String, years: [Int])] {
+        var byPair: [String: (parish: String, district: String, years: [Int])] = [:]
+        for occurrence in occurrences {
+            guard let parish = occurrence.recordParish?.trimmingCharacters(in: .whitespaces),
+                  !parish.isEmpty else { continue }
+            let district = (occurrence.recordDistrict ?? "").trimmingCharacters(in: .whitespaces)
+            let key = "\(parish.lowercased())|\(district.lowercased())"
+            var entry = byPair[key] ?? (parish, district, [])
+            if let year = occurrence.year, !entry.years.contains(year) { entry.years.append(year) }
+            byPair[key] = entry
+        }
+        return byPair.values
+            .map { ($0.parish, $0.district, $0.years.sorted()) }
+            .sorted { $0.parish < $1.parish }
+    }
+
+    /// The parish node a record's own (parish, district) pair names.
+    static func authorityForRecordPlace(
+        parish: String, district: String, year: Int?
+    ) -> PlaceAuthority? {
+        let places = PlaceAuthorityRegistry.shared
+        let candidates = places.parishRecords(named: parish, year: year, chapman: nil)
+        guard !candidates.isEmpty else { return nil }
+        // Prefer the one under the district the record names.
+        if !district.isEmpty {
+            let wanted = PlaceAuthority.foldedName(district)
+            if let exact = candidates.first(where: {
+                PlaceAuthority.foldedName(
+                    places.places.registrationDistrict(of: $0.id)?.name ?? "") == wanted
+            }) { return exact }
+        }
+        return candidates.count == 1 ? candidates[0] : nil
+    }
+
     /// The settled place in full: settlement, parish, district, county —
     /// "Bolehill, Wirksworth, Belper, Derbyshire".
     ///
@@ -557,7 +613,39 @@ nonisolated enum PlaceInventory {
             forPlaceOrDistrict: text, chapman: nil, year: year)
 
         var reasons: [String] = []
+        let fromRecords = recordPlaces(in: occurrences)
+
         guard let result, !result.districts.isEmpty else {
+            // THE RECORD MAY ALREADY SAY. "Shining Row" is an address the
+            // gazetteer will never hold, but the 1891 schedule it sits on names
+            // Turnditch parish, Belper district. Asking the user for something
+            // the cited record states is the app not reading its own evidence.
+            if fromRecords.count == 1, let only = fromRecords.first,
+               let parish = authorityForRecordPlace(
+                   parish: only.parish, district: only.district, year: year),
+               let district = PlaceAuthorityRegistry.shared.registrationDistrict(ofID: parish.id) {
+                let when = only.years.isEmpty
+                    ? "The record"
+                    : "The \(only.years.map(String.init).joined(separator: ", ")) record"
+                reasons.append("\(when) names the parish itself: \(only.parish)"
+                               + (only.district.isEmpty ? "." : ", \(only.district) district."))
+                reasons.append("The gazetteer has no entry for \u{201C}\(text)\u{201D} — "
+                               + "this is an address, and the parish comes from the schedule it sits on.")
+                return Row(id: text, text: text, occurrences: occurrences, candidates: [district],
+                           eliminated: [], placeNames: [parish.name],
+                           matchedSegment: nil, confidence: .high, reasons: reasons,
+                           variantKey: variantKey(for: text),
+                           corroboration: corroboration.filter { $0.key == district.id },
+                           allCorroboration: corroboration, recordPlaces: fromRecords,
+                           boundariesCrossed: [])
+            }
+            if fromRecords.count > 1 {
+                reasons.append("The records disagree: "
+                               + fromRecords.map { "\($0.parish)"
+                                   + ($0.years.isEmpty ? "" : " (\($0.years.map(String.init).joined(separator: ", ")))") }
+                                   .joined(separator: " vs ")
+                               + ". The same words name more than one place.")
+            }
             reasons.append("No registration district matches any part of this text.")
             if stated == nil { reasons.append("No county stated, so nothing narrows the search.") }
             return Row(id: text, text: text, occurrences: occurrences, candidates: [],
@@ -565,7 +653,7 @@ nonisolated enum PlaceInventory {
                        confidence: .unresolved, reasons: reasons,
                        variantKey: variantKey(for: text),
                        corroboration: [:], allCorroboration: corroboration,
-                       boundariesCrossed: [])
+                       recordPlaces: fromRecords, boundariesCrossed: [])
         }
 
         let firstSegment = RegistrationDistrictResolver.segments(of: text).first
@@ -658,6 +746,7 @@ nonisolated enum PlaceInventory {
                    confidence: confidence, reasons: reasons,
                    variantKey: variantKey(for: text),
                    corroboration: relevant, allCorroboration: corroboration,
+                   recordPlaces: fromRecords,
                    boundariesCrossed: boundaries(
                        crossedBy: occurrences.compactMap(\.year),
                        districts: ranked + result.eliminated.map(\.district)))
