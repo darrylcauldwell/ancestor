@@ -732,6 +732,32 @@ private struct PlaceDetailView: View {
         }
     }
 
+    /// "Bakewell and Belper both cover 1839–1994, so 1891 does not decide this —
+    /// the family records below do."
+    ///
+    /// Returns nil when the districts genuinely differ for this row's years, in
+    /// which case the per-hit windows are doing the work on their own.
+    private func overlapNote(_ hits: [PlaceAuthorityRegistry.SearchHit]) -> String? {
+        let places = PlaceAuthorityRegistry.shared.places
+        let districts = Set(hits.compactMap(\.districtID)).compactMap { places.place(id: $0) }
+        guard districts.count > 1 else { return nil }
+
+        let years = row.occurrences.compactMap(\.year)
+        let allCover = districts.allSatisfy {
+            PlaceDecision.yearsOutsideWindow(years, from: $0.validFrom, to: $0.validTo).isEmpty
+        }
+        guard allCover else { return nil }
+
+        let low = districts.compactMap(\.validFrom).max() ?? 1837
+        let high = districts.compactMap(\.validTo).min()
+        let span = high.map { "\(low)–\($0)" } ?? "\(low) onwards"
+        let names = districts.map(\.name).sorted().joined(separator: " and ")
+        let event = years.min().map { years.max() == $0 ? " \($0)" : "" } ?? ""
+
+        return "\(names) overlap for \(span), so\(event.isEmpty ? " these years" : event) "
+            + "does not decide between them. The family records below are the signal that does."
+    }
+
     /// "Belper 1837–1994 · covers 1891" — the district's lifetime and whether it
     /// spans the years this row actually holds.
     ///
@@ -836,7 +862,12 @@ private struct PlaceDetailView: View {
             let duplicated = Set(hits.map { PlaceAuthority.foldedName($0.place.name) })
                 .filter { name in hits.filter { PlaceAuthority.foldedName($0.place.name) == name }.count > 1 }
             if !duplicated.isEmpty {
-                Text("Some parishes are listed under more than one district — the catalogue files a parish under every district that ever covered part of it, so more than one can be right for the same year.")
+                // Name the overlap rather than describing it in the abstract.
+                // The general note was already here and still drew the question
+                // "don't these overlap?" — because the answer is yes, and the
+                // useful thing is to say so with the actual years and say what
+                // DOES decide it.
+                Text(overlapNote(hits) ?? "Some parishes are listed under more than one district — the catalogue files a parish under every district that ever covered part of it, so more than one can be right for the same year.")
                     .font(AppTypography.badge)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
