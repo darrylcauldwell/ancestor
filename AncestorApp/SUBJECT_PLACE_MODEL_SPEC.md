@@ -1,6 +1,6 @@
 # SUBJECT_PLACE_MODEL_SPEC
 
-**Status:** DRAFT — consumer inventory pending (mapping run 2026-08-19).
+**Status:** SPEC — consumer inventory complete (2026-08-19). Slice 1 landed (`3da954d`).
 **Origin:** owner observation, 2026-08-19: *"The goal was a singular location
 format and approach used consistently."*
 
@@ -86,10 +86,40 @@ way.
 
 ## Invariants (must survive the refactor)
 
-- **The gate must not move.** More place data may widen what is SEARCHED; it must
-  never widen what the 4-gate scorer ACCEPTS. `checkGeography` and
-  `acceptedChapmanCodes` are behaviour-preserving, pinned by characterization
-  tests written BEFORE any change.
+- **THE GATE MUST NOT MOVE — and the first draft of this invariant was
+  unachievable.** It read: *"more place data may widen what is SEARCHED; it must
+  never widen what the scorer ACCEPTS."* That firewall does not exist.
+  `RecordScorer.applyExclusivity` (:368) and `applyExclusivityAcrossStore` (:1203)
+  demote a stored `.fact` as soon as a SECOND `.fact`-verdict candidate appears in
+  the same slot with no discriminator (:339, :408). Searching two more counties
+  for a death is *exactly* how a second undiscriminated candidate arrives. Worse,
+  `ContradictoryFactsAudit.demotions` (:57-72) re-runs that pass tree-wide over
+  stored evidence — so the demotion surfaces days later, in a Health audit, on a
+  record the user already applied, with nothing linking it back to a "location
+  model cleanup".
+
+  So it is TWO invariants, and both need proving:
+  - **(a) Nothing accepted today may be rejected tomorrow** over the same corpus —
+    the exclusivity risk. This is a *narrowing*, arrives late, and nobody is
+    looking for it. **This is the dangerous one.**
+  - **(b) Nothing rejected today may be accepted tomorrow** — the geography-gate
+    risk, and the one everyone thinks of first.
+
+  Note this applies retroactively: the FreeBMD death-county widening shipped in
+  `d58d542` can surface a second death candidate and demote an applied fact. It
+  should be replayed too.
+
+- **A corpus replay diff is the only proof, and it is Slice 1.5 — before any
+  behaviour change.** `evidence_records.gates_json` already persists every gate
+  outcome AND its reason (`ProjectDatabase.swift:1372, :3980, :4191`), and
+  `CampaignReviewService.reconstruct` (:55-63) already rebuilds `ScoredRecord`s
+  from it. A harness that re-scores every stored record old-vs-new and diffs
+  `(verdict, gate outcome, gate reason)` is cheap, and nothing else demonstrates
+  either invariant.
+
+- **`ConvergenceEngine` is place-blind and must stay so.** It reads zero location
+  anywhere; `valueKey` keys on year only (:204-218). Pin that with an explicit
+  assertion so a later slice cannot quietly add a place term.
 - **An absent anchor stays absent.** `homeChapmanCode == ""` currently triggers a
   visible scope-skip ("no home county to anchor … widen to National"). A richer
   model must not manufacture an anchor where none should exist.
@@ -109,6 +139,9 @@ way.
 - **Slice 1 — characterization.** Pin today's behaviour first: the anchor
   derivation table, every source's emitted axes for a set of fixture subjects,
   and the gate's accept/reject decisions. The refactor is judged against these.
+- **Slice 1.5 — the replay harness.** Re-score every stored record old-vs-new
+  and diff `(verdict, gate outcome, gate reason)`. Nothing that changes search
+  width ships before this exists — including a replay of `d58d542`.
 - **Slice 2 — the type.** `PlaceRef` + `ResearchSubject.places`, populated
   alongside the existing fields. Nothing reads it yet. Zero behaviour change.
 - **Slice 3 — one consumer at a time.** Move each reader to `places`, proving the
@@ -125,6 +158,59 @@ way.
 - Characterization tests from Slice 1 pass unchanged throughout.
 - No increase in request count for any subject that has a birth place today.
 
+## What the mapping run found (2026-08-19)
+
+**37 read sites, all in `SearchDispatcher`.** `DispatchStaging` reads none —
+stated here so nobody budgets work for it. Outside the dispatcher and scorer,
+almost nothing reads subject places at all: `residenceAxes`, `burialPlace` and
+`burialChapmanCode` have **zero** consumers elsewhere. The defect seen from the
+consumer side is not "each site reads a different field" but "most sites read the
+one field that happens to be a bare `String`, and the rest read nothing."
+
+**Two live defects, both caused by `region` being misnamed.** `fromProfile` builds
+`region: .county(profile.birthLocation)` (`ResearchSubject.swift:936`) — a whole
+freeform string stuffed into a case meaning "county name". Consequences:
+
+1. **The prose corpus runs unconstrained.** `ProseCorpusSource.placeTokens` (:387)
+   compares `entry.county` ("Derbyshire") against that payload ("Loscoe,
+   Derbyshire, England") for equality. Never equal → no tokens → no place
+   constraint. Live, in a registered source, and **no test catches it**.
+2. **A doubled country in FamilySearch queries.** `homeCountry(from:)` (:512-515)
+   takes the comma-tail of the same string `jurisdictionString` (:549) then
+   appends to, yielding `"Loscoe, Derbyshire, England, England"`. Latent only
+   because FamilySearch is deliberately unregistered as a record source
+   (owner decision 2026-08-07) — it would fire the moment that changed.
+
+Neither may be fixed tactically. Fixing (1) *narrows* the corpus, which is
+exactly the (a) exclusivity risk above — it must ride the replay harness.
+
+**`region` needs a compatibility shim, not deletion.** Eight of its 15 sites are
+passthrough into `RecordQuery.region`, which is public AncestorKit API read
+outside the dispatcher (`SourceRegistry.enabledSources` coverage filter,
+`ProseCorpusSource`). That is a slice of its own.
+
+**Two derivation paths sit five lines apart** in the FreeBMD arm added in
+`d58d542`: the death county is re-parsed from text at the call site while the
+burial county arrives pre-derived. Same need, two code paths, adjacent — the
+clearest single argument for `PlaceRef.code`.
+
+**Anchor-less rescue is inconsistent, and produces a false message.** FreeREG
+appends its burial county BEFORE the empty-check (:1181-1192), so an anchor-less
+subject with a burial county still gets queries. FreeCen merges residences AFTER
+a guard that has already emptied (:1104, :1052), so an anchor-less subject *with
+residence axes* is scope-skipped — and `scopeSkipReason` (:334) then reports "no
+home county to anchor scope" about a person the tree does place geographically.
+
+**`birthRegistrationDistrict` is never read by the scorer.**
+`conflictsWithConfirmedBirth` re-resolves `subject.birthLocation` from scratch on
+every call (`RecordScorer.swift:76-80`), ignoring the cited district
+`ApplyEngine` wrote.
+
 ## Open questions
 
-*(to be filled from the mapping run)*
+- Does the replay harness run against the owner's live project, a fixture corpus,
+  or both? Live is the only true test; a fixture is the only repeatable one.
+- `region`'s shim: keep `Region` as-is and populate it correctly, or deprecate it
+  behind a computed property? The public-API surface decides this.
+- Should Slice 5 (census/residence counties reach every source) ship behind the
+  replay diff as well? It widens search, so by invariant (a) it must.
