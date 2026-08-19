@@ -237,6 +237,28 @@ nonisolated struct ResearchSubject: Sendable {
     /// County chapman derived from the burial event's place via the same
     /// derivation chain as profile fields. Nil when underivable.
     var burialChapmanCode: String? = nil
+
+    /// SUBJECT_PLACE_MODEL_SPEC Slice 2 — every place we know about this
+    /// person, in one shape, in precedence order (birth, death, burial,
+    /// marriage, then residence and census by event window).
+    ///
+    /// **Nothing reads this yet.** It is populated alongside the five flattened
+    /// fields above so Slice 3 can move consumers one at a time, each proving
+    /// the characterization tests still pass. Behaviour change in Slice 2 is
+    /// zero by construction.
+    ///
+    /// Order is the contract: `places.first` is the best-evidenced place, and
+    /// `places.chapmanCodes.first` is the same county `homeChapmanCode` derives
+    /// today. A source that can afford one axis takes the first; a source that
+    /// can afford several takes a bounded prefix. Sorting anywhere downstream
+    /// would destroy that and hand out whichever county sorts first.
+    ///
+    /// Sensitive places ARE included, carrying the flag. The array accessors
+    /// exclude them by default, so the existing filtering behaviour is what a
+    /// consumer gets without asking — but the information that a place was
+    /// withheld survives, instead of being destroyed at derivation the way
+    /// `residenceAxes` destroys it.
+    var places: [PlaceRef] = []
 }
 
 /// One residence axis: a place the subject is known (user-attested) to have
@@ -913,6 +935,70 @@ nonisolated extension ResearchSubject {
                 ?? derivedBurialPlace.flatMap { Self.chapmanCode(forPlaceText: $0) }
         }
 
+        // SUBJECT_PLACE_MODEL_SPEC Slice 2 — the same facts, one shape.
+        //
+        // Built in PRECEDENCE order, and that order is the contract: it
+        // reproduces `deriveHomeChapmanCode`'s chain (birth → death → …), so
+        // `places.chapmanCodes.first` is the county the anchor derives today,
+        // minus only the project fallback, which is not a fact about this
+        // person and so is not a place of theirs. Nothing reads this yet.
+        var derivedPlaces: [PlaceRef] = []
+        func appendPlace(
+            _ text: String?, code: String?, kind: PlaceRef.Kind,
+            yearFrom: Int? = nil, yearTo: Int? = nil, sensitive: Bool = false
+        ) {
+            guard let text = text?.trimmingCharacters(in: .whitespaces), !text.isEmpty
+            else { return }
+            derivedPlaces.append(PlaceRef(
+                text: text, code: code, kind: kind,
+                yearFrom: yearFrom, yearTo: yearTo, sensitive: sensitive))
+        }
+
+        appendPlace(profile.birthLocation, code: profile.birthLocationCode, kind: .birth,
+                    yearFrom: profile.birthDate?.earliest, yearTo: profile.birthDate?.latest)
+        appendPlace(profile.deathLocation, code: profile.deathLocationCode, kind: .death,
+                    yearFrom: profile.deathDate?.earliest, yearTo: profile.deathDate?.latest)
+        if let burialEvent {
+            appendPlace(derivedBurialPlace, code: burialEvent.locationCode, kind: .burial,
+                        yearFrom: burialEvent.date?.earliest, yearTo: burialEvent.date?.latest)
+        }
+        // Marriage places off the spouse edges. Note this is the FOURTH storage
+        // site carrying the same `(location, locationCode)` pair, and the only
+        // one no flattened subject field represents at all.
+        for edge in snapshot.relationships
+            where edge.type == .spouse && (edge.from == profile.id || edge.to == profile.id) {
+            appendPlace(edge.marriageLocation, code: edge.marriageLocationCode, kind: .marriage,
+                        yearFrom: edge.marriageDate?.earliest,
+                        yearTo: edge.marriageDate?.latest)
+        }
+        // Residence and census carry the SAME (location, locationCode) pair on
+        // the same type; that census produces nothing today is the gap this
+        // spec exists to close, so here they are simply two kinds of place.
+        // Sensitive events are carried WITH their flag rather than dropped —
+        // the array accessors exclude them by default, so no consumer sees a
+        // change, but the fact that a place was withheld survives.
+        for event in subjectEvents where event.type == .residence || event.type == .census {
+            appendPlace(
+                event.location, code: event.locationCode,
+                kind: event.type == .census ? .census : .residence,
+                yearFrom: event.date?.earliest,
+                yearTo: event.endDate?.latest ?? event.endDate?.earliest
+                    ?? (event.type == .census ? event.date?.latest : nil),
+                sensitive: event.sensitive)
+        }
+        derivedPlaces.sort { a, b in
+            // Stable by kind precedence first, then window, then text — the
+            // event collections above arrive in no guaranteed order.
+            let order: [PlaceRef.Kind] = [.birth, .death, .burial, .marriage, .residence, .census]
+            let ai = order.firstIndex(of: a.kind) ?? order.count
+            let bi = order.firstIndex(of: b.kind) ?? order.count
+            if ai != bi { return ai < bi }
+            if (a.yearFrom ?? Int.min) != (b.yearFrom ?? Int.min) {
+                return (a.yearFrom ?? Int.min) < (b.yearFrom ?? Int.min)
+            }
+            return a.text < b.text
+        }
+
         return ResearchSubject(
             profileID: profile.id,
             surname: profile.lastName,
@@ -943,7 +1029,8 @@ nonisolated extension ResearchSubject {
             ),
             residenceAxes: derivedResidenceAxes,
             burialPlace: derivedBurialPlace,
-            burialChapmanCode: derivedBurialChapman
+            burialChapmanCode: derivedBurialChapman,
+            places: derivedPlaces
         )
     }
 
@@ -1015,20 +1102,12 @@ nonisolated extension ResearchSubject {
     /// Parse a 3-letter Chapman code prefix from a gazetteer ID like
     /// "DBY:Crich". Returns nil for nil input, empty input, or strings
     /// without a colon-delimited 3-letter prefix.
-    private static func chapmanCodeFromLocationCode(_ code: String?) -> String? {
-        guard let code = code?.trimmingCharacters(in: .whitespaces),
-              !code.isEmpty else { return nil }
-        let prefix: String
-        if let colon = code.firstIndex(of: ":") {
-            prefix = String(code[..<colon])
-        } else {
-            prefix = code
-        }
-        let cleaned = prefix.trimmingCharacters(in: .whitespaces).uppercased()
-        guard cleaned.count == 3,
-              cleaned.allSatisfy({ $0.isLetter })
-        else { return nil }
-        return cleaned
+    ///
+    /// Delegates to the canonical resolver, which now owns both halves of the
+    /// question (code and text) — kept as a thin wrapper so the existing call
+    /// sites here are unchanged, exactly as `chapmanCode(forPlaceText:)` was.
+    static func chapmanCodeFromLocationCode(_ code: String?) -> String? {
+        ChapmanCodeResolver.chapmanCode(forLocationCode: code)
     }
 
     /// Build from a Lead. Leads aren't on the tree yet so there's no family

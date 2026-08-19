@@ -79,4 +79,22 @@ nonisolated enum ChapmanCodeResolver {
 
         return nil
     }
+
+    /// Parse the Chapman county prefix out of a gazetteer id like `"DBY:Crich"`.
+    /// Nil for nil, empty, or anything without a 3-letter prefix.
+    ///
+    /// The structured twin of `chapmanCode(forPlaceText:)`, and it lives beside
+    /// it for the same reason that one was pulled here: a code and its text are
+    /// the two halves of one question, and every caller asks both. Keeping the
+    /// parse private to `ResearchSubject` is what let the FreeBMD arm end up
+    /// re-parsing a death county from text five lines from where the burial
+    /// county arrived pre-derived (SUBJECT_PLACE_MODEL_SPEC).
+    static func chapmanCode(forLocationCode code: String?) -> String? {
+        guard let code = code?.trimmingCharacters(in: .whitespaces), !code.isEmpty
+        else { return nil }
+        let prefix = code.firstIndex(of: ":").map { String(code[..<$0]) } ?? code
+        let cleaned = prefix.trimmingCharacters(in: .whitespaces).uppercased()
+        guard cleaned.count == 3, cleaned.allSatisfy(\.isLetter) else { return nil }
+        return cleaned
+    }
 }

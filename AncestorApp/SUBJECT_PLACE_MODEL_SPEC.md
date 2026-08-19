@@ -1,7 +1,7 @@
 # SUBJECT_PLACE_MODEL_SPEC
 
-**Status:** SPEC — consumer inventory complete (2026-08-19). Slice 1 landed (`3da954d`);
-Slice 1.5 landed and `d58d542` replayed clean (2026-08-19).
+**Status:** SPEC — Slices 1, 1.5 and 2 landed (2026-08-19); `d58d542` replayed
+clean. Slice 3 (move consumers) is next and is where behaviour first moves.
 **Origin:** owner observation, 2026-08-19: *"The goal was a singular location
 format and approach used consistently."*
 
@@ -171,8 +171,22 @@ way.
   which contests the slot and demotes an applied fact. A replay only re-scores
   what is already stored. That risk surfaces as a narrowing on the NEXT replay
   after new records land, which is the routine the harness is for.
-- **Slice 2 — the type.** `PlaceRef` + `ResearchSubject.places`, populated
-  alongside the existing fields. Nothing reads it yet. Zero behaviour change.
+- **Slice 2 — the type. LANDED 2026-08-19.** `Models/Research/PlaceRef.swift` +
+  `ResearchSubject.places`, populated alongside the existing fields. Nothing
+  reads it. **Zero behaviour change proven, not asserted**: replayed against the
+  same frozen 31,481-record corpus as the Slice 1.5 baseline — no change, same
+  verdicts by the same reasons.
+
+  Two things landed with it. `chapmanCodeFromLocationCode` moved from a private
+  method on `ResearchSubject` to `ChapmanCodeResolver`, beside the text resolver
+  that was pulled there for the same reason — a code and its text are two halves
+  of one question and every caller asks both; keeping the parse private is what
+  let the FreeBMD arm re-parse a death county from text five lines from where
+  the burial county arrived pre-derived. And `places` carries MARRIAGE places
+  (the fourth `(location, code)` storage site, which no flattened subject field
+  represents at all) and SENSITIVE places WITH their flag — the array accessors
+  exclude them by default so no consumer sees a change, but the information that
+  a place was withheld is no longer destroyed at derivation.
 - **Slice 3 — one consumer at a time.** Move each reader to `places`, proving the
   characterization tests still pass at each step. The additive arms collapse here.
 - **Slice 4 — delete the flattened fields.** Only once every reader has moved.
