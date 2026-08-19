@@ -1,6 +1,7 @@
 # SUBJECT_PLACE_MODEL_SPEC
 
-**Status:** SPEC — consumer inventory complete (2026-08-19). Slice 1 landed (`3da954d`).
+**Status:** SPEC — consumer inventory complete (2026-08-19). Slice 1 landed (`3da954d`);
+Slice 1.5 landed and `d58d542` replayed clean (2026-08-19).
 **Origin:** owner observation, 2026-08-19: *"The goal was a singular location
 format and approach used consistently."*
 
@@ -139,9 +140,37 @@ way.
 - **Slice 1 — characterization.** Pin today's behaviour first: the anchor
   derivation table, every source's emitted axes for a set of fixture subjects,
   and the gate's accept/reject decisions. The refactor is judged against these.
-- **Slice 1.5 — the replay harness.** Re-score every stored record old-vs-new
-  and diff `(verdict, gate outcome, gate reason)`. Nothing that changes search
-  width ships before this exists — including a replay of `d58d542`.
+- **Slice 1.5 — the replay harness. LANDED 2026-08-19.**
+  `Services/Research/ScoreReplay.swift` + `ScoreReplayTests` (19, always run) +
+  `ScoreReplayCaptureTests` (opt-in, runs against a real project).
+
+  **It replays BOTH stages, and that is the whole point.** A per-record
+  `classify` replay would fingerprint two namesake 1891 households as two facts
+  and report "no change" straight through the regression this spec calls
+  dangerous — the demotion is not a property of any single record. So the
+  harness re-runs `applyExclusivity` over the re-scored set, reproduced exactly
+  as `ContradictoryFactsAudit.demotions` reproduces it (same slots, same ghost
+  rivals, same user-discard exemption). Ghosts are read from STORED gates, not
+  from the re-score: `isExclusivityGhost` tests for an `.exclusivity` softFail
+  that only the pass itself appends, so deriving them from a fresh classify
+  would always yield an empty set and silently drop the legacy flip-flop case.
+
+  `ScoreReplay.narrowings` is the gate — a record that was a fact and no longer
+  is. Everything else is reported for a human read; only a narrowing fails the
+  build, because a widening is often the intended outcome.
+
+- **`d58d542` replayed: CLEAN (2026-08-19).** Worktree at `d58d542^`, harness
+  copied in, both sides run over the same 123 MB copy of the live project:
+  **31,481 records across 152 profiles (322 fact / 31,159 not) — byte-identical
+  captures.** So the commit re-scored nothing differently.
+
+  **What that does and does not prove.** It proves the code change moved no
+  verdict and no gate reason on the corpus as it stands. It does NOT clear the
+  commit going forward, because its risk was never re-scoring — it was FETCHING:
+  a widened death search brings back a second undiscriminated death candidate,
+  which contests the slot and demotes an applied fact. A replay only re-scores
+  what is already stored. That risk surfaces as a narrowing on the NEXT replay
+  after new records land, which is the routine the harness is for.
 - **Slice 2 — the type.** `PlaceRef` + `ResearchSubject.places`, populated
   alongside the existing fields. Nothing reads it yet. Zero behaviour change.
 - **Slice 3 — one consumer at a time.** Move each reader to `places`, proving the
@@ -206,10 +235,44 @@ home county to anchor scope" about a person the tree does place geographically.
 every call (`RecordScorer.swift:76-80`), ignoring the cited district
 `ApplyEngine` wrote.
 
+## Running the replay
+
+```
+# capture a baseline BEFORE the change (~2½ min on a 31k-record store)
+TEST_RUNNER_RUN_SCORE_REPLAY=1 \
+  TEST_RUNNER_SCORE_REPLAY_PROJECT=/path/to/copy-of-project.sqlite \
+  TEST_RUNNER_SCORE_REPLAY_OUT=before.txt \
+  xcodebuild test -project "Ancestor Research.xcodeproj" -scheme "Ancestor Research Tests" \
+    -destination "platform=macOS" -skipMacroValidation \
+    -only-testing:"Ancestor Research Tests/ScoreReplayCaptureTests"
+
+# after the change, add a baseline and the run becomes a gate
+… TEST_RUNNER_SCORE_REPLAY_BASELINE=before.txt TEST_RUNNER_SCORE_REPLAY_OUT=after.txt …
+```
+
+Three things bite, all learned the hard way:
+
+- **The `TEST_RUNNER_` prefix is mandatory.** `xcodebuild` does not pass the
+  caller's environment to the test process — it forwards only that namespace,
+  stripping the prefix. Without it the suite silently skips, which on the
+  console is indistinguishable from a pass.
+- **Point it at a COPY — and at the SAME copy on both sides.** Two reasons.
+  `ProjectDatabase.init` runs migrations, which is a write, so the replay's
+  read-only guarantee (pinned by `replayingDoesNotTouchTheStore`) does not extend
+  to the open. And a replay row is "what today's code decides", so if the tree is
+  edited between the two captures the diff measures the owner's edits, not the
+  code change. One frozen copy, both runs.
+- **Capture names resolve inside the sandbox container's temp directory**
+  (`~/Library/Containers/dev.dreamfold.Ancestor-Research/Data/tmp/`). A bare
+  `before.txt` works; an absolute `/tmp/…` path is refused by the sandbox. The
+  resolved path is printed.
+
 ## Open questions
 
-- Does the replay harness run against the owner's live project, a fixture corpus,
-  or both? Live is the only true test; a fixture is the only repeatable one.
+- ~~Does the replay harness run against the owner's live project, a fixture
+  corpus, or both?~~ **Both, for different jobs** (2026-08-19). The fixture suite
+  proves the harness is trustworthy and runs on every build; the capture suite
+  produces evidence about an actual change and is opt-in.
 - `region`'s shim: keep `Region` as-is and populate it correctly, or deprecate it
   behind a computed property? The public-API surface decides this.
 - Should Slice 5 (census/residence counties reach every source) ship behind the
