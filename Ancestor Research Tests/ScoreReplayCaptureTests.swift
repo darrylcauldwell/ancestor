@@ -76,7 +76,26 @@ struct ScoreReplayCaptureTests {
 
         let db = try ProjectDatabase(path: projectPath)
         let snapshot = try db.buildSnapshot()
-        let rows = ScoreReplay.replayAll(in: db, snapshot: snapshot)
+        // Optional single-profile scope. A whole-corpus replay is ~2½ minutes,
+        // which is too slow for the "I edited the tree — did that fix it?"
+        // loop; scoped to one profile it is seconds. Diffing a scoped capture
+        // against a whole-corpus baseline would report every other profile as
+        // disappeared, so a scope forbids a baseline.
+        let onlyProfile = env["SCORE_REPLAY_PROFILE"]
+        let rows: [ScoreReplay.Row]
+        if let onlyProfile {
+            #expect(env["SCORE_REPLAY_BASELINE"] == nil,
+                    "a scoped replay cannot be diffed against a whole-corpus baseline")
+            print("[replay] scoped to profile \(onlyProfile)")
+            rows = ScoreReplay.replay(profileID: onlyProfile, in: db, snapshot: snapshot)
+            for row in rows where row.verdict == "fact" || row.gates.contains(where: {
+                $0.hasPrefix("name:fail") || $0.hasPrefix("exclusivity:")
+            }) {
+                print("[replay]   \(row.verdict)\t\(row.recordID)\n[replay]     \(row.gates.joined(separator: "\n[replay]     "))")
+            }
+        } else {
+            rows = ScoreReplay.replayAll(in: db, snapshot: snapshot)
+        }
 
         let profilesWithEvidence = Set(rows.map(\.profileID)).count
         let facts = rows.filter { $0.verdict == "fact" }.count
@@ -108,15 +127,23 @@ struct ScoreReplayCaptureTests {
         // replay cannot rebuild that subject, so their "drift" is a comparison
         // artefact, not a statement about the store. See
         // `ScoreReplay.Detail.scoredAgainstUnreconstructableSubject`.
-        let details = ScoreReplay.diagnoseAll(in: db, snapshot: snapshot)
-        let artefacts = details.filter { $0.drifted && $0.scoredAgainstUnreconstructableSubject }
-        let meaningful = details.filter(\.driftedMeaningfully)
-        print("[replay] store-vs-rules drift: \(meaningful.count) records re-score differently "
-              + "than stored (\(storedFactsNowNot) of them stored as fact); "
-              + "\(artefacts.count) further rows differ only because they were scored against a "
-              + "child-gap probe subject the replay cannot rebuild — excluded, not drift")
-        #expect(drifted.count == meaningful.count + artefacts.count,
-                "every drifted row is either meaningful or an excluded artefact")
+        // Skipped when scoped: `diagnoseAll` would sweep the whole corpus,
+        // costing the speed the scope exists for, and its totals would not
+        // line up with a one-profile `rows`.
+        if onlyProfile == nil {
+            let details = ScoreReplay.diagnoseAll(in: db, snapshot: snapshot)
+            let artefacts = details.filter { $0.drifted && $0.scoredAgainstUnreconstructableSubject }
+            let meaningful = details.filter(\.driftedMeaningfully)
+            print("[replay] store-vs-rules drift: \(meaningful.count) records re-score differently "
+                  + "than stored (\(storedFactsNowNot) of them stored as fact); "
+                  + "\(artefacts.count) further rows differ only because they were scored against a "
+                  + "child-gap probe subject the replay cannot rebuild — excluded, not drift")
+            #expect(drifted.count == meaningful.count + artefacts.count,
+                    "every drifted row is either meaningful or an excluded artefact")
+        } else {
+            print("[replay] \(drifted.count) of \(rows.count) rows differ from the stored "
+                  + "verdict (\(storedFactsNowNot) stored as fact)")
+        }
 
         #expect(!rows.isEmpty, "a project with no stored evidence proves nothing")
 
