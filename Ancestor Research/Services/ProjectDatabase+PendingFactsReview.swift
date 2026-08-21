@@ -62,7 +62,7 @@ extension ProjectDatabase {
     ///
     /// `sourceTitle`/`sourceURL` are the submission's own provenance. They are
     /// optional only so the profile-column path (which records provenance
-    /// separately via `addFieldResearcherProvenance`) keeps its existing
+    /// separately via `addAcceptedFactProvenance`) keeps its existing
     /// callers; the life-event path needs them, because a life event carries
     /// its citation on the event row itself and has nowhere else to put it.
     func applyAcceptedPendingFact(
@@ -338,14 +338,28 @@ extension ProjectDatabase {
 
     /// Provenance row for a field written via the pending-facts accept flow.
     ///
+    /// `origin` MUST name the producer that actually submitted the fact — pass
+    /// the pending fact's own `agentID`. This was hardcoded to the string
+    /// literal `'field-researcher'`, so EVERY accepted fact wore that badge no
+    /// matter where it came from: `research-run`, `subject-spouse-marriage`,
+    /// `subject-self-narrowing`, `prose-extractor:<corpus>` — the app's own
+    /// in-app producers were all attributed to the external MCP agent.
+    ///
+    /// Owner dogfood 2026-08-21: a death date of 1929 written by the app's own
+    /// research pipeline (agent `research-run`, 27 Jul, run 679B3504) showed on
+    /// the profile as field-researcher, so the owner reasonably concluded the
+    /// assistant had submitted it. Misattributed provenance doesn't just
+    /// mislabel a row, it sends the human to the wrong place to fix the cause.
+    /// Same defect class as `promoteLeadToProfile`'s hardcoded `.freebmd`.
+    ///
     /// `sourceURL` populates `citation_json`, so an accepted submission is
     /// citable the same way a FreeBMD or FreeCen fact is. Without it the row
     /// carried only a title glued into `raw`, which reads as provenance but
     /// links to nothing — and `certifiedFieldCount`-style queries that test
-    /// `citation_json IS NOT NULL` skipped every field-researcher fact.
-    func addFieldResearcherProvenance(
+    /// `citation_json IS NOT NULL` skipped every accepted fact.
+    func addAcceptedFactProvenance(
         profileID: String, field: String, value: String, sourceTitle: String,
-        sourceURL: String? = nil
+        sourceURL: String? = nil, origin: String = "field-researcher"
     ) throws {
         let profileField: String = switch field {
         case "birthDate", "baptismDate": "birthDate"
@@ -358,13 +372,18 @@ extension ProjectDatabase {
         let citationJSON = Self.pendingFactEventSource(title: sourceTitle, url: sourceURL)?
             .citation.map(Self.encodeJSON)
 
+        // An empty or whitespace agent id must not write a blank origin — an
+        // unattributed row is worse than a generically attributed one.
+        let trimmedOrigin = origin.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedOrigin = trimmedOrigin.isEmpty ? "field-researcher" : trimmedOrigin
+
         try dbQueue.write { writeDB in
             try writeDB.execute(sql: """
                 INSERT INTO field_sources
                     (entity_id, entity_kind, field, origin, raw, added_at, citation_json)
-                VALUES (?, 'profile', ?, 'field-researcher', ?, ?, ?)
+                VALUES (?, 'profile', ?, ?, ?, ?, ?)
                 """, arguments: [
-                    profileID, profileField,
+                    profileID, profileField, resolvedOrigin,
                     "\(value) [\(sourceTitle)]",
                     Date(),
                     citationJSON,

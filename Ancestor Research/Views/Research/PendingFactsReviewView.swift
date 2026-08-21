@@ -465,12 +465,17 @@ struct PendingFactsReviewView: View {
         // (#CPC-Change2; the edge write records its own transaction, and the
         // payload carries both evidence-record ids).
         guard finding.finding.agentID != CorroborationSweep.agentID else { return }
-        try? db.addFieldResearcherProvenance(
+        try? db.addAcceptedFactProvenance(
             profileID: profileID,
             field: finding.finding.field,
             value: finding.finding.value,
             sourceTitle: finding.finding.sourceTitle,
-            sourceURL: finding.finding.sourceURL
+            sourceURL: finding.finding.sourceURL,
+            // Name the producer that actually submitted this. In-app detectors
+            // (`research-run`, `subject-self-narrowing`, `prose-extractor:…`)
+            // were all being stamped `field-researcher`, so the app's own
+            // output was attributed to the external MCP agent.
+            origin: finding.finding.agentID
         )
     }
 

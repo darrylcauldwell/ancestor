@@ -165,7 +165,7 @@ struct LifeEventCitationTests {
         let db = try makeDB()
         try db.applyAcceptedPendingFact(
             profileID: "@P1@", field: "birthLocation", value: "Middleton, Derbyshire")
-        try db.addFieldResearcherProvenance(
+        try db.addAcceptedFactProvenance(
             profileID: "@P1@", field: "birthLocation", value: "Middleton, Derbyshire",
             sourceTitle: "1871 census", sourceURL: ark)
 
@@ -175,11 +175,67 @@ struct LifeEventCitationTests {
         #expect(researcher.citation?.title == "1871 census")
     }
 
+    /// The provenance must name the PRODUCER that submitted the fact.
+    ///
+    /// `'field-researcher'` was a string literal in the INSERT, so every
+    /// accepted pending fact wore that badge whatever wrote it — the app's own
+    /// `research-run`, `subject-spouse-marriage`, `subject-self-narrowing` and
+    /// `prose-extractor:<corpus>` detectors all included.
+    ///
+    /// Live case 2026-08-21: a death date of 1929 produced by the app's own
+    /// research pipeline (agent `research-run`, run 679B3504) displayed on the
+    /// profile as field-researcher, so the owner reasonably concluded the
+    /// assistant had submitted it. Misattribution doesn't merely mislabel a
+    /// row — it sends the human to the wrong place to fix the cause.
+    @Test func provenanceNamesTheProducerNotAlwaysFieldResearcher() throws {
+        for agent in ["research-run", "subject-spouse-marriage",
+                      "subject-self-narrowing", "prose-extractor:corpus-7",
+                      "field-researcher", "claude-code"] {
+            let db = try makeDB()
+            try db.addAcceptedFactProvenance(
+                profileID: "@P1@", field: "birthLocation", value: "Middleton",
+                sourceTitle: "1871 census", sourceURL: ark, origin: agent)
+
+            let sources = try #require(try db.loadProfile(id: "@P1@")?.sources[.birthLocation])
+            #expect(sources.contains { $0.origin.identifier == agent },
+                    "expected origin \(agent), got \(sources.map(\.origin.identifier))")
+        }
+    }
+
+    /// An in-app producer must NOT be attributed to the MCP agent — the
+    /// specific misattribution the owner hit.
+    @Test func anInAppPipelineFactIsNotBadgedAsFieldResearcher() throws {
+        let db = try makeDB()
+        try db.addAcceptedFactProvenance(
+            profileID: "@P1@", field: "deathDate", value: "1929",
+            sourceTitle: "freebmd", origin: "research-run")
+
+        let sources = try #require(try db.loadProfile(id: "@P1@")?.sources[.deathDate])
+        #expect(sources.contains { $0.origin.identifier == "research-run" })
+        #expect(!sources.contains { $0.origin.identifier == "field-researcher" },
+                "the app's own pipeline output must not wear the MCP agent's badge")
+    }
+
+    /// A blank agent id must fall back rather than write an empty origin — an
+    /// unattributed row is worse than a generically attributed one.
+    @Test func aBlankAgentIDFallsBackRatherThanWritingNothing() throws {
+        for blank in ["", "   "] {
+            let db = try makeDB()
+            try db.addAcceptedFactProvenance(
+                profileID: "@P1@", field: "birthLocation", value: "Middleton",
+                sourceTitle: "1871 census", origin: blank)
+
+            let sources = try #require(try db.loadProfile(id: "@P1@")?.sources[.birthLocation])
+            #expect(sources.contains { $0.origin.identifier == "field-researcher" })
+            #expect(!sources.contains { $0.origin.identifier.isEmpty })
+        }
+    }
+
     /// Omitting the URL stays valid — the pre-existing callers pass only a
     /// title, and they must keep working rather than start throwing.
     @Test func provenanceWithoutAURLStillWrites() throws {
         let db = try makeDB()
-        try db.addFieldResearcherProvenance(
+        try db.addAcceptedFactProvenance(
             profileID: "@P1@", field: "birthLocation", value: "Middleton, Derbyshire",
             sourceTitle: "1871 census")
 
