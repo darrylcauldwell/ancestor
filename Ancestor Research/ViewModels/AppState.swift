@@ -4186,7 +4186,7 @@ final class AppState {
             guard !evidence.isEmpty else { continue }
             if let f = ContradictoryFactsAudit.finding(
                 profileID: profileID, profileName: profile.displayName,
-                evidence: evidence) {
+                evidence: evidence, profile: profile) {
                 out.append(f)
             }
         }
@@ -4200,8 +4200,23 @@ final class AppState {
     func demoteContradictoryFacts(_ finding: ContradictoryFactsAudit.Finding) {
         guard let db = currentDatabase else { return }
         let evidence = (try? db.loadEvidenceForProfile(finding.profileID)) ?? []
-        let demoted = ContradictoryFactsAudit.demotions(in: evidence)
-        guard !demoted.isEmpty else { return }
+        // Applied rows are held back, not written. Demoting the evidence under
+        // a fact that is already ON the profile asserts the tree is wrong —
+        // the user's judgement, not a one-click's.
+        let split = ContradictoryFactsAudit.demotions(
+            in: evidence, profile: snapshot.profiles[finding.profileID])
+        let demoted = split.demotable
+        guard !demoted.isEmpty else {
+            if !split.appliedHeldBack.isEmpty {
+                successMessage = "Nothing demoted on \(finding.profileName) — "
+                    + "\(split.appliedHeldBack.count) contradictory fact"
+                    + "\(split.appliedHeldBack.count == 1 ? " is" : "s are") already applied to "
+                    + "the tree. Review \(split.appliedHeldBack.count == 1 ? "it" : "them") and "
+                    + "remove the wrong one yourself."
+                successResearchProfileID = finding.profileID
+            }
+            return
+        }
         let rowByID = Dictionary(uniqueKeysWithValues: evidence.map { ($0.sourceRecordID, $0) })
         var saved = 0
         for rec in demoted {
@@ -4217,7 +4232,14 @@ final class AppState {
             }
         }
         guard saved > 0 else { return }
+        let heldBack = split.appliedHeldBack.count
         successMessage = "Demoted \(saved) contradictory fact\(saved == 1 ? "" : "s") on \(finding.profileName) to leads — none was certain enough to stand; review them in Triage."
+        if heldBack > 0 {
+            successMessage? += " \(heldBack) more contradict\(heldBack == 1 ? "s" : "") "
+                + "but \(heldBack == 1 ? "is" : "are") already applied to the tree and "
+                + "\(heldBack == 1 ? "was" : "were") left alone — review "
+                + "\(heldBack == 1 ? "it" : "them") yourself."
+        }
         successResearchProfileID = finding.profileID
     }
 

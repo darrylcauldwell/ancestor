@@ -54,11 +54,11 @@ struct ContradictoryFactsAuditTests {
             evidenceRow("probate_1999", record: probate("probate_1999", year: 1999), verdict: .fact),
             evidenceRow("probate_2006", record: probate("probate_2006", year: 2006), verdict: .fact),
         ]
-        let demoted = ContradictoryFactsAudit.demotions(in: evidence)
+        let demoted = ContradictoryFactsAudit.demotions(in: evidence, profile: nil).demotable
         #expect(demoted.count == 2)
         #expect(demoted.allSatisfy { $0.verdict == .lead })
         let finding = ContradictoryFactsAudit.finding(
-            profileID: "@P1@", profileName: "Harry Marshall", evidence: evidence)
+            profileID: "@P1@", profileName: "Harry Marshall", evidence: evidence, profile: nil)
         #expect(finding?.demotions.count == 2)
         #expect(finding?.slotSummary == "probate ×2")
     }
@@ -82,9 +82,9 @@ struct ContradictoryFactsAuditTests {
             evidenceRow("death_b", record: death("death_b"), verdict: .fact),   // registration twin
             evidenceRow("m1", record: marriage, verdict: .fact, gates: marriageGates),
         ]
-        #expect(ContradictoryFactsAudit.demotions(in: evidence).isEmpty)
+        #expect(ContradictoryFactsAudit.demotions(in: evidence, profile: nil).demotable.isEmpty)
         #expect(ContradictoryFactsAudit.finding(
-            profileID: "@P1@", profileName: "Elizabeth", evidence: evidence) == nil)
+            profileID: "@P1@", profileName: "Elizabeth", evidence: evidence, profile: nil) == nil)
     }
 
     @Test func discardedFactsNeitherRivalNorDemote() {
@@ -95,7 +95,7 @@ struct ContradictoryFactsAuditTests {
             evidenceRow("probate_2006", record: probate("probate_2006", year: 2006), verdict: .fact,
                         userStatus: .discarded),
         ]
-        #expect(ContradictoryFactsAudit.demotions(in: evidence).isEmpty)
+        #expect(ContradictoryFactsAudit.demotions(in: evidence, profile: nil).demotable.isEmpty)
     }
 
     @Test func loneFactInGhostContestedSlotIsFlagged() {
@@ -110,7 +110,7 @@ struct ContradictoryFactsAuditTests {
             evidenceRow("census_hayfield", record: census("census_hayfield"), verdict: .lead, gates: ghostGates),
             evidenceRow("census_belper", record: census("census_belper"), verdict: .lead, gates: ghostGates),
         ]
-        let demoted = ContradictoryFactsAudit.demotions(in: evidence)
+        let demoted = ContradictoryFactsAudit.demotions(in: evidence, profile: nil).demotable
         #expect(demoted.map(\.id) == ["census_eastwood"])
     }
 
@@ -121,7 +121,7 @@ struct ContradictoryFactsAuditTests {
             evidenceRow("census_eastwood", record: census("census_eastwood"), verdict: .fact),
             evidenceRow("census_weak", record: census("census_weak"), verdict: .lead),
         ]
-        #expect(ContradictoryFactsAudit.demotions(in: evidence).isEmpty)
+        #expect(ContradictoryFactsAudit.demotions(in: evidence, profile: nil).demotable.isEmpty)
     }
 
     @Test func findingCarriesCitationAndReason() {
@@ -132,7 +132,7 @@ struct ContradictoryFactsAuditTests {
                         citation: "Probate 2006, Harry Marshall"),
         ]
         let finding = ContradictoryFactsAudit.finding(
-            profileID: "@P1@", profileName: "Harry Marshall", evidence: evidence)
+            profileID: "@P1@", profileName: "Harry Marshall", evidence: evidence, profile: nil)
         let row = finding?.demotions.first { $0.sourceRecordID == "probate_1999" }
         #expect(row?.detail == "Probate 1999, Harry Marshall")
         #expect(row?.reason.contains("competing") == true)

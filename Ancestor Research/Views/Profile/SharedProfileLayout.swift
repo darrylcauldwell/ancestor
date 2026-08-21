@@ -1175,7 +1175,8 @@ struct SharedProfileLayout: View {
         }
         profileFindings = findings
         profileContradiction = ContradictoryFactsAudit.finding(
-            profileID: profile.id, profileName: profile.displayName, evidence: evidence)
+            profileID: profile.id, profileName: profile.displayName, evidence: evidence,
+            profile: profile)
         profileBackfill = appState.censusBackfillProposal(for: profile.id)
         profileDeathAge = appState.deathAgeBackfillProposal(for: profile.id)
         censusHousehold = appState.censusHouseholdProposal(for: profile, evidence: evidence)

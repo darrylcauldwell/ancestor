@@ -945,9 +945,13 @@ final class ResearchPipeline {
                 .filter { $0.verdict == .lead && $0.userStatus != .discarded }
                 .map(\.asScoredRecord)
                 .filter(RecordScorer.isExclusivityGhost)
+            // Records already on the tree are exempt from demotion — a run
+            // must never take back a fact the user applied.
+            let appliedIDs = Set(
+                storedEvidence.filter { $0.appliedAt != nil }.map(\.sourceRecordID))
             state.scoredRecords = RecordScorer.applyExclusivityAcrossStore(
                 batch: state.scoredRecords, storedFacts: storedFacts,
-                storedGhosts: storedGhosts).batch
+                storedGhosts: storedGhosts, appliedIDs: appliedIDs).batch
         } else {
             state.scoredRecords = RecordScorer.applyExclusivity(state.scoredRecords)
         }

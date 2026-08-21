@@ -365,7 +365,25 @@ nonisolated struct RecordScorer {
     /// but can neither keep fact nor demote further. Verdicts only ever move
     /// DOWN (fact → lead); `.lead`/`.impossible` inputs are untouched; the
     /// pass is idempotent. No AI input anywhere.
-    static func applyExclusivity(_ scored: [ScoredRecord], ghosts: [ScoredRecord] = []) -> [ScoredRecord] {
+    /// `appliedIDs` — records whose content the user has ALREADY put on the
+    /// tree. They are exempt from demotion and count as discriminated.
+    ///
+    /// A human decision outranks an automated inference; that is the sandwich's
+    /// own ordering, not a new policy. Without it, evidence that only becomes
+    /// visible later can silently take an applied fact away. The live case:
+    /// making the geography gate able to read parish records (2026-08-21) let
+    /// six speculative FreeREG "William Holmes" baptisms across Derbyshire
+    /// reach `.fact` — they had been stuck at `lead` only because a blind gate
+    /// soft-failed them — whereupon they contested the birth slot and demoted
+    /// `freebmd_birth_7b_747_69678088`, the applied 7b/747 Bakewell 1882
+    /// registration the owner had confirmed against the GRO image. The
+    /// contradiction is still REPORTED (`ContradictoryFactsAudit` deliberately
+    /// asks for the unexempted view and shows applied rows as held back); what
+    /// this stops is the demotion happening TO the user rather than BY them.
+    static func applyExclusivity(
+        _ scored: [ScoredRecord], ghosts: [ScoredRecord] = [],
+        appliedIDs: Set<String> = []
+    ) -> [ScoredRecord] {
         var factIndicesBySlot: [String: [Int]] = [:]
         for (index, record) in scored.enumerated() where record.verdict == .fact {
             if let slot = exclusivitySlot(for: record.record) {
@@ -407,16 +425,26 @@ nonisolated struct RecordScorer {
             let allKeys = liveKeys.union(ghostKeys)
             guard allKeys.count > 1 else { continue }   // one candidate → no rivalry
 
+            // An applied row discriminates its own candidate: the user picking
+            // it out of the cohort is stronger evidence than any family match
+            // the scorer can compute. Without this a lone applied fact against
+            // six undiscriminated rivals lands in the "none discriminated"
+            // branch, which demotes the whole slot.
             let discriminatedLiveKeys = Set(candidates.filter { _, rows in
-                rows.contains { isDiscriminated(scored[$0]) }
+                rows.contains { isDiscriminated(scored[$0]) || appliedIDs.contains(scored[$0].id) }
             }.map(\.key))
             let discriminatedKeys = discriminatedLiveKeys.union(discriminatedGhostKeys)
 
             // Demotion only ever lands on live rows — ghost keys have no
             // entry in `candidates`, so demoting them is a natural no-op.
+            // An APPLIED row is skipped: the user already decided, and taking
+            // it back silently is the harm this pass must not cause.
             func demote(_ keys: some Collection<String>, _ reason: String) {
                 for key in keys {
-                    for index in candidates[key] ?? [] { demotions[index] = reason }
+                    for index in candidates[key] ?? []
+                    where !appliedIDs.contains(scored[index].id) {
+                        demotions[index] = reason
+                    }
                 }
             }
             let undiscriminatedKeys = allKeys.subtracting(discriminatedKeys)
@@ -1202,12 +1230,14 @@ nonisolated struct RecordScorer {
     /// the ghost no longer blocks.
     static func applyExclusivityAcrossStore(
         batch: [ScoredRecord], storedFacts: [ScoredRecord],
-        storedGhosts: [ScoredRecord] = []
+        storedGhosts: [ScoredRecord] = [],
+        appliedIDs: Set<String> = []
     ) -> CrossRunExclusivity {
         let batchIDs = Set(batch.map(\.id))
         let stored = storedFacts.filter { !batchIDs.contains($0.id) }
         let ghosts = storedGhosts.filter { !batchIDs.contains($0.id) }
-        let passed = applyExclusivity(batch + stored, ghosts: ghosts)   // order-preserving
+        let passed = applyExclusivity(              // order-preserving
+            batch + stored, ghosts: ghosts, appliedIDs: appliedIDs)
         let newBatch = Array(passed.prefix(batch.count))
         let storedAfter = Array(passed.suffix(stored.count))
         let demotedStored = zip(stored, storedAfter).compactMap { before, after in
@@ -1337,6 +1367,31 @@ nonisolated struct RecordScorer {
             case .census(let r): county = r.birthCounty ?? r.birthPlace ?? ""
             case .burial(let r): county = r.burialLocation ?? ""
             case .probate(let r): county = r.address ?? ""
+            // A parish record reached NEITHER switch until 2026-08-21, so
+            // every one of them fell through to "no location data" — 108 of
+            // 108 in a replay of the live store, including plainly-local
+            // Youlgreave and Dronfield entries. Harmless while it only cost a
+            // softFail, but DS-12P (:1930) now passes familyContext on a
+            // parish marriage when a party's SURNAME alone matches a known
+            // spouse, and Fix B.3 (:181) cancels a geography softFail reading
+            // exactly "no location data" once familyContext has passed. The
+            // two together promoted a Nottinghamshire marriage to `.fact` for
+            // a Derbyshire subject — the gate could not see the county it
+            // exists to check.
+            //
+            // Composed into the COUNTY fallback, not the district switch
+            // above: `parish` is a civil/ecclesiastical parish, not a
+            // registration district, and feeding it to the district catalogue
+            // invites exactly the cross-county collision documented in
+            // `ChapmanCodeResolver` ("Middleton" is a Lancashire RD *and* a
+            // Derbyshire parish). The fallback already resolves free-text
+            // place strings — county match, then parish-catalogue lookup on
+            // the leading token — which is what a parish record needs.
+            case .parish(let r):
+                county = [r.parish, r.county]
+                    .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: ", ")
             default: break
             }
             // Hard-fail explicitly non-UK locations when the subject's

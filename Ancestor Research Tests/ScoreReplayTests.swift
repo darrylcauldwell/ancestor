@@ -160,6 +160,110 @@ struct ScoreReplayTests {
         #expect(rows.first { $0.recordID == "cA" }?.verdict == "fact")
     }
 
+    // MARK: - Rows scored against a subject the replay cannot rebuild
+
+    /// `ResearchPipeline`'s child-gap probe scores deaths against a MUTATED
+    /// copy of the subject — no given name, no birth window, family surname —
+    /// to sweep for infant deaths in a birth gap. The replay rebuilds one
+    /// subject per profile and cannot reconstruct that, so those rows compare
+    /// different inputs. On the owner's project they were 46% of the apparent
+    /// drift; quoting them as "the store disagrees with the rules" is wrong.
+    private func probeRow(_ recordID: String) -> EvidenceRecord {
+        let record = SourceRecord.death(DeathRecord(
+            common: RecordCommon(id: recordID, sourceID: "freebmd", name: nil,
+                                 surname: "MARSHALL", givenName: nil,
+                                 detailURL: nil, rawFields: [:]),
+            deathYear: 1871, quarter: "Mar", district: "Belper",
+            volume: "7b", page: "1"))
+        return EvidenceRecord(
+            id: "@P1@|\(recordID)", profileID: "@P1@", sourceID: "freebmd",
+            sourceRecordID: recordID, recordType: .death,
+            verdict: .lead, record: record,
+            citationFull: nil, citationURL: nil,
+            scoredAt: Date(timeIntervalSince1970: 0), userStatus: .unreviewed,
+            gates: [
+                GateResult(gate: .name, outcome: .softFail,
+                           reason: "surname=1.00 but subject given name unknown — cannot confirm identity on surname alone, review"),
+                GateResult(gate: .date, outcome: .fail, reason: "insufficient date information"),
+            ],
+            summary: "gap probe row")
+    }
+
+    private func diagnose(_ evidence: [EvidenceRecord], profile p: Profile) -> [ScoreReplay.Detail] {
+        ScoreReplay.diagnose(profileID: p.id, evidence: evidence,
+                             profile: p, snapshot: snapshot(p), homeChapmanCode: "DBY")
+    }
+
+    @Test func aGapProbeRowIsFlaggedAndExcludedFromMeaningfulDrift() {
+        let d = diagnose([probeRow("g1")], profile: subjectProfile()).first
+        #expect(d?.scoredAgainstUnreconstructableSubject == true)
+        #expect(d?.drifted == true, "it did move — the raw figure still counts it…")
+        #expect(d?.driftedMeaningfully == false, "…but it is not a claim about the store")
+    }
+
+    /// THE CROSS-CHECK. An unnamed placeholder profile produces the very same
+    /// gate reason from its OWN subject, and its rows are real drift. Excusing
+    /// them would hide the " Bown"-shaped cases the married-surname floor
+    /// exists to fix.
+    @Test func anUnnamedProfilesOwnRowsAreNotExcusedAsProbeRows() {
+        let nameless = Profile(
+            id: "@P1@", firstName: nil, lastName: "Marshall", gender: .female,
+            birthDate: nil, birthLocation: nil,
+            deathDate: nil, deathLocation: nil,
+            isDeleted: false, sources: [:], disputes: [:])
+        let d = diagnose([probeRow("g1")], profile: nameless).first
+        #expect(d?.scoredAgainstUnreconstructableSubject == false,
+                "the profile really has no given name — this is its own scoring, not a probe's")
+    }
+
+    /// The probe asks for deaths only, so a census row carrying the same gate
+    /// reasons is something else and must not be excused.
+    @Test func aNonDeathRowIsNeverExcusedAsAProbeRow() {
+        let census = row("cA", record: self.census("cA", district: "Belper"), verdict: .lead,
+                         gates: [
+                            GateResult(gate: .name, outcome: .softFail,
+                                       reason: "surname=1.00 but subject given name unknown — cannot confirm identity on surname alone, review"),
+                            GateResult(gate: .date, outcome: .fail,
+                                       reason: "insufficient date information"),
+                         ])
+        let d = diagnose([census], profile: subjectProfile()).first
+        #expect(d?.scoredAgainstUnreconstructableSubject == false)
+    }
+
+    /// An ordinary row with real gates is never excused.
+    @Test func anOrdinaryRowIsNotFlagged() {
+        let d = diagnose(contested(), profile: subjectProfile())
+        #expect(d.allSatisfy { !$0.scoredAgainstUnreconstructableSubject })
+    }
+
+    /// The fingerprint needs BOTH signatures — a missing given name alone is
+    /// not enough, or every thin subject's rows would be excused.
+    @Test func oneSignatureAloneIsNotEnough() {
+        let record = SourceRecord.death(DeathRecord(
+            common: RecordCommon(id: "d1", sourceID: "freebmd", name: nil,
+                                 surname: "MARSHALL", givenName: nil,
+                                 detailURL: nil, rawFields: [:]),
+            deathYear: 1871, quarter: "Mar", district: "Belper", volume: "7b", page: "1"))
+        let onlyName = EvidenceRecord(
+            id: "@P1@|d1", profileID: "@P1@", sourceID: "freebmd",
+            sourceRecordID: "d1", recordType: .death, verdict: .lead, record: record,
+            citationFull: nil, citationURL: nil,
+            scoredAt: Date(timeIntervalSince1970: 0), userStatus: .unreviewed,
+            gates: [GateResult(gate: .name, outcome: .softFail,
+                               reason: "surname=1.00 but subject given name unknown — cannot confirm identity on surname alone, review")],
+            summary: "")
+        #expect(diagnose([onlyName], profile: subjectProfile())
+            .first?.scoredAgainstUnreconstructableSubject == false)
+    }
+
+    /// The BEFORE/AFTER gate is unaffected — both captures rebuild the subject
+    /// the same way, so a probe row still diffs like-with-like and must still
+    /// appear in the fingerprint.
+    @Test func probeRowsStillAppearInTheFingerprint() {
+        let rows = ScoreReplay.rows(from: diagnose([probeRow("g1")], profile: subjectProfile()))
+        #expect(rows.count == 1, "excluded from the drift STATISTIC, not from the diff")
+    }
+
     // MARK: - The diff
 
     @Test func anIdenticalCorpusDiffsToNothing() {

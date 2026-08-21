@@ -104,8 +104,19 @@ struct ScoreReplayCaptureTests {
         let storedFactsNowNot = drifted.filter {
             storedVerdict["\($0.profileID)\u{1}\($0.recordID)"] == .fact
         }.count
-        print("[replay] store-vs-rules drift: \(drifted.count) records re-score differently "
-              + "than stored (\(storedFactsNowNot) of them stored as fact)")
+        // Rows scored against a child-gap probe subject are excluded — the
+        // replay cannot rebuild that subject, so their "drift" is a comparison
+        // artefact, not a statement about the store. See
+        // `ScoreReplay.Detail.scoredAgainstUnreconstructableSubject`.
+        let details = ScoreReplay.diagnoseAll(in: db, snapshot: snapshot)
+        let artefacts = details.filter { $0.drifted && $0.scoredAgainstUnreconstructableSubject }
+        let meaningful = details.filter(\.driftedMeaningfully)
+        print("[replay] store-vs-rules drift: \(meaningful.count) records re-score differently "
+              + "than stored (\(storedFactsNowNot) of them stored as fact); "
+              + "\(artefacts.count) further rows differ only because they were scored against a "
+              + "child-gap probe subject the replay cannot rebuild — excluded, not drift")
+        #expect(drifted.count == meaningful.count + artefacts.count,
+                "every drifted row is either meaningful or an excluded artefact")
 
         #expect(!rows.isEmpty, "a project with no stored evidence proves nothing")
 

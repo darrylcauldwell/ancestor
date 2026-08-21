@@ -853,6 +853,36 @@ nonisolated extension ResearchSubject {
         let childAliveYears: [Int] = children.compactMap { child in
             child.birthDate?.earliest.map { $0 - 1 }
         }
+        // The married-surname axis opens at the marriage (DS-18's temporal
+        // bound). But the RECORDED marriage date is not always the earliest
+        // evidence that she bore the name — a child carrying the married
+        // surname is proof she was under it by that child's birth.
+        //
+        // Live specimen: " Bown" (@I_1564735723@) has a spouse edge dated
+        // Mar 1892 and children William Ward b. 1870 and Mary Ward b. 1889.
+        // The bound closed the axis for every WARD record before 1892 — 264
+        // census rows that pass both the date and geography gates — even
+        // though the tree itself says she was a Ward two decades earlier.
+        //
+        // This may only LOWER an existing bound, never create one. When no
+        // marriage is dated there is no bound today and the axis is fully
+        // permissive; deriving a bound from the children would newly REJECT
+        // records between the (unknown) marriage and the first child, which
+        // is a narrowing — and a narrowing is the failure class the replay
+        // harness exists to catch. `.map` on the recorded year keeps nil as
+        // nil, so the change is strictly a widening.
+        let marriedSurnamesLower = Set(derivedMarriedSurnames.map {
+            $0.trimmingCharacters(in: .whitespaces).lowercased()
+        })
+        let marriedSurnameChildYears: [Int] = children.compactMap { child in
+            guard let surname = child.lastName?
+                    .trimmingCharacters(in: .whitespaces).lowercased(),
+                  marriedSurnamesLower.contains(surname) else { return nil }
+            return child.birthDate?.earliest
+        }
+        let derivedMarriedSurnameEffectiveFrom: Int? = marriageAliveYears.min().map {
+            recorded in min(recorded, marriedSurnameChildYears.min() ?? recorded)
+        }
         let derivedAliveAsOf: Int? = ([lifeEventAliveAsOf]
             + marriageAliveYears.map(Optional.some)
             + childAliveYears.map(Optional.some))
@@ -1004,10 +1034,12 @@ nonisolated extension ResearchSubject {
             surname: profile.lastName,
             marriedSurname: derivedMarriedSurname,
             marriedSurnames: derivedMarriedSurnames,
-            // Earliest dated marriage year (nil if none dated) — the name gate's
-            // temporal bound on the married-surname axis. `marriageAliveYears`
-            // already collects every spouse-edge marriage year above.
-            marriedSurnameEffectiveFrom: marriageAliveYears.min(),
+            // Earliest year she is evidenced under a married surname — the name
+            // gate's temporal bound on the married-surname axis. The earliest
+            // DATED marriage, floored by the birth of any child who carries a
+            // married surname (see the derivation above). Nil when no marriage
+            // is dated, which means no bound at all.
+            marriedSurnameEffectiveFrom: derivedMarriedSurnameEffectiveFrom,
             givenName: profile.firstName,
             middleName: profile.middleName,
             birthYearFrom: birthFrom,

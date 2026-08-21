@@ -90,6 +90,97 @@ nonisolated enum ScoreReplay {
         profileID: String, evidence: [EvidenceRecord],
         profile: Profile, snapshot: FamilyGraphSnapshot, homeChapmanCode: String
     ) -> [Row] {
+        rows(from: diagnose(profileID: profileID, evidence: evidence,
+                            profile: profile, snapshot: snapshot,
+                            homeChapmanCode: homeChapmanCode))
+    }
+
+    /// The fingerprint, derived from the full diagnosis. One code path, so the
+    /// gate and the drift analysis can never disagree about what was decided.
+    static func rows(from details: [Detail]) -> [Row] {
+        details.map { d in
+            Row(profileID: d.profileID, recordID: d.recordID,
+                verdict: d.finalVerdict.rawValue,
+                gates: d.finalGates.map {
+                    "\($0.gate.rawValue):\($0.outcome.rawValue):\(sanitise($0.reason))"
+                })
+        }
+    }
+
+    /// Everything a drift investigation needs about one record, including the
+    /// two intermediate results a `Row` deliberately collapses.
+    struct Detail: Sendable {
+        let profileID: String
+        let recordID: String
+        let sourceID: String
+        /// `record.recordType` — what the record itself says it is.
+        let intrinsicType: RecordType
+        /// `evidence_records.record_type` — what the row was FILED as. These
+        /// can differ, and where they do the original `searchType` is
+        /// unrecoverable, which is a limit on any replay's fidelity.
+        let filedType: RecordType
+        let storedVerdict: RecordVerdict
+        /// Empty on pre-v44 rows, which persisted no gates. An empty stored
+        /// gate list is "unknown", NOT "no gates fired" — nothing may be
+        /// concluded from comparing against it.
+        let storedGates: [GateResult]
+        let userStatus: UserReviewStatus
+        let appliedAt: Date?
+        let scoredAt: Date
+        let isEnrichment: Bool
+        /// Verdict from `classify` ALONE — before the cross-record pass. The
+        /// split that separates "a per-record gate now rejects this" from "the
+        /// exclusivity pass demotes it", which have entirely different causes.
+        let preExclusivityVerdict: RecordVerdict
+        let preExclusivityGates: [GateResult]
+        let finalVerdict: RecordVerdict
+        let finalGates: [GateResult]
+        /// The same record re-scored under the FILED type instead of the
+        /// intrinsic one. Identical to `preExclusivityVerdict` whenever the two
+        /// types agree; where they differ this measures how much of any drift
+        /// is an artefact of the replay's `searchType` choice rather than a real
+        /// change in the rules.
+        let filedTypeVerdict: RecordVerdict
+
+        /// This row was scored against a subject the replay does not rebuild.
+        ///
+        /// `ResearchPipeline`'s child-gap probe (:817-823) mutates a COPY of
+        /// the subject — `givenName = nil`, `birthYearFrom/To = nil`, surname
+        /// swapped to the family surname — and dispatches it for `[.death]`
+        /// only, to sweep for infant deaths in a birth gap. `ScoreReplay`
+        /// rebuilds exactly one subject per profile from `fromProfile` and has
+        /// no way to reconstruct a probe subject, so for these rows the stored
+        /// verdict and the replayed verdict were produced from different
+        /// inputs.
+        ///
+        /// They remain perfectly valid for the BEFORE/AFTER code diff — both
+        /// captures reconstruct the subject identically, so the comparison is
+        /// still like-with-like. What they must not do is count toward
+        /// "the store disagrees with the rules", which is a claim ABOUT the
+        /// store. On the owner's project they were 46% of the apparent drift.
+        let scoredAgainstUnreconstructableSubject: Bool
+
+        var drifted: Bool { storedVerdict != finalVerdict }
+
+        /// Drift that is genuinely a statement about the store: the verdict
+        /// moved AND the comparison was like-with-like. This is the figure to
+        /// quote; `drifted` alone over-reports.
+        var driftedMeaningfully: Bool { drifted && !scoredAgainstUnreconstructableSubject }
+        /// The first gate that stopped this record being a fact, or nil if none did.
+        var blockingGate: GateResult? {
+            finalGates.first { $0.outcome != .pass && $0.outcome != .skip }
+        }
+        /// Did the cross-record pass cause this, rather than a per-record gate?
+        var demotedByExclusivity: Bool {
+            preExclusivityVerdict == .fact && finalVerdict != .fact
+        }
+    }
+
+    /// Re-score with the full diagnosis retained.
+    static func diagnose(
+        profileID: String, evidence: [EvidenceRecord],
+        profile: Profile, snapshot: FamilyGraphSnapshot, homeChapmanCode: String
+    ) -> [Detail] {
         guard !evidence.isEmpty else { return [] }
 
         let subject = ResearchSubject.fromProfile(
@@ -100,6 +191,14 @@ nonisolated enum ScoreReplay {
         let scored = ordered.map {
             RecordScorer.classify(
                 record: $0.record, subject: subject, searchType: $0.record.recordType)
+        }
+        // The same records under the type the row was FILED as, to measure the
+        // replay's own searchType assumption rather than assume it away.
+        let underFiledType = ordered.map {
+            $0.record.recordType == $0.recordType
+                ? nil
+                : RecordScorer.classify(
+                    record: $0.record, subject: subject, searchType: $0.recordType)
         }
 
         // Stage 2 — the cross-record exclusivity pass. Reproduced exactly as
@@ -119,19 +218,57 @@ nonisolated enum ScoreReplay {
             .filter { $0.verdict == .lead && $0.userStatus != .discarded }
             .map(\.asScoredRecord)
             .filter(RecordScorer.isExclusivityGhost)
+        // Applied rows are exempt from demotion, exactly as the live pipeline
+        // exempts them — a replay that demoted an applied fact would report a
+        // narrowing the app does not actually perform.
+        let appliedIDs = Set(
+            ordered.filter { $0.wasApplied(to: profile) }.map(\.sourceRecordID))
         let settled = Dictionary(
-            RecordScorer.applyExclusivity(facts, ghosts: ghosts).map { ($0.id, $0) },
+            RecordScorer.applyExclusivity(facts, ghosts: ghosts, appliedIDs: appliedIDs)
+                .map { ($0.id, $0) },
             uniquingKeysWith: { a, _ in a })
 
-        return scored.map { fresh in
+        // The probe fingerprint, read off the STORED gates: they record what
+        // the scorer could see at the time. The subject-side cross-check
+        // matters — a profile that genuinely has no given name (an unnamed
+        // placeholder) produces the same gate reason from its OWN subject, and
+        // its rows are real drift that must not be excused.
+        let profileHasGivenName = !(profile.firstName ?? "")
+            .trimmingCharacters(in: .whitespaces).isEmpty
+        let profileHasBirthWindow = profile.birthDate?.earliest != nil
+            || profile.birthDate?.latest != nil
+
+        return zip(zip(ordered, scored), underFiledType).map { pair, filed in
+            let (stored, fresh) = pair
             let final = settled[fresh.id] ?? fresh
-            return Row(
+            let storedSawNoGivenName = stored.gates.contains {
+                $0.gate == .name && $0.reason.contains("subject given name unknown")
+            }
+            let storedSawNoBirthWindow = stored.gates.contains {
+                $0.gate == .date && $0.reason == "insufficient date information"
+            }
+            let looksLikeProbeRow =
+                stored.record.recordType == .death       // the probe asks for deaths only
+                && storedSawNoGivenName && storedSawNoBirthWindow
+                && (profileHasGivenName || profileHasBirthWindow)   // …but the profile has one
+            return Detail(
                 profileID: profileID,
                 recordID: fresh.id,
-                verdict: final.verdict.rawValue,
-                gates: final.gates.map {
-                    "\($0.gate.rawValue):\($0.outcome.rawValue):\(sanitise($0.reason))"
-                })
+                sourceID: stored.sourceID,
+                intrinsicType: stored.record.recordType,
+                filedType: stored.recordType,
+                storedVerdict: stored.verdict,
+                storedGates: stored.gates,
+                userStatus: stored.userStatus,
+                appliedAt: stored.appliedAt,
+                scoredAt: stored.scoredAt,
+                isEnrichment: stored.isEnrichment,
+                preExclusivityVerdict: fresh.verdict,
+                preExclusivityGates: fresh.gates,
+                finalVerdict: final.verdict,
+                finalGates: final.gates,
+                filedTypeVerdict: filed?.verdict ?? fresh.verdict,
+                scoredAgainstUnreconstructableSubject: looksLikeProbeRow)
         }
     }
 
@@ -150,13 +287,20 @@ nonisolated enum ScoreReplay {
     /// Re-score the whole tree, deterministically ordered so two runs diff line
     /// by line.
     static func replayAll(in db: ProjectDatabase, snapshot: FamilyGraphSnapshot) -> [Row] {
+        rows(from: diagnoseAll(in: db, snapshot: snapshot))
+    }
+
+    /// Re-score the whole tree with the full diagnosis retained.
+    static func diagnoseAll(
+        in db: ProjectDatabase, snapshot: FamilyGraphSnapshot
+    ) -> [Detail] {
         let home = (try? db.loadProjectMeta())?.resolvedHomeChapmanCode ?? ""
-        return snapshot.profiles.keys.sorted().flatMap { id -> [Row] in
+        return snapshot.profiles.keys.sorted().flatMap { id -> [Detail] in
             guard let profile = snapshot.profiles[id],
                   let evidence = try? db.loadEvidenceForProfile(id)
             else { return [] }
-            return replay(profileID: id, evidence: evidence,
-                          profile: profile, snapshot: snapshot, homeChapmanCode: home)
+            return diagnose(profileID: id, evidence: evidence,
+                            profile: profile, snapshot: snapshot, homeChapmanCode: home)
         }
     }
 

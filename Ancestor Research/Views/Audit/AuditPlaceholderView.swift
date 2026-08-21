@@ -553,6 +553,15 @@ struct HealthView: View {
                         .font(AppTypography.cardBody)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.leading)
+                    // Applied rows are reported but never auto-demoted:
+                    // reducing the evidence under a fact that is already on the
+                    // profile says the TREE is wrong, which is the user's call.
+                    if !f.appliedHeldBack.isEmpty {
+                        Text("\(f.appliedHeldBack.count) of \(f.appliedHeldBack.count == 1 ? "these is" : "them are") already applied to the tree and will be left alone — decide \(f.appliedHeldBack.count == 1 ? "that one" : "those") yourself")
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.orange)
+                            .multilineTextAlignment(.leading)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -563,10 +572,13 @@ struct HealthView: View {
                 contradictoryFindings.removeAll { $0.id == f.id }
                 refreshAudit()
             } label: {
-                Label("Demote \(f.demotions.count) to leads", systemImage: "arrow.down.circle")
+                Label("Demote \(f.demotable.count) to leads", systemImage: "arrow.down.circle")
             }
             .buttonStyle(.glassProminent).controlSize(.mini)
-            .help("Demote these \(f.demotions.count) contested facts to reviewable leads — the same deterministic rules a re-research run would apply. Nothing is deleted; applied records keep their applied status, and you can promote the right one from Triage.")
+            .disabled(f.demotable.isEmpty)
+            .help(f.demotable.isEmpty
+                  ? "Every contested fact here is already applied to the tree. Open the profile and remove the wrong one yourself — demoting the evidence under an applied fact is a judgement about the tree, not a cleanup."
+                  : "Demote these \(f.demotable.count) contested facts to reviewable leads — the same deterministic rules a re-research run would apply. Nothing is deleted, and you can promote the right one from Triage. Records already applied to the tree are left untouched.")
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
