@@ -713,12 +713,24 @@ struct BulkReviewView: View {
         // dogfood 2026-08-17: two identical Hannah Pidcocks on one subject).
         // `.multipleMatches` still creates new, deliberately: "when in doubt,
         // split" — a wrong duplicate is easy to merge, a wrong merge is not.
+        //
+        // The match is then checked by `mayAttach` before it is used. Dedup
+        // treats "named query, nameless candidate" as a weak surname-only
+        // match and lets it win when no strong match exists — which absorbed a
+        // newly-found daughter into her own mother's surname-only SPOUSE
+        // placeholder, creating no profile and recording the husband as his
+        // wife's child (owner dogfood 2026-08-21).
         let existingID: String?
         switch ProposalDedup.decide(
             query: ProposalDedup.Query(lead: lead),
             candidates: Array(appState.snapshot.profiles.values)
         ) {
-        case .matched(let matchedID): existingID = matchedID
+        case .matched(let matchedID):
+            existingID = appState.snapshot.profiles[matchedID].map {
+                CampaignReviewService.mayAttach(
+                    lead: lead, to: $0,
+                    relationships: appState.snapshot.relationships)
+            } == true ? matchedID : nil
         case .noMatch, .multipleMatches: existingID = nil
         }
         guard (try? db.promoteLeadToProfile(lead, attachingTo: existingID)) != nil else { return }

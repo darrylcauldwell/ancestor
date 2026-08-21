@@ -249,6 +249,93 @@ struct CampaignLeadVisibilityTests {
         }
     }
 
+    // MARK: - A promoted lead must not be absorbed by a nameless placeholder
+
+    private func placeholder(_ id: String, surname: String = "Gould") -> Profile {
+        Profile(id: id, firstName: nil, lastName: surname, gender: nil,
+                birthDate: nil, isDeleted: false, sources: [:], disputes: [:])
+    }
+
+    private func spouseEdge(_ a: String, _ b: String) -> Relationship {
+        Relationship(id: UUID(), from: a, to: b, type: .spouse,
+                     role: nil, subtype: .unknown,
+                     marriageDate: nil, marriageLocation: nil, divorceDate: nil)
+    }
+
+    private func parentEdge(_ parent: String, _ child: String) -> Relationship {
+        Relationship(id: UUID(), from: parent, to: child, type: .parent,
+                     role: .unspecified, subtype: .biological,
+                     marriageDate: nil, marriageLocation: nil, divorceDate: nil)
+    }
+
+    /// THE DAMAGE. Promoting the newly-found daughter "Evelyn E Gould" matched
+    /// her mother's surname-only SPOUSE placeholder " Gould" — asymmetric, so
+    /// `ProposalDedup` classed it a weak surname match and, with no strong
+    /// match present, let it win. No profile was created and the husband was
+    /// recorded as his own wife's child.
+    @Test func aChildLeadNeverAttachesToTheGeneratorsSpousePlaceholder() {
+        let husband = placeholder("husband")
+        let daughter = relLead("d1", given: "Evelyn E", year: 1923,
+                               relationship: "child", surname: "Gould")
+        #expect(CampaignReviewService.mayAttach(
+            lead: daughter, to: husband,
+            relationships: [spouseEdge("husband", "@P1@")]) == false,
+            "a spouse is not a child — this must create a new profile")
+    }
+
+    /// Nor to an unrelated same-surname placeholder. Sharing a surname is not
+    /// identity; "when in doubt, split".
+    @Test func aChildLeadNeverAttachesToAnUnrelatedNamelessPlaceholder() {
+        #expect(CampaignReviewService.mayAttach(
+            lead: relLead("d1", given: "Evelyn E", year: 1923,
+                          relationship: "child", surname: "Gould"),
+            to: placeholder("stranger"), relationships: []) == false)
+    }
+
+    /// The behaviour the weak match exists FOR must survive: enriching a
+    /// surname-only placeholder that is already in the claimed role. Promoting
+    /// a named mother lead onto the existing surname-only mother attaches.
+    @Test func aParentLeadStillEnrichesItsOwnPlaceholder() {
+        let mother = placeholder("mother", surname: "Pidcock")
+        let lead = relLead("m1", given: "Hannah", year: 1850,
+                           relationship: "mother", surname: "Pidcock")
+        #expect(CampaignReviewService.mayAttach(
+            lead: lead, to: mother,
+            relationships: [parentEdge("mother", "@P1@")]) == true,
+            "already the generator's parent — this is the placeholder to enrich")
+    }
+
+    /// A child lead DOES attach to a nameless child already linked to the
+    /// generator — same role, so it is enrichment rather than a new person.
+    @Test func aChildLeadEnrichesAnExistingNamelessChild() {
+        #expect(CampaignReviewService.mayAttach(
+            lead: relLead("d1", given: "Evelyn E", year: 1923,
+                          relationship: "child", surname: "Gould"),
+            to: placeholder("child"),
+            relationships: [parentEdge("@P1@", "child")]) == true)
+    }
+
+    /// A candidate that carries a given name matched ON that name — strong, and
+    /// genuinely the same person. Unaffected by any of this.
+    @Test func aNamedCandidateIsAlwaysAttachable() {
+        let named = Profile(id: "n", firstName: "Evelyn", lastName: "Gould",
+                            gender: .female, birthDate: GenealogicalDate(parsing: "1923"),
+                            isDeleted: false, sources: [:], disputes: [:])
+        #expect(CampaignReviewService.mayAttach(
+            lead: relLead("d1", given: "Evelyn E", year: 1923,
+                          relationship: "child", surname: "Gould"),
+            to: named, relationships: []) == true)
+    }
+
+    /// A role with no edge at all can never attach to a nameless candidate,
+    /// since there is no edge to match against.
+    @Test func aRoleWithNoEdgeBuilderNeverAttaches() {
+        #expect(CampaignReviewService.mayAttach(
+            lead: relLead("s1", given: "Ada", year: 1880,
+                          relationship: "sibling", surname: "Gould"),
+            to: placeholder("x"), relationships: []) == false)
+    }
+
     @Test func parentRoleRecognisesOnlyMotherAndFather() {
         #expect(CampaignReviewService.parentRole(
             relLead("x", given: "A", year: 1, relationship: "mother")) == "mother")

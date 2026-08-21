@@ -232,6 +232,43 @@ enum CampaignReviewService {
         }
     }
 
+    /// May a promoted lead ATTACH to this existing profile, or must it create a
+    /// new one?
+    ///
+    /// `ProposalDedup` classes an asymmetric pair — query has a given name, the
+    /// candidate does not — as a WEAK match on surname alone, and when no strong
+    /// match exists the weak one wins. That is right for enriching a
+    /// surname-only placeholder in the same role, and catastrophic otherwise.
+    /// Live case, 2026-08-21: promoting the newly-found daughter "Evelyn E
+    /// Gould" matched her mother's surname-only SPOUSE placeholder " Gould",
+    /// so no profile was created and the husband was recorded as his own wife's
+    /// child. The file's own comment says the weak set is for "the pure
+    /// surname-only-on-both-sides case"; the code was broader than the intent.
+    ///
+    /// A candidate that carries a given name matched ON that name — strong, and
+    /// genuinely the same person. A NAMELESS candidate carries no identity at
+    /// all, so it may only be attached to when it is already related to the
+    /// generator in the role this lead claims: that is enrichment of the right
+    /// placeholder. Anything else merely shares a surname, and "when in doubt,
+    /// split" says make a new node — a spurious duplicate is easy to merge, a
+    /// wrong merge is not.
+    static func mayAttach(
+        lead: Lead, to candidate: Profile, relationships: [Relationship]
+    ) -> Bool {
+        if !(candidate.firstName ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
+            return true
+        }
+        // Ask the edge builder what edge this promotion WOULD create, then
+        // require an equivalent one to exist already. Using the same function
+        // keeps the two rules from drifting apart.
+        guard let wouldBe = ProjectDatabase.relationshipEdge(
+            fromLead: lead, ghostID: candidate.id, generatorID: lead.profileID)
+        else { return false }
+        return relationships.contains {
+            $0.type == wouldBe.type && $0.from == wouldBe.from && $0.to == wouldBe.to
+        }
+    }
+
     /// "mother"/"father" for a parent-inference lead, else nil. A parent role
     /// is the only one where a surname alone identifies the person — you have
     /// at most one mother and one father.
