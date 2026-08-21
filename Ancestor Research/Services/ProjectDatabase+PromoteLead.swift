@@ -115,10 +115,27 @@ nonisolated extension ProjectDatabase {
             )
         }
 
+        // Provenance names the LEAD, not FreeBMD.
+        //
+        // This was hardcoded `.freebmd`, so every promoted lead's profile
+        // fields were stamped as FreeBMD-sourced whatever they actually came
+        // from — a census household, a FindAGrave memorial, an MCP submission.
+        // That is fabricated provenance, and it misleads: a `birthYear` derived
+        // by arithmetic from a census age was presented to the owner as
+        // "evidence-backed (freebmd)" and used to warn AGAINST a real birth
+        // registration that fitted the record better (2026-08-21, George W
+        // Land — profile "1898" from an age-3-in-1901 estimate, versus an
+        // actual Sep 1897 Belper registration).
+        //
+        // The edge a few lines above already gets this right, with the reason
+        // spelled out: a lead is a research HINT, not a record snapshot, so its
+        // origin is named honestly rather than dressed as a citation. The
+        // profile now matches — same identifier, same principle. Trust tier
+        // stays derivable from the lead's own source and is never asserted.
         _ = try addFamily(
             profiles: [ghost].compactMap { $0 },
             relationships: relationships,
-            source: .freebmd,
+            source: SourceOrigin(identifier: "lead.\(lead.source.rawValue)"),
             edgeExistenceEvidence: edgeExistence
         )
 
