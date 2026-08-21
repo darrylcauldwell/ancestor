@@ -1551,11 +1551,28 @@ actor MCPHandler {
             throw MCPError.invalidParams("missing required fields for submit_evidence")
         }
 
-        // Validate field is in the accepted vocabulary
+        // Validate field is in the accepted vocabulary.
+        //
+        // MUST MIRROR `ProjectDatabase.applyAcceptedPendingFact` — this list is
+        // the submit-time half of the same contract, and the two had drifted
+        // apart in BOTH directions. `residence` was refused here while the app
+        // could land it; `marriageDate`/`marriageLocation` were accepted here
+        // while the app could not land them at all, because marriage data
+        // lives on the spouse EDGE, not a profile column — they silently did
+        // nothing on accept, and now correctly throw. Refusing them at
+        // submission is the honest place: the submitter learns immediately
+        // rather than after a human has reviewed it.
         let validFields: Set<String> = [
+            // Profile columns
             "birthDate", "deathDate", "baptismDate", "burialDate",
-            "birthLocation", "deathLocation", "marriageDate", "marriageLocation",
-            "occupation", "address", "religion",
+            "birthLocation", "deathLocation", "birthLocationCode", "deathLocationCode",
+            "firstName", "givenName", "middleName", "lastName", "surname",
+            "nickName", "gender", "marriedSurname", "mothersMaidenName", "bio",
+            // Event-shaped — become life events; pass event_date/event_location
+            "occupation", "residence", "address", "census",
+            "baptism", "christening", "burial", "probate",
+            "military", "militaryService", "education", "religion",
+            "immigration", "emigration",
         ]
         guard validFields.contains(field) else {
             return [

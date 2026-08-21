@@ -181,6 +181,50 @@ struct PendingFactFieldCoverageTests {
         }
     }
 
+    /// THE CONTRACT. This is the canonical vocabulary the accept path can
+    /// land, and `MCPServer.submit_evidence`'s `validFields` must mirror it
+    /// exactly. The two had drifted apart in BOTH directions: `residence` was
+    /// refused at submission while the app could land it, and
+    /// `marriageDate`/`marriageLocation` were accepted at submission while the
+    /// app could never land them — marriage data lives on the spouse EDGE, not
+    /// a profile column, so they silently did nothing.
+    ///
+    /// Anything added here must be added there, and vice versa.
+    @Test func everySupportedFieldActuallyLands() throws {
+        let profileFields = [
+            "birthDate", "deathDate", "baptismDate", "burialDate",
+            "birthLocation", "deathLocation", "birthLocationCode", "deathLocationCode",
+            "firstName", "givenName", "middleName", "lastName", "surname",
+            "nickName", "gender", "marriedSurname", "mothersMaidenName", "bio",
+        ]
+        let eventFields = [
+            "occupation", "residence", "address", "census",
+            "baptism", "christening", "burial", "probate",
+            "military", "militaryService", "education", "religion",
+            "immigration", "emigration",
+        ]
+        for field in profileFields + eventFields {
+            let db = try makeDB()
+            #expect(throws: Never.self, "\(field) is advertised but cannot be landed") {
+                try db.applyAcceptedPendingFact(
+                    profileID: "@P1@", field: field, value: "x",
+                    payloadJSON: #"{"event_date":"1901"}"#)
+            }
+        }
+    }
+
+    /// Marriage belongs to the relationship edge. It must NOT quietly pass —
+    /// it was accepted at submission for months and did nothing on accept.
+    @Test func marriageFieldsAreRefusedRatherThanSilentlyIgnored() throws {
+        let db = try makeDB()
+        for field in ["marriageDate", "marriageLocation"] {
+            #expect(throws: ProjectDatabase.UnsupportedPendingFactField.self) {
+                try db.applyAcceptedPendingFact(
+                    profileID: "@P1@", field: field, value: "Sep 1882")
+            }
+        }
+    }
+
     /// `baptismDate`/`burialDate` are DATE fields on the profile, distinct from
     /// the `baptism`/`burial` EVENTS. Easy to conflate; pinned.
     @Test func baptismDateIsAProfileDateNotAnEvent() throws {
