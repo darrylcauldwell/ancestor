@@ -422,16 +422,18 @@ struct BulkReviewView: View {
                 ))
             }
 
-            let windowLeads = ((try? db.loadLeads(profileID: entry.profileID)) ?? [])
-                .filter { $0.createdAt >= windowStart }
-            newDismissed.append(contentsOf: windowLeads
-                .filter { $0.status == .dismissed }
-                .map { CampaignLeadRow(lead: $0, profileName: profile.displayName) })
-            let leads = windowLeads
-                .filter { $0.status == .new || $0.status == .investigated }
-            newLeads.append(contentsOf: leads.map {
-                CampaignLeadRow(lead: $0, profileName: profile.displayName)
-            })
+        }
+
+        // Leads come from the whole store, NOT through `entries` — see
+        // `CampaignReviewService.campaignLeads` for why that distinction is
+        // load-bearing.
+        func name(_ profileID: String) -> String {
+            appState.snapshot.profiles[profileID]?.displayName ?? profileID
+        }
+        let gathered = CampaignReviewService.campaignLeads(since: windowStart, db: db)
+        newLeads = gathered.leads.map { CampaignLeadRow(lead: $0, profileName: name($0.profileID)) }
+        newDismissed = gathered.dismissed.map {
+            CampaignLeadRow(lead: $0, profileName: name($0.profileID))
         }
 
         findings = newFindings

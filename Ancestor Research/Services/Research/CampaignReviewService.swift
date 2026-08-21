@@ -156,4 +156,33 @@ enum CampaignReviewService {
         }
         .sorted { $0.profileID < $1.profileID }
     }
+
+    /// Leads to review in the window — gathered across the WHOLE STORE, not
+    /// through `campaignEntries`.
+    ///
+    /// This deliberately does not go via run requests, and it lives here, next
+    /// to `campaignEntries`, so the difference is visible. Triage used to
+    /// collect leads inside its loop over campaign entries; because that list
+    /// is built purely from `research_run_requests`, every lead created without
+    /// a run was structurally invisible — MCP `submit_lead`, household
+    /// absorption and manual entry all create leads with no request, and the
+    /// entries loop additionally skips any profile whose result cannot be
+    /// reconstructed, dropping that profile's leads with it. The owner's report
+    /// (2026-08-21): two children found in a 1901 census, submitted over MCP,
+    /// absent from Triage and reachable only by knowing which profile to open.
+    ///
+    /// A lead is a finding in its own right and does not need a run to justify
+    /// showing it.
+    ///
+    /// `investigating` (pipeline in flight) and `promoted` (already a profile)
+    /// are excluded — neither is awaiting a decision.
+    static func campaignLeads(
+        since: Date, db: ProjectDatabase
+    ) -> (leads: [Lead], dismissed: [Lead]) {
+        let window = ((try? db.loadLeads()) ?? []).filter { $0.createdAt >= since }
+        return (
+            leads: window.filter { $0.status == .new || $0.status == .investigated },
+            dismissed: window.filter { $0.status == .dismissed }
+        )
+    }
 }
