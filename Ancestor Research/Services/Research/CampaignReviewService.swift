@@ -186,6 +186,52 @@ enum CampaignReviewService {
         )
     }
 
+    /// The add-to-tree action a lead warrants, or nil for "Research first".
+    ///
+    /// The distinction is whether the lead ASSERTS A PERSON or merely offers a
+    /// record candidate. A lead built from a scored record — "George H LAND,
+    /// Dec 1866, Rotherham" — carries no `relationship`: it is one index row
+    /// out of a namesake-dense set, and adding it blind is how the removed
+    /// Promote button minted fake identity profiles. A lead that names a kin
+    /// role is a different claim: somebody enumerated this person standing in
+    /// that relation to someone already on the tree. A census household is the
+    /// archetype — the enumerator wrote them down, so their existence is not
+    /// in question, only their dates and later life.
+    ///
+    /// The node promoted is a `nameStatus.placeholder` with provenance recorded
+    /// as an origin note rather than a fabricated citation, so it is visibly a
+    /// research node throughout. That is the safety valve that made "Add as
+    /// mother/father" acceptable, and it holds identically here.
+    ///
+    /// SIBLING is deliberately excluded. There is no sibling edge in this model
+    /// — siblings are implied by shared parents — so promoting one would have
+    /// to guess which parents to attach it to, and `relationshipEdge` returns
+    /// nil for it, which would strand the new node with no edge at all.
+    enum AddAction: Equatable {
+        case parent(role: String)   // "mother" / "father"
+        case child
+        case spouse
+
+        /// Button label — reads from the perspective of the profile the lead
+        /// sits under ("Add as child" on the father's row).
+        var label: String {
+            switch self {
+            case .parent(let role): "Add as \(role)"
+            case .child: "Add as child"
+            case .spouse: "Add as spouse"
+            }
+        }
+    }
+
+    static func addAction(for lead: Lead) -> AddAction? {
+        if let role = parentRole(lead) { return .parent(role: role) }
+        switch lead.relationship?.lowercased() {
+        case "child": return .child
+        case "spouse": return .spouse
+        default: return nil     // no kin claim → Research first
+        }
+    }
+
     /// "mother"/"father" for a parent-inference lead, else nil. A parent role
     /// is the only one where a surname alone identifies the person — you have
     /// at most one mother and one father.

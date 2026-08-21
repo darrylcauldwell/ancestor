@@ -193,6 +193,62 @@ struct CampaignLeadVisibilityTests {
                 != CampaignReviewService.leadGroupKey(b))
     }
 
+    // MARK: - Which leads may be added to the tree
+
+    /// A lead built from a scored record carries NO relationship — it is one
+    /// index row out of a namesake-dense set. Adding it blind is what the
+    /// removed Promote button did, and it must stay unavailable.
+    @Test func aBareRecordCandidateOffersNoAddAction() {
+        let candidate = Lead(
+            id: "r1", profileID: "@P1@", name: "George H LAND",
+            surname: "LAND", givenName: "George H", birthYear: 1866, deathYear: nil,
+            relationship: nil, source: .scoredLead, status: .new,
+            evidence: "George H LAND, Dec 1866, Rotherham", createdAt: Date())
+        #expect(CampaignReviewService.addAction(for: candidate) == nil,
+                "no kin claim — Research first, never add blind")
+    }
+
+    @Test func anEmptyRelationshipIsNotAKinClaim() {
+        let lead = relLead("x", given: "A", year: 1900, relationship: "")
+        #expect(CampaignReviewService.addAction(for: lead) == nil)
+    }
+
+    /// THE CASE. A census household member named as a child gets an add action.
+    @Test func aChildLeadOffersAddAsChild() {
+        let lilian = relLead("l1", given: "Lilian A", year: 1893, relationship: "child")
+        #expect(CampaignReviewService.addAction(for: lilian) == .child)
+        #expect(CampaignReviewService.addAction(for: lilian)?.label == "Add as child")
+    }
+
+    @Test func parentAndSpouseLeadsKeepTheirOwnActions() {
+        let mother = relLead("m", given: "Hannah", year: 1850, relationship: "mother")
+        let spouse = relLead("s", given: "Annie", year: 1862, relationship: "spouse")
+        #expect(CampaignReviewService.addAction(for: mother) == .parent(role: "mother"))
+        #expect(CampaignReviewService.addAction(for: mother)?.label == "Add as mother")
+        #expect(CampaignReviewService.addAction(for: spouse) == .spouse)
+    }
+
+    /// Sibling has no direct edge in this model — `relationshipEdge` returns
+    /// nil for it, so promoting would strand the node with no relationship at
+    /// all. It must not offer an add action until that is designed.
+    @Test func aSiblingLeadOffersNoAddActionBecauseThereIsNoSiblingEdge() {
+        let sibling = relLead("s1", given: "Ada", year: 1880, relationship: "sibling")
+        #expect(CampaignReviewService.addAction(for: sibling) == nil)
+    }
+
+    /// Every action offered must produce a real edge — otherwise "Add" creates
+    /// an orphan. Pins the two rules to each other.
+    @Test func everyOfferedActionHasAMatchingEdge() {
+        for role in ["mother", "father", "child", "spouse", "sibling", "cousin", ""] {
+            let lead = relLead("x", given: "A", year: 1900, relationship: role)
+            let offered = CampaignReviewService.addAction(for: lead) != nil
+            let edge = ProjectDatabase.relationshipEdge(
+                fromLead: lead, ghostID: "ghost", generatorID: "@P1@") != nil
+            #expect(offered == false || edge,
+                    "an add action was offered for a role with no edge — would orphan the node")
+        }
+    }
+
     @Test func parentRoleRecognisesOnlyMotherAndFather() {
         #expect(CampaignReviewService.parentRole(
             relLead("x", given: "A", year: 1, relationship: "mother")) == "mother")

@@ -283,6 +283,24 @@ struct BulkReviewView: View {
             }
     }
 
+    /// Per-action help text. Each states plainly what lands and what does not,
+    /// so "Add" is never mistaken for "researched and confirmed".
+    private func addHelp(_ action: CampaignReviewService.AddAction, lead: Lead) -> String {
+        let tail = "Creates a placeholder node linked to the subject, with the lead's "
+            + "own evidence recorded as its origin — not a researched identity, and not "
+            + "a citation. Research it afterwards to attach real records."
+        switch action {
+        case .parent(let role):
+            return "Add a placeholder \(role) with this surname/maiden name "
+                + "(\(lead.evidence)). \(tail)"
+        case .child:
+            return "Add \(lead.name) as a child of this person, on the strength of the "
+                + "record that named them together. \(tail)"
+        case .spouse:
+            return "Add \(lead.name) as this person's spouse. \(tail)"
+        }
+    }
+
     /// Delegates to `CampaignReviewService.leadGroupKey` — the rule lives
     /// beside `campaignLeads` so the grouping and the gathering stay together.
     private func leadGroupKey(_ row: CampaignLeadRow) -> String {
@@ -558,11 +576,11 @@ struct BulkReviewView: View {
             //     removed — that minted fake *identity* profiles; this adds a
             //     truthful surname-only placeholder backed by birth-index MMN.
             //   • Identity lead (a real candidate person) → "Research".
-            if let role = parentRole(row.lead) {
-                Button("Add as \(role)") { addAsParent(group) }
+            if let action = CampaignReviewService.addAction(for: row.lead) {
+                Button(action.label) { addFromLead(group) }
                     .buttonStyle(.glassProminent)
                     .controlSize(.small)
-                    .help("Add a placeholder \(role) with this surname/maiden name (\(row.lead.evidence)), linked to the subject. An intentional surname-only node, not a researched identity profile.")
+                    .help(addHelp(action, lead: row.lead))
             } else {
                 Button("Research") { appState.researchLeadRequest = row.lead }
                     .buttonStyle(.glassProminent)
@@ -677,13 +695,15 @@ struct BulkReviewView: View {
         CampaignReviewService.parentRole(lead)
     }
 
-    /// Add a parent-inference lead as an INTENTIONAL placeholder parent — a
-    /// surname-only node + relationship edge to the subject, capturing the
-    /// (hard-to-find) maiden name. Distinct from the removed blind Promote:
-    /// scoped to parent leads, where a surname-only placeholder is the correct
-    /// representation, not a fake identity profile. `promoteLeadToProfile`
-    /// creates the ghost + edge and marks the lead promoted.
-    private func addAsParent(_ group: GroupedLead) {
+    /// Add a kin-asserting lead as an INTENTIONAL placeholder person — a
+    /// node + relationship edge to the subject. Distinct from the removed
+    /// blind Promote: that fired on record candidates and minted fake identity
+    /// profiles; this fires only where the lead NAMES A KIN ROLE, i.e. someone
+    /// asserted this person stands in that relation to someone on the tree
+    /// (see `CampaignReviewService.addAction`). `promoteLeadToProfile` creates
+    /// the placeholder + the correctly-directed edge and marks the lead
+    /// promoted; `relationshipEdge` already handles parent, child and spouse.
+    private func addFromLead(_ group: GroupedLead) {
         guard let db = appState.currentDatabase else { return }
         let lead = group.representative.lead
         // Create-on-accept dedup, matching the ResearchViewModel promote
