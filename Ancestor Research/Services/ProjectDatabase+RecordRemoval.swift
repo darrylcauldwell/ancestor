@@ -64,6 +64,54 @@ nonisolated struct RecordRemovalReport: Sendable, Equatable {
     var transactionID: UUID?
 }
 
+/// Everything needed to invert ONE applied fact that has no evidence record.
+///
+/// The pending-facts accept path (`applyAcceptedPendingFact` +
+/// `addAcceptedFactProvenance`), the MCP auto-approval commit and the
+/// promote-lead path all write a profile column plus a single `field_sources`
+/// row, and create no `evidence_records` row at all. `removeAppliedRecord`
+/// derives every target from `record.absorptionPlan`, so with no record there
+/// is nothing for it to invert — such a fact had no removal path anywhere in
+/// the UI (owner dogfood 2026-08-21: three wrong death dates accepted in
+/// review, none removable).
+///
+/// `rowID` is `field_sources.rowid`, which the schema declares as
+/// `autoIncrementedPrimaryKey("rowid")` — a genuine identity, never reused.
+/// That matters: the table carries no UNIQUE constraint and the accept path
+/// has no dedup pre-check, so accepting the same fact twice writes two
+/// byte-identical rows. A tuple-keyed DELETE has no `LIMIT` and would take
+/// both; a rowid takes exactly one.
+nonisolated struct AppliedFactTarget: Sendable, Equatable, Hashable {
+    let rowID: Int64
+    let profileID: String
+    /// The RAW `field_sources.field` string, NOT a `ProfileField`. The table
+    /// legitimately holds `occupation`, `residence`, `census`,
+    /// `birthLocationCode` and others that `ProfileField(rawValue:)` rejects.
+    let field: String
+    let origin: String
+    /// Exactly as stored. `addAcceptedFactProvenance` writes
+    /// `"<value> [<sourceTitle>]"`.
+    let raw: String
+    /// `raw` with the trailing `" [title]"` stripped — the value actually
+    /// sitting in the profile column.
+    let value: String
+    let sourceTitle: String?
+    let citationURL: String?
+    let addedAt: Date
+
+    /// `"1929 [FreeBMD Death Index]"` → `("1929", "FreeBMD Death Index")`.
+    /// Splits on the LAST `" ["` so a title containing `" ["` still parses.
+    /// A raw with no bracket — every non-accept writer — parses to itself.
+    static func parseRaw(_ raw: String) -> (value: String, title: String?) {
+        guard raw.hasSuffix("]"),
+              let open = raw.range(of: " [", options: .backwards)
+        else { return (raw, nil) }
+        let value = String(raw[raw.startIndex..<open.lowerBound])
+        let title = String(raw[open.upperBound..<raw.index(before: raw.endIndex)])
+        return (value, title.isEmpty ? nil : title)
+    }
+}
+
 extension ProjectDatabase {
 
     /// One removal target: a (field, raw) pair the record may have landed.
@@ -213,6 +261,302 @@ extension ProjectDatabase {
                            arguments: [profileID, evidence.sourceRecordID, now])
         }
         return report
+    }
+
+    /// The `field|raw` keys `removeAppliedRecord` will try to delete for this
+    /// record. Exposed so the ledger can tell a row that ALREADY has a bin
+    /// (via its record's entry) from an orphan row that needs its own.
+    static func removalTargetKeys(for record: SourceRecord, profileID: String) -> [String] {
+        removalTargets(for: record, profileID: profileID).map { "\($0.field.rawValue)|\($0.raw)" }
+    }
+
+    /// Every profile-scoped `field_sources` row, with its rowid.
+    ///
+    /// Deliberately its own query rather than reading `Profile.sources`: the
+    /// snapshot loader does not project rowid, so a `FieldSource` carries no
+    /// row identity and cannot address a row for deletion. It also drops any
+    /// field `ProfileField(rawValue:)` rejects, which silently hides exactly
+    /// the event-shaped rows (occupation, residence, census) this needs.
+    ///
+    /// `entity_kind = 'profile'` is mandatory — relationship-existence
+    /// provenance lives in the same table keyed by relationship UUID.
+    func appliedFactProvenanceRows(profileID: String) throws -> [AppliedFactTarget] {
+        try dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT rowid, field, origin, raw, added_at, citation_json
+                FROM field_sources
+                WHERE entity_id = ? AND entity_kind = 'profile'
+                ORDER BY added_at DESC, rowid DESC
+                """, arguments: [profileID])
+            .map { row in
+                let raw: String = row["raw"] ?? ""
+                let parsed = AppliedFactTarget.parseRaw(raw)
+                let url = (row["citation_json"] as String?)
+                    .flatMap { $0.data(using: .utf8) }
+                    .flatMap { try? JSONDecoder().decode(Citation.self, from: $0) }?
+                    .url
+                return AppliedFactTarget(
+                    rowID: row["rowid"] ?? 0,
+                    profileID: profileID,
+                    field: row["field"] ?? "",
+                    origin: row["origin"] ?? "",
+                    raw: raw,
+                    value: parsed.value,
+                    sourceTitle: parsed.title,
+                    citationURL: (url?.isEmpty == false) ? url : nil,
+                    addedAt: row["added_at"] ?? Date()
+                )
+            }
+        }
+    }
+
+    /// Remove an applied fact that has NO evidence record — see
+    /// `AppliedFactTarget` for why such facts exist and why they were
+    /// unreachable.
+    ///
+    /// This cannot reuse `removeAppliedRecord`. That function derives its
+    /// targets from `record.absorptionPlan` (there is no record), and its
+    /// `revertColumnIfLive` demands positive proof of authorship from a
+    /// `field_changes` row — which `applyAcceptedPendingFact` never writes, by
+    /// its own documented design. Reusing it would return false every time:
+    /// the citation row dropped, the wrong value left sitting on the profile,
+    /// a Remove button that appears to work and doesn't. That silent-no-op
+    /// class is the one this codebase keeps getting bitten by.
+    ///
+    /// The column is NOT blanked on removal. It is recomputed from whatever
+    /// provenance survives, so taking off one of several sources cannot
+    /// destroy a value another source still attests.
+    @discardableResult
+    func removeAppliedFact(_ target: AppliedFactTarget) throws -> RecordRemovalReport {
+        let now = Date()
+        let transaction = Transaction(
+            id: UUID(), kind: .manualEdit, undoStrategy: .replay,
+            startedAt: now, completedAt: now, changeCount: 1, profileCount: 1
+        )
+        var report = RecordRemovalReport()
+
+        try dbQueue.write { db in
+            // A stale click — the row went while the list was on screen (another
+            // window, a merge purge) — is a clean no-op, not an error. Binding
+            // entity_id as well as rowid means a rowid can never be applied to
+            // a different profile.
+            let exists = try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM field_sources
+                WHERE rowid = ? AND entity_id = ? AND entity_kind = 'profile'
+                """, arguments: [target.rowID, target.profileID]) ?? 0
+            guard exists == 1 else { return }
+
+            report.transactionID = transaction.id
+            try db.execute(sql: """
+                INSERT INTO transactions (id, kind, undo_strategy, started_at, completed_at, change_count, profile_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    transaction.id.uuidString, Self.encodeJSON(transaction.kind),
+                    transaction.undoStrategy.rawValue,
+                    transaction.startedAt, transaction.completedAt,
+                    transaction.changeCount, transaction.profileCount,
+                ])
+
+            // Delete BEFORE computing survivors, so the survivor query cannot
+            // pick the row being removed.
+            try db.execute(sql: "DELETE FROM field_sources WHERE rowid = ? AND entity_id = ?",
+                           arguments: [target.rowID, target.profileID])
+
+            if let mapping = Self.appliedFactColumn(target.field) {
+                try Self.revertAppliedFactColumn(
+                    db: db, target: target, mapping: mapping,
+                    transactionID: transaction.id, report: &report)
+            } else if let type = Self.lifeEventType(forPendingFactField: target.field) {
+                // The event id is a hash over (profile, type, date, value) and
+                // the provenance row carries no date, so it cannot be
+                // recomputed. `life_events` stores the value verbatim in
+                // `description`, so match on that instead.
+                let deleted = try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM life_events
+                    WHERE profile_id = ? AND type = ? AND description = ?
+                    """, arguments: [target.profileID, type.rawValue, target.value]) ?? 0
+                if deleted > 0 {
+                    try db.execute(sql: """
+                        DELETE FROM life_events
+                        WHERE profile_id = ? AND type = ? AND description = ?
+                        """, arguments: [target.profileID, type.rawValue, target.value])
+                    report.deletedLifeEvents += deleted
+                }
+            }
+
+            // Dissolve disputes the accept opened, for exactly the fields the
+            // conflict sweep re-derives — the caller's forced sweep restores
+            // any still justified by surviving rows.
+            if let pf = ProfileField(rawValue: target.field),
+               [.birthDate, .deathDate, .birthLocation, .deathLocation].contains(pf) {
+                report.dissolvedDisputes += try Self.deleteOpenDisputes(
+                    db: db, profileID: target.profileID, kind: "fieldValue", field: pf.rawValue)
+            }
+
+            try Self.retirePendingFact(db: db, target: target, at: now)
+        }
+        return report
+    }
+
+    /// Profile-column mapping for an accepted-fact field. Wider than
+    /// `profileFieldToColumn` because the accept path can write the two
+    /// location-code fields, which that switch has no arm for.
+    private static func appliedFactColumn(_ field: String) -> (column: String, datePrefix: String)? {
+        switch field {
+        case "birthDate": ("birth_date_original", "birth_date")
+        case "deathDate": ("death_date_original", "death_date")
+        case "birthLocationCode": ("birth_location_code", "")
+        case "deathLocationCode": ("death_location_code", "")
+        default: profileFieldToColumn(field).map { ($0, "") }
+        }
+    }
+
+    /// Reverse the column write for a removed applied fact — but only when the
+    /// column still holds that fact's value, and never by blanking a value
+    /// another source still attests.
+    private static func revertAppliedFactColumn(
+        db: Database, target: AppliedFactTarget,
+        mapping: (column: String, datePrefix: String),
+        transactionID: UUID, report: inout RecordRemovalReport
+    ) throws {
+        let reportField = ProfileField(rawValue: target.field)
+        let current = try String.fetchOne(
+            db, sql: "SELECT \(mapping.column) FROM profiles WHERE id = ?",
+            arguments: [target.profileID])
+
+        // A later write owns the column, or it is already empty — dropping the
+        // provenance row is the whole removal. Same directional rule that makes
+        // record removal order-safe.
+        guard let live = current?.trimmingCharacters(in: .whitespaces), !live.isEmpty,
+              live.caseInsensitiveCompare(target.value.trimmingCharacters(in: .whitespaces)) == .orderedSame
+        else {
+            if let f = reportField { report.droppedCitationFields.append(f) }
+            return
+        }
+
+        let survivor = try bestSurvivingValue(
+            db: db, profileID: target.profileID, field: target.field,
+            removedValue: target.value)
+
+        // Another surviving source attests the SAME value — the fact is
+        // corroborated, so the column stands and only the row went.
+        if let survivor, survivor.caseInsensitiveCompare(target.value) == .orderedSame {
+            if let f = reportField { report.sharedFields.append(f) }
+            return
+        }
+
+        if !mapping.datePrefix.isEmpty {
+            let p = mapping.datePrefix
+            if let survivor {
+                let date = GenealogicalDate(parsing: survivor)
+                try db.execute(sql: """
+                    UPDATE profiles SET \(p)_original = ?, \(p)_earliest = ?, \(p)_latest = ?, \(p)_qualifier = ?
+                    WHERE id = ?
+                    """, arguments: [date.original, date.earliest, date.latest,
+                                     date.qualifier.rawValue, target.profileID])
+            } else {
+                // All four columns. The accept path set `_original` plus the
+                // year bounds and never `_qualifier`, so nulling only
+                // `_original` would leave stale bounds the scorer still reads.
+                try db.execute(sql: """
+                    UPDATE profiles SET \(p)_original = NULL, \(p)_earliest = NULL, \(p)_latest = NULL, \(p)_qualifier = NULL
+                    WHERE id = ?
+                    """, arguments: [target.profileID])
+            }
+        } else {
+            try db.execute(sql: "UPDATE profiles SET \(mapping.column) = ? WHERE id = ?",
+                           arguments: [survivor, target.profileID])
+        }
+
+        if let f = reportField { report.revertedFields.append(f) }
+        try db.execute(sql: """
+            INSERT INTO field_changes (id, transaction_id, entity_id, entity_kind, field, old_value, new_value, source, reason)
+            VALUES (?, ?, ?, 'profile', ?, ?, ?, ?, 'applied-fact removal')
+            """, arguments: [
+                UUID().uuidString, transactionID.uuidString, target.profileID,
+                target.field, target.value, survivor ?? "", target.origin,
+            ])
+    }
+
+    /// The best value still attested for a field after a removal, or nil when
+    /// nothing survives.
+    ///
+    /// Blanking on removal would be the obvious implementation and it destroys
+    /// data: a GEDCOM or manual value that a second row still supports would
+    /// vanish because an unrelated research row was binned. Ranking, highest
+    /// first:
+    ///   1. `SourceOrigin.tier` — userAuthoritative > researchSource > initialImport
+    ///   2. not `manual.estimate` — an estimate must never displace a precise
+    ///      value of the same tier (check-before-overwrite)
+    ///   3. most recent `added_at`, then highest rowid
+    ///
+    /// Survivors whose value equals the removed one are NOT skipped — an equal
+    /// survivor means the fact is corroborated, and the caller uses that to
+    /// leave the column alone rather than rewrite it.
+    private static func bestSurvivingValue(
+        db: Database, profileID: String, field: String, removedValue: String
+    ) throws -> String? {
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT rowid, origin, raw, added_at FROM field_sources
+            WHERE entity_id = ? AND entity_kind = 'profile' AND field = ?
+            """, arguments: [profileID, field])
+
+        let ranked = rows.compactMap { row -> (tier: Int, precise: Int, at: Date, rowID: Int64, value: String)? in
+            let originID: String = row["origin"] ?? ""
+            let value = AppliedFactTarget.parseRaw(row["raw"] ?? "").value
+                .trimmingCharacters(in: .whitespaces)
+            guard !value.isEmpty else { return nil }
+            let origin = SourceOrigin(identifier: originID)
+            return (tier: origin.tier.rawValue,
+                    precise: originID == "manual.estimate" ? 0 : 1,
+                    at: row["added_at"] ?? Date.distantPast,
+                    rowID: row["rowid"] ?? 0,
+                    value: value)
+        }
+        .sorted {
+            ($0.tier, $0.precise, $0.at, $0.rowID) > ($1.tier, $1.precise, $1.at, $1.rowID)
+        }
+        return ranked.first?.value
+    }
+
+    /// Put the originating `pending_facts` row back out of "accepted".
+    ///
+    /// Without this the fact stays `accepted` — invisible in Triage AND gone
+    /// from the profile — and a resubmission upsert could silently re-land it.
+    /// It goes to `rejected`, not `pending`: the user has now expressed an
+    /// opinion twice, and re-queueing it for review would be nagging. The
+    /// `record_rejections` row is the same key `rejectFinding` writes, so the
+    /// fact cannot quietly return.
+    private static func retirePendingFact(
+        db: Database, target: AppliedFactTarget, at now: Date
+    ) throws {
+        // `addAcceptedFactProvenance` remaps baptismDate→birthDate and
+        // burialDate→deathDate, so the originating row may be filed under
+        // either name.
+        let kinds: [String] = switch target.field {
+        case "birthDate": ["birthDate", "baptismDate"]
+        case "deathDate": ["deathDate", "burialDate"]
+        default: [target.field]
+        }
+        let placeholders = kinds.map { _ in "?" }.joined(separator: ", ")
+        var args: [DatabaseValueConvertible] = [target.profileID, target.value]
+        args.append(contentsOf: kinds)
+
+        guard let id = try String.fetchOne(db, sql: """
+            SELECT id FROM pending_facts
+            WHERE profile_id = ? AND value_json = ? AND review_status = 'accepted'
+              AND fact_kind IN (\(placeholders))
+            ORDER BY created_at DESC LIMIT 1
+            """, arguments: StatementArguments(args))
+        else { return }  // MCP-committed, or the queue row was purged
+
+        try db.execute(sql: """
+            UPDATE pending_facts SET review_status = 'rejected', reviewed_at = ? WHERE id = ?
+            """, arguments: [now, id])
+        try db.execute(sql: """
+            INSERT OR IGNORE INTO record_rejections (profile_id, record_id, rejected_at)
+            VALUES (?, ?, ?)
+            """, arguments: [target.profileID, id, now])
     }
 
     /// If the profile column still holds the removed record's value, restore

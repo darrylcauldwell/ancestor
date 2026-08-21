@@ -200,18 +200,35 @@ struct ProfileDetailView: View {
             ),
             presenting: ledgerRemovalCandidate
         ) { entry in
-            Button("Remove record", role: .destructive) {
+            Button(entry.isSourceRecord ? "Remove record" : "Remove fact", role: .destructive) {
                 removeLedgerRecord(entry)
             }
             Button("Cancel", role: .cancel) {}
         } message: { entry in
-            Text("Reverts what it established (\(entry.establishes.isEmpty ? "citations" : entry.establishes.joined(separator: ", "))), removes its life events, and remembers the rejection so research won't re-add it. The record stays in research history and can be re-applied later.")
+            // Two messages, because the record wording would be false for a
+            // fact: there is no research history to fall back to, and the
+            // pre-accept value is genuinely unrecoverable — the accept path
+            // never journalled what it displaced. Don't promise an undo the
+            // data can't support.
+            switch entry.provenance {
+            case .sourceRecord:
+                Text("Reverts what it established (\(entry.establishes.isEmpty ? "citations" : entry.establishes.joined(separator: ", "))), removes its life events, and remembers the rejection so research won't re-add it. The record stays in research history and can be re-applied later.")
+            case .appliedFact(let target):
+                Text("Takes “\(target.value)” off this profile. If another source still attests \(ProfileSourcesLedger.fieldLabel(target.field)), the field falls back to that source's value; otherwise it is cleared. The fact is marked rejected in review so it won't be re-applied.")
+            }
         }
         // PROFILE_SOURCES_LEDGER_SPEC Change 5 — a "Review records" deep-link
         // may land after this card is already mounted for the profile, so
         // consume the intent on change too (not only on appear / switch).
         .onChange(of: appState.requestLedgerReviewProfileID) { _, _ in
             consumeLedgerReviewIfMine(proxy: proxy)
+        }
+        // The ledger was refreshed only on appear and on profile switch, so a
+        // fact accepted in another window left a stale row here — with a bin
+        // pointing at a rowid that no longer exists. Matches the equivalent
+        // wiring in SharedProfileLayout.
+        .onChange(of: appState.treeContentRevision) { _, _ in
+            reloadLedger()
         }
         }
     }
@@ -338,7 +355,11 @@ struct ProfileDetailView: View {
         lifecycle = ProfileLifecycle.evaluate(
             hasResearchEvidence: evidenceCount > 0,
             pendingReview: surfacedLeadCount,
-            appliedRecords: ledgerEntries.count,
+            // Record-kind entries ONLY. The lifecycle headline says "N records
+            // applied"; counting accepted facts there would promote a
+            // GEDCOM-only profile to "evidenced" on the strength of records
+            // that do not exist.
+            appliedRecords: ledgerEntries.filter(\.isSourceRecord).count,
             gpsStrong: false)
     }
 
@@ -399,9 +420,23 @@ struct ProfileDetailView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 4)
             } else {
+                let records = ledgerEntries.filter(\.isSourceRecord)
+                let facts = ledgerEntries.filter { !$0.isSourceRecord }
                 VStack(alignment: .leading, spacing: 10) {
-                    ForEach(ledgerEntries) { entry in
+                    ForEach(records) { entry in
                         ledgerRow(entry)
+                    }
+                    // Separate block, not interleaved: these never passed the
+                    // 4-gate scorer, and mixing them in with scored evidence
+                    // would imply they did.
+                    if !facts.isEmpty {
+                        Text("Applied in review — no source record")
+                            .font(AppTypography.cardMeta)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, records.isEmpty ? 0 : 4)
+                        ForEach(facts) { entry in
+                            ledgerRow(entry)
+                        }
                     }
                 }
                 .padding(.top, 4)
@@ -423,8 +458,15 @@ struct ProfileDetailView: View {
     private func ledgerRow(_ entry: ProfileSourcesLedger.Entry) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                Text(entry.recordType.rawValue.uppercased())
+                // An applied fact has no record type — badge the FIELD it
+                // landed instead, tinted so the two kinds stay distinguishable
+                // at a glance.
+                Text(entry.recordType.map { $0.rawValue.uppercased() }
+                     ?? ProfileSourcesLedger.fieldLabel(entry.sortKey).uppercased())
                     .font(AppTypography.badge)
+                    // Explicit `Color` on both arms — a bare `.primary : .orange`
+                    // ternary infers HierarchicalShapeStyle and won't compile.
+                    .foregroundStyle(entry.isSourceRecord ? Color.primary : Color.orange)
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
                 Text(entry.sourceID.uppercased())
@@ -454,7 +496,9 @@ struct ProfileDetailView: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Remove this record — reverts what it established and remembers the rejection")
+                .help(entry.isSourceRecord
+                      ? "Remove this record — reverts what it established and remembers the rejection"
+                      : "Remove this fact — takes it off the profile and marks it rejected in review")
             }
             if !entry.establishes.isEmpty {
                 Text("Establishes: \(entry.establishes.joined(separator: " · "))")
@@ -475,18 +519,28 @@ struct ProfileDetailView: View {
     /// refreshes the ledger. The record itself stays in research history, so
     /// removal is reversible by re-applying from research.
     private func removeLedgerRecord(_ entry: ProfileSourcesLedger.Entry) {
-        // No `.savedAsLead` filter — twin of the SharedProfileLayout fix
-        // (2026-08-06): the ledger only lists applied records, and the row's
-        // review status may already be `.discarded` (a review-side Discard
-        // after apply sets the status without reverting the absorption).
-        // Filtering on savedAsLead made the bin silently do nothing for such
-        // rows (owner report 2026-08-14: Mary Ann's 7b/1007 marriage wouldn't
-        // remove). The DB-level inversion is status-agnostic and idempotent.
-        guard let db = appState.currentDatabase,
-              let evidence = (try? db.loadEvidenceForProfile(profile.id))?
-                  .first(where: { $0.sourceRecordID == entry.id })
-        else { return }
-        appState.removeAppliedRecord(evidence)
+        guard let db = appState.currentDatabase else { return }
+        // Route on the entry's own provenance BEFORE any lookup guard. An
+        // applied fact has no evidence row, so resolving it through
+        // loadEvidenceForProfile would fall out of the guard and silently do
+        // nothing — the third instance of the "bin does nothing" bug this
+        // ledger has now had.
+        switch entry.provenance {
+        case .appliedFact(let target):
+            appState.removeAppliedFact(target)
+        case .sourceRecord:
+            // No `.savedAsLead` filter — twin of the SharedProfileLayout fix
+            // (2026-08-06): the ledger only lists applied records, and the row's
+            // review status may already be `.discarded` (a review-side Discard
+            // after apply sets the status without reverting the absorption).
+            // Filtering on savedAsLead made the bin silently do nothing for such
+            // rows (owner report 2026-08-14: Mary Ann's 7b/1007 marriage wouldn't
+            // remove). The DB-level inversion is status-agnostic and idempotent.
+            guard let evidence = (try? db.loadEvidenceForProfile(profile.id))?
+                .first(where: { $0.sourceRecordID == entry.id })
+            else { return }
+            appState.removeAppliedRecord(evidence)
+        }
         reloadLedger()
     }
 

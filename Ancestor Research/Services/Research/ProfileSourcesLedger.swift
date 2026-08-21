@@ -11,21 +11,64 @@ import AncestorKit
 /// per-entry removal action on top of the same list.
 enum ProfileSourcesLedger {
 
-    /// One kept record, display-ready.
+    /// How a ledger entry got onto the profile — and therefore which removal
+    /// path can reverse it.
+    ///
+    /// `.sourceRecord` is the classic case: an `evidence_records` row that
+    /// passed the 4-gate scorer, whose absorption `removeAppliedRecord` can
+    /// re-derive and invert.
+    ///
+    /// `.appliedFact` is a fact that landed with NO evidence record — the
+    /// pending-facts accept path, the MCP auto-approval commit, a promoted
+    /// lead. All that survives is one `field_sources` row, so removal is keyed
+    /// on its rowid. These never met the scorer, and the UI must not imply
+    /// they did (owner dogfood 2026-08-21: three contradictory death dates
+    /// accepted in review, with no way to take any of them off).
+    enum Provenance: Sendable, Equatable {
+        case sourceRecord(recordType: RecordType, verdict: RecordVerdict)
+        case appliedFact(AppliedFactTarget)
+    }
+
+    /// One kept record OR one applied-but-unbacked fact, display-ready.
     struct Entry: Identifiable, Sendable, Equatable {
-        /// The source record id — stable, and the handle a later removal change
-        /// uses to reject the record.
+        /// `.sourceRecord` → the evidence `sourceRecordID`. `.appliedFact` →
+        /// `"fs:<rowid>"`. Two disjoint namespaces, so a removal can never
+        /// resolve one kind through the other kind's lookup.
         let id: String
         let sourceID: String
-        let recordType: RecordType
-        let verdict: RecordVerdict
+        let provenance: Provenance
         /// Full citation (falls back to the scorer summary if none was rendered).
         let citation: String
         let citationURL: String?
-        /// What this record lands on the profile ("birth date Dec 1883",
-        /// "birth place Belper") — the SAME `absorptionPlan` the write path
-        /// executes, so the ledger can't claim a fact the apply didn't write.
+        /// What this entry lands on the profile ("birth date Dec 1883",
+        /// "birth place Belper"). For a record it is the SAME `absorptionPlan`
+        /// the write path executes, so the ledger can't claim a fact the apply
+        /// didn't write; for an applied fact it is the single field and value
+        /// its provenance row carries.
         let establishes: [String]
+
+        /// nil for an applied fact, which has no scored record type or verdict.
+        /// Existing `#expect(entry.recordType == .birth)` still compiles via
+        /// Optional promotion.
+        var recordType: RecordType? {
+            if case .sourceRecord(let type, _) = provenance { return type }
+            return nil
+        }
+        var verdict: RecordVerdict? {
+            if case .sourceRecord(_, let verdict) = provenance { return verdict }
+            return nil
+        }
+        var isSourceRecord: Bool {
+            if case .sourceRecord = provenance { return true }
+            return false
+        }
+        /// Stable secondary sort key across both kinds.
+        var sortKey: String {
+            switch provenance {
+            case .sourceRecord(let type, _): type.rawValue
+            case .appliedFact(let target): target.field
+            }
+        }
     }
 
     /// Where a record stands relative to the profile, for the per-fact
@@ -424,19 +467,72 @@ enum ProfileSourcesLedger {
     /// type, then id). "Kept" = `savedAsLead` — the status both the apply path
     /// and "Save as lead" write; discarded/unreviewed rows are excluded.
     static func entries(for profileID: String, db: ProjectDatabase, profile: Profile? = nil) throws -> [Entry] {
-        try db.loadEvidenceForProfile(profileID)
+        let kept = try db.loadEvidenceForProfile(profileID)
             .filter { $0.userStatus == .savedAsLead }
-            .map { rec in
-                Entry(
-                    id: rec.sourceRecordID,
-                    sourceID: rec.sourceID,
-                    recordType: rec.recordType,
-                    verdict: rec.verdict,
-                    citation: (rec.citationFull?.isEmpty == false ? rec.citationFull! : rec.summary),
-                    citationURL: rec.citationURL,
-                    establishes: rec.record.absorptionPlan(profileID: profileID, profile: profile).compactMap(\.reviewLabel))
+
+        let recordEntries = kept.map { rec in
+            Entry(
+                id: rec.sourceRecordID,
+                sourceID: rec.sourceID,
+                provenance: .sourceRecord(recordType: rec.recordType, verdict: rec.verdict),
+                citation: (rec.citationFull?.isEmpty == false ? rec.citationFull! : rec.summary),
+                citationURL: rec.citationURL,
+                establishes: rec.record.absorptionPlan(profileID: profileID, profile: profile).compactMap(\.reviewLabel))
+        }
+
+        // The (field|raw|origin) triples a record entry's own bin ALREADY
+        // deletes — the exact key `removeAppliedRecord` matches on. "Covered"
+        // therefore means literally "another row in this list removes it", so
+        // a provenance row is either reachable through its record or listed
+        // with its own bin. No double-listing, and no third state.
+        let covered: Set<String> = Set(kept.flatMap { rec in
+            ProjectDatabase.removalTargetKeys(for: rec.record, profileID: profileID)
+                .map { "\($0)|\(rec.sourceID)" }
+        })
+
+        let factEntries = try db.appliedFactProvenanceRows(profileID: profileID)
+            .filter { row in
+                // The user's own data is off limits. GEDCOM/WikiTree imports and
+                // anything manual have no re-apply route if deleted, and Edit
+                // already covers them — a bin next to them would be a one-way
+                // destroy button on hand-entered work.
+                let origin = SourceOrigin(identifier: row.origin)
+                guard origin.tier != .initialImport, !origin.isManual else { return false }
+                return !covered.contains("\(row.field)|\(row.raw)|\(row.origin)")
             }
-            .sorted { ($0.recordType.rawValue, $0.id) < ($1.recordType.rawValue, $1.id) }
+            // Two identical accepts write two byte-identical rows with distinct
+            // rowids. Collapse for display, keeping the newest, so one click
+            // removes one row rather than the list showing a phantom duplicate.
+            .reduce(into: [AppliedFactTarget]()) { acc, row in
+                let key = "\(row.field)|\(row.raw)|\(row.origin)"
+                if !acc.contains(where: { "\($0.field)|\($0.raw)|\($0.origin)" == key }) {
+                    acc.append(row)
+                }
+            }
+            .map { target in
+                Entry(
+                    id: "fs:\(target.rowID)",
+                    sourceID: target.origin,
+                    provenance: .appliedFact(target),
+                    citation: target.sourceTitle ?? target.origin,
+                    citationURL: target.citationURL,
+                    establishes: ["\(Self.fieldLabel(target.field)) \(target.value)"])
+            }
+
+        // Records first, so the weaker-provenance block reads as an appendix
+        // rather than being interleaved with scored evidence.
+        return (recordEntries + factEntries).sorted { lhs, rhs in
+            (lhs.isSourceRecord ? 0 : 1, lhs.sortKey, lhs.id)
+                < (rhs.isSourceRecord ? 0 : 1, rhs.sortKey, rhs.id)
+        }
+    }
+
+    /// "deathDate" → "death date". Display only.
+    static func fieldLabel(_ field: String) -> String {
+        field.reduce(into: "") { out, ch in
+            if ch.isUppercase, !out.isEmpty { out.append(" ") }
+            out.append(Character(ch.lowercased()))
+        }
     }
 }
 

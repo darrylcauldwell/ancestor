@@ -2389,6 +2389,33 @@ final class AppState {
         }
     }
 
+    /// Remove an applied fact that has no evidence record — the ledger's bin
+    /// for anything that arrived through the pending-facts accept path rather
+    /// than through research. No `clearEvidenceApplied`: there is no evidence
+    /// row to unstamp.
+    ///
+    /// The three post-steps are not optional. Without the snapshot rebuild the
+    /// profile card renders the value that was just removed; without the
+    /// forced sweep a dispute the fact caused stays open; without the audit
+    /// the health findings still count it.
+    @discardableResult
+    func removeAppliedFact(_ target: AppliedFactTarget) -> RecordRemovalReport? {
+        guard let db = currentDatabase else { return nil }
+        do {
+            let report = try db.removeAppliedFact(target)
+            if let tx = report.transactionID {
+                recordSessionEvent(.transactionRecorded(tx))
+            }
+            snapshot = try db.buildSnapshot()
+            runConflictSweep(force: true)
+            runPostLoadAudit()
+            return report
+        } catch {
+            errorMessage = "Failed to remove fact: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
     /// Attach (or update) a structured citation and evidence-quality rating
     /// on the most-recent `field_sources` row matching (profileID, field,
     /// origin). Per DESIGN.md §5.12, citations layer onto an existing source
