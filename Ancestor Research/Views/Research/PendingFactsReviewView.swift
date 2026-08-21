@@ -439,7 +439,12 @@ struct PendingFactsReviewView: View {
                     profileID: profileID,
                     field: finding.finding.field,
                     value: finding.finding.value,
-                    payloadJSON: finding.finding.payloadJSON
+                    payloadJSON: finding.finding.payloadJSON,
+                    // Event-shaped fields land as life events, which carry
+                    // their citation on the event row — pass the submission's
+                    // provenance through rather than dropping it here.
+                    sourceTitle: finding.finding.sourceTitle,
+                    sourceURL: finding.finding.sourceURL
                 )
             } catch {
                 appState.errorMessage = error.localizedDescription
@@ -464,7 +469,8 @@ struct PendingFactsReviewView: View {
             profileID: profileID,
             field: finding.finding.field,
             value: finding.finding.value,
-            sourceTitle: finding.finding.sourceTitle
+            sourceTitle: finding.finding.sourceTitle,
+            sourceURL: finding.finding.sourceURL
         )
     }
 

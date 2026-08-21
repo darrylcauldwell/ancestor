@@ -59,8 +59,15 @@ extension ProjectDatabase {
     /// `field_sources` and captured from the canonical column here) opens
     /// a `fieldValue` dispute when it genuinely conflicts with the value
     /// the human just accepted. The write itself is untouched.
+    ///
+    /// `sourceTitle`/`sourceURL` are the submission's own provenance. They are
+    /// optional only so the profile-column path (which records provenance
+    /// separately via `addFieldResearcherProvenance`) keeps its existing
+    /// callers; the life-event path needs them, because a life event carries
+    /// its citation on the event row itself and has nowhere else to put it.
     func applyAcceptedPendingFact(
-        profileID: String, field: String, value: String, payloadJSON: String? = nil
+        profileID: String, field: String, value: String, payloadJSON: String? = nil,
+        sourceTitle: String? = nil, sourceURL: String? = nil
     ) throws {
         // Map finding field to profile column.
         //
@@ -94,7 +101,8 @@ extension ProjectDatabase {
             // Event-shaped: becomes a life event, not a profile column.
             if let type = Self.lifeEventType(forPendingFactField: field) {
                 try applyPendingFactAsLifeEvent(
-                    profileID: profileID, type: type, value: value, payloadJSON: payloadJSON)
+                    profileID: profileID, type: type, value: value, payloadJSON: payloadJSON,
+                    sourceTitle: sourceTitle, sourceURL: sourceURL)
                 return
             }
             throw UnsupportedPendingFactField(field: field)
@@ -169,8 +177,19 @@ extension ProjectDatabase {
     /// occupation ("lime stone quarry labourer") is still a true statement
     /// worth holding, and inventing a year to make the row look complete would
     /// be worse than leaving it open.
+    ///
+    /// The submission's citation rides onto the EVENT ROW, not just the
+    /// profile. A life event is where its own provenance has to live: the
+    /// profile-level `field_sources` row written alongside it is filed under a
+    /// field name ("residence"), so with several residences on one profile
+    /// nothing says which citation backs which event. Owner dogfood
+    /// 2026-08-21: six Thompson-line ancestors took fifteen FamilySearch
+    /// census events, every one landing with `sources: []` while the ark sat
+    /// on the profile — an event that reads as uncited is an event a reader
+    /// cannot check, which is the whole point of holding it.
     private func applyPendingFactAsLifeEvent(
-        profileID: String, type: LifeEventType, value: String, payloadJSON: String?
+        profileID: String, type: LifeEventType, value: String, payloadJSON: String?,
+        sourceTitle: String? = nil, sourceURL: String? = nil
     ) throws {
         let payload: [String: Any] = payloadJSON
             .flatMap { $0.data(using: .utf8) }
@@ -180,18 +199,72 @@ extension ProjectDatabase {
         let eventLocation = (payload["event_location"] as? String)
             .flatMap { $0.isEmpty ? nil : $0 }
 
+        let source = Self.pendingFactEventSource(title: sourceTitle, url: sourceURL)
+
         // Deterministic id from (profile, type, date, value) so accepting the
         // same fact twice — or a resubmission upsert — cannot mint a duplicate
         // event. `addLifeEventIfAbsent` then makes the second accept a no-op.
         let fingerprint = "\(profileID)|\(type.rawValue)|\(eventDate?.original ?? "")|\(value)"
-        _ = try addLifeEventIfAbsent(LifeEvent(
+        let event = LifeEvent(
             id: Self.stableEventID(from: fingerprint),
             profileID: profileID,
             type: type,
             date: eventDate,
             location: eventLocation,
-            description: value
-        ))
+            description: value,
+            sources: [source].compactMap { $0 }
+        )
+        let inserted = try addLifeEventIfAbsent(event)
+
+        // The event already existed — a re-accept or a resubmission upsert.
+        // Attaching a citation it does not yet carry is purely additive, so a
+        // resubmission that adds provenance is not silently dropped just
+        // because the event row was already there.
+        guard !inserted, let source else { return }
+        try attachSourceToLifeEvent(id: event.id, profileID: profileID, source: source)
+    }
+
+    /// The accepted submission's provenance as a `FieldSource`. Nil when the
+    /// submission carried neither a title nor a URL — an empty citation is
+    /// worse than none, because it looks like the event was sourced.
+    nonisolated static func pendingFactEventSource(
+        title: String?, url: String?
+    ) -> FieldSource? {
+        let title = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let url = url?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasTitle = !(title ?? "").isEmpty
+        let hasURL = !(url ?? "").isEmpty
+        guard hasTitle || hasURL else { return nil }
+        return FieldSource(
+            origin: SourceOrigin(identifier: "field-researcher"),
+            raw: hasTitle ? title! : url!,
+            addedAt: Date(),
+            citation: Citation(
+                title: hasTitle ? title : nil,
+                url: hasURL ? url : nil,
+                dateAccessed: Date()
+            )
+        )
+    }
+
+    /// Append a source to an existing life event unless it already holds one
+    /// citing the same URL. Idempotent, so repeated accepts of the same
+    /// resubmitted fact cannot stack duplicate citations onto one event.
+    private func attachSourceToLifeEvent(
+        id: UUID, profileID: String, source: FieldSource
+    ) throws {
+        guard var event = try loadLifeEvents(profileID: profileID)
+            .first(where: { $0.id == id })
+        else { return }
+        let alreadyCited = event.sources.contains { existing in
+            if let url = source.citation?.url, !url.isEmpty {
+                return existing.citation?.url == url
+            }
+            return existing.raw == source.raw
+        }
+        guard !alreadyCited else { return }
+        event.sources.append(source)
+        _ = try updateLifeEvent(event)
     }
 
     /// UUIDv5-shaped stable id: SHA256 of the fingerprint, first 16 bytes.
@@ -264,7 +337,16 @@ extension ProjectDatabase {
     }
 
     /// Provenance row for a field written via the pending-facts accept flow.
-    func addFieldResearcherProvenance(profileID: String, field: String, value: String, sourceTitle: String) throws {
+    ///
+    /// `sourceURL` populates `citation_json`, so an accepted submission is
+    /// citable the same way a FreeBMD or FreeCen fact is. Without it the row
+    /// carried only a title glued into `raw`, which reads as provenance but
+    /// links to nothing — and `certifiedFieldCount`-style queries that test
+    /// `citation_json IS NOT NULL` skipped every field-researcher fact.
+    func addFieldResearcherProvenance(
+        profileID: String, field: String, value: String, sourceTitle: String,
+        sourceURL: String? = nil
+    ) throws {
         let profileField: String = switch field {
         case "birthDate", "baptismDate": "birthDate"
         case "deathDate", "burialDate": "deathDate"
@@ -273,14 +355,19 @@ extension ProjectDatabase {
         default: field
         }
 
+        let citationJSON = Self.pendingFactEventSource(title: sourceTitle, url: sourceURL)?
+            .citation.map(Self.encodeJSON)
+
         try dbQueue.write { writeDB in
             try writeDB.execute(sql: """
-                INSERT INTO field_sources (entity_id, entity_kind, field, origin, raw, added_at)
-                VALUES (?, 'profile', ?, 'field-researcher', ?, ?)
+                INSERT INTO field_sources
+                    (entity_id, entity_kind, field, origin, raw, added_at, citation_json)
+                VALUES (?, 'profile', ?, 'field-researcher', ?, ?, ?)
                 """, arguments: [
                     profileID, profileField,
                     "\(value) [\(sourceTitle)]",
                     Date(),
+                    citationJSON,
                 ])
         }
     }
