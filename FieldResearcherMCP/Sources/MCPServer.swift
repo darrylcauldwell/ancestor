@@ -1627,6 +1627,14 @@ actor MCPHandler {
                     evidence_text = excluded.evidence_text,
                     reasoning = excluded.reasoning,
                     source_title = excluded.source_title,
+                    -- The routing payload MUST refresh too. It carries
+                    -- event_date/event_location, and omitting it here meant a
+                    -- resubmission could correct a fact's wording but never its
+                    -- date: the idempotency key is (profile, field, value, url),
+                    -- so a dated resubmission of an undated fact hits this
+                    -- clause and the date was silently discarded. The row then
+                    -- landed as an undated life event despite the correction.
+                    sources_json = excluded.sources_json,
                     verification_status = 'pending'
                 WHERE pending_facts.review_status = 'pending'
                 """, arguments: [
