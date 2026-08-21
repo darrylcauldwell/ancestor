@@ -398,15 +398,18 @@ struct PendingFactsReviewView: View {
     private func acceptFinding(_ finding: ProcessedFinding, humanAttested: Bool = false) {
         guard let db = appState.currentDatabase else { return }
 
-        // 1. Mark pending fact as accepted. A human override of a failed URL
+        // 1. Apply the fact to the tree FIRST. It used to be marked accepted
+        // before the write was attempted, so a field the write could not land
+        // ended up flagged accepted with provenance recorded and the profile
+        // untouched. Nothing is marked until the tree actually changed.
+        guard applyFactToProfile(finding: finding, db: db) else { return }
+
+        // 2. Mark pending fact as accepted. A human override of a failed URL
         // verification records `human_attested`, never `verified` — provenance
         // must not claim the machine check passed when it didn't.
         try? db.updatePendingFactStatus(
             id: finding.id, status: "accepted",
             verificationStatus: humanAttested ? "human_attested" : "verified")
-
-        // 2. Apply the fact to the tree profile
-        applyFactToProfile(finding: finding, db: db)
 
         // 3. Add field source for provenance tracking
         addFieldSource(finding: finding, db: db)
@@ -414,7 +417,10 @@ struct PendingFactsReviewView: View {
         processedFindings.removeAll { $0.id == finding.id }
     }
 
-    private func applyFactToProfile(finding: ProcessedFinding, db: ProjectDatabase) {
+    /// Returns false when nothing was written, so the caller can leave the
+    /// fact pending instead of flagging it accepted.
+    @discardableResult
+    private func applyFactToProfile(finding: ProcessedFinding, db: ProjectDatabase) -> Bool {
         // #CPC-Change2 — corroboration facts route to the spouse EDGE via
         // their payload (marriage facts have no profile column; the generic
         // path would silently no-op) and resolve both sides' lead rows.
@@ -424,17 +430,28 @@ struct PendingFactsReviewView: View {
                 payloadJSON: finding.finding.payloadJSON
             )
         } else {
-            try? db.applyAcceptedPendingFact(
-                profileID: profileID,
-                field: finding.finding.field,
-                value: finding.finding.value
-            )
+            // NOT `try?`. A field the accept path cannot land now throws, and
+            // swallowing it would reproduce exactly the defect the throw was
+            // added to end: accepted, provenance written, profile unchanged,
+            // user told it worked.
+            do {
+                try db.applyAcceptedPendingFact(
+                    profileID: profileID,
+                    field: finding.finding.field,
+                    value: finding.finding.value,
+                    payloadJSON: finding.finding.payloadJSON
+                )
+            } catch {
+                appState.errorMessage = error.localizedDescription
+                return false
+            }
         }
 
         // Rebuild snapshot to reflect the change
         if let newSnapshot = try? db.buildSnapshot() {
             appState.snapshot = newSnapshot
         }
+        return true
     }
 
     private func addFieldSource(finding: ProcessedFinding, db: ProjectDatabase) {

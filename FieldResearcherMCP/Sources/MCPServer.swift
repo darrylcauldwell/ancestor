@@ -384,13 +384,15 @@ actor MCPHandler {
                     description: "Submit a research finding as evidence for a profile. The finding will be scored by the app's deterministic pipeline before human review.",
                     properties: [
                         "profile_id": ["type": "string", "description": "Profile ID this evidence is about"],
-                        "field": ["type": "string", "description": "Field: birthDate, deathDate, birthLocation, deathLocation, occupation, etc."],
+                        "field": ["type": "string", "description": "Profile fields: birthDate, deathDate, birthLocation, deathLocation, firstName, middleName, lastName, nickName, gender, marriedSurname, mothersMaidenName, bio. Event fields (become life events; pass event_date/event_location too): occupation, residence, census, baptism, burial, probate, military, education, religion, immigration, emigration. Anything else is refused at accept time rather than silently doing nothing."],
                         "value": ["type": "string", "description": "The proposed value"],
                         "source_url": ["type": "string", "description": "URL where the evidence was found"],
                         "source_title": ["type": "string", "description": "Human-readable source description"],
                         "evidence_text": ["type": "string", "description": "The exact relevant text from the source"],
                         "reasoning": ["type": "string", "description": "How you connected this source to this profile"],
                         "confidence": ["type": "string", "description": "Your confidence: high, medium, or low"],
+                        "event_date": ["type": "string", "description": "For event-shaped fields (occupation, residence, census, baptism, burial, probate, military): when it happened, e.g. '1901' or '31 Mar 1901'. Ignored for profile fields like birthDate."],
+                        "event_location": ["type": "string", "description": "For event-shaped fields: where it happened, e.g. 'Wirksworth, Derbyshire'. Ignored for profile fields."],
                     ],
                     required: ["profile_id", "field", "value", "source_url", "source_title", "evidence_text", "reasoning", "confidence"]
                 ),
@@ -1567,15 +1569,27 @@ actor MCPHandler {
         // Cap evidence_text at 200 chars (§5.4)
         let cappedEvidence = String(evidenceText.prefix(200))
 
+        // Event-shaped fields (occupation, residence, census, …) land as LIFE
+        // EVENTS, and an event wants a date and a place. Both ride here in
+        // `sources_json` — no schema change, the column already exists and the
+        // accept path already reads it. Omitted for field types that map to a
+        // profile column, where they mean nothing.
+        var payload: [String: Any] = [
+            "source_url": sourceURL,
+            "source_title": sourceTitle,
+            "evidence_text": cappedEvidence,
+            "reasoning": reasoning,
+            "confidence": confidence,
+            "agent": "field-researcher",
+        ]
+        if let eventDate = args["event_date"] as? String, !eventDate.isEmpty {
+            payload["event_date"] = eventDate
+        }
+        if let eventLocation = args["event_location"] as? String, !eventLocation.isEmpty {
+            payload["event_location"] = eventLocation
+        }
         let sourcesJSON = try String(
-            data: JSONSerialization.data(withJSONObject: [
-                "source_url": sourceURL,
-                "source_title": sourceTitle,
-                "evidence_text": cappedEvidence,
-                "reasoning": reasoning,
-                "confidence": confidence,
-                "agent": "field-researcher",
-            ]),
+            data: JSONSerialization.data(withJSONObject: payload),
             encoding: .utf8
         ) ?? "{}"
 
