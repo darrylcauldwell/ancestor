@@ -119,4 +119,88 @@ struct CampaignLeadVisibilityTests {
         #expect(gathered.leads.isEmpty)
         #expect(gathered.dismissed.isEmpty)
     }
+
+    // MARK: - Grouping: two people are not one finding
+
+    private func relLead(
+        _ id: String, given: String, year: Int, relationship: String,
+        surname: String = "Land", profileID: String = "@P1@"
+    ) -> Lead {
+        Lead(id: id, profileID: profileID, name: "\(given) \(surname)",
+             surname: surname, givenName: given, birthYear: year, deathYear: nil,
+             relationship: relationship, source: .householdMember, status: .new,
+             evidence: "1901 census", createdAt: Date())
+    }
+
+    /// THE SECOND BUG. Both children of George Land, both surnamed Land, from
+    /// the same census. The old key was
+    /// `rel|<profile>|<relationship>|<surname>`, which is identical for both —
+    /// so Triage showed ONE row badged "2 records" and Lilian was invisible
+    /// inside it. Siblings share a surname by definition; only a parent role is
+    /// one-per-surname.
+    @Test func twoChildrenOfTheSameParentGroupSeparately() {
+        let lilian = relLead("l1", given: "Lilian A", year: 1893, relationship: "child")
+        let georgeW = relLead("l2", given: "George W", year: 1898, relationship: "child")
+
+        #expect(CampaignReviewService.leadGroupKey(lilian)
+                != CampaignReviewService.leadGroupKey(georgeW),
+                "two different children must be two different review rows")
+    }
+
+    @Test func siblingLeadsAlsoGroupSeparately() {
+        let a = relLead("s1", given: "Ada", year: 1880, relationship: "sibling")
+        let b = relLead("s2", given: "Bert", year: 1884, relationship: "sibling")
+        #expect(CampaignReviewService.leadGroupKey(a)
+                != CampaignReviewService.leadGroupKey(b))
+    }
+
+    /// The behaviour the role branch exists FOR must survive: a mother is one
+    /// per surname, so two mother-inference leads with the same surname are one
+    /// finding arriving twice.
+    @Test func twoMotherLeadsWithTheSameSurnameStillCollapse() {
+        let a = relLead("m1", given: "Hannah", year: 1850, relationship: "mother",
+                        surname: "Pidcock")
+        let b = relLead("m2", given: "Hanah", year: 1852, relationship: "mother",
+                        surname: "Pidcock")
+        #expect(CampaignReviewService.leadGroupKey(a)
+                == CampaignReviewService.leadGroupKey(b),
+                "one mother per surname — differing given/year is transcription variance")
+    }
+
+    @Test func aMotherAndAFatherNeverCollapseTogether() {
+        let m = relLead("m1", given: "Hannah", year: 1850, relationship: "mother")
+        let f = relLead("f1", given: "Joseph", year: 1848, relationship: "father")
+        #expect(CampaignReviewService.leadGroupKey(m)
+                != CampaignReviewService.leadGroupKey(f))
+    }
+
+    /// Same identity from several records still collapses — the case the
+    /// "3 records" badge was built for.
+    @Test func oneIdentityFromSeveralRecordsStillCollapses() {
+        let a = relLead("r1", given: "Ida L", year: 1885, relationship: "child")
+        let b = relLead("r2", given: "Ida L", year: 1885, relationship: "child")
+        #expect(CampaignReviewService.leadGroupKey(a)
+                == CampaignReviewService.leadGroupKey(b))
+    }
+
+    /// Children of DIFFERENT parents never share a row, even same name and year.
+    @Test func sameNamedChildrenOfDifferentParentsStaySeparate() {
+        let a = relLead("c1", given: "Mary", year: 1888, relationship: "child",
+                        profileID: "@P1@")
+        let b = relLead("c2", given: "Mary", year: 1888, relationship: "child",
+                        profileID: "@P2@")
+        #expect(CampaignReviewService.leadGroupKey(a)
+                != CampaignReviewService.leadGroupKey(b))
+    }
+
+    @Test func parentRoleRecognisesOnlyMotherAndFather() {
+        #expect(CampaignReviewService.parentRole(
+            relLead("x", given: "A", year: 1, relationship: "mother")) == "mother")
+        #expect(CampaignReviewService.parentRole(
+            relLead("x", given: "A", year: 1, relationship: "Father")) == "father")
+        for role in ["child", "sibling", "spouse", "unknown", ""] {
+            #expect(CampaignReviewService.parentRole(
+                relLead("x", given: "A", year: 1, relationship: role)) == nil)
+        }
+    }
 }

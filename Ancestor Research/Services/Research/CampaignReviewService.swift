@@ -185,4 +185,40 @@ enum CampaignReviewService {
             dismissed: window.filter { $0.status == .dismissed }
         )
     }
+
+    /// "mother"/"father" for a parent-inference lead, else nil. A parent role
+    /// is the only one where a surname alone identifies the person — you have
+    /// at most one mother and one father.
+    static func parentRole(_ lead: Lead) -> String? {
+        switch lead.relationship?.lowercased() {
+        case "mother": "mother"
+        case "father": "father"
+        default: nil
+        }
+    }
+
+    /// Identity key for collapsing leads into one review row.
+    ///
+    /// Parent-inference leads key on (profile, role, surname) — one per
+    /// surname by nature. Everything else keys on (profile, surname, given,
+    /// year), so "Ida L Land 1885" arriving from three records collapses while
+    /// a different year stays separate.
+    ///
+    /// The role branch is gated on PARENT roles specifically. It used to fire
+    /// for any non-empty `relationship`, and "one per surname" is true of a
+    /// mother but false of a CHILD or a sibling — they share a surname by
+    /// definition. Every child-of-X lead therefore collapsed into a single row:
+    /// Lilian A Land (b. ~1893) and George W Land (b. ~1898), both children of
+    /// George Land in the 1901 Wirksworth census, showed as one row badged
+    /// "2 records" with Lilian invisible inside it (owner report 2026-08-21).
+    /// Two different people are not one finding.
+    static func leadGroupKey(_ lead: Lead) -> String {
+        if let role = parentRole(lead) {
+            return "rel|\(lead.profileID)|\(role)|\((lead.surname ?? lead.name).uppercased())"
+        }
+        let surname = (lead.surname ?? "").uppercased()
+        let given = (lead.givenName ?? "").uppercased()
+        let year = lead.birthYear.map(String.init) ?? lead.deathYear.map(String.init) ?? "?"
+        return "id|\(lead.profileID)|\(surname)|\(given)|\(year)"
+    }
 }

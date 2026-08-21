@@ -283,19 +283,10 @@ struct BulkReviewView: View {
             }
     }
 
-    /// Identity key for grouping. Parent-inference leads key on
-    /// (profile, role, surname) — already one per surname. Identity leads key
-    /// on (profile, surname, given, year) so "Ida L Land 1885" from three
-    /// different records collapses; a different year stays separate.
+    /// Delegates to `CampaignReviewService.leadGroupKey` — the rule lives
+    /// beside `campaignLeads` so the grouping and the gathering stay together.
     private func leadGroupKey(_ row: CampaignLeadRow) -> String {
-        let lead = row.lead
-        if let role = lead.relationship, !role.isEmpty {
-            return "rel|\(lead.profileID)|\(role.lowercased())|\((lead.surname ?? lead.name).uppercased())"
-        }
-        let surname = (lead.surname ?? "").uppercased()
-        let given = (lead.givenName ?? "").uppercased()
-        let year = lead.birthYear.map(String.init) ?? lead.deathYear.map(String.init) ?? "?"
-        return "id|\(lead.profileID)|\(surname)|\(given)|\(year)"
+        CampaignReviewService.leadGroupKey(row.lead)
     }
 
     private var searchBar: some View {
@@ -683,11 +674,7 @@ struct BulkReviewView: View {
     /// "mother"/"father" for a relationship-typed (parent-inference) lead, else
     /// nil. Drives whether the row offers "Add as parent" or "Research".
     private func parentRole(_ lead: Lead) -> String? {
-        switch lead.relationship?.lowercased() {
-        case "mother": return "mother"
-        case "father": return "father"
-        default:       return nil
-        }
+        CampaignReviewService.parentRole(lead)
     }
 
     /// Add a parent-inference lead as an INTENTIONAL placeholder parent — a
