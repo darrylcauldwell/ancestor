@@ -3152,7 +3152,8 @@ final class AppState {
             // other party lives only in the raw `co_persons` cell. Synthesize a
             // marriage detail from it so the spouse still reaches the offer.
             guard let detail = r.detail
-                ?? Self.marriageDetailFromCoPersons(subject: subject, record: r) else { continue }
+                ?? Self.marriageDetailFromCoPersons(subject: subject, record: r)
+                ?? Self.baptismDetailFromFlatParents(record: r) else { continue }
             let projectedIDs = Set(ev.record.projectToLifeEvents(profileID: subject.id).map { $0.id })
             let citedByFact = r.common.detailURL.map { appliedCitationURLs.contains($0) } ?? false
             let applied = ev.userStatus == .savedAsLead
@@ -3194,6 +3195,44 @@ final class AppState {
             ? FreeREGMarriage(groom: spouse, bride: subjectPerson, marriageDate: r.eventDate)
             : FreeREGMarriage(groom: subjectPerson, bride: spouse, marriageDate: r.eventDate)
         return FreeREGDetail(event: .marriage(marriage))
+    }
+
+    /// A baptism's parents live in the record's FLAT `fatherName`/`motherName`
+    /// when no typed `detail` was fetched — results-table FreeREG rows carry the
+    /// lossy projection only. Synthesize the minimal baptism detail from them so
+    /// the parents still reach the family offer.
+    ///
+    /// Owner dogfood 2026-08-22: Jacob Holmes's applied 1817 Youlgreave baptism
+    /// names **John HOLMES** and **Sophia** — the card rendered both, and the
+    /// `familyContext` gate scored with them — yet no "add his parents" offer
+    /// appeared on the profile OR in the Health sweep, because both read
+    /// `parishFamilyProposal`, which required `detail`. The twin of
+    /// `marriageDetailFromCoPersons`, which was added in August for exactly this
+    /// failure on the marriage side (Nellie STENSON silently dropped).
+    ///
+    /// nil for non-baptism events or when neither parent is named.
+    nonisolated static func baptismDetailFromFlatParents(record r: ParishRecord) -> FreeREGDetail? {
+        let kind = (r.eventType ?? "").lowercased()
+        guard kind.contains("bapt") || kind.contains("christen") else { return nil }
+        let father = Self.parishPerson(fromFlatName: r.fatherName)
+        let mother = Self.parishPerson(fromFlatName: r.motherName)
+        guard father != nil || mother != nil else { return nil }
+        let child = FreeREGPerson(forename: r.common.givenName, surname: r.common.surname)
+        return FreeREGDetail(event: .baptism(FreeREGBaptism(
+            child: child, baptismDate: r.eventDate,
+            father: father, mother: mother.map { FreeREGMother(person: $0) })))
+    }
+
+    /// "John HOLMES" → forename(s) + last-token surname; "Sophia" → forename
+    /// only (a mother's maiden name is often unstated, and `parishFamilyLinks`
+    /// already falls back to the child's surname as her married name).
+    nonisolated static func parishPerson(fromFlatName name: String?) -> FreeREGPerson? {
+        guard let raw = name?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
+        let tokens = raw.split(separator: " ").map(String.init).filter { !$0.isEmpty }
+        guard !tokens.isEmpty else { return nil }
+        return tokens.count >= 2
+            ? FreeREGPerson(forename: tokens.dropLast().joined(separator: " "), surname: tokens.last)
+            : FreeREGPerson(forename: tokens[0], surname: nil)
     }
 
     /// Lift the family a parish entry names, per event kind (PARISH_ABSORPTION_SPEC
@@ -4096,6 +4135,79 @@ final class AppState {
     /// FREE (reads stored evidence via `parishFamilyProposal`). Folds into the
     /// Health tab so the backlog is visible; the same proposal drives the
     /// profile-card offer, so the sweep and the card never disagree.
+    /// EVIDENCE THE APP NAMES BUT CANNOT ACT ON.
+    ///
+    /// Owner principle 2026-08-22: "if things like this are transiently
+    /// surfaced but easy to ignore these should appear as Health items to apply
+    /// later." The absorption offers already follow that rule — the card and
+    /// the Health sweep read one `parishFamilyProposal`, so they can never
+    /// disagree. But that shared source is also a single point of silence: when
+    /// no proposal can be built, BOTH surfaces show nothing, and a baptism
+    /// naming two parents reads identically to a baptism naming none.
+    ///
+    /// This is the net under that. An APPLIED parish record whose flat fields
+    /// name a father, mother or co-person, for which no family links could be
+    /// derived, becomes its own finding — so a failure to build an offer is a
+    /// visible work item instead of silence. Network-free: reads stored
+    /// evidence, so it surfaces records applied long before this rule existed.
+    func parishKinUnreadableFindings() -> [AuditResult] {
+        guard let db = currentDatabase else { return [] }
+        var out: [AuditResult] = []
+        for (pid, profile) in snapshot.profiles where !profile.isDeleted {
+            let evidence = (try? db.loadEvidenceForProfile(pid)) ?? []
+            let profileEventIDs = Set((snapshot.lifeEvents[pid] ?? []).map { $0.id })
+            let appliedCitationURLs = Set(profile.sources.values.flatMap { $0 }
+                .compactMap { $0.citation?.url })
+            for ev in evidence {
+                guard case .parish(let r) = ev.record else { continue }
+                let projectedIDs = Set(ev.record.projectToLifeEvents(profileID: pid).map { $0.id })
+                let citedByFact = r.common.detailURL.map { appliedCitationURLs.contains($0) } ?? false
+                let applied = ev.userStatus == .savedAsLead
+                    || !projectedIDs.isDisjoint(with: profileEventIDs)
+                    || citedByFact
+                guard applied else { continue }
+                // Whom does the record NAME, however lossily?
+                let named = Self.parishNamedKin(in: r)
+                guard !named.isEmpty else { continue }
+                // Could any of them be turned into links? If so this is either
+                // already offered or already on the tree — not our business.
+                let detail = r.detail
+                    ?? Self.marriageDetailFromCoPersons(subject: profile, record: r)
+                    ?? Self.baptismDetailFromFlatParents(record: r)
+                if let detail, !Self.parishFamilyLinks(subject: profile, record: r, detail: detail).0.isEmpty {
+                    continue
+                }
+                let year = r.eventYear.map { "\($0) " } ?? ""
+                let kind = (r.eventType ?? "parish record").lowercased()
+                out.append(AuditResult(
+                    profileID: pid, profileName: profile.displayName,
+                    severity: .warning, category: .gap,
+                    ruleID: "parishKinUnreadable",
+                    message: "\(profile.displayName)'s \(year)\(kind) names \(named.joined(separator: " + ")), but the app couldn't read them into an offer — add them by hand from this profile.",
+                    relatedProfileIDs: []))
+                break   // one finding per profile; the first unreadable record is enough
+            }
+        }
+        return out.sorted {
+            $0.profileName.localizedCaseInsensitiveCompare($1.profileName) == .orderedAscending
+        }
+    }
+
+    /// The kin a parish record names in its flat projection — the names a
+    /// reader can see on the card. Pure.
+    nonisolated static func parishNamedKin(in r: ParishRecord) -> [String] {
+        var out: [String] = []
+        for name in [r.fatherName, r.motherName] {
+            if let t = name?.trimmingCharacters(in: .whitespaces), !t.isEmpty { out.append(t) }
+        }
+        if let co = r.common.rawFields["co_persons"]?.trimmingCharacters(in: .whitespaces), !co.isEmpty {
+            out.append(contentsOf: co.split(separator: ";")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty })
+        }
+        return out
+    }
+
     func parishFamilyUnabsorbedFindings() -> [AuditResult] {
         guard let db = currentDatabase else { return [] }
         var out: [AuditResult] = []

@@ -1183,16 +1183,21 @@ struct HealthView: View {
         let parentUnlocks = kept(appState.censusParentUnlockFindings())     // warning
         let censusUnabsorbed = kept(appState.censusUnabsorbedFindings())    // warning
         let parishUnabsorbed = kept(appState.parishFamilyUnabsorbedFindings()) // warning
+        // Evidence the app names but can't act on — the net under the offers,
+        // so a proposal that never forms is a work item rather than silence.
+        let kinUnreadable = kept(appState.parishKinUnreadableFindings())     // warning
         guard !citationGaps.isEmpty || !parentUnlocks.isEmpty
-            || !censusUnabsorbed.isEmpty || !parishUnabsorbed.isEmpty else {
+            || !censusUnabsorbed.isEmpty || !parishUnabsorbed.isEmpty
+            || !kinUnreadable.isEmpty else {
             auditVM.summary = base; return
         }
         auditVM.summary = AuditSummary(
             errors: base.errors,
-            warnings: base.warnings + parentUnlocks + censusUnabsorbed + parishUnabsorbed,
+            warnings: base.warnings + parentUnlocks + censusUnabsorbed
+                + parishUnabsorbed + kinUnreadable,
             info: base.info + citationGaps,
             total: base.total + citationGaps.count + parentUnlocks.count
-                + censusUnabsorbed.count + parishUnabsorbed.count,
+                + censusUnabsorbed.count + parishUnabsorbed.count + kinUnreadable.count,
             profilesChecked: base.profilesChecked)
     }
 
