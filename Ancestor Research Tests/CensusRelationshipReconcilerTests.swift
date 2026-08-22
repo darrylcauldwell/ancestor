@@ -837,6 +837,144 @@ struct CensusRelationshipReconcilerTests {
         #expect(parentIDs.contains("john"), "the co-parent (subject's spouse) is linked too")
     }
 
+    // MARK: - Near match (forename differs, structure agrees)
+
+    /// The Holmes case, owner dogfood 2026-08-22. Samuel's 1891 Bakewell roster
+    /// names his WIFE as "Harriett" where the tree holds "Harriet" — one edit,
+    /// which scores 0.7 and is refused by the 0.85 similarity floor. Every rung in
+    /// the reconciler opens with `guard namesMatch`, so role, uniqueness and an
+    /// exactly-agreeing birth year could not rescue it: the audit reported his own
+    /// linked wife as "not in the tree", an invitation to duplicate her.
+    @Test func spouseWithSpellingVariantForenameIsNearMatchNotMissing() throws {
+        let samuel = person("samuel", "Samuel", "Holmes", birthYear: 1847)
+        let harriet = person("harriet", "Harriet", "Holmes", birthYear: 1857)
+        let household = [
+            member("Samuel Holmes", "Head", age: 44, isTarget: true),
+            member("Harriett Holmes", "Wife", age: 34)]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["samuel": samuel, "harriet": harriet],
+            relationships: [spouseEdge("samuel", "harriet")],
+            lifeEvents: ["samuel": [censusEvent("samuel", year: 1891, household: household)]])
+
+        let recon = try #require(CensusRelationshipReconciler.reconciliations(for: samuel, in: snapshot).first)
+        let wife = try #require(recon.entries.first { $0.member.name == "Harriett Holmes" })
+        #expect(wife.censusRelation == .spouse)
+        guard case .nearMatch(let pid, _) = wife.status else {
+            Issue.record("expected .nearMatch, got \(wife.status)"); return
+        }
+        #expect(pid == "harriet")
+        // And crucially: she is NOT reported as someone to add.
+        #expect(!CensusRelationshipReconciler.findings(for: samuel, in: snapshot)
+            .contains { $0.kind == .missing && $0.member.name == "Harriett Holmes" })
+    }
+
+    /// The second half of the same roster: the son the tree holds as "William" is
+    /// enumerated under his second name, "Wilfred D S" — the name his family
+    /// actually used. No similarity metric will ever pair William with Wilfred, so
+    /// only the structural rung can.
+    @Test func childRecordedUnderSecondNameIsNearMatchNotMissing() throws {
+        let samuel = person("samuel", "Samuel", "Holmes", birthYear: 1847)
+        let william = person("william", "William", "Holmes", birthYear: 1882)
+        let household = [
+            member("Samuel Holmes", "Head", age: 44, isTarget: true),
+            member("Wilfred D S Holmes", "Son", age: 8)]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["samuel": samuel, "william": william],
+            relationships: [parentEdge("samuel", "william")],
+            lifeEvents: ["samuel": [censusEvent("samuel", year: 1891, household: household)]])
+
+        let recon = try #require(CensusRelationshipReconciler.reconciliations(for: samuel, in: snapshot).first)
+        let son = try #require(recon.entries.first { $0.member.name == "Wilfred D S Holmes" })
+        #expect(son.censusRelation == .child)
+        guard case .nearMatch(let pid, _) = son.status else {
+            Issue.record("expected .nearMatch, got \(son.status)"); return
+        }
+        #expect(pid == "william")
+    }
+
+    /// The uniqueness guard. Two children on the tree and an unrecognisable
+    /// forename is not evidence of anything — the roster row must stay `.missing`
+    /// rather than be welded onto whichever sibling happens to sort first.
+    @Test func nearMatchRefusesWhenTheRoleIsNotASingleton() throws {
+        let samuel = person("samuel", "Samuel", "Holmes", birthYear: 1847)
+        let william = person("william", "William", "Holmes", birthYear: 1882)
+        let bertha = person("bertha", "Bertha", "Holmes", birthYear: 1884)
+        let household = [
+            member("Samuel Holmes", "Head", age: 44, isTarget: true),
+            member("Wilfred D S Holmes", "Son", age: 8)]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["samuel": samuel, "william": william, "bertha": bertha],
+            relationships: [parentEdge("samuel", "william"), parentEdge("samuel", "bertha")],
+            lifeEvents: ["samuel": [censusEvent("samuel", year: 1891, household: household)]])
+
+        let recon = try #require(CensusRelationshipReconciler.reconciliations(for: samuel, in: snapshot).first)
+        let son = try #require(recon.entries.first { $0.member.name == "Wilfred D S Holmes" })
+        #expect(son.status == .missing, "two children on the tree — no unique candidate")
+    }
+
+    /// The reused-name guard, and the reason `namesMatch` must have FAILED before
+    /// this rung runs. A family that buried a child often gave the next the same
+    /// name; a dated same-name sibling with a different year is a genuinely
+    /// distinct person and must never be silently welded onto the survivor.
+    @Test func nearMatchNeverOverridesANameMatchWithAWrongYear() throws {
+        let ruth = person("ruth", "Ruth", "Wheeldon", birthYear: 1824)
+        let hannah = person("hannah", "Hannah", "Wheeldon", birthYear: 1850)
+        // A SECOND Hannah, born twelve years later — the name reused after a death.
+        let household = [
+            member("Ruth Wheeldon", "Head", age: 38, isTarget: true),
+            member("Hannah Wheeldon", "Dau", age: 0)]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["ruth": ruth, "hannah": hannah],
+            relationships: [parentEdge("ruth", "hannah")],
+            lifeEvents: ["ruth": [censusEvent("ruth", year: 1862, household: household)]])
+
+        let recon = try #require(CensusRelationshipReconciler.reconciliations(for: ruth, in: snapshot).first)
+        let dau = try #require(recon.entries.first { $0.member.name == "Hannah Wheeldon" })
+        if case .nearMatch = dau.status {
+            Issue.record("a name-agreeing row with a wrong year must never reach the near-match rung")
+        }
+    }
+
+    /// The surname guard: structure alone is not enough. A lone spouse of the
+    /// right age but a different surname is not a spelling variant of anything.
+    @Test func nearMatchRefusesWhenTheSurnameDiffers() throws {
+        let samuel = person("samuel", "Samuel", "Holmes", birthYear: 1847)
+        let harriet = person("harriet", "Harriet", "Wagstaff", birthYear: 1857)
+        let household = [
+            member("Samuel Holmes", "Head", age: 44, isTarget: true),
+            member("Harriett Holmes", "Wife", age: 34)]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["samuel": samuel, "harriet": harriet],
+            relationships: [spouseEdge("samuel", "harriet")],
+            lifeEvents: ["samuel": [censusEvent("samuel", year: 1891, household: household)]])
+
+        let recon = try #require(CensusRelationshipReconciler.reconciliations(for: samuel, in: snapshot).first)
+        let wife = try #require(recon.entries.first { $0.member.name == "Harriett Holmes" })
+        if case .nearMatch = wife.status {
+            Issue.record("a different surname must not near-match")
+        }
+    }
+
+    /// The year guard: a lone spouse whose birth year is nowhere near the roster
+    /// row is a different woman, however unique the role.
+    @Test func nearMatchRefusesWhenBirthYearsDisagree() throws {
+        let samuel = person("samuel", "Samuel", "Holmes", birthYear: 1847)
+        let harriet = person("harriet", "Harriet", "Holmes", birthYear: 1820)
+        let household = [
+            member("Samuel Holmes", "Head", age: 44, isTarget: true),
+            member("Harriett Holmes", "Wife", age: 34)]                  // → 1857, 37 years out
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["samuel": samuel, "harriet": harriet],
+            relationships: [spouseEdge("samuel", "harriet")],
+            lifeEvents: ["samuel": [censusEvent("samuel", year: 1891, household: household)]])
+
+        let recon = try #require(CensusRelationshipReconciler.reconciliations(for: samuel, in: snapshot).first)
+        let wife = try #require(recon.entries.first { $0.member.name == "Harriett Holmes" })
+        if case .nearMatch = wife.status {
+            Issue.record("birth years 37 years apart must not near-match")
+        }
+    }
+
     // MARK: - Link existing instead of add duplicate
 
     /// A census relative who already EXISTS elsewhere in the tree (matched by

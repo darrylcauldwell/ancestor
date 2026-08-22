@@ -79,6 +79,18 @@ public nonisolated struct CensusRelationshipReconciler {
                 /// in this role — offer to LINK the existing profile rather than
                 /// ADD a duplicate. Carries that existing profile.
                 case unlinkedInTree(profileID: String)
+                /// The forename did NOT clear the name-similarity floor, but the
+                /// structural evidence agrees: same census-implied relation, that
+                /// relation is a singleton among the subject's tree relatives, the
+                /// surname matches, and both birth years agree within tolerance.
+                /// Proposed for human confirmation — never auto-linked.
+                /// Owner dogfood 2026-08-22: Samuel Holmes's 1891 roster reported
+                /// "Harriett HOLMES (spouse)" and "Wilfred D S HOLMES (child)" as
+                /// NOT IN THE TREE, though both were already linked to him — the
+                /// census spells Harriett with two t's and calls William by his
+                /// second name. Acting on that finding would have minted two
+                /// duplicates of people the tree already held.
+                case nearMatch(profileID: String, reason: String)
                 /// A parent-in-law of the household head (subject): the mother or
                 /// father of the head's spouse. Not a blood relative of the
                 /// subject, but pins the spouse's parent — and hence the spouse's
@@ -225,6 +237,17 @@ public nonisolated struct CensusRelationshipReconciler {
                     // (a tree-wide name-only search would over-match namesakes).
                     entries.append(.init(member: member, censusRelation: relation,
                                          status: .unlinkedInTree(profileID: existing.id)))
+                } else if let near = Self.nearMatchCandidate(
+                    member: member, relation: relation,
+                    treeRelatives: treeRelatives,
+                    rosterPeers: relationByMember.map { ($0.key, $0.value) },
+                    censusYear: year
+                ) {
+                    // Structural agreement without name agreement — surface for
+                    // confirmation instead of proposing a duplicate.
+                    entries.append(.init(member: member, censusRelation: relation,
+                                         status: .nearMatch(profileID: near.profile.id,
+                                                            reason: near.reason)))
                 } else {
                     entries.append(.init(member: member, censusRelation: relation, status: .missing))
                 }
@@ -255,7 +278,11 @@ public nonisolated struct CensusRelationshipReconciler {
                         kind: .contradiction, subjectID: subject.id,
                         censusRelation: relation, member: entry.member, censusYear: recon.censusYear,
                         treeRelativeID: treeRelativeID, treeRelation: treeRelation))
-                case .subject, .inTree, .inLawOfSpouse, .unlinkedInTree, .outOfScope:
+                case .subject, .inTree, .inLawOfSpouse, .unlinkedInTree, .nearMatch, .outOfScope:
+                    // `.nearMatch` is deliberately NOT a `.missing` finding: the
+                    // person is on the tree and linked, only the forename differs.
+                    // Emitting it would keep telling the owner to add someone they
+                    // already have.
                     break
                 }
             }
@@ -372,6 +399,107 @@ public nonisolated struct CensusRelationshipReconciler {
         default:
             return memberBirthYear(member, censusYear: censusYear) == nil
                 || profile.birthDate?.bestYear == nil
+        }
+    }
+
+    /// Surname agreement alone — the roster row's LAST name token against the
+    /// profile's birth or married surname, case-insensitively. The half of
+    /// `namesMatch` that carries structural weight: a forename is what a census
+    /// enumerator mishears or abbreviates, a surname is what the household is
+    /// known by.
+    static func surnamesMatch(member: HouseholdMember, profile: Profile) -> Bool {
+        let tokens = member.name.lowercased()
+            .split(whereSeparator: { $0 == " " || $0 == "," })
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        guard tokens.count >= 2, let memberSurname = tokens.last else { return false }
+        let profileSurnames = [profile.lastName, profile.marriedSurname]
+            .compactMap { $0?.lowercased().trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return profileSurnames.contains(memberSurname)
+    }
+
+    /// A roster row whose FORENAME fails the similarity floor but whose
+    /// STRUCTURE agrees: same census-implied relation, that relation a singleton
+    /// among the subject's tree relatives, matching surname, and both birth years
+    /// known and within `yearTolerance`.
+    ///
+    /// Every other rung in this file opens with `guard namesMatch` — so a
+    /// forename spelling defeats role, uniqueness and year evidence combined.
+    /// That is what reported Samuel Holmes's own wife and son as "not in the
+    /// tree" (census "Harriett" vs tree "Harriet", one edit; census "Wilfred D S"
+    /// vs tree "William", a second forename in daily use). The 0.85 floor stays —
+    /// it stops Dale/Gale-style near-names welding together — and this rung does
+    /// not link anything. It PROPOSES, for the human to confirm.
+    ///
+    /// Safety, deliberately narrow. Uniqueness must hold on BOTH sides, after
+    /// filtering by year and sex — counting only what is LINKED is not the same
+    /// as counting what exists, and an incomplete tree will happily look
+    /// unambiguous. (First cut of this rung counted tree relatives alone and
+    /// near-matched Samuel Wheeldon's mother onto his father: one parent linked,
+    /// both born 1824, both surnamed Wheeldon. The existing suite caught it.)
+    ///  - `namesMatch` must have FAILED. A name-agreeing relative whose year is
+    ///    wrong is a genuinely distinct person (families reused a dead child's
+    ///    name) and must stay `.missing` — never routed through here.
+    ///  - exactly ONE tree relative in that relation may agree on year and sex.
+    ///  - and no OTHER roster row in that relation may equally fit that
+    ///    candidate. Four children on the page and one on the tree is ambiguous
+    ///    unless year and sex single one out.
+    ///  - both sides must be dated. An undateable row already has
+    ///    `sameRoleFallbackMatch`; it does not get a forename bypass as well.
+    static func nearMatchCandidate(
+        member: HouseholdMember,
+        relation: CensusRelation,
+        treeRelatives: [(profile: Profile, relation: CensusRelation)],
+        rosterPeers: [(member: HouseholdMember, relation: CensusRelation)],
+        censusYear: Int?
+    ) -> (profile: Profile, reason: String)? {
+        guard let memberYear = memberBirthYear(member, censusYear: censusYear) else { return nil }
+
+        // Tree side: same role, year agrees, sex not contradicted — and unique.
+        let treeCandidates = treeRelatives.filter { rel in
+            rel.relation == relation
+                && !sexContradicts(member: member, profile: rel.profile)
+                && (rel.profile.birthDate?.bestYear)
+                    .map { abs($0 - memberYear) <= yearTolerance } ?? false
+        }
+        guard treeCandidates.count == 1, let candidate = treeCandidates.first?.profile,
+              let profileYear = candidate.birthDate?.bestYear else { return nil }
+        guard !namesMatch(member: member, profile: candidate) else { return nil }
+        guard surnamesMatch(member: member, profile: candidate) else { return nil }
+
+        // Roster side: no other row in the same role could equally be this person.
+        let rivals = rosterPeers.filter { peer in
+            peer.relation == relation
+                && peer.member != member
+                && !sexContradicts(member: peer.member, profile: candidate)
+                && memberBirthYear(peer.member, censusYear: censusYear)
+                    .map { abs($0 - profileYear) <= yearTolerance } ?? false
+        }
+        guard rivals.isEmpty else { return nil }
+
+        let roleWord: String
+        switch relation {
+        case .parent:  roleWord = "parent"
+        case .child:   roleWord = "child"
+        case .spouse:  roleWord = "spouse"
+        case .sibling: roleWord = "sibling"
+        }
+        let reason = "same surname and household role (\(roleWord)), the only \(roleWord) "
+            + "the years and sex allow on either side, birth years agree "
+            + "(\(memberYear) vs \(profileYear)) — only the forename differs"
+        return (candidate, reason)
+    }
+
+    /// True when the roster row and the profile state OPPOSITE sexes. Absent or
+    /// non-binary values never contradict — this only ever rules a pairing out,
+    /// it never rules one in.
+    static func sexContradicts(member: HouseholdMember, profile: Profile) -> Bool {
+        guard let s = member.sex?.uppercased().first, let g = profile.gender else { return false }
+        switch g {
+        case .male:   return s == "F"
+        case .female: return s == "M"
+        case .other, .unknown: return false
         }
     }
 

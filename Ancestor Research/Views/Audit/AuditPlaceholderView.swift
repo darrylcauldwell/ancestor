@@ -966,6 +966,19 @@ struct HealthView: View {
             }
             .buttonStyle(.glassProminent).controlSize(.mini)
             .help("\(name) is already in the tree — link them as \(subjectName(subjectID))\(relationWord(entry.censusRelation, sex: entry.member.sex)) instead of adding a duplicate")
+        case .nearMatch(let existingID, let reason):
+            let name = appState.snapshot.profiles[existingID]?.displayName ?? "existing profile"
+            Button {
+                if let relation = entry.censusRelation {
+                    appState.linkCensusRelative(subjectID: subjectID, existingID: existingID,
+                                                relation: relation, censusYear: censusYear)
+                    refreshAudit()
+                }
+            } label: {
+                Label("Same as \(name)?", systemImage: "questionmark.circle")
+            }
+            .buttonStyle(.glassProminent).controlSize(.mini)
+            .help("The census spells the forename differently, but \(reason). Confirm to link rather than add a duplicate.")
         case .outOfScope:
             rosterBadge("not family", "minus.circle", .secondary)
         }
