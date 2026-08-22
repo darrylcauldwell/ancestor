@@ -144,7 +144,7 @@ public nonisolated struct CensusRelationshipReconciler {
             // wrong reference frame — phantom contradictions (e.g. a Head's own
             // census read as if he were one of his sons). Verified by name+age.
             guard let target = details.household.first(where: { $0.isTarget == true }),
-                  Self.matches(member: target, profile: subject, censusYear: year)
+                  Self.anchorMatches(member: target, profile: subject, censusYear: year)
             else { continue }
 
             // The in-scope family relations, keyed by the roster MEMBER (not by
@@ -169,7 +169,8 @@ public nonisolated struct CensusRelationshipReconciler {
             var entries: [CensusReconciliation.RosterEntry] = []
             for member in details.household {
                 // The subject's own row first, so it is never read as a relative.
-                if member.isTarget == true, Self.matches(member: member, profile: subject, censusYear: year) {
+                if member.isTarget == true,
+                   Self.anchorMatches(member: member, profile: subject, censusYear: year) {
                     entries.append(.init(member: member, censusRelation: nil, status: .subject))
                     continue
                 }
@@ -400,6 +401,34 @@ public nonisolated struct CensusRelationshipReconciler {
             return memberBirthYear(member, censusYear: censusYear) == nil
                 || profile.birthDate?.bestYear == nil
         }
+    }
+
+    /// Does the roster's `isTarget` row identify THIS subject? Governs whether a
+    /// census is reconciled at all, so a false negative silently discards the
+    /// entire household.
+    ///
+    /// `matches` is tried first. When it fails, the forename is allowed to differ
+    /// provided surname, birth year and sex all agree — because a subject's own
+    /// row is the one place where a spelling variant costs everything. Harriet
+    /// Holmes's 1891 roster flags "Harriett HOLMES" (Wife, 34, born Longcliffe
+    /// Wharf) as the target; the tree holds "Harriet". One edit, 0.7, under the
+    /// 0.85 floor — so the guard rejected her own row, `reconciliations` skipped
+    /// the census entirely, and her three daughters Bertha, Minnie and Edith were
+    /// never offered. The same spelling that hid her census hid her children.
+    ///
+    /// The guard's real job is unaffected. It exists because a household can be
+    /// attached to several profiles, or carry a stale `isTarget`, and anchoring on
+    /// the wrong row puts every relation in the wrong reference frame. Requiring
+    /// surname + year + non-contradicting sex still refuses that: reconciling this
+    /// same roster for Samuel (M, 1847) against a target row of Harriett (F, 1857)
+    /// fails on both sex and year.
+    static func anchorMatches(member: HouseholdMember, profile: Profile, censusYear: Int?) -> Bool {
+        if matches(member: member, profile: profile, censusYear: censusYear) { return true }
+        guard !sexContradicts(member: member, profile: profile) else { return false }
+        guard surnamesMatch(member: member, profile: profile) else { return false }
+        guard let memberYear = memberBirthYear(member, censusYear: censusYear),
+              let profileYear = profile.birthDate?.bestYear else { return false }
+        return abs(memberYear - profileYear) <= yearTolerance
     }
 
     /// Surname agreement alone — the roster row's LAST name token against the

@@ -975,6 +975,61 @@ struct CensusRelationshipReconcilerTests {
         }
     }
 
+    // MARK: - Anchor row: a spelling variant must not discard the census
+
+    /// Owner dogfood 2026-08-22, second half of the Holmes case. Harriet's own
+    /// 1891 roster flags "Harriett HOLMES" as the target row; the tree holds
+    /// "Harriet". One edit, 0.7, under the 0.85 floor — so the anchor guard
+    /// rejected her OWN row, `reconciliations` skipped the whole census, and her
+    /// three daughters were never offered as missing. The same spelling that hid
+    /// her census hid her children.
+    @Test func anchorRowWithSpellingVariantStillReconcilesTheHousehold() throws {
+        let harriet = person("harriet", "Harriet", "Holmes", birthYear: 1857)
+        let samuel = person("samuel", "Samuel", "Holmes", birthYear: 1847)
+        let household = [
+            member("Samuel Holmes", "Head", age: 44),
+            member("Harriett Holmes", "Wife", age: 34, isTarget: true),
+            member("Bertha T Holmes", "Dau", age: 6),
+            member("Minnie Holmes", "Dau", age: 3)]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["harriet": harriet, "samuel": samuel],
+            relationships: [spouseEdge("harriet", "samuel")],
+            lifeEvents: ["harriet": [censusEvent("harriet", year: 1891, household: household)]])
+
+        let recons = CensusRelationshipReconciler.reconciliations(for: harriet, in: snapshot)
+        let recon = try #require(recons.first, "the census must be reconciled at all")
+        // Her own row is recognised as the subject, not read as a relative.
+        let hers = try #require(recon.entries.first { $0.member.name == "Harriett Holmes" })
+        #expect(hers.status == .subject)
+        // And the daughters now surface as people to add.
+        let missing = CensusRelationshipReconciler.findings(for: harriet, in: snapshot)
+            .filter { $0.kind == .missing }
+            .map(\.member.name)
+        #expect(missing.contains("Bertha T Holmes"))
+        #expect(missing.contains("Minnie Holmes"))
+    }
+
+    /// The guard's real job is intact: anchoring on the WRONG row would put every
+    /// relation in the wrong reference frame, so reconciling this same roster for
+    /// Samuel — whose target row is his wife — must still refuse. Sex and year
+    /// both contradict.
+    @Test func anchorRefusesWhenTheTargetRowIsSomeoneElse() {
+        let harriet = person("harriet", "Harriet", "Holmes", birthYear: 1857, gender: .female)
+        let samuel = person("samuel", "Samuel", "Holmes", birthYear: 1847, gender: .male)
+        var wife = member("Harriett Holmes", "Wife", age: 34, isTarget: true)
+        wife = HouseholdMember(name: wife.name, relationship: wife.relationship,
+                               age: wife.age, sex: "F", isTarget: true)
+        let household = [member("Samuel Holmes", "Head", age: 44), wife]
+        let snapshot = FamilyGraphSnapshot(
+            profiles: ["harriet": harriet, "samuel": samuel],
+            relationships: [spouseEdge("harriet", "samuel")],
+            // The SAME household hung on Samuel, whose target row is his wife.
+            lifeEvents: ["samuel": [censusEvent("samuel", year: 1891, household: household)]])
+
+        #expect(CensusRelationshipReconciler.reconciliations(for: samuel, in: snapshot).isEmpty,
+                "a target row that is a different person must still discard the census")
+    }
+
     // MARK: - Link existing instead of add duplicate
 
     /// A census relative who already EXISTS elsewhere in the tree (matched by
