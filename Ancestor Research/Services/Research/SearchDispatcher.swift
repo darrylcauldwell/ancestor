@@ -6,6 +6,14 @@ import os
 /// Sources are dumb pipes — the dispatcher builds the queries.
 @MainActor
 struct SearchDispatcher {
+    /// Why the strictness ladder stopped where it did. The dispatcher was
+    /// previously silent on this, and a stopped ladder is indistinguishable
+    /// from a ladder that ran and found nothing — four rounds of dogfood
+    /// (2026-08-22, Harriet Holmes's missing census) were spent inferring it
+    /// from the SHAPE of the outcome data instead of reading it.
+    private static let ladderLog = Logger(
+        subsystem: "dev.dreamfold.Ancestor-Research", category: "Ladder")
+
     let registry: SourceRegistry
 
     /// Per-source daily-budget tracker (ENGINE_FOUNDATION #Change5). When
@@ -477,6 +485,15 @@ struct SearchDispatcher {
             // ERROR as an empty; this is the mirror it was missing — refusing
             // to treat a rejected hit as a find.
             let plausible = tierRecords.filter { !discardedSourceRecordIDs.contains($0.id) }
+            Self.ladderLog.info("""
+                \(source.sourceID, privacy: .public)/\(recordType.rawValue, privacy: .public) \
+                tier=\(String(describing: strictness), privacy: .public) \
+                queries=\(tierQueries.count, privacy: .public) \
+                records=\(tierRecords.count, privacy: .public) \
+                plausible=\(plausible.count, privacy: .public) \
+                discardedKnown=\(self.discardedSourceRecordIDs.count, privacy: .public) \
+                → \(plausible.isEmpty ? "broaden" : "STOP", privacy: .public)
+                """)
             if !plausible.isEmpty {
                 break
             }
@@ -485,8 +502,29 @@ struct SearchDispatcher {
             // an errored/throttled/truncated tier is an artifact, and walking
             // on would hammer a failing source and launder the failure into
             // "searched the whole ladder, found nothing".
-            let tierConclusive = tierOutcomes.allSatisfy { $0.outcome.isConclusive }
+            //
+            // SKIPPED queries are excluded from that judgement. A deliberate
+            // non-search carries no information, so it must not veto
+            // broadening on behalf of the queries that DID answer. The
+            // dispatcher fans census years from `ScoringRules.censusYears`
+            // (…1911, 1921) while FreeCen holds only 1841–1911, so every
+            // subject whose window reached 1921 carried one skipped query —
+            // and one skipped query made the whole tier read as inconclusive,
+            // stopping FreeCen at `.strict` for anyone born after ~1850
+            // without a death date. If EVERY outcome was skipped then nothing
+            // was searched at all and there is nothing to broaden into (the
+            // Probate 1922–1995 case), so that still stops.
+            let answered = tierOutcomes.filter { !$0.outcome.wasSkipped }
+            let tierConclusive = !answered.isEmpty
+                && answered.allSatisfy { $0.outcome.isConclusive }
             if !tierConclusive {
+                Self.ladderLog.info("""
+                    \(source.sourceID, privacy: .public)/\(recordType.rawValue, privacy: .public) \
+                    tier=\(String(describing: strictness), privacy: .public) \
+                    STOP — tier not conclusive \
+                    (answered=\(answered.count, privacy: .public) \
+                    skipped=\(tierOutcomes.count - answered.count, privacy: .public))
+                    """)
                 break
             }
         }
@@ -1055,10 +1093,16 @@ struct SearchDispatcher {
 
         case "freecen":
             // Per applicable census year × Chapman codes (1 for .local, ~90 for .national).
+            // Intersect the subject's window with the years FreeCen actually
+            // HOLDS. `ScoringRules.censusYears` runs to 1921; FreeCen stops at
+            // 1911, so an unfiltered fan-out spent one request per subject on
+            // a year the source rejects out of hand — and, until the skipped-
+            // outcome fix above, that single rejection stopped the whole
+            // strictness ladder (owner dogfood 2026-08-22).
             let censusYears = ScoringRules.censusYears.filter { year in
                 let from = yearRange.from ?? 1841
                 let to = yearRange.to ?? 1911
-                return year >= from && year <= to
+                return year >= from && year <= to && FreeCenSource.validYears.contains(year)
             }
             // Per RESEARCH_AXES_SPEC §5.3 — FreeCen is chapman-coded, not
             // district-coded, so .parish/.district widen to .county.

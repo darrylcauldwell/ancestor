@@ -89,6 +89,27 @@ struct HarriettCensusDispatchTests {
         #expect(reason != nil, "and it should be a VISIBLE skip, not silence")
     }
 
+    /// No 1921 probe. `ScoringRules.censusYears` runs to 1921 and FreeCen holds
+    /// only 1841–1911, so an unfiltered fan-out spent a request per subject on a
+    /// year the source rejects — and that single rejection, mapping to
+    /// `.skipped`, made the whole tier read as inconclusive and stopped FreeCen's
+    /// strictness ladder at `.strict`. Her window reaches 1937 (no death date),
+    /// so she is exactly the shape that triggered it.
+    @Test func freeCenDoesNotProbeAYearItDoesNotHold() {
+        let queries = dispatcher().buildQueriesForTest(
+            source: FreeCenSource(), subject: harriett(),
+            recordType: .census, scope: .county
+        )
+        let years: Set<Int> = Set(queries.compactMap { q in
+            guard case .freeCen(let p) = q.sourceParams else { return nil }
+            return p.censusYear
+        })
+        #expect(!years.contains(1921), "FreeCen holds no 1921 census; got \(years.sorted())")
+        #expect(years.allSatisfy { FreeCenSource.validYears.contains($0) },
+                "every probed year must be one FreeCen actually holds; got \(years.sorted())")
+        #expect(years.contains(1891), "and the year that matters is still probed")
+    }
+
     /// Her given name must reach the wire as HARRIETT too at the variant tier —
     /// the census spells it with two t's (fixed in 5c6091c, asserted here in her
     /// own shape rather than in the abstract).

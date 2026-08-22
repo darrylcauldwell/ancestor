@@ -1252,6 +1252,23 @@ public nonisolated struct SearchOutcome: Sendable, Equatable {
         availability == .ok && !truncated
     }
 
+    /// True when nothing was searched BY CHOICE — an out-of-coverage census
+    /// year, a scope skip — rather than by failure.
+    ///
+    /// A skipped query carries no information in either direction: it must
+    /// neither prove emptiness nor block the strictness ladder from
+    /// broadening. Distinguishing it matters whenever ONE query in a
+    /// multi-query tier is out of coverage while the rest answered cleanly
+    /// (owner dogfood 2026-08-22: the dispatcher emits census years from
+    /// `ScoringRules.censusYears`, which includes 1921; FreeCen holds only
+    /// 1841–1911, so every subject whose census window reached 1921 had one
+    /// skipped query, which made the whole tier read as inconclusive and
+    /// stopped FreeCen's ladder dead at `.strict` — for years).
+    public var wasSkipped: Bool {
+        if case .skipped = availability { return true }
+        return false
+    }
+
     /// True when this outcome is a genuine "searched, found nothing" —
     /// the only shape that may be persisted as negative evidence.
     ///

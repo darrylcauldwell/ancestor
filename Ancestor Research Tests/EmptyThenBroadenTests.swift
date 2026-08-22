@@ -159,6 +159,61 @@ struct EmptyThenBroadenTests {
         #expect(calls == [.strict])
     }
 
+    // MARK: - A skipped query must not veto broadening
+
+    /// Owner dogfood 2026-08-22, and the actual reason Harriet Holmes's census
+    /// was unreachable for a whole session. The dispatcher fans census years
+    /// from `ScoringRules.censusYears` (…1911, 1921); FreeCen holds only
+    /// 1841–1911. Every subject whose census window reached 1921 therefore
+    /// carried ONE out-of-coverage query, which maps to `.skipped` — and one
+    /// skipped outcome made the entire tier read as inconclusive, breaking the
+    /// ladder at `.strict` even after the discard fix had correctly decided to
+    /// broaden. A deliberate non-search carries no information; it must not
+    /// veto the queries that did answer.
+    @Test func aSkippedQueryDoesNotBlockBroadening() {
+        let clean = Self.outcomeEntry(SearchOutcome(resultCount: 0))
+        let skipped = Self.outcomeEntry(
+            SearchOutcome(resultCount: 0, availability: .skipped(reason: "outside coverage: 1921")))
+        #expect(clean.outcome.isConclusive)
+        #expect(!skipped.outcome.isConclusive, "a skip is not a clean answer")
+        #expect(skipped.outcome.wasSkipped)
+        #expect(!clean.outcome.wasSkipped)
+
+        // The ladder's own predicate: skipped rows are excluded, the rest must
+        // all be clean, and at least one must have actually answered.
+        let tier = [clean, skipped]
+        let answered = tier.filter { !$0.outcome.wasSkipped }
+        #expect(!answered.isEmpty && answered.allSatisfy { $0.outcome.isConclusive },
+                "six clean empties + one out-of-coverage year must still broaden")
+    }
+
+    /// The case the 2026-07-30 `.skipped` mapping was written for is preserved:
+    /// when EVERY query was skipped, nothing was searched and there is nothing
+    /// to broaden into (the Probate 1922–1995 subject).
+    @Test func aFullySkippedTierStillStops() {
+        let skipped = Self.outcomeEntry(
+            SearchOutcome(resultCount: 0, availability: .skipped(reason: "outside coverage")))
+        let tier = [skipped, skipped]
+        let answered = tier.filter { !$0.outcome.wasSkipped }
+        #expect(answered.isEmpty)
+        #expect(!(!answered.isEmpty && answered.allSatisfy { $0.outcome.isConclusive }),
+                "nothing was searched — do not broaden")
+    }
+
+    /// A genuine failure still stops the ladder. The honesty envelope is
+    /// unchanged: an errored tier must not be laundered into "searched
+    /// everything, found nothing".
+    @Test func anErroredQueryStillBlocksBroadening() {
+        let clean = Self.outcomeEntry(SearchOutcome(resultCount: 0))
+        let errored = Self.outcomeEntry(
+            SearchOutcome(resultCount: 0, availability: .error(reason: "HTTP 500")))
+        let tier = [clean, errored]
+        let answered = tier.filter { !$0.outcome.wasSkipped }
+        #expect(!answered.isEmpty)
+        #expect(!answered.allSatisfy { $0.outcome.isConclusive },
+                "an error is not a skip — it must still stop the ladder")
+    }
+
     // MARK: - AC6.3 — discover skips .strict, escalates to .variant on empty
 
     @Test func ac6_3_discoverStartsAtLoose() async {
