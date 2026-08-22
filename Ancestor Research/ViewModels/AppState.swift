@@ -2907,6 +2907,26 @@ final class AppState {
         }
         let existingParents = snapshot.parentsOf(subject.id)
         let rosterHasParent = links.contains { $0.relation == .parent }
+
+        // ONE classifier. Every `present(...)` check below runs through
+        // `namesMatch`, so a relative already on the tree under a different
+        // FORENAME reads as net-new and gets offered for creation — a duplicate
+        // of someone the profile already holds. `CensusRelationshipReconciler`
+        // was taught to recognise those on 2026-08-22 (`.nearMatch`); this path
+        // was not, so Harriet Holmes's profile showed "Add 4 family members"
+        // beside "Add all 3" for the same 1891 census. The 4 included her own
+        // son, enumerated as "Wilfred D S HOLMES" against the tree's "William".
+        // Two rules over one household must give one answer.
+        let treeRelatives: [(profile: Profile, relation: CensusRelation)] =
+            snapshot.parentsOf(subject.id).map { ($0, CensusRelation.parent) }
+            + snapshot.childrenOf(subject.id).map { ($0, CensusRelation.child) }
+            + snapshot.spousesOf(subject.id).map { ($0, CensusRelation.spouse) }
+            + existingParents.flatMap { snapshot.childrenOf($0.id) }
+                .filter { $0.id != subject.id }
+                .map { ($0, CensusRelation.sibling) }
+        let rosterPeers: [(member: HouseholdMember, relation: CensusRelation)] =
+            links.map { ($0.member, $0.relation) }
+
         var out: [CensusFamilyLinker.Link] = []
         for link in links {
             switch link.relation {
@@ -2945,6 +2965,15 @@ final class AppState {
                     && CensusRelationshipReconciler.matchesTreeWide(
                         member: link.member, profile: $0, censusYear: censusYear)
             }) { continue }
+            // Same-person-different-forename guard, shared with the
+            // reconciliation view so the two can never report different counts.
+            // Narrow by construction: it fires only when the surname, birth year
+            // and sex all agree AND the relation is unambiguous on both sides —
+            // one candidate on the tree, no rival row on the roster.
+            if CensusRelationshipReconciler.nearMatchedRelativeID(
+                member: link.member, relation: link.relation,
+                treeRelatives: treeRelatives, rosterPeers: rosterPeers,
+                censusYear: censusYear) != nil { continue }
             out.append(link)
         }
         return out

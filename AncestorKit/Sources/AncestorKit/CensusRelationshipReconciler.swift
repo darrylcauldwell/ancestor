@@ -403,6 +403,31 @@ public nonisolated struct CensusRelationshipReconciler {
         }
     }
 
+    /// Public wrapper over the near-match rung, so the census ABSORPTION dedup
+    /// (`AppState.censusFamilyNetNewLinks`) asks exactly the question the
+    /// reconciliation view answers, instead of computing its own.
+    ///
+    /// Returns the id of the tree relative this roster row almost certainly IS,
+    /// or nil. Two rules over one household must never disagree: on 2026-08-22
+    /// Harriet Holmes's profile showed "Add 4 family members" beside "Add all 3"
+    /// for the same 1891 census, because the reconciler had been taught to
+    /// recognise "Wilfred D S HOLMES" as the tree's William and the absorption
+    /// dedup had not. The bigger number was the wrong one and it was the more
+    /// prominent button.
+    public static func nearMatchedRelativeID(
+        member: HouseholdMember,
+        relation: CensusRelation,
+        treeRelatives: [(profile: Profile, relation: CensusRelation)],
+        rosterPeers: [(member: HouseholdMember, relation: CensusRelation)],
+        censusYear: Int?
+    ) -> String? {
+        nearMatchCandidate(
+            member: member, relation: relation,
+            treeRelatives: treeRelatives, rosterPeers: rosterPeers,
+            censusYear: censusYear
+        )?.profile.id
+    }
+
     /// Does the roster's `isTarget` row identify THIS subject? Governs whether a
     /// census is reconciled at all, so a false negative silently discards the
     /// entire household.

@@ -975,6 +975,101 @@ struct CensusRelationshipReconcilerTests {
         }
     }
 
+    // MARK: - One household, one answer
+
+    /// Owner report 2026-08-22: Harriet Holmes's Health panel offered
+    /// "Add 4 family members" directly beside "Add all 3" for the SAME 1891
+    /// census. Two rules, one household, different counts — and the bigger,
+    /// more prominent number was the wrong one. It included her own son,
+    /// enumerated as "Wilfred D S HOLMES" against the tree's "William", so
+    /// pressing it would have duplicated a child she already had.
+    ///
+    /// Nothing on that screen let a user prefer 3 over 4; they would have had to
+    /// know which code path drew which button. The counts must agree by
+    /// construction, so both now run through the same near-match rung.
+    @MainActor
+    @Test func absorptionDedupAgreesWithTheReconciliationView() throws {
+        let db = try makeTempDB()
+        _ = try db.addProfile(person("harriet", "Harriet", "Holmes",
+                                     birthYear: 1857, gender: .female), source: .gedcom)
+        _ = try db.addProfile(person("samuel", "Samuel", "Holmes",
+                                     birthYear: 1847, gender: .male), source: .gedcom)
+        // Her son, on the tree as WILLIAM; the census calls him WILFRED D S.
+        _ = try db.addProfile(person("william", "William", "Holmes",
+                                     birthYear: 1882, gender: .male), source: .gedcom)
+        _ = try db.addRelationship(spouseEdge("harriet", "samuel"))
+        _ = try db.addRelationship(parentEdge("harriet", "william"))
+
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = try db.buildSnapshot()
+
+        // Sexed rows, as a real FreeCen roster is — without sex, a sister born
+        // within the ±3 year tolerance counts as a rival and the near-match
+        // rung correctly refuses (uniqueness is the guard that stops a
+        // forename bypass welding the wrong sibling together).
+        func sexed(_ name: String, _ rel: String, age: Int?, _ sex: String,
+                   isTarget: Bool = false) -> HouseholdMember {
+            HouseholdMember(name: name, relationship: rel, age: age,
+                            sex: sex, isTarget: isTarget)
+        }
+        let household = [
+            sexed("Samuel Holmes", "Head", age: 44, "M"),
+            sexed("Harriett Holmes", "Wife", age: 34, "F", isTarget: true),
+            sexed("Wilfred D S Holmes", "Son", age: 8, "M"),
+            sexed("Bertha T Holmes", "Dau", age: 6, "F"),
+            sexed("Minnie Holmes", "Dau", age: 3, "F")]
+
+        let netNew = appState.censusFamilyNetNewLinks(
+            CensusFamilyLinker.familyLinks(household: household),
+            subject: try #require(appState.snapshot.profiles["harriet"]),
+            censusYear: 1891)
+        let names = Set(netNew.map { $0.member.name })
+
+        #expect(!names.contains("Wilfred D S Holmes"),
+                "her linked son must not be offered as net-new; got \(names.sorted())")
+        #expect(names.contains("Bertha T Holmes"))
+        #expect(names.contains("Minnie Holmes"))
+        #expect(netNew.count == 2, "two genuinely new daughters; got \(names.sorted())")
+    }
+
+    /// The dedup must not swing the other way: a genuinely new child with the
+    /// same surname is still offered, even when a sibling of a similar age is
+    /// already on the tree. Families reused names and bore children two years
+    /// apart — the near-match rung's uniqueness guard is what keeps this honest.
+    @MainActor
+    @Test func absorptionStillOffersAGenuinelyNewChild() throws {
+        let db = try makeTempDB()
+        _ = try db.addProfile(person("harriet", "Harriet", "Holmes",
+                                     birthYear: 1857, gender: .female), source: .gedcom)
+        _ = try db.addProfile(person("william", "William", "Holmes",
+                                     birthYear: 1882, gender: .male), source: .gedcom)
+        _ = try db.addRelationship(parentEdge("harriet", "william"))
+
+        let appState = AppState()
+        appState.currentDatabase = db
+        appState.snapshot = try db.buildSnapshot()
+
+        // TWO sons on the roster of similar age — no unique candidate, so
+        // neither may be silently deduped against the one William on the tree.
+        func sexed(_ name: String, _ rel: String, age: Int?, _ sex: String,
+                   isTarget: Bool = false) -> HouseholdMember {
+            HouseholdMember(name: name, relationship: rel, age: age,
+                            sex: sex, isTarget: isTarget)
+        }
+        let household = [
+            sexed("Harriett Holmes", "Wife", age: 34, "F", isTarget: true),
+            sexed("Wilfred D S Holmes", "Son", age: 8, "M"),
+            sexed("Arthur Holmes", "Son", age: 9, "M")]
+
+        let netNew = appState.censusFamilyNetNewLinks(
+            CensusFamilyLinker.familyLinks(household: household),
+            subject: try #require(appState.snapshot.profiles["harriet"]),
+            censusYear: 1891)
+        #expect(netNew.count == 2,
+                "ambiguous roster — both sons stay net-new rather than one being absorbed")
+    }
+
     // MARK: - Anchor row: a spelling variant must not discard the census
 
     /// Owner dogfood 2026-08-22, second half of the Holmes case. Harriet's own
