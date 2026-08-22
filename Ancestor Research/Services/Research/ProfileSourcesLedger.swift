@@ -120,6 +120,32 @@ enum ProfileSourcesLedger {
         /// record carries one — twin index rows of the same registration share
         /// it even when their transcriptions (and so citations) differ.
         var registrationKey: String?
+        /// The census roster this record carries, when it has one. A CANDIDATE
+        /// census's household is the evidence that picks it out of a namesake
+        /// pile — a 14-year-old's parents and siblings are named on the page —
+        /// so the ledger row carries it and can show it BEFORE the record is
+        /// applied (owner dogfood 2026-08-22: three mutually-exclusive 1861
+        /// Samuel Holmes censuses, and the only route to any household was to
+        /// apply one first and read the evidence afterwards).
+        var household: [HouseholdMember] = []
+        /// A census with a detail page but no roster yet — the "Load household"
+        /// affordance. Fetch-only: it changes no facts.
+        var canLoadHousehold: Bool = false
+    }
+
+    /// A census whose household roster could still be fetched: a census record
+    /// with a detail URL but no roster yet. Pure — testable without a database.
+    /// FreeCen enriches only the TOP search hit at search time, so every other
+    /// candidate arrives roster-less.
+    nonisolated static func censusNeedsHousehold(_ record: SourceRecord) -> Bool {
+        guard case .census(let c) = record else { return false }
+        return (c.household ?? []).isEmpty && (c.common.detailURL?.isEmpty == false)
+    }
+
+    /// The roster a census record already carries (empty for every other type).
+    nonisolated static func censusHousehold(_ record: SourceRecord) -> [HouseholdMember] {
+        guard case .census(let c) = record else { return [] }
+        return c.household ?? []
     }
 
     /// The profile's LIFE ANCHORS — the established facts a candidate record
@@ -178,7 +204,9 @@ enum ProfileSourcesLedger {
                         .nilIfEmpty,
                     matchRank: matchRank(verdict: rec.verdict, gates: rec.gates),
                     duplicateIDs: [rec.sourceRecordID],
-                    registrationKey: RecordScorer.registrationKey(for: rec.record))
+                    registrationKey: RecordScorer.registrationKey(for: rec.record),
+                    household: censusHousehold(rec.record),
+                    canLoadHousehold: censusNeedsHousehold(rec.record))
             }
 
         // Collapse the same underlying entry saved more than once across runs
@@ -191,6 +219,17 @@ enum ProfileSourcesLedger {
             if let existing = byIdentity[key] {
                 var rep = existing.standing.sortOrder <= d.standing.sortOrder ? existing : d
                 rep.duplicateIDs = existing.duplicateIDs + d.duplicateIDs
+                // A roster is evidence, and only ONE of two re-scraped twins may
+                // have been enriched with it. Whichever copy wins the standing
+                // contest inherits it, so collapsing can never hide a household
+                // the profile has already fetched.
+                if rep.household.isEmpty {
+                    let other = rep.id == existing.id ? d : existing
+                    if !other.household.isEmpty {
+                        rep.household = other.household
+                        rep.canLoadHousehold = false
+                    }
+                }
                 byIdentity[key] = rep
             } else {
                 byIdentity[key] = d

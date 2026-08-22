@@ -268,6 +268,10 @@ struct SharedProfileLayout: View {
     @State private var expandedEvidenceBuckets: Set<String> = []
     /// An applied record the user is confirming removal of (un-apply inline).
     @State private var recordRemovalCandidate: ProfileSourcesLedger.RecordDetail?
+    /// Census record ids whose household fetch is in flight — one detail-page
+    /// GET against a volunteer-run source, so the row shows it is working and
+    /// the button can't be fired twice.
+    @State private var loadingHouseholdIDs: Set<String> = []
     @State private var candidateGroups: [[ResearchHypothesis]] = []
     @State private var proposals: [ProfileField: ConflictResolutionActions.ProposedResolution] = [:]
     /// Pending relationship unlink (edit-mode remove on parent/child/spouse
@@ -1467,6 +1471,43 @@ struct SharedProfileLayout: View {
             }
             HStack(spacing: 10) {
                 SourceVerifyLink(sourceID: rec.sourceID, citationURL: rec.citationURL)
+                // Read a CANDIDATE census's household before deciding on it.
+                //
+                // Owner dogfood 2026-08-22: Samuel Holmes has three mutually
+                // exclusive 1861 censuses (Matlock / Rowsley / Derby St
+                // Werburgh). Which one is his is a household question — the page
+                // names the parents and siblings of a 14-year-old — but until
+                // now the only route to any household was to APPLY a record
+                // first and read the evidence afterwards, writing a birth year
+                // and birthplace onto the profile to find out they were wrong.
+                // This is a fetch, not a tree change: it fills the record's own
+                // roster and nothing else.
+                if rec.canLoadHousehold {
+                    let loading = loadingHouseholdIDs.contains(rec.id)
+                    Button {
+                        loadingHouseholdIDs.insert(rec.id)
+                        Task {
+                            _ = await appState.loadCensusHousehold(
+                                sourceRecordID: rec.id, profileID: profile.id)
+                            loadingHouseholdIDs.remove(rec.id)
+                            reloadFactRecords()
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            if loading {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Image(systemName: "person.2")
+                            }
+                            Text(loading ? "Loading…" : "Household")
+                        }
+                        .font(AppTypography.badge)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
+                    .disabled(loading)
+                    .help("Fetches this census's household — one page from the source — so you can read who this person was living with BEFORE deciding. Changes nothing on the tree.")
+                }
                 // Apply in context — for records not already on the profile.
                 if rec.standing != .applied {
                     Button {
@@ -1507,6 +1548,35 @@ struct SharedProfileLayout: View {
                     .foregroundStyle(.red)
                     .help("Remove this applied record — reverts what it wrote (where the value is still its own), removes its life events, and won't be re-added by research. It stays in history and can be re-applied.")
                 }
+            }
+            // The roster, once fetched. Shown inline and unprompted: you loaded
+            // it in order to read it, and with several candidate censuses open
+            // at once the whole point is reading them side by side. The row for
+            // the person the search matched is marked, so a household is never
+            // read against the wrong member.
+            if !rec.household.isEmpty {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(Array(rec.household.prefix(24).enumerated()), id: \.offset) { _, member in
+                        HStack(alignment: .top, spacing: 6) {
+                            Text(CensusHouseholdFixRow.householdLine(member))
+                                .font(AppTypography.badge)
+                                .foregroundStyle(member.isTarget == true ? .primary : .secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            if member.isTarget == true {
+                                Text("this record")
+                                    .font(AppTypography.badge)
+                                    .foregroundStyle(.blue)
+                            }
+                        }
+                    }
+                    if rec.household.count > 24 {
+                        Text("… and \(rec.household.count - 24) more in the household")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.leading, 12)
+                .padding(.top, 2)
             }
         }
         .padding(.vertical, 2)

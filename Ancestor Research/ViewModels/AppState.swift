@@ -597,8 +597,7 @@ final class AppState {
     /// still fetch: a census record with a detail URL but no roster yet. Pure —
     /// testable without a database.
     nonisolated static func censusNeedsHousehold(_ record: SourceRecord) -> Bool {
-        guard case .census(let c) = record else { return false }
-        return (c.household ?? []).isEmpty && (c.common.detailURL?.isEmpty == false)
+        ProfileSourcesLedger.censusNeedsHousehold(record)
     }
 
     /// Fetch a specific census's household roster on demand — one detail-page GET
@@ -628,9 +627,23 @@ final class AppState {
         do {
             // The review card / cluster absorption reads the evidence record.
             try db.updateEvidenceRecordJSON(evidenceID: evidence.id, record: .census(enriched))
-            // The applied census life-event(s) for this year get the roster too.
-            for var ev in (snapshot.lifeEvents[profileID] ?? [])
-                where ev.type == .census && ev.date?.bestYear == census.censusYear {
+            // The applied census life-event(s) get the roster too.
+            //
+            // Matched by THIS record's own deterministic (profile, record) event
+            // id — not by year alone. The profile ledger can now fetch a
+            // household for an UNAPPLIED candidate census, and two candidates for
+            // the same year is exactly the case a bare year-match confuses: a
+            // namesake's roster must never come to rest on the applied census's
+            // event. The year-match survives only for the applied record itself,
+            // which is how pre-existing events (projected under an older record
+            // id) still get filled.
+            let ownEventID = SourceRecord.deterministicID(
+                profileID: profileID, sourceRecordID: census.common.id)
+            let isApplied = evidence.wasApplied(to: snapshot.profiles[profileID])
+            for var ev in (snapshot.lifeEvents[profileID] ?? []) where ev.type == .census {
+                let isOwnEvent = ev.id == ownEventID
+                let isAppliedYearMatch = isApplied && ev.date?.bestYear == census.censusYear
+                guard isOwnEvent || isAppliedYearMatch else { continue }
                 guard case .census(var c)? = ev.details, c.household.isEmpty else { continue }
                 c.household = household
                 ev.details = .census(c)
