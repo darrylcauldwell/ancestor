@@ -453,6 +453,51 @@ nonisolated struct ScoringRules {
         return cluster.sorted()
     }
 
+    /// ORTHOGRAPHIC spelling variants of a forename — the same name written two
+    /// ways, as distinct from `givenNameVariants`, which walks the NICKNAME graph
+    /// (Harry↔Henry, Elsie↔Elizabeth).
+    ///
+    /// Owner dogfood 2026-08-22: Harriet Holmes's own 1891 census was invisible to
+    /// every FreeCen probe because the enumerator wrote HARRIETT with two t's. The
+    /// nickname cluster has nothing to say about that — it is not a different
+    /// name, it is the same name spelled differently — and the surname fan-out is
+    /// the wrong axis. So the query never went out under the spelling the record
+    /// was filed under.
+    ///
+    /// Deliberately conservative: two rules that are near-universal in
+    /// nineteenth-century registers, and no generative letter-swapping (which
+    /// would fan junk queries at a volunteer-run source for no gain):
+    ///  1. terminal consonant doubled or undoubled — HARRIET↔HARRIETT,
+    ///     PHILIP↔PHILIPP. Undoubling needs 5+ letters so ANN does not become AN.
+    ///  2. trailing silent E on a doubled-N stem — ANN↔ANNE, JOANN↔JOANNE. Kept
+    ///     this narrow on purpose: a general "add a trailing E" rule turns
+    ///     HARRIET into HARRIETE and spends a volunteer source's budget on a
+    ///     spelling nobody ever used.
+    static func orthographicGivenNameVariants(of name: String) -> [String] {
+        let start = name.uppercased().trimmingCharacters(in: .whitespaces)
+        guard start.count >= 3, start.allSatisfy({ $0.isLetter }) else { return [] }
+        var out: Set<String> = []
+        let chars = Array(start)
+
+        // 1. Terminal consonant doubling / undoubling.
+        if let last = chars.last, "TLNSPRFDGM".contains(last) {
+            if chars.count >= 5, chars[chars.count - 2] == last {
+                out.insert(String(chars.dropLast()))        // HARRIETT → HARRIET
+            } else if chars[chars.count - 2] != last {
+                out.insert(start + String(last))            // HARRIET → HARRIETT
+            }
+        }
+        // 2. Trailing silent E on a doubled-N stem.
+        if start.hasSuffix("NNE") {
+            out.insert(String(chars.dropLast()))            // ANNE → ANN
+        } else if start.hasSuffix("NN") {
+            out.insert(start + "E")                         // ANN → ANNE
+        }
+
+        out.remove(start)
+        return out.sorted()
+    }
+
     // MARK: - Pattern Rules
 
     /// If mother-in-law has a different surname, that's the wife's maiden name.

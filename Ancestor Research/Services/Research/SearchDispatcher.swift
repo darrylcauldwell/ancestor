@@ -842,12 +842,24 @@ struct SearchDispatcher {
                     // queries stay on the surname-fan path above and keep the
                     // storm guard. Bounded (clusters are tiny) and the tier's
                     // dedup collapses any collisions.
+                    // The cluster covers NICKNAMES (Harry↔Henry). It says nothing
+                    // about the same name SPELLED two ways, so a record filed
+                    // under HARRIETT was unreachable for a tree holding HARRIET
+                    // (owner dogfood 2026-08-22 — her own census was invisible to
+                    // every probe). Union the orthographic variants in.
                     let givenName = (q.givenName ?? "").trimmingCharacters(in: .whitespaces)
                     let fannedGivens: [String?]
                     if givenName.isEmpty {
                         fannedGivens = [q.givenName]
                     } else {
-                        fannedGivens = [q.givenName] + ScoringRules.givenNameVariants(of: givenName)
+                        var seen = Set<String>([givenName.uppercased()])
+                        var extras: [String] = []
+                        for v in ScoringRules.givenNameVariants(of: givenName)
+                            + ScoringRules.orthographicGivenNameVariants(of: givenName)
+                        where seen.insert(v.uppercased()).inserted {
+                            extras.append(v)
+                        }
+                        fannedGivens = [q.givenName] + extras
                     }
 
                     // Each fanned-out query carries strictness=.variant so the
