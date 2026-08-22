@@ -2876,6 +2876,18 @@ final class AppState {
         var absorb: CensusHouseholdProposal?
         for ev in evidence {
             guard case .census(let c) = ev.record else { continue }
+            // A REJECTED RECORD PROPOSES NOTHING, EVER. The three applied-signals
+            // below are all *retroactive inferences* — evidence status, a
+            // projected life event, a fact citing the record's URL — and an
+            // inference must never outvote the user's explicit verdict.
+            //
+            // Owner dogfood 2026-08-22: Samuel Holmes was offered "Add 1 family
+            // member" from the Derby St Werburgh household he had just rejected,
+            // which would have grafted a Derby silk-mill family's 21-year-old
+            // daughter on as his sister. The un-apply had left one orphaned
+            // birthLocation attestation behind, still citing the Derby detail
+            // URL, and `citedByFact` read that as proof the record was applied.
+            guard ev.userStatus != .discarded else { continue }
             let projectedID = SourceRecord.deterministicID(
                 profileID: subject.id, sourceRecordID: c.common.id)
             let citedByFact = c.common.detailURL.map { appliedCitationURLs.contains($0) } ?? false
