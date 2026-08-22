@@ -50,10 +50,13 @@ struct CensusHouseholdFixRow: View {
             // mother-in-law is a two-generation unlock; the count clears once added).
             let total = links.count + inLaws
             VStack(alignment: .leading, spacing: 3) {
+                // State the whole and the part, so the number reads as a subset
+                // of a list the reader can see rather than a claim they must
+                // take on trust.
                 row(icon: "person.2.badge.plus",
                     text: inLaws > 0
-                        ? "In the \(String(year)) census — \(links.count) household member\(links.count == 1 ? "" : "s") + \(inLaws) in-law grandparent\(inLaws == 1 ? "" : "s") not on the tree"
-                        : "In the \(String(year)) census with \(links.count) household member\(links.count == 1 ? "" : "s") not on the tree") {
+                        ? "\(String(year)) census · \(household.count) in the household · \(links.count) not on the tree, plus \(inLaws) in-law grandparent\(inLaws == 1 ? "" : "s")"
+                        : "\(String(year)) census · \(household.count) in the household · \(links.count) not on the tree") {
                     if let reviewInProfile {
                         // Health-list host: adding N people is a tree change, so
                         // route to the profile to confirm in full context rather
@@ -104,11 +107,32 @@ struct CensusHouseholdFixRow: View {
 
     @ViewBuilder
     private func roster(links: [CensusFamilyLinker.Link], household: [HouseholdMember]) -> some View {
+        // EVERY household row, each carrying what the tree already knows about
+        // it — not just the ones that would be added.
+        //
+        // Owner request 2026-08-22. This row previously listed only the net-new
+        // members beside a count, so "Add 4 family members" was an assertion the
+        // reader had no way to check; they would have had to compare the roster
+        // against the tree by hand, which is the app's job. It was wrong twice in
+        // one day — 5 on Samuel Holmes, 4 on Harriet — each time including a
+        // relative already linked to the profile. Showing the whole household
+        // makes the count a CONSEQUENCE of visible rows: the "add" markers are
+        // literally `links`, so the button and the list cannot disagree.
+        let addSet = Set(links.map { $0.member })
+        let statuses = rosterStatuses(household: household)
         VStack(alignment: .leading, spacing: 1) {
-            ForEach(Array(links.enumerated()), id: \.offset) { _, link in
-                Text(Self.rosterLine(link))
-                    .font(AppTypography.badge)
-                    .foregroundStyle(.secondary)
+            ForEach(Array(household.enumerated()), id: \.offset) { _, member in
+                HStack(alignment: .top, spacing: 6) {
+                    Text(Self.householdLine(member))
+                        .font(AppTypography.badge)
+                        .foregroundStyle(addSet.contains(member) ? .primary : .secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(statusLabel(for: member, isAdd: addSet.contains(member),
+                                     status: statuses[member]))
+                        .font(AppTypography.badge)
+                        .foregroundStyle(statusTint(isAdd: addSet.contains(member),
+                                                    status: statuses[member]))
+                }
             }
             if let target = household.first(where: { $0.isTarget == true }),
                let born = target.birthPlace?.trimmingCharacters(in: .whitespaces),
@@ -125,6 +149,71 @@ struct CensusHouseholdFixRow: View {
             }
         }
         .padding(.leading, 24)
+    }
+
+    // MARK: - Per-row tree status
+
+    /// What the reconciler makes of each roster row, keyed by member. One
+    /// classifier for the whole surface — the same statuses the Health tab's
+    /// roster renders — so this list can never tell a different story from the
+    /// `censusRelationship` finding sitting beside it.
+    private func rosterStatuses(
+        household: [HouseholdMember]
+    ) -> [HouseholdMember: CensusRelationshipReconciler.CensusReconciliation.RosterEntry.Status] {
+        var out: [HouseholdMember: CensusRelationshipReconciler.CensusReconciliation.RosterEntry.Status] = [:]
+        for recon in CensusRelationshipReconciler.reconciliations(for: profile, in: appState.snapshot) {
+            for entry in recon.entries where household.contains(entry.member) {
+                out[entry.member] = entry.status
+            }
+        }
+        return out
+    }
+
+    private func name(_ id: String) -> String {
+        appState.snapshot.profiles[id]?.displayName ?? "a profile"
+    }
+
+    private func statusLabel(
+        for member: HouseholdMember, isAdd: Bool,
+        status: CensusRelationshipReconciler.CensusReconciliation.RosterEntry.Status?
+    ) -> String {
+        if isAdd { return "add" }
+        switch status {
+        case .subject:                       return "this person"
+        case .inTree(let pid):               return "✓ \(name(pid))"
+        case .nearMatch(let pid, _):         return "✓ \(name(pid))"
+        case .unlinkedInTree(let pid):       return "link \(name(pid))"
+        case .contradiction(let tid, _):     return "⚠ conflicts with \(name(tid))"
+        case .inLawOfSpouse:                 return "in-law"
+        case .outOfScope:                    return "not family"
+        case .missing, .none:                return ""
+        }
+    }
+
+    private func statusTint(
+        isAdd: Bool,
+        status: CensusRelationshipReconciler.CensusReconciliation.RosterEntry.Status?
+    ) -> Color {
+        if isAdd { return .blue }
+        if case .contradiction = status { return .orange }
+        if case .inTree = status { return .green }
+        if case .nearMatch = status { return .green }
+        return .secondary
+    }
+
+    /// One household line: "• Name — daughter · age 6 · born Via Gellia".
+    /// Unlike `rosterLine` this takes a raw roster member, because the list now
+    /// shows every row rather than only the net-new ones.
+    nonisolated static func householdLine(_ m: HouseholdMember) -> String {
+        var parts = ["\(m.name) — \(m.relationship.lowercased())"]
+        if let a = m.age { parts.append("age \(a)") }
+        else if let raw = m.rawAge?.trimmingCharacters(in: .whitespaces), !raw.isEmpty {
+            parts.append("age \(raw)")
+        }
+        if let bp = m.birthPlace?.trimmingCharacters(in: .whitespaces), !bp.isEmpty {
+            parts.append("born \(bp)")
+        }
+        return "• " + parts.joined(separator: " · ")
     }
 
     /// One roster line: "• Name — father · age 56 · born Wigan".
