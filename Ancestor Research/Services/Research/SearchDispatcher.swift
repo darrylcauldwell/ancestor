@@ -16,6 +16,25 @@ struct SearchDispatcher {
     /// as before this Change.
     var budgetTracker: SourceBudgetTracker? = nil
 
+    /// Source-record IDs the human has already DISCARDED for this subject
+    /// (`ProjectDatabase.loadRejections`). A discarded record is not a find —
+    /// it is a recorded verdict that this is the wrong person — so it must not
+    /// satisfy the ladder's stop condition.
+    ///
+    /// Owner dogfood 2026-08-22. Harriet Holmes is a Holmes who married a
+    /// Holmes, so her `.strict` census probe is guaranteed to return namesakes.
+    /// It returned one — a Derby foundry family — the ladder stopped there, and
+    /// `.loose` (FreeCen's own server-side fuzzy) and `.variant` (the
+    /// HARRIET→HARRIETT fan-out) never ran. Her actual 1891 census, which the
+    /// app already held under her husband, stayed unreachable. Worse, she had
+    /// DISCARDED the Derby record: she told the app it was the wrong woman and
+    /// the app kept using it as the reason not to look further.
+    ///
+    /// With this set populated, reviewing becomes search input — every discard
+    /// widens the next run instead of narrowing it. Empty by default, so every
+    /// caller that doesn't supply it behaves exactly as before.
+    var discardedSourceRecordIDs: Set<String> = []
+
     /// Dispatch searches across all enabled sources for the given record types.
     /// `scope` widens fan-out for scope-aware sources (FreeBMD; FreeCen/FreeREG later).
     /// Sources declaring `.inherentlyNational` / `.anchorPinned` /
@@ -444,11 +463,28 @@ struct SearchDispatcher {
 
             guard mode != .all else { continue }
 
-            // Empty-then-broaden: stop at the first tier with results.
-            if !tierRecords.isEmpty {
+            // Empty-then-broaden: stop at the first tier that returns a
+            // PLAUSIBLE find — not merely at the first tier that returns rows.
+            //
+            // Rows the human has already discarded are not a find. Counting
+            // them made the reviewer's own work narrow the search: reject the
+            // wrong candidate, and the wrong candidate goes on suppressing the
+            // looser tiers for ever. For a common name in a big county the
+            // strict tier will nearly always return SOMETHING, so the profiles
+            // that most need broadening were exactly the ones that never did.
+            //
+            // Note the honesty envelope below already refuses to treat an
+            // ERROR as an empty; this is the mirror it was missing — refusing
+            // to treat a rejected hit as a find.
+            let plausible = tierRecords.filter { !discardedSourceRecordIDs.contains($0.id) }
+            if !plausible.isEmpty {
                 break
             }
-            // Empty tier — broaden only when the emptiness is conclusive.
+            // Nothing plausible: either genuinely empty, or every row was
+            // already rejected. Broaden only when the tier answered cleanly —
+            // an errored/throttled/truncated tier is an artifact, and walking
+            // on would hammer a failing source and launder the failure into
+            // "searched the whole ladder, found nothing".
             let tierConclusive = tierOutcomes.allSatisfy { $0.outcome.isConclusive }
             if !tierConclusive {
                 break

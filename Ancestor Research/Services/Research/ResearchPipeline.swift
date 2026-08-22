@@ -297,12 +297,20 @@ final class ResearchPipeline {
             }
             var dispatchedRecords: [SourceRecord] = []
             var dispatchOutcomes: [SearchOutcomeEntry] = []
+            // The subject's already-rejected records, so the strictness ladder
+            // does not treat a candidate the human has dismissed as a reason to
+            // stop looking (see `SearchDispatcher.discardedSourceRecordIDs`).
+            // The dispatcher is a value type, so this is a per-subject copy —
+            // the pipeline's own dispatcher is untouched.
+            var subjectDispatcher = dispatcher
+            subjectDispatcher.discardedSourceRecordIDs =
+                state.subject.profileID.flatMap { rejectionLookup?($0) } ?? []
             for (idx, stageTypes) in typesByStageIndex.sorted(by: { $0.key < $1.key }) {
                 let stage = stageLadder[idx]
                 await ResearchActivityBus.shared.publish(.pipelineStage(
                     message: "Stage \(idx + 1)/\(stageLadder.count) — \(stage.displayName): \(stageTypes.map(\.rawValue).sorted().joined(separator: ", "))"
                 ))
-                let (stageRecords, stageOutcomes) = await dispatcher.dispatchWithOutcomes(
+                let (stageRecords, stageOutcomes) = await subjectDispatcher.dispatchWithOutcomes(
                     subject: state.subject,
                     recordTypes: stageTypes,
                     scope: config.scope,

@@ -70,6 +70,95 @@ struct EmptyThenBroadenTests {
                 "extend should stop at .strict when it returns results; got \(calls)")
     }
 
+    // MARK: - Discarded records do not satisfy the ladder's stop condition
+
+    /// Owner dogfood 2026-08-22. Harriet Holmes is a Holmes who married a
+    /// Holmes, so her `.strict` census probe is guaranteed to return namesakes.
+    /// It returned one, the ladder stopped, and the tiers that would have found
+    /// her real census never ran. She had already DISCARDED that namesake — she
+    /// told the app it was the wrong woman, and the app went on using it as the
+    /// reason not to look further.
+    @Test func discardedStrictHitDoesNotStopTheLadder() async {
+        let stub = TierRecordingSource(emptyAt: [], resultsPerTier: 1)
+        var dispatcher = makeDispatcher(stub: stub)
+        dispatcher.discardedSourceRecordIDs = ["stub-strict-0"]
+        _ = await dispatcher.dispatch(
+            subject: makeSubject(),
+            recordTypes: [.death],
+            scope: .county,
+            mode: .extend
+        )
+        let calls = await stub.tierCalls
+        #expect(calls == [.strict, .loose],
+                "a discarded hit is not a find — the ladder must broaden; got \(calls)")
+    }
+
+    /// The mirror: an UNREVIEWED hit still stops the ladder. This change must
+    /// not turn every run into a full-ladder walk.
+    @Test func undiscardedHitStillStopsTheLadder() async {
+        let stub = TierRecordingSource(emptyAt: [], resultsPerTier: 1)
+        var dispatcher = makeDispatcher(stub: stub)
+        dispatcher.discardedSourceRecordIDs = ["some-other-record"]
+        _ = await dispatcher.dispatch(
+            subject: makeSubject(),
+            recordTypes: [.death],
+            scope: .county,
+            mode: .extend
+        )
+        let calls = await stub.tierCalls
+        #expect(calls == [.strict], "an unreviewed hit still satisfies the stop; got \(calls)")
+    }
+
+    /// Partial discard: one of two hits rejected still leaves a plausible find,
+    /// so the ladder stops. Only a tier with NOTHING left broadens.
+    @Test func partiallyDiscardedTierStillStopsTheLadder() async {
+        let stub = TierRecordingSource(emptyAt: [], resultsPerTier: 2)
+        var dispatcher = makeDispatcher(stub: stub)
+        dispatcher.discardedSourceRecordIDs = ["stub-strict-0"]      // stub-strict-1 survives
+        _ = await dispatcher.dispatch(
+            subject: makeSubject(),
+            recordTypes: [.death],
+            scope: .county,
+            mode: .extend
+        )
+        let calls = await stub.tierCalls
+        #expect(calls == [.strict], "one surviving candidate is still a find; got \(calls)")
+    }
+
+    /// Discards accumulate down the ladder: reject the strict hit AND the loose
+    /// hit and `discover`/`all`-style walking continues to `.variant`. This is
+    /// the property that makes review work FEED the search rather than narrow
+    /// it — every dismissal widens the next run.
+    @Test func discardsAtEveryTierWalkTheWholeLadder() async {
+        let stub = TierRecordingSource(emptyAt: [], resultsPerTier: 1)
+        var dispatcher = makeDispatcher(stub: stub)
+        dispatcher.discardedSourceRecordIDs = ["stub-strict-0", "stub-loose-0"]
+        _ = await dispatcher.dispatch(
+            subject: makeSubject(),
+            recordTypes: [.death],
+            scope: .county,
+            mode: .discover                       // ladder = [.loose, .variant]
+        )
+        let calls = await stub.tierCalls
+        #expect(calls == [.loose, .variant],
+                "a discarded loose hit must not stop discover; got \(calls)")
+    }
+
+    /// The honesty envelope is unchanged in the other direction: the default
+    /// (no discards known) behaves exactly as before.
+    @Test func emptyDiscardSetPreservesLegacyBehaviour() async {
+        let stub = TierRecordingSource(emptyAt: [], resultsPerTier: 1)
+        let dispatcher = makeDispatcher(stub: stub)          // discards default to []
+        _ = await dispatcher.dispatch(
+            subject: makeSubject(),
+            recordTypes: [.death],
+            scope: .county,
+            mode: .extend
+        )
+        let calls = await stub.tierCalls
+        #expect(calls == [.strict])
+    }
+
     // MARK: - AC6.3 — discover skips .strict, escalates to .variant on empty
 
     @Test func ac6_3_discoverStartsAtLoose() async {
