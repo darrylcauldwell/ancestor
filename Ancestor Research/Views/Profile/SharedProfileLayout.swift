@@ -577,7 +577,14 @@ struct SharedProfileLayout: View {
             }
             Button("Cancel", role: .cancel) { recordRemovalCandidate = nil }
         } message: { rec in
-            Text("Reverts the fields this \(rec.recordType.rawValue) record set (where they still hold its value), removes its life events, and remembers the rejection so research won't re-add it. It stays in history and can be re-applied.")
+            // NAME THE RECORD. A profile can hold several applied records of the
+            // same type — Samuel Holmes briefly had two applied censuses — and a
+            // dialog that says only "this census record" cannot catch a
+            // wrong-row click, which is the one job a destructive confirmation
+            // has. Owner dogfood 2026-08-22: the correct 1891 census was
+            // un-applied by mistake and confirmed through this dialog, because
+            // nothing in it distinguished that record from the 1861 one.
+            Text("\(rec.citation)\n\nReverts the fields this record set (where they still hold its value), removes its life events, and remembers the rejection so research won't re-add it. It stays in history and can be re-applied.")
         }
         .sheet(isPresented: $showingNoteComposer) {
             NoteComposerView(initial: nil, attachedTo: .profile(id: profile.id))
@@ -1418,8 +1425,22 @@ struct SharedProfileLayout: View {
                 .buttonStyle(.plain)
                 if open {
                     let cap = 20
+                    let shown = Array(records.prefix(cap))
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(records.prefix(cap)) { recordLine($0, showPill: false) }
+                        // A rule between candidates. Rival records for the SAME
+                        // fact stack here — three mutually exclusive 1861
+                        // censuses for one man — and once a record can carry a
+                        // multi-line household the boundary between "still this
+                        // record" and "the next one" stops being obvious from
+                        // spacing alone. One of them is going to be applied and
+                        // the others rejected, so which block a button belongs
+                        // to must be unmistakable.
+                        ForEach(Array(shown.enumerated()), id: \.element.id) { index, rec in
+                            if index > 0 {
+                                Divider().opacity(0.4).padding(.vertical, 2)
+                            }
+                            recordLine(rec, showPill: false)
+                        }
                         // A pending bucket can hold hundreds of namesake leads —
                         // capping keeps the view tree bounded, and bulk-review
                         // belongs in Triage, not this in-context expander.
@@ -1469,6 +1490,19 @@ struct SharedProfileLayout: View {
                     .italic()
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // EVIDENCE FIRST, THEN THE ACTIONS ON IT. The roster belongs above
+            // this record's buttons, never below them.
+            //
+            // Owner dogfood 2026-08-22, within an hour of shipping the roster:
+            // the wrong 1861 census was applied to Samuel Holmes. Rendering the
+            // household UNDER the action row left six lines of evidence between
+            // a record's citation and its own Apply, and put the NEXT record's
+            // Apply directly beneath the household just read. Reading down and
+            // clicking the button under the evidence is the correct instinct;
+            // the layout punished it. Now each record reads citation → roster →
+            // its own actions, so the nearest button always acts on the nearest
+            // evidence.
+            householdRoster(rec)
             HStack(spacing: 10) {
                 SourceVerifyLink(sourceID: rec.sourceID, citationURL: rec.citationURL)
                 // Read a CANDIDATE census's household before deciding on it.
@@ -1549,37 +1583,43 @@ struct SharedProfileLayout: View {
                     .help("Remove this applied record — reverts what it wrote (where the value is still its own), removes its life events, and won't be re-added by research. It stays in history and can be re-applied.")
                 }
             }
-            // The roster, once fetched. Shown inline and unprompted: you loaded
-            // it in order to read it, and with several candidate censuses open
-            // at once the whole point is reading them side by side. The row for
-            // the person the search matched is marked, so a household is never
-            // read against the wrong member.
-            if !rec.household.isEmpty {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(Array(rec.household.prefix(24).enumerated()), id: \.offset) { _, member in
-                        HStack(alignment: .top, spacing: 6) {
-                            Text(CensusHouseholdFixRow.householdLine(member))
-                                .font(AppTypography.badge)
-                                .foregroundStyle(member.isTarget == true ? .primary : .secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            if member.isTarget == true {
-                                Text("this record")
-                                    .font(AppTypography.badge)
-                                    .foregroundStyle(.blue)
-                            }
-                        }
-                    }
-                    if rec.household.count > 24 {
-                        Text("… and \(rec.household.count - 24) more in the household")
-                            .font(AppTypography.badge)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .padding(.leading, 12)
-                .padding(.top, 2)
-            }
         }
         .padding(.vertical, 2)
+    }
+
+    /// The census roster, once fetched. Shown inline and unprompted: you loaded
+    /// it in order to read it, and with several candidate censuses open at once
+    /// the whole point is reading them side by side. The row the search matched
+    /// is marked, so a household is never read against the wrong member.
+    ///
+    /// Rendered by `recordLine` ABOVE that record's action row — see the note
+    /// there; the ordering is load-bearing, not cosmetic.
+    @ViewBuilder
+    private func householdRoster(_ rec: ProfileSourcesLedger.RecordDetail) -> some View {
+        if !rec.household.isEmpty {
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(Array(rec.household.prefix(24).enumerated()), id: \.offset) { _, member in
+                    HStack(alignment: .top, spacing: 6) {
+                        Text(CensusHouseholdFixRow.householdLine(member))
+                            .font(AppTypography.badge)
+                            .foregroundStyle(member.isTarget == true ? .primary : .secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if member.isTarget == true {
+                            Text("this record")
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                }
+                if rec.household.count > 24 {
+                    Text("… and \(rec.household.count - 24) more in the household")
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.leading, 12)
+            .padding(.vertical, 2)
+        }
     }
 
     @ViewBuilder
