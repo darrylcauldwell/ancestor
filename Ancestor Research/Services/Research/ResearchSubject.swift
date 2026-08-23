@@ -478,6 +478,37 @@ nonisolated extension ResearchSubject {
             let earliest = birthYearFrom ?? 1841
             let latest = deathYearTo ?? (birthYearTo.map { $0 + 80 } ?? 1911)
             return (earliest, latest)
+        case .parish:
+            // A parish register spans the WHOLE life — baptism at the start,
+            // marriage in the middle, burial at the end — so the window is the
+            // UNION of the event-shaped windows. That way it inherits the
+            // derived-anchor padding on the birth side and the +95 longevity
+            // fallback on the death side, and both of those keep improving in
+            // one place.
+            //
+            // The old fallthrough returned (birthYearFrom, deathYearTo ??
+            // birthYearTo): for a subject with NO death date the window
+            // collapsed to the birth year alone — as if a person's parish
+            // records end the year they were born. Mary Stevenson's parish
+            // searches went to the wire as start_year=1825&end_year=1825, so
+            // her 1823 Youlgreave baptism could not be returned by ANY
+            // spelling of any name — while the ladder, the variant fan-out
+            // and the timeout retry above it were all, by then, working.
+            // Every FreeREG record ever fetched for her was dated exactly
+            // 1825; that uniformity was this bug's signature, visible in the
+            // evidence list for days (owner dogfood 2026-08-23).
+            //
+            // The fix that "resolved" this the first time (86674fd) widened
+            // `.baptism` — and its acceptance test TESTED `.baptism` — while
+            // the live FreeREG dispatch sends `.parish`. The test passed, the
+            // wire was unchanged. Test the record type the pipeline actually
+            // dispatches.
+            let birthShape = yearRange(for: .baptism)
+            let deathShape = yearRange(for: .burial)
+            let from = birthShape.from ?? deathShape.from
+            let to = deathShape.to ?? birthShape.to
+            if from != nil || to != nil { return (from, to) }
+            return (birthYearFrom, deathYearTo ?? birthYearTo)
         default:
             return (birthYearFrom, deathYearTo ?? birthYearTo)
         }
