@@ -939,6 +939,38 @@ struct SearchDispatcher {
                         return []
                     }
                 }
+                // MULTIPLICATION GUARD. Spelling breadth and geographic breadth
+                // are alternative hypotheses — "recorded under another
+                // spelling" or "registered in another county" — and running
+                // both at once multiplies rather than adds. Owner dogfood
+                // 2026-08-23, watching one profile: `FreeBMD STS county deaths:
+                // JACK tomson 1816–1906 (variant)`. That single line is three
+                // widenings compounded — a neighbouring county, a surname
+                // variant and a nickname — and "Jack Tomson of Staffordshire"
+                // is a person who never existed, costing a volunteer's server
+                // a request to prove it.
+                //
+                // Breadth means DISTINCT PLACES, not query count. The first cut
+                // used `queries.count` and immediately broke Harriett Holmes's
+                // census: FreeCen emits one query per census YEAR, so six years
+                // in one county read as six counties, the nickname axis was
+                // dropped, and the HARRIETT spelling that found her own census
+                // (fix 5c6091c) vanished. Six probes of one place is not a wide
+                // search.
+                let geoBreadth = Set(queries.map { q -> String in
+                    switch q.sourceParams {
+                    case .freeBMD(let p):
+                        return (p.countyCode ?? p.districtCode ?? "").uppercased()
+                    case .freeREG(let p):
+                        return (p.chapmanCodes ?? []).sorted().joined(separator: ",").uppercased()
+                    case .freeCen(let p):
+                        return (p.chapmanCode ?? "").uppercased()
+                    default:
+                        return ""
+                    }
+                }).count
+                let surnameCap = geoBreadth > 3 ? 2 : Int.max
+                let allowGivenFanOut = geoBreadth <= 3
                 return queries.flatMap { q -> [RecordQuery] in
                     let original = q.surname ?? ""
                     // Curated seeds UNION generated rules. The JSON holds ~30
@@ -954,7 +986,9 @@ struct SearchDispatcher {
                     where seenSurnames.insert(v.uppercased()).inserted {
                         variants.append(v)
                     }
-                    let fannedSurnames = variants.isEmpty ? [original] : [original] + variants
+                    let fannedSurnames = variants.isEmpty
+                        ? [original]
+                        : [original] + variants.prefix(surnameCap)
 
                     // Given-name fan-out (query-side nickname variants): a
                     // person registered under a formal/sibling name — Harry as
@@ -972,7 +1006,12 @@ struct SearchDispatcher {
                     // every probe). Union the orthographic variants in.
                     let givenName = (q.givenName ?? "").trimmingCharacters(in: .whitespaces)
                     let fannedGivens: [String?]
-                    if givenName.isEmpty {
+                    if givenName.isEmpty || !allowGivenFanOut {
+                        // Wide geography already: the nickname axis is the
+                        // first to drop. A person recorded under a formal name
+                        // AND in a county they were never born in AND spelled
+                        // differently is a hypothesis too far to spend a
+                        // volunteer's bandwidth on.
                         fannedGivens = [q.givenName]
                     } else {
                         var seen = Set<String>([givenName.uppercased()])
