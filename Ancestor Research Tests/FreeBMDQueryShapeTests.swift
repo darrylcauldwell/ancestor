@@ -599,11 +599,28 @@ struct FreeBMDDeathCountyAxisTests {
         a.compactMap(\.countyCode)
     }
 
+    /// The arm is additive and costs one query — but only from `.adjacent`
+    /// upward. Owner 2026-08-23: the scope picker is the contract, and a County
+    /// search that reaches Staffordshire has broken it however good the reason.
+    /// The capability moved to the setting that honestly describes it.
     @Test func aDeathCountyIsProbedAlongsideTheHomeCounty() {
-        let with = counties(axes(extra: ["STS"]))
-        let without = counties(axes(extra: []))
+        // KEN, not STS: Staffordshire already borders Derbyshire, so at
+        // `.adjacent` it arrives via the adjacency list and the extra-county
+        // arm would be invisible. A man who moved to Kent and died there is
+        // what this arm is actually for.
+        let with = counties(axes(extra: ["KEN"], scope: .adjacent))
+        let without = counties(axes(extra: [], scope: .adjacent))
         #expect(with.count == without.count + 1, "one extra county query, not a fan-out")
         #expect(with.count > without.count)
+    }
+
+    /// …and NOT below it. This is the ceiling the picker promises.
+    @Test func aDeathCountyIsNotProbedBelowAdjacentScope() {
+        for scope in [ResearchScope.district, .county] {
+            #expect(counties(axes(extra: ["STS"], scope: scope))
+                == counties(axes(extra: [], scope: scope)),
+                "\(scope) scope must search exactly what the picker says")
+        }
     }
 
     /// ADDITIVE — the home county is never dropped. Narrowing to the death

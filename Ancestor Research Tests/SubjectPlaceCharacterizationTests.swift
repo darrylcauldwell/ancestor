@@ -143,17 +143,32 @@ struct SubjectPlaceCharacterizationTests {
     // MARK: - What each source is handed
 
     /// FreeBMD sees the anchor county, plus (since 2026-08-18) the death county
-    /// for death-shaped records. It never sees a residence county.
+    /// for death-shaped records — but only from `.adjacent` upward, since
+    /// 2026-08-23. It never sees a residence county.
     @Test func freeBMDSeesTheAnchorAndDeathCountyOnly() {
         let anchorOnly = SearchDispatcher.freeBMDGeoAxes(
+            scope: .adjacent, homeChapmanCode: "DBY", countyQueriesEnabled: true,
+            surname: "Person")
+        // KEN rather than STS — Staffordshire borders Derbyshire, so it already
+        // arrives via the adjacency list and would hide this arm entirely.
+        let withDeath = SearchDispatcher.freeBMDGeoAxes(
+            scope: .adjacent, homeChapmanCode: "DBY", countyQueriesEnabled: true,
+            surname: "Person", extraCounties: ["KEN"])
+
+        #expect(!anchorOnly.isEmpty)
+        #expect(withDeath.count == anchorOnly.count + 1, "additive, never replacing")
+    }
+
+    /// At County the picker is a hard ceiling — the death county is not probed,
+    /// because the user asked for one county and meant it.
+    @Test func countyScopeIgnoresTheDeathCounty() {
+        let plain = SearchDispatcher.freeBMDGeoAxes(
             scope: .county, homeChapmanCode: "DBY", countyQueriesEnabled: true,
             surname: "Person")
         let withDeath = SearchDispatcher.freeBMDGeoAxes(
             scope: .county, homeChapmanCode: "DBY", countyQueriesEnabled: true,
             surname: "Person", extraCounties: ["STS"])
-
-        #expect(!anchorOnly.isEmpty)
-        #expect(withDeath.count == anchorOnly.count + 1, "additive, never replacing")
+        #expect(withDeath.count == plain.count)
     }
 
     /// Parish and district emit exactly what county emits — the collapse the

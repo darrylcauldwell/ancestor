@@ -731,8 +731,20 @@ struct SearchDispatcher {
             // for a Derbyshire-born subject was simply unreachable at county
             // scope. Costs at most one extra county query, and only for
             // subjects who actually moved.
-            for extra in extraCounties where !extra.isEmpty && !counties.contains(extra) {
-                counties.append(extra)
+            // …but ONLY from `.adjacent` upward. The scope picker is the
+            // contract: a user who chose County asked for their county, and a
+            // search that reaches Staffordshire has broken that promise however
+            // good its reason. Owner 2026-08-23: "what is visible from the
+            // outside is a picker district/county/adjacent — if the inside does
+            // not perform like the outside describes, that is the issue."
+            //
+            // The capability is not lost, it is relocated to the setting that
+            // honestly describes it. A death registered a county away is
+            // exactly what Adjacent is for.
+            if scope >= .adjacent {
+                for extra in extraCounties where !extra.isEmpty && !counties.contains(extra) {
+                    counties.append(extra)
+                }
             }
             let axes: [(districtCode: String?, countyCode: String?)]
             if countyQueriesEnabled {
