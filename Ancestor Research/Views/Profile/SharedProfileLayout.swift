@@ -1169,7 +1169,23 @@ struct SharedProfileLayout: View {
     private func evidenceRecords(for field: ProfileField) -> [ProfileSourcesLedger.RecordDetail] {
         let types = recordTypes(for: field)
         guard !types.isEmpty else { return [] }
-        return factRecords.filter { types.contains($0.recordType) }
+        return factRecords.filter { rec in
+            if types.contains(rec.recordType) { return true }
+            // FreeREG types EVERYTHING .parish, so a plain record-type filter
+            // hid every church record from every fact context (owner audit
+            // 2026-08-23: "are any other records surfaced in health but not
+            // via profile?" — yes, three classes, all this hole). A parish
+            // baptism is birth evidence, a parish burial is death evidence,
+            // and a military record (CWGC) pins a death date.
+            switch field {
+            case .birthDate, .birthLocation:
+                return rec.isParishBaptism
+            case .deathDate, .deathLocation:
+                return rec.isParishBurial || rec.recordType == .military
+            default:
+                return false
+            }
+        }
     }
 
     private func reloadFactRecords() {

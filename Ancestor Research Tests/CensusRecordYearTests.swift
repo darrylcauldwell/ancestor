@@ -99,6 +99,26 @@ struct CensusRecordYearTests {
             eventType: "baptism", eventYear: 1823))))
     }
 
+    /// The full parish-event routing: baptism → birth context, burial → death
+    /// context, and each excluded from the other. FreeREG types everything
+    /// .parish, so before these predicates church records appeared in NO fact
+    /// context at all.
+    @Test func parishEventsRouteToTheirFactContexts() {
+        func parish(_ kind: String) -> SourceRecord {
+            .parish(ParishRecord(
+                common: RecordCommon(id: kind, sourceID: "freereg", name: "Mary STEPHENSON",
+                                     surname: "STEPHENSON", givenName: "Mary",
+                                     detailURL: nil, rawFields: [:]),
+                eventType: kind, eventYear: 1823))
+        }
+        #expect(ProfileSourcesLedger.isParishBaptism(parish("baptism")))
+        #expect(ProfileSourcesLedger.isParishBaptism(parish("Christening")))
+        #expect(!ProfileSourcesLedger.isParishBaptism(parish("burial")))
+        #expect(ProfileSourcesLedger.isParishBurial(parish("burial")))
+        #expect(!ProfileSourcesLedger.isParishBurial(parish("baptism")))
+        #expect(!ProfileSourcesLedger.isParishBurial(parish("marriage")))
+    }
+
     /// Non-census records carry no census year, so they never land under a
     /// census event.
     @Test func nonCensusRecordsCarryNoCensusYear() {

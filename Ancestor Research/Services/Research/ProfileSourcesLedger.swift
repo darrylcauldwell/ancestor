@@ -141,13 +141,35 @@ enum ProfileSourcesLedger {
         /// edge it attests, while the civil index entry sat there alone
         /// (owner dogfood 2026-08-23).
         var isParishMarriage: Bool = false
+        /// A parish baptism/christening — birth-context evidence, same hole
+        /// one section over: the Birth expander accepted `.baptism` but
+        /// FreeREG rows are typed `.parish`, so church baptisms never
+        /// appeared beside the birth they date.
+        var isParishBaptism: Bool = false
+        /// A parish burial — death-context evidence, same hole again.
+        var isParishBurial: Bool = false
     }
 
     /// Whether a parish record's event is a marriage (false for every other
     /// record type). Pure.
     nonisolated static func isParishMarriage(_ record: SourceRecord) -> Bool {
+        parishEventContains(record, any: ["marriage"])
+    }
+
+    /// Whether a parish record's event is a baptism or christening. Pure.
+    nonisolated static func isParishBaptism(_ record: SourceRecord) -> Bool {
+        parishEventContains(record, any: ["bapt", "christen"])
+    }
+
+    /// Whether a parish record's event is a burial. Pure.
+    nonisolated static func isParishBurial(_ record: SourceRecord) -> Bool {
+        parishEventContains(record, any: ["burial", "buri"])
+    }
+
+    nonisolated private static func parishEventContains(_ record: SourceRecord, any needles: [String]) -> Bool {
         guard case .parish(let p) = record else { return false }
-        return (p.eventType ?? "").lowercased().contains("marriage")
+        let kind = (p.eventType ?? "").lowercased()
+        return needles.contains { kind.contains($0) }
     }
 
     /// The census year a record belongs to (nil for every other type).
@@ -231,7 +253,9 @@ enum ProfileSourcesLedger {
                     household: censusHousehold(rec.record),
                     canLoadHousehold: censusNeedsHousehold(rec.record),
                     censusYear: censusYear(of: rec.record),
-                    isParishMarriage: isParishMarriage(rec.record))
+                    isParishMarriage: isParishMarriage(rec.record),
+                    isParishBaptism: isParishBaptism(rec.record),
+                    isParishBurial: isParishBurial(rec.record))
             }
 
         // Collapse the same underlying entry saved more than once across runs
