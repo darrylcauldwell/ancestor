@@ -73,6 +73,23 @@ nonisolated extension SourceRecord {
             if let m = r.syntheticMarriageRecord {
                 items.append(.spouseEdge(m))
             }
+            // A baptism DATES a birth without stating it. Recording the event
+            // is not enough: a person known only from their baptism has no
+            // birth year, and every search window is built from the birth year,
+            // so they cannot be researched at all (owner dogfood 2026-08-23).
+            //
+            // Emitted as an explicit `ABT` — birth is at or BEFORE baptism, and
+            // the gap is usually weeks but was fifteen to twenty-seven months
+            // for Lydia Ann Holmes in this very family. Never a bare year
+            // pretending to be a fact.
+            //
+            // Only when the profile is in hand AND has no birth date: this
+            // fills a blank, it never argues with a recorded one. Jacob Holmes
+            // was baptised at Youlgreave and born at Stanton Lees — a baptism
+            // is weak evidence of PLACE and none is inferred from it.
+            if let inferred = Self.baptismInferredBirthDate(record: r, profile: profile) {
+                items.append(.dateField(.birthDate, inferred))
+            }
         case .burial, .military, .probate, .pedigree:
             break  // no primary field write — corroboration below may still fire
         }
@@ -160,6 +177,31 @@ nonisolated extension SourceRecord {
     private func nonEmpty(_ s: String?) -> String? {
         guard let t = s?.trimmingCharacters(in: .whitespaces), !t.isEmpty else { return nil }
         return t
+    }
+
+    /// The birth window a BAPTISM implies, for a subject who has no birth date.
+    ///
+    /// Honest bounds: a birth is at or BEFORE its baptism, and rural gaps of a
+    /// year or two were ordinary — Lydia Ann Holmes was baptised fifteen to
+    /// twenty-seven months after birth in this very family. So `[year-2, year]`,
+    /// qualifier `.calculated`, exactly as `ApplyEngine.birthDateFromAge` treats
+    /// a census age. Its span (2) exceeds a precise value's (0), so the
+    /// directional overwrite policy can never let it displace a real date.
+    ///
+    /// Requires the profile in hand and a blank birth date: this fills a gap,
+    /// it does not argue. Infers no PLACE — Jacob Holmes was baptised at
+    /// Youlgreave and born at Stanton Lees, and taking the font for the cradle
+    /// would have put him in the wrong village.
+    static func baptismInferredBirthDate(record r: ParishRecord, profile: Profile?) -> GenealogicalDate? {
+        guard let profile, profile.birthDate == nil else { return nil }
+        let kind = (r.eventType ?? "").lowercased()
+        guard kind.contains("bapt") || kind.contains("christen") else { return nil }
+        guard let year = r.eventYear, year - 2 > 0 else { return nil }
+        return GenealogicalDate(
+            original: "calc \(year - 2)–\(year)",
+            earliest: year - 2, latest: year,
+            isApproximate: true, qualifier: .calculated
+        )
     }
 
     /// Re-case uniformly-cased source tokens ("GEOFFREY" → "Geoffrey",

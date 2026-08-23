@@ -433,8 +433,26 @@ nonisolated extension ResearchSubject {
             // `birthAnchorIsDerived` — these bounds are sent to the source
             // server-side, so anything outside them is not merely rejected, it
             // is never returned.
-            let pad = birthAnchorIsDerived ? Self.derivedAnchorPad : 2
-            return (birthYearFrom.map { $0 - pad }, birthYearTo.map { $0 + pad })
+            if let from = birthYearFrom {
+                let pad = birthAnchorIsDerived ? Self.derivedAnchorPad : 2
+                return (from - pad, (birthYearTo ?? from) + pad)
+            }
+            // No birth year at all — but a parent is bounded by their children.
+            // Someone named only as a father or mother on someone else's record
+            // has nothing to search on, and every window is built from the birth
+            // year, so they are not merely hard to research but IMPOSSIBLE to.
+            // Owner dogfood 2026-08-23: John Holmes and Sophia arrived from
+            // Jacob's 1817 baptism with names and nothing else, and the same is
+            // true of John Stephenson and Lydia.
+            //
+            // A parent is at least 16 and at most 50 years older than their
+            // eldest known child. Wide, but a wide window beats no window, and
+            // this invents no FACT — the profile still holds no birth date, only
+            // the search is bounded.
+            if let eldest = familyContext?.childBirthYears.min() {
+                return (eldest - 50, eldest - 16)
+            }
+            return (nil, nil)
         case .death, .burial, .probate:
             if let df = deathYearFrom { return (df - 2, (deathYearTo ?? df) + 2) }
             // Fallback: birth + 15 to birth + 95
