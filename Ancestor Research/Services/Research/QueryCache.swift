@@ -89,14 +89,21 @@ actor QueryCache {
     static func wrappedSearchWithOutcome(
         source: any RecordSource,
         query: RecordQuery,
-        cache: QueryCache?
+        cache: QueryCache?,
+        /// Invoked exactly once, just before a LIVE request goes to the
+        /// source — never on a cache hit. Callers hang side-effects that
+        /// must mirror what the volunteer host actually sees (the daily
+        /// budget charge) here rather than charging before the cache check.
+        onWireFetch: (() async -> Void)? = nil
     ) async -> (records: [SourceRecord], outcome: SearchOutcome) {
         guard let cache else {
+            await onWireFetch?()
             let envelope = await source.searchWithOutcome(query)
             return (envelope.result.records, envelope.outcome)
         }
         let key = cacheKey(sourceID: source.sourceID, query: query)
         if let hit = await cache.getEntry(key) { return (hit.records, hit.outcome) }
+        await onWireFetch?()
         let envelope = await source.searchWithOutcome(query)
         guard case .results(let records) = envelope.result else {
             // Don't poison the cache with transient failures.

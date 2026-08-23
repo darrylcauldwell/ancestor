@@ -53,7 +53,14 @@ enum HTTPError: Error, LocalizedError {
     var isRetryable: Bool {
         switch self {
         case .status(let code, _): return [500, 502, 503].contains(code)
-        case .throttled: return true
+        // A 429 is the server ASKING us to stop — the first one is final at
+        // this layer. Retrying it here multiplied with connector-level
+        // throttle handling (FreeBMD: 2 connector attempts × 3 transport
+        // attempts = up to six wire POSTs into an already-throttling
+        // volunteer host — 2026-08-23 efficiency audit). The connectors
+        // that never throttle early, FreeCEN/FreeREG, are exactly the ones
+        // that never retry a 429; breakers and budgets own the response.
+        case .throttled: return false
         default: return false
         }
     }

@@ -32,7 +32,14 @@ enum ResearchRunService {
         budgetTracker: SourceBudgetTracker? = nil
     ) -> Built {
         let map = sourceInfoMap ?? registry.buildSourceInfoMap()
-        var dispatcher = SearchDispatcher(registry: registry, budgetTracker: budgetTracker)
+        // Budget tracking defaults ON (2026-08-23 audit: `makeBudgetTracker`
+        // existed but no caller ever passed a tracker, so every declared
+        // daily budget — including FreeBMD's — was inert on every run shape,
+        // worst on whole-tree). Counts persist to `source_budget_state` and
+        // rehydrate at construction, so building per-pipeline still yields
+        // one quota per volunteer host, not per run.
+        let tracker = budgetTracker ?? Self.makeBudgetTracker(registry: registry, database: database)
+        var dispatcher = SearchDispatcher(registry: registry, budgetTracker: tracker)
         let learned = Self.learnedSurnameVariants(database: database)
         dispatcher.learnedSurnameVariants = learned
         // The SCORER must know what the dispatcher knows. Feeding the query

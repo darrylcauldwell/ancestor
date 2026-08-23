@@ -43,21 +43,25 @@ actor FreeBMDSource: RecordSource {
         summary: "Terms forbid programmatic search (\"front end programs… strictly forbidden\") — permission request to Free UK Genealogy pending, ADR-008"
     )
 
-    /// No pre-emptive request cap — the real control is the live 429 breaker.
+    /// A SELF-IMPOSED daily ceiling — not a claim about FreeBMD's rules.
     ///
-    /// FreeBMD publishes NO per-day search allowance. The former `200/day` here
-    /// was an invention: SOURCE_ACCESS_COMPLIANCE_2026-07.md flagged the
-    /// "documented daily quota" claim as false, and it never bound in practice —
-    /// the server's live 429 trips far lower and *variably* (observed ~50–60
-    /// requests 2026-07-28). A made-up number can only be wrong in both
-    /// directions, so we don't guess one: the budget is `.unlimited`, and runs
-    /// are governed by the 429 circuit breaker below (and, at the run level, a
-    /// throttle-stop that halts the whole run when the server pushes back).
+    /// FreeBMD publishes NO per-day search allowance (an earlier `200/day`
+    /// here was wrongly presented as a documented quota and was removed for
+    /// that reason — SOURCE_ACCESS_COMPLIANCE_2026-07.md). What replaced it,
+    /// `.unlimited`, meant the ONLY brake was the live 429 breaker: the
+    /// source had to be throttled before anything slowed down, and the
+    /// server's push-back point is low and variable (observed ~50–60
+    /// requests 2026-07-28). The 2026-08-23 efficiency audit's conclusion:
+    /// the connectors that never trip — FreeCEN/FreeREG — park at their own
+    /// 300/day ceiling before the server ever has to complain. Same posture
+    /// here, slightly tighter because this host demonstrably tolerates less.
+    /// The number is ours, chosen and owned as a courtesy cap; the 429
+    /// breaker below still governs bursts inside the day.
     ///
     /// (Separately, freebmd.org.uk/terms.html forbids programmatic search
     /// outright — access posture is ADR-008 ask-first, permission pending. That
     /// is a terms question, not a request-count one.)
-    nonisolated let budgetPolicy = SourceBudgetPolicy.unlimited
+    nonisolated let budgetPolicy = SourceBudgetPolicy(dailyLimit: 200, reset: .utcMidnight)
 
     // MARK: - State
 
@@ -74,7 +78,12 @@ actor FreeBMDSource: RecordSource {
     /// reentrancy: many callers read the same stale value, all slept ~500ms,
     /// then woke nearly simultaneously and fired together.
     private var nextRequestSlot: ContinuousClock.Instant?
-    private let requestDelay: Duration = .milliseconds(500)
+    /// One request per second — FreeREG's pacing, adopted 2026-08-23. The
+    /// former 500ms ("2 req/sec, similar to a human browsing") was the
+    /// fastest pacing in the app on the source with the largest fan-out and
+    /// the touchiest throttle; the connectors that never trip are the ones
+    /// that go slower.
+    private let requestDelay: Duration = .milliseconds(1000)
 
     /// 429 circuit-breaker state. FreeBMD is a single-volunteer source;
     /// when they throttle us, the right thing is to stop hitting them for
@@ -564,18 +573,22 @@ actor FreeBMDSource: RecordSource {
     }
 
     /// Up-to-3-attempt wrapper for the search POST. Retries transient HTTP
-    /// failures (timeouts, dropped connections, 5xx, 429) with increasing
+    /// failures (timeouts, dropped connections, 5xx) with increasing
     /// backoff so a single district-query flake during marriage enrichment
     /// doesn't silently break the matcher join. Bails immediately on
     /// `CancellationError` — caller handles cancellation specially so the
     /// session tokens survive normal shutdown.
     private func postSearchWithRetry(fields: [String: String]) async throws -> Data {
-        // Retry budgets — throttled (429) gets *fewer* attempts than
-        // network blips. 429s don't usually recover in seconds, and each
-        // retry feeds the throttle window; non-throttle transients
-        // (timeouts, 5xx, DNS) reasonably do.
+        // Retry budgets — a throttled (429) query gets NO retry at all: the
+        // 429 is FreeBMD asking us to stop, it does not recover in seconds,
+        // and every extra attempt feeds the throttle window. (2026-08-23
+        // efficiency audit: 2 attempts here × 3 in the transport layer =
+        // six wire POSTs per throttled query — with the transport layer
+        // fixed too, one throttled query is now exactly one wire POST, and
+        // the circuit breaker owns the rest.) Non-throttle transients
+        // (timeouts, 5xx, DNS) reasonably do retry.
         let maxAttemptsTransient = 3
-        let maxAttemptsThrottled = 2
+        let maxAttemptsThrottled = 1
         var attempt = 0
         while true {
             // If the breaker has tripped since the last attempt (e.g.

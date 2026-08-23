@@ -395,6 +395,7 @@ struct SearchDispatcher {
         cache: QueryCache?,
         negativeCache: NegativeSearchCache
     ) async -> (records: [SourceRecord], outcomes: [SearchOutcomeEntry]) {
+        let ladder = Self.effectiveLadder(ladder, source: source, mode: mode)
         let baseQueries = buildQueries(source: source, subject: subject, recordType: recordType, scope: scope)
         guard !baseQueries.isEmpty else {
             // SOURCE_WEIGHTING Change 2 — a scoped source that builds zero
@@ -424,7 +425,9 @@ struct SearchDispatcher {
         for strictness in ladder {
             let tierQueries = Self.applyStrictness(
                 baseQueries, strictness: strictness, source: source,
-                learnedSurnameVariants: learnedSurnameVariants)
+                learnedSurnameVariants: learnedSurnameVariants,
+                dropOriginalVariantCombination: strictness == .variant
+                    && mode == .all && source.sourceID == "freebmd")
             guard !tierQueries.isEmpty else { continue }
 
             // Dedupe identical queries within the tier — variant fan-out can
@@ -457,13 +460,17 @@ struct SearchDispatcher {
                             return ([], entry)
                         }
                         // Count one request against the source's daily budget
-                        // BEFORE it fires (#Change5). Uncached hits and cached
-                        // hits alike count the same way the volunteer host
-                        // would see them; the tracker persists the new count
-                        // so it survives a restart mid-run.
-                        await budgetTracker?.recordRequest(source.sourceID)
+                        // only when a WIRE fetch actually happens (#Change5,
+                        // corrected 2026-08-23): a per-run cache hit makes no
+                        // request the volunteer host could ever see, yet was
+                        // being charged — ~4 phantom budget units per profile
+                        // per dispatch, dozens across a whole-tree run. The
+                        // closure fires inside the cache-miss path; the
+                        // tracker persists the count so it survives a restart
+                        // mid-run.
                         let (records, outcome) = await QueryCache.wrappedSearchWithOutcome(
-                            source: source, query: query, cache: cache
+                            source: source, query: query, cache: cache,
+                            onWireFetch: { await budgetTracker?.recordRequest(source.sourceID) }
                         )
                         let entry = SearchOutcomeEntry(
                             sourceID: source.sourceID,
@@ -587,6 +594,24 @@ struct SearchDispatcher {
             }
         }
         return (accumulated, outcomes)
+    }
+
+    /// Per-source refinement of the mode ladder, applied at the top of
+    /// `walkLadder`. FreeBMD's `.loose` is the SAME wire query with the
+    /// Phonetic (soundex) flag on — a strict superset of `.strict`'s rows.
+    /// In adaptive modes the strict tier pays for itself through early-stop
+    /// economy (a strict FACT ends the walk before loose ever fires), but
+    /// `.all` runs every tier by contract, so its strict requests are pure
+    /// coverage subsets of the loose pass that follows — ~4 requests per
+    /// profile whose rows come straight back again (2026-08-23 efficiency
+    /// audit). Skip them: same result set, fewer requests against the
+    /// touchiest volunteer host.
+    nonisolated static func effectiveLadder(
+        _ ladder: [SearchStrictness], source: any RecordSource, mode: ResearchMode
+    ) -> [SearchStrictness] {
+        guard mode == .all, source.sourceID == "freebmd" else { return ladder }
+        let trimmed = ladder.filter { $0 != .strict }
+        return trimmed.isEmpty ? ladder : trimmed
     }
 
     /// Strictness ladder per mode — see RESEARCH_AXES_SPEC §3.1 / §5.2.
@@ -934,7 +959,16 @@ struct SearchDispatcher {
         /// Equivalences this tree has confirmed — passed in rather than read
         /// from a static so multi-window projects stay isolated. Defaults empty
         /// so every existing caller and test is unaffected.
-        learnedSurnameVariants: [String: [String]] = [:]
+        learnedSurnameVariants: [String: [String]] = [:],
+        /// `.all`-mode FreeBMD only (set by `walkLadder`): the variant tier
+        /// re-emits the original surname × original given as its first
+        /// combination — wire-identical to the strict tier's query. With
+        /// strict trimmed from the `.all` ladder (see `effectiveLadder`)
+        /// that combination would become a live fetch whose rows the loose
+        /// pass already returned (soundex ⊇ exact); drop it. Adaptive modes
+        /// keep it: there it is a per-run cache hit against the strict tier,
+        /// costing nothing.
+        dropOriginalVariantCombination: Bool = false
     ) -> [RecordQuery] {
         switch strictness {
         case .strict:
@@ -1083,8 +1117,13 @@ struct SearchDispatcher {
                     // strict-on-the-wire (Phonetic=false), because the variant
                     // IS the exact surname/given name for that probe.
                     return fannedSurnames.flatMap { s in
-                        fannedGivens.map { g in
-                            q.with(surname: s).with(givenName: g).with(strictness: .variant)
+                        fannedGivens.compactMap { g -> RecordQuery? in
+                            if dropOriginalVariantCombination,
+                               s.uppercased() == original.uppercased(),
+                               (g ?? "").uppercased() == (q.givenName ?? "").uppercased() {
+                                return nil
+                            }
+                            return q.with(surname: s).with(givenName: g).with(strictness: .variant)
                         }
                     }
                 }
