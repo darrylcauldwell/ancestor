@@ -145,13 +145,22 @@ struct PerSourceStrictnessTests {
                 spouseSurname: nil
             ))
         )
-        let variants = SurnameVariants.shared.variants(of: "Cauldwell")
+        // Since 2026-08-23 the fan-out is the CURATED seeds UNION the generated
+        // orthographic rules, so it is no longer curated+1 — the JSON covered
+        // 30 surnames and every other name was searched one spelling only.
+        let curated = SurnameVariants.shared.variants(of: "Cauldwell")
+        let generated = ScoringRules.orthographicSurnameVariants(of: "Cauldwell")
+        let expected = Set((curated + generated).map { $0.lowercased() })
+            .union(["cauldwell"])
         let result = SearchDispatcher.applyStrictness([baseQuery], strictness: .variant, source: freebmd)
-        #expect(result.count == variants.count + 1,
-                "FreeBMD .variant fan-out should be N+1; got \(result.count) for \(variants.count) variants")
+        #expect(result.count == expected.count,
+                "fan-out should be the union of curated and generated spellings plus the original; got \(result.count) for \(expected.count)")
         let surnames = Set(result.compactMap(\.surname).map { $0.lowercased() })
-        #expect(surnames.contains("cauldwell"))
-        for v in variants { #expect(surnames.contains(v)) }
+        #expect(surnames.contains("cauldwell"), "the original spelling is never dropped")
+        for v in curated { #expect(surnames.contains(v), "curated seed \(v) missing") }
+        for v in generated {
+            #expect(surnames.contains(v.lowercased()), "generated variant \(v) missing")
+        }
     }
 
     // MARK: - AC5.3 (continued) — FreeREG and FreeCen .loose flip fuzzy flag

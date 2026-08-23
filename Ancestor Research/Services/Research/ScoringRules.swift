@@ -506,6 +506,113 @@ nonisolated struct ScoringRules {
         return out.sorted()
     }
 
+    /// Orthographic SURNAME variants, generated rather than curated.
+    ///
+    /// `surname-variants.json` was hand-built by trial and error: 30 seeds, and
+    /// a name is only searched in other spellings once someone has personally
+    /// been bitten by that spelling. Stevenson/Stephenson was missing until it
+    /// hid Mary Stephenson's 1823 baptism — the record naming both her parents —
+    /// and it had to be found by hand on FreeREG (owner dogfood 2026-08-23:
+    /// *"is there a more complete sweep we can perform?"*).
+    ///
+    /// There is. Reading the 30 seeds, roughly four in five are instances of a
+    /// handful of productive rules; Stevenson/Stephenson is simply the `PH↔V`
+    /// rule that nobody had hit yet. Generating them covers every surname in
+    /// the tree instead of the ones already paid for in lost evidence.
+    ///
+    /// NOT soundex: JACOB/JOSEPH and HOLMES/HOLLINGWORTH both collide under it
+    /// (observed 2026-08-22 — twelve FreeREG results, not one a Jacob). These
+    /// rules are narrower and, unlike a phonetic key, can be stated in a gate
+    /// reason a human can argue with.
+    ///
+    /// Safe by construction: variants fire only at `.variant` strictness, the
+    /// loosest tier, and a weak surname score is a `softFail`, so a wrong guess
+    /// costs one query and arrives as a lead to review — never a silent match.
+    static func orthographicSurnameVariants(of surname: String) -> [String] {
+        let start = surname.uppercased().trimmingCharacters(in: .whitespaces)
+        guard start.count >= 4, start.allSatisfy({ $0.isLetter }) else { return [] }
+        let chars = Array(start)
+
+        // Ordered by evidential value, NOT alphabetically. The cap at the end
+        // keeps the first N, so a substitution that changes a phoneme
+        // (PH↔V — the one that hid Mary's baptism) must outrank a doubled
+        // letter. Sorting alphabetically dropped STEVENSON behind four junk
+        // spellings of STEPHENSON on the first cut of this function.
+        var ordered: [String] = []
+        var seen = Set<String>([start])
+        func add(_ candidate: String) {
+            guard candidate.count >= 3, seen.insert(candidate).inserted else { return }
+            ordered.append(candidate)
+        }
+        var out = OrderedVariantSink(add: add)
+
+        // 1. PH↔V↔F — STEPHENSON↔STEVENSON, RALPH↔RALF. Highest value: it
+        //    changes a sound, so the two spellings look nothing alike to a
+        //    similarity score and no other rule will bridge them.
+        if let r = start.range(of: "PH") {
+            out.insert(start.replacingCharacters(in: r, with: "V"))
+            out.insert(start.replacingCharacters(in: r, with: "F"))
+        }
+        if let idx = chars.firstIndex(of: "V"), idx > 0, idx < chars.count - 1 {
+            out.insert(String(chars[..<idx]) + "PH" + String(chars[(idx + 1)...]))
+        }
+
+        // 2. Medial P before S — THOMPSON↔THOMSON, SIMPSON↔SIMSON. Same
+        //    argument: a whole consonant appears or vanishes.
+        if let r = start.range(of: "MPS") {
+            out.insert(start.replacingCharacters(in: r, with: "MS"))
+        } else if let r = start.range(of: "MS"), r.lowerBound != start.startIndex {
+            out.insert(start.replacingCharacters(in: r, with: "MPS"))
+        }
+
+        // 3. Y↔I in the stem — SMITH↔SMYTH, WHITE↔WHYTE, HILL↔HYLL.
+        //    Never the final letter: GRAY→GRAI is not English.
+        if let idx = chars.dropLast().firstIndex(of: "Y"), idx > 0 {
+            out.insert(String(chars.enumerated().map { $0.offset == idx ? "I" : $0.element }))
+        }
+        if let idx = chars.dropLast().firstIndex(of: "I"), idx > 0 {
+            out.insert(String(chars.enumerated().map { $0.offset == idx ? "Y" : $0.element }))
+        }
+
+        // 4. Agent suffix — TAYLOR↔TAYLER, WALKER↔WALKAR, HUNTER↔HUNTAR.
+        for (suffix, others) in [("ER", ["AR", "OR"]), ("OR", ["ER", "AR"]), ("AR", ["ER", "OR"])]
+        where start.hasSuffix(suffix) && start.count >= 5 {
+            for other in others { out.insert(String(chars.dropLast(2)) + other) }
+        }
+
+        // 5. Terminal silent E — BROWN↔BROWNE, CLARK↔CLARKE, GREEN↔GREENE.
+        //    Only after a consonant: stripping it from a vowel stem ("LEE")
+        //    changes the word rather than its spelling.
+        if start.hasSuffix("E"), chars.count >= 5, chars[chars.count - 2].isConsonantLetter {
+            out.insert(String(chars.dropLast()))
+        } else if let last = chars.last, last.isConsonantLetter, last != "S" {
+            out.insert(start + "E")
+        }
+
+        // 6. Doubled interior consonant — WILSON↔WILLSON, ROBBERTS↔ROBERTS.
+        //    LAST, and at ONE position only. It is the noisiest rule by far: a
+        //    long surname offers a dozen places to double a letter, and the
+        //    first cut of this function generated four junk spellings of
+        //    STEPHENSON that crowded STEVENSON out of the cap entirely.
+        //    Undoubling comes first — a transcriber's stray doubled letter is
+        //    commoner than a missing one.
+        if let i = (1..<(chars.count - 1)).first(where: {
+            chars[$0].isConsonantLetter && chars[$0] == chars[$0 + 1]
+        }) {
+            out.insert(String(chars[..<i]) + String(chars[(i + 1)...]))
+        } else if let i = (1..<(chars.count - 1)).first(where: {
+            chars[$0].isConsonantLetter && chars[$0] != chars[$0 + 1] && chars[$0] != chars[$0 - 1]
+        }) {
+            out.insert(String(chars[...i]) + String(chars[i...]))
+        }
+
+        // Bound the fan-out. Every variant is a live request against a
+        // volunteer-run server, and a long surname can satisfy several rules at
+        // once; six spellings is already a generous net. Ordered by rule
+        // priority above, so the cap trims the weakest guesses, not the best.
+        return Array(ordered.prefix(6))
+    }
+
     // MARK: - Pattern Rules
 
     /// If mother-in-law has a different surname, that's the wife's maiden name.
@@ -750,4 +857,21 @@ nonisolated struct ScoringRules {
         "northamptonshire", "westmorland", "cumberland", "durham",
         "northumberland",
     ]
+}
+
+/// Collects generated spellings in the order the rules fire, deduping as it
+/// goes. A plain `Set` would lose that order, and the fan-out cap keeps the
+/// FIRST N — so order is what decides whether the best variant survives.
+nonisolated private struct OrderedVariantSink {
+    let add: (String) -> Void
+    func insert(_ candidate: String) { add(candidate) }
+}
+
+nonisolated private extension Character {
+    /// An English consonant letter. Used by the orthographic surname rules,
+    /// where "add a trailing E" and "double this letter" are only meaningful
+    /// after a consonant.
+    var isConsonantLetter: Bool {
+        isLetter && !"AEIOU".contains(uppercased())
+    }
 }

@@ -941,7 +941,19 @@ struct SearchDispatcher {
                 }
                 return queries.flatMap { q -> [RecordQuery] in
                     let original = q.surname ?? ""
-                    let variants = SurnameVariants.shared.variants(of: original)
+                    // Curated seeds UNION generated rules. The JSON holds ~30
+                    // hand-picked surnames, so a name outside it was searched
+                    // one spelling only — Stevenson was, until its ph-spelling
+                    // hid Mary Stephenson's baptism. The rules cover every
+                    // surname; the list keeps the irregulars no rule reaches
+                    // (Holmes/Hulme, Lee/Leigh).
+                    var seenSurnames = Set<String>([original.uppercased()])
+                    var variants: [String] = []
+                    for v in SurnameVariants.shared.variants(of: original)
+                        + ScoringRules.orthographicSurnameVariants(of: original)
+                    where seenSurnames.insert(v.uppercased()).inserted {
+                        variants.append(v)
+                    }
                     let fannedSurnames = variants.isEmpty ? [original] : [original] + variants
 
                     // Given-name fan-out (query-side nickname variants): a
