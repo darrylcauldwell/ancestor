@@ -674,7 +674,21 @@ actor FreeBMDSource: RecordSource {
 
         var districtName = "national"
         var spouseSurname: String?
+        var pageReference: String?
         if case .freeBMD(let params) = query.sourceParams {
+            // A volume+page query is a SPOUSE LOOKUP — "who else is registered
+            // on this page?" — not a geographic sweep. It carries no district
+            // and no county because it doesn't need them: the reference names
+            // exactly one register page. Owner dogfood 2026-08-23, on a
+            // district-scoped run: "FreeBMD seems to be doing national marriage
+            // search". It wasn't; it was reading one page. But the label is
+            // built from the absence of a district, so a targeted lookup
+            // announced itself as a country-wide trawl and looked like the
+            // scope picker being ignored.
+            if let vol = params.volume, !vol.isEmpty,
+               let page = params.page, !page.isEmpty {
+                pageReference = "\(vol)/\(page)"
+            }
             if let code = params.districtCode, !code.isEmpty {
                 districtName = FreeBMDDistrictCatalogue.shared.all()
                     .first(where: { $0.code == code })?.name ?? "district \(code)"
@@ -705,6 +719,13 @@ actor FreeBMDSource: RecordSource {
             yearLabel = ""
         }
 
+        // A page lookup names what it is. It has no surname to show (it asks
+        // the page, not a name) and no geography (the reference IS the
+        // location), so the generic shape would render "FreeBMD national
+        // marriages:  1877" — a blank search term inside a country-wide claim.
+        if let reference = pageReference {
+            return "FreeBMD \(recordTypeLabel) on page \(reference)\(yearLabel) — finding the other party"
+        }
         return "FreeBMD \(districtName) \(recordTypeLabel): \(searchTerms)\(yearLabel)"
     }
 
