@@ -3512,6 +3512,141 @@ final class AppState {
         }
     }
 
+    /// How one record-named relative stands against the tree — the record
+    /// row's answer to "is this person already here?" (owner dogfood
+    /// 2026-08-23: the kin line named Mary's parents but gave "no option to
+    /// see if these are already persons in tree", no discrepancy signal, and
+    /// no way to add them).
+    nonisolated enum ParishKinMatch: Equatable, Sendable {
+        /// A tree profile in this role matches by name — spelling variants
+        /// and learned equivalences count, or STEPHENSON would read as a
+        /// discrepancy against a tree STEVENSON father when it is one clerk.
+        case onTree(existingName: String)
+        /// The role is already filled by a DIFFERENT name — a genuine
+        /// record-vs-tree discrepancy. `parishFamilyNetNewLinks` silently
+        /// drops this case; the row must SHOW it instead.
+        case differsFromTree(existingName: String)
+        case notOnTree
+    }
+
+    /// One named relative with their tree standing.
+    nonisolated struct ParishKinAssessment: Identifiable, Equatable, Sendable {
+        let link: ParishFamilyLink
+        let match: ParishKinMatch
+        var id: String { link.id }
+        var roleLabel: String {
+            switch link.relation {
+            case .spouse: return "Spouse"
+            case .parent:
+                switch link.gender {
+                case .female: return "Mother"
+                case .male:   return "Father"
+                default:      return "Parent"
+                }
+            }
+        }
+    }
+
+    /// Everything a record row needs to render and act on a parish record's
+    /// named family.
+    nonisolated struct ParishRecordKin: Equatable, Sendable {
+        let assessments: [ParishKinAssessment]
+        /// Links safe to create: not matched, and not conflicting with a
+        /// filled role (a second father is never addable — that conflict is
+        /// the human's to resolve).
+        let addable: [ParishFamilyLink]
+        let eventYear: Int?
+        let sourceID: String
+    }
+
+    /// Assess every parish evidence record's named kin against the tree,
+    /// keyed by source-record id. Unlike `parishFamilyProposal` this runs
+    /// for CANDIDATE records too — the named father being already YOUR
+    /// tree's father is exactly what picks one baptism out of a namesake
+    /// pile — and it reports role conflicts instead of dropping them.
+    func parishKinAssessments(for subject: Profile, evidence: [EvidenceRecord]) -> [String: ParishRecordKin] {
+        let parents = snapshot.parentsOf(subject.id)
+        let spouses = snapshot.spousesOf(subject.id)
+        let learned = (try? currentDatabase?.loadNameEquivalences()) ?? []
+        var out: [String: ParishRecordKin] = [:]
+        for ev in evidence {
+            guard case .parish(let r) = ev.record else { continue }
+            guard let detail = r.detail
+                ?? Self.marriageDetailFromCoPersons(subject: subject, record: r)
+                ?? Self.baptismDetailFromFlatParents(record: r) else { continue }
+            let (links, _) = Self.parishFamilyLinks(subject: subject, record: r, detail: detail)
+            guard !links.isEmpty else { continue }
+            var assessments: [ParishKinAssessment] = []
+            var addable: [ParishFamilyLink] = []
+            for link in links {
+                let match: ParishKinMatch
+                switch link.relation {
+                case .parent:
+                    let roleHolder: Profile? = switch link.gender {
+                    case .male:   parents.first { $0.gender == .male }
+                    case .female: parents.first { $0.gender == .female }
+                    default:      nil
+                    }
+                    if let named = parents.first(where: { Self.parishKinNameMatches($0, link: link, learned: learned) }) {
+                        match = .onTree(existingName: named.displayName)
+                    } else if let holder = roleHolder {
+                        match = .differsFromTree(existingName: holder.displayName)
+                    } else {
+                        match = .notOnTree
+                        addable.append(link)
+                    }
+                case .spouse:
+                    if let named = spouses.first(where: { Self.parishKinNameMatches($0, link: link, learned: learned) }) {
+                        match = .onTree(existingName: named.displayName)
+                    } else {
+                        // Multiple spouses are legitimate — an unmatched
+                        // spouse is never claimed as a conflict.
+                        match = .notOnTree
+                        addable.append(link)
+                    }
+                }
+                assessments.append(ParishKinAssessment(link: link, match: match))
+            }
+            out[ev.sourceRecordID] = ParishRecordKin(
+                assessments: assessments, addable: addable,
+                eventYear: r.eventYear, sourceID: r.common.sourceID)
+        }
+        return out
+    }
+
+    /// Name match between a tree profile and a record-named relative.
+    /// Given names match on equality or word-prefix containment ("Lydia"
+    /// names the tree's "Lydia Ann"); surnames on equality, generated
+    /// spelling variants, or the tree's learned equivalences. A relative
+    /// with no surname at all (a baptism's "mother Lydia") matches on the
+    /// given name alone.
+    nonisolated static func parishKinNameMatches(
+        _ p: Profile, link: ParishFamilyLink, learned: [(String, String)] = []
+    ) -> Bool {
+        let given = (link.given ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+        let pf = (p.firstName ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+        guard !given.isEmpty, !pf.isEmpty,
+              given == pf || given.hasPrefix(pf + " ") || pf.hasPrefix(given + " ")
+        else { return false }
+        let surs = [p.lastName, p.marriedSurname].compactMap {
+            $0?.trimmingCharacters(in: .whitespaces).uppercased()
+        }.filter { !$0.isEmpty }
+        let cand = [link.birthSurname, link.marriedSurname].compactMap {
+            $0?.trimmingCharacters(in: .whitespaces).uppercased()
+        }.filter { !$0.isEmpty }
+        if cand.isEmpty || surs.isEmpty { return true }
+        return cand.contains { c in
+            surs.contains { s in
+                s == c
+                    || ScoringRules.isKnownSpellingVariant(s.lowercased(), c.lowercased())
+                    || learned.contains {
+                        ($0.0.uppercased() == s && $0.1.uppercased() == c)
+                            || ($0.0.uppercased() == c && $0.1.uppercased() == s)
+                    }
+            }
+        }
+    }
+
     /// Create fresh profiles + edges for the accepted parish-family links.
     /// Fresh (not placeholder) profiles, "when in doubt split" — a namesake
     /// wrongly created is a later merge, never a wrong auto-link. Re-checks the

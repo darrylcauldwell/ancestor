@@ -274,6 +274,9 @@ struct SharedProfileLayout: View {
     /// twice. Shared across both affordances: a record is census or parish,
     /// never both.
     @State private var loadingHouseholdIDs: Set<String> = []
+    /// Per-record tree-match assessment of the kin a parish record names —
+    /// keyed by source-record id, rebuilt with the fact records.
+    @State private var parishKinByRecord: [String: AppState.ParishRecordKin] = [:]
     @State private var candidateGroups: [[ResearchHypothesis]] = []
     @State private var proposals: [ProfileField: ConflictResolutionActions.ProposedResolution] = [:]
     /// Pending relationship unlink (edit-mode remove on parent/child/spouse
@@ -1231,6 +1234,7 @@ struct SharedProfileLayout: View {
         profileDeathAge = appState.deathAgeBackfillProposal(for: profile.id)
         censusHousehold = appState.censusHouseholdProposal(for: profile, evidence: evidence)
         parishFamily = appState.parishFamilyProposal(for: profile, evidence: evidence)
+        parishKinByRecord = appState.parishKinAssessments(for: profile, evidence: evidence)
     }
 
     private func removeAppliedRecord(_ rec: ProfileSourcesLedger.RecordDetail) {
@@ -1543,9 +1547,15 @@ struct SharedProfileLayout: View {
             // evidence.
             householdRoster(rec)
             // The kin a parish entry names, in the same position as a census
-            // roster: evidence first, then the actions on it.
-            if let kin = rec.parishKinLine {
-                Text(kin)
+            // roster: evidence first, then the actions on it. The assessed
+            // roster answers "already in the tree? / differs? / add" per
+            // person (owner dogfood 2026-08-23); the flat line is the
+            // fallback for records whose kin form no links (a burial's
+            // "Wife of…" relative).
+            if let kin = parishKin(for: rec) {
+                parishKinRoster(kin, rec: rec)
+            } else if let kinLine = rec.parishKinLine {
+                Text(kinLine)
                     .font(AppTypography.badge)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1701,6 +1711,76 @@ struct SharedProfileLayout: View {
             .padding(.leading, 12)
             .padding(.vertical, 2)
         }
+    }
+
+    /// This record's kin assessment, resolved through the collapsed
+    /// duplicates (the assessment map is keyed by every underlying
+    /// source-record id; the card row shows the representative).
+    private func parishKin(for rec: ProfileSourcesLedger.RecordDetail) -> AppState.ParishRecordKin? {
+        for id in rec.duplicateIDs {
+            if let kin = parishKinByRecord[id] { return kin }
+        }
+        return parishKinByRecord[rec.id]
+    }
+
+    /// The family a parish record names, one line per person with their tree
+    /// standing — in tree (variant-aware), differs from the tree's holder of
+    /// that role, or not in tree — plus the add action for the missing ones.
+    /// The parish twin of `householdRoster`: the kin on the page is what
+    /// picks one entry out of a namesake pile, and once the record is
+    /// APPLIED, adding the missing people happens here, at the evidence,
+    /// not off in a separate strip.
+    @ViewBuilder
+    private func parishKinRoster(_ kin: AppState.ParishRecordKin, rec: ProfileSourcesLedger.RecordDetail) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(kin.assessments) { a in
+                HStack(spacing: 6) {
+                    Text(a.roleLabel)
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 48, alignment: .leading)
+                    Text(a.link.displayName)
+                        .font(AppTypography.badge)
+                        .foregroundStyle(.secondary)
+                    switch a.match {
+                    case .onTree(let name):
+                        Label("In tree — \(name)", systemImage: "checkmark.circle.fill")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.green)
+                            .help("A person in this role already matches this name (spelling variants counted).")
+                    case .differsFromTree(let name):
+                        Label("Differs — tree has \(name)", systemImage: "exclamationmark.triangle.fill")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.orange)
+                            .help("The tree already has a different person in this role. If the record is right, resolve the conflict on the tree — a second \(a.roleLabel.lowercased()) is never added automatically.")
+                    case .notOnTree:
+                        Text("Not in tree")
+                            .font(AppTypography.badge)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            // Adding people is a tree change, so it is offered only once THIS
+            // record is applied — reading a candidate's kin costs nothing,
+            // grafting a namesake's parents onto the tree is a later merge.
+            if rec.standing == .applied, !kin.addable.isEmpty {
+                Button {
+                    _ = appState.addParishFamily(
+                        links: kin.addable, subject: profile,
+                        eventYear: kin.eventYear, sourceID: kin.sourceID)
+                    reloadFactRecords()
+                } label: {
+                    Label("Add \(kin.addable.count) to tree",
+                          systemImage: "person.crop.rectangle.badge.plus")
+                        .font(AppTypography.badge)
+                }
+                .buttonStyle(.glassProminent)
+                .controlSize(.mini)
+                .help("Creates the people this record names — linked to \(profile.displayName), with this record as their source. A wrongly-created namesake is a later merge.")
+            }
+        }
+        .padding(.leading, 12)
+        .padding(.vertical, 2)
     }
 
     @ViewBuilder
