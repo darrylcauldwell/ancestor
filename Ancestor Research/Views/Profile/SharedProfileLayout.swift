@@ -413,10 +413,11 @@ struct SharedProfileLayout: View {
             // unlink, so no edgeIDFor (removing a parent edge re-derives them).
             relationshipSection("Siblings", profiles: snapshot.siblingsOf(profile.id))
 
-            // Census evidence sits by the family — a census IS the household,
-            // and it carries the age that pins a birth year. Applied on top,
-            // then researched / rejected candidates nested.
-            censusEvidenceRow
+            // Census evidence now lives under its own life event (one place per
+            // census, owner request 2026-08-23). What remains here is only the
+            // candidates for years the profile has no census event for — the
+            // unapplied records that would otherwise have nowhere to appear.
+            unplacedCensusEvidenceRow
 
             // Disputes — live from CONFLICT_LAYER_SPEC Change 1: the apply
             // path now produces rows, and each open dispute offers the
@@ -806,6 +807,16 @@ struct SharedProfileLayout: View {
                                 .foregroundStyle(.blue)
                         }
                         .padding(.leading, 26)
+                    }
+                    // A census's records live WITH the census. Owner
+                    // 2026-08-23: it appeared twice on a profile — as a fact
+                    // context beside birth and death, and again here as an
+                    // event — and having its applied, researched and rejected
+                    // records in a different place from the event itself is how
+                    // the wrong one gets applied.
+                    if event.type == .census, let year = event.sortYear {
+                        censusEvidence(forYear: year, key: "census:\(year)")
+                            .padding(.leading, 26)
                     }
                     }
                 }
@@ -2165,22 +2176,58 @@ struct SharedProfileLayout: View {
     /// `applyMarriageToSubjectSpouseEdge` — show up on each spouse line.
     /// Without this, the enrichment Apply path silently writes to the edge
     /// but the user has no visible confirmation it happened.
-    /// Census evidence, rendered by the family (a census is the household).
-    /// Only appears when census records exist for the profile.
+    /// The census records for ONE year, shown under that year's life event.
+    ///
+    /// Consolidation, owner request 2026-08-23. A census used to appear twice
+    /// on a profile: as a fact context beside birth and death, and again under
+    /// life events. The ledger groups by FACT ("what backs this birth year?")
+    /// and life events group by EVENT ("what happened to him?"), and a census
+    /// is honestly both — but splitting one census's records across two places
+    /// is how the wrong one gets applied, which happened twice in one evening.
     @ViewBuilder
-    private var censusEvidenceRow: some View {
-        let census = factRecords.filter { $0.recordType == .census }
-        if !census.isEmpty {
+    private func censusEvidence(forYear year: Int, key: String) -> some View {
+        let records = factRecords.filter { $0.recordType == .census && $0.censusYear == year }
+        if !records.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text("Census")
+                    Spacer()
+                    evidenceTrigger(key: key, records: records)
+                }
+                if expandedEvidenceKeys.contains(key) {
+                    evidenceDisclosure(key: key, records: records)
+                }
+            }
+        }
+    }
+
+    /// Census records for years the profile has NO life event for — the
+    /// unapplied candidates that would otherwise vanish when the evidence moved
+    /// under the events.
+    ///
+    /// This is the case that makes consolidation safe rather than lossy: Samuel
+    /// Holmes had three competing 1861 candidates and no 1861 event at all
+    /// until one was applied. Filing evidence under events alone would have
+    /// hidden every candidate for a census he had not yet accepted — exactly
+    /// the records that need reviewing.
+    @ViewBuilder
+    private var unplacedCensusEvidenceRow: some View {
+        let eventYears = Set(appState.lifeEventsForProfile(profile.id)
+            .filter { $0.type == .census }
+            .compactMap(\.sortYear))
+        let orphans = factRecords.filter {
+            $0.recordType == .census && !eventYears.contains($0.censusYear ?? -1)
+        }
+        if !orphans.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("Census records not yet applied")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    evidenceTrigger(key: "census", records: census)
+                    evidenceTrigger(key: "census:unplaced", records: orphans)
                 }
-                if expandedEvidenceKeys.contains("census") {
-                    evidenceDisclosure(key: "census", records: census)
+                if expandedEvidenceKeys.contains("census:unplaced") {
+                    evidenceDisclosure(key: "census:unplaced", records: orphans)
                 }
             }
         }

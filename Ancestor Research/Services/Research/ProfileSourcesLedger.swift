@@ -131,6 +131,15 @@ enum ProfileSourcesLedger {
         /// A census with a detail page but no roster yet — the "Load household"
         /// affordance. Fetch-only: it changes no facts.
         var canLoadHousehold: Bool = false
+        /// The census year this record belongs to, so its evidence can sit with
+        /// the life event for that census rather than in a separate list.
+        var censusYear: Int?
+    }
+
+    /// The census year a record belongs to (nil for every other type).
+    nonisolated static func censusYear(of record: SourceRecord) -> Int? {
+        guard case .census(let c) = record else { return nil }
+        return c.censusYear > 0 ? c.censusYear : nil
     }
 
     /// A census whose household roster could still be fetched: a census record
@@ -206,7 +215,8 @@ enum ProfileSourcesLedger {
                     duplicateIDs: [rec.sourceRecordID],
                     registrationKey: RecordScorer.registrationKey(for: rec.record),
                     household: censusHousehold(rec.record),
-                    canLoadHousehold: censusNeedsHousehold(rec.record))
+                    canLoadHousehold: censusNeedsHousehold(rec.record),
+                    censusYear: censusYear(of: rec.record))
             }
 
         // Collapse the same underlying entry saved more than once across runs
