@@ -602,6 +602,39 @@ nonisolated struct RecordScorer {
             .map { ScoringRules.nameSimilarity(recordSurname, $0) }
             .max() ?? 0
         if bestSurnameScore < 0.7 {
+            // CO-PRINCIPAL RESCUE. A parish MARRIAGE row names both parties,
+            // and the parser titles the record after the FIRST — usually the
+            // groom — keeping the other(s) in rawFields["co_persons"]
+            // "for the scorer". The scorer never read it: a bride searching
+            // her own marriage failed the name gate on her own record.
+            //
+            // Owner dogfood 2026-08-23: Mary Stevenson's re-research fetched
+            // "Youlgreave Parish Register, marriage of Jacob HOLMES, 1846" —
+            // the keystone record that names BOTH her father and Jacob's —
+            // because FreeREG matched HER as the bride, and the gate scored
+            // it name:FAIL → .impossible against the groom's name.
+            //
+            // Always a softFail, never a pass: identity via the second-listed
+            // principal is real evidence but deserves a human's eye.
+            if case .parish(let parish) = record,
+               let coPersons = parish.common.rawFields["co_persons"] {
+                for person in coPersons.split(separator: ";").map({ $0.trimmingCharacters(in: .whitespaces) }) {
+                    let tokens = person.uppercased().split(separator: " ").map(String.init)
+                    guard tokens.count >= 2, let coSurname = tokens.last else { continue }
+                    let coGiven = tokens.dropLast().joined(separator: " ")
+                    let coSurnameScore = acceptableSurnames
+                        .map { ScoringRules.nameSimilarity(coSurname, $0) }
+                        .max() ?? 0
+                    guard coSurnameScore >= 0.7 else { continue }
+                    let coGivenOK = personGiven.isEmpty
+                        || ScoringRules.nameSimilarity(coGiven, personGiven) >= 0.7
+                        || coGiven.split(separator: " ").first.map({ ScoringRules.nameSimilarity(String($0), personGiven) >= 0.7 }) == true
+                    guard coGivenOK else { continue }
+                    return GateResult(gate: .name, outcome: .softFail, reason: String(
+                        format: "subject matches the record's co-principal \"%@\" (surname=%.2f) — the row is titled after the other party; review",
+                        person, coSurnameScore))
+                }
+            }
             let candidates = acceptableSurnames.joined(separator: "/")
             return GateResult(gate: .name, outcome: .fail, reason: "surname mismatch: \(recordSurname) vs \(candidates)")
         }

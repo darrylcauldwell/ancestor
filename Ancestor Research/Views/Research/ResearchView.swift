@@ -80,21 +80,35 @@ struct ResearchView: View {
                     // re-search). Runs on the FRESH profile from the just-
                     // rebuilt snapshot, so the records you applied are in play.
                     if let researchID = researchVM.selectedProfile?.id {
-                        Button {
-                            Task {
-                                guard let fresh = appState.snapshot.profiles[researchID] else { return }
-                                await researchVM.startResearch(
-                                    profile: fresh,
-                                    snapshot: appState.snapshot,
-                                    registry: registry
-                                )
+                        // Click = standard re-research. The menu adds THOROUGH,
+                        // which runs mode .all: every strictness tier by
+                        // contract, no early stop. Adaptive deliberately stops
+                        // at the first fact-grade find — right for everyday
+                        // runs, but it means variant SPELLINGS are never probed
+                        // for a subject whose strict tier finds anything real.
+                        // Mary Stephenson's baptism was unreachable for exactly
+                        // that reason, and mode .all existed in the engine with
+                        // no way for a human to ask for it (owner dogfood
+                        // 2026-08-23).
+                        Menu {
+                            Button {
+                                reResearch(researchID, mode: nil)
+                            } label: {
+                                Label("Standard re-research", systemImage: "arrow.clockwise")
+                            }
+                            Button {
+                                reResearch(researchID, mode: .all)
+                            } label: {
+                                Label("Thorough — every spelling tier", systemImage: "arrow.triangle.2.circlepath")
                             }
                         } label: {
                             Label("Re-research", systemImage: "arrow.clockwise")
+                        } primaryAction: {
+                            reResearch(researchID, mode: nil)
                         }
                         .buttonStyle(.glass)
                         .controlSize(.small)
-                        .help("Research this person again — picks up records you just applied")
+                        .help("Research this person again — picks up records you just applied. The menu offers a thorough run that probes every spelling variant instead of stopping at the first solid find.")
                     }
                     // Pop the review out into its own movable window so the
                     // tree stays navigable here (owner request 2026-07-21 —
@@ -155,6 +169,24 @@ struct ResearchView: View {
         // refreshes the selector's badges and ordering.
         .onChange(of: showPendingReview) { _, showing in
             if !showing { reloadPendingCounts() }
+        }
+    }
+
+    /// Re-run research on the profile in review. `mode` nil keeps the
+    /// session's current mode; `.all` runs the thorough every-tier walk. The
+    /// override is scoped to THIS run — the previous mode is restored after,
+    /// so one thorough run doesn't silently make every later click thorough.
+    private func reResearch(_ profileID: String, mode: ResearchMode?) {
+        Task {
+            guard let fresh = appState.snapshot.profiles[profileID] else { return }
+            let previousMode = researchVM.selectedMode
+            if let mode { researchVM.selectedMode = mode }
+            await researchVM.startResearch(
+                profile: fresh,
+                snapshot: appState.snapshot,
+                registry: registry
+            )
+            if mode != nil { researchVM.selectedMode = previousMode }
         }
     }
 
