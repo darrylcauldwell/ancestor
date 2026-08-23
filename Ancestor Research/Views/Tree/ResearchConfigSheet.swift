@@ -32,6 +32,8 @@ struct ResearchConfigSheet: View {
     /// location overlaps the prose corpora, and the run cost is
     /// substantial for the noisy upside.
     @State private var runProseExtraction: Bool = false
+    /// Mode .all — every strictness tier by contract, no early stop.
+    @State private var exhaustiveSpellings: Bool = false
 
     init(
         profile: Profile,
@@ -105,6 +107,29 @@ struct ResearchConfigSheet: View {
                 }
             }
 
+            // Thoroughness — the ONE choice the sheet was missing. Standard
+            // (adaptive) stops each source at the first solid find, which is
+            // right for everyday runs but means variant SPELLINGS are never
+            // probed once a source finds anything real: Mary Stephenson's
+            // baptism sat unreachable through three re-research runs because
+            // the strict tier legitimately kept finding her marriage first.
+            // Mode .all — every tier by contract — existed only as an MCP
+            // override; the owner had no way to ask for it from the app
+            // ("When I run research I see no options for like mode all",
+            // 2026-08-23).
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(isOn: $exhaustiveSpellings) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Exhaustive spelling sweep")
+                            .font(.subheadline)
+                        Text("Probe every spelling variant on every source instead of stopping at the first solid find. Slower and heavier on the volunteer sources — use when a record you know exists is not being found.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
+
             // Prose-extraction opt-in — available on every adaptive run.
             VStack(alignment: .leading, spacing: 4) {
                 Toggle(isOn: $runProseExtraction) {
@@ -148,10 +173,10 @@ struct ResearchConfigSheet: View {
                 Button {
                     onRun(ResearchRequest(
                         profileID: profile.id,
-                        // SOURCE_WEIGHTING companion (2026-07-15): the sheet
-                        // always dispatches the one adaptive action — Depth
-                        // is retired; explicit modes remain MCP overrides.
-                        mode: .adaptive,
+                        // Adaptive by default (SOURCE_WEIGHTING, 2026-07-15);
+                        // the exhaustive toggle is the human's route to mode
+                        // .all, which was previously an MCP-only override.
+                        mode: exhaustiveSpellings ? .all : .adaptive,
                         scope: scope,
                         focus: focus,
                         runProseExtraction: runProseExtraction
