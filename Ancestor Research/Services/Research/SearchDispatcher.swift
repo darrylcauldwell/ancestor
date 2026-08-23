@@ -43,6 +43,21 @@ struct SearchDispatcher {
     /// caller that doesn't supply it behaves exactly as before.
     var discardedSourceRecordIDs: Set<String> = []
 
+    /// Surname equivalences THIS TREE has taught us, uppercased key → variants.
+    ///
+    /// The third layer of the variant story. Curated seeds cover irregulars,
+    /// generated rules cover the productive patterns — and neither knows that
+    /// in *this* family, a woman recorded as STEVENSON at her marriage was
+    /// STEPHENSON at her baptism. Applying a record whose surname differs from
+    /// the profile's is a human confirming exactly that, and it was being
+    /// thrown away: `name_equivalences` has existed as a table, a save function
+    /// and a load function since the schema was written, called by nothing.
+    ///
+    /// Injected rather than read from a static so multi-window projects stay
+    /// isolated — the same reason `ScoringRules` keys its equivalences by
+    /// project UUID.
+    var learnedSurnameVariants: [String: [String]] = [:]
+
     /// Dispatch searches across all enabled sources for the given record types.
     /// `scope` widens fan-out for scope-aware sources (FreeBMD; FreeCen/FreeREG later).
     /// Sources declaring `.inherentlyNational` / `.anchorPinned` /
@@ -407,7 +422,9 @@ struct SearchDispatcher {
         var accumulated: [SourceRecord] = []
         var outcomes: [SearchOutcomeEntry] = []
         for strictness in ladder {
-            let tierQueries = Self.applyStrictness(baseQueries, strictness: strictness, source: source)
+            let tierQueries = Self.applyStrictness(
+                baseQueries, strictness: strictness, source: source,
+                learnedSurnameVariants: learnedSurnameVariants)
             guard !tierQueries.isEmpty else { continue }
 
             // Dedupe identical queries within the tier — variant fan-out can
@@ -674,7 +691,9 @@ struct SearchDispatcher {
             source: source, subject: subject, recordType: recordType, scope: scope,
             freeBMDCountyQueriesEnabled: freeBMDCountyQueriesEnabled
         )
-        return Self.applyStrictness(queries, strictness: strictness, source: source)
+        return Self.applyStrictness(
+            queries, strictness: strictness, source: source,
+            learnedSurnameVariants: learnedSurnameVariants)
     }
     #endif
 
@@ -895,7 +914,11 @@ struct SearchDispatcher {
     static func applyStrictness(
         _ queries: [RecordQuery],
         strictness: SearchStrictness,
-        source: any RecordSource
+        source: any RecordSource,
+        /// Equivalences this tree has confirmed — passed in rather than read
+        /// from a static so multi-window projects stay isolated. Defaults empty
+        /// so every existing caller and test is unaffected.
+        learnedSurnameVariants: [String: [String]] = [:]
     ) -> [RecordQuery] {
         switch strictness {
         case .strict:
@@ -981,7 +1004,11 @@ struct SearchDispatcher {
                     // (Holmes/Hulme, Lee/Leigh).
                     var seenSurnames = Set<String>([original.uppercased()])
                     var variants: [String] = []
-                    for v in SurnameVariants.shared.variants(of: original)
+                    // LEARNED FIRST. A spelling this tree has already confirmed
+                    // outranks a curated seed or a generated guess, and the cap
+                    // keeps the head of the list.
+                    for v in (learnedSurnameVariants[original.uppercased()] ?? [])
+                        + SurnameVariants.shared.variants(of: original)
                         + ScoringRules.orthographicSurnameVariants(of: original)
                     where seenSurnames.insert(v.uppercased()).inserted {
                         variants.append(v)

@@ -32,7 +32,8 @@ enum ResearchRunService {
         budgetTracker: SourceBudgetTracker? = nil
     ) -> Built {
         let map = sourceInfoMap ?? registry.buildSourceInfoMap()
-        let dispatcher = SearchDispatcher(registry: registry, budgetTracker: budgetTracker)
+        var dispatcher = SearchDispatcher(registry: registry, budgetTracker: budgetTracker)
+        dispatcher.learnedSurnameVariants = Self.learnedSurnameVariants(database: database)
         let pipeline = ResearchPipeline(
             dispatcher: dispatcher,
             snapshot: snapshot,
@@ -45,6 +46,30 @@ enum ResearchRunService {
             negativeSearchKeyLoader: ResearchPipeline.makeNegativeSearchKeyLoader(database: database)
         )
         return Built(pipeline: pipeline, sourceInfoMap: map)
+    }
+
+    /// Surname equivalences this tree has taught us, as an uppercased
+    /// key → variants map for the dispatcher's variant fan-out.
+    ///
+    /// `name_equivalences` has existed as a table with a save and a load
+    /// function since the schema was written, and nothing called either. It is
+    /// the natural home for exactly the knowledge this tree kept producing by
+    /// hand — Mary was STEVENSON at her 1846 marriage and STEPHENSON at her
+    /// 1823 baptism, and that pairing had to be rediscovered manually on
+    /// FreeREG because no search would carry it.
+    ///
+    /// Both directions are registered: the table stores an unordered pair, and
+    /// a lookup is by key.
+    static func learnedSurnameVariants(database: ProjectDatabase?) -> [String: [String]] {
+        guard let database, let pairs = try? database.loadNameEquivalences() else { return [:] }
+        var out: [String: [String]] = [:]
+        for (a, b) in pairs {
+            let upperA = a.uppercased(), upperB = b.uppercased()
+            guard upperA != upperB, !upperA.isEmpty, !upperB.isEmpty else { continue }
+            if !(out[upperA] ?? []).contains(upperB) { out[upperA, default: []].append(upperB) }
+            if !(out[upperB] ?? []).contains(upperA) { out[upperB, default: []].append(upperA) }
+        }
+        return out
     }
 
     /// Build the per-source daily-budget tracker for a sustained run

@@ -552,6 +552,7 @@ final class AppState {
             let scored = evidence.asScoredRecord
             _ = ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: snapshot, db: db)
             try db.updateEvidenceUserStatus(evidenceID: evidence.id, status: .savedAsLead)
+            Self.learnSurnameEquivalence(from: scored.record, profile: profile, db: db)
             for event in scored.record.projectToLifeEvents(profileID: profileID) {
                 _ = try? db.addLifeEventIfAbsent(event)
             }
@@ -598,6 +599,51 @@ final class AppState {
     /// testable without a database.
     nonisolated static func censusNeedsHousehold(_ record: SourceRecord) -> Bool {
         ProfileSourcesLedger.censusNeedsHousehold(record)
+    }
+
+    /// Learn a surname equivalence from an APPLIED record whose surname differs
+    /// from the profile's.
+    ///
+    /// Applying is a human saying "this record is this person". When the
+    /// spellings differ, that is a confirmed variant for this tree — and it was
+    /// being discarded. Mary was STEVENSON at her 1846 marriage and STEPHENSON
+    /// at her 1823 baptism; the pairing had to be found by hand on FreeREG
+    /// because no search carried it, and applying the baptism taught the app
+    /// nothing.
+    ///
+    /// Deliberately narrow. Census records are excluded — a census surname can
+    /// fall back to the household HEAD when the target marker doesn't survive
+    /// parsing, which would teach a wife her husband's surname as a variant of
+    /// her maiden one. A married surname already on the profile is not a
+    /// variant either: it is a different, known fact about her.
+    nonisolated static func learnSurnameEquivalence(
+        from record: SourceRecord, profile: Profile, db: ProjectDatabase
+    ) {
+        guard !record.isCensus else { return }
+        let recorded = (record.surname ?? "").trimmingCharacters(in: .whitespaces).uppercased()
+        let known = (profile.lastName ?? "").trimmingCharacters(in: .whitespaces).uppercased()
+        guard recorded.count >= 3, known.count >= 3, recorded != known else { return }
+        // Her married surname is a fact, not a spelling of her maiden name.
+        let married = (profile.marriedSurname ?? "").trimmingCharacters(in: .whitespaces).uppercased()
+        guard recorded != married else { return }
+        // Two unrelated surnames on one applied record mean something else went
+        // wrong (a force-apply, a disarmed gate) and must not be laundered into
+        // a permanent search rule.
+        //
+        // The guard is a SHAPE test, not a similarity score. `nameSimilarity`
+        // rates STEPHENSON against STEVENSON at **0.0** — they differ by a
+        // substitution AND an insertion, so no rung of it matches — and that is
+        // exactly why the learned pair is worth having: the scorer cannot see
+        // the resemblance, so the tree has to tell it. Scoring the pair to
+        // decide whether to learn it would reject every pair worth learning.
+        //
+        // Sharing the first two letters and a length within three admits
+        // STEVENSON/STEPHENSON and refuses STEVENSON/WHEELDON. Deliberately
+        // conservative: a wrong learned rule persists and widens every future
+        // search, while a missed one costs only that this pair stays manual.
+        guard recorded.prefix(2) == known.prefix(2),
+              abs(recorded.count - known.count) <= 3 else { return }
+        try? db.saveNameEquivalence(nameA: recorded, nameB: known)
     }
 
     /// Fetch a specific census's household roster on demand — one detail-page GET
