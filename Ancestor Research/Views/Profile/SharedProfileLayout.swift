@@ -2238,7 +2238,11 @@ struct SharedProfileLayout: View {
         let spouseEdges = snapshot.relationships.filter { rel in
             rel.type == .spouse && (rel.from == subject.id || rel.to == subject.id)
         }
-        let marriageRecords = factRecords.filter { $0.recordType == .marriage }
+        // Civil registrations AND church marriages. FreeREG marriages arrive
+        // typed .parish, so filtering on .marriage alone left the parish
+        // wedding — the record whose detail names both fathers — invisible
+        // beside the very spouse edge it attests (owner dogfood 2026-08-23).
+        let marriageRecords = factRecords.filter { $0.recordType == .marriage || $0.isParishMarriage }
         if !spouseEdges.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {

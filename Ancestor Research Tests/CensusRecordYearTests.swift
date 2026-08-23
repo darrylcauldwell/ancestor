@@ -68,6 +68,37 @@ struct CensusRecordYearTests {
         #expect(records.filter { $0.censusYear == 1891 }.count == 1)
     }
 
+    /// A FreeREG church marriage is typed .parish — the spouse row's filter
+    /// must still catch it. Mary Stevenson's Youlgreave wedding, the record
+    /// whose detail names both fathers, was invisible beside the very spouse
+    /// edge it attests while the civil index entry sat there alone.
+    @Test func aParishMarriageIsRecognisedForTheSpouseRow() throws {
+        let db = try makeDB()
+        _ = try db.addProfile(Profile(
+            id: "mary", firstName: "Mary", lastName: "Stevenson",
+            gender: .female, isDeleted: false, sources: [:], disputes: [:]), source: .gedcom)
+        let record = SourceRecord.parish(ParishRecord(
+            common: RecordCommon(id: "m", sourceID: "freereg", name: "Jacob HOLMES",
+                                 surname: "HOLMES", givenName: "Jacob",
+                                 detailURL: "https://freereg/m",
+                                 rawFields: ["co_persons": "Mary STEVENSON"]),
+            eventType: "marriage", eventDate: "19 Jan 1846", eventYear: 1846,
+            parish: "Youlgreave", county: "Derbyshire"))
+        try db.saveEvidence(profileID: "mary",
+                            scored: ScoredRecord(id: "m", record: record,
+                                                 verdict: .lead, gates: [], summary: ""),
+                            citationFull: "Youlgreave Parish Register, marriage of Jacob HOLMES, 1846.",
+                            citationURL: "https://freereg/m")
+        let row = try #require(try ProfileSourcesLedger.allRecords(for: "mary", db: db).first)
+        #expect(row.isParishMarriage, "a church marriage must reach the spouse row's evidence")
+        // …and a baptism must NOT: it belongs to the birth story, not the spouse row.
+        #expect(!ProfileSourcesLedger.isParishMarriage(.parish(ParishRecord(
+            common: RecordCommon(id: "b", sourceID: "freereg", name: "Mary STEPHENSON",
+                                 surname: "STEPHENSON", givenName: "Mary",
+                                 detailURL: nil, rawFields: [:]),
+            eventType: "baptism", eventYear: 1823))))
+    }
+
     /// Non-census records carry no census year, so they never land under a
     /// census event.
     @Test func nonCensusRecordsCarryNoCensusYear() {

@@ -134,6 +134,20 @@ enum ProfileSourcesLedger {
         /// The census year this record belongs to, so its evidence can sit with
         /// the life event for that census rather than in a separate list.
         var censusYear: Int?
+        /// A parish record whose EVENT is a marriage. FreeREG church marriages
+        /// arrive typed `.parish`, so the spouse row's `.marriage` filter never
+        /// showed them — Mary Stevenson's Youlgreave wedding (the record whose
+        /// detail names both fathers) was invisible beside the very spouse
+        /// edge it attests, while the civil index entry sat there alone
+        /// (owner dogfood 2026-08-23).
+        var isParishMarriage: Bool = false
+    }
+
+    /// Whether a parish record's event is a marriage (false for every other
+    /// record type). Pure.
+    nonisolated static func isParishMarriage(_ record: SourceRecord) -> Bool {
+        guard case .parish(let p) = record else { return false }
+        return (p.eventType ?? "").lowercased().contains("marriage")
     }
 
     /// The census year a record belongs to (nil for every other type).
@@ -216,7 +230,8 @@ enum ProfileSourcesLedger {
                     registrationKey: RecordScorer.registrationKey(for: rec.record),
                     household: censusHousehold(rec.record),
                     canLoadHousehold: censusNeedsHousehold(rec.record),
-                    censusYear: censusYear(of: rec.record))
+                    censusYear: censusYear(of: rec.record),
+                    isParishMarriage: isParishMarriage(rec.record))
             }
 
         // Collapse the same underlying entry saved more than once across runs
