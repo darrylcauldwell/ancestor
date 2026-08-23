@@ -421,7 +421,14 @@ nonisolated extension ResearchSubject {
         guard !sources.isEmpty else { return false }
         return sources.allSatisfy { src in
             let id = src.origin.identifier.lowercased()
+            // "lead.*" — a promoted-lead ghost's birth year is written as a
+            // bare year but is arithmetic from a census age (George W Land:
+            // age 3 in 1901 → "1898"), and "engine.*" enrichment proposals
+            // are single derived years too. Both classified FIRM, so a
+            // ghost's correcting baptism sat outside its ±2 window exactly
+            // as Mary's did (confirmed major, 2026-08-23 adversarial sweep).
             return id.contains("census") || id == "freecen"
+                || id.hasPrefix("lead.") || id.hasPrefix("engine.")
         }
     }
 

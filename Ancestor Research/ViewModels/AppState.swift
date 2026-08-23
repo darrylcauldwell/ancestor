@@ -550,9 +550,10 @@ final class AppState {
             let records = try db.loadEvidenceForProfile(profileID)
             guard let evidence = records.first(where: { $0.sourceRecordID == sourceRecordID }) else { return }
             let scored = evidence.asScoredRecord
+            // Surname learning happens inside applyFactToSubject — the choke
+            // point every apply path shares — so no per-path call here.
             _ = ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: snapshot, db: db)
             try db.updateEvidenceUserStatus(evidenceID: evidence.id, status: .savedAsLead)
-            Self.learnSurnameEquivalence(from: scored.record, profile: profile, db: db)
             for event in scored.record.projectToLifeEvents(profileID: profileID) {
                 _ = try? db.addLifeEventIfAbsent(event)
             }

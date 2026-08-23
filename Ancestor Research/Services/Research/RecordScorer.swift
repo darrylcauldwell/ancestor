@@ -2148,7 +2148,19 @@ nonisolated struct RecordScorer {
         case .probate(let r):
             return "\(r.common.name ?? "?"), \(r.grantType ?? "probate") \(r.probateDate ?? "")"
         case .parish(let r):
-            return "\(r.common.name ?? "?"), \(r.eventType ?? "") \(r.eventYear.map(String.init) ?? "?")"
+            // A marriage row names BOTH principals; headline both. The card
+            // was titled after the first-listed party alone — the groom — so
+            // "Jacob HOLMES, marriage 1846" sat unrecognised in Mary
+            // Stevenson's review while she searched for her own wedding
+            // (owner scrolled past it twice, 2026-08-23). The co-person is
+            // already parsed into rawFields; showing it costs nothing and is
+            // the difference between a findable record and an invisible one.
+            let base = "\(r.common.name ?? "?")"
+            let coPerson = r.common.rawFields["co_persons"]?
+                .split(separator: ";").first
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            let names = coPerson.map { "\(base) × \($0)" } ?? base
+            return "\(names), \(r.eventType ?? "") \(r.eventYear.map(String.init) ?? "?")"
         case .pedigree(let r):
             return "\(r.common.name ?? "?"), b.\(r.birthYear.map(String.init) ?? "?") \(r.location ?? "")"
         }

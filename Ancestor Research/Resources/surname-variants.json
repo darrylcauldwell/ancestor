@@ -51,7 +51,15 @@
   "sellers":    ["sellors", "sellars", "cellars"],
   "sellors":    ["sellers", "sellars"],
 
-  "_derbyshire_comment": "Local surnames from the working tree whose drift no rule generates.",
+  "_derbyshire_comment": "Local surnames from the working tree whose drift no rule generates. Variant spellings that could plausibly be a SUBJECT's recorded surname (a ghost profile absorbed from a record) carry reverse keys, because the lookup has no reverse index.",
+
+  "bonsal":     ["bonsall"],
+  "wildgoos":   ["wildgoose"],
+  "broxop":     ["broxup"],
+  "marsdin":    ["marsden"],
+  "slany":      ["slaney"],
+  "brookes":    ["brooks", "brooke"],
+  "gibbes":     ["gibbs"],
 
   "wheeldon":   ["wheldon", "weldon", "wheeldonn", "whieldon"],
   "wheldon":    ["wheeldon", "weldon", "whieldon"],

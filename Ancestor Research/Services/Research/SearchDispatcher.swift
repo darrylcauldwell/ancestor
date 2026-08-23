@@ -1001,6 +1001,16 @@ struct SearchDispatcher {
                     case .freeBMD(let p):
                         return (p.countyCode ?? p.districtCode ?? "").uppercased()
                     case .freeREG(let p):
+                        // FreeREG BATCHES its chapman codes into one request
+                        // (repeated `chapman_codes[]` keys on a single POST),
+                        // so a code-group is honestly ONE unit of request
+                        // breadth however many counties it names — spelling ×
+                        // geography multiplication is about REQUEST count, and
+                        // a batched query is one request. When the codes ride
+                        // outside the params (the default single-county path,
+                        // where this is nil), the empty string counts once,
+                        // which is likewise correct. (2026-08-23 sweep flagged
+                        // the nil; this is the analysis that resolves it.)
                         return (p.chapmanCodes ?? []).sorted().joined(separator: ",").uppercased()
                     case .freeCen(let p):
                         return (p.chapmanCode ?? "").uppercased()
@@ -1402,7 +1412,13 @@ struct SearchDispatcher {
             // probe. At .national the E&W sweep already includes the
             // constituents and the per-constituent check dedups.
             var regCodesWithBurial = regChapmanCodes
-            if recordType == .burial, let burialCode = subject.burialChapmanCode {
+            // …but only from `.adjacent` upward, matching the FreeBMD arm
+            // (cd3aa8b): the scope picker is the contract, and a County search
+            // must never reach another county however good the reason. The
+            // capability moves to the setting that honestly describes it
+            // (2026-08-23 sweep residual, same defect class).
+            if scope >= .adjacent,
+               recordType == .burial, let burialCode = subject.burialChapmanCode {
                 for code in RegionConfig.expandUmbrellaChapmanCode(burialCode)
                 where !regCodesWithBurial.contains(code) {
                     regCodesWithBurial.append(code)

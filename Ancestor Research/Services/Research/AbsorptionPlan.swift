@@ -193,7 +193,18 @@ nonisolated extension SourceRecord {
     /// Youlgreave and born at Stanton Lees, and taking the font for the cradle
     /// would have put him in the wrong village.
     static func baptismInferredBirthDate(record r: ParishRecord, profile: Profile?) -> GenealogicalDate? {
-        guard let profile, profile.birthDate == nil else { return nil }
+        // With the profile IN HAND (apply/preview), emit only into a blank —
+        // this fills a gap, it does not argue. With NO profile (the removal
+        // path enumerates candidates via `removalTargets`, which never has
+        // one), emit unconditionally: removal matches candidates against the
+        // actual field_sources rows, so a candidate that was never written is
+        // harmless — but omitting it meant un-applying a baptism left its
+        // inferred birth date on the profile forever, because by removal time
+        // the profile HAS a birth date (the very one being removed) and the
+        // old guard suppressed the target (confirmed by the 2026-08-23
+        // adversarial sweep; same enrich-after-apply class as the census
+        // JSON-overwrite defects).
+        if let profile, profile.birthDate != nil { return nil }
         let kind = (r.eventType ?? "").lowercased()
         guard kind.contains("bapt") || kind.contains("christen") else { return nil }
         guard let year = r.eventYear, year - 2 > 0 else { return nil }

@@ -61,10 +61,15 @@ struct BaptismAndParentAnchorTests {
             record: baptism(year: 1817, kind: "Christening"), profile: profile(birth: nil)) != nil)
     }
 
-    /// No profile in hand, or no year, means no guess.
-    @Test func missingInputsInferNothing() {
+    /// No year means no guess. No PROFILE means candidate enumeration — the
+    /// removal path walks the plan without one, and omitting the candidate
+    /// there meant un-applying a baptism left its inferred birth behind
+    /// forever (2026-08-23 sweep). A candidate that was never written is
+    /// harmless: removal matches against actual field_sources rows.
+    @Test func missingInputsBehaveByPath() {
         #expect(SourceRecord.baptismInferredBirthDate(
-            record: baptism(year: 1817), profile: nil) == nil)
+            record: baptism(year: 1817), profile: nil) != nil,
+            "nil profile = removal-candidate enumeration, which must see the target")
         #expect(SourceRecord.baptismInferredBirthDate(
             record: baptism(year: nil), profile: profile(birth: nil)) == nil)
     }

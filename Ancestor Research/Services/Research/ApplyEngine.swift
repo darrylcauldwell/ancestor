@@ -44,6 +44,14 @@ nonisolated struct ApplyEngine {
         db: ProjectDatabase
     ) -> [WriteFailure] {
         var failures: [WriteFailure] = []
+        // Applying IS a human saying "this record is this person" — when the
+        // spellings differ, that is a confirmed surname variant for this
+        // tree. Learned HERE, at the choke point, because wiring it into one
+        // ViewModel apply path meant the cluster review, the per-fact apply
+        // and the parent-unlock flows all taught nothing (confirmed by the
+        // 2026-08-23 adversarial sweep: "the primary apply flows all bypass
+        // it").
+        AppState.learnSurnameEquivalence(from: scored.record, profile: profile, db: db)
         let origin = SourceOrigin(identifier: scored.record.sourceID)
         // Sourcing-gate fix (2026-07-15): every applied field carries the
         // record's citation on its FieldSource — same renderer the review

@@ -355,17 +355,24 @@ struct LifeEventResearchAxesTests {
         }
     }
 
-    /// FreeREG burial probes include the burial event's county, additively;
-    /// non-burial register types are unaffected.
+    /// FreeREG burial probes include the burial event's county, additively —
+    /// from `.adjacent` upward (2026-08-23: the scope picker is the contract,
+    /// so a County search never reaches another county; the capability lives
+    /// in the setting that honestly describes it, matching the FreeBMD arm).
+    /// Non-burial register types are unaffected.
     @Test func freeREGBurialIncludesBurialCounty() {
         let dispatcher = makeDispatcher()
         guard let reg = source(dispatcher, "freereg") else {
             Issue.record("freereg not registered"); return
         }
-        let s = subject(burialPlace: "Mansfield, Nottinghamshire", burialChapman: "NTT")
+        // Kent, not Nottinghamshire: NTT borders Derbyshire, so at .adjacent it
+        // arrives through the adjacency list for EVERY record type and proves
+        // nothing about the burial arm (the same STS/KEN lesson as the FreeBMD
+        // ceiling tests). A burial in Kent is reachable only through this arm.
+        let s = subject(burialPlace: "Maidstone, Kent", burialChapman: "KEN")
         func allCodes(_ recordType: RecordType) -> Set<String> {
             var out: Set<String> = []
-            for q in dispatcher.buildQueriesForTest(source: reg, subject: s, recordType: recordType, scope: .county) {
+            for q in dispatcher.buildQueriesForTest(source: reg, subject: s, recordType: recordType, scope: .adjacent) {
                 if case .freeREG(let p) = q.sourceParams {
                     if let single = p.chapmanCode { out.insert(single) }
                     for c in p.chapmanCodes ?? [] { out.insert(c) }
@@ -373,14 +380,24 @@ struct LifeEventResearchAxesTests {
             }
             return out
         }
-        #expect(allCodes(.burial).isSuperset(of: ["DBY", "NTT"]))
-        #expect(!allCodes(.baptism).contains("NTT"), "burial county is gated to burial probes")
+        #expect(allCodes(.burial).isSuperset(of: ["DBY", "KEN"]))
+        #expect(!allCodes(.baptism).contains("KEN"), "burial county is gated to burial probes")
+
+        // The ceiling itself: at .county the burial county is NOT probed.
+        var countyCodes: Set<String> = []
+        for q in dispatcher.buildQueriesForTest(source: reg, subject: s, recordType: .burial, scope: .county) {
+            if case .freeREG(let p) = q.sourceParams {
+                if let single = p.chapmanCode { countyCodes.insert(single) }
+                for c in p.chapmanCodes ?? [] { countyCodes.insert(c) }
+            }
+        }
+        #expect(!countyCodes.contains("KEN"), "County scope must search exactly what the picker says")
 
         // Umbrella expansion: a Yorkshire burial contributes the ridings
         // FreeREG's form actually tags — never the dead "YKS" literal.
         let yorks = subject(burialPlace: "Leeds, Yorkshire", burialChapman: "YKS")
         var yorksCodes: Set<String> = []
-        for q in dispatcher.buildQueriesForTest(source: reg, subject: yorks, recordType: .burial, scope: .county) {
+        for q in dispatcher.buildQueriesForTest(source: reg, subject: yorks, recordType: .burial, scope: .adjacent) {
             if case .freeREG(let p) = q.sourceParams {
                 if let single = p.chapmanCode { yorksCodes.insert(single) }
                 for c in p.chapmanCodes ?? [] { yorksCodes.insert(c) }

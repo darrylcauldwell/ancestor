@@ -815,7 +815,11 @@ struct SharedProfileLayout: View {
                     // records in a different place from the event itself is how
                     // the wrong one gets applied.
                     if event.type == .census, let year = event.sortYear {
-                        censusEvidence(forYear: year, key: "census:\(year)")
+                        // Keyed by EVENT id, not year — two same-year census
+                        // events (a namesake applied twice) would otherwise
+                        // share one expand key and toggle together (2026-08-23
+                        // sweep).
+                        censusEvidence(forYear: year, key: "census:\(event.id.uuidString)")
                             .padding(.leading, 26)
                     }
                     }
@@ -1159,7 +1163,13 @@ struct SharedProfileLayout: View {
     /// death — and both carry the age that discriminates namesakes.
     private func recordTypes(for field: ProfileField) -> Set<RecordType> {
         switch field {
-        case .birthDate, .birthLocation: return [.birth, .census, .baptism, .christening]
+        // Census dropped from the birth context 2026-08-23: one place per
+        // census (owner request). A census DOES imply a birth year, but
+        // showing its records here as well as under its life event was the
+        // two-places problem all over again — and it is how the wrong 1861
+        // was applied to Samuel Holmes. The census section carries the
+        // age→birth-year line itself.
+        case .birthDate, .birthLocation: return [.birth, .baptism, .christening]
         case .deathDate, .deathLocation: return [.death, .burial, .probate]
         case .marriedSurname:            return [.marriage]
         default:                          return []
@@ -2236,7 +2246,10 @@ struct SharedProfileLayout: View {
         if !orphans.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text("Census records not yet applied")
+                    // Not "not yet applied" — an APPLIED record whose event
+                    // year failed to parse also lands here, and the old label
+                    // called it unapplied beside its own green pill.
+                    Text("Census records for years without a census event")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()

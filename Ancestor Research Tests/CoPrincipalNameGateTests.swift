@@ -94,6 +94,20 @@ struct CoPrincipalNameGateTests {
         #expect(name?.reason.contains("surname mismatch") == true)
     }
 
+    /// The review headline names BOTH principals — "Jacob HOLMES × Mary
+    /// STEVENSON, marriage 1846" — so a bride can recognise her own wedding.
+    /// The old title carried only the groom, and the owner scrolled past it
+    /// twice while searching for exactly this record.
+    @Test func theSummaryNamesBothPrincipals() {
+        let summary = RecordScorer.summarise(
+            record: marriageRow(coPersons: "Mary STEVENSON"), searchType: .parish)
+        #expect(summary.contains("Jacob HOLMES"))
+        #expect(summary.contains("Mary STEVENSON"), "the bride must be in the headline: \(summary)")
+        // A baptism with no co-person keeps the single-name shape.
+        let solo = RecordScorer.summarise(record: marriageRow(coPersons: nil), searchType: .parish)
+        #expect(!solo.contains("×"))
+    }
+
     /// The GROOM's side is untouched: Jacob searching the same record still
     /// passes on the primary name without touching the rescue.
     @Test func theGroomStillPassesOnThePrimaryName() {
