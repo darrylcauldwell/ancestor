@@ -2965,6 +2965,13 @@ final class AppState {
                 if roleFilled || present(link.member, among: existingParents) { continue }
             case .spouse:
                 if present(link.member, among: snapshot.spousesOf(subject.id)) { continue }
+                // An already-linked spouse whose NAME matches is the same person
+                // even when the years disagree — the tree edge outranks a census
+                // age. Kept in step with the reconciler's rung of the same name,
+                // so the count and the roster label cannot diverge.
+                if CensusRelationshipReconciler.linkedSingletonRoleMatch(
+                    member: link.member, relation: .spouse,
+                    treeRelatives: treeRelatives) != nil { continue }
             case .child:
                 if present(link.member, among: snapshot.childrenOf(subject.id)) { continue }
             case .sibling:

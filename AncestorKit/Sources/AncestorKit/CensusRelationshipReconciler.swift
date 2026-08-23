@@ -228,6 +228,13 @@ public nonisolated struct CensusRelationshipReconciler {
                     // wrong year stays a distinct, missing person.
                     entries.append(.init(member: member, censusRelation: relation,
                                          status: .inTree(profileID: sameRole.profile.id)))
+                } else if let linked = Self.linkedSingletonRoleMatch(
+                    member: member, relation: relation, treeRelatives: treeRelatives) {
+                    // An already-linked spouse or parent whose name matches but
+                    // whose YEAR disagrees — the tree edge outranks a census
+                    // age. See `linkedSingletonRoleMatch`.
+                    entries.append(.init(member: member, censusRelation: relation,
+                                         status: .inTree(profileID: linked.id)))
                 } else if let existing = snapshot.profiles.values.first(where: {
                     !$0.isDeleted && $0.id != subject.id
                         && Self.matches(member: member, profile: $0, censusYear: year)
@@ -471,6 +478,41 @@ public nonisolated struct CensusRelationshipReconciler {
             .compactMap { $0?.lowercased().trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         return profileSurnames.contains(memberSurname)
+    }
+
+    /// A relative ALREADY LINKED to the subject in a SINGLETON role — spouse or
+    /// parent — whose name matches but whose birth year does not.
+    ///
+    /// An existing tree edge is direct evidence of identity. Age arithmetic
+    /// cannot overturn it, and a transcribed census age is the weakest number in
+    /// genealogy. Owner dogfood 2026-08-22: Jacob Holmes's baptism proved he was
+    /// born 1817, not the 1823 his census age implied, so his birth year was
+    /// corrected — and his WIFE's card immediately offered to "Add 1 family
+    /// member: Jacob HOLMES — head", the husband she was already married to.
+    /// Six years apart, `yearTolerance` is 3, so the match failed. Making the
+    /// tree more accurate made the app offer a duplicate.
+    ///
+    /// Deliberately restricted to spouse and parent, because the rule this
+    /// sits beside — "a name-agreeing relative whose year is wrong is a
+    /// genuinely distinct person" — is TRUE for children and siblings, where
+    /// families reused a dead child's name. It cannot be true for a spouse or a
+    /// parent: nobody has two fathers, and the head of a wife's household is her
+    /// husband. Sex must not contradict, and exactly one linked relative may
+    /// qualify, so a two-parent row still resolves to the right one.
+    /// Public so the write path (`AppState.censusFamilyNetNewLinks`) shares this
+    /// rung — the count and the roster label must never diverge.
+    public static func linkedSingletonRoleMatch(
+        member: HouseholdMember, relation: CensusRelation,
+        treeRelatives: [(profile: Profile, relation: CensusRelation)]
+    ) -> Profile? {
+        guard relation == .spouse || relation == .parent else { return nil }
+        let candidates = treeRelatives.filter {
+            $0.relation == relation
+                && namesMatch(member: member, profile: $0.profile)
+                && !sexContradicts(member: member, profile: $0.profile)
+        }
+        guard candidates.count == 1 else { return nil }
+        return candidates[0].profile
     }
 
     /// A roster row whose FORENAME fails the similarity floor but whose
