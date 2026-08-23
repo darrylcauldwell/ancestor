@@ -29,6 +29,8 @@
   "lee":       ["leigh", "lea", "leigh"],
   "mason":     ["masen", "massen", "maeson"],
   "reed":      ["read", "reade", "reid"],
+  "stevenson":  ["stephenson", "stevinson", "steveson", "steenson"],
+  "stephenson": ["stevenson", "stevinson", "steveson", "steenson"],
   "stone":     ["stones", "stonne"],
   "wilson":    ["willson", "willsone", "wilsone"]
 }
