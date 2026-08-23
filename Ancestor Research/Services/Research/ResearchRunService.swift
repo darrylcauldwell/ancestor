@@ -33,7 +33,22 @@ enum ResearchRunService {
     ) -> Built {
         let map = sourceInfoMap ?? registry.buildSourceInfoMap()
         var dispatcher = SearchDispatcher(registry: registry, budgetTracker: budgetTracker)
-        dispatcher.learnedSurnameVariants = Self.learnedSurnameVariants(database: database)
+        let learned = Self.learnedSurnameVariants(database: database)
+        dispatcher.learnedSurnameVariants = learned
+        // The SCORER must know what the dispatcher knows. Feeding the query
+        // fan-out alone meant a learned spelling was probed, fetched — and
+        // then scored 0.0 by the name gate and killed as .impossible
+        // (confirmed critical, 2026-08-23 adversarial sweep). Registering the
+        // pairs here gives them nameSimilarity 0.9: gate-pass grade, which is
+        // right for a pairing a human confirmed by applying a record.
+        // Registered into the project-less bucket because no scorer call site
+        // passes a project UUID today; if multi-window isolation ever matters
+        // here, thread the UUID through classify first.
+        for (name, variants) in learned {
+            for variant in variants {
+                ScoringRules.addLearnedEquivalence(name, variant)
+            }
+        }
         let pipeline = ResearchPipeline(
             dispatcher: dispatcher,
             snapshot: snapshot,

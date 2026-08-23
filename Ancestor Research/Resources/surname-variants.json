@@ -45,6 +45,7 @@
   "moseley":    ["mosley", "mosely", "mozley"],
   "mosley":     ["moseley", "mosely", "mozley"],
   "dane":       ["daw", "dain", "deane"],
+  "daw":        ["dane"],
   "hibbert":    ["hibbard", "hibbeard", "hibberd"],
   "hibbard":    ["hibbert", "hibbeard", "hibberd"],
   "sellers":    ["sellors", "sellars", "cellars"],

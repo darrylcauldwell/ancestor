@@ -563,11 +563,14 @@ actor TierRecordingSource: RecordSource {
                 detailURL: nil,
                 rawFields: [:]
             )
-            return .military(MilitaryRecord(
+            // A FACT-grade death for the fixture subject (Robert Cauldwell,
+            // b.1880 d.1916–18, DBY): since 2026-08-23 only facts stop the
+            // ladder — a lead is a namesake needing review, not an answer —
+            // so a stub whose results must STOP a tier has to clear every
+            // gate, not merely avoid .impossible.
+            return .death(DeathRecord(
                 common: common,
-                rank: nil, regiment: nil, unit: nil, serviceNumber: nil,
-                dateOfDeath: nil, deathYear: nil, age: nil,
-                cemetery: nil, graveRef: nil, additionalInfo: nil
+                deathYear: 1917, district: "Bakewell"
             ))
         }
         return .results(records)

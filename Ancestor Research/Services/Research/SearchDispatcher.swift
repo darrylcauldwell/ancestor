@@ -521,11 +521,27 @@ struct SearchDispatcher {
             // `RecordScorer.classify` is pure over (record, subject, type) and
             // the tier walk holds all three, so this is the SAME classifier the
             // pipeline will apply later, not a second copy of its judgement.
+            // …and only a FACT-GRADE find stops the ladder. A lead is a
+            // namesake needing review, not an answer — and once the parish
+            // window widened to a whole life (b9df57e), every common-surname
+            // strict tier returns SOME plausible namesake lead, which under
+            // the old `!= .impossible` test suppressed the variant tier
+            // permanently: Mary Stephenson's baptism would have been blocked
+            // a fourth time, by the interaction of two fixes (confirmed major,
+            // 2026-08-23 adversarial sweep — "86674fd defeats 5ab7b2a").
+            //
+            // The load trade-off is real (leads no longer stop the walk, so
+            // more tiers run) and decided deliberately, per the owner's
+            // 2026-08-22 ruling: "if 'increases request volume against
+            // volunteer-run sources' is blocking a user from gathering actual
+            // evidence which is in the source, the self-restriction is
+            // failing." Negative caches keep repeat runs cheap, and a
+            // gate-clean fact still stops the ladder on the spot.
             let plausible = tierRecords.filter { rec in
                 guard !discardedSourceRecordIDs.contains(rec.id) else { return false }
                 return RecordScorer.classify(
                     record: rec, subject: subject, searchType: recordType
-                ).verdict != .impossible
+                ).verdict == .fact
             }
             Self.ladderLog.info("""
                 \(source.sourceID, privacy: .public)/\(recordType.rawValue, privacy: .public) \

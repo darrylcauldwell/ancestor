@@ -120,13 +120,16 @@ actor VerdictStubSource: RecordSource {
     }
 
     /// A death record for the given year. 1850 against a subject born 1880 is
-    /// impossible; 1917 sits inside their recorded death window.
+    /// impossible; 1917 sits inside their recorded death window. Carries a
+    /// home-county district so the plausible variant is FACT-grade — since
+    /// 2026-08-23 only facts stop the ladder (a lead is a namesake needing
+    /// review, not an answer), so a stop-asserting stub must clear every gate.
     nonisolated static func deathRecord(id: String, sourceID: String, year: Int) -> SourceRecord {
         .death(DeathRecord(
             common: RecordCommon(id: id, sourceID: sourceID, name: "Robert Cauldwell",
                                  surname: "Cauldwell", givenName: "Robert",
                                  detailURL: nil, rawFields: [:]),
-            deathYear: year))
+            deathYear: year, district: "Bakewell"))
     }
 
     func search(_ query: RecordQuery) async -> SourceQueryResult {
@@ -141,5 +144,64 @@ actor VerdictStubSource: RecordSource {
                 id: "plausible-\(query.strictness.rawValue)", sourceID: sourceID, year: 1917))
         }
         return .results(out)
+    }
+}
+
+/// Since 2026-08-23: only FACT-grade records stop the ladder. A lead is a
+/// namesake needing review, not an answer — and once the parish window
+/// widened to a whole life, every common-surname strict tier returns SOME
+/// plausible lead, which under the old rule suppressed the variant tier
+/// permanently ("86674fd defeats 5ab7b2a", confirmed by the adversarial
+/// sweep). These pin the new doctrine from both sides.
+@MainActor
+struct LeadsDoNotStopTheLadderTests {
+
+    private func subject() -> ResearchSubject {
+        ResearchSubject(
+            profileID: nil, surname: "Cauldwell", givenName: "Robert",
+            birthYearFrom: 1880, birthYearTo: 1880,
+            deathYearFrom: 1916, deathYearTo: 1918,
+            gender: .male, region: nil, mode: .extend,
+            familyContext: nil, homeChapmanCode: "DBY")
+    }
+
+    /// A tier returning only LEADS broadens — the namesake pile is kept for
+    /// review but must not suppress the looser spellings.
+    @Test func aTierOfOnlyLeadsBroadens() async {
+        // No district → the geography gate cannot corroborate → lead, not fact.
+        let stub = LeadStubSource()
+        let registry = SourceRegistry(defaults: .ephemeralSuite())
+        registry.register(stub)
+        _ = await SearchDispatcher(registry: registry).dispatch(
+            subject: subject(), recordTypes: [.death], scope: .county, mode: .extend)
+        let calls = await stub.tierCalls
+        #expect(calls == [.strict, .loose],
+                "a lead-only tier must broaden; got \(calls)")
+    }
+}
+
+/// Emits one LEAD-grade record per tier: right name, right year, but no
+/// district — so the geography gate withholds corroboration.
+actor LeadStubSource: RecordSource {
+    nonisolated let sourceID = "lead-stub"
+    nonisolated let scopeHandling: ScopeHandling = .inherentlyNational(reason: "test double")
+    nonisolated let displayName = "Lead Stub"
+    nonisolated let recordTypes: Set<RecordType> = [.death]
+    nonisolated let coverageYearRange: ClosedRange<Int>? = nil
+    nonisolated let coverageRegions: Set<Region> = [.englandAndWales]
+    nonisolated let dataLineage: SourceLineage = .independentTranscription(of: "test")
+    nonisolated let trustTier: SourceTrustTier = .transcription
+    nonisolated let evidenceDirectness: EvidenceDirectness = .directTranscription
+    nonisolated let tosStatus = SourceToSStatus(level: .open, summary: "test stub")
+
+    private(set) var tierCalls: [SearchStrictness] = []
+
+    func search(_ query: RecordQuery) async -> SourceQueryResult {
+        tierCalls.append(query.strictness)
+        return .results([.death(DeathRecord(
+            common: RecordCommon(id: "lead-\(query.strictness.rawValue)", sourceID: sourceID,
+                                 name: "Robert Cauldwell", surname: "Cauldwell",
+                                 givenName: "Robert", detailURL: nil, rawFields: [:]),
+            deathYear: 1917))])
     }
 }

@@ -250,6 +250,19 @@ nonisolated struct ScoringRules {
            let canonB = scribalContractions[b],
            canonA == canonB { return 0.85 }
 
+        // Known spelling-variant rung (2026-08-23). The SAME deterministic
+        // layers that fan the search probes must accept their returns: the
+        // dispatcher probed STEPHENSON *because* the variant layers say it is
+        // a spelling of STEVENSON, FreeREG returned Mary's baptism — and this
+        // function scored the pair 0.0 (a substitution plus an insertion, so
+        // no rung below matches), hard-failing the name gate to .impossible.
+        // The record was fetched and then killed at scoring; confirmed
+        // critical by the 2026-08-23 adversarial sweep. 0.78 lands in the
+        // gate's softFail band (0.7–0.89): a reviewable lead, never a silent
+        // pass. Placed BELOW the 0.8+ rungs so it can only upgrade a score,
+        // never downgrade one.
+        if isKnownSpellingVariant(a, b) { return 0.78 }
+
         // Single character difference (typo/transcription)
         if a.count == b.count {
             let diffs = zip(a, b).filter { $0 != $1 }.count
@@ -504,6 +517,17 @@ nonisolated struct ScoringRules {
 
         out.remove(start)
         return out.sorted()
+    }
+
+    /// Whether two names are known spellings of one name, per the same layers
+    /// the dispatcher's variant fan-out consults: the generated orthographic
+    /// rules and the curated seed list. Checked in both directions — the
+    /// rules are not symmetric (a cap, one-way entries).
+    static func isKnownSpellingVariant(_ a: String, _ b: String) -> Bool {
+        if orthographicSurnameVariants(of: a).contains(b) { return true }
+        if orthographicSurnameVariants(of: b).contains(a) { return true }
+        if SurnameVariants.shared.variants(of: a).contains(where: { $0.caseInsensitiveCompare(b) == .orderedSame }) { return true }
+        return SurnameVariants.shared.variants(of: b).contains(where: { $0.caseInsensitiveCompare(a) == .orderedSame })
     }
 
     /// Orthographic SURNAME variants, generated rather than curated.

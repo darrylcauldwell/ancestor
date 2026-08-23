@@ -437,6 +437,17 @@ nonisolated extension ResearchSubject {
                 let pad = birthAnchorIsDerived ? Self.derivedAnchorPad : 2
                 return (from - pad, (birthYearTo ?? from) + pad)
             }
+            // One-sided ceiling ("BEF 1850"-style dates parse to birthYearTo
+            // only). The 680bf8c rewrite silently DISCARDED this bound —
+            // falling through to the child-derived window or (nil, nil) —
+            // where the old code returned (nil, to + 2). Keep the recorded
+            // ceiling; take a floor from the children when they offer one.
+            // (Confirmed regression, 2026-08-23 adversarial sweep.)
+            if let to = birthYearTo {
+                let pad = birthAnchorIsDerived ? Self.derivedAnchorPad : 2
+                let floor = familyContext?.childBirthYears.min().map { $0 - 50 }
+                return (floor, to + pad)
+            }
             // No birth year at all — but a parent is bounded by their children.
             // Someone named only as a father or mother on someone else's record
             // has nothing to search on, and every window is built from the birth
