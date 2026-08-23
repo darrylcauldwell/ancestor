@@ -1,5 +1,5 @@
 {
-  "_comment": "RESEARCH_AXES_SPEC Change 5. Hand-curated surname transcription variants used by the dispatcher when query.strictness == .variant. Keys are canonical lowercase surnames; values are lowercase variant arrays excluding the canonical form itself. Lookup is case-insensitive; unknown surnames fall back to [surname] (no variants — fan-out becomes a single query). 30 seed entries chosen to cover the user's Derbyshire-region surnames and high-frequency UK names with common 19th-century transcription drift.",
+  "_comment": "Surname transcription variants used by the dispatcher when query.strictness == .variant. Keys are canonical lowercase surnames; values are lowercase variant arrays excluding the canonical form itself. Lookup is case-insensitive and carries no reverse index, so a pair that matters in both directions needs both keys. SINCE 2026-08-23 THIS LIST IS FOR IRREGULARS ONLY: ScoringRules.orthographicSurnameVariants generates the productive patterns (ph/v, medial p, y/i, -er/-ar/-or, terminal silent e, doubled consonant) for EVERY surname, and the fan-out takes the union. Entries here are the ones no rule reaches — vowel changes (holmes/hulme), m/n confusion (newnes/newmes), whole-syllable elision (bateman/batman), and local Derbyshire spellings. The rule-covered seeds below are retained because they cost nothing (the union dedupes) and the generated fan-out is capped at six, so a curated entry guarantees a spelling the cap might otherwise trim.",
 
   "cauldwell": ["caldwell", "caudwell", "coldwell", "coudwell"],
   "smith":     ["smyth", "smithe", "smythe"],
@@ -26,11 +26,47 @@
   "gray":      ["grey", "graye", "greye"],
   "hunter":    ["hunters", "huntar"],
   "jones":     ["joanes", "iones"],
-  "lee":       ["leigh", "lea", "leigh"],
+  "lee":       ["leigh", "lea"],
   "mason":     ["masen", "massen", "maeson"],
   "reed":      ["read", "reade", "reid"],
   "stevenson":  ["stephenson", "stevinson", "steveson", "steenson"],
   "stephenson": ["stevenson", "stevinson", "steveson", "steenson"],
   "stone":     ["stones", "stonne"],
-  "wilson":    ["willson", "willsone", "wilsone"]
+  "wilson":    ["willson", "willsone", "wilsone"],
+
+  "_observed_comment": "Pairs read off ONE FreeBMD volume/page in Aug 2026 — a shared reference is a single registration transcribed two ways, which is direct evidence of the variant rather than a guess.",
+
+  "newnes":     ["newmes", "newns"],
+  "newmes":     ["newnes", "newns"],
+  "gardom":     ["gardon", "gardham"],
+  "gardon":     ["gardom", "gardham"],
+  "bateman":    ["batman", "batemen"],
+  "batman":     ["bateman", "batemen"],
+  "moseley":    ["mosley", "mosely", "mozley"],
+  "mosley":     ["moseley", "mosely", "mozley"],
+  "dane":       ["daw", "dain", "deane"],
+  "hibbert":    ["hibbard", "hibbeard", "hibberd"],
+  "hibbard":    ["hibbert", "hibbeard", "hibberd"],
+  "sellers":    ["sellors", "sellars", "cellars"],
+  "sellors":    ["sellers", "sellars"],
+
+  "_derbyshire_comment": "Local surnames from the working tree whose drift no rule generates.",
+
+  "wheeldon":   ["wheldon", "weldon", "wheeldonn", "whieldon"],
+  "wheldon":    ["wheeldon", "weldon", "whieldon"],
+  "redfern":    ["redfearn", "redferne", "redfarn"],
+  "redfearn":   ["redfern", "redferne", "redfarn"],
+  "bonsall":    ["bonsal", "bonsell", "bonshall"],
+  "hodgkinson": ["hodgkinsen", "hodkinson", "hodgkison"],
+  "hodkinson":  ["hodgkinson", "hodgkinsen"],
+  "sims":       ["simms", "symes", "syms", "simmes"],
+  "simms":      ["sims", "symes", "syms"],
+  "marsden":    ["marsdin", "marsdon", "masden"],
+  "wildgoose":  ["wildgoos", "wilgoose", "wildgose"],
+  "broxup":     ["broxop", "broxupp", "brocksup"],
+  "slaney":     ["slany", "slanie", "slaneye"],
+  "brooks":     ["brookes", "brook", "brooke"],
+  "gibbs":      ["gibbes", "gibb", "gibbis"],
+  "stevens":    ["stephens", "stevans", "steevens"],
+  "stephens":   ["stevens", "stevans", "steevens"]
 }

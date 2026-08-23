@@ -45,12 +45,58 @@ struct SurnameVariantSeedTests {
             .map { $0.lowercased() }.contains("thomson"))
     }
 
-    /// An unseeded surname yields NO variants — the dispatcher then fans out to
-    /// a single query on the canonical spelling. Documents the real contract:
-    /// every surname outside these ~30 seeds is searched one way only, which is
-    /// why the list's coverage is the binding constraint on this whole feature.
-    @Test func unseededSurnamesYieldNoVariants() {
-        #expect(SurnameVariants.shared.variants(of: "Wheeldon").isEmpty)
-        #expect(SurnameVariants.shared.variants(of: "Boam").isEmpty)
+    /// An unseeded surname yields NO curated variants — the generated rules
+    /// then carry it. Since 2026-08-23 the curated list exists only for
+    /// IRREGULARS, so a plain name having no entry is correct, not a gap.
+    @Test func unseededSurnamesYieldNoCuratedVariants() {
+        #expect(SurnameVariants.shared.variants(of: "Zebedee").isEmpty)
+        #expect(!ScoringRules.orthographicSurnameVariants(of: "Zebedee").isEmpty,
+                "…but the rules still give it spellings to try")
+    }
+
+    // MARK: - Irregulars the rules cannot reach
+
+    /// Pairs read off a SINGLE FreeBMD volume/page in Aug 2026 — one
+    /// registration transcribed two ways, which is evidence rather than a
+    /// guess. No rule produces M↔N or a dropped syllable.
+    @Test func observedSamePagePairsAreSeeded() {
+        #expect(SurnameVariants.shared.variants(of: "Newnes").contains("newmes"),
+                "19/333 carried both spellings of one marriage")
+        #expect(SurnameVariants.shared.variants(of: "Gardom").contains("gardon"))
+        #expect(SurnameVariants.shared.variants(of: "Bateman").contains("batman"))
+        #expect(SurnameVariants.shared.variants(of: "Moseley").contains("mosley"))
+    }
+
+    /// …and they are symmetric, because the lookup has no reverse index.
+    @Test func observedPairsWorkFromEitherSpelling() {
+        #expect(SurnameVariants.shared.variants(of: "Newmes").contains("newnes"))
+        #expect(SurnameVariants.shared.variants(of: "Gardon").contains("gardom"))
+        #expect(SurnameVariants.shared.variants(of: "Batman").contains("bateman"))
+        #expect(SurnameVariants.shared.variants(of: "Mosley").contains("moseley"))
+    }
+
+    /// Local surnames from the working tree whose drift no rule generates.
+    @Test func derbyshireIrregularsAreSeeded() {
+        #expect(SurnameVariants.shared.variants(of: "Wheeldon").contains("wheldon"))
+        #expect(SurnameVariants.shared.variants(of: "Redfern").contains("redfearn"))
+        #expect(SurnameVariants.shared.variants(of: "Bonsall").contains("bonsal"))
+        #expect(SurnameVariants.shared.variants(of: "Sims").contains("simms"))
+        #expect(SurnameVariants.shared.variants(of: "Hodgkinson").contains("hodkinson"))
+    }
+
+    /// The comment keys are not surnames. The loader takes only array values,
+    /// so they drop out — but a future editor could break that silently.
+    @Test func commentKeysAreNotLoadedAsSurnames() {
+        #expect(SurnameVariants.shared.variants(of: "_comment").isEmpty)
+        #expect(SurnameVariants.shared.variants(of: "_observed_comment").isEmpty)
+        #expect(SurnameVariants.shared.variants(of: "_derbyshire_comment").isEmpty)
+    }
+
+    /// No entry lists itself — a self-reference would emit a duplicate query.
+    @Test func noEntryListsItself() {
+        for name in ["Holmes", "Stevenson", "Wheeldon", "Newnes", "Moseley", "Sims"] {
+            #expect(!SurnameVariants.shared.variants(of: name).contains(name.lowercased()),
+                    "\(name) lists itself")
+        }
     }
 }
