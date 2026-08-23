@@ -148,6 +148,15 @@ enum ProfileSourcesLedger {
         var isParishBaptism: Bool = false
         /// A parish burial — death-context evidence, same hole again.
         var isParishBurial: Bool = false
+        /// A parish record with a register-entry page not yet fetched — the
+        /// "Details" affordance (twin of `canLoadHousehold`). Fetch-only:
+        /// it changes no facts.
+        var canLoadParishDetail: Bool = false
+        /// The family this parish record names — "Father John STEPHENSON ·
+        /// Mother Lydia" — so a CANDIDATE baptism's parents are readable
+        /// BEFORE it is applied (the household-roster rationale, parish-side:
+        /// the kin on the page is what picks one entry out of a namesake pile).
+        var parishKinLine: String? = nil
     }
 
     /// Whether a parish record's event is a marriage (false for every other
@@ -191,6 +200,49 @@ enum ProfileSourcesLedger {
     nonisolated static func censusHousehold(_ record: SourceRecord) -> [HouseholdMember] {
         guard case .census(let c) = record else { return [] }
         return c.household ?? []
+    }
+
+    /// A parish record whose register-entry page could still be fetched: no
+    /// typed `detail` payload yet, a detail URL present. Pure — testable
+    /// without a database. FreeREG results-table rows carry no kin at all
+    /// (parents live only on the entry page), so every search-row parish
+    /// record arrives in this state.
+    nonisolated static func parishNeedsDetail(_ record: SourceRecord) -> Bool {
+        guard case .parish(let p) = record else { return false }
+        return p.detail == nil && (p.common.detailURL?.isEmpty == false)
+    }
+
+    /// One line naming the family a parish record mentions — the typed detail
+    /// first (role-resolved), the flat projection as fallback. Nil when the
+    /// record names nobody, or isn't parish. Pure.
+    nonisolated static func parishKinLine(_ record: SourceRecord) -> String? {
+        guard case .parish(let p) = record else { return nil }
+        var parts: [String] = []
+        if let detail = p.detail {
+            switch detail.event {
+            case .baptism(let b):
+                if let f = b.father?.displayName { parts.append("Father \(f)") }
+                if let m = b.mother?.person.displayName { parts.append("Mother \(m)") }
+            case .marriage(let m):
+                if let gf = m.groomFather?.displayName { parts.append("Groom's father \(gf)") }
+                if let bf = m.brideFather?.displayName { parts.append("Bride's father \(bf)") }
+            case .burial(let b):
+                if let r = b.relative?.displayName {
+                    let rel = (b.relationship ?? "").trimmingCharacters(in: .whitespaces)
+                    // First-letter only — `.capitalized` would render
+                    // "wife of" as "Wife Of".
+                    parts.append(rel.isEmpty ? "Relative \(r)"
+                                 : "\(rel.prefix(1).uppercased() + rel.dropFirst()) \(r)")
+                }
+            }
+        }
+        // Flat fatherName/motherName are the lossy projection (baptisms only,
+        // per the DS-10 producer guard) — used when no typed detail exists.
+        if parts.isEmpty {
+            if let f = p.fatherName, !f.isEmpty { parts.append("Father \(f)") }
+            if let m = p.motherName, !m.isEmpty { parts.append("Mother \(m)") }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// The profile's LIFE ANCHORS — the established facts a candidate record
@@ -255,7 +307,9 @@ enum ProfileSourcesLedger {
                     censusYear: censusYear(of: rec.record),
                     isParishMarriage: isParishMarriage(rec.record),
                     isParishBaptism: isParishBaptism(rec.record),
-                    isParishBurial: isParishBurial(rec.record))
+                    isParishBurial: isParishBurial(rec.record),
+                    canLoadParishDetail: parishNeedsDetail(rec.record),
+                    parishKinLine: parishKinLine(rec.record))
             }
 
         // Collapse the same underlying entry saved more than once across runs
@@ -277,6 +331,15 @@ enum ProfileSourcesLedger {
                     if !other.household.isEmpty {
                         rep.household = other.household
                         rep.canLoadHousehold = false
+                    }
+                }
+                // Same for a fetched parish detail: only one twin may carry
+                // the kin the page names, and collapsing must not hide it.
+                if rep.parishKinLine == nil {
+                    let other = rep.id == existing.id ? d : existing
+                    if let kin = other.parishKinLine {
+                        rep.parishKinLine = kin
+                        rep.canLoadParishDetail = other.canLoadParishDetail
                     }
                 }
                 byIdentity[key] = rep

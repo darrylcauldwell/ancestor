@@ -567,6 +567,16 @@ final class AppState {
             if Self.censusNeedsHousehold(scored.record) {
                 Task { await self.loadCensusHousehold(sourceRecordID: sourceRecordID, profileID: profileID) }
             }
+            // Same for a parish record: the family-absorption offer reads the
+            // register entry's kin (parents on a baptism, both fathers on a
+            // marriage), and FreeREG results-table rows carry none of it — so
+            // fetch this record's entry page on demand (one GET) in the
+            // background. Owner dogfood 2026-08-23: Mary Stevenson's applied
+            // 1823 Youlgreave baptism could never offer John STEPHENSON +
+            // Lydia; they live only on the detail page.
+            if Self.parishNeedsDetail(scored.record) {
+                Task { await self.loadParishDetail(sourceRecordID: sourceRecordID, profileID: profileID) }
+            }
         } catch {
             errorMessage = "Failed to apply record: \(error.localizedDescription)"
         }
@@ -600,6 +610,12 @@ final class AppState {
     /// testable without a database.
     nonisolated static func censusNeedsHousehold(_ record: SourceRecord) -> Bool {
         ProfileSourcesLedger.censusNeedsHousehold(record)
+    }
+
+    /// A parish record whose register-entry page we could still fetch: a detail
+    /// URL but no typed `detail` payload yet. Pure — testable without a database.
+    nonisolated static func parishNeedsDetail(_ record: SourceRecord) -> Bool {
+        ProfileSourcesLedger.parishNeedsDetail(record)
     }
 
     /// Learn a surname equivalence from an APPLIED record whose surname differs
@@ -703,6 +719,84 @@ final class AppState {
             errorMessage = "Failed to load census household: \(error.localizedDescription)"
             return false
         }
+    }
+
+    /// Fetch a specific parish record's register-entry page on demand — one
+    /// GET via the source's `fetchDetail` — and fold the typed payload onto the
+    /// evidence record, so the family-absorption offer (which reads the entry's
+    /// parents/spouses) can form and a CANDIDATE entry's kin is readable before
+    /// deciding. The parish twin of `loadCensusHousehold`: FreeREG results-table
+    /// rows name no kin at all — Mary Stevenson's applied 1823 Youlgreave
+    /// baptism (owner dogfood 2026-08-23) could never offer "add John
+    /// STEPHENSON + Lydia" because the parents live only on the entry page.
+    /// Returns true when new detail was fetched and stored.
+    @discardableResult
+    func loadParishDetail(sourceRecordID: String, profileID: String) async -> Bool {
+        guard let db = currentDatabase, let registry = attachedRegistry,
+              let evidence = (try? db.loadEvidenceForProfile(profileID))?
+                .first(where: { $0.sourceRecordID == sourceRecordID }),
+              case .parish(let parish) = evidence.record,
+              Self.parishNeedsDetail(evidence.record),
+              let detailURL = parish.common.detailURL,
+              let source = registry.allSources()
+                .first(where: { $0.sourceID == parish.common.sourceID }) as? any DetailFetchingSource
+        else { return false }
+
+        guard case .results(let recs) = await source.fetchDetail(recordID: detailURL),
+              case .parish(let fetched)? = recs.first
+        else { return false }
+
+        let enriched = Self.enrichedParishRecord(base: parish, fetched: fetched)
+        // Nothing new read (page unparseable, kin-free entry): store nothing,
+        // so the affordance stays and a retry is possible.
+        let gainedDetail = enriched.detail != nil
+        let gainedParents = (enriched.fatherName != nil && parish.fatherName == nil)
+            || (enriched.motherName != nil && parish.motherName == nil)
+        guard gainedDetail || gainedParents else { return false }
+        do {
+            // No profile fields change — but the family offer, the ledger's
+            // kin line, and the Health parish-kin sweep all read the stored
+            // evidence, so persist and refresh them.
+            try db.updateEvidenceRecordJSON(evidenceID: evidence.id, record: .parish(enriched))
+            runPostLoadAudit()
+            return true
+        } catch {
+            errorMessage = "Failed to load record detail: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// Graft a register-entry fetch onto the search-row record it belongs to.
+    /// Identity is the BASE record's — id, name, detail URL (the FT-12 lesson:
+    /// enrichment must never flip a record's identity, and `user_status` rows
+    /// are keyed on the id). Entry-page fields fill `rawFields` gaps
+    /// (search-row keys win), the typed payload rides `detail`, and the flat
+    /// parent projection prefers the fetched page's (role-guarded upstream by
+    /// `flatParentProjection` — a marriage's fathers never land there) with
+    /// the search row's as fallback. Pure.
+    nonisolated static func enrichedParishRecord(base: ParishRecord, fetched: ParishRecord) -> ParishRecord {
+        var raw = base.common.rawFields
+        for (key, value) in fetched.common.rawFields where raw[key] == nil {
+            raw[key] = value
+        }
+        let common = RecordCommon(
+            id: base.common.id,
+            sourceID: base.common.sourceID,
+            name: base.common.name,
+            surname: base.common.surname,
+            givenName: base.common.givenName,
+            detailURL: base.common.detailURL,
+            rawFields: raw)
+        return ParishRecord(
+            common: common,
+            eventType: base.eventType ?? fetched.eventType,
+            eventDate: base.eventDate ?? fetched.eventDate,
+            eventYear: base.eventYear ?? fetched.eventYear,
+            parish: base.parish ?? fetched.parish,
+            county: base.county ?? fetched.county,
+            fatherName: fetched.fatherName ?? base.fatherName,
+            motherName: fetched.motherName ?? base.motherName,
+            detail: fetched.detail)
     }
 
     /// A human-verified external record the research pipeline can't discover

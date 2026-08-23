@@ -268,9 +268,11 @@ struct SharedProfileLayout: View {
     @State private var expandedEvidenceBuckets: Set<String> = []
     /// An applied record the user is confirming removal of (un-apply inline).
     @State private var recordRemovalCandidate: ProfileSourcesLedger.RecordDetail?
-    /// Census record ids whose household fetch is in flight — one detail-page
-    /// GET against a volunteer-run source, so the row shows it is working and
-    /// the button can't be fired twice.
+    /// Record ids whose evidence fetch is in flight (a census household or a
+    /// parish register entry) — one detail-page GET against a volunteer-run
+    /// source, so the row shows it is working and the button can't be fired
+    /// twice. Shared across both affordances: a record is census or parish,
+    /// never both.
     @State private var loadingHouseholdIDs: Set<String> = []
     @State private var candidateGroups: [[ResearchHypothesis]] = []
     @State private var proposals: [ProfileField: ConflictResolutionActions.ProposedResolution] = [:]
@@ -1540,6 +1542,14 @@ struct SharedProfileLayout: View {
             // its own actions, so the nearest button always acts on the nearest
             // evidence.
             householdRoster(rec)
+            // The kin a parish entry names, in the same position as a census
+            // roster: evidence first, then the actions on it.
+            if let kin = rec.parishKinLine {
+                Text(kin)
+                    .font(AppTypography.badge)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack(spacing: 10) {
                 SourceVerifyLink(sourceID: rec.sourceID, citationURL: rec.citationURL)
                 // Read a CANDIDATE census's household before deciding on it.
@@ -1578,6 +1588,40 @@ struct SharedProfileLayout: View {
                     .foregroundStyle(.blue)
                     .disabled(loading)
                     .help("Fetches this census's household — one page from the source — so you can read who this person was living with BEFORE deciding. Changes nothing on the tree.")
+                }
+                // Read a parish record's register entry — the parents on a
+                // baptism, both fathers on a marriage — before deciding on
+                // it, and so an applied record's add-family offer can form.
+                // FreeREG results rows carry no kin at all (owner dogfood
+                // 2026-08-23: Mary's applied Youlgreave baptism could not
+                // offer her parents; John STEPHENSON and Lydia live only on
+                // the entry page). A fetch, not a tree change: it fills the
+                // record's own detail and nothing else.
+                if rec.canLoadParishDetail {
+                    let loading = loadingHouseholdIDs.contains(rec.id)
+                    Button {
+                        loadingHouseholdIDs.insert(rec.id)
+                        Task {
+                            _ = await appState.loadParishDetail(
+                                sourceRecordID: rec.id, profileID: profile.id)
+                            loadingHouseholdIDs.remove(rec.id)
+                            reloadFactRecords()
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            if loading {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Image(systemName: "doc.text.magnifyingglass")
+                            }
+                            Text(loading ? "Loading…" : "Details")
+                        }
+                        .font(AppTypography.badge)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
+                    .disabled(loading)
+                    .help("Fetches this record's register entry — one page from the source — naming the family it mentions (parents on a baptism, both fathers on a marriage) so you can read it BEFORE deciding. Changes nothing on the tree.")
                 }
                 // Apply in context — for records not already on the profile.
                 if rec.standing != .applied {
