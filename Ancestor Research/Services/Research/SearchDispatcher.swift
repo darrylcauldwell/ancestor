@@ -484,7 +484,32 @@ struct SearchDispatcher {
             // Note the honesty envelope below already refuses to treat an
             // ERROR as an empty; this is the mirror it was missing — refusing
             // to treat a rejected hit as a find.
-            let plausible = tierRecords.filter { !discardedSourceRecordIDs.contains($0.id) }
+            // …and neither is a row the SCORER rules out. The argument above is
+            // made for human rejections and left unmade for machine ones, but a
+            // woman who died in 1825 when the subject is enumerated alive in
+            // 1861 is not a find by anybody's reckoning. Counting her stops the
+            // ladder just as surely as a discarded row does — and for a common
+            // name in a big county the strict tier will nearly always return
+            // some impossible namesake, so this closed the looser tiers off
+            // permanently for exactly the profiles that needed them.
+            //
+            // Owner dogfood 2026-08-23: Mary Stevenson's strict parish tier
+            // returned three rows — one discarded by hand, one burial the
+            // scorer marked impossible, one marriage at "max age ~0". Two
+            // impossibles counted as finds, the ladder stopped, and the
+            // `.variant` tier that would have probed the STEPHENSON spelling
+            // never ran. Her baptism — the record naming both her parents — was
+            // unreachable from inside the app and had to be found by hand.
+            //
+            // `RecordScorer.classify` is pure over (record, subject, type) and
+            // the tier walk holds all three, so this is the SAME classifier the
+            // pipeline will apply later, not a second copy of its judgement.
+            let plausible = tierRecords.filter { rec in
+                guard !discardedSourceRecordIDs.contains(rec.id) else { return false }
+                return RecordScorer.classify(
+                    record: rec, subject: subject, searchType: recordType
+                ).verdict != .impossible
+            }
             Self.ladderLog.info("""
                 \(source.sourceID, privacy: .public)/\(recordType.rawValue, privacy: .public) \
                 tier=\(String(describing: strictness), privacy: .public) \
