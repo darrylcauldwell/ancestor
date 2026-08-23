@@ -112,6 +112,14 @@ nonisolated struct ScoringRules {
     /// record type — not by subject precision, because subject precision
     /// is already encoded in `birthYearFrom`/`birthYearTo` (a "ABT 1880"
     /// subject already has from=1875, to=1885).
+    /// Extra date-gate slack when the SUBJECT's birth year is itself derived
+    /// (a census age, an `abt` estimate) rather than taken from a birth-shape
+    /// record. The per-type tolerances below describe how much the RECORD's
+    /// year can drift; this describes how much the ANCHOR can. Jacob Holmes's
+    /// census age was five years out, which put his own baptism outside
+    /// `.parish`'s ±3. See `ResearchSubject.birthAnchorIsDerived`.
+    static let derivedAnchorSlack = 5
+
     static func tolerance(for recordType: RecordType) -> Int {
         switch recordType {
         // Birth is ±2 (DS-23): a birth record can slip a registration quarter

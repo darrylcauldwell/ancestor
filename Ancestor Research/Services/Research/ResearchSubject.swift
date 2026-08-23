@@ -154,6 +154,24 @@ nonisolated struct ResearchSubject: Sendable {
     var middleName: String?
     var birthYearFrom: Int?
     var birthYearTo: Int?
+    /// True when the birth year rests only on DERIVED evidence — an age
+    /// subtracted from a census, or an explicitly approximate date — with no
+    /// birth-shape record behind it.
+    ///
+    /// The search window and the date gate are both built from the birth year,
+    /// so when that year is wrong the record that would CORRECT it falls out of
+    /// range. Owner dogfood 2026-08-22: Jacob Holmes sat at b.~1823 from a
+    /// census age of 38; his real baptism is 1817. The window was 1821–1825 and
+    /// `start_year`/`end_year` go to FreeREG server-side, so the baptism was
+    /// never returned. Editing the year by hand to 1817 made it appear
+    /// instantly — the same register, the same query, one number different.
+    ///
+    /// A census age is the least reliable number in genealogy (round numbers,
+    /// mis-remembered ages, deliberate fudges — Jacob's was out by five). A
+    /// baptism is not. Widening the window in proportion to how the anchor was
+    /// established is the difference between a searchable person and one whose
+    /// own evidence is unreachable.
+    var birthAnchorIsDerived: Bool = false
     var deathYearFrom: Int?
     var deathYearTo: Int?
     /// Latest year the subject is demonstrably ALIVE, derived from accepted
@@ -380,10 +398,43 @@ nonisolated extension ResearchSubject {
     }
 
     /// Year range for a given record type.
+    /// Birth-window padding when the anchor is census-derived. Jacob Holmes's
+    /// census age was out by 5; ±8 covers that with room, and still refuses a
+    /// namesake a decade adrift.
+    static let derivedAnchorPad = 8
+
+    /// True when a profile's birth year rests only on derived evidence. Pure,
+    /// so the rule is testable without a graph.
+    ///
+    /// Two independent signals, either sufficient:
+    ///  - the recorded date SAYS it is approximate (`CAL`/`ABT`/`EST`), or
+    ///  - every source behind `birthDate` is a census.
+    /// A hand-entered or birth-record-backed year is treated as firm — the user
+    /// knowing something we can't see is not a weak anchor.
+    nonisolated static func birthAnchorIsDerived(for profile: Profile) -> Bool {
+        let original = (profile.birthDate?.original ?? "")
+            .trimmingCharacters(in: .whitespaces).uppercased()
+        for marker in ["CAL", "ABT", "EST", "C.", "CIRCA"] where original.hasPrefix(marker) {
+            return true
+        }
+        let sources = profile.sources[.birthDate] ?? []
+        guard !sources.isEmpty else { return false }
+        return sources.allSatisfy { src in
+            let id = src.origin.identifier.lowercased()
+            return id.contains("census") || id == "freecen"
+        }
+    }
+
     func yearRange(for recordType: RecordType) -> (from: Int?, to: Int?) {
         switch recordType {
         case .birth, .christening, .baptism:
-            return (birthYearFrom.map { $0 - 2 }, birthYearTo.map { $0 + 2 })
+            // Pad in proportion to how the anchor was established: ±2 around a
+            // birth-shape record, ±8 around a census age. See
+            // `birthAnchorIsDerived` — these bounds are sent to the source
+            // server-side, so anything outside them is not merely rejected, it
+            // is never returned.
+            let pad = birthAnchorIsDerived ? Self.derivedAnchorPad : 2
+            return (birthYearFrom.map { $0 - pad }, birthYearTo.map { $0 + pad })
         case .death, .burial, .probate:
             if let df = deathYearFrom { return (df - 2, (deathYearTo ?? df) + 2) }
             // Fallback: birth + 15 to birth + 95
@@ -1044,6 +1095,7 @@ nonisolated extension ResearchSubject {
             middleName: profile.middleName,
             birthYearFrom: birthFrom,
             birthYearTo: birthTo,
+            birthAnchorIsDerived: Self.birthAnchorIsDerived(for: profile),
             deathYearFrom: profile.deathDate?.earliest,
             deathYearTo: profile.deathDate?.latest,
             aliveAsOf: derivedAliveAsOf,

@@ -1171,6 +1171,7 @@ nonisolated struct RecordScorer {
                 // ±5 is the honest band — previous ±2 was rejecting genuine
                 // census matches whose enumerated age was off by 3–4 years.
                 let tol = ScoringRules.tolerance(for: .census)
+                    + (subject.birthAnchorIsDerived ? ScoringRules.derivedAnchorSlack : 0)
                 let inWindow = censusBirth >= birthLow - tol && censusBirth <= birthHigh + tol
                 if inWindow {
                     return GateResult(gate: .date, outcome: .pass, reason: "census birth year \(censusBirth) inside window \(windowLabel) ±\(tol)")
@@ -1194,6 +1195,7 @@ nonisolated struct RecordScorer {
             // baptised years after birth, adult baptism happens). Subject's
             // date precision is already encoded in the from/to window above.
             let tol = ScoringRules.tolerance(for: searchType)
+                + (subject.birthAnchorIsDerived ? ScoringRules.derivedAnchorSlack : 0)
             let inWindow = recordYear >= birthLow - tol && recordYear <= birthHigh + tol
             if inWindow {
                 return GateResult(gate: .date, outcome: .pass, reason: "year \(recordYear) inside window \(windowLabel) ±\(tol)")
