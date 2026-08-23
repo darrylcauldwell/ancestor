@@ -563,6 +563,13 @@ struct SharedProfileLayout: View {
                 .filter { $0.kind != .fieldValue }
             reloadInvestigations()
             reloadFactRecords()
+            // Self-heal: applied records that predate auto-fetch-on-apply
+            // still lack their register entry / household. Fetch them now
+            // (bounded, session-deduped, quiet) so the kin roster and its
+            // "Add N to tree" appear without a Details click.
+            if await appState.autoLoadAppliedEvidenceDetails(profileID: profile.id) {
+                reloadFactRecords()
+            }
         }
         // Any snapshot mutation (applying a record, adding a verified record)
         // should refresh the per-fact evidence — profile.id is unchanged, so the

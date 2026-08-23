@@ -730,8 +730,65 @@ final class AppState {
     /// baptism (owner dogfood 2026-08-23) could never offer "add John
     /// STEPHENSON + Lydia" because the parents live only on the entry page.
     /// Returns true when new detail was fetched and stored.
+    /// Evidence ids already auto-fetched this session — a dead detail URL
+    /// must not refetch on every card open. Session-scoped by design: a
+    /// transient source outage clears on next launch.
+    private var evidenceDetailAutoFetchAttempted: Set<String> = []
+
+    /// The APPLIED (or user-kept) records still missing their evidence
+    /// payload — a parish record's register entry, a census's household.
+    /// Pure selection, testable without a network: applied-only (reading a
+    /// candidate stays the user's explicit click — a volunteer source is
+    /// not stress-tested for rows that may never be opened), capped, and
+    /// deduped against the session's attempted set.
+    nonisolated static func appliedEvidenceNeedingDetail(
+        _ evidence: [EvidenceRecord], profile: Profile?,
+        attempted: Set<String>, cap: Int = 4
+    ) -> [EvidenceRecord] {
+        var out: [EvidenceRecord] = []
+        for ev in evidence where out.count < cap {
+            guard !attempted.contains(ev.id),
+                  ProfileSourcesLedger.parishNeedsDetail(ev.record)
+                    || ProfileSourcesLedger.censusNeedsHousehold(ev.record),
+                  ev.userStatus == .savedAsLead || ev.wasApplied(to: profile)
+            else { continue }
+            out.append(ev)
+        }
+        return out
+    }
+
+    /// Backfill fetch for applied records that predate auto-fetch-on-apply
+    /// (owner ask 2026-08-23: "can any enhancement like two parent adds be
+    /// always showed" — Mary's baptism was applied before `223fbc8`, so her
+    /// roster needed a manual Details click). Runs when a profile card
+    /// opens; bounded and quiet — an unattended fetch failing must not
+    /// toast an error over a card the user just opened. Returns true when
+    /// anything new was stored.
     @discardableResult
-    func loadParishDetail(sourceRecordID: String, profileID: String) async -> Bool {
+    func autoLoadAppliedEvidenceDetails(profileID: String) async -> Bool {
+        guard let db = currentDatabase,
+              let evidence = try? db.loadEvidenceForProfile(profileID) else { return false }
+        let pending = Self.appliedEvidenceNeedingDetail(
+            evidence, profile: snapshot.profiles[profileID],
+            attempted: evidenceDetailAutoFetchAttempted)
+        var changed = false
+        for ev in pending {
+            evidenceDetailAutoFetchAttempted.insert(ev.id)
+            if ProfileSourcesLedger.parishNeedsDetail(ev.record) {
+                if await loadParishDetail(sourceRecordID: ev.sourceRecordID,
+                                          profileID: profileID, quietly: true) {
+                    changed = true
+                }
+            } else if await loadCensusHousehold(sourceRecordID: ev.sourceRecordID,
+                                                profileID: profileID) {
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    @discardableResult
+    func loadParishDetail(sourceRecordID: String, profileID: String, quietly: Bool = false) async -> Bool {
         guard let db = currentDatabase, let registry = attachedRegistry,
               let evidence = (try? db.loadEvidenceForProfile(profileID))?
                 .first(where: { $0.sourceRecordID == sourceRecordID }),
@@ -748,15 +805,17 @@ final class AppState {
         // happen"). The affordance stays on failure, so a retry is possible.
         let result = await source.fetchDetail(recordID: detailURL)
         guard case .results(let recs) = result else {
-            if case .unavailable(let reason) = result {
-                errorMessage = "Couldn't load the register entry: \(reason)"
-            } else {
-                errorMessage = "Couldn't load the register entry — the source may be busy; try again shortly."
+            if !quietly {
+                if case .unavailable(let reason) = result {
+                    errorMessage = "Couldn't load the register entry: \(reason)"
+                } else {
+                    errorMessage = "Couldn't load the register entry — the source may be busy; try again shortly."
+                }
             }
             return false
         }
         guard case .parish(let fetched)? = recs.first else {
-            errorMessage = "Couldn't read the register entry page for this record."
+            if !quietly { errorMessage = "Couldn't read the register entry page for this record." }
             return false
         }
 
@@ -766,7 +825,7 @@ final class AppState {
         let gainedParents = (enriched.fatherName != nil && parish.fatherName == nil)
             || (enriched.motherName != nil && parish.motherName == nil)
         guard gainedDetail || gainedParents else {
-            errorMessage = "The register entry page names no further detail for this record."
+            if !quietly { errorMessage = "The register entry page names no further detail for this record." }
             return false
         }
         do {

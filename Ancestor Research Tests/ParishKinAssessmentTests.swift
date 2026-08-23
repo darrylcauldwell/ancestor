@@ -151,4 +151,52 @@ struct ParishKinAssessmentTests {
             marriedSurname: "Stevenson", gender: .female)
         #expect(AppState.parishKinNameMatches(p, link: link))
     }
+
+    // MARK: - Card-open backfill selection (auto Details, applied-only)
+
+    private func evidence(_ id: String, record: SourceRecord,
+                          status: UserReviewStatus) -> EvidenceRecord {
+        EvidenceRecord(
+            id: EvidenceRecord.compositeID(profileID: "p", sourceRecordID: id),
+            profileID: "p", sourceID: "freereg", sourceRecordID: id,
+            recordType: .parish, verdict: .lead, record: record,
+            citationFull: nil, citationURL: nil,
+            scoredAt: Date(), userStatus: status)
+    }
+
+    private func bareParish(_ id: String) -> SourceRecord {
+        .parish(ParishRecord(
+            common: RecordCommon(id: id, sourceID: "freereg", name: "Mary STEPHENSON",
+                                 detailURL: "https://freereg/\(id)", rawFields: [:]),
+            eventType: "baptism", eventYear: 1823, detail: nil))
+    }
+
+    @Test func backfillSelectsOnlyKeptRecordsStillMissingDetail() {
+        let kept = evidence("kept", record: bareParish("kept"), status: .savedAsLead)
+        let candidate = evidence("cand", record: bareParish("cand"), status: .unreviewed)
+        let rejected = evidence("rej", record: bareParish("rej"), status: .discarded)
+        let picked = AppState.appliedEvidenceNeedingDetail(
+            [candidate, kept, rejected], profile: nil, attempted: [])
+        #expect(picked.map(\.sourceRecordID) == ["kept"],
+                "candidates stay behind the explicit Details click; discarded rows are never fetched")
+    }
+
+    @Test func backfillSkipsAttemptedAndHonoursTheCap() {
+        let rows = (0..<6).map { evidence("r\($0)", record: bareParish("r\($0)"), status: .savedAsLead) }
+        let picked = AppState.appliedEvidenceNeedingDetail(
+            rows, profile: nil, attempted: [rows[0].id], cap: 3)
+        #expect(picked.map(\.sourceRecordID) == ["r1", "r2", "r3"],
+                "a failed fetch is not retried this session, and one card open is a bounded number of GETs")
+    }
+
+    @Test func backfillIgnoresRecordsAlreadyCarryingDetail() {
+        let full = ParishRecord(
+            common: RecordCommon(id: "full", sourceID: "freereg", name: "Mary STEPHENSON",
+                                 detailURL: "https://freereg/full", rawFields: [:]),
+            eventType: "baptism",
+            detail: FreeREGDetail(event: .baptism(FreeREGBaptism(
+                child: FreeREGPerson(forename: "Mary", surname: "STEPHENSON")))))
+        let done = evidence("full", record: .parish(full), status: .savedAsLead)
+        #expect(AppState.appliedEvidenceNeedingDetail([done], profile: nil, attempted: []).isEmpty)
+    }
 }
