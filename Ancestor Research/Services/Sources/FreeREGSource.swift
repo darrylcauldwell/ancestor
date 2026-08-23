@@ -233,20 +233,62 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
                 fields.append(("search_query[no_surname]", "true"))
             }
 
-            let data = try await rateLimitedRequest {
-                try await self.http.postForm(
-                    url: URL(string: Self.searchPostURL)!,
-                    multiFields: fields,
-                    headers: [
-                        "User-Agent": Self.userAgent,
-                        "X-CSRF-Token": self.csrfToken ?? "",
-                        "Referer": Self.searchFormURL,
-                    ],
-                    timeout: Self.searchTimeout
-                )
+            // Server-side search timeout → bounded, polite retry.
+            //
+            // MyopicVicar (the Rails engine behind FreeREG — the connectors'
+            // documented source of truth) has NO waiting page and NO rate
+            // limiter: a query that exceeds the server's time budget raises,
+            // flashes "Your search exceeded the maximum permitted time…" and
+            // 302s back to the SEARCH FORM. Our client follows the redirect
+            // and lands on the form — a page with no results table, no
+            // no-results copy and no login wall — which fell through to the
+            // generic "Could not parse FreeREG results page".
+            //
+            // Root cause of the Mary Stephenson miss (owner dogfood
+            // 2026-08-23): the one query in a 21-probe variant burst whose
+            // results page actually had content — her baptism — was also the
+            // heaviest, timed out server-side under our own burst, and bounced.
+            // The IDENTICAL query re-run in isolation returned a clean
+            // 4-row page. Likely the mechanism behind the 1,337-page
+            // "unparseable" flood too. Retrying after a pause is what a human
+            // does with the flash message; the pause runs inside this actor,
+            // so it also backpressures the rest of the burst — exactly the
+            // courtesy a struggling volunteer server needs.
+            var html = ""
+            var bounceReason: String?
+            for attempt in 0..<Self.maxSearchAttempts {
+                if attempt > 0 {
+                    logger.info("FreeREG search bounced (\(bounceReason ?? "server busy")) — retry \(attempt)/\(Self.maxSearchAttempts - 1) for \(surname) after pause")
+                    try await Task.sleep(for: .seconds(Self.bounceRetryPause))
+                }
+                let data = try await rateLimitedRequest {
+                    try await self.http.postForm(
+                        url: URL(string: Self.searchPostURL)!,
+                        multiFields: fields,
+                        headers: [
+                            "User-Agent": Self.userAgent,
+                            "X-CSRF-Token": self.csrfToken ?? "",
+                            "Referer": Self.searchFormURL,
+                        ],
+                        timeout: Self.searchTimeout
+                    )
+                }
+                html = String(data: data, encoding: .utf8) ?? ""
+                if case .searchBounced(let reason) = Self.classifyResultsPage(html) {
+                    bounceReason = reason
+                    // The bounced form carries a FRESH authenticity token —
+                    // reuse it so the retry is a first-class submission.
+                    if let fresh = MyopicVicarParsing.csrfToken(fromHTML: html) {
+                        csrfToken = fresh
+                        if let idx = fields.firstIndex(where: { $0.0 == "authenticity_token" }) {
+                            fields[idx] = ("authenticity_token", fresh)
+                        }
+                    }
+                    continue
+                }
+                bounceReason = nil
+                break
             }
-
-            let html = String(data: data, encoding: .utf8) ?? ""
 
             // FT-26 / FT-20 — page-state triage (Python parity:
             // freereg_search.py:182-226 checks "error prohibited"
@@ -254,15 +296,27 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
             // tables). Only a positively identified results page may
             // yield records, and only a positively identified
             // no-results page may yield a clean empty; validation
-            // errors, login walls and layout drift are `.unavailable`,
-            // never a cacheable [].
+            // errors, login walls, server-side timeouts and layout
+            // drift are `.unavailable`, never a cacheable [].
             switch Self.classifyResultsPage(html) {
             case .empty:
                 logger.info("FreeREG: 0 results for \(surname)")
                 await ResearchActivityBus.shared.publish(.sourceQueryCompleted(sourceID: sourceID, summary: summary, resultCount: 0, strictness: query.strictness))
                 return SourceSearchEnvelope(result: .results([]), outcome: SearchOutcome(resultCount: 0))
+            case .searchBounced(let reason):
+                // Retries exhausted — honest unavailability, never an empty.
+                logger.warning("FreeREG search still bouncing after \(Self.maxSearchAttempts) attempts: \(reason)")
+                await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: reason, strictness: query.strictness))
+                return SourceSearchEnvelope(.unavailable(reason: reason))
             case .validationError(let reason), .unparseable(let reason):
                 logger.warning("FreeREG page not parseable as results: \(reason)")
+                // A shape we genuinely don't recognise — capture it, because
+                // "unparseable" without the page is undiagnosable (this exact
+                // failure sat unexplained across 1,337 results until the
+                // bounced-form shape was finally reproduced by hand).
+                if case .unparseable = Self.classifyResultsPage(html) {
+                    Self.captureUnparseablePage(html, surname: surname, logger: logger)
+                }
                 await ResearchActivityBus.shared.publish(.sourceError(sourceID: sourceID, summary: summary, reason: reason, strictness: query.strictness))
                 return SourceSearchEnvelope(.unavailable(reason: reason))
             case .results:
@@ -533,6 +587,46 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
         case empty
         case validationError(reason: String)
         case unparseable(reason: String)
+        /// The POST bounced back to the SEARCH FORM — MyopicVicar's behaviour
+        /// when a query exceeds the server's time budget (it flashes "Your
+        /// search exceeded the maximum permitted time…" and 302s to the form;
+        /// there is no waiting page and no rate limiter in the engine).
+        /// Transient and retryable — the identical query typically succeeds
+        /// once the burst subsides.
+        case searchBounced(reason: String)
+    }
+
+    /// Total attempts for one search POST (1 original + 2 retries) and the
+    /// pause between them. The pause runs inside the actor, so it also
+    /// backpressures every other queued FreeREG query — deliberate courtesy
+    /// to a volunteer server that has just told us it is struggling.
+    nonisolated static let maxSearchAttempts = 3
+    nonisolated static let bounceRetryPause: Double = 3.0
+
+    /// Persist an unrecognised page shape so the NEXT "Could not parse" is
+    /// diagnosable from disk instead of standing unexplained (the 1,337-row
+    /// unparseable flood was opaque for a month for want of one captured
+    /// page). Bounded to 25 files; failures to write are swallowed — this is
+    /// diagnostics, never load-bearing.
+    nonisolated static func captureUnparseablePage(
+        _ html: String, surname: String, logger: Logger, baseDirectory: URL? = nil
+    ) {
+        do {
+            let dir = try (baseDirectory ?? FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: true
+            )).appendingPathComponent("AncestorResearch/diagnostics", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let existing = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+            guard existing.filter({ $0.hasPrefix("freereg-unparseable") }).count < 25 else { return }
+            let stamp = ISO8601DateFormatter().string(from: Date())
+                .replacingOccurrences(of: ":", with: "-")
+            let file = dir.appendingPathComponent("freereg-unparseable-\(stamp)-\(surname).html")
+            try html.write(to: file, atomically: true, encoding: .utf8)
+            logger.error("FreeREG unparseable page captured: \(file.path, privacy: .public)")
+        } catch {
+            logger.warning("Could not capture unparseable page: \(error.localizedDescription)")
+        }
     }
 
     nonisolated static func classifyResultsPage(_ html: String) -> PageState {
@@ -555,6 +649,24 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
         // A results table needs header cells — the row parser skips
         // everything until it has seen a <th> header row anyway.
         if html.contains("<th") { return .results }
+        // The SEARCH FORM, not results: the POST bounced. MyopicVicar's
+        // server-side timeout flashes and 302s back to the form (no waiting
+        // page, no rate limiter — verified against the engine source), and
+        // the form is the ONE page that carries its own input field name.
+        // Checked after the results/empty branches so a results page can
+        // never be misread as a bounce, and after the validation banner so
+        // a genuine form-validation rejection keeps its precise reason.
+        if html.contains("search_query[last_name]") {
+            if html.range(of: "exceeded the maximum permitted time",
+                          options: .caseInsensitive) != nil {
+                return .searchBounced(reason: "FreeREG search timed out server-side — the query exceeded the site's time budget")
+            }
+            if html.range(of: "search results are not available",
+                          options: .caseInsensitive) != nil {
+                return .searchBounced(reason: "FreeREG reported the search results as not available")
+            }
+            return .searchBounced(reason: "FreeREG bounced the search back to the form (server busy)")
+        }
         if html.range(of: #"sign in|log in"#,
                       options: [.regularExpression, .caseInsensitive]) != nil {
             return .unparseable(reason: "FreeREG page appears to require login")
