@@ -742,17 +742,33 @@ final class AppState {
                 .first(where: { $0.sourceID == parish.common.sourceID }) as? any DetailFetchingSource
         else { return false }
 
-        guard case .results(let recs) = await source.fetchDetail(recordID: detailURL),
-              case .parish(let fetched)? = recs.first
-        else { return false }
+        // Every failure leg reports — a button that does nothing visible on
+        // failure taught us nothing when the entry-page layout drifted
+        // (owner report 2026-08-23: "When I click Details nothing seems to
+        // happen"). The affordance stays on failure, so a retry is possible.
+        let result = await source.fetchDetail(recordID: detailURL)
+        guard case .results(let recs) = result else {
+            if case .unavailable(let reason) = result {
+                errorMessage = "Couldn't load the register entry: \(reason)"
+            } else {
+                errorMessage = "Couldn't load the register entry — the source may be busy; try again shortly."
+            }
+            return false
+        }
+        guard case .parish(let fetched)? = recs.first else {
+            errorMessage = "Couldn't read the register entry page for this record."
+            return false
+        }
 
         let enriched = Self.enrichedParishRecord(base: parish, fetched: fetched)
-        // Nothing new read (page unparseable, kin-free entry): store nothing,
-        // so the affordance stays and a retry is possible.
+        // Nothing new read (kin-free entry): store nothing.
         let gainedDetail = enriched.detail != nil
         let gainedParents = (enriched.fatherName != nil && parish.fatherName == nil)
             || (enriched.motherName != nil && parish.motherName == nil)
-        guard gainedDetail || gainedParents else { return false }
+        guard gainedDetail || gainedParents else {
+            errorMessage = "The register entry page names no further detail for this record."
+            return false
+        }
         do {
             // No profile fields change — but the family offer, the ledger's
             // kin line, and the Health parish-kin sweep all read the stored

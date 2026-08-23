@@ -540,7 +540,13 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
             let fields = Self.detailFields(fromPairs: detailPairs)
             guard !fields.isEmpty,
                   let record = Self.detailRecord(fields: fields, recordURL: recordID, pairs: detailPairs) else {
-                return .results([])
+                // A fetched-but-unreadable entry page must never vanish
+                // quietly — capture it for diagnosis (the search-page lesson:
+                // the unparseable flood stood unexplained for a month for
+                // want of one captured page) and tell the caller why.
+                logger.warning("FreeREG detail page yielded no record (\(fields.count) fields parsed): \(recordID, privacy: .public)")
+                Self.captureUnparseablePage(html, surname: "detail", logger: logger)
+                return .unavailable(reason: "The register entry page could not be read")
             }
             return .results([record])
         } catch {
@@ -956,11 +962,6 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
     /// caller has it). Nil when no principal name could be read — an
     /// unidentifiable record is worse than none.
     nonisolated static func detailRecord(fields: [String: String], recordURL: String, pairs: [(String, String)] = []) -> SourceRecord? {
-        let surname = fields["surname"] ?? fields["persons_surname"]
-        let given = fields["forename"] ?? fields["forenames"] ?? fields["first_name"]
-        let name = [given, surname].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
-        guard !name.isEmpty else { return nil }
-
         let eventPairs: [(key: String, type: String)] = [
             ("baptism_date", "baptism"), ("date_of_baptism", "baptism"),
             ("marriage_date", "marriage"), ("date_of_marriage", "marriage"),
@@ -979,6 +980,40 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
         if eventType.isEmpty {
             eventType = fields["record_type"]?.lowercased() ?? ""
         }
+        let mapperInput = pairs.isEmpty ? fields.map { ($0.key, $0.value) } : pairs
+        let typed = FreeREGDetailMapper.detail(fromLabelledPairs: mapperInput, typeHint: eventType.isEmpty ? nil : eventType)
+
+        // The principal's name. Live pages carry NO bare "Forename"/"Surname"
+        // rows — labels are role-prefixed (`person_forename` on a baptism,
+        // `groom_*`/`bride_*` on a marriage), and a baptism has no person
+        // surname row at all (the child's surname is the father's). Verified
+        // against live pages 2026-08-23: the old bare-field-only read made
+        // this function return nil for EVERY real entry page, so the whole
+        // `fetchDetail` path silently produced no record. Resolution order:
+        // bare fields (older/test layouts) → person_* → the typed event's own
+        // principal (child / groom / deceased).
+        var surname = fields["surname"] ?? fields["persons_surname"] ?? fields["person_surname"]
+        var given = fields["forename"] ?? fields["forenames"] ?? fields["first_name"] ?? fields["person_forename"]
+        if let typed, surname == nil || given == nil {
+            let principal: FreeREGPerson
+            switch typed.event {
+            case .baptism(let b): principal = b.child
+            case .marriage(let m): principal = m.groom
+            case .burial(let b): principal = b.deceased
+            }
+            given = given ?? principal.forename
+            // A baptised child with no surname of their own inherits the
+            // father's — the same inference the BMD parent path makes.
+            if surname == nil {
+                surname = principal.surname
+                if surname == nil, case .baptism(let b) = typed.event {
+                    surname = b.father?.surname
+                }
+            }
+        }
+        let name = [given, surname].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+        guard !name.isEmpty else { return nil }
+
         // The live detail page's location row is labelled "Place"
         // (parish is the FreeREG term, place is the page's) — accept both.
         let parish = fields["parish"] ?? fields["place"] ?? ""
@@ -996,8 +1031,6 @@ actor FreeREGSource: RecordSource, DetailFetchingSource {
             detailURL: recordURL,
             rawFields: fields
         )
-        let mapperInput = pairs.isEmpty ? fields.map { ($0.key, $0.value) } : pairs
-        let typed = FreeREGDetailMapper.detail(fromLabelledPairs: mapperInput, typeHint: eventType.isEmpty ? nil : eventType)
         let flatParents = flatParentProjection(typed: typed, detailFields: fields, eventType: eventType.isEmpty ? nil : eventType)
         return .parish(ParishRecord(
             common: common,
