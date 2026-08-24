@@ -397,6 +397,7 @@ actor MCPHandler {
                         "district": ["type": "string", "description": "For census submissions: registration district as written on the schedule."],
                         "parish": ["type": "string", "description": "For census submissions: parish from the schedule."],
                         "address": ["type": "string", "description": "For census submissions: street/house address of the dwelling."],
+                        "replaces_source_url": ["type": "string", "description": "When resubmitting this SAME fact with a corrected source URL: the previous (wrong) URL. A still-pending row keyed by it is updated in place instead of duplicating a review card. Rows the human already reviewed are never touched."],
                     ],
                     required: ["profile_id", "field", "value", "source_url", "source_title", "evidence_text", "reasoning", "confidence"]
                 ),
@@ -1641,6 +1642,29 @@ actor MCPHandler {
         ) ?? "{}"
 
         try db.write { db in
+            // URL correction (#27): the idempotency key includes source_url,
+            // so a resubmission that only fixes a wrong URL would otherwise
+            // mint a SECOND review card while the stale one sat in Triage
+            // (owner report 2026-08-24: FamilySearch search-persona ark URLs
+            // 404 in a browser). The caller names the wrong URL explicitly
+            // via `replaces_source_url`; the still-pending row it keys is
+            // migrated to the new id — or dropped if a corrected row already
+            // exists — before the normal upsert refreshes the content.
+            // Human decisions are never overturned: reviewed rows never match.
+            if let replaces = args["replaces_source_url"] as? String,
+               !replaces.isEmpty, replaces != sourceURL {
+                let staleID = idempotencyKey(
+                    profileID: profileID, field: field, value: value, sourceURL: replaces)
+                try db.execute(sql: """
+                    UPDATE pending_facts SET id = ?, source_url = ?
+                    WHERE id = ? AND review_status = 'pending'
+                      AND NOT EXISTS (SELECT 1 FROM pending_facts WHERE id = ?)
+                    """, arguments: [id, sourceURL, staleID, id])
+                try db.execute(sql: """
+                    DELETE FROM pending_facts
+                    WHERE id = ? AND review_status = 'pending'
+                    """, arguments: [staleID])
+            }
             // Upsert: a resubmission with the same canonical id (same
             // profile/field/value/url) refreshes the evidence text and
             // reasoning and re-queues verification — INSERT OR IGNORE
