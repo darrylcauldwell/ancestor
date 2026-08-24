@@ -43,7 +43,12 @@ its own comment explaining the same underlying idea — that the events which
 matter most are the ones that happened away from where a person was born:
 
 1. **FreeCen** merges residence counties into its residence axis
-   (`SearchDispatcher.swift:1058-1075`).
+   (`SearchDispatcher.swift`, census branch, ~1349-1393). BEHAVIOUR
+   OWNER-BLESSED 2026-08-24 (#34 ruling c): the Slice 3/5 "one rule" must
+   PRESERVE bounded-scope residence widening for FreeCen — it is intended
+   design, not a defect to erase — and the 2026-08-23 picker-contract
+   gating must not later be extended to it. The blessing does NOT cover
+   the anchor-less-subject skip (Slice 5) or the FT-27 batching gate.
 2. **FreeREG** appends a burial county for burial-shaped records
    (`SearchDispatcher.swift:1146-1155`).
 3. **FreeBMD** got a death/burial county arm on 2026-08-18 (`d58d542`) — the

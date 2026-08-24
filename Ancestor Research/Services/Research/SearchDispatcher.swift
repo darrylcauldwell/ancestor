@@ -1359,6 +1359,17 @@ struct SearchDispatcher {
             // umbrella itself. BOUNDED SCOPES ONLY: the .adjacent/.national
             // birth-axis and anchor-less ~90-code sweeps already reach
             // residents in every county.
+            //
+            // Owner 2026-08-24 (#34 ruling c): BLESSED at bounded scopes.
+            // This arm is deliberately EXEMPT from the 2026-08-23 "scope
+            // picker is the contract" gating applied to the FreeBMD and
+            // FreeREG arms: residence axes are the user's own attested
+            // Residence LifeEvents (R3 data), so a County search reaching a
+            // residence county is the tree's stated knowledge, not
+            // speculative widening — additive, census-year-bounded, home
+            // county never dropped. The blessing covers exactly this
+            // behaviour; it does not cover the anchor-less-subject skip
+            // (SUBJECT_PLACE_MODEL Slice 5) or the FT-27 batching gate.
             let residenceEventsApply: Bool
             switch scope {
             case .parish, .district, .county: residenceEventsApply = true

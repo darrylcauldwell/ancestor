@@ -734,6 +734,15 @@ FreeBMD is district-coded; FreeCen and FreeREG are Chapman-coded;
 CWGC is military-only with eligible war years; FindAGrave / Probate /
 Wirksworth take a single query without scope branching.
 
+At bounded scopes (`.parish`/`.district`/`.county`) FreeCen additionally
+probes counties taken from user-attested Residence LifeEvents covering the
+census year — additive (home county never dropped), year-bounded, and
+owner-blessed 2026-08-24 (#34 ruling c) as exempt from the 2026-08-23
+"scope picker is the contract" gating, because a residence axis is the
+tree's own stated knowledge, not speculative widening. Off at
+`.adjacent`/`.national`, where the birth axis already reaches all
+residents.
+
 ### 11.4 ResearchFocus axis — record-type narrowing
 
 A third axis orthogonal to mode (depth) and scope (geography):

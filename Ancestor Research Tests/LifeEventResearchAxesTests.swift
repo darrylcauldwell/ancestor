@@ -326,6 +326,11 @@ struct LifeEventResearchAxesTests {
     /// birth-county axis and anchor-less sweeps already reach residents in
     /// every county, and the sweep must stay byte-identical (cache-key
     /// continuity on a budget-sensitive volunteer source).
+    ///
+    /// The bounded-scope side of this behaviour is owner-BLESSED (2026-08-24,
+    /// #34 ruling c): residence axes are the user's own attested LifeEvents,
+    /// so their counties are exempt from the 2026-08-23 picker-contract
+    /// gating that bounds the FreeBMD/FreeREG arms.
     @Test func freeCenResidenceEventsAreBoundedScopeOnly() {
         let dispatcher = makeDispatcher()
         guard let cen = source(dispatcher, "freecen") else {
