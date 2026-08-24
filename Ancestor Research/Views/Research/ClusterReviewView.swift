@@ -522,12 +522,16 @@ struct ClusterReviewView: View {
                         ConfidenceBadgeView(
                             confidence: cluster.evidenceConfidence(sourceInfoMap: sourceInfoMap)
                         )
-                        if let birth = cluster.impliedBirthYear {
+                        // #30: the header asserts vitals to the human, so it
+                        // only reads records that would actually apply — an
+                        // unapplied lead (or a discarded record) must not put
+                        // a death year on the card.
+                        if let birth = LifeCluster.assertableBirthYear(in: liveRecords) {
                             Text("b. ~\(String(birth))")
                                 .font(AppTypography.cardMeta)
                                 .foregroundStyle(.secondary)
                         }
-                        if let death = cluster.impliedDeathYear {
+                        if let death = LifeCluster.assertableDeathYear(in: liveRecords) {
                             Text("d. ~\(String(death))")
                                 .font(AppTypography.cardMeta)
                                 .foregroundStyle(.secondary)

@@ -24,8 +24,10 @@ nonisolated struct ResearchInterpreter {
         let name = subject.displayName
         var parts: [String] = []
 
-        // Birth evidence
-        if let birthYear = cluster.impliedBirthYear {
+        // Birth evidence — assertable (fact-backed) years only: this prose
+        // states vitals as established, so a lead-verdict record must not
+        // feed it (#30).
+        if let birthYear = LifeCluster.assertableBirthYear(in: cluster.records) {
             let birthRecords = cluster.records.filter {
                 if case .birth = $0.record { return true }
                 if case .parish(let r) = $0.record, r.eventType?.lowercased() == "baptism" { return true }
@@ -51,8 +53,10 @@ nonisolated struct ResearchInterpreter {
             }
         }
 
-        // Death evidence
-        if let deathYear = cluster.impliedDeathYear {
+        // Death evidence — assertable years only (#30): "Death ~1891
+        // supported by FINDAGRAVE" must not be emitted from an unapplied
+        // burial lead.
+        if let deathYear = LifeCluster.assertableDeathYear(in: cluster.records) {
             let deathRecords = cluster.records.filter {
                 switch $0.record {
                 case .death, .burial, .military, .probate: return true

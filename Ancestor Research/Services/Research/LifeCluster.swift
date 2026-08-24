@@ -19,7 +19,38 @@ nonisolated struct LifeCluster: Identifiable, Sendable {
     var splitReason: String? = nil
 
     /// The implied birth year from the seed record.
+    ///
+    /// NOTE: deliberately verdict-blind — clustering internals
+    /// (`ClusteringEngine.couldBeSamePerson`, GPS rival anchors) must see
+    /// lead-verdict records. Display surfaces asserting vitals to the human
+    /// use `assertableBirthYear(in:)` / `assertableDeathYear(in:)` instead
+    /// (#30).
     var impliedBirthYear: Int? {
+        Self.birthYear(in: records)
+    }
+
+    /// The implied death year from records. Verdict-blind — see
+    /// `impliedBirthYear`.
+    var impliedDeathYear: Int? {
+        Self.deathYear(in: records)
+    }
+
+    /// #30 — vitals a display surface may ASSERT: derived only from records
+    /// that would actually apply (`RecordScorer.wouldApply` — fact verdict or
+    /// known-spouse marriage). Owner dogfood 2026-08-24: a cluster header
+    /// read "Confirmed · d. ~1891" where the death year came solely from a
+    /// Find a Grave burial LEAD with date and geography both softFailed — a
+    /// Staffordshire namesake the human had not accepted. Pass the caller's
+    /// already-discard-filtered record list so binned records drop out too.
+    static func assertableBirthYear(in records: [ScoredRecord]) -> Int? {
+        birthYear(in: records.filter(RecordScorer.wouldApply))
+    }
+
+    static func assertableDeathYear(in records: [ScoredRecord]) -> Int? {
+        deathYear(in: records.filter(RecordScorer.wouldApply))
+    }
+
+    private static func birthYear(in records: [ScoredRecord]) -> Int? {
         for record in records {
             switch record.record {
             case .birth(let r): return r.birthYear
@@ -36,8 +67,7 @@ nonisolated struct LifeCluster: Identifiable, Sendable {
         return nil
     }
 
-    /// The implied death year from records.
-    var impliedDeathYear: Int? {
+    private static func deathYear(in records: [ScoredRecord]) -> Int? {
         for record in records {
             switch record.record {
             case .death(let r): return r.deathYear
