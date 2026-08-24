@@ -1593,6 +1593,28 @@ nonisolated struct RecordScorer {
             return GateResult(gate: .geography, outcome: .softFail, reason: "\(districtClean) is in \(nonLocal), not local")
         }
 
+        // #31 SUB-DISTRICT TIER — census sources sometimes print
+        // "district + sub-district" in the district column ("Derby St
+        // Alkmund"). Retry on progressively shorter leading-word prefixes;
+        // a prefix must UNIQUELY resolve to a registration district
+        // ("when in doubt, split" — an ambiguous stem declines). Runs last
+        // so every existing resolution keeps priority.
+        let districtTokens = districtClean.split(separator: " ").map(String.init)
+        if districtTokens.count >= 2 {
+            for cut in stride(from: districtTokens.count - 1, through: 1, by: -1) {
+                let prefix = districtTokens[0..<cut].joined(separator: " ")
+                guard let districtID = PlaceResolver.resolveDistrict(name: prefix),
+                      let countyNode = PlaceAuthorityRegistry.shared.places.county(of: districtID)
+                else { continue }
+                if acceptedCodes.contains(countyNode.id.uppercased()) {
+                    return GateResult(gate: .geography, outcome: .pass,
+                        reason: "\(districtClean) reads as the \(prefix) district (sub-district qualifier), in \(countyNode.name) — the subject's research area")
+                }
+                return GateResult(gate: .geography, outcome: .softFail,
+                    reason: "\(districtClean) reads as the \(prefix) district (sub-district qualifier), in \(countyNode.name), outside the subject's counties")
+            }
+        }
+
         return GateResult(gate: .geography, outcome: .softFail, reason: "unknown district: \(districtClean)")
     }
 
