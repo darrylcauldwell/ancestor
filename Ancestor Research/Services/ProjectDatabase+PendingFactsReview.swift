@@ -382,21 +382,54 @@ extension ProjectDatabase {
     /// Append a source to an existing life event unless it already holds one
     /// citing the same URL. Idempotent, so repeated accepts of the same
     /// resubmitted fact cannot stack duplicate citations onto one event.
+    ///
+    /// Citation CORRECTION (#27): a resubmission citing the same record —
+    /// same origin, same citation title — at a DIFFERENT URL is a repaired
+    /// link, and the stale variant(s) are replaced rather than accumulated.
+    /// Owner dogfood 2026-08-24: FamilySearch search results carry internal
+    /// persona ids whose ark URLs 404 in a browser; once the real ark is
+    /// known, the dead link sitting next to the live one would read as two
+    /// independent sources when it is one source cited twice.
     private func attachSourceToLifeEvent(
         id: UUID, profileID: String, source: FieldSource
     ) throws {
         guard var event = try loadLifeEvents(profileID: profileID)
             .first(where: { $0.id == id })
         else { return }
+        let newURL = source.citation?.url ?? ""
+        let newTitle = source.citation?.title ?? ""
+        var changed = false
+        if !newURL.isEmpty, !newTitle.isEmpty,
+           let newHost = URL(string: newURL)?.host?.lowercased() {
+            let before = event.sources.count
+            // Same host is the discriminator between a correction and a
+            // corroboration: the same record re-cited at a repaired address
+            // stays on its site (familysearch → familysearch), while a second
+            // independent source with the same generic title (FreeCEN next to
+            // FamilySearch) lives on a different one and must be KEPT.
+            event.sources.removeAll { existing in
+                guard existing.origin.identifier == source.origin.identifier,
+                      (existing.citation?.title ?? "") == newTitle,
+                      let oldURL = existing.citation?.url, oldURL != newURL,
+                      let oldHost = URL(string: oldURL)?.host?.lowercased()
+                else { return false }
+                return oldHost == newHost
+            }
+            changed = event.sources.count != before
+        }
         let alreadyCited = event.sources.contains { existing in
-            if let url = source.citation?.url, !url.isEmpty {
-                return existing.citation?.url == url
+            if !newURL.isEmpty {
+                return existing.citation?.url == newURL
             }
             return existing.raw == source.raw
         }
-        guard !alreadyCited else { return }
-        event.sources.append(source)
-        _ = try updateLifeEvent(event)
+        if !alreadyCited {
+            event.sources.append(source)
+            changed = true
+        }
+        if changed {
+            _ = try updateLifeEvent(event)
+        }
     }
 
     /// UUIDv5-shaped stable id: SHA256 of the fingerprint, first 16 bytes.
@@ -510,13 +543,48 @@ extension ProjectDatabase {
         let resolvedOrigin = trimmedOrigin.isEmpty ? "field-researcher" : trimmedOrigin
 
         try dbQueue.write { writeDB in
+            // Citation correction (#27): a resubmission of the same fact from
+            // the same producer with a REPAIRED citation URL updates the
+            // existing provenance row(s) in place rather than stacking — the
+            // stale row would keep pointing readers at a dead link. The
+            // correction key is deliberately narrow: same raw, same origin,
+            // and a cited URL on the SAME HOST that differs from the new one
+            // (a repaired address stays on its site; a corroborating source
+            // with the same title lives on a different host and is kept).
+            // Identical re-accepts fall through to the append below — the
+            // provenance table is a journal, two accepts are two attestation
+            // rows, and the ledger/bin semantics depend on that.
+            let raw = "\(value) [\(sourceTitle)]"
+            var didCorrect = false
+            if let citationJSON,
+               let newURL = sourceURL, !newURL.isEmpty,
+               let newHost = URL(string: newURL)?.host?.lowercased() {
+                let rows = try Row.fetchAll(writeDB, sql: """
+                    SELECT rowid, citation_json FROM field_sources
+                    WHERE entity_id = ? AND entity_kind = 'profile'
+                      AND field = ? AND origin = ? AND raw = ?
+                    """, arguments: [profileID, profileField, resolvedOrigin, raw])
+                for row in rows {
+                    guard let existingJSON = row["citation_json"] as String?,
+                          let data = existingJSON.data(using: .utf8),
+                          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let oldURL = obj["url"] as? String, oldURL != newURL,
+                          URL(string: oldURL)?.host?.lowercased() == newHost
+                    else { continue }
+                    try writeDB.execute(
+                        sql: "UPDATE field_sources SET citation_json = ?, added_at = ? WHERE rowid = ?",
+                        arguments: [citationJSON, Date(), row["rowid"] as Int64? ?? -1])
+                    didCorrect = true
+                }
+            }
+            if didCorrect { return }
             try writeDB.execute(sql: """
                 INSERT INTO field_sources
                     (entity_id, entity_kind, field, origin, raw, added_at, citation_json)
                 VALUES (?, 'profile', ?, ?, ?, ?, ?)
                 """, arguments: [
                     profileID, profileField, resolvedOrigin,
-                    "\(value) [\(sourceTitle)]",
+                    raw,
                     Date(),
                     citationJSON,
                 ])

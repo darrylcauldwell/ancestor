@@ -122,6 +122,121 @@ struct PendingFactStructuredCensusTests {
         #expect(details.household.count == 4)
     }
 
+    // MARK: - #27 citation URL correction
+
+    @Test func correctedResubmissionReplacesStaleCitationURL() throws {
+        // Owner dogfood 2026-08-24: FS search-persona ark URLs 404 in a
+        // browser. A resubmission of the SAME fact (same origin, same title)
+        // with the repaired URL must replace the dead citation — appending
+        // would leave a dead link posing as a second source.
+        let db = try makeDB()
+        let value = "1901 census, Turnditch: Ernest in his parents' household"
+        let title = "1901 census: John Cauldwell household, Turnditch"
+        let deadURL = "https://www.familysearch.org/ark:/61903/1:1:p_10268848273#structured"
+        let realURL = "https://www.familysearch.org/ark:/61903/1:1:XSJJ-LD6"
+        try db.applyAcceptedPendingFact(
+            profileID: "ernest", field: "census", value: value,
+            payloadJSON: payloadJSON(withHousehold: true),
+            sourceTitle: title, sourceURL: deadURL)
+        try db.applyAcceptedPendingFact(
+            profileID: "ernest", field: "census", value: value,
+            payloadJSON: payloadJSON(withHousehold: true),
+            sourceTitle: title, sourceURL: realURL)
+
+        let events = try db.loadLifeEvents(profileID: "ernest").filter { $0.type == .census }
+        #expect(events.count == 1)
+        let cited = events.first?.sources.filter { $0.origin.identifier == "field-researcher" } ?? []
+        #expect(cited.count == 1, "stale citation replaced, not accumulated")
+        #expect(cited.first?.citation?.url == realURL)
+
+        // The census EVIDENCE record re-upserts under the same composite id,
+        // so its detail URL is corrected too.
+        let evidence = try db.loadEvidenceForProfile("ernest")
+        let census = try #require(evidence.first { $0.recordType == .census })
+        guard case .census(let rec) = census.record else {
+            Issue.record("expected census record"); return
+        }
+        #expect(rec.common.detailURL == realURL)
+    }
+
+    @Test func differentTitledCitationIsCorroborationNotCorrection() throws {
+        // Same event corroborated by a genuinely different source (different
+        // title, different URL) keeps BOTH citations.
+        let db = try makeDB()
+        let value = "1901 census, Turnditch: Ernest in his parents' household"
+        try db.applyAcceptedPendingFact(
+            profileID: "ernest", field: "census", value: value,
+            payloadJSON: payloadJSON(withHousehold: false),
+            sourceTitle: "1901 census: John Cauldwell household, Turnditch",
+            sourceURL: "https://www.familysearch.org/ark:/61903/1:1:XSJJ-LD6")
+        try db.applyAcceptedPendingFact(
+            profileID: "ernest", field: "census", value: value,
+            payloadJSON: payloadJSON(withHousehold: false),
+            sourceTitle: "FreeCEN transcript: Turnditch 1901",
+            sourceURL: "https://www.freecen.org.uk/search_records/xyz")
+        let event = try #require(try db.loadLifeEvents(profileID: "ernest")
+            .first { $0.type == .census })
+        #expect(event.sources.count == 2, "corroborating source appended, correction not triggered")
+    }
+
+    @Test func provenanceRowURLCorrectionUpdatesInPlace() throws {
+        // The profile-column path's field_sources row: a corrected
+        // resubmission updates citation_json on the existing row instead of
+        // stacking a second row that keeps the dead link alive.
+        let db = try makeDB()
+        try db.addAcceptedFactProvenance(
+            profileID: "ernest", field: "birthDate", value: "1887",
+            sourceTitle: "GRO index via FamilySearch",
+            sourceURL: "https://www.familysearch.org/ark:/61903/1:1:p_123")
+        try db.addAcceptedFactProvenance(
+            profileID: "ernest", field: "birthDate", value: "1887",
+            sourceTitle: "GRO index via FamilySearch",
+            sourceURL: "https://www.familysearch.org/ark:/61903/1:1:REAL-ARK")
+        let (count, json): (Int, String) = try db.dbQueue.read { sql in
+            let n = try Int.fetchOne(sql, sql: """
+                SELECT COUNT(*) FROM field_sources
+                WHERE entity_id = 'ernest' AND field = 'birthDate'
+                """) ?? -1
+            let j = try String.fetchOne(sql, sql: """
+                SELECT citation_json FROM field_sources
+                WHERE entity_id = 'ernest' AND field = 'birthDate'
+                """) ?? ""
+            return (n, j)
+        }
+        #expect(count == 1, "same-host URL repair updates in place, never stacks")
+        #expect(json.contains("REAL-ARK"))
+        #expect(!json.contains("p_123"))
+
+        // The journal contract is untouched: an IDENTICAL re-accept still
+        // appends a second attestation row (ledger collapses, bin removes one).
+        try db.addAcceptedFactProvenance(
+            profileID: "ernest", field: "birthDate", value: "1887",
+            sourceTitle: "GRO index via FamilySearch",
+            sourceURL: "https://www.familysearch.org/ark:/61903/1:1:REAL-ARK")
+        let after = try db.dbQueue.read { sql in
+            try Int.fetchOne(sql, sql: """
+                SELECT COUNT(*) FROM field_sources
+                WHERE entity_id = 'ernest' AND field = 'birthDate'
+                """) ?? -1
+        }
+        #expect(after == 2, "identical accepts append — the journal is preserved")
+
+        // A corroborating source on a DIFFERENT host is never rewritten.
+        try db.addAcceptedFactProvenance(
+            profileID: "ernest", field: "birthDate", value: "1887",
+            sourceTitle: "GRO index via FamilySearch",
+            sourceURL: "https://www.freebmd.org.uk/cgi/information.pl?r=123")
+        let hosts = try db.dbQueue.read { sql in
+            try String.fetchAll(sql, sql: """
+                SELECT citation_json FROM field_sources
+                WHERE entity_id = 'ernest' AND field = 'birthDate'
+                """)
+        }
+        #expect(hosts.count == 3)
+        #expect(hosts.filter { $0.contains("REAL-ARK") }.count == 2)
+        #expect(hosts.contains { $0.contains("freebmd.org.uk") })
+    }
+
     @Test func householdParserMarksTargetAndTolerates() {
         let payload: [String: Any] = ["household": [
             ["name": "William GOODLAD", "relationship": "Son", "age": 15],
