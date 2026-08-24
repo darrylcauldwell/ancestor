@@ -4298,7 +4298,16 @@ final class AppState {
     /// One click cites the census on the existing value (no value changes —
     /// the same-value apply path records it as alternative fact + citation).
     func censusCorroborationProposals() -> [CensusBackfill.Proposal] {
-        CensusBackfill.corroborations(censuses: confirmedCensusSources(), snapshot: snapshot)
+        let sources = confirmedCensusSources()
+        var out = CensusBackfill.corroborations(censuses: sources, snapshot: snapshot)
+        // Cite mode (census-gap sweep 2026-08-24): relatives absorbed FROM a
+        // household carry research-backed fields, so corroboration skips
+        // them — while the census itself was never cited on their profile.
+        // 120 of 161 census-gapped profiles were in this class.
+        let seen = Set(out.map(\.targetProfileID))
+        out += CensusBackfill.citations(censuses: sources, snapshot: snapshot)
+            .filter { !seen.contains($0.targetProfileID) }
+        return out
     }
 
     /// Single-profile corroboration lookup for the profile card (owner
@@ -4309,7 +4318,12 @@ final class AppState {
     func censusCorroborationProposal(for profileID: String) -> CensusBackfill.Proposal? {
         let sources = familyCensusSources(around: profileID)
         guard !sources.isEmpty else { return nil }
-        return CensusBackfill.corroborations(censuses: sources, snapshot: snapshot)
+        if let corroborate = CensusBackfill.corroborations(censuses: sources, snapshot: snapshot)
+            .first(where: { $0.targetProfileID == profileID }) {
+            return corroborate
+        }
+        // Cite-mode fallback — see censusCorroborationProposals.
+        return CensusBackfill.citations(censuses: sources, snapshot: snapshot)
             .first { $0.targetProfileID == profileID }
     }
 

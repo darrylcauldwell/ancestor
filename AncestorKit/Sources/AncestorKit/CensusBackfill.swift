@@ -126,6 +126,60 @@ public nonisolated struct CensusBackfill {
         return out
     }
 
+    /// Cite proposals: linked relatives uniquely matched in an applied
+    /// household who do NOT yet carry that census (or a residence at its
+    /// exact year — the shape hand-entered census evidence lands as) on
+    /// their own profile. The 2026-08-24 full-tree sweep's "attach, don't
+    /// search" class: the census is in the project, the person is named in
+    /// it, only the citation is missing. Absorbing the member record lands
+    /// the census event + citation without changing established values.
+    public static func citations(
+        censuses: [CensusSource],
+        snapshot: FamilyGraphSnapshot
+    ) -> [Proposal] {
+        var out: [Proposal] = []
+        var claimed: Set<String> = []
+        for source in censuses {
+            let household = source.record.household ?? []
+            guard !household.isEmpty else { continue }
+            let relatives = linkedRelatives(of: source.subjectID, in: snapshot)
+            guard !relatives.isEmpty else { continue }
+            let relations = relationMap(subjectID: source.subjectID, relatives: relatives, snapshot: snapshot)
+            let year = source.record.censusYear
+            let matches = CensusAgeEnrichment.citations(
+                subjectID: source.subjectID,
+                household: household,
+                censusYear: year,
+                linkedRelatives: relatives,
+                sourceID: source.record.common.sourceID,
+                relations: relations,
+                alreadyCited: { hasCensusEvidence($0.id, year: year, snapshot: snapshot) })
+            for m in matches where !claimed.contains(m.targetProfileID) {
+                guard let member = matchMember(to: m, in: household) else { continue }
+                claimed.insert(m.targetProfileID)
+                out.append(Proposal(
+                    targetProfileID: m.targetProfileID,
+                    targetName: m.targetName,
+                    relationshipLabel: m.relationshipLabel,
+                    estimatedBirthYear: m.estimatedBirthYear,
+                    censusYear: year,
+                    memberRecord: memberRecord(for: member, in: source.record)))
+            }
+        }
+        return out
+    }
+
+    /// Whether the profile already carries evidence of this census year — a
+    /// census event for the year, or a residence dated exactly at it (the
+    /// field-researcher entry shape). Either means the cite offer would be
+    /// redundant noise.
+    static func hasCensusEvidence(_ profileID: String, year: Int, snapshot: FamilyGraphSnapshot) -> Bool {
+        (snapshot.lifeEvents[profileID] ?? []).contains { ev in
+            guard ev.date?.bestYear == year else { return false }
+            return ev.type == .census || ev.type == .residence
+        }
+    }
+
     /// A census record scoped to one household member: their own age / birthplace
     /// / occupation, plus the shared district, year, address and citation from
     /// the household record. Absorbing this lands the member's social history and

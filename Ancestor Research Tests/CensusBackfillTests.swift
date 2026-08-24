@@ -96,4 +96,101 @@ struct CensusBackfillTests {
         let source = CensusBackfill.CensusSource(subjectID: "lone", record: record)
         #expect(CensusBackfill.proposals(censuses: [source], snapshot: snap).isEmpty)
     }
+
+    // MARK: - Cite mode (census-gap sweep 2026-08-24, the William Goodlad shape)
+
+    /// A relative absorbed FROM the household: birth year present AND
+    /// research-backed (citing this very census as a field source) — so
+    /// gap-fill skips them (year present) and corroboration skips them
+    /// (year backed) — yet the census was never landed on their profile.
+    private func absorbedChildSnapshot(
+        childEvents: [LifeEvent] = []
+    ) -> FamilyGraphSnapshot {
+        let mother = profile(id: "ellen", first: "Ellen", birthYear: 1814)
+        var child = profile(id: "will", first: "William", birthYear: 1846)
+        child.sources = [.birthDate: [FieldSource(
+            origin: SourceOrigin(identifier: "freecen"), raw: "CAL 1846", addedAt: Date())]]
+        return FamilyGraphSnapshot(
+            profiles: ["ellen": mother, "will": child],
+            relationships: [
+                Relationship(id: UUID(), from: "ellen", to: "will", type: .parent, role: .mother,
+                             subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil),
+            ],
+            lifeEvents: ["will": childEvents])
+    }
+
+    private func ellens1861() -> CensusBackfill.CensusSource {
+        let record = CensusRecord(
+            common: RecordCommon(id: "e1861", sourceID: "freecen", name: "Ellen Cauldwell", rawFields: [:]),
+            censusYear: 1861, district: "Chesterfield",
+            household: [
+                member("Ellen Cauldwell", "Head", age: 47, isTarget: true),
+                member("William Cauldwell", "Son", age: 15, occupation: "Labour On Farm"),
+            ])
+        return CensusBackfill.CensusSource(subjectID: "ellen", record: record)
+    }
+
+    @Test func citesTheCensusOnAnAbsorbedChild() {
+        // Corroboration must still skip him (research-backed year)…
+        let corr = CensusBackfill.corroborations(censuses: [ellens1861()], snapshot: absorbedChildSnapshot())
+        #expect(!corr.contains { $0.targetProfileID == "will" })
+        // …and the cite mode must catch him.
+        let cites = CensusBackfill.citations(censuses: [ellens1861()], snapshot: absorbedChildSnapshot())
+        let will = cites.first { $0.targetProfileID == "will" }
+        #expect(will != nil, "the census naming him is applied on his mother; citing it is the offer")
+        #expect(will?.memberRecord.occupation == "Labour On Farm")
+        #expect(will?.censusYear == 1861)
+    }
+
+    @Test func alreadyCitedCensusYearProposesNothing() {
+        let event = LifeEvent(
+            id: UUID(), profileID: "will", type: .census,
+            date: GenealogicalDate(parsing: "1861"), location: "Wingerworth")
+        let cites = CensusBackfill.citations(
+            censuses: [ellens1861()], snapshot: absorbedChildSnapshot(childEvents: [event]))
+        #expect(!cites.contains { $0.targetProfileID == "will" },
+                "a census event for the year already exists — the offer would be noise")
+    }
+
+    @Test func residenceAtTheCensusYearAlsoCountsAsCited() {
+        // Hand-entered census evidence lands as a residence event at the
+        // census year — must suppress the offer the same way.
+        let event = LifeEvent(
+            id: UUID(), profileID: "will", type: .residence,
+            date: GenealogicalDate(parsing: "1861"), location: "Wingerworth")
+        let cites = CensusBackfill.citations(
+            censuses: [ellens1861()], snapshot: absorbedChildSnapshot(childEvents: [event]))
+        #expect(!cites.contains { $0.targetProfileID == "will" })
+    }
+
+    @Test func rosterDisagreeingWithRecordedYearIsNeverCited() {
+        // Recorded 1846 vs roster age implying 1836 — namesake territory.
+        let record = CensusRecord(
+            common: RecordCommon(id: "e1861", sourceID: "freecen", name: "Ellen Cauldwell", rawFields: [:]),
+            censusYear: 1861,
+            household: [
+                member("Ellen Cauldwell", "Head", age: 47, isTarget: true),
+                member("William Cauldwell", "Son", age: 25),
+            ])
+        let source = CensusBackfill.CensusSource(subjectID: "ellen", record: record)
+        let cites = CensusBackfill.citations(censuses: [source], snapshot: absorbedChildSnapshot())
+        #expect(!cites.contains { $0.targetProfileID == "will" },
+                "±1 year agreement is the namesake guard — a 10-year miss must not be cited")
+    }
+
+    @Test func yearlessRelativesStayInGapFillTerritory() {
+        let mother = profile(id: "ellen", first: "Ellen", birthYear: 1814)
+        let child = profile(id: "will", first: "William", birthYear: nil)
+        let snap = FamilyGraphSnapshot(
+            profiles: ["ellen": mother, "will": child],
+            relationships: [
+                Relationship(id: UUID(), from: "ellen", to: "will", type: .parent, role: .mother,
+                             subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil),
+            ])
+        let cites = CensusBackfill.citations(censuses: [ellens1861()], snapshot: snap)
+        #expect(!cites.contains { $0.targetProfileID == "will" },
+                "no recorded year → gap-fill's offer, never the cite mode — the modes stay disjoint")
+        let fills = CensusBackfill.proposals(censuses: [ellens1861()], snapshot: snap)
+        #expect(fills.contains { $0.targetProfileID == "will" })
+    }
 }

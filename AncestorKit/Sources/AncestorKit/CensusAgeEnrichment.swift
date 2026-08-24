@@ -126,6 +126,42 @@ public nonisolated struct CensusAgeEnrichment {
             })
     }
 
+    /// Cite-the-census mode (census-gap sweep 2026-08-24): the corroborate
+    /// rule above deliberately skips any relative whose recorded year is
+    /// already research-backed — but a child ABSORBED from this very
+    /// household is exactly that (their birth year carries the census as a
+    /// field source) while the census itself never landed on their profile
+    /// as an event. 120 of the tree's 161 census-gapped profiles were in
+    /// this class (William Goodlad: his mother's applied 1861 names him
+    /// "son, 15", his own birth fact cites it, his profile shows zero
+    /// censuses). This mode targets relatives whose recorded year AGREES
+    /// with the roster (±1 — the same namesake guard as corroboration)
+    /// and whom the caller says do NOT yet carry this census on their
+    /// profile: field sourcing is irrelevant, the EVENT is what's missing.
+    /// Same two-way-unique matching, same role gates.
+    public static func citations(
+        subjectID: String,
+        household: [HouseholdMember],
+        censusYear: Int,
+        linkedRelatives: [Profile],
+        sourceID: String?,
+        relations: [String: CensusRelation] = [:],
+        alreadyCited: (Profile) -> Bool
+    ) -> [BirthYearProposal] {
+        matchProposals(
+            subjectID: subjectID, household: household, censusYear: censusYear,
+            linkedRelatives: linkedRelatives, sourceID: sourceID, relations: relations,
+            targetFilter: { profile in
+                // A year-less relative is gap-fill's territory (`proposals`);
+                // keeping the modes disjoint keeps every offer explainable.
+                profile.birthDate?.bestYear != nil && !alreadyCited(profile)
+            },
+            yearConsistency: { estimate, target in
+                guard let recorded = target.birthDate?.bestYear else { return false }
+                return abs(estimate - recorded) <= 1
+            })
+    }
+
     private static func matchProposals(
         subjectID: String,
         household: [HouseholdMember],
