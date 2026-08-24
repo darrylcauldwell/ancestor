@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import Ancestor_Research
+import AncestorKit
 
 /// LOCATION_MODEL_SPEC Slice 0 — the geography gate resolves PARISH-level
 /// district names against the REAL bundled catalogue.
@@ -183,5 +184,80 @@ struct GeographyParishTierTests {
         #expect(id == nil || id?.hasPrefix("WRY:") == true || id?.hasPrefix("NRY:") == true
                 || id?.hasPrefix("ERY:") == true,
                 "resolved outside Yorkshire: \(id ?? "nil")")
+    }
+
+    // MARK: - #31 GRO abbreviation tolerance (owner dogfood 2026-08-24:
+    // "unknown district: Chapel le F." on Kezia Wheeldon's 1897 marriage)
+
+    @Test func groAbbreviatedDistrictResolves() {
+        let result = RecordScorer.classify(
+            record: census(district: "Chapel le F.", year: 1901),
+            subject: subject(chapman: "DBY", county: "Derbyshire"),
+            searchType: .census
+        )
+        let gate = geography(result)
+        #expect(gate?.outcome == .pass, "got \(gate?.reason ?? "no gate")")
+        #expect(gate?.reason.contains("Derbyshire") == true)
+    }
+
+    @Test func hyphenatedDistrictVariantResolves() {
+        let result = RecordScorer.classify(
+            record: census(district: "Chapel-en-le-Frith", year: 1901),
+            subject: subject(chapman: "DBY", county: "Derbyshire"),
+            searchType: .census
+        )
+        #expect(geography(result)?.outcome == .pass,
+                "got \(geography(result)?.reason ?? "no gate")")
+    }
+
+    @Test func dataDerivedAliasResolves() {
+        // "Ashborne" is FreeBMD's recurring variant of Ashbourne — carried in
+        // freebmd-districts.json's aliases (migrated from the last hardcoded
+        // alias map), never in code.
+        let result = RecordScorer.classify(
+            record: census(district: "Ashborne", year: 1861),
+            subject: subject(chapman: "DBY", county: "Derbyshire"),
+            searchType: .census
+        )
+        #expect(geography(result)?.outcome == .pass,
+                "got \(geography(result)?.reason ?? "no gate")")
+    }
+
+    @Test func subDistrictQualifierFallsBackToTheDistrict() {
+        // "Derby St Alkmund" = Derby district + sub-district qualifier; the
+        // leading-prefix retry resolves the district uniquely.
+        let result = RecordScorer.classify(
+            record: census(district: "Derby St Alkmund", year: 1861),
+            subject: subject(chapman: "DBY", county: "Derbyshire"),
+            searchType: .census
+        )
+        let gate = geography(result)
+        #expect(gate?.outcome == .pass, "got \(gate?.reason ?? "no gate")")
+    }
+
+    @Test func ambiguousAbbreviationStillDeclines() {
+        // A bare sub-district with an ambiguous stem must NOT resolve —
+        // "when in doubt, split".
+        let result = RecordScorer.classify(
+            record: census(district: "St Peter", year: 1861),
+            subject: subject(chapman: "DBY", county: "Derbyshire"),
+            searchType: .census
+        )
+        #expect(geography(result)?.outcome == .softFail)
+    }
+
+    @Test func abbreviationMatcherStaysTight() {
+        #expect(PlaceAuthority.abbreviatedNameMatches(
+            query: "chapel le f.", candidate: "Chapel en le Frith"))
+        #expect(PlaceAuthority.abbreviatedNameMatches(
+            query: "ashton u. lyne", candidate: "Ashton under Lyne"))
+        #expect(PlaceAuthority.abbreviatedNameMatches(
+            query: "w. ham", candidate: "West Ham"))
+        #expect(!PlaceAuthority.abbreviatedNameMatches(
+            query: "chapel", candidate: "Chapel en le Frith"),
+            "a bare leading word is a prefix, not an abbreviation")
+        #expect(!PlaceAuthority.abbreviatedNameMatches(
+            query: "ham", candidate: "West Ham"),
+            "first tokens must align")
     }
 }

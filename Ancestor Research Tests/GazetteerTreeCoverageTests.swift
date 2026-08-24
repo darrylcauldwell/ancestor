@@ -209,8 +209,10 @@ struct GazetteerTreeCoverageTests {
 
             // (d) NOT PLACES / MALFORMED — typos and non-settlements. These
             // want correcting in the tree, not adding to a gazetteer.
+            // ("Ashborne" left this list on 2026-08-24 — it is FreeBMD's own
+            // recurring rendering of Ashbourne, not a tree typo, so #31 made
+            // it a data-derived alias in freebmd-districts.json.)
             "- (or Dublin), County Dublin (or Ireland)",
-            "Ashborne",             // typo: Ashbourne
             "Bishop Storford",      // typo: Bishop's Stortford
             "Clayton (Doncaster) (or Clayton), Yorkshire, West Riding (or Yorkshire)",
             "Darley Hall",          // a house, not a settlement

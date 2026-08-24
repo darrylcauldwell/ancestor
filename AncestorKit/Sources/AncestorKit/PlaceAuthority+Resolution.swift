@@ -185,14 +185,76 @@ public nonisolated extension Array where Element == PlaceAuthority {
             .lowercased()
         guard !needle.isEmpty else { return nil }
         let chapmanUpper = chapman?.trimmingCharacters(in: .whitespaces).uppercased()
-        return filter { d in
+        let districts = filter { d in
             guard d.kind == .registrationDistrict else { return false }
-            let names = ([d.name] + d.aliases).map { $0.lowercased() }
-            guard names.contains(needle) else { return false }
-            if let cu = chapmanUpper { return d.parentID?.uppercased() == cu }
+            if let cu = chapmanUpper, d.parentID?.uppercased() != cu { return false }
             return true
         }
-        .sorted { $0.id < $1.id }
-        .first
+        let exact = districts.filter { d in
+            ([d.name] + d.aliases).map { $0.lowercased() }.contains(needle)
+        }
+        if let hit = exact.sorted(by: { $0.id < $1.id }).first { return hit }
+
+        // #31 — GRO/FreeBMD abbreviation tolerance ("Chapel le F." →
+        // "Chapel en le Frith", "Ashton u. Lyne" → "Ashton under Lyne").
+        // Accepted ONLY when exactly one catalogue district matches; an
+        // ambiguous abbreviation declines rather than guesses ("when in
+        // doubt, split").
+        let fuzzy = districts.filter { d in
+            ([d.name] + d.aliases).contains {
+                PlaceAuthority.abbreviatedNameMatches(query: needle, candidate: $0)
+            }
+        }
+        return fuzzy.count == 1 ? fuzzy[0] : nil
+    }
+}
+
+extension PlaceAuthority {
+    /// True when `query` is a plausibly-abbreviated rendering of `candidate`
+    /// — the GRO quarterly indexes and FreeBMD print district names with
+    /// dot-abbreviated and elided connective words. Pure and region-free:
+    /// tokens are compared in order, a dot-suffixed query token matches the
+    /// candidate token by prefix, and connective words in the candidate
+    /// ("en", "le", "upon", "under", …) may be skipped. Both strings must be
+    /// fully consumed (candidate modulo connectives), so "Chapel" alone does
+    /// NOT match "Chapel en le Frith".
+    public nonisolated static func abbreviatedNameMatches(query: String, candidate: String) -> Bool {
+        func tokens(_ s: String) -> [String] {
+            s.lowercased()
+                .split(whereSeparator: { $0 == " " || $0 == "-" })
+                .map(String.init)
+        }
+        let connectives: Set<String> = ["en", "le", "la", "in", "on", "upon",
+                                        "under", "the", "of", "and", "&", "u", "u."]
+        let q = tokens(query)
+        let c = tokens(candidate)
+        guard !q.isEmpty, !c.isEmpty else { return false }
+
+        func tokenMatches(_ qt: String, _ ct: String) -> Bool {
+            if qt == ct { return true }
+            if qt.hasSuffix(".") {
+                let stem = String(qt.dropLast())
+                return !stem.isEmpty && ct.hasPrefix(stem)
+            }
+            return false
+        }
+
+        var ci = 0
+        for (qi, qt) in q.enumerated() {
+            // Skip candidate connectives — unless the query token itself is
+            // one, in which case it must line up with a real token.
+            while ci < c.count, connectives.contains(c[ci]), !tokenMatches(qt, c[ci]) {
+                ci += 1
+            }
+            guard ci < c.count, tokenMatches(qt, c[ci]) else { return false }
+            if qi == 0, ci != 0 { return false }  // first tokens must align
+            ci += 1
+        }
+        // Candidate leftovers must all be connectives.
+        while ci < c.count {
+            guard connectives.contains(c[ci]) else { return false }
+            ci += 1
+        }
+        return true
     }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import os
+import AncestorKit
 
 /// One UK registration district as listed in FreeBMD's search dropdown.
 ///
@@ -26,6 +27,22 @@ nonisolated struct FreeBMDDistrict: Codable, Sendable, Hashable {
     /// scraped (404s, format variants). Used by `.parish`-scope queries
     /// and parish-aware geography scoring.
     let parishes: [String]?
+    /// #31 — spelling variants this district is findable under (e.g.
+    /// FreeBMD's "Ashborne" for Ashbourne). Data-derived: lives in
+    /// freebmd-districts.json, never in code. nil for the vast majority.
+    let aliases: [String]?
+
+    init(name: String, code: String, chapmanCode: String?,
+         startYear: Int?, endYear: Int?, parishes: [String]?,
+         aliases: [String]? = nil) {
+        self.name = name
+        self.code = code
+        self.chapmanCode = chapmanCode
+        self.startYear = startYear
+        self.endYear = endYear
+        self.parishes = parishes
+        self.aliases = aliases
+    }
 
     /// True if this district was operating at any point in the given year range.
     func overlaps(years range: ClosedRange<Int>) -> Bool {
@@ -158,7 +175,8 @@ nonisolated final class FreeBMDDistrictCatalogue: Sendable {
             name: district.name, code: district.code,
             chapmanCode: district.chapmanCode,
             startYear: district.startYear, endYear: district.endYear,
-            parishes: repaired
+            parishes: repaired,
+            aliases: district.aliases
         )
     }
 
@@ -196,7 +214,18 @@ nonisolated final class FreeBMDDistrictCatalogue: Sendable {
         let needle = name.trimmingCharacters(in: .whitespaces)
             .replacingOccurrences(of: " district", with: "", options: .caseInsensitive)
             .lowercased()
-        return districts.first { $0.name.lowercased() == needle }
+        if let exact = districts.first(where: { d in
+            ([d.name] + (d.aliases ?? [])).contains { $0.lowercased() == needle }
+        }) {
+            return exact
+        }
+        // #31 — abbreviation tolerance ("Chapel le F."), unique match only.
+        let fuzzy = districts.filter { d in
+            ([d.name] + (d.aliases ?? [])).contains {
+                PlaceAuthority.abbreviatedNameMatches(query: needle, candidate: $0)
+            }
+        }
+        return fuzzy.count == 1 ? fuzzy[0] : nil
     }
 
     /// First district that contains the given parish (case-insensitive),

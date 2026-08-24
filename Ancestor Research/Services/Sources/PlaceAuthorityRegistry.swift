@@ -200,7 +200,7 @@ nonisolated final class PlaceAuthorityRegistry: Sendable {
                 validTo: district.endYear,
                 county: nil,
                 country: nil,
-                aliases: [],
+                aliases: district.aliases ?? [],  // #31 — data-derived variants
                 freeBMDCode: district.code
             ))
 

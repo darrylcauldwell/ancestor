@@ -36,22 +36,25 @@ struct PlaceTextCorrectionTests {
 
     // MARK: - The typo
 
-    /// "Ashborne" is one letter from Ashbourne. Correcting it makes the row
-    /// resolve on its own — no binding needed, because the place was always real.
+    /// "Bishop Storford" is a typo of Bishop's Stortford. Correcting it makes
+    /// the row resolve on its own — no binding needed, because the place was
+    /// always real. (The former specimen "Ashborne" stopped qualifying on
+    /// 2026-08-24: #31 made it a data-derived alias of Ashbourne, so it now
+    /// resolves as-is.)
     @Test func correctingATypoMakesTheRowResolve() throws {
         let db = try makeDB()
-        try addPerson(db, "a", "Ashborne")
-        try addPerson(db, "b", "Ashborne")
+        try addPerson(db, "a", "Bishop Storford")
+        try addPerson(db, "b", "Bishop Storford")
 
-        #expect(try rows(db).first { $0.text == "Ashborne" }?.confidence == .unresolved)
+        #expect(try rows(db).first { $0.text == "Bishop Storford" }?.confidence == .unresolved)
 
         let n = try db.correctLocationText(
             profileFields: [("a", .birthLocation), ("b", .birthLocation)],
-            lifeEventIDs: [], to: "Ashbourne")
+            lifeEventIDs: [], to: "Bishop's Stortford")
         #expect(n == 2)
 
-        #expect(try rows(db).first { $0.text == "Ashborne" } == nil, "the old spelling is gone")
-        let fixed = try rows(db).first { $0.text == "Ashbourne" }
+        #expect(try rows(db).first { $0.text == "Bishop Storford" } == nil, "the old spelling is gone")
+        let fixed = try rows(db).first { $0.text == "Bishop's Stortford" }
         #expect(fixed != nil)
         #expect(fixed?.confidence != .unresolved, "it resolves now — it was always a real place")
     }
