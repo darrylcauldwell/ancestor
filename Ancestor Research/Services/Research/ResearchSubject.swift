@@ -236,6 +236,16 @@ nonisolated struct ResearchSubject: Sendable {
     /// run Triage-clean.
     var includeForeignRecords: Bool = false
 
+    /// #34 ruling a — the subject's home REGISTRATION-DISTRICT id
+    /// ("DBY:Ashbourne-RD"), resolved from the birthplace exactly as the
+    /// birth-conflict guard resolves it (RegistrationDistrictResolver, one
+    /// namespace with PlaceResolver.resolveDistrict). RANKING SIGNAL ONLY:
+    /// the geography gate grades its pass *reason* with it and review
+    /// ordering lists home-district records first — no verdict ever depends
+    /// on it. Namesakes cluster in the very district a subject lives in, so
+    /// geography must never discriminate an exclusivity slot.
+    var homeDistrictID: String? = nil
+
     /// Residence search axes derived from the subject's Residence
     /// LifeEvents (Stage 2 roadmap: "life events feed research axes") —
     /// user-entered ones and evidence-absorbed ones alike (absorbed events
@@ -1147,7 +1157,7 @@ nonisolated extension ResearchSubject {
             return a.text < b.text
         }
 
-        return ResearchSubject(
+        var subject = ResearchSubject(
             profileID: profile.id,
             surname: profile.lastName,
             marriedSurname: derivedMarriedSurname,
@@ -1183,6 +1193,16 @@ nonisolated extension ResearchSubject {
             burialChapmanCode: derivedBurialChapman,
             places: derivedPlaces
         )
+        // #34 ruling a — home-district anchor for the geography gate's graded
+        // pass. Same derivation the birth-conflict guard trusts; nil when the
+        // birthplace is absent or ambiguous (the grade simply never fires).
+        subject.homeDistrictID = profile.birthLocation.flatMap { place in
+            RegistrationDistrictResolver.districtID(
+                forPlaceOrDistrict: place,
+                chapman: RegistrationDistrictResolver.chapman(forProfile: profile),
+                year: profile.birthDate?.bestYear)
+        }
+        return subject
     }
 
     /// Resolve a Chapman code for a subject from the profile's own data,

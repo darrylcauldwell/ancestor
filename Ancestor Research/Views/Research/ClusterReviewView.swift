@@ -506,7 +506,11 @@ struct ClusterReviewView: View {
 
     private func clusterCard(_ cluster: LifeCluster) -> some View {
         let decision = vm.clusterDecisions[cluster.id]
-        let liveRecords = cluster.records.filter { !isDiscarded($0) }
+        // #34 ruling a — district ranking signal: records from the subject's
+        // own registration district list first (stable partition; verdicts
+        // and gates untouched).
+        let liveRecords = RecordScorer.homeDistrictFirst(
+            cluster.records.filter { !isDiscarded($0) })
 
         return VStack(alignment: .leading, spacing: 10) {
             // Header

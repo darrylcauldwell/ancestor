@@ -340,6 +340,31 @@ nonisolated struct RecordScorer {
         record.gates.contains { $0.gate == .familyContext && $0.outcome == .pass }
     }
 
+    /// #34 ruling a — marker the graded geography pass carries when the
+    /// record sits in the subject's own home registration district.
+    nonisolated static let homeDistrictReasonPrefix = "home district: "
+
+    /// Whether a scored record carries the home-district graded pass.
+    /// Presentation-layer ranking input ONLY — deliberately never consulted
+    /// by `applyExclusivity` or any verdict path: namesakes cluster in the
+    /// subject's own district, so geographic proximity must never
+    /// discriminate an exclusivity slot.
+    nonisolated static func isHomeDistrictMatch(_ record: ScoredRecord) -> Bool {
+        record.gates.contains {
+            $0.gate == .geography && $0.outcome == .pass
+                && $0.reason.hasPrefix(homeDistrictReasonPrefix)
+        }
+    }
+
+    /// Stable partition for review ordering: home-district records first,
+    /// original order preserved within each half (#34 ruling a — "ranked
+    /// first" is a display promise, so the sort must be deterministic).
+    nonisolated static func homeDistrictFirst(_ records: [ScoredRecord]) -> [ScoredRecord] {
+        let matched = records.filter { isHomeDistrictMatch($0) }
+        guard !matched.isEmpty else { return records }
+        return matched + records.filter { !isHomeDistrictMatch($0) }
+    }
+
     /// A GHOST rival: a stored lead this pass itself previously demoted (the
     /// persisted `.exclusivity` softFail is the marker). Its presence proves
     /// the slot is contested even when the caches keep the other rivals out
@@ -1545,6 +1570,17 @@ nonisolated struct RecordScorer {
         if let districtID = PlaceResolver.resolveDistrict(name: districtClean),
            let countyNode = PlaceAuthorityRegistry.shared.places.county(of: districtID) {
             if acceptedCodes.contains(countyNode.id.uppercased()) {
+                // #34 ruling a — GRADED pass: a record in the subject's own
+                // home registration district carries a stronger reason and a
+                // stable marker prefix (`homeDistrictReasonPrefix`) the review
+                // ordering reads. RANKING ONLY — the outcome is `.pass` either
+                // way; verdicts never depend on district identity (namesakes
+                // cluster in the subject's own district).
+                if let home = subject.homeDistrictID, home == districtID {
+                    return GateResult(gate: .geography, outcome: .pass,
+                        reason: Self.homeDistrictReasonPrefix
+                            + "\(districtClean) is the subject's own registration district")
+                }
                 return GateResult(gate: .geography, outcome: .pass,
                     reason: "\(districtClean) is in \(countyNode.name) — the subject's research area")
             }

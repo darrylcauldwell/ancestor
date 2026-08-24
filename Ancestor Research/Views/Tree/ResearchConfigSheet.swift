@@ -224,14 +224,14 @@ struct ResearchConfigSheet: View {
 
     private var scopeDescription: String {
         switch scope {
-        // Both of these described intent rather than behaviour, and both were
-        // false. Parish is not "limited to parish-supporting sources" — neither
-        // FreeREG nor FreeCen is fed a parish today, and FreeBMD is SKIPPED
-        // entirely at parish scope, so parish is strictly worse than county.
-        // District's "until structured location codes ship" dated from before
-        // Slice C/D/E shipped them, so it now reads as a limitation since lifted.
-        case .parish:   "No source can search by parish yet — FreeBMD is skipped entirely and FreeREG/FreeCen fall back to the county. Use County until this is built."
-        case .district: "No source can search by registration district yet; all three fall back to the county. Use County until this is built."
+        // Honest copy, not aspiration (owner rulings 2026-08-23/24). No free
+        // source has a parish or district search axis, so both scopes search
+        // county-wide on the wire. District is still a meaningful choice
+        // (#34 ruling a): records from the subject's own registration
+        // district are labelled "home district" and listed first in review —
+        // a ranking signal, never a filter.
+        case .parish:   "No source can search by parish — FreeBMD is skipped entirely and FreeREG/FreeCen fall back to the county. Use County (or District for home-district ranking) instead."
+        case .district: "Searches still cover the whole county — no free source has a district search axis — but records from this person's home registration district are labelled and listed first in review."
         case .county:   "Home county's registration districts — the current local-scope behaviour."
         case .adjacent: "Home county plus counties bordering it (single hop). Useful for ancestors near a county border."
         case .national: "Every UK registration district (~1,125 districts, year-filtered)."
@@ -251,11 +251,13 @@ struct ResearchConfigSheet: View {
     /// Shown in the sheet so the user understands the trade-off before clicking Run.
     /// See RESEARCH_AXES_SPEC §4 for the locked 5×4 table.
     static func estimatedDuration(mode: ResearchMode, scope: ResearchScope) -> String {
-        // Parish and district currently behave EXACTLY as county on every
+        // Parish and district produce EXACTLY county's wire traffic on every
         // source, so they take exactly as long. Quoting "5–15 sec" against
         // county's "30 sec–1 min" told the user they were buying a cheaper run
-        // when the wire traffic is identical. The parish/district rows below are
-        // kept for when those scopes become real.
+        // when the wire traffic is identical. (District differs only in REVIEW
+        // — home-district records rank first, #34 ruling a — which costs no
+        // wire time.) The parish/district rows below are kept for a future
+        // parish axis.
         let effective: ResearchScope =
             (scope == .parish || scope == .district) ? .county : scope
         switch (mode, effective) {

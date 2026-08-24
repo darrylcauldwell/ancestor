@@ -260,4 +260,72 @@ struct GeographyParishTierTests {
             query: "ham", candidate: "West Ham"),
             "first tokens must align")
     }
+
+    // MARK: - #34 ruling a — home-district graded pass (ranking, never a gate)
+
+    private func anchoredSubject(homeDistrictID: String?) -> ResearchSubject {
+        var s = subject(chapman: "DBY", county: "Derbyshire")
+        s.homeDistrictID = homeDistrictID
+        return s
+    }
+
+    @Test func homeDistrictRecordCarriesTheGradedPassReason() {
+        let result = RecordScorer.classify(
+            record: census(district: "Bakewell", year: 1861),
+            subject: anchoredSubject(homeDistrictID: "DBY:Bakewell-RD"),
+            searchType: .census)
+        let gate = geography(result)
+        #expect(gate?.outcome == .pass)
+        #expect(gate?.reason.hasPrefix(RecordScorer.homeDistrictReasonPrefix) == true)
+        #expect(RecordScorer.isHomeDistrictMatch(result))
+    }
+
+    @Test func sameCountyOtherDistrictKeepsThePlainPass() {
+        let result = RecordScorer.classify(
+            record: census(district: "Belper", year: 1861),
+            subject: anchoredSubject(homeDistrictID: "DBY:Bakewell-RD"),
+            searchType: .census)
+        let gate = geography(result)
+        #expect(gate?.outcome == .pass)
+        #expect(gate?.reason.hasPrefix(RecordScorer.homeDistrictReasonPrefix) == false)
+        #expect(!RecordScorer.isHomeDistrictMatch(result))
+    }
+
+    @Test func homeDistrictAnchorNeverChangesTheVerdict() {
+        // The grade is a REASON, not a gate: identical verdict with the
+        // anchor present, absent, or matching a different district.
+        let record = census(district: "Bakewell", year: 1861)
+        let anchored = RecordScorer.classify(
+            record: record, subject: anchoredSubject(homeDistrictID: "DBY:Bakewell-RD"),
+            searchType: .census)
+        let unanchored = RecordScorer.classify(
+            record: record, subject: anchoredSubject(homeDistrictID: nil),
+            searchType: .census)
+        let elsewhere = RecordScorer.classify(
+            record: record, subject: anchoredSubject(homeDistrictID: "DBY:Belper-RD"),
+            searchType: .census)
+        #expect(anchored.verdict == unanchored.verdict)
+        #expect(anchored.verdict == elsewhere.verdict)
+        #expect(geography(anchored)?.outcome == geography(unanchored)?.outcome)
+    }
+
+    @Test func homeDistrictFirstIsAStablePartition() {
+        let home = RecordScorer.classify(
+            record: census(district: "Bakewell", year: 1861),
+            subject: anchoredSubject(homeDistrictID: "DBY:Bakewell-RD"),
+            searchType: .census)
+        let awayA = RecordScorer.classify(
+            record: census(district: "Belper", year: 1861),
+            subject: anchoredSubject(homeDistrictID: "DBY:Bakewell-RD"),
+            searchType: .census)
+        let awayB = RecordScorer.classify(
+            record: census(district: "Chesterfield", year: 1861),
+            subject: anchoredSubject(homeDistrictID: "DBY:Bakewell-RD"),
+            searchType: .census)
+        let ordered = RecordScorer.homeDistrictFirst([awayA, home, awayB])
+        #expect(ordered.map(\.id) == [home.id, awayA.id, awayB.id],
+                "home-district record leads; the rest keep their original order")
+        #expect(RecordScorer.homeDistrictFirst([awayA, awayB]).map(\.id) == [awayA.id, awayB.id],
+                "no match → untouched")
+    }
 }
