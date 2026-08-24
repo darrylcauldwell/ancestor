@@ -13,7 +13,10 @@ Scope was the three volunteer-transcription connectors (FreeBMD, FreeCen, FreeRE
 - **FT-01** county axis via `countyid`, drop the 12-per-district loop (6732596; live-probed).
 - **FT-02** `.national` collapses to one `districtid=""` query (6732596).
 - **FT-03** same-page spouse recovery via vol/pgno (50e3365).
-- **FT-04** county→national escalation on empty results (50e3365).
+- **FT-04** county→national escalation on empty results (50e3365). RETIRED
+  2026-08-24 (owner ruling, #34): the picked scope is the contract on every
+  dispatch path — cross-county recall now requires deliberately choosing
+  Adjacent/National.
 - **FT-05** unsplittable-overflow honesty into the search-outcome envelope (a6e9c6d).
 - **FT-06** soundex field was `sndx=on` not `Phonetic` (never engaged); send `sndx=on` only when enabling — live-probed (bigger than diagnosed).
 - **FT-07** strategist district-name→ID resolution (50e3365).

@@ -261,16 +261,6 @@ struct ScopeSkipVisibilityTests {
         #expect(skips.first?.sourceID == "freebmd")
     }
 
-    @Test func skipNeverTriggersScopeEscalation() {
-        let entry = SearchOutcomeEntry(
-            sourceID: "freebmd", recordType: .birth, strictness: .strict,
-            queryKey: "scope-skip|freebmd|birth|county",
-            outcome: .scopeSkip(reason: "no anchor"))
-        #expect(!SearchDispatcher.shouldEscalateScope(
-            source: FreeBMDSource(), scope: .county, mode: .extend,
-            records: [], outcomes: [entry], surname: "Cauldwell"),
-            "a skip is not a conclusive clean-empty — FT-04 must not fire national from it")
-    }
 }
 
 /// SOURCE_WEIGHTING_SPEC Change 5 (stage model) — the ladder is bounded by

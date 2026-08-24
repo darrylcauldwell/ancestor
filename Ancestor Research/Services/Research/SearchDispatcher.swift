@@ -95,10 +95,11 @@ struct SearchDispatcher {
     /// non-main-loop caller behaves exactly as before T1-04.
     /// `stage` (SOURCE_WEIGHTING Change 5): when set, the fan-out is
     /// filtered to that stage's sources at the stage's effective scope
-    /// (bounded by the caller's `scope`), and FT-04's county→national
-    /// self-escalation is disabled — the stage ladder owns geographic
-    /// widening. Nil = legacy flat fan-out (strategist/one-off paths and
-    /// every pre-staging caller are byte-identical).
+    /// (bounded by the caller's `scope`) — the stage ladder owns
+    /// geographic widening. Nil = legacy flat fan-out (strategist/one-off
+    /// paths dispatch at exactly the caller's scope; FT-04's
+    /// county→national self-escalation was retired 2026-08-24, #34
+    /// ruling b — the picked scope is the contract on every path).
     func dispatchWithOutcomes(
         subject: ResearchSubject,
         recordTypes: Set<RecordType>,
@@ -203,8 +204,7 @@ struct SearchDispatcher {
                         ladder: ladder,
                         mode: mode,
                         cache: cache,
-                        negativeCache: negativeCache,
-                        allowScopeEscalation: stage == nil
+                        negativeCache: negativeCache
                     )
                 }
             }
@@ -258,6 +258,13 @@ struct SearchDispatcher {
     /// the whole ladder, found nothing". Stop instead. `.all` mode is
     /// unchanged — it runs every tier by contract, not as a reaction
     /// to emptiness.
+    /// FT-04 (county→national self-escalation on a clean-empty FreeBMD
+    /// result) lived here from connector-audit `50e3365` until 2026-08-24
+    /// — retired under #34 ruling b: the picked scope is the contract on
+    /// EVERY dispatch path, staged or not. A subject registered one county
+    /// over (the Lydia Kenworthy case) is now reached by deliberately
+    /// picking Adjacent/National, never by the dispatcher exceeding the
+    /// picker behind the user's back.
     private func dispatchToSource(
         source: any RecordSource,
         subject: ResearchSubject,
@@ -266,95 +273,13 @@ struct SearchDispatcher {
         ladder: [SearchStrictness],
         mode: ResearchMode,
         cache: QueryCache?,
-        negativeCache: NegativeSearchCache,
-        allowScopeEscalation: Bool = true
+        negativeCache: NegativeSearchCache
     ) async -> (records: [SourceRecord], outcomes: [SearchOutcomeEntry]) {
-        var (accumulated, outcomes) = await walkLadder(
+        await walkLadder(
             source: source, subject: subject, recordType: recordType,
             scope: scope, ladder: ladder, mode: mode,
             cache: cache, negativeCache: negativeCache
         )
-
-        // FT-04 — SCOPE-ESCALATE tier (ported from Python's
-        // `agent/discover.py:_freebmd_national_fallback`). When a
-        // county-scoped FreeBMD search comes back CLEANLY empty — every
-        // tier answered conclusively (availability ok, not truncated)
-        // with zero records — escalate geography by firing one national
-        // `districtid=""` pass. A subject registered one county over
-        // (industrial migration, border spillover, registry-of-birth ≠
-        // residence — the Lydia Kenworthy case: twin says Stanton DBY,
-        // FreeBMD registered Huddersfield YKS) is invisible at .county
-        // scope but reachable nationally; the scorer's geography gate
-        // still down-weights distant hits, so this raises recall, not
-        // noise.
-        //
-        // Honesty envelope (T1-01): escalate ONLY on a genuine clean
-        // empty. If any tier errored, was blocked/throttled, or came
-        // back truncated, the emptiness is an artifact — escalating
-        // would hammer a failing source and launder the failure into
-        // "searched county AND nationally, found nothing". The escalation
-        // outcomes are appended, so searchHistory records it as a
-        // distinct step.
-        // Under staged dispatch (Change 5) the stage ladder owns
-        // geographic widening — FT-04's self-escalation would duplicate
-        // the national stage.
-        if allowScopeEscalation,
-           Self.shouldEscalateScope(source: source, scope: scope, mode: mode,
-                                    records: accumulated, outcomes: outcomes,
-                                    surname: subject.surname) {
-            let (nationalRecords, nationalOutcomes) = await walkLadder(
-                source: source, subject: subject, recordType: recordType,
-                scope: .national, ladder: ladder, mode: mode,
-                cache: cache, negativeCache: negativeCache
-            )
-            accumulated.append(contentsOf: nationalRecords)
-            outcomes.append(contentsOf: nationalOutcomes)
-        }
-
-        return (accumulated, outcomes)
-    }
-
-    /// FT-04 — the escalation predicate. County→national escalation fires
-    /// only for FreeBMD (the sole source with a district-vs-national scope
-    /// distinction — CWGC/FAG/Probate are inherently national; FreeCen's
-    /// broad scopes ride its birth-county axis; FreeREG's scopes are a
-    /// register-county fan-out with no broad-reach axis, so escalation
-    /// would just re-run its national sweep), only
-    /// from a `.county`/`.adjacent` starting scope, and only on a genuine
-    /// conclusive clean-empty. `.all` mode is excluded: it runs the full
-    /// ladder by contract, not as a reaction to emptiness, and a
-    /// scope-escalation reaction would double its national fan-out. nonisolated
-    /// + static so the escalation-ladder tests can assert the predicate
-    /// directly without a live dispatcher.
-    nonisolated static func shouldEscalateScope(
-        source: any RecordSource,
-        scope: ResearchScope,
-        mode: ResearchMode,
-        records: [SourceRecord],
-        outcomes: [SearchOutcomeEntry],
-        surname: String?
-    ) -> Bool {
-        guard source.sourceID == "freebmd" else { return false }
-        guard scope == .county || scope == .adjacent else { return false }
-        guard mode != .all else { return false }
-        // Never auto-escalate to a NATIONAL FreeBMD scrape on a COMMON surname: a
-        // national districtid="" query on Thompson/Holmes/Smith returns a massive
-        // set and the source's year-splitter fans out enough requests to trip the
-        // volunteer source's throttle (owner report 2026-08-05). Cross-county
-        // recall for a common name needs a deliberate National-scope run. Rare
-        // surnames still auto-escalate — their national query is bounded, and the
-        // cross-county case (Lydia Kenworthy: registered a county over) is exactly
-        // where the extra recall earns its keep. A missing/blank surname can't be
-        // vouched rare, so it stays put too.
-        guard let surname, !surname.trimmingCharacters(in: .whitespaces).isEmpty,
-              SurnameRarityRegistry.rarity(of: surname) == .uncommon else { return false }
-        guard records.isEmpty else { return false }
-        // Must have actually searched something, and every outcome must be
-        // a conclusive clean empty (availability ok, not truncated, zero
-        // records). An empty outcome list means nothing ran (no axes) — no
-        // basis to escalate.
-        guard !outcomes.isEmpty else { return false }
-        return outcomes.allSatisfy { $0.outcome.isConclusive && $0.outcome.resultCount == 0 }
     }
 
     /// SOURCE_WEIGHTING Change 2 — why a `.scoped` source builds NO
@@ -382,9 +307,9 @@ struct SearchDispatcher {
     /// Walk the strictness ladder for one source at ONE scope. For
     /// non-`.all` modes, stops at the first tier that returns non-empty
     /// results; broadens past an empty tier only when its emptiness is
-    /// conclusive (T1-01). For `.all`, runs every tier by contract. Pulled
-    /// out of `dispatchToSource` so the FT-04 scope-escalation tier can
-    /// re-walk it at `.national` without duplicating the tier-walk body.
+    /// conclusive (T1-01). For `.all`, runs every tier by contract.
+    /// (Historically split out so FT-04 could re-walk it at `.national`;
+    /// FT-04 is retired, the split just keeps the tier-walk readable.)
     private func walkLadder(
         source: any RecordSource,
         subject: ResearchSubject,
@@ -850,7 +775,7 @@ struct SearchDispatcher {
             // enough requests to throttle the volunteer source (owner report
             // 2026-08-05: national Thompson marriages hammered FreeBMD). This is
             // the single choke point every national FreeBMD query flows through
-            // (main sweep, FT-04 escalation, and the marriage pivot), so the
+            // (main sweep and the marriage pivot), so the
             // common-surname block holds regardless of which path reached here.
             // Common names still get county/adjacent coverage; national reach for
             // them isn't worth the hammer.

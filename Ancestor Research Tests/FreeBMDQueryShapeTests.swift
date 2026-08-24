@@ -100,8 +100,8 @@ struct FreeBMDQueryShapeTests {
         // Owner report 2026-08-05: a national districtid="" FreeBMD query on a
         // common surname (Thompson) hammered the volunteer source. The single
         // national choke point drops it to ZERO axes; a rare surname still gets
-        // its one national axis. Every national path (main sweep, FT-04
-        // escalation, marriage pivot) flows through here.
+        // its one national axis. Every national path (main sweep, marriage
+        // pivot) flows through here.
         #expect(SearchDispatcher.freeBMDGeoAxes(
             scope: .national, homeChapmanCode: "DBY", countyQueriesEnabled: true,
             surname: "Thompson").isEmpty)
