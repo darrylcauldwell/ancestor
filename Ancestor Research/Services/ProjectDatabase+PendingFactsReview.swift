@@ -201,11 +201,37 @@ extension ProjectDatabase {
 
         let source = Self.pendingFactEventSource(title: sourceTitle, url: sourceURL)
 
+        // #24 — structured census context. When the submission carried a
+        // household roster (and district/parish/address), project it into the
+        // TYPED census details instead of leaving it as prose in the
+        // description: the event then renders identically to an app-fetched
+        // census, and the roster is readable by the family-context gate and
+        // the cross-profile cite machinery (owner dogfood 2026-08-24: the
+        // 1891 FreeCEN and 1901 FamilySearch censuses side by side on one
+        // profile, one structured, one a text blob).
+        let subjectName: String = (try? dbQueue.read { readDB in
+            try String.fetchOne(readDB, sql: """
+                SELECT TRIM(COALESCE(first_name,'') || ' ' || COALESCE(last_name,''))
+                FROM profiles WHERE id = ?
+                """, arguments: [profileID])
+        }).flatMap { $0 } ?? ""
+        let household = Self.pendingFactHousehold(payload: payload, subjectName: subjectName)
+        var details: LifeEventDetails?
+        if type == .census, !household.isEmpty {
+            let own = household.first { $0.isTarget == true }
+            details = .census(CensusDetails(
+                occupation: own?.occupation,
+                address: payload["address"] as? String,
+                district: payload["district"] as? String,
+                parish: payload["parish"] as? String,
+                household: household))
+        }
+
         // Deterministic id from (profile, type, date, value) so accepting the
         // same fact twice — or a resubmission upsert — cannot mint a duplicate
         // event. `addLifeEventIfAbsent` then makes the second accept a no-op.
         let fingerprint = "\(profileID)|\(type.rawValue)|\(eventDate?.original ?? "")|\(value)"
-        let event = LifeEvent(
+        var event = LifeEvent(
             id: Self.stableEventID(from: fingerprint),
             profileID: profileID,
             type: type,
@@ -214,14 +240,120 @@ extension ProjectDatabase {
             description: value,
             sources: [source].compactMap { $0 }
         )
+        event.details = details
         let inserted = try addLifeEventIfAbsent(event)
 
-        // The event already existed — a re-accept or a resubmission upsert.
-        // Attaching a citation it does not yet carry is purely additive, so a
-        // resubmission that adds provenance is not silently dropped just
-        // because the event row was already there.
-        guard !inserted, let source else { return }
-        try attachSourceToLifeEvent(id: event.id, profileID: profileID, source: source)
+        // A structured census also lands as a first-class census EVIDENCE
+        // record (same shape as an app-fetched one): the ledger shows its
+        // roster, `confirmedCensusSources` reads it, and the household drives
+        // cite offers for every relative it names. Idempotent via the
+        // evidence upsert's composite id.
+        if type == .census, !household.isEmpty,
+           let year = eventDate?.bestYear {
+            try saveAcceptedCensusEvidence(
+                profileID: profileID, year: year, household: household,
+                payload: payload, value: value,
+                sourceTitle: sourceTitle, sourceURL: sourceURL,
+                eventLocation: eventLocation)
+        }
+
+        if !inserted {
+            // The event already existed — a re-accept or a resubmission
+            // upsert. Two purely-additive upgrades are allowed: attaching a
+            // citation it does not yet carry, and grafting structured census
+            // details onto a prose-only event (the #24 backfill path — a
+            // resubmission with a household must not be a no-op just because
+            // the prose event landed first).
+            if let source {
+                try attachSourceToLifeEvent(id: event.id, profileID: profileID, source: source)
+            }
+            if let details,
+               var existing = try loadLifeEvents(profileID: profileID)
+                   .first(where: { $0.id == event.id }),
+               existing.details == nil {
+                existing.details = details
+                _ = try updateLifeEvent(existing)
+            }
+        }
+    }
+
+    /// Parse the structured household from a pending fact's routing payload.
+    /// `isTarget` is marked where a member's name loosely matches the subject
+    /// profile — the same convention app-fetched rosters carry. Pure and
+    /// testable: the caller supplies the subject's display name.
+    nonisolated static func pendingFactHousehold(
+        payload: [String: Any], subjectName: String
+    ) -> [HouseholdMember] {
+        guard let raw = payload["household"] as? [[String: Any]], !raw.isEmpty else { return [] }
+        func norm(_ s: String) -> String {
+            s.lowercased().filter { $0.isLetter || $0 == " " }
+                .split(separator: " ").joined(separator: " ")
+        }
+        let subjectNorm = norm(subjectName)
+        let subjectGiven = subjectNorm.split(separator: " ").first.map(String.init) ?? ""
+        let subjectSurname = subjectNorm.split(separator: " ").last.map(String.init) ?? ""
+        return raw.prefix(30).compactMap { m in
+            guard let name = m["name"] as? String, !name.isEmpty,
+                  let relationship = m["relationship"] as? String, !relationship.isEmpty
+            else { return nil }
+            let memberNorm = norm(name)
+            let isTarget = !subjectNorm.isEmpty
+                && !subjectGiven.isEmpty && !subjectSurname.isEmpty
+                && memberNorm.hasPrefix(subjectGiven)
+                && memberNorm.hasSuffix(subjectSurname)
+            return HouseholdMember(
+                name: name,
+                relationship: relationship,
+                age: m["age"] as? Int,
+                birthYear: m["birth_year"] as? Int,
+                birthPlace: m["birth_place"] as? String,
+                occupation: m["occupation"] as? String,
+                sex: m["sex"] as? String,
+                maritalStatus: m["marital_status"] as? String,
+                birthCounty: m["birth_county"] as? String,
+                isTarget: isTarget ? true : nil)
+        }
+    }
+
+    /// Persist an accepted structured census as a census evidence record —
+    /// verdict `.fact` with a "you accepted this" gate, `savedAsLead` status
+    /// (the apply path's stamp), the same shape `addVerifiedRecord` writes.
+    private func saveAcceptedCensusEvidence(
+        profileID: String, year: Int, household: [HouseholdMember],
+        payload: [String: Any], value: String,
+        sourceTitle: String?, sourceURL: String?, eventLocation: String?
+    ) throws {
+        let own = household.first { $0.isTarget == true }
+        let recordID = "fieldresearcher_census_\(profileID)_\(year)"
+        let common = RecordCommon(
+            id: recordID,
+            sourceID: "field-researcher",
+            name: own?.name,
+            detailURL: sourceURL,
+            rawFields: [:])
+        let record = SourceRecord.census(CensusRecord(
+            common: common,
+            censusYear: year,
+            age: own?.age,
+            birthYear: own?.birthYear,
+            birthPlace: own?.birthPlace,
+            birthCounty: own?.birthCounty,
+            relationship: own?.relationship,
+            occupation: own?.occupation,
+            address: payload["address"] as? String,
+            parish: payload["parish"] as? String,
+            district: (payload["district"] as? String) ?? eventLocation,
+            household: household))
+        let scored = ScoredRecord(
+            id: recordID, record: record, verdict: .fact,
+            gates: [GateResult(gate: .name, outcome: .pass,
+                               reason: "You accepted this record in Triage")],
+            summary: value)
+        try saveEvidence(profileID: profileID, scored: scored,
+                         citationFull: sourceTitle ?? value, citationURL: sourceURL)
+        try updateEvidenceUserStatus(
+            evidenceID: EvidenceRecord.compositeID(profileID: profileID, sourceRecordID: recordID),
+            status: .savedAsLead)
     }
 
     /// The accepted submission's provenance as a `FieldSource`. Nil when the

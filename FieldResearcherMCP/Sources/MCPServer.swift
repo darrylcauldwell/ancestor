@@ -393,6 +393,10 @@ actor MCPHandler {
                         "confidence": ["type": "string", "description": "Your confidence: high, medium, or low"],
                         "event_date": ["type": "string", "description": "For event-shaped fields (occupation, residence, census, baptism, burial, probate, military): when it happened, e.g. '1901' or '31 Mar 1901'. Ignored for profile fields like birthDate."],
                         "event_location": ["type": "string", "description": "For event-shaped fields: where it happened, e.g. 'Wirksworth, Derbyshire'. Ignored for profile fields."],
+                        "household": ["type": "array", "description": "For census submissions: the STRUCTURED household roster, one object per member — {name (required), relationship (required, e.g. 'Head'/'Wife'/'Son'/'Ma-Law'), age, birth_year, birth_place, birth_county, occupation, sex, marital_status}. On accept this projects into a typed census event and evidence record — the roster the family-context and cross-profile cite machinery read — instead of prose. Max 30 members."],
+                        "district": ["type": "string", "description": "For census submissions: registration district as written on the schedule."],
+                        "parish": ["type": "string", "description": "For census submissions: parish from the schedule."],
+                        "address": ["type": "string", "description": "For census submissions: street/house address of the dwelling."],
                     ],
                     required: ["profile_id", "field", "value", "source_url", "source_title", "evidence_text", "reasoning", "confidence"]
                 ),
@@ -1604,6 +1608,32 @@ actor MCPHandler {
         }
         if let eventLocation = args["event_location"] as? String, !eventLocation.isEmpty {
             payload["event_location"] = eventLocation
+        }
+        // Structured census context (#24) — rides the same routing payload as
+        // event_date/event_location, no schema change. The accept path
+        // projects it into a typed census event + evidence record, so a
+        // hand-searched census reads exactly like an app-fetched one to the
+        // family-context gate and the cross-profile cite machinery. Members
+        // are lightly validated (name + relationship strings) and capped so a
+        // malformed submission degrades to prose rather than being refused.
+        if let household = args["household"] as? [[String: Any]], !household.isEmpty {
+            let members = household.prefix(30).compactMap { m -> [String: Any]? in
+                guard let name = m["name"] as? String, !name.isEmpty,
+                      let relationship = m["relationship"] as? String, !relationship.isEmpty
+                else { return nil }
+                var out: [String: Any] = ["name": name, "relationship": relationship]
+                for key in ["age", "birth_year"] {
+                    if let n = m[key] as? Int { out[key] = n }
+                }
+                for key in ["birth_place", "birth_county", "occupation", "sex", "marital_status"] {
+                    if let s = m[key] as? String, !s.isEmpty { out[key] = s }
+                }
+                return out
+            }
+            if !members.isEmpty { payload["household"] = Array(members) }
+        }
+        for key in ["district", "parish", "address"] {
+            if let s = args[key] as? String, !s.isEmpty { payload[key] = s }
         }
         let sourcesJSON = try String(
             data: JSONSerialization.data(withJSONObject: payload),
