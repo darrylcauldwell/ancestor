@@ -1013,6 +1013,36 @@ struct ClusterReviewView: View {
                         .help("Fetches this census's full schedule — one page from FreeCen — so its parents and siblings can be added.")
                     }
 
+                    // The parish twin: a results-row record carries no kin at
+                    // all — the parents on a baptism, both fathers on a
+                    // marriage live only on the register-entry page. The
+                    // profile ledger grew its Details button first; this view,
+                    // where candidates are actually weighed, lacked it (owner
+                    // report 2026-08-24: the entry page open in a browser
+                    // showing father Anthony × mother Betty, the app card
+                    // showing three raw fields). One tap pulls the entry so
+                    // the kin — the namesake discriminator — is on the card.
+                    if AppState.parishNeedsDetail(scored.record),
+                       let subjectID = vm.selectedProfile?.id {
+                        Button {
+                            Task {
+                                let loaded = await appState.loadParishDetail(
+                                    sourceRecordID: scored.record.id, profileID: subjectID)
+                                if loaded {
+                                    vm.refreshRecordFromEvidence(sourceRecordID: scored.record.id)
+                                }
+                                // loadParishDetail surfaces its own failure
+                                // reasons via errorMessage — no silent no-op.
+                            }
+                        } label: {
+                            Label("Load details from FreeREG", systemImage: "doc.text.magnifyingglass")
+                        }
+                        .buttonStyle(.glass)
+                        .controlSize(.small)
+                        .padding(.top, 4)
+                        .help("Fetches this record's register entry — one page from FreeREG — naming the family it mentions (parents on a baptism, both fathers on a marriage). Changes nothing on the tree.")
+                    }
+
                     // EVIDENCE_ABSORPTION_SPEC Change 5 — show every off-agenda
                     // fact this record will land on the profile BEFORE the user
                     // accepts it, so a lead's nuggets (birthplace, occupation,
