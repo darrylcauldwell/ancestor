@@ -209,18 +209,26 @@ extension ProjectDatabase {
         // the cross-profile cite machinery (owner dogfood 2026-08-24: the
         // 1891 FreeCEN and 1901 FamilySearch censuses side by side on one
         // profile, one structured, one a text blob).
-        let (subjectName, subjectMarriedSurname): (String, String) = (try? dbQueue.read { readDB in
+        let (subjectName, subjectMarriedSurname, subjectBirthYear): (String, String, Int?) = (try? dbQueue.read { readDB in
             try Row.fetchOne(readDB, sql: """
                 SELECT TRIM(COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')) AS name,
-                       COALESCE(married_surname,'') AS married
+                       COALESCE(married_surname,'') AS married,
+                       birth_date_earliest AS by_early, birth_date_latest AS by_late
                 FROM profiles WHERE id = ?
                 """, arguments: [profileID])
         }).flatMap { row in
-            row.map { ($0["name"] as String? ?? "", $0["married"] as String? ?? "") }
-        } ?? ("", "")
+            row.map { r -> (String, String, Int?) in
+                // Midpoint of the stored range ≈ GEDCOMDate.bestYear — close
+                // enough for the matcher's ±3 census-age discrimination.
+                let early: Int? = r["by_early"], late: Int? = r["by_late"]
+                let year = early.flatMap { e in late.map { l in (e + l) / 2 } } ?? early ?? late
+                return (r["name"] as String? ?? "", r["married"] as String? ?? "", year)
+            }
+        } ?? ("", "", nil)
         let household = Self.pendingFactHousehold(
             payload: payload, subjectName: subjectName,
-            subjectMarriedSurname: subjectMarriedSurname)
+            subjectMarriedSurname: subjectMarriedSurname,
+            subjectBirthYear: subjectBirthYear)
         var details: LifeEventDetails?
         if type == .census, !household.isEmpty {
             let own = household.first { $0.isTarget == true }
@@ -312,30 +320,22 @@ extension ProjectDatabase {
     /// 2026-08-24: Ruth Brailsford's own row in her accepted 1871 household
     /// went unmarked because the schedule says Ruth Wheeldon). The suffix
     /// match accepts EITHER surname.
+    ///
+    /// #33: selection is `HouseholdRetarget.matchIndex` — the same rule the
+    /// app-fetched roster path uses. Name matching alone double-marked a
+    /// same-named father and son (John 37 / John 12 both flagged "this is
+    /// you"); the shared rule adds birth-year discrimination and marks NOBODY
+    /// when no single member can be identified.
     nonisolated static func pendingFactHousehold(
         payload: [String: Any], subjectName: String,
-        subjectMarriedSurname: String = ""
+        subjectMarriedSurname: String = "",
+        subjectBirthYear: Int? = nil
     ) -> [HouseholdMember] {
         guard let raw = payload["household"] as? [[String: Any]], !raw.isEmpty else { return [] }
-        func norm(_ s: String) -> String {
-            s.lowercased().filter { $0.isLetter || $0 == " " }
-                .split(separator: " ").joined(separator: " ")
-        }
-        let subjectNorm = norm(subjectName)
-        let subjectGiven = subjectNorm.split(separator: " ").first.map(String.init) ?? ""
-        let subjectSurname = subjectNorm.split(separator: " ").last.map(String.init) ?? ""
-        let marriedNorm = norm(subjectMarriedSurname)
-        return raw.prefix(30).compactMap { m in
+        let members = raw.prefix(30).compactMap { m -> HouseholdMember? in
             guard let name = m["name"] as? String, !name.isEmpty,
                   let relationship = m["relationship"] as? String, !relationship.isEmpty
             else { return nil }
-            let memberNorm = norm(name)
-            let surnameMatches = memberNorm.hasSuffix(subjectSurname)
-                || (!marriedNorm.isEmpty && memberNorm.hasSuffix(marriedNorm))
-            let isTarget = !subjectNorm.isEmpty
-                && !subjectGiven.isEmpty && !subjectSurname.isEmpty
-                && memberNorm.hasPrefix(subjectGiven)
-                && surnameMatches
             return HouseholdMember(
                 name: name,
                 relationship: relationship,
@@ -346,7 +346,26 @@ extension ProjectDatabase {
                 sex: m["sex"] as? String,
                 maritalStatus: m["marital_status"] as? String,
                 birthCounty: m["birth_county"] as? String,
-                isTarget: isTarget ? true : nil)
+                isTarget: nil)
+        }
+        // The subject arrives as one display string; split it the way the
+        // matcher expects (given = first token, surname = last token).
+        let tokens = subjectName.split(separator: " ").map(String.init)
+        let targetIndex = HouseholdRetarget.matchIndex(
+            in: members,
+            givenName: tokens.first ?? "",
+            maidenSurname: tokens.count > 1 ? tokens.last! : "",
+            marriedSurname: subjectMarriedSurname,
+            birthYear: subjectBirthYear)
+        guard let targetIndex else { return members }
+        return members.enumerated().map { index, m in
+            guard index == targetIndex else { return m }
+            return HouseholdMember(
+                name: m.name, relationship: m.relationship,
+                age: m.age, birthYear: m.birthYear,
+                birthPlace: m.birthPlace, occupation: m.occupation,
+                sex: m.sex, maritalStatus: m.maritalStatus,
+                birthCounty: m.birthCounty, isTarget: true)
         }
     }
 

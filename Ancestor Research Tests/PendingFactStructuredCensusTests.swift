@@ -277,6 +277,39 @@ struct PendingFactStructuredCensusTests {
         #expect(unmarked.first { $0.name == "Ruth Wheeldon" }?.isTarget == nil)
     }
 
+    // MARK: - #33 same-named father and son
+
+    @Test func sameNamedFatherAndSonDiscriminatedByBirthYear() {
+        // John 37 and John 12 in one household — name matching alone marked
+        // BOTH as the subject. The birth year must pick exactly one.
+        let payload: [String: Any] = ["household": [
+            ["name": "John WHEELDON", "relationship": "Head", "age": 37, "birth_year": 1824],
+            ["name": "Ruth WHEELDON", "relationship": "Wife", "age": 37, "birth_year": 1824],
+            ["name": "John WHEELDON", "relationship": "Son", "age": 12, "birth_year": 1849],
+        ]]
+        let forFather = ProjectDatabase.pendingFactHousehold(
+            payload: payload, subjectName: "John Wheeldon", subjectBirthYear: 1824)
+        #expect(forFather.filter { $0.isTarget == true }.count == 1)
+        #expect(forFather.first { $0.isTarget == true }?.relationship == "Head")
+
+        let forSon = ProjectDatabase.pendingFactHousehold(
+            payload: payload, subjectName: "John Wheeldon", subjectBirthYear: 1848)
+        #expect(forSon.filter { $0.isTarget == true }.count == 1)
+        #expect(forSon.first { $0.isTarget == true }?.relationship == "Son")
+    }
+
+    @Test func sameNamedPairWithoutSubjectYearMarksNobody() {
+        // No discriminator → an unmarked roster is honest; a wrongly-marked
+        // one misleads (HouseholdRetarget's rule, shared since #33).
+        let payload: [String: Any] = ["household": [
+            ["name": "John WHEELDON", "relationship": "Head", "age": 37, "birth_year": 1824],
+            ["name": "John WHEELDON", "relationship": "Son", "age": 12, "birth_year": 1849],
+        ]]
+        let members = ProjectDatabase.pendingFactHousehold(
+            payload: payload, subjectName: "John Wheeldon")
+        #expect(members.allSatisfy { $0.isTarget == nil })
+    }
+
     @Test func reacceptRetrofitsTargetOntoAStoredRosterThatHasNone() throws {
         // The stored details predate the married-surname fix: household saved
         // with NO isTarget row. A re-accept whose projection knows the

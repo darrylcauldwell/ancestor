@@ -22,7 +22,12 @@ nonisolated enum HouseholdRetarget {
         _ household: [HouseholdMember], to profile: Profile
     ) -> [HouseholdMember] {
         guard !household.isEmpty else { return household }
-        let targetIndex = matchIndex(in: household, for: profile)
+        let targetIndex = matchIndex(
+            in: household,
+            givenName: profile.firstName ?? "",
+            maidenSurname: profile.lastName ?? "",
+            marriedSurname: profile.marriedSurname ?? "",
+            birthYear: profile.birthDate?.bestYear)
         return household.enumerated().map { index, m in
             HouseholdMember(
                 name: m.name, relationship: m.relationship,
@@ -34,20 +39,27 @@ nonisolated enum HouseholdRetarget {
         }
     }
 
-    /// The single member who can be the profile, or nil when none or several
+    /// The single member who can be the subject, or nil when none or several
     /// qualify. Name-eligible members are filtered first; if more than one
-    /// remains (father + son), the profile's birth year must discriminate
+    /// remains (father + son), the subject's birth year must discriminate
     /// (closest match, and within ±3 — census-age slop).
-    private static func matchIndex(
-        in household: [HouseholdMember], for profile: Profile
+    ///
+    /// #33: also the marking core for `pendingFactHousehold` — MCP-submitted
+    /// rosters used name matching alone, so "John Wheeldon 37 / John Wheeldon
+    /// 12" both arrived marked as the subject. One selection rule, two
+    /// callers, no drift.
+    static func matchIndex(
+        in household: [HouseholdMember],
+        givenName: String, maidenSurname: String, marriedSurname: String,
+        birthYear: Int?
     ) -> Int? {
         func norm(_ s: String) -> String {
             s.lowercased().filter { $0.isLetter || $0 == " " }
                 .split(separator: " ").joined(separator: " ")
         }
-        let given = norm(profile.firstName ?? "").split(separator: " ").first.map(String.init) ?? ""
-        let maiden = norm(profile.lastName ?? "")
-        let married = norm(profile.marriedSurname ?? "")
+        let given = norm(givenName).split(separator: " ").first.map(String.init) ?? ""
+        let maiden = norm(maidenSurname)
+        let married = norm(marriedSurname)
         guard !given.isEmpty, !maiden.isEmpty || !married.isEmpty else { return nil }
 
         let eligible = household.indices.filter { i in
@@ -57,7 +69,7 @@ nonisolated enum HouseholdRetarget {
                 || (!married.isEmpty && name.hasSuffix(married))
         }
         if eligible.count == 1 { return eligible[0] }
-        guard eligible.count > 1, let profileYear = profile.birthDate?.bestYear else { return nil }
+        guard eligible.count > 1, let profileYear = birthYear else { return nil }
 
         let scored = eligible.compactMap { i -> (Int, Int)? in
             guard let by = household[i].birthYear else { return nil }
