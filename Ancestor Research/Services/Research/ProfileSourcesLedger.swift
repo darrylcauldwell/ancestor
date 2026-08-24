@@ -551,7 +551,13 @@ enum ProfileSourcesLedger {
         if let d = district?.trimmingCharacters(in: .whitespaces), !d.isEmpty {
             if let place = appliedPlace?.trimmingCharacters(in: .whitespaces), !place.isEmpty,
                !place.localizedCaseInsensitiveContains(d) {
-                parts.append("The index gives the registration district (\(d)); the recorded place is \(place) — applying adds the more precise district.")
+                // #32: `place` is the PROFILE's applied location, not anything
+                // this index row records — a birth index carries no place
+                // beyond the district. Calling it "the recorded place" made
+                // every namesake candidate read as consistent with the tree
+                // (owner dogfood 2026-08-24: nine John Wheeldon birth rows,
+                // every one captioned "the recorded place is Cromford").
+                parts.append("The index records only the registration district (\(d)); your tree's \(kind)place is \(place) — shown for comparison, not from this record.")
             } else if appliedPlace?.isEmpty ?? true {
                 parts.append("Registration district: \(d).")
             }
