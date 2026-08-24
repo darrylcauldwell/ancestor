@@ -384,11 +384,17 @@ extension ProjectDatabase {
             gates: [GateResult(gate: .name, outcome: .pass,
                                reason: "You accepted this record in Triage")],
             summary: value)
+        let evidenceID = EvidenceRecord.compositeID(profileID: profileID, sourceRecordID: recordID)
         try saveEvidence(profileID: profileID, scored: scored,
                          citationFull: sourceTitle ?? value, citationURL: sourceURL)
-        try updateEvidenceUserStatus(
-            evidenceID: EvidenceRecord.compositeID(profileID: profileID, sourceRecordID: recordID),
-            status: .savedAsLead)
+        try updateEvidenceUserStatus(evidenceID: evidenceID, status: .savedAsLead)
+        // This record is BORN applied — accepting the card wrote the census
+        // life event in the same flow. Without the stamp the profile ledger
+        // classified it "researched — not applied" and offered Apply on an
+        // already-applied record: `wasApplied`'s citation fallback reads
+        // `Profile.sources`, which drops event-shaped fields like census
+        // (owner dogfood 2026-08-24: Ruth Wheeldon's accepted 1871).
+        try markEvidenceApplied(evidenceID: evidenceID)
     }
 
     /// The accepted submission's provenance as a `FieldSource`. Nil when the

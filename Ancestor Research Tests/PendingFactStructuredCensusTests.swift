@@ -83,7 +83,12 @@ struct PendingFactStructuredCensusTests {
         #expect(rec.censusYear == 1901)
         #expect(rec.household?.count == 4)
         #expect(census.userStatus == .savedAsLead)
-        #expect(census.wasApplied(to: nil) == false || census.userStatus == .savedAsLead)
+        // Born applied: accepting the card wrote the life event in the same
+        // flow, so the ledger must never offer "Apply" on this record (owner
+        // dogfood 2026-08-24: Ruth Wheeldon's accepted 1871 sat under
+        // "Researched — not applied").
+        #expect(census.appliedAt != nil)
+        #expect(census.wasApplied(to: nil))
     }
 
     @Test func proseOnlySubmissionStillLandsAsBefore() throws {

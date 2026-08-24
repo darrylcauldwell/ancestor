@@ -42,14 +42,14 @@ struct SourceVerifyLink: View {
     static func info(sourceID: String, citationURL: String?) -> Info? {
         // A real per-record URL beats a search page — link straight to it.
         if let raw = citationURL, !raw.isEmpty, let url = URL(string: raw) {
-            return Info(label: "View on \(displayName(sourceID)) ↗", url: url, isDeepLink: true)
+            return Info(label: "View on \(displayName(sourceID, url: url)) ↗", url: url, isDeepLink: true)
         }
         // Otherwise a compliant search-page hand-off, for the sources that have one.
         guard let url = searchURL(sourceID) else { return nil }
         return Info(label: "Search \(displayName(sourceID)) ↗", url: url, isDeepLink: false)
     }
 
-    static func displayName(_ sourceID: String) -> String {
+    static func displayName(_ sourceID: String, url: URL? = nil) -> String {
         switch sourceID.lowercased() {
         case "freebmd":      "FreeBMD"
         case "freecen":      "FreeCEN"
@@ -58,7 +58,16 @@ struct SourceVerifyLink: View {
         case "findagrave":   "Find a Grave"
         case "cwgc":         "CWGC"
         case "probate":      "Probate Search"
-        default:              sourceID.uppercased()
+        default:
+            // An internal producer id ("field-researcher") is meaningless as
+            // a destination — the link goes to the citation URL, so name its
+            // host ("View on familysearch.org"), not the producer (owner
+            // dogfood 2026-08-24: a button reading "View on FIELD-RESEARCHER").
+            if let host = url?.host?.lowercased() {
+                host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+            } else {
+                sourceID.uppercased()
+            }
         }
     }
 

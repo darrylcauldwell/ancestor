@@ -1687,6 +1687,25 @@ nonisolated final class ProjectDatabase: Sendable {
                 "CREATE INDEX idx_place_decisions_text ON place_decisions(place_text)")
         }
 
+        migrator.registerMigration("v61_fieldresearcher_census_applied_stamp") { db in
+            // #24-accepted structured censuses are BORN applied — accepting
+            // the Triage card writes the census life event in the same flow —
+            // but `saveAcceptedCensusEvidence` never stamped `applied_at`, and
+            // `wasApplied`'s citation fallback reads `Profile.sources`, which
+            // drops event-shaped fields. So every accepted structured census
+            // sat in the ledger as "researched — not applied", offering Apply
+            // on an already-applied record (owner dogfood 2026-08-24: Ruth
+            // Wheeldon's accepted 1871). These rows exist ONLY via the accept
+            // path (their id prefix is minted there), so the stamp is safe.
+            try db.execute(sql: """
+                UPDATE evidence_records SET applied_at = scored_at
+                WHERE applied_at IS NULL
+                  AND source_id = 'field-researcher'
+                  AND source_record_id LIKE 'fieldresearcher_census_%'
+                  AND COALESCE(user_status, '') != 'discarded'
+                """)
+        }
+
         return migrator
     }
 
