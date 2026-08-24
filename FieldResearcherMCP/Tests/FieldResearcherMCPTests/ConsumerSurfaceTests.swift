@@ -197,7 +197,6 @@ struct ReaderPostureTests {
         let listed = await reader.toolsListResponseText()
         #expect(listed.contains("\"get_profile\""))
         #expect(listed.contains("\"kick_off_research\""))     // triggers stay
-        #expect(listed.contains("\"request_fs_hints\""))
         #expect(!listed.contains("\"submit_evidence\""))       // writes are absent
         #expect(!listed.contains("\"approve_pending_fact\""))
         #expect(!listed.contains("\"promote_lead\""))

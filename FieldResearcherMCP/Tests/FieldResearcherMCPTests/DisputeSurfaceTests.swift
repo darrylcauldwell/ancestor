@@ -67,7 +67,10 @@ struct DisputeSurfaceTests {
             try db.execute(sql: """
                 CREATE TABLE life_events (
                     id TEXT PRIMARY KEY, profile_id TEXT, type TEXT,
-                    date_original TEXT, location TEXT
+                    date_original TEXT, date_earliest INTEGER, date_latest INTEGER,
+                    end_date_original TEXT, location TEXT, description TEXT,
+                    confidence TEXT, details_json TEXT, sources_json TEXT,
+                    sensitive INTEGER DEFAULT 0
                 )
                 """)
             try db.execute(sql: """

@@ -40,32 +40,11 @@ struct FamilySearchToolsTests {
 
     // MARK: Requests
 
-    @Test func requestFSHintsQueuesOnceAndDedupes() async throws {
-        let dbPath = try makeDB()
-        try write(dbPath, "INSERT INTO profiles (id) VALUES ('@I1@')")
-        let handler = try MCPHandler(dbPath: dbPath)
-
-        let first = try await handler.requestFSHintsResponseText(["profile_id": "@I1@"])
-        #expect(first.contains("request_id: fsreq_"))
-        #expect(first.contains("Triage"))
-
-        let second = try await handler.requestFSHintsResponseText(["profile_id": "@I1@"])
-        #expect(second.contains("already"))   // dedupe: same profile, still queued
-
-        let q = try DatabaseQueue(path: dbPath)
-        let count = try await q.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM fs_action_requests") ?? 0 }
-        #expect(count == 1)
-        let row = try await q.read { try Row.fetchOne($0, sql: "SELECT kind, profile_id, status, requested_by FROM fs_action_requests") }
-        #expect(row?["kind"] as String? == "hints")
-        #expect(row?["status"] as String? == "queued")
-        #expect(row?["requested_by"] as String? == "mcp")
-    }
-
-    @Test func requestFSHintsRefusesUnknownProfile() async throws {
-        let handler = try MCPHandler(dbPath: try makeDB())
-        let text = try await handler.requestFSHintsResponseText(["profile_id": "@NOPE@"])
-        #expect(text.contains("profile_not_found"))
-    }
+    // (The hints request/read tests were removed with the tools themselves —
+    // get_fs_hints/request_fs_hints went away when FamilySearch became a
+    // tree-only integration, 2026-08-07. This file kept referencing the
+    // deleted handler methods, which broke `swift test` for the whole
+    // package; nobody noticed because only `swift build` was routinely run.)
 
     @Test func requestFSUploadQueuesStatesHiddenCapAndDedupes() async throws {
         let dbPath = try makeDB()
@@ -134,27 +113,6 @@ struct FamilySearchToolsTests {
         #expect(all.contains("AAAA-111") && all.contains("BBBB-222"))
         let one = try await handler.getFSPersonLinksResponseText(["profile_id": "@I1@"])
         #expect(one.contains("AAAA-111") && !one.contains("BBBB-222"))
-    }
-
-    @Test func fsHintsJoinLeadsToFamilySearchEvidenceOnly() async throws {
-        let dbPath = try makeDB()
-        // FS-sourced lead (lead id = 'lead_' + source_record_id, source_id familysearch):
-        try write(dbPath, """
-            INSERT INTO evidence_records (id, profile_id, source_id, source_record_id, record_type, verdict, record_json, citation_url, scored_at)
-            VALUES ('P1|fs-rec-1', 'P1', 'familysearch', 'fs-rec-1', 'census', 'lead', '{}', 'https://familysearch.org/ark:/61903/1:1:X', ?),
-                   ('P1|bmd-rec-2', 'P1', 'freebmd', 'bmd-rec-2', 'birth', 'lead', '{}', 'https://freebmd.org.uk/y', ?)
-            """, [Date(), Date()])
-        try write(dbPath, """
-            INSERT INTO leads (id, profile_id, name, source, status, evidence, created_at)
-            VALUES ('lead_fs-rec-1', 'P1', 'Mary Thompson', 'scoredLead', 'new', '1911 census, Worksop', ?),
-                   ('lead_bmd-rec-2', 'P1', 'Someone Else', 'scoredLead', 'new', 'birth index', ?)
-            """, [Date(), Date()])
-        let handler = try MCPHandler(dbPath: dbPath)
-        let json = try await handler.getFSHintsResponseText(["profile_id": "P1"])
-        #expect(json.contains("lead_fs-rec-1"))
-        #expect(json.contains("Mary Thompson"))
-        #expect(json.contains("ark:"))
-        #expect(!json.contains("lead_bmd-rec-2"))   // non-FS lead excluded
     }
 
     // MARK: Pre-migration database
