@@ -380,9 +380,16 @@ class FamilySearch:
 
                 if i == 0:
                     record.update(person_data)
+                    # The PUBLIC record ark is the entry-level id (e.g.
+                    # "XSJJ-LD6" → /ark:/61903/1:1:XSJJ-LD6). person.id is a
+                    # search-service-internal persona id ("p_10268848273")
+                    # whose ark URL 404s in a browser — never cite it.
+                    entry_id = entry.get("id", "")
                     pid = person.get("id", "")
                     if pid:
-                        record["ark"] = f"https://www.familysearch.org/ark:/61903/1:1:{pid}"
+                        record["persona_id"] = pid
+                    if entry_id and not entry_id.startswith("p_"):
+                        record["ark"] = f"https://www.familysearch.org/ark:/61903/1:1:{entry_id}"
                 else:
                     record["household"].append(person_data)
 
