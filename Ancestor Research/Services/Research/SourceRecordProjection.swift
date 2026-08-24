@@ -46,6 +46,21 @@ nonisolated extension SourceRecord {
             quality: nil, confidence: nil)]
     }
 
+    /// #29 — the parish twin of `censusSource`: the projected baptism/burial
+    /// event carries the register's URL on the event row itself. Without it
+    /// the applied event read as uncited while the URL sat only in the
+    /// profile-level `field_sources` (owner dogfood 2026-08-24: John
+    /// Wheeldon jr's Cromford 1848 baptism applied with `sources: []`).
+    private static func recordSource(_ common: RecordCommon) -> [FieldSource] {
+        guard let url = common.detailURL, !url.isEmpty else { return [] }
+        return [FieldSource(
+            origin: SourceOrigin(identifier: common.sourceID),
+            raw: common.sourceID,
+            addedAt: Date(),
+            citation: Citation(url: url),
+            quality: nil, confidence: nil)]
+    }
+
     func projectToLifeEvent(profileID: String) -> LifeEvent? {
         switch self {
         case .birth, .death, .marriage, .pedigree:
@@ -155,13 +170,38 @@ nonisolated extension SourceRecord {
             // PARISH_ABSORPTION_SPEC §6 — a burial entry's cause/place of death
             // is genuine content the flat projection dropped; carry it in the
             // event description rather than losing it to the typed payload.
+            // #29 — a baptism's parents (and the father's occupation and the
+            // register's recorded birth date) are equally genuine content:
+            // "son of John Wheeldon (hatter) and Ruth; born 9 Sep 1848".
             let description: String? = {
-                guard case .burial(let b)? = r.detail?.event else { return nil }
-                return [b.causeOfDeath, b.placeOfDeath]
-                    .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
-                    .filter { !$0.isEmpty }
-                    .joined(separator: "; ")
-                    .nilIfEmptyProjection
+                switch r.detail?.event {
+                case .burial(let b)?:
+                    return [b.causeOfDeath, b.placeOfDeath]
+                        .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                        .joined(separator: "; ")
+                        .nilIfEmptyProjection
+                case .baptism(let b)?:
+                    var parts: [String] = []
+                    let father = [
+                        r.fatherName ?? b.father?.displayName,
+                        b.father?.occupation.map { "(\($0.lowercased()))" },
+                    ].compactMap { $0 }.joined(separator: " ")
+                    let mother = r.motherName ?? b.mother?.person.displayName
+                    let parents = [father.nilIfEmptyProjection, mother]
+                        .compactMap { $0 }.joined(separator: " and ")
+                    if !parents.isEmpty { parts.append("child of \(parents)") }
+                    if let born = b.birthDate, !born.isEmpty { parts.append("born \(born)") }
+                    return parts.joined(separator: "; ").nilIfEmptyProjection
+                default:
+                    // Flat-only record (detail not yet fetched): the parents
+                    // may still ride the flat projection.
+                    guard type == .baptism else { return nil }
+                    let parents = [r.fatherName, r.motherName]
+                        .compactMap { $0?.nilIfEmptyProjection }
+                        .joined(separator: " and ")
+                    return parents.isEmpty ? nil : "child of \(parents)"
+                }
             }()
             return LifeEvent(
                 id: Self.deterministicID(profileID: profileID, sourceRecordID: r.common.id),
@@ -171,7 +211,8 @@ nonisolated extension SourceRecord {
                     ?? r.eventYear.map(yearOnlyDate),
                 location: [r.parish, r.county].compactMap { $0 }.joined(separator: ", ").nilIfEmptyProjection,
                 description: description,
-                details: nil
+                details: nil,
+                sources: Self.recordSource(r.common)
             )
         }
     }

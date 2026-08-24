@@ -829,10 +829,50 @@ final class AppState {
             return false
         }
         do {
-            // No profile fields change — but the family offer, the ledger's
-            // kin line, and the Health parish-kin sweep all read the stored
-            // evidence, so persist and refresh them.
+            // The family offer, the ledger's kin line, and the Health
+            // parish-kin sweep all read the stored evidence, so persist and
+            // refresh them.
             try db.updateEvidenceRecordJSON(evidenceID: evidence.id, record: .parish(enriched))
+
+            // #29 — when this record is APPLIED, the enrichment must reach
+            // the profile too, not just the evidence row (the census
+            // household fold above is the precedent). Two halves:
+            // (a) re-run the apply with the enriched record so the
+            //     register's precise birth date ("Birth date 09 Sep 1848")
+            //     meets the overwrite policy and upgrades an "abt" estimate;
+            // (b) upgrade the projected life event in place — description
+            //     (parents, father's occupation, recorded birth date) and
+            //     the citation the bare projection may have missed.
+            // Owner dogfood 2026-08-24: John Wheeldon jr's applied Cromford
+            // 1848 baptism sat uncited with no parents and birth stuck at
+            // census-derived "1849".
+            if evidence.wasApplied(to: snapshot.profiles[profileID]),
+               let profile = snapshot.profiles[profileID] {
+                let enrichedScored = ScoredRecord(
+                    id: evidence.sourceRecordID, record: .parish(enriched),
+                    verdict: evidence.verdict, gates: evidence.gates,
+                    summary: evidence.summary)
+                _ = ApplyEngine.applyFactToSubject(
+                    enrichedScored, profile: profile, snapshot: snapshot, db: db)
+                if let projected = SourceRecord.parish(enriched)
+                    .projectToLifeEvent(profileID: profileID),
+                   var existing = (snapshot.lifeEvents[profileID] ?? [])
+                    .first(where: { $0.id == projected.id }) {
+                    var changed = false
+                    if existing.description?.isEmpty ?? true,
+                       let desc = projected.description {
+                        existing.description = desc
+                        changed = true
+                    }
+                    if existing.sources.isEmpty, !projected.sources.isEmpty {
+                        existing.sources = projected.sources
+                        changed = true
+                    }
+                    if changed { try db.updateLifeEvent(existing) }
+                }
+                snapshot = try db.buildSnapshot()
+                runConflictSweep(force: true)
+            }
             runPostLoadAudit()
             return true
         } catch {
