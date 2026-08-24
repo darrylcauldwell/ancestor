@@ -35,6 +35,14 @@ struct BulkReviewView: View {
     /// not deleted; this bucket surfaces them for Restore. Collapsed by default.
     @State private var dismissedLeads: [CampaignLeadRow] = []
     @State private var showDismissed = false
+    /// #25 — leads whose record is contradicted by the subject's CURRENT
+    /// applied vitals (e.g. a census dated after the applied death). Display-
+    /// time only: lead status is never touched. Keyed by lead id.
+    @State private var leadContradictions: [String: String] = [:]
+    @State private var showContradicted = false
+    /// #25 — per-lead scored-record metadata (citation URL, source) so a lead
+    /// row can offer "view the record" instead of only a blanket Research.
+    @State private var leadMeta: [String: ProjectDatabase.LeadEvidenceMeta] = [:]
     @State private var failedEntries: [CampaignReviewService.CampaignEntry] = []
     @State private var filterTier: FrictionTier?
     /// TRIAGE_UX_DATA_QUALITY_SPEC Change 1 — name filter across findings,
@@ -101,8 +109,24 @@ struct BulkReviewView: View {
                                 // surfaced from 3 records collapses to a single
                                 // row badged "3 records"; genuinely-different
                                 // candidates stay separate.
-                                ForEach(groupedLeads) { group in
+                                // #25 — leads contradicted by the applied
+                                // facts drop to their own fold below.
+                                ForEach(activeGroupedLeads) { group in
                                     leadRow(group)
+                                }
+                            }
+                            // #25 — contradicted leads, collapsed by default:
+                            // each states WHY it cannot be the subject, with
+                            // Dismiss as the primary action. Modelled on the
+                            // dismissed fold; display-time only, status
+                            // untouched until the human dismisses.
+                            let contradicted = contradictedGroupedLeads
+                            if !contradicted.isEmpty && filterTier == nil {
+                                contradictedHeader(count: contradicted.count)
+                                if showContradicted {
+                                    ForEach(contradicted) { group in
+                                        contradictedLeadRow(group)
+                                    }
                                 }
                             }
                             if !visibleFail.isEmpty && filterTier == nil {
@@ -283,6 +307,21 @@ struct BulkReviewView: View {
             }
     }
 
+    /// #25 — a group is routed to the contradicted fold only when EVERY
+    /// backing record is contradicted; one live member keeps it in the
+    /// active queue.
+    private var activeGroupedLeads: [GroupedLead] {
+        groupedLeads.filter { group in
+            group.members.contains { leadContradictions[$0.lead.id] == nil }
+        }
+    }
+
+    private var contradictedGroupedLeads: [GroupedLead] {
+        groupedLeads.filter { group in
+            group.members.allSatisfy { leadContradictions[$0.lead.id] != nil }
+        }
+    }
+
     /// Per-action help text. Each states plainly what lands and what does not,
     /// so "Add" is never mistaken for "researched and confirmed".
     private func addHelp(_ action: CampaignReviewService.AddAction, lead: Lead) -> String {
@@ -445,6 +484,20 @@ struct BulkReviewView: View {
             CampaignLeadRow(lead: $0, profileName: name($0.profileID))
         }
 
+        // #25 — decorate the rows once per load, not per render: the scored
+        // record behind each lead (for a "view record" link) and a live
+        // recheck of each lead against the subject's CURRENT applied vitals
+        // (leads are scored once at discovery; the profile keeps moving).
+        leadMeta = (try? db.leadEvidenceMeta()) ?? [:]
+        var contradictions: [String: String] = [:]
+        for row in newLeads {
+            if let reason = LeadContradictionCheck.contradiction(
+                lead: row.lead, profile: appState.snapshot.profiles[row.lead.profileID]) {
+                contradictions[row.lead.id] = reason
+            }
+        }
+        leadContradictions = contradictions
+
         findings = newFindings
         campaignLeads = newLeads
         dismissedLeads = newDismissed
@@ -582,6 +635,15 @@ struct BulkReviewView: View {
                     .controlSize(.small)
                     .help(addHelp(action, lead: row.lead))
             } else {
+                // #25 — when the lead's scored record carries a citation,
+                // offer the record itself first; "Research" alone told the
+                // user nothing about WHAT they'd be looking at (owner report
+                // 2026-08-22: "blanket button Research which is not
+                // helpful").
+                if let meta = leadMeta[row.lead.id],
+                   let sourceID = meta.sourceID {
+                    SourceVerifyLink(sourceID: sourceID, citationURL: meta.citationURL)
+                }
                 Button("Research") { appState.researchLeadRequest = row.lead }
                     .buttonStyle(.glassProminent)
                     .controlSize(.small)
@@ -593,6 +655,59 @@ struct BulkReviewView: View {
         }
         .padding(10)
         .glassEffect(.regular, in: .rect(cornerRadius: 10))
+    }
+
+    // MARK: - #25 — contradicted leads
+
+    /// Tappable "Contradicted by applied facts (n)" disclosure header.
+    private func contradictedHeader(count: Int) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: showContradicted ? "chevron.down" : "chevron.right")
+                .font(AppTypography.cardMeta)
+                .foregroundStyle(.secondary)
+            Text("Contradicted by applied facts (\(count))")
+                .font(AppTypography.cardTitle)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.top, 12)
+        .contentShape(Rectangle())
+        .onTapGesture { showContradicted.toggle() }
+    }
+
+    /// A contradicted lead — dimmed, stating WHY it cannot be the subject.
+    /// No Research button (researching a proven namesake is wasted work);
+    /// Dismiss is the primary action, and the record link stays for
+    /// verification.
+    private func contradictedLeadRow(_ group: GroupedLead) -> some View {
+        let row = group.representative
+        let reason = leadContradictions[row.lead.id] ?? "contradicted by applied facts"
+        return HStack(spacing: 10) {
+            Image(systemName: "xmark.octagon")
+                .foregroundStyle(.red.opacity(0.7))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(row.lead.name)  ·  for \(row.profileName)")
+                    .font(AppTypography.cardBody)
+                Text(row.lead.evidence)
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                Text("Subject \(reason).")
+                    .font(AppTypography.cardMeta)
+                    .foregroundStyle(.red.opacity(0.85))
+            }
+            Spacer()
+            if let meta = leadMeta[row.lead.id], let sourceID = meta.sourceID {
+                SourceVerifyLink(sourceID: sourceID, citationURL: meta.citationURL)
+            }
+            Button("Dismiss") { dismissGroup(group) }
+                .buttonStyle(.glassProminent)
+                .controlSize(.small)
+                .help("Reject this namesake — it stays restorable in Dismissed leads.")
+        }
+        .padding(10)
+        .glassEffect(.regular, in: .rect(cornerRadius: 10))
+        .opacity(0.75)
     }
 
     /// One "skipped / failed" row — same lazy-child rationale as `leadRow`.

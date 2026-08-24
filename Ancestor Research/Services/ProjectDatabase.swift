@@ -4595,6 +4595,40 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// #25 — per-lead evidence metadata for the Triage lead rows: the scored
+    /// record behind a lead (verdict, citation URL, source, record type),
+    /// joined on the `'lead_' + source_record_id` id convention (the same
+    /// join the v48 backfill and the MCP surface use). Household
+    /// (`lead_hh_…`) and parent-inferred leads have no evidence row and are
+    /// simply absent from the map. One query, called once per Triage load.
+    struct LeadEvidenceMeta: Sendable {
+        let verdict: String?
+        let citationURL: String?
+        let sourceID: String?
+        let recordType: String?
+    }
+
+    func leadEvidenceMeta() throws -> [String: LeadEvidenceMeta] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT l.id AS lead_id, e.verdict, e.citation_url, e.source_id, e.record_type
+                FROM leads l
+                JOIN evidence_records e
+                  ON l.id = 'lead_' || e.source_record_id
+                 AND l.profile_id = e.profile_id
+                """)
+            var out: [String: LeadEvidenceMeta] = [:]
+            for row in rows {
+                out[row["lead_id"]] = LeadEvidenceMeta(
+                    verdict: row["verdict"],
+                    citationURL: row["citation_url"],
+                    sourceID: row["source_id"],
+                    recordType: row["record_type"])
+            }
+            return out
+        }
+    }
+
     /// Backfill `age_at_death` + `place` onto leads that predate v47, by
     /// re-projecting each lead's already-persisted `SourceRecord`
     /// (`evidence_records.record_json`) with the live extraction rules. A
