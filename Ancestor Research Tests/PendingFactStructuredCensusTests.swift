@@ -250,4 +250,77 @@ struct PendingFactStructuredCensusTests {
         #expect(members.first { $0.name == "William GOODLAD" }?.isTarget == true)
         #expect(members.first { $0.name == "Ellen Goodlad" }?.isTarget == nil)
     }
+
+    // MARK: - #28 married-surname target matching
+
+    @Test func marriedWomanIsMarkedTargetUnderHerMarriedSurname() {
+        // Tree stores Ruth under maiden BRAILSFORD; the census schedule says
+        // Ruth WHEELDON. The suffix match must accept either surname.
+        let payload: [String: Any] = ["household": [
+            ["name": "John Wheeldon", "relationship": "Head"],
+            ["name": "Ruth Wheeldon", "relationship": "Wife"],
+        ]]
+        let members = ProjectDatabase.pendingFactHousehold(
+            payload: payload, subjectName: "Ruth Brailsford",
+            subjectMarriedSurname: "Wheeldon")
+        #expect(members.first { $0.name == "Ruth Wheeldon" }?.isTarget == true)
+        #expect(members.first { $0.name == "John Wheeldon" }?.isTarget == nil,
+                "given name must still discriminate — John is not Ruth")
+        // Without the married surname the old behaviour holds (no false match).
+        let unmarked = ProjectDatabase.pendingFactHousehold(
+            payload: payload, subjectName: "Ruth Brailsford")
+        #expect(unmarked.first { $0.name == "Ruth Wheeldon" }?.isTarget == nil)
+    }
+
+    @Test func reacceptRetrofitsTargetOntoAStoredRosterThatHasNone() throws {
+        // The stored details predate the married-surname fix: household saved
+        // with NO isTarget row. A re-accept whose projection knows the
+        // subject's own row marks it in place — ages/roles untouched.
+        let db = try makeDB()
+        try db.dbQueue.write { sql in
+            try sql.execute(sql: """
+                UPDATE profiles SET first_name='Ruth', last_name='Brailsford',
+                    married_surname='Wheeldon' WHERE id='ernest'
+                """)
+        }
+        let value = "1871 census, Holloway: Ruth Wheeldon (née Brailsford), 47"
+        let payload: [String: Any] = [
+            "event_date": "1871",
+            "household": [
+                ["name": "John Wheeldon", "relationship": "Head", "age": 47],
+                ["name": "Ruth Wheeldon", "relationship": "Wife", "age": 47],
+            ],
+        ]
+        let json = String(
+            data: try! JSONSerialization.data(withJSONObject: payload), encoding: .utf8)!
+        // First accept simulating the pre-fix state: strip the target by
+        // accepting under a subject the parser cannot match…
+        try db.dbQueue.write { sql in
+            try sql.execute(sql: "UPDATE profiles SET married_surname=NULL WHERE id='ernest'")
+        }
+        try db.applyAcceptedPendingFact(
+            profileID: "ernest", field: "census", value: value,
+            payloadJSON: json, sourceTitle: "t", sourceURL: "https://example.org/x")
+        let before = try #require(try db.loadLifeEvents(profileID: "ernest")
+            .first { $0.type == .census })
+        guard case .census(let storedBefore)? = before.details else {
+            Issue.record("expected stored census details"); return
+        }
+        #expect(!storedBefore.household.contains { $0.isTarget == true }, "precondition: unmarked")
+
+        // …then the married surname lands and the same card is re-accepted.
+        try db.dbQueue.write { sql in
+            try sql.execute(sql: "UPDATE profiles SET married_surname='Wheeldon' WHERE id='ernest'")
+        }
+        try db.applyAcceptedPendingFact(
+            profileID: "ernest", field: "census", value: value,
+            payloadJSON: json, sourceTitle: "t", sourceURL: "https://example.org/x")
+        let after = try #require(try db.loadLifeEvents(profileID: "ernest")
+            .first { $0.type == .census })
+        guard case .census(let storedAfter)? = after.details else {
+            Issue.record("expected stored census details"); return
+        }
+        #expect(storedAfter.household.first { $0.name == "Ruth Wheeldon" }?.isTarget == true)
+        #expect(storedAfter.household.first { $0.name == "John Wheeldon" }?.isTarget != true)
+    }
 }

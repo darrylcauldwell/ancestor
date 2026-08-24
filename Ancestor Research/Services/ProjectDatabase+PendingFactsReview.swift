@@ -209,13 +209,18 @@ extension ProjectDatabase {
         // the cross-profile cite machinery (owner dogfood 2026-08-24: the
         // 1891 FreeCEN and 1901 FamilySearch censuses side by side on one
         // profile, one structured, one a text blob).
-        let subjectName: String = (try? dbQueue.read { readDB in
-            try String.fetchOne(readDB, sql: """
-                SELECT TRIM(COALESCE(first_name,'') || ' ' || COALESCE(last_name,''))
+        let (subjectName, subjectMarriedSurname): (String, String) = (try? dbQueue.read { readDB in
+            try Row.fetchOne(readDB, sql: """
+                SELECT TRIM(COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')) AS name,
+                       COALESCE(married_surname,'') AS married
                 FROM profiles WHERE id = ?
                 """, arguments: [profileID])
-        }).flatMap { $0 } ?? ""
-        let household = Self.pendingFactHousehold(payload: payload, subjectName: subjectName)
+        }).flatMap { row in
+            row.map { ($0["name"] as String? ?? "", $0["married"] as String? ?? "") }
+        } ?? ("", "")
+        let household = Self.pendingFactHousehold(
+            payload: payload, subjectName: subjectName,
+            subjectMarriedSurname: subjectMarriedSurname)
         var details: LifeEventDetails?
         if type == .census, !household.isEmpty {
             let own = household.first { $0.isTarget == true }
@@ -269,10 +274,30 @@ extension ProjectDatabase {
             }
             if let details,
                var existing = try loadLifeEvents(profileID: profileID)
-                   .first(where: { $0.id == event.id }),
-               existing.details == nil {
-                existing.details = details
-                _ = try updateLifeEvent(existing)
+                   .first(where: { $0.id == event.id }) {
+                if existing.details == nil {
+                    existing.details = details
+                    _ = try updateLifeEvent(existing)
+                } else if case .census(var stored)? = existing.details,
+                          case .census(let fresh) = details,
+                          !stored.household.contains(where: { $0.isTarget == true }),
+                          let targetName = fresh.household.first(where: { $0.isTarget == true })?.name {
+                    // #28 retrofit: the stored roster predates the
+                    // married-surname target fix and marks nobody as the
+                    // subject; a re-accept whose projection knows the
+                    // subject's own row repairs it in place.
+                    stored.household = stored.household.map { m in
+                        guard m.name.lowercased() == targetName.lowercased() else { return m }
+                        return HouseholdMember(
+                            name: m.name, relationship: m.relationship,
+                            age: m.age, birthYear: m.birthYear,
+                            birthPlace: m.birthPlace, occupation: m.occupation,
+                            sex: m.sex, maritalStatus: m.maritalStatus,
+                            birthCounty: m.birthCounty, isTarget: true)
+                    }
+                    existing.details = .census(stored)
+                    _ = try updateLifeEvent(existing)
+                }
             }
         }
     }
@@ -281,8 +306,15 @@ extension ProjectDatabase {
     /// `isTarget` is marked where a member's name loosely matches the subject
     /// profile — the same convention app-fetched rosters carry. Pure and
     /// testable: the caller supplies the subject's display name.
+    ///
+    /// #28: the tree stores married women under their MAIDEN surname while a
+    /// census enumerates them under the MARRIED one (owner dogfood
+    /// 2026-08-24: Ruth Brailsford's own row in her accepted 1871 household
+    /// went unmarked because the schedule says Ruth Wheeldon). The suffix
+    /// match accepts EITHER surname.
     nonisolated static func pendingFactHousehold(
-        payload: [String: Any], subjectName: String
+        payload: [String: Any], subjectName: String,
+        subjectMarriedSurname: String = ""
     ) -> [HouseholdMember] {
         guard let raw = payload["household"] as? [[String: Any]], !raw.isEmpty else { return [] }
         func norm(_ s: String) -> String {
@@ -292,15 +324,18 @@ extension ProjectDatabase {
         let subjectNorm = norm(subjectName)
         let subjectGiven = subjectNorm.split(separator: " ").first.map(String.init) ?? ""
         let subjectSurname = subjectNorm.split(separator: " ").last.map(String.init) ?? ""
+        let marriedNorm = norm(subjectMarriedSurname)
         return raw.prefix(30).compactMap { m in
             guard let name = m["name"] as? String, !name.isEmpty,
                   let relationship = m["relationship"] as? String, !relationship.isEmpty
             else { return nil }
             let memberNorm = norm(name)
+            let surnameMatches = memberNorm.hasSuffix(subjectSurname)
+                || (!marriedNorm.isEmpty && memberNorm.hasSuffix(marriedNorm))
             let isTarget = !subjectNorm.isEmpty
                 && !subjectGiven.isEmpty && !subjectSurname.isEmpty
                 && memberNorm.hasPrefix(subjectGiven)
-                && memberNorm.hasSuffix(subjectSurname)
+                && surnameMatches
             return HouseholdMember(
                 name: name,
                 relationship: relationship,
