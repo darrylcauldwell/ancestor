@@ -176,13 +176,21 @@ enum CampaignReviewService {
     ///
     /// `investigating` (pipeline in flight) and `promoted` (already a profile)
     /// are excluded — neither is awaiting a decision.
+    ///
+    /// #38: un-actioned leads (`new`/`investigated`) IGNORE the window. "Mark
+    /// reviewed" means *seen*, and the watermark treating it as *done* buried
+    /// four actionable leads mid-session (owner, 2026-08-24) with no escape
+    /// while other rows kept the list non-empty. A lead is awaiting a decision
+    /// until promoted or dismissed — the queue is the truth, not the stamp.
+    /// Only the dismissed fold stays windowed (it is restorable history, not
+    /// work).
     static func campaignLeads(
         since: Date, db: ProjectDatabase
     ) -> (leads: [Lead], dismissed: [Lead]) {
-        let window = ((try? db.loadLeads()) ?? []).filter { $0.createdAt >= since }
+        let all = (try? db.loadLeads()) ?? []
         return (
-            leads: window.filter { $0.status == .new || $0.status == .investigated },
-            dismissed: window.filter { $0.status == .dismissed }
+            leads: all.filter { $0.status == .new || $0.status == .investigated },
+            dismissed: all.filter { $0.status == .dismissed && $0.createdAt >= since }
         )
     }
 

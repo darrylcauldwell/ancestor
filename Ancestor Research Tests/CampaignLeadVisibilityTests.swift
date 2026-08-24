@@ -66,20 +66,36 @@ struct CampaignLeadVisibilityTests {
         #expect(Set(gathered.leads.map(\.id)) == ["l1", "l2", "l3"])
     }
 
-    // MARK: - The window still applies
+    // MARK: - #38: the watermark never hides un-actioned leads
 
-    @Test func aLeadOlderThanTheWindowIsExcluded() throws {
+    @Test func anUnactionedLeadIgnoresTheWindow() throws {
+        // "Mark reviewed" advanced the watermark past four leads nobody had
+        // acted on, and they vanished with no escape (owner, 2026-08-24). A
+        // lead awaits a decision until promoted or dismissed — however old.
         let db = try makeDB()
         let old = Date().addingTimeInterval(-30 * 24 * 3600)
         try db.saveLead(lead("old", createdAt: old))
         try db.saveLead(lead("new", createdAt: Date()))
 
         let week = Date().addingTimeInterval(-7 * 24 * 3600)
+        #expect(Set(CampaignReviewService.campaignLeads(since: week, db: db)
+            .leads.map(\.id)) == ["old", "new"])
+    }
+
+    @Test func dismissedLeadsStayWindowed() throws {
+        // The dismissed fold is restorable history, not pending work — the
+        // window keeps years of cleared noise from re-accumulating there.
+        let db = try makeDB()
+        let old = Date().addingTimeInterval(-30 * 24 * 3600)
+        try db.saveLead(lead("oldGone", status: .dismissed, createdAt: old))
+        try db.saveLead(lead("newGone", status: .dismissed, createdAt: Date()))
+
+        let week = Date().addingTimeInterval(-7 * 24 * 3600)
         #expect(CampaignReviewService.campaignLeads(since: week, db: db)
-            .leads.map(\.id) == ["new"])
+            .dismissed.map(\.id) == ["newGone"])
         #expect(Set(CampaignReviewService.campaignLeads(since: .distantPast, db: db)
-            .leads.map(\.id)) == ["old", "new"],
-            "…and 'Show earlier findings' widens to everything")
+            .dismissed.map(\.id)) == ["oldGone", "newGone"],
+            "…and 'Show earlier findings' widens the fold to everything")
     }
 
     // MARK: - Status routing is unchanged
