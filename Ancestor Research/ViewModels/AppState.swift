@@ -555,6 +555,14 @@ final class AppState {
             _ = ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: snapshot, db: db)
             try db.updateEvidenceUserStatus(evidenceID: evidence.id, status: .savedAsLead)
             for event in scored.record.projectToLifeEvents(profileID: profileID) {
+                var event = event
+                // The record's roster may have been fetched via a RELATIVE's
+                // row (its principal marking travels with it) — re-derive
+                // "this is you" for the profile this event belongs to.
+                if case .census(var c)? = event.details {
+                    c.household = HouseholdRetarget.retarget(c.household, to: profile)
+                    event.details = .census(c)
+                }
                 _ = try? db.addLifeEventIfAbsent(event)
             }
             snapshot = try db.buildSnapshot()
@@ -708,7 +716,12 @@ final class AppState {
                 let isAppliedYearMatch = isApplied && ev.date?.bestYear == census.censusYear
                 guard isOwnEvent || isAppliedYearMatch else { continue }
                 guard case .census(var c)? = ev.details, c.household.isEmpty else { continue }
-                c.household = household
+                // The fetched roster's isTarget belongs to the record it was
+                // fetched THROUGH; re-derive it for this event's subject
+                // (owner dogfood 2026-08-24: John Wheeldon jr's 1861 arrived
+                // with his mother marked, via Ruth's record URL).
+                c.household = snapshot.profiles[profileID]
+                    .map { HouseholdRetarget.retarget(household, to: $0) } ?? household
                 ev.details = .census(c)
                 try db.updateLifeEvent(ev)
             }
