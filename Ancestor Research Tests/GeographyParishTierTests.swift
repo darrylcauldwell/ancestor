@@ -261,6 +261,34 @@ struct GeographyParishTierTests {
             "first tokens must align")
     }
 
+    // MARK: - #39 — umbrella counties admit their subdivisions
+
+    @Test func sheffieldBornSubjectPassesHerOwnRidingDistricts() {
+        // Live case (Elizabeth Ann Crawshaw, 2026-08-25): birthplace
+        // "Sheffield, Yorkshire" resolves to umbrella YKS, districts file
+        // under WRY — the gate soft-failed her own Ecclesall Bierlow rows
+        // as "outside the subject's counties" while the dispatcher kept
+        // finding them. An umbrella code must admit its subdivisions.
+        let sheffield = ResearchSubject(
+            surname: "Crawshaw", givenName: "Elizabeth",
+            birthYearFrom: 1855, birthYearTo: 1865,
+            gender: .female,
+            region: .county("Sheffield, Yorkshire"),
+            mode: .extend,
+            homeChapmanCode: "DBY"   // project fallback — the live shape
+        )
+        let result = RecordScorer.classify(
+            record: census(district: "Ecclesall Bierlow", year: 1861),
+            subject: sheffield, searchType: .census)
+        #expect(geography(result)?.outcome == .pass,
+                "her own home district must not read as another county")
+        // An unrelated county is still outside.
+        let kent = RecordScorer.classify(
+            record: census(district: "Maidstone", year: 1861),
+            subject: sheffield, searchType: .census)
+        #expect(geography(kent)?.outcome == .softFail)
+    }
+
     // MARK: - #34 ruling a — home-district graded pass (ranking, never a gate)
 
     private func anchoredSubject(homeDistrictID: String?) -> ResearchSubject {

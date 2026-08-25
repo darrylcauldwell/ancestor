@@ -1333,6 +1333,20 @@ nonisolated struct RecordScorer {
         if let burialChapman = subject.burialChapmanCode, !burialChapman.isEmpty {
             codes.insert(burialChapman.uppercased())
         }
+        // #39 — umbrella counties. "Sheffield, Yorkshire" resolves to YKS,
+        // but every registration district files under the ridings (WRY/ERY/
+        // NRY), so a literal YKS membership test can never match — the gate
+        // soft-failed a Sheffield-born subject's OWN Ecclesall Bierlow
+        // records as "outside the subject's counties" while the dispatcher
+        // (which expands umbrellas via `statedChapmanScope`) kept finding
+        // them. Same rule as the dispatch side: a code with no districts of
+        // its own admits its subdivisions.
+        for code in Array(codes)
+        where FreeBMDDistrictCatalogue.shared.districts(forChapmanCode: code).isEmpty {
+            for sub in RegistrationDistrictResolver.subdivisions(of: code) {
+                codes.insert(sub.uppercased())
+            }
+        }
         return codes
     }
 
