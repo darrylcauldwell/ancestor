@@ -144,6 +144,23 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// SC-6 — pending-proposal counts per touched profile (both endpoints
+    /// count), for the Workbench needs-attention router.
+    func pendingRelationshipCountsByProfile() -> [String: Int] {
+        (try? dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT from_profile_id, to_profile_id FROM pending_relationships
+                WHERE review_status = 'pending'
+                """)
+            var counts: [String: Int] = [:]
+            for row in rows {
+                counts[row["from_profile_id"] as String, default: 0] += 1
+                counts[row["to_profile_id"] as String, default: 0] += 1
+            }
+            return counts
+        }) ?? [:]
+    }
+
     private func setPendingRelationshipStatus(id: String, status: String) throws {
         try dbQueue.write { db in
             try db.execute(sql: """

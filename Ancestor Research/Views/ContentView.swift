@@ -173,7 +173,7 @@ struct MainView: View {
                     onEditProfile: openProfileInEdit
                 )
             case .workbench:
-                WorkbenchView()
+                WorkbenchView(onOpenProfile: openProfileDetail)
             case .settings:
                 SettingsPlaceholderView()
             }

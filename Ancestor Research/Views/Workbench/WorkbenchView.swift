@@ -5,10 +5,14 @@ import SwiftUI
 /// W3 Focus, W4 Sessions, W5 Hypotheses.
 struct WorkbenchView: View {
     @Environment(AppState.self) private var appState
-    @State private var section: Section = .notes
+    @State private var section: Section = .attention
     @State private var goalsExpanded: Bool = true
+    /// SC-6 — the attention router jumps to a profile's card; ContentView
+    /// supplies the navigation.
+    var onOpenProfile: (String) -> Void = { _ in }
 
     enum Section: String, CaseIterable, Identifiable {
+        case attention = "Attention"
         case focus = "Focus"
         case hypotheses = "Hypotheses"
         case hunches = "Hunches"
@@ -20,6 +24,7 @@ struct WorkbenchView: View {
         var id: String { rawValue }
         var systemImage: String {
             switch self {
+            case .attention: return "tray.full"
             case .focus: return "scope"
             case .hypotheses: return "lightbulb"
             case .hunches: return "lightbulb.max"
@@ -44,6 +49,7 @@ struct WorkbenchView: View {
             Divider()
                 .padding(.top, 8)
             switch section {
+            case .attention: WorkbenchAttentionView(onOpenProfile: onOpenProfile)
             case .focus: FocusView()
             case .hypotheses: HypothesesView()
             case .hunches: UserHunchesView(subjectID: appState.selectedProfileID)
