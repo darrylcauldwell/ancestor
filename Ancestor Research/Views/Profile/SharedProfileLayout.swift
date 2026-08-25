@@ -325,6 +325,9 @@ struct SharedProfileLayout: View {
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
 
     @State private var showingNoteComposer: Bool = false
+    /// SC-1 — pending-facts review presents right here on the card instead
+    /// of deep-linking to the Triage tab (which is being retired).
+    @State private var showingPendingReview: Bool = false
     @State private var editingNote: WorkbenchNote?
     @State private var showingLifeEventEditor: Bool = false
     @State private var editingLifeEvent: LifeEvent?
@@ -710,6 +713,24 @@ struct SharedProfileLayout: View {
         }
         .sheet(isPresented: $showingAttachmentImporter) {
             AttachmentImportSheet(target: .profile(id: profile.id))
+        }
+        .sheet(isPresented: $showingPendingReview) {
+            // SC-1 — the review surface itself supplies no exit affordance
+            // (an empty pending list once left the user trapped, owner report
+            // 2026-07-15), so the host provides the header + Done.
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Pending review — \(profile.displayName)")
+                        .font(.headline)
+                    Spacer()
+                    Button("Done") { showingPendingReview = false }
+                        .keyboardShortcut(.defaultAction)
+                }
+                .padding()
+                Divider()
+                PendingFactsReviewView(profileID: profile.id)
+            }
+            .frame(minWidth: 680, minHeight: 560)
         }
         .sheet(item: $resolvingDispute) { item in
             ConflictResolutionView(profile: item.profile, dispute: item.dispute)
@@ -1595,11 +1616,11 @@ struct SharedProfileLayout: View {
                             recordLine(rec, showPill: false)
                         }
                         // A pending bucket can hold hundreds of namesake leads —
-                        // capping keeps the view tree bounded, and bulk-review
-                        // belongs in Triage, not this in-context expander.
+                        // capping keeps the view tree bounded; the full review
+                        // opens in the card's own sheet (SC-1).
                         if records.count > cap {
-                            Button { appState.requestSidebarTab = .triage } label: {
-                                Text("Showing \(cap) of \(records.count) — review all in Triage →")
+                            Button { showingPendingReview = true } label: {
+                                Text("Showing \(cap) of \(records.count) — review all →")
                                     .font(AppTypography.badge)
                                     .foregroundStyle(.blue)
                             }
@@ -1935,21 +1956,18 @@ struct SharedProfileLayout: View {
     }
 
     /// Pill that surfaces firewall-queued evidence on the profile detail
-    /// header. Tapping switches to the Triage tab where the user can
-    /// review + accept / discard each entry. Hidden when nothing is
-    /// pending so the badge doesn't accrue visual noise on most profiles.
+    /// header. Tapping opens the review sheet right on the card (SC-1).
+    /// Hidden when nothing is pending so the badge doesn't accrue visual
+    /// noise on most profiles.
     @ViewBuilder
     private var pendingFactsBadge: some View {
         let count = pendingFactCount
         if count > 0 {
             Button {
-                // Hand the user to THIS profile's review cards on Triage.
-                // Both requests are needed: ContentView consumes the tab
-                // switch; ResearchView consumes the pending-review target
-                // (otherwise the user lands on the profile selector, whose
-                // prominent "Research All" button is a hazardous mis-click).
-                appState.requestPendingReviewProfileID = profile.id
-                appState.requestSidebarTab = .triage
+                // SC-1 — review opens right here, in a sheet on the card.
+                // (Formerly a two-part deep-link into the Triage tab, which
+                // is being retired.)
+                showingPendingReview = true
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "tray.full.fill")
@@ -1964,7 +1982,7 @@ struct SharedProfileLayout: View {
                 .clipShape(.capsule)
             }
             .buttonStyle(.plain)
-            .help("Evidence proposals awaiting human review for this profile. Click to review in Triage.")
+            .help("Evidence proposals awaiting human review for this profile. Click to review here.")
             .accessibilityLabel("\(count) pending facts")
             .accessibilityHint("Opens Triage to review evidence proposals")
         }
