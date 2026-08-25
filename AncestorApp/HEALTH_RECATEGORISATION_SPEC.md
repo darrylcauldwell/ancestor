@@ -1,6 +1,11 @@
 # HEALTH_RECATEGORISATION_SPEC — Health shows defects, not research prompts
 
-**Status:** ACCEPTED · 2026-08-25
+**Status:** IMPLEMENTED · 2026-08-25 — HR1 `1f65c78`, HR2 `8213812`,
+HR3 `f7d6b68`, plus review fixes `cfcddfc` (empty-state gate switched to
+displayRows so synthetic dispute/backfill/contradiction rows survive an
+otherwise-clean audit; import toast now uses `AuditSummary.actionableTotal`).
+Owner walk-through owed: Health should show ~176 actionable rows, chips no
+longer led by Completeness/Missing-bio, Workbench suggestions list reasons.
 **Owner ruling (2026-08-25):** completeness score, missing bio, missing
 birth/death fields etc. "are not really record Health — these types are just
 research. Health should focus on actionable: census is added but there are
