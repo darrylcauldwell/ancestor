@@ -123,17 +123,28 @@ struct WorkbenchAttentionView: View {
             Button {
                 onOpenProfile(profile.id)
             } label: {
-                HStack(spacing: 6) {
-                    Text(profile.displayName)
-                        .font(.callout)
-                    if let year = profile.birthDate?.bestYear {
-                        Text("b. \(String(year))")
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(profile.displayName)
+                            .font(.callout)
+                        if let year = profile.birthDate?.bestYear {
+                            Text("b. \(String(year))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("\(comp.score)/\(comp.maximum)")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                    // #HR3 — the reasons behind the ranking. This is where the
+                    // retired Health research prompts (missing birth date,
+                    // missing parents, …) surface now; the completeness engine
+                    // already carries them, no audit findings needed.
+                    if !comp.missing.isEmpty {
+                        Text("Missing: \(comp.missing.map(\.shortLabel).joined(separator: ", "))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    Text("\(comp.score)/\(comp.maximum)")
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
                 }
                 .contentShape(Rectangle())
             }
