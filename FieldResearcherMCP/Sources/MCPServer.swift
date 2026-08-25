@@ -463,13 +463,15 @@ actor MCPHandler {
                 // mutate profile / relationship rows directly.
                 tool(
                     name: "submit_relationship_proposal",
-                    description: "Propose a parent or spouse relationship between two existing profiles. Goes to `pending_relationships` for human review — does not modify the tree directly.",
+                    description: "Propose a parent or spouse relationship between two existing profiles. Goes to `pending_relationships` for human review — does not modify the tree directly. Approving a spouse proposal that carries marriage_date/marriage_location fills them onto the edge (existing edges are enriched, never duplicated; existing values are never degraded).",
                     properties: [
                         "from_profile_id": ["type": "string", "description": "Source profile ID (parent for parent edges; either party for spouse edges)"],
                         "to_profile_id": ["type": "string", "description": "Target profile ID (child for parent edges; the other party for spouse edges)"],
                         "rel_type": ["type": "string", "description": "'parent' or 'spouse'"],
                         "role": ["type": "string", "description": "For parent: 'father' / 'mother' / 'unspecified'. Omitted for spouse."],
                         "subtype": ["type": "string", "description": "biological | adoptive | step | unknown (default biological)"],
+                        "marriage_date": ["type": "string", "description": "Spouse proposals only: marriage date, e.g. 'Jun 1880' or '27 Feb 1843'"],
+                        "marriage_location": ["type": "string", "description": "Spouse proposals only: marriage place, e.g. 'Ecclesall Bierlow, Sheffield'"],
                         "source_url": ["type": "string", "description": "Where the evidence was found"],
                         "source_title": ["type": "string", "description": "Human-readable source description"],
                         "evidence_text": ["type": "string", "description": "Exact relevant text from the source"],
@@ -1806,6 +1808,13 @@ actor MCPHandler {
         let role = args["role"] as? String
         let subtype = (args["subtype"] as? String) ?? "biological"
         let sourceTitle = args["source_title"] as? String
+        // #36 — spouse proposals may carry the marriage's date and place;
+        // silently meaningless on parent proposals, so refuse loudly instead.
+        let marriageDate = args["marriage_date"] as? String
+        let marriageLocation = args["marriage_location"] as? String
+        if relType != "spouse", marriageDate != nil || marriageLocation != nil {
+            throw MCPError.invalidParams("marriage_date/marriage_location apply to spouse proposals only")
+        }
 
         let id = idempotencyKey(
             profileID: from + "|" + to,
@@ -1816,23 +1825,45 @@ actor MCPHandler {
         let cappedEvidence = String(evidenceText.prefix(200))
 
         try db.write { db in
-            try db.execute(sql: """
-                INSERT OR IGNORE INTO pending_relationships
-                (id, from_profile_id, to_profile_id, rel_type, role, subtype,
-                 review_status, created_at,
-                 source_url, source_title, evidence_text, reasoning, agent_id)
-                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 'field-researcher')
-                """, arguments: [
-                    id, from, to, relType, role, subtype, Date(),
-                    sourceURL, sourceTitle, cappedEvidence, reasoning,
-                ])
+            do {
+                try db.execute(sql: """
+                    INSERT OR IGNORE INTO pending_relationships
+                    (id, from_profile_id, to_profile_id, rel_type, role, subtype,
+                     review_status, created_at,
+                     source_url, source_title, evidence_text, reasoning, agent_id,
+                     marriage_date, marriage_location)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 'field-researcher', ?, ?)
+                    """, arguments: [
+                        id, from, to, relType, role, subtype, Date(),
+                        sourceURL, sourceTitle, cappedEvidence, reasoning,
+                        marriageDate, marriageLocation,
+                    ])
+            } catch {
+                // The marriage columns land with the app's v62 migration. An
+                // un-migrated project DB (app not yet updated/launched) still
+                // accepts the proposal — minus the marriage fields — rather
+                // than failing the whole submission.
+                try db.execute(sql: """
+                    INSERT OR IGNORE INTO pending_relationships
+                    (id, from_profile_id, to_profile_id, rel_type, role, subtype,
+                     review_status, created_at,
+                     source_url, source_title, evidence_text, reasoning, agent_id)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 'field-researcher')
+                    """, arguments: [
+                        id, from, to, relType, role, subtype, Date(),
+                        sourceURL, sourceTitle, cappedEvidence, reasoning,
+                    ])
+            }
         }
 
+        let marriageNote = (marriageDate != nil || marriageLocation != nil)
+            ? " Marriage: \([marriageDate, marriageLocation].compactMap { $0 }.joined(separator: ", "))."
+            : ""
         return [
             "content": [
                 [
                     "type": "text",
-                    "text": "Relationship proposal submitted: \(from) → [\(relType)\(role.map { " (\($0))" } ?? "")] → \(to). ID: \(id). Status: pending human review.",
+                    "text": "Relationship proposal submitted: \(from) → [\(relType)\(role.map { " (\($0))" } ?? "")] → \(to).\(marriageNote) ID: \(id). Status: pending human review — approve/reject on either profile's card.",
                 ]
             ]
         ]

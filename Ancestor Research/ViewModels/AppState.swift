@@ -1322,6 +1322,40 @@ final class AppState {
         try? currentDatabase?.deleteNarrativeFinding(id: id)
     }
 
+    // MARK: - Relationship proposals (#36)
+
+    /// Pending relationship proposals touching a profile — the previously
+    /// orphaned `pending_relationships` queue's first-ever read surface.
+    func pendingRelationshipsForProfile(_ profileID: String) -> [PendingRelationship] {
+        guard let db = currentDatabase else { return [] }
+        return (try? db.pendingRelationships(touching: profileID)) ?? []
+    }
+
+    /// Approve a proposal: ensure the edge (idempotent), fill marriage
+    /// details under the check-before-overwrite rule, rebuild the snapshot
+    /// so the tree shows the new edge immediately.
+    func approvePendingRelationship(id: String) {
+        guard let db = currentDatabase else { return }
+        do {
+            try db.approvePendingRelationship(id: id)
+            snapshot = try db.buildSnapshot()
+        } catch {
+            Self.relationshipLogger.error("Relationship-proposal approve failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Reject a proposal — recorded verdict; the row never re-surfaces.
+    func rejectPendingRelationship(id: String) {
+        do {
+            try currentDatabase?.rejectPendingRelationship(id: id)
+        } catch {
+            Self.relationshipLogger.error("Relationship-proposal reject failed: \(error.localizedDescription)")
+        }
+    }
+
+    private static let relationshipLogger = Logger(
+        subsystem: "dev.dreamfold.Ancestor-Research", category: "Relationships")
+
     /// Notes attached to a specific hypothesis.
     func notesForHypothesis(_ id: UUID) -> [WorkbenchNote] {
         guard let db = currentDatabase else { return [] }

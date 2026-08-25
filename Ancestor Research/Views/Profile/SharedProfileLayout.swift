@@ -206,6 +206,103 @@ private struct NarrativeFindingsBlock: View {
     }
 }
 
+/// #36 — pending relationship proposals touching one profile, with the
+/// Approve/Reject verbs the queue never had. Approve is idempotent (an edge
+/// the user already created by hand is enriched, never duplicated) and a
+/// spouse proposal's marriage date/location fill under the
+/// check-before-overwrite rule. Same self-owned reload shape as
+/// `NarrativeFindingsBlock`.
+private struct PendingRelationshipsBlock: View {
+    @Environment(AppState.self) private var appState
+    let profileID: String
+    @State private var rows: [PendingRelationship] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !rows.isEmpty {
+                Text("Proposed relationships")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ForEach(rows) { row in
+                    card(row)
+                }
+            }
+        }
+        .padding(.top, rows.isEmpty ? 0 : 4)
+        .task(id: profileID) { reload() }
+    }
+
+    private func card(_ row: PendingRelationship) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(headline(row))
+                .font(.caption.weight(.semibold))
+            if row.relType == "spouse",
+               row.marriageDate != nil || row.marriageLocation != nil {
+                Text("Marriage: \([row.marriageDate, row.marriageLocation].compactMap { $0 }.joined(separator: " · "))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if let evidence = row.evidenceText, !evidence.isEmpty {
+                Text(evidence)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(4)
+            }
+            if let raw = row.sourceURL, let url = URL(string: raw), raw.hasPrefix("http") {
+                Link(row.sourceTitle ?? "View source ↗", destination: url)
+                    .font(.caption2)
+            } else if let title = row.sourceTitle {
+                Text(title)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            HStack(spacing: 8) {
+                Button("Approve") {
+                    appState.approvePendingRelationship(id: row.id)
+                    reload()
+                }
+                .buttonStyle(.glassProminent)
+                .controlSize(.mini)
+                .help("Create this relationship edge — or enrich it if you already added it by hand")
+                Button("Reject") {
+                    appState.rejectPendingRelationship(id: row.id)
+                    reload()
+                }
+                .buttonStyle(.glass)
+                .controlSize(.mini)
+                Spacer()
+            }
+        }
+        .padding(10)
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+    }
+
+    /// "Thomas Crawshaw → father of Sarah Oates" — names resolved from the
+    /// snapshot; a missing profile falls back to its id so a stale proposal
+    /// is still legible (and rejectable).
+    private func headline(_ row: PendingRelationship) -> String {
+        func name(_ id: String) -> String {
+            guard let p = appState.snapshot.profiles[id] else { return id }
+            let full = [p.firstName, p.lastName]
+                .compactMap { $0 }.joined(separator: " ")
+                .trimmingCharacters(in: .whitespaces)
+            return full.isEmpty ? id : full
+        }
+        let from = name(row.fromProfileID)
+        let to = name(row.toProfileID)
+        switch row.relType {
+        case "spouse": return "\(from) ⚭ \(to)"
+        default:
+            let role = row.role.flatMap { $0 == "unspecified" ? nil : $0 } ?? "parent"
+            return "\(from) → \(role) of \(to)"
+        }
+    }
+
+    private func reload() {
+        rows = appState.pendingRelationshipsForProfile(profileID)
+    }
+}
+
 struct SharedProfileLayout: View {
     let profile: Profile
     let snapshot: FamilyGraphSnapshot
@@ -734,6 +831,12 @@ struct SharedProfileLayout: View {
             // visible and deletable — the pending badge counts only pending
             // facts, which left a narrative-only profile with no review path.
             NarrativeFindingsBlock(profileID: profile.id)
+
+            // #36 — firewall-queued relationship proposals. This queue was
+            // ORPHANED from v23 until now: MCP wrote rows "for human review"
+            // and no surface read them (owner hunted for a review screen that
+            // did not exist, 2026-08-24). Rendered on BOTH endpoints' cards.
+            PendingRelationshipsBlock(profileID: profile.id)
         }
     }
 

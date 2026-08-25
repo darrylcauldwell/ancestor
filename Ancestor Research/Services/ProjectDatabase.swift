@@ -1706,6 +1706,20 @@ nonisolated final class ProjectDatabase: Sendable {
                 """)
         }
 
+        migrator.registerMigration("v62_pending_relationships_marriage") { db in
+            // #36 — a spouse proposal can carry the marriage's date and
+            // location (e.g. an MCP submission citing a marriage index row),
+            // and the approve path fills them onto the created/enriched edge
+            // via `fillRelationshipMarriage`'s check-before-overwrite rule.
+            // Until now proposals could only assert THAT a couple existed,
+            // never WHEN — the Beresford Jun 1880 Ecclesall Bierlow marriage
+            // had to be typed by hand (owner, 2026-08-24).
+            try db.alter(table: "pending_relationships") { t in
+                t.add(column: "marriage_date", .text)
+                t.add(column: "marriage_location", .text)
+            }
+        }
+
         return migrator
     }
 
