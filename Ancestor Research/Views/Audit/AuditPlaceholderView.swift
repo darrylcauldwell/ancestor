@@ -160,7 +160,14 @@ struct HealthView: View {
                 ProgressView("Running audit...")
                     .frame(maxHeight: .infinity)
             } else if let summary = auditVM.summary {
-                if auditVM.filteredResults.isEmpty {
+                // Empty-state gate is displayRows, NOT filteredResults: the
+                // synthetic rows (open disputes, contradictory facts, census/
+                // death-age backfills, corroborations) are not AuditResults,
+                // and post-#HR2 a curated tree routinely has zero audit rows
+                // while those still need action — "No Issues" must not hide
+                // them (nor dead-end the Conflicts pill). An active chip
+                // filter keeps the else branch so its chips stay reachable.
+                if displayRows.isEmpty && ruleFilter == nil {
                     ContentUnavailableView {
                         Label("No Issues", systemImage: "checkmark.circle")
                     } description: {

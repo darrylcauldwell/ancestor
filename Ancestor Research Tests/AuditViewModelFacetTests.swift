@@ -59,6 +59,20 @@ struct AuditViewModelFacetTests {
         #expect(vm.filteredResults.isEmpty, "search cannot resurface them")
     }
 
+    /// #HR2 review fix — any "audit found N items" message routing the user
+    /// to Health must use `actionableTotal`, which excludes `.research`;
+    /// `total` stays engine-wide for MCP/Settings.
+    @Test func actionableTotalExcludesResearchFindings() {
+        let summary = AuditSummary(
+            errors: [result("IssErr", .error, .issue)],
+            warnings: [result("GapWarn", .warning, .gap),
+                       result("ResWarn", .warning, .research)],
+            info: [result("ResInfo", .info, .research)],
+            total: 4, profilesChecked: 4)
+        #expect(summary.actionableTotal == 2)
+        #expect(summary.total == 4, "engine-wide total is untouched")
+    }
+
     @Test func selectingCategoryRefacetsSeverityCounts() {
         let vm = viewModel()
         vm.filterCategory = .issue

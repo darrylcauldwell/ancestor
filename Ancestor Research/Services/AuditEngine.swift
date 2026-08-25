@@ -158,6 +158,14 @@ nonisolated struct AuditSummary: Sendable {
     let info: [AuditResult]
     let total: Int
     let profilesChecked: Int
+
+    /// Findings the Health surface can actually show — everything except
+    /// `.research` prompts (#HR2). Use this for any user-facing "audit found
+    /// N items" message that routes the user to Health; `total` stays
+    /// engine-wide (all rules still run — MCP and Settings read that).
+    var actionableTotal: Int {
+        (errors + warnings + info).count { $0.category != .research }
+    }
 }
 
 nonisolated extension Severity {

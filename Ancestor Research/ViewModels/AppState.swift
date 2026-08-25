@@ -2344,7 +2344,7 @@ final class AppState {
                 currentProject = project
             }
 
-            let auditCount = auditSummary?.total ?? 0
+            let auditCount = auditSummary?.actionableTotal ?? 0
             successMessage = "Imported \(profiles.count) profiles, \(relationships.count) relationships. Audit found \(auditCount) items."
             // PROJECT_ONBOARDING_SPEC Part A — offer setup once the WikiTree
             // tree has landed.
