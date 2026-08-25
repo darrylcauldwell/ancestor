@@ -1,6 +1,10 @@
 # SURFACE_CONSOLIDATION_SPEC — per-profile is the review surface
 
-**Status:** DRAFT for owner review · 2026-08-24
+**Status:** IMPLEMENTED · 2026-08-25 — all nine changes shipped. SC-1/2/3/6
+landed as individual commits; SC-7/8/9 landed together as `3356bbb` (the three
+retirements are one code change: ResearchView hosts all of them). Change 4
+shipped early as #36 (`6cd3f4e`); Change 5 was satisfied by the existing
+narrative block. This document is now the as-built record.
 **Supersedes:** task #38 (watermark) entirely; absorbs task #36 (relationship
 proposals) as Change 5; relocates task #37's sibling rules into Change 2.
 
