@@ -131,6 +131,10 @@ struct MainView: View {
     /// was visible — forcing a tab switch on every research start.
     @State private var researchVM = ResearchViewModel()
     @Environment(SourceRegistry.self) private var registry
+    /// SC-3 — a completed run's review opens in the detached record-review
+    /// window (per-profile) instead of handing the user to the Triage tab.
+    @Environment(ReviewWindowBroker.self) private var reviewWindowBroker
+    @Environment(\.openWindow) private var openWindow
 
     /// In-situ research-progress sheet (Task #48). Driven by a stored flag
     /// rather than `researchVM.isResearching` so the sheet survives the brief
@@ -317,10 +321,17 @@ struct MainView: View {
                 vm: researchVM,
                 onDismiss: {
                     showResearchProgress = false
-                    // Hand the user off to the Triage tab so they can act on
-                    // any clusters / leads the run produced (or watch it finish
-                    // if they closed early while it was still running).
-                    selectedTab = .triage
+                    // SC-3 — the review opens per-profile in the detached
+                    // record-review window (the Triage tab is being retired).
+                    // No result yet — run still going, or it produced nothing
+                    // — means stay put: the outcome lands on the profile card
+                    // (pending facts, leads) when it arrives.
+                    if let result = researchVM.currentResult,
+                       let profileID = researchVM.selectedProfile?.id {
+                        reviewWindowBroker.stageHandoff(profileID: profileID, result: result)
+                        openWindow(id: "record-review", value: profileID)
+                        researchVM.reset()
+                    }
                 },
                 onOpenSettings: {
                     showResearchProgress = false
