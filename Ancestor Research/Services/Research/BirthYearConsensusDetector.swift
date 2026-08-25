@@ -62,9 +62,15 @@ extension BirthYearConsensus {
         submittedAt: Date = Date()
     ) -> PendingFact {
         let sourceURL = "ancestor-research://subject-self-narrowing/\(profileID)"
+        // #40 — the field must be one the ACCEPT path can apply. This wrote
+        // "birthYear", which maps to no profile column and no event type, so
+        // every consensus card errored on Accept (owner, 2026-08-25). A
+        // year-only "birthDate" value parses as a year-precision date — the
+        // same birthYear→birthDate translation the dispute producer makes in
+        // `ResearchRunService.disputeConflict`.
         let id = EvidenceFirewall.idempotencyKey(
             profileID: profileID,
-            field: "birthYear",
+            field: "birthDate",
             value: String(proposedBirthYear),
             sourceURL: sourceURL
         )
@@ -80,7 +86,7 @@ extension BirthYearConsensus {
         return PendingFact(
             id: id,
             profileID: profileID,
-            field: "birthYear",
+            field: "birthDate",
             value: String(proposedBirthYear),
             sourceURL: sourceURL,
             sourceTitle: "Subject self-narrowing — birth year consensus",

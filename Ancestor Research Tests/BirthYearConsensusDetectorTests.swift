@@ -149,6 +149,23 @@ struct BirthYearConsensusDetectorTests {
         #expect(result?.distinctSourceCount == 2)
     }
 
+    @Test func consensusPendingFactUsesAnApplicableField() {
+        // #40 — the card wrote field "birthYear", which the accept path
+        // refuses ("maps to no profile column and no life-event type"), so
+        // every consensus card errored on Accept. The pending fact must use
+        // the applicable field, birthDate, with a year-precision value.
+        let subject = belperSubject()
+        let scored = [
+            birthRecord(id: "b1", sourceID: "freebmd", year: 1883, place: "Belper"),
+            censusRecord(id: "c1", sourceID: "freecen", censusYear: 1891, age: 8, place: "Belper"),
+            censusRecord(id: "c2", sourceID: "freecen", censusYear: 1901, age: 18, place: "Belper")
+        ]
+        let consensus = BirthYearConsensusDetector.detect(in: scored, for: subject)
+        let fact = consensus?.toPendingFact(profileID: "P1")
+        #expect(fact?.field == "birthDate")
+        #expect(fact?.value == "1883")
+    }
+
     @Test func fourRecordsThreeSources_aligned_isHigh() {
         // See `threeRecordsTwoSources_aligned_isMedium` — ages chosen so
         // every record implies birth 1883 exactly.
