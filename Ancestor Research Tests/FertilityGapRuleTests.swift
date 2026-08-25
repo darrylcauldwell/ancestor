@@ -94,7 +94,8 @@ struct FertilityGapRuleTests {
         #expect(message.contains("2 unaccounted"))
         #expect(message.contains("1 who died young"), "the deceased count is the research hook")
         #expect(results.first?.severity == .info)
-        #expect(results.first?.category == .gap)
+        #expect(results.first?.category == .research,
+                "a children shortfall is a research prompt, not a Health defect (#HR1)")
     }
 
     @Test func completeTreeIsSilent() {
@@ -184,6 +185,8 @@ struct FertilityGapRuleTests {
         #expect(results.count == 1, "tree is complete → only the marriage finding")
         #expect(results.first?.message.contains("implies marriage ~1893") == true)
         #expect(results.first?.message.contains("1898") == true)
+        #expect(results.first?.category == .issue,
+                "the census contradicts the applied marriage year — a defect, not a research prompt (#HR1)")
     }
 
     @Test func impliedMarriageYearWithinToleranceIsSilent() {

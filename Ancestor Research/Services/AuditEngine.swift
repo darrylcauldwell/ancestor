@@ -58,11 +58,12 @@ nonisolated struct AuditEngine {
             for rule in enabledRules {
                 if profileMutes[rule.id]?.contains(profile.id) == true { continue }
                 // De-noise: nameless, unknown, or placeholder profiles are
-                // inherently incomplete — skip gap-category rules for them
-                // (the gaps can't be filled, and framing them as "research me"
-                // is misleading). Issue-class rules — conflicts, empty-profile —
-                // still run so real junk is still surfaced.
-                if rule.category == .gap {
+                // inherently incomplete — skip gap- and research-category
+                // rules for them (the gaps can't be filled, and framing them
+                // as "research me" is misleading). Issue-class rules —
+                // conflicts, empty-profile — still run so real junk is still
+                // surfaced.
+                if rule.category != .issue {
                     let nameStatus = profile.attributes?.nameStatus ?? .known
                     // Nameless = blank, or a name that's only "?"/whitespace.
                     // Unknown people are recorded two ways — via nameStatus, or

@@ -43,10 +43,16 @@ public nonisolated enum Severity: String, Codable, Sendable {
     case error, warning, info
 }
 
-/// Audit results fall into two categories:
+/// Audit results fall into three categories (HEALTH_RECATEGORISATION_SPEC):
 /// - Issues: data consistency problems (birth before death, impossible ages)
-/// - Gaps: missing data that could be researched (no birth date, no parents)
+/// - Gaps: evidence is in the project but incompletely applied
+///   (unabsorbed census household, marriage applied without a spouse edge)
+/// - Research: the person is under-researched — a research prompt, not a
+///   defect. Computed and persisted like the others (MCP reads them) but
+///   NOT rendered in the Health tab or the profile card's Health strip;
+///   the Workbench research suggestions carry that signal instead.
 public nonisolated enum AuditCategory: String, Codable, Sendable {
     case issue      // Logic/consistency errors — data is wrong
-    case gap        // Missing data — data is absent
+    case gap        // Applied evidence is incomplete — data is half-carried
+    case research   // Missing data that research could fill — not a defect
 }
