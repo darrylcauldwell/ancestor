@@ -162,6 +162,62 @@ nonisolated extension ProjectDatabase {
         return ghostID
     }
 
+    /// #37 — promote a SIBLING lead as a child of the generator's known
+    /// parents. A sibling has no edge of its own in this model; what makes
+    /// it promotable is that the shared parents already exist, so the ghost
+    /// gets a parent edge to EACH of them and lands beside its brother or
+    /// sister with no guessing (live case 2026-08-24: James + Samuel
+    /// Wheeldon). Same ghost/provenance/lead-resolution shape as
+    /// `promoteLeadToProfile(_:enforceBound:attachingTo:)`.
+    @discardableResult
+    func promoteLeadToProfile(
+        _ lead: Lead,
+        asChildOfParents parentIDs: [String]
+    ) throws -> String {
+        precondition(!parentIDs.isEmpty, "sibling promotion needs at least one known parent")
+        let ghostID = UUID().uuidString
+        let ghost = Self.makeGhostProfile(id: ghostID, fromLead: lead)
+
+        var relationships: [Relationship] = []
+        var edgeExistence: [UUID: RelationshipExistenceEvidence] = [:]
+        for parentID in parentIDs {
+            let edge = Relationship(
+                id: UUID(),
+                from: parentID, to: ghostID,
+                type: .parent, role: .unspecified, subtype: .biological,
+                marriageDate: nil, marriageLocation: nil, divorceDate: nil
+            )
+            relationships.append(edge)
+            edgeExistence[edge.id] = .origin(
+                SourceOrigin(identifier: "lead.\(lead.source.rawValue)"),
+                note: lead.evidence
+            )
+        }
+
+        _ = try addFamily(
+            profiles: [ghost],
+            relationships: relationships,
+            source: SourceOrigin(identifier: "lead.\(lead.source.rawValue)"),
+            edgeExistenceEvidence: edgeExistence
+        )
+
+        let promoted = Lead(
+            id: lead.id, profileID: lead.profileID,
+            name: lead.name, surname: lead.surname, givenName: lead.givenName,
+            birthYear: lead.birthYear, deathYear: lead.deathYear,
+            ageAtDeath: lead.ageAtDeath, place: lead.place,
+            relationship: lead.relationship, source: lead.source,
+            status: .promoted, evidence: lead.evidence,
+            createdAt: lead.createdAt,
+            investigatedAt: lead.investigatedAt,
+            resolvedAt: Date(),
+            resolution: .promoted
+        )
+        try upsertLead(promoted)
+
+        return ghostID
+    }
+
     /// Build a Profile from a Lead's fields. Birth/death years become
     /// year-granularity GenealogicalDates so they show in the timeline.
     /// `nameStatus.placeholder` flags the new node visually as a research

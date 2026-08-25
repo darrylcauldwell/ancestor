@@ -244,16 +244,35 @@ struct CampaignLeadVisibilityTests {
         #expect(CampaignReviewService.addAction(for: spouse) == .spouse)
     }
 
-    /// Sibling has no direct edge in this model — `relationshipEdge` returns
-    /// nil for it, so promoting would strand the node with no relationship at
-    /// all. It must not offer an add action until that is designed.
-    @Test func aSiblingLeadOffersNoAddActionBecauseThereIsNoSiblingEdge() {
+    /// #37 — a sibling lead has no edge of its own, so WITHOUT known parents
+    /// it still offers no add action (the row explains why instead). WITH the
+    /// generator's parents known, the sibling claim resolves through them:
+    /// "Add as child of X & Y", carrying the parent ids for the edges.
+    @Test func aSiblingLeadOffersNoAddActionUntilParentsAreKnown() {
         let sibling = relLead("s1", given: "Ada", year: 1880, relationship: "sibling")
         #expect(CampaignReviewService.addAction(for: sibling) == nil)
+        #expect(CampaignReviewService.isSiblingLead(sibling))
+
+        let action = CampaignReviewService.addAction(
+            for: sibling,
+            generatorParents: [("F1", "Joseph Wheeldon"), ("M1", "Alice Wheeldon")]
+        )
+        #expect(action == .childOfParents(
+            parentIDs: ["F1", "M1"],
+            parentNames: ["Joseph Wheeldon", "Alice Wheeldon"]))
+        #expect(action?.label == "Add as child of Joseph Wheeldon & Alice Wheeldon")
+
+        // One known parent is still enough — James/Samuel promoted via
+        // Joseph alone before Alice existed.
+        let single = CampaignReviewService.addAction(
+            for: sibling, generatorParents: [("F1", "Joseph Wheeldon")])
+        #expect(single?.label == "Add as child of Joseph Wheeldon")
     }
 
     /// Every action offered must produce a real edge — otherwise "Add" creates
-    /// an orphan. Pins the two rules to each other.
+    /// an orphan. Pins the two rules to each other. (`childOfParents` builds
+    /// its edges from the carried parent ids, not via `relationshipEdge` —
+    /// excluded here and covered by `aSiblingLeadOffersNoAddActionUntilParentsAreKnown`.)
     @Test func everyOfferedActionHasAMatchingEdge() {
         for role in ["mother", "father", "child", "spouse", "sibling", "cousin", ""] {
             let lead = relLead("x", given: "A", year: 1900, relationship: role)

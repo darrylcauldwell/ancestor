@@ -211,14 +211,22 @@ enum CampaignReviewService {
     /// research node throughout. That is the safety valve that made "Add as
     /// mother/father" acceptable, and it holds identically here.
     ///
-    /// SIBLING is deliberately excluded. There is no sibling edge in this model
-    /// — siblings are implied by shared parents — so promoting one would have
-    /// to guess which parents to attach it to, and `relationshipEdge` returns
-    /// nil for it, which would strand the new node with no edge at all.
+    /// SIBLING has no edge of its own in this model — siblings are implied by
+    /// shared parents. #37: when the GENERATOR's parents are already in the
+    /// tree there is no guessing left, so a sibling lead becomes "Add as
+    /// child of X & Y" and promotes with parent edges to each known parent
+    /// (live case 2026-08-24: James + Samuel Wheeldon's sibling leads sat
+    /// with no add-path even after Joseph and Alice were promoted, and had
+    /// to be resubmitted as child leads). With NO parents known the action
+    /// stays absent — the row explains why instead of silently offering
+    /// only Research (`siblingExplanation`).
     enum AddAction: Equatable {
         case parent(role: String)   // "mother" / "father"
         case child
         case spouse
+        /// #37 — sibling lead whose generator's parents are known: promote
+        /// as a child of those parents (ids drive the edges, names the label).
+        case childOfParents(parentIDs: [String], parentNames: [String])
 
         /// Button label — reads from the perspective of the profile the lead
         /// sits under ("Add as child" on the father's row).
@@ -227,18 +235,48 @@ enum CampaignReviewService {
             case .parent(let role): "Add as \(role)"
             case .child: "Add as child"
             case .spouse: "Add as spouse"
+            case .childOfParents(_, let names):
+                "Add as child of \(names.joined(separator: " & "))"
             }
         }
     }
 
-    static func addAction(for lead: Lead) -> AddAction? {
+    /// `generatorParents` — the lead's generating profile's parents, resolved
+    /// by the caller from the snapshot. Only sibling leads consume it;
+    /// defaulted empty so every existing call site keeps its contract.
+    static func addAction(
+        for lead: Lead,
+        generatorParents: [(id: String, name: String)] = []
+    ) -> AddAction? {
         if let role = parentRole(lead) { return .parent(role: role) }
         switch lead.relationship?.lowercased() {
         case "child": return .child
         case "spouse": return .spouse
+        case let rel? where isSiblingWord(rel):
+            guard !generatorParents.isEmpty else { return nil }
+            return .childOfParents(
+                parentIDs: generatorParents.map(\.id),
+                parentNames: generatorParents.map(\.name)
+            )
         default: return nil     // no kin claim → Research first
         }
     }
+
+    /// Whether a lead claims siblinghood — the vocabulary the several lead
+    /// emitters use.
+    static func isSiblingLead(_ lead: Lead) -> Bool {
+        lead.relationship.map { isSiblingWord($0.lowercased()) } ?? false
+    }
+
+    private static func isSiblingWord(_ raw: String) -> Bool {
+        ["sibling", "brother", "sister", "half-brother", "half-sister"]
+            .contains(raw.trimmingCharacters(in: .whitespaces))
+    }
+
+    /// #37 — the honest row caption for a sibling lead that CANNOT offer an
+    /// add action, so "Research" alone stops reading as a dead end.
+    static let siblingExplanation =
+        "Siblings are added as children of shared parents — add this person's parents to the tree first, and this lead will offer \"Add as child of…\"."
 
     /// May a promoted lead ATTACH to this existing profile, or must it create a
     /// new one?

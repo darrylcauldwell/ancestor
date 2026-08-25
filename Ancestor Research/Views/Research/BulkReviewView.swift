@@ -337,6 +337,21 @@ struct BulkReviewView: View {
                 + "record that named them together. \(tail)"
         case .spouse:
             return "Add \(lead.name) as this person's spouse. \(tail)"
+        case .childOfParents(_, let names):
+            return "Add \(lead.name) as a child of \(names.joined(separator: " and ")) "
+                + "— the sibling claim resolves through the shared parents already "
+                + "on the tree, with a parent edge to each. \(tail)"
+        }
+    }
+
+    /// #37 — the generator's parents, resolved from the snapshot; what turns
+    /// a sibling lead's dead end into "Add as child of X & Y".
+    private func generatorParents(for lead: Lead) -> [(id: String, name: String)] {
+        appState.snapshot.parentsOf(lead.profileID).map { p in
+            let full = [p.firstName, p.lastName].compactMap { $0 }
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespaces)
+            return (p.id, full.isEmpty ? p.id : full)
         }
     }
 
@@ -629,8 +644,11 @@ struct BulkReviewView: View {
             //     removed — that minted fake *identity* profiles; this adds a
             //     truthful surname-only placeholder backed by birth-index MMN.
             //   • Identity lead (a real candidate person) → "Research".
-            if let action = CampaignReviewService.addAction(for: row.lead) {
-                Button(action.label) { addFromLead(group) }
+            if let action = CampaignReviewService.addAction(
+                for: row.lead,
+                generatorParents: generatorParents(for: row.lead)
+            ) {
+                Button(action.label) { addFromLead(group, action: action) }
                     .buttonStyle(.glassProminent)
                     .controlSize(.small)
                     .help(addHelp(action, lead: row.lead))
@@ -647,7 +665,9 @@ struct BulkReviewView: View {
                 Button("Research") { appState.researchLeadRequest = row.lead }
                     .buttonStyle(.glassProminent)
                     .controlSize(.small)
-                    .help("Investigate this candidate — gather evidence, then decide, rather than adding it blind.")
+                    .help(CampaignReviewService.isSiblingLead(row.lead)
+                          ? CampaignReviewService.siblingExplanation
+                          : "Investigate this candidate — gather evidence, then decide, rather than adding it blind.")
             }
             Button("Dismiss") { dismissGroup(group) }
                 .buttonStyle(.glass)
@@ -818,9 +838,23 @@ struct BulkReviewView: View {
     /// (see `CampaignReviewService.addAction`). `promoteLeadToProfile` creates
     /// the placeholder + the correctly-directed edge and marks the lead
     /// promoted; `relationshipEdge` already handles parent, child and spouse.
-    private func addFromLead(_ group: GroupedLead) {
+    private func addFromLead(
+        _ group: GroupedLead,
+        action: CampaignReviewService.AddAction
+    ) {
         guard let db = appState.currentDatabase else { return }
         let lead = group.representative.lead
+        // #37 — a sibling lead promotes as a child of the generator's known
+        // parents: no dedup-attach question arises (the person is by claim
+        // NEW — the sibling missing from the tree), and the parent edges are
+        // fully determined by the ids the action carries.
+        if case .childOfParents(let parentIDs, _) = action {
+            guard (try? db.promoteLeadToProfile(lead, asChildOfParents: parentIDs)) != nil else { return }
+            if let snap = try? db.buildSnapshot() { appState.snapshot = snap }
+            for member in group.members { campaignLeads.removeAll { $0.id == member.id } }
+            processedCount += 1
+            return
+        }
         // Create-on-accept dedup, matching the ResearchViewModel promote
         // path. Without it this button minted a fresh node every time, so a
         // second click — or a lead resubmitted with better data — produced a
