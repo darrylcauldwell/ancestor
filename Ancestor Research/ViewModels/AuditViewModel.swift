@@ -23,9 +23,16 @@ final class AuditViewModel {
 
     /// All results after the text search only — the universe the two facet
     /// toggles (category, severity) then narrow.
+    ///
+    /// `.research` findings are excluded here at the single choke point
+    /// (HEALTH_RECATEGORISATION_SPEC #HR2): Health shows defects and
+    /// apply-gaps only. Research prompts stay in `AuditSummary` for MCP and
+    /// surface through the Workbench research suggestions instead — so the
+    /// category pills, severity badges, rule chips and rows all agree.
     private var searchedResults: [AuditResult] {
         guard let summary else { return [] }
-        let all = summary.errors + summary.warnings + summary.info
+        let all = (summary.errors + summary.warnings + summary.info)
+            .filter { $0.category != .research }
         guard !searchText.isEmpty else { return all }
         let query = searchText.lowercased()
         return all.filter {

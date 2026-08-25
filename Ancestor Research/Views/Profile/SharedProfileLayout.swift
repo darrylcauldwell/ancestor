@@ -1355,7 +1355,7 @@ struct SharedProfileLayout: View {
         var findings = ((appState.auditSummary?.errors ?? [])
             + (appState.auditSummary?.warnings ?? [])
             + (appState.auditSummary?.info ?? []))
-            .filter { $0.profileID == profile.id }
+            .filter { $0.profileID == profile.id && $0.category != .research }
         if let gap = FreeBMDCitationAudit.finding(
             profileID: profile.id, profileName: profile.displayName, evidence: evidence,
             profile: profile) {

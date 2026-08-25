@@ -964,7 +964,7 @@ private struct TaskRow: View {
 
         case .gap(_, _, let comp):
             // One menu entry per missing check. Mirrors the existing
-            // GapsPlaceholderView promote flow.
+            // Health promote-to-question flow.
             if let profile = profileForGap {
                 Menu {
                     ForEach(comp.missing, id: \.self) { check in
@@ -1056,7 +1056,7 @@ private struct TaskRow: View {
         appState.successMessage = "Snoozed for 7 days."
     }
 
-    /// Mirrors GapsPlaceholderView.promoteGap — keep them in lockstep.
+    /// Mirrors HealthView's promote-to-question flow — keep them in lockstep.
     private func promoteGap(profile: Profile, check: CompletenessCheck) {
         let text: String
         let origin: QuestionOrigin

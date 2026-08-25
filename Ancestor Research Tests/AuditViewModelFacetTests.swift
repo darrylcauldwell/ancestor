@@ -38,6 +38,27 @@ struct AuditViewModelFacetTests {
         #expect(vm.severityCount(.info) == 2)
     }
 
+    /// #HR2 — `.research` findings never reach the Health surface: not the
+    /// rows, not the pills, not the severity badges. They stay in the summary
+    /// (MCP reads it); the view model is the choke point.
+    @Test func researchFindingsAreInvisibleToEveryFacet() {
+        let vm = viewModel()
+        vm.summary = AuditSummary(
+            errors: vm.summary!.errors,
+            warnings: vm.summary!.warnings + [result("ResWarn", .warning, .research)],
+            info: vm.summary!.info + [
+                result("ResInfo", .info, .research), result("ResInfo2", .info, .research)],
+            total: 10, profilesChecked: 10)
+        #expect(vm.filteredResults.count == 7, "the 3 research rows never render")
+        #expect(vm.categoryCount(.research) == 0)
+        #expect(vm.severityCount(.warning) == 3, "badge ignores the research warning")
+        #expect(vm.severityCount(.info) == 2, "badge ignores the research info rows")
+        #expect(vm.issueCount == 3)
+        #expect(vm.gapCount == 4)
+        vm.searchText = "Res"
+        #expect(vm.filteredResults.isEmpty, "search cannot resurface them")
+    }
+
     @Test func selectingCategoryRefacetsSeverityCounts() {
         let vm = viewModel()
         vm.filterCategory = .issue
