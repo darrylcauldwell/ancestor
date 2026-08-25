@@ -25,8 +25,6 @@ struct ProjectSetupWizardView: View {
     // consent flag for the semantic embedder (shared with the launch
     // auto-load in ContentRoot and the Settings toggle).
     @State private var reasoningProgress: Double?
-    @State private var semanticProgress: Double?
-    @AppStorage("semanticEmbedderEnabled") private var semanticEmbedderEnabled = false
 
     // Step 3 — local home-person selection (owned here so "Change" can clear
     // the search without persisting nil; the pick persists on change).
@@ -172,7 +170,6 @@ struct ProjectSetupWizardView: View {
 
             reasoningModelRow
             Divider()
-            semanticModelRow
         }
     }
 
@@ -202,44 +199,6 @@ struct ProjectSetupWizardView: View {
             }
         }
     }
-
-    /// The semantic embedder. Its opt-in IS a persisted flag (unlike the
-    /// reasoning model, it had no auto-use before) — enabling it downloads the
-    /// model and, from then on, the app auto-uses it whenever present.
-    @ViewBuilder
-    private var semanticModelRow: some View {
-        #if canImport(MLXEmbedders) && canImport(MLX)
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Semantic clustering").fontWeight(.semibold)
-                    Text("Tighter \u{201C}Possible People\u{201D} grouping via meaning, not just spelling. About \(MLXTextEmbedder.estimatedSizeMB) MB.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-                Spacer()
-                if let p = semanticProgress {
-                    ProgressView(value: p).frame(width: 120)
-                } else {
-                    Toggle("", isOn: Binding(
-                        get: { semanticEmbedderEnabled },
-                        set: { on in
-                            semanticEmbedderEnabled = on
-                            if on { downloadSemantic() }
-                        }
-                    ))
-                    .labelsHidden()
-                }
-            }
-        }
-        #else
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Semantic clustering").fontWeight(.semibold)
-            Text("Not available in this build.")
-                .font(.callout).foregroundStyle(.secondary)
-        }
-        #endif
-    }
-
     // MARK: - Step 3 — Home person
 
     private var homePersonStep: some View {
@@ -325,19 +284,6 @@ struct ProjectSetupWizardView: View {
                 })
             await MainActor.run { reasoningProgress = nil }
         }
-    }
-
-    private func downloadSemantic() {
-        #if canImport(MLXEmbedders) && canImport(MLX)
-        semanticProgress = 0
-        Task {
-            try? await MLXTextEmbedder.shared.loadModel(
-                onProgress: { fraction in
-                    Task { @MainActor in semanticProgress = fraction }
-                })
-            await MainActor.run { semanticProgress = nil }
-        }
-        #endif
     }
 
     // MARK: - Footer

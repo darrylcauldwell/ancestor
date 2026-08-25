@@ -133,35 +133,6 @@ struct CampaignReviewServiceTests {
         let rejections = try db.loadRejections(profileID: "@G@")
         #expect(rejections.contains("gone") && !rejections.contains("kept"))
     }
-
-    @Test func campaignEntriesGroupRequestsAndCountFailures() throws {
-        let db = try makeTempDB()
-        let base = Date()
-        // Simulate a campaign ledger directly (MCP kick_off_research shape).
-        try db.dbQueue.write { conn in
-            for (i, status) in ["completed", "completed", "failed"].enumerated() {
-                try conn.execute(sql: """
-                    INSERT INTO research_run_requests
-                    (id, profile_id, mode, scope, status, error, created_at)
-                    VALUES (?, ?, 'extend', 'county', ?, ?, ?)
-                    """, arguments: [
-                        "req_\(i)", i < 2 ? "@A@" : "@B@", status,
-                        status == "failed" ? "boom" : nil,
-                        base.addingTimeInterval(Double(i)),
-                    ])
-            }
-        }
-        let entries = CampaignReviewService.campaignEntries(
-            since: base.addingTimeInterval(-60), db: db)
-        #expect(entries.count == 2)
-        let a = try #require(entries.first { $0.profileID == "@A@" })
-        #expect(a.requestCount == 2 && a.completed == 2 && a.failed == 0)
-        let b = try #require(entries.first { $0.profileID == "@B@" })
-        #expect(b.failed == 1 && b.lastError == "boom")
-        // Window respected: nothing before `since`.
-        #expect(CampaignReviewService.campaignEntries(
-            since: base.addingTimeInterval(120), db: db).isEmpty)
-    }
 }
 
 /// Prior-session discards are ground truth for cluster-level actions.
@@ -272,20 +243,6 @@ struct CampaignReviewBadgeTests {
     private func makeTempDB() throws -> ProjectDatabase {
         let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
         return try ProjectDatabase(path: path)
-    }
-
-    @Test func watermarkRoundTrips() throws {
-        let db = try makeTempDB()
-        // Seed the single project_meta row (real projects always have one;
-        // the watermark setter is an UPDATE on it).
-        try db.saveProjectMeta(Project(
-            id: UUID(), name: "Test", source: .manual,
-            homePersonID: nil, createdAt: Date(), lastRefreshed: nil))
-        #expect(try db.campaignReviewHighWater() == nil)
-        let mark = Date(timeIntervalSince1970: 1_780_000_000)
-        try db.setCampaignReviewHighWater(mark)
-        let loaded = try #require(try db.campaignReviewHighWater())
-        #expect(abs(loaded.timeIntervalSince(mark)) < 1)
     }
 
     @Test func convergenceBadgeMatchesClusterFactValuesOnly() throws {

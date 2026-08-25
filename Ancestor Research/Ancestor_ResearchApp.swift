@@ -91,7 +91,7 @@ struct Ancestor_ResearchApp: App {
                 ContentUnavailableView(
                     "No review selected",
                     systemImage: "doc.text.magnifyingglass",
-                    description: Text("Pop a review out from Triage or the Research tab.")
+                    description: Text("Reviews open here when a research run finishes, or via Open in Window.")
                 )
                 .frame(minWidth: 720, minHeight: 520)
             }
@@ -170,14 +170,12 @@ struct ContentRoot: View {
     // PROJECT_ONBOARDING_SPEC Part A Step 2 — the user's consent to use the
     // semantic clustering embedder. Default off (core doctrine: fully
     // functional deterministically with no model). Shared across windows.
-    @AppStorage("semanticEmbedderEnabled") private var semanticEmbedderEnabled = false
     @Environment(ReviewWindowBroker.self) private var reviewWindowBroker
 
     var body: some View {
         ContentView()
             .environment(appState)
             .task { await autoLoadReasoningModelIfOnDisk() }
-            .task { await autoLoadEmbedderIfEnabledAndPresent() }
             // Register this window's AppState as the one the detached
             // Record Review window borrows. Last-registered wins — with
             // multiple main windows the most recently opened is the
@@ -222,21 +220,5 @@ struct ContentRoot: View {
             return
         }
         _ = try? await LocalInferenceService.shared.loadModel(configuration: model.configuration)
-    }
-
-    /// PROJECT_ONBOARDING_SPEC Part A Step 2 / B.4 — auto-USE the semantic
-    /// embedder once it is present, so the user opts in once (Settings / the
-    /// setup wizard) rather than clicking "Use semantic model" every session.
-    /// NEVER auto-downloads: it loads only when the user has enabled it AND the
-    /// files are already on disk. Same XCTest guard as the reasoning auto-load.
-    private func autoLoadEmbedderIfEnabledAndPresent() async {
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-            return
-        }
-        guard semanticEmbedderEnabled else { return }
-        #if canImport(MLXEmbedders) && canImport(MLX)
-        guard MLXTextEmbedder.shared.isDownloaded() else { return }
-        try? await MLXTextEmbedder.shared.loadModel()
-        #endif
     }
 }

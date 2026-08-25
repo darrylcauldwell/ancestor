@@ -1443,10 +1443,8 @@ struct ClusterReviewView: View {
             )
     }
 
-    // Legacy ClusterConfidence badge helper removed in Change 4 — all view
-    // surfaces now render the three-axis ConfidenceBadgeView. The enum
-    // itself stays until Change 5 because BulkReviewView still uses it for
-    // routing decisions (friction-tier classification, not display).
+    // Legacy ClusterConfidence badge helper (and the enum itself) removed —
+    // all view surfaces render the three-axis ConfidenceBadgeView.
 
     // MARK: - Discoveries
 

@@ -376,7 +376,7 @@ nonisolated struct ClusteringEngine {
                     // Pre-Change-5 we stamped confidence=.ambiguous on it; the
                     // new model derives that signal at display time from the
                     // presence of contradictions in the cluster (handled in
-                    // BulkReviewView.frictionTier and the badge's tooltip).
+                    // FrictionTier.route and the badge's tooltip).
 
                     // Update original cluster's lifespan
                     if let minYear = clusters[i].records.compactMap({ yearOf($0) }).min() {

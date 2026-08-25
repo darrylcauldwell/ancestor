@@ -48,12 +48,12 @@ struct ReviewWindowRoot: View {
                         } else {
                             placeholder(
                                 "No review to show",
-                                "Pop a review out from Triage or the Research tab — or close this window.")
+                                "Reviews open here when a research run finishes — or close this window.")
                         }
                     } else {
                         placeholder(
                             "Project changed",
-                            "This review belonged to a different project. Close this window and reopen the review from Triage.")
+                            "This review belonged to a different project. Close this window and re-run research from the profile.")
                     }
                 } else {
                     placeholder(

@@ -153,7 +153,7 @@ nonisolated enum PlaceProposer {
         // `reason` + `extractJSONDictionary` rather than `reasonJSON`: the actor
         // returns `Any?`, which is not Sendable and cannot cross back out to a
         // nonisolated caller. The house pattern (ResearchInterpreter,
-        // ClusterAdjudicator, ProseCorpusExtractor) takes the String across and
+        // ProseCorpusExtractor) takes the String across and
         // parses on this side.
         guard let raw = await LocalInferenceService.shared.reason(
             prompt: prompt(for: text, county: county, parishes: parishes),

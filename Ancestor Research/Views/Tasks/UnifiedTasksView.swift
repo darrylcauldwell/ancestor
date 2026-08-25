@@ -594,7 +594,7 @@ struct UnifiedTasksView: View {
             HStack(spacing: 8) {
                 Image(systemName: "sparkle")
                     .foregroundStyle(.blue)
-                Text("\(activeLeadCount) lead\(activeLeadCount == 1 ? "" : "s") awaiting triage")
+                Text("\(activeLeadCount) lead\(activeLeadCount == 1 ? "" : "s") awaiting review")
                     .font(AppTypography.cardBody)
                 Spacer()
                 Button {

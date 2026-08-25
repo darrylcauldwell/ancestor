@@ -19,8 +19,6 @@ struct SettingsPlaceholderView: View {
     @AppStorage("autoLoadReasoningModelAtLaunch") private var autoLoadReasoningModelAtLaunch = false
     /// PROJECT_ONBOARDING_SPEC Part A Step 2 — semantic embedder consent
     /// (shared with the setup wizard + the launch auto-load).
-    @AppStorage("semanticEmbedderEnabled") private var semanticEmbedderEnabled = false
-    @State private var semanticEmbedderProgress: Double?
 
     /// Email extracted from project source — single source of truth.
     private var wikiTreeEmail: String {
@@ -220,7 +218,6 @@ struct SettingsPlaceholderView: View {
             // absent) and the app auto-uses it whenever present thereafter;
             // disabling stops the launch auto-load next session.
             Section("Semantic clustering") {
-                semanticEmbedderSection
             }
 
             Section {
@@ -392,46 +389,6 @@ struct SettingsPlaceholderView: View {
         if needsReload { return "Switch Model" }
         return "Load Model"
     }
-
-    /// PROJECT_ONBOARDING_SPEC Part A Step 2 — the semantic embedder toggle,
-    /// mirroring the setup wizard. Enabling downloads it (with progress) and
-    /// the launch auto-load uses it whenever present thereafter.
-    @ViewBuilder
-    private var semanticEmbedderSection: some View {
-        #if canImport(MLXEmbedders) && canImport(MLX)
-        Toggle("Use semantic clustering model", isOn: Binding(
-            get: { semanticEmbedderEnabled },
-            set: { on in
-                semanticEmbedderEnabled = on
-                if on { downloadSemanticEmbedder() }
-            }
-        ))
-        if let p = semanticEmbedderProgress {
-            ProgressView(value: p) { Text("Downloading… \(Int(p * 100))%") }
-        }
-        Text("Tighter “Possible People” grouping by meaning, not just spelling. About \(MLXTextEmbedder.estimatedSizeMB) MB, downloaded on demand. Off by default — clustering works without it.")
-            .font(AppTypography.badge)
-            .foregroundStyle(.tertiary)
-        #else
-        Text("Not available in this build.")
-            .font(AppTypography.badge)
-            .foregroundStyle(.tertiary)
-        #endif
-    }
-
-    private func downloadSemanticEmbedder() {
-        #if canImport(MLXEmbedders) && canImport(MLX)
-        semanticEmbedderProgress = 0
-        Task {
-            try? await MLXTextEmbedder.shared.loadModel(
-                onProgress: { fraction in
-                    Task { @MainActor in semanticEmbedderProgress = fraction }
-                })
-            await MainActor.run { semanticEmbedderProgress = nil }
-        }
-        #endif
-    }
-
     private var reasoningModelSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Picker("Model", selection: $reasoningModelChoiceRaw) {

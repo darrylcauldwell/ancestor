@@ -8,12 +8,13 @@ struct SidebarView: View {
     /// reveals tabs as the project earns them — Workbench on first note,
     /// Tasks once a manual project crosses the 5-profile threshold (always
     /// visible for imported projects), Sourcing once any citation exists.
-    /// Tree, Triage, and Settings are always shown. (Leads merged into
-    /// Tasks — see DESIGN.md §7.13.)
+    /// Tree, Health, Workbench and Settings are always shown — the Workbench
+    /// carries the Attention router now the Research/Triage tabs are retired
+    /// (SC-9; review happens on profile cards).
     private var visibleTabs: [SidebarTab] {
         SidebarTab.allCases.filter { tab in
             switch tab {
-            case .tree, .research, .triage, .health, .settings:
+            case .tree, .health, .settings:
                 return true
             case .tasks:
                 return appState.tasksTabVisible
@@ -22,7 +23,7 @@ struct SidebarView: View {
             case .sourcing:
                 return appState.sourcingTabVisible
             case .workbench:
-                return appState.workbenchHasContent
+                return true
             }
         }
     }
@@ -78,8 +79,6 @@ nonisolated extension SidebarTab {
         case .tree: "person.3"
         case .tasks: "checklist"
         case .sourcing: "checkmark.seal"
-        case .research: "magnifyingglass"
-        case .triage: "checklist.checked"
         case .places: "mappin.and.ellipse"
         case .health: "heart.text.square"
         case .workbench: "rectangle.grid.2x2"

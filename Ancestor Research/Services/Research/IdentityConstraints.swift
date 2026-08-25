@@ -3,7 +3,7 @@ import Foundation
 /// Phase 5 of the lead-discovery pivot (`AncestorApp/LEAD_DISCOVERY_SPEC.md`
 /// §7 + §9): the identity-constraint core, SHARED between the two clustering
 /// roles — acceptance (`ClusteringEngine`, rich per-subject records) and
-/// discovery (`LeadDiscoveryEngine`, flat corpus leads).
+/// discovery (the retired `LeadDiscoveryEngine`; kept general for reuse).
 ///
 /// Before Phase 5 each engine carried its own copy of these rules, and they
 /// had already drifted (born-after-death margin was +1 in one and +2 in the

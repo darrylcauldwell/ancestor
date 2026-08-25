@@ -3,7 +3,7 @@ import os
 
 /// Reconstructs a reviewable `ResearchResult` from PERSISTED state — the
 /// substrate an overnight watcher campaign (or any past run) leaves in the
-/// database — so BulkReviewView / ClusterReviewView can review it without a
+/// database — so ClusterReviewView can review it without a
 /// live pipeline session (CAMPAIGN_REVIEW_SPEC Change 5).
 ///
 /// Sources of truth (all persisted):
@@ -118,80 +118,6 @@ enum CampaignReviewService {
             .filter { clusterKeys.contains($0.valueKey) }
             .map(\.level)
             .max()
-    }
-
-    // MARK: - Campaign enumeration
-
-    /// One profile's campaign outcome — what a run window attempted.
-    struct CampaignEntry: Identifiable, Sendable {
-        var id: String { profileID }
-        let profileID: String
-        let requestCount: Int
-        let completed: Int
-        let failed: Int
-        let lastError: String?
-    }
-
-    /// Enumerate the campaign window: which profiles were researched since
-    /// `since`, including failures — the review surface shows what a
-    /// campaign SKIPPED, not just what it found.
-    static func campaignEntries(
-        since: Date,
-        db: ProjectDatabase
-    ) -> [CampaignEntry] {
-        let requests = (try? db.loadRunRequests(since: since)) ?? []
-        var byProfile: [String: [ProjectDatabase.RunRequestRow]] = [:]
-        for request in requests {
-            guard let pid = request.profileID else { continue }  // lead runs reviewed via lead surfaces
-            byProfile[pid, default: []].append(request)
-        }
-        return byProfile.map { pid, rows in
-            CampaignEntry(
-                profileID: pid,
-                requestCount: rows.count,
-                completed: rows.filter { $0.status == "completed" }.count,
-                failed: rows.filter { $0.status == "failed" }.count,
-                lastError: rows.first(where: { $0.error != nil })?.error
-            )
-        }
-        .sorted { $0.profileID < $1.profileID }
-    }
-
-    /// Leads to review in the window — gathered across the WHOLE STORE, not
-    /// through `campaignEntries`.
-    ///
-    /// This deliberately does not go via run requests, and it lives here, next
-    /// to `campaignEntries`, so the difference is visible. Triage used to
-    /// collect leads inside its loop over campaign entries; because that list
-    /// is built purely from `research_run_requests`, every lead created without
-    /// a run was structurally invisible — MCP `submit_lead`, household
-    /// absorption and manual entry all create leads with no request, and the
-    /// entries loop additionally skips any profile whose result cannot be
-    /// reconstructed, dropping that profile's leads with it. The owner's report
-    /// (2026-08-21): two children found in a 1901 census, submitted over MCP,
-    /// absent from Triage and reachable only by knowing which profile to open.
-    ///
-    /// A lead is a finding in its own right and does not need a run to justify
-    /// showing it.
-    ///
-    /// `investigating` (pipeline in flight) and `promoted` (already a profile)
-    /// are excluded — neither is awaiting a decision.
-    ///
-    /// #38: un-actioned leads (`new`/`investigated`) IGNORE the window. "Mark
-    /// reviewed" means *seen*, and the watermark treating it as *done* buried
-    /// four actionable leads mid-session (owner, 2026-08-24) with no escape
-    /// while other rows kept the list non-empty. A lead is awaiting a decision
-    /// until promoted or dismissed — the queue is the truth, not the stamp.
-    /// Only the dismissed fold stays windowed (it is restorable history, not
-    /// work).
-    static func campaignLeads(
-        since: Date, db: ProjectDatabase
-    ) -> (leads: [Lead], dismissed: [Lead]) {
-        let all = (try? db.loadLeads()) ?? []
-        return (
-            leads: all.filter { $0.status == .new || $0.status == .investigated },
-            dismissed: all.filter { $0.status == .dismissed && $0.createdAt >= since }
-        )
     }
 
     /// The add-to-tree action a lead warrants, or nil for "Research first".

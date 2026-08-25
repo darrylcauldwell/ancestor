@@ -28,10 +28,8 @@ struct GettingStartedView: View {
     static let entries: [Entry] = [
         Entry(tab: .tree, icon: "tree",
               blurb: "Your family tree — everything you already know. Click a person to inspect them, right-click for actions, and set a home person to anchor navigation. Accepted records land here."),
-        Entry(tab: .research, icon: "magnifyingglass",
-              blurb: "Pick a person and search the free record sources for evidence about them. Results don't change the tree until you review them."),
-        Entry(tab: .triage, icon: "tray.full",
-              blurb: "Review what research found. Accept the records that match onto the profile; discard the rest — discards are remembered so they don't come back."),
+        Entry(tab: .workbench, icon: "rectangle.grid.2x2",
+              blurb: "Your research desk. The Attention section lists everything awaiting review anywhere in the tree — pending facts, leads, relationship proposals — and jumps you to the person's card, where the reviewing happens. Alongside it: notes, open questions, hunches, and focus sets for the line you're working on."),
         Entry(tab: .tasks, icon: "checklist",
               blurb: "Your research worklist — open questions and tentative facts you're actively working, so you always know what to do next."),
         Entry(tab: .places, icon: "mappin.and.ellipse",
@@ -40,8 +38,6 @@ struct GettingStartedView: View {
               blurb: "The tree's data quality at a glance — cruft, impossibilities, duplicates, garbled names, suspect places, and missing facts across the whole tree, many with a one-click fix."),
         Entry(tab: .sourcing, icon: "doc.text.magnifyingglass",
               blurb: "Which facts are backed by a citation and which still need evidence, so you can see how well-sourced the tree is at a glance."),
-        Entry(tab: .workbench, icon: "square.grid.2x2",
-              blurb: "Your research workspace — notes, open questions, hunches, and focus sets for the line you're working on."),
         Entry(tab: .settings, icon: "gearshape",
               blurb: "Home region, local AI models, which sources to use, backups — and “Re-run setup” to revisit these choices."),
     ]

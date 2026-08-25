@@ -109,7 +109,7 @@ struct MainView: View {
             switch screen {
             case .treePedigree, .treeDescendants: return .tree
             case .audit: return .tasks
-            case .research: return .triage
+            case .research: return .tree
             }
         }
         return .tree
@@ -161,10 +161,6 @@ struct MainView: View {
                 )
             case .sourcing:
                 SourcingIntegrityView()
-            case .research:
-                ResearchView(researchVM: researchVM, role: .research)
-            case .triage:
-                ResearchView(researchVM: researchVM, role: .triage)
             case .places:
                 PlacesView(onOpenProfile: openProfileInEdit)
             case .health:
@@ -488,7 +484,7 @@ struct MainView: View {
             // Sidebar tab switching: Cmd+1 ... Cmd+5
             shortcutButton("1", modifiers: .command) { selectedTab = .tree }
             shortcutButton("2", modifiers: .command) { selectedTab = .tasks }
-            shortcutButton("3", modifiers: .command) { selectedTab = .triage }
+            shortcutButton("3", modifiers: .command) { selectedTab = .workbench }
             shortcutButton("4", modifiers: .command) {
                 if appState.workbenchHasContent { selectedTab = .workbench }
             }
@@ -577,10 +573,11 @@ struct MainView: View {
         appState.pendingPersonAction = .editSelected(profileID: profileID)
     }
 
-    /// Tasks' leads-pointer banner hands off here — leads live in Triage
-    /// (owner decision 2026-07-17), Tasks only points at the queue.
+    /// Tasks' leads-pointer banner hands off here — with Triage retired
+    /// (SC-9), the Workbench Attention router is the store-wide overview;
+    /// review itself happens on profile cards.
     private func openTriage() {
-        selectedTab = .triage
+        selectedTab = .workbench
     }
 
     /// Shared "research this lead" handler — invoked from Task rows in
@@ -603,14 +600,6 @@ nonisolated enum SidebarTab: String, CaseIterable {
     case tree = "Tree"
     case tasks = "Tasks"
     case sourcing = "Sourcing"
-    /// Research: the launcher — profiles ranked by gaps, per-row Research
-    /// buttons, Research All. Owner direction 2026-07-15: research and
-    /// triage are different jobs, so they are different tabs.
-    case research = "Research"
-    /// Triage: the Research Findings queue — review what research found
-    /// (clusters, leads, conflicts), accept or discard. Nothing is kicked
-    /// off from here.
-    case triage = "Triage"
     /// Places: the location gazetteer — every distinct place string the tree
     /// uses, scored for how confidently it maps to a registration district, so
     /// a human settles what the data cannot. Deliberately NOT a Health audit

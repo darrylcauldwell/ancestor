@@ -146,23 +146,6 @@ final class AppState {
     /// it for its own profile and clears it.
     var requestLedgerReviewProfileID: String?
 
-    /// Cross-view request: open the pending-facts review screen for this
-    /// profile on the Triage tab. Set together with `requestSidebarTab`
-    /// by the profile panel's pending badge so the user lands on the
-    /// profile's review cards — not Triage's default profile selector
-    /// (whose prominent "Research All" button is a hazardous
-    /// mis-click when the user expected review). `ResearchView`
-    /// consumes via `.onChange` + `.onAppear` and clears the request.
-    var requestPendingReviewProfileID: String?
-
-    /// Cross-view request: open the Triage → Possible People panel scoped to
-    /// this profile — set by a profile's "Possible People (N)" section so the
-    /// user lands on that person's surfaced candidate clusters. Set together
-    /// with `requestSidebarTab = .triage`; `ResearchView` consumes it, flips
-    /// the Triage segment to Possible People, and scopes the panel
-    /// (POSSIBLE_PEOPLE_CONTEXT_SPEC).
-    var requestPossiblePeopleProfileID: String?
-
     /// PROFILE_LIFECYCLE_SPEC Change 1 — one canonical profile-action set,
     /// surfaced identically in the tree right-click menu AND the profile card.
     /// The card-owned sheet actions (Edit / Timeline / Relationship / Cleanse)

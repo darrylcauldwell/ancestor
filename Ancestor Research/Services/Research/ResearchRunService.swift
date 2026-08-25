@@ -3,7 +3,7 @@ import os
 
 /// Single construction path for research runs. Every entry point —
 /// interactive UI runs (`ResearchViewModel`), whole-tree sweeps
-/// (`WholeTreeResearchViewModel`), and MCP-requested watcher runs
+/// (retired 2026-08-25), and MCP-requested watcher runs
 /// (`RunRequestWatcher`) — builds its pipeline here, so run behaviour
 /// cannot diverge by trigger (Phase 1 slice 6,
 /// ARCHITECTURE_REVIEW_2026-07.md).

@@ -57,7 +57,7 @@ nonisolated enum LeadContradictionCheck {
     }
 
     /// Coarse event-kind bucket from the lead's evidence/relationship text —
-    /// same heuristic as `LeadDiscoveryEngine.eventKind` (private there).
+    /// heuristic inherited from the retired `LeadDiscoveryEngine.eventKind`.
     static func eventKind(of lead: Lead) -> String {
         let hay = (lead.evidence + " " + (lead.relationship ?? "")).lowercased()
         if hay.contains("marriage") || hay.contains("spouse") { return "marriage" }

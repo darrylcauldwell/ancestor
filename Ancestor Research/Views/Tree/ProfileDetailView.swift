@@ -121,11 +121,6 @@ struct ProfileDetailView: View {
                     sourceSection
                 }
 
-                if !isEditing && surfacedLeadCount > 0 {
-                    Divider()
-                    possiblePeopleSection
-                }
-
                 if !isEditing {
                     Divider()
                     sourcesLedgerSection
@@ -303,34 +298,6 @@ struct ProfileDetailView: View {
             .controlSize(.mini)
             .help("Close")
             .accessibilityLabel("Close profile")
-        }
-    }
-
-    /// Lightweight discovery pointer (POSSIBLE_PEOPLE_CONTEXT_SPEC step 4):
-    /// signals that this person's research surfaced candidate people, and
-    /// deep-links into the Possible People panel scoped to them — where the
-    /// actual clustering + assessment happens. A summary, not a second copy
-    /// of the interactive cards.
-    private var possiblePeopleSection: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "person.2.badge.gearshape")
-                .foregroundStyle(.blue)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Possible People")
-                    .font(AppTypography.cardTitle)
-                Text("\(surfacedLeadCount) lead\(surfacedLeadCount == 1 ? "" : "s") from this person's research — candidate people to review")
-                    .font(AppTypography.cardMeta)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button {
-                appState.requestPossiblePeopleProfileID = profile.id
-                appState.requestSidebarTab = .triage
-            } label: {
-                Label("Explore", systemImage: "arrow.right")
-            }
-            .buttonStyle(.glassProminent)
-            .controlSize(.small)
         }
     }
 
