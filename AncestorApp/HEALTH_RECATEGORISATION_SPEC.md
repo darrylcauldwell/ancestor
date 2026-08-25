@@ -4,9 +4,13 @@
 HR3 `f7d6b68`, HR4 `a3f48de`, plus review fixes `cfcddfc` (empty-state gate
 switched to the row set so synthetic dispute/backfill/contradiction rows
 survive an otherwise-clean audit; import toast uses
-`AuditSummary.actionableTotal`) and `0588e9c` (false quick wins, stranded
+`AuditSummary.actionableTotal`), `0588e9c` (false quick wins, stranded
 ⚡ filter, auto-approval badge accuracy, dispute ordering + key injectivity,
-single ladder evaluation per body pass).
+single ladder evaluation per body pass) and `e807e23` (nine defects from a
+second review: conflict-sweep row refresh, "All cleared" vs "No matches",
+gate mirror completed, unpinned disputes banded blue via `withinBandRank`,
+single-missing censusRelationship counted as a quick win, display-label
+badge, plus two ordering tests that could not fail).
 
 **Owner walk-through owed:** Health should show ~176 actionable rows led by
 conflicts then reds, chips no longer led by Completeness/Missing-bio, the ⚡
@@ -107,7 +111,11 @@ runners-up): **one list, one deterministic six-key sort** —
    urgency; badge = machinery.
 2. **Severity** — red → amber → blue from an explicit per-row-type table:
    contradictory facts and duplicate clusters are amber; backfill/cite
-   proposals are blue.
+   proposals and unpinned disputes are blue. **2a. Within-band** — only
+   unpinned disputes grade finer than the three bands (refinement > note >
+   ungraded); every other row is 0, so the ladder is unperturbed. Disputes
+   must never get their own ranks below blue: a structural `.note` dispute
+   blocks all auto-approval yet would sort dead last.
 3. **Quick win** — a deterministic, undoable one-click fix leads its colour
    band. Membership comes from ONE registry
    (`HealthTriage.isOneClickFinding`, guards mirroring `AuditFixButton`
@@ -117,9 +125,14 @@ runners-up): **one list, one deterministic six-key sort** —
    worst-first. That chip is the 2-minute-session mode. A row that merely
    ROUTES to the profile (`censusUnabsorbed`, `parishFamilyUnabsorbed` — a
    tree change needing full context) or fetches from the network is NOT a
-   quick win. Because the queue is meant to be emptied, an emptied filter
-   always shows "All cleared" with a "Show all findings" exit, and the chip
-   bar always renders while a filter is active.
+   quick win — but a row IS one if the list's own inline panel renders a
+   deterministic click for it (a single missing census relative), so the
+   registry mirrors every one-click **the list renders**, not only
+   `AuditFixButton`'s. Because the queue is meant to be emptied, an emptied
+   filter always shows an exit ("All cleared" when the chip alone emptied it,
+   "No matches" when a search or pill did — never claim the tree is clean
+   while rows hide behind a facet), and the chip bar always renders while a
+   filter is active.
 4. **Rule label** — alphabetical (stable as counts change).
 5. **Person** — display name, case-insensitive, then id.
 6. **Value key** — run-stable, value-derived and injective (never
