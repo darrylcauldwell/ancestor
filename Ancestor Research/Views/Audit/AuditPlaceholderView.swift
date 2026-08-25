@@ -163,24 +163,43 @@ struct HealthView: View {
                 ProgressView("Running audit...")
                     .frame(maxHeight: .infinity)
             } else if let summary = auditVM.summary {
-                // Empty-state gate is displayRows, NOT filteredResults: the
+                // The ladder is computed ONCE per body pass and threaded to
+                // every consumer (empty gate, chips, rows) — it was being
+                // re-derived four times, and its K3 registry runs the census
+                // reconciler for censusRelationship rows (review 2026-08-25).
+                let ladder = mergedLadder
+                let rows = filteredRows(from: ladder)
+                // Empty-state gate is the ROW set, not filteredResults: the
                 // synthetic rows (open disputes, contradictory facts, census/
                 // death-age backfills, corroborations) are not AuditResults,
                 // and post-#HR2 a curated tree routinely has zero audit rows
                 // while those still need action — "No Issues" must not hide
-                // them (nor dead-end the Conflicts pill). An active chip
-                // filter keeps the else branch so its chips stay reachable.
-                if displayRows.isEmpty && ruleFilter == nil {
-                    ContentUnavailableView {
-                        Label("No Issues", systemImage: "checkmark.circle")
-                    } description: {
-                        Text("Checked \(summary.profilesChecked) profiles.")
+                // them (nor dead-end the Conflicts pill).
+                if rows.isEmpty {
+                    if ruleFilter == nil {
+                        ContentUnavailableView {
+                            Label("No Issues", systemImage: "checkmark.circle")
+                        } description: {
+                            Text("Checked \(summary.profilesChecked) profiles.")
+                        }
+                    } else {
+                        // A filter the user just emptied (the ⚡ queue is
+                        // MEANT to be cleared). Never a blank pane with no
+                        // way back — always an explicit exit.
+                        ContentUnavailableView {
+                            Label("All cleared", systemImage: "checkmark.circle")
+                        } description: {
+                            Text("Nothing left in this filter.")
+                        } actions: {
+                            Button("Show all findings") { ruleFilter = nil }
+                                .buttonStyle(.glassProminent)
+                        }
                     }
                 } else {
-                    ruleFilterChips
+                    ruleFilterChips(ladder: ladder)
                     ScrollView {
                         LazyVStack(spacing: 10) {
-                            ForEach(displayRows) { row in
+                            ForEach(rows) { row in
                                 switch row {
                                 case .duplicateCluster(let cluster):
                                     duplicateClusterRow(cluster)
@@ -310,53 +329,18 @@ struct HealthView: View {
         let pairs: [(String, String)]
     }
 
-    /// Display rows — the #HR4 Severity Ladder. Duplicate-pair findings
-    /// collapse to ONE grouped row per identity cluster (union-find, owner
-    /// request 2026-07-25); everything then sorts through `HealthTriage`:
-    /// pinned conflicts → red → amber → blue, one-clicks leading each band,
-    /// rules alphabetical, people alphabetical, run-stable tiebreak.
-    private var displayRows: [HealthRow] {
-        // Synthetic-chip early returns — single-type lists, still ladder-
-        // sorted so people stay alphabetical and stable.
-        if ruleFilter == censusBackfillFilterID {
-            return sortedByTriage(backfillProposals.map { HealthRow.censusBackfill($0) })
-        }
-        if ruleFilter == deathAgeBackfillFilterID {
-            return sortedByTriage(deathAgeProposals.map { HealthRow.deathAgeBackfill($0) })
-        }
-        if ruleFilter == censusCiteFilterID {
-            return sortedByTriage(censusCorroborations.map { HealthRow.censusCorroboration($0) })
-        }
-        if ruleFilter == contradictoryFactsFilterID {
-            return sortedByTriage(contradictoryFindings.map { HealthRow.contradictoryFacts($0) })
-        }
-        // The synthetic conflicts chip (and the disputes pill) show only disputes.
-        if ruleFilter == disputeConflictFilterID {
-            return sortedByTriage(disputeRows)
-        }
-        // ⚡ mode: the whole merged list filtered to one-click rows, same order.
-        if ruleFilter == quickWinsFilterID {
-            return mergedRows(findings: auditVM.filteredResults)
-                .map { (triageKey(for: $0), $0) }
-                .filter { $0.0.quickWinRank == 0 }
-                .sorted { $0.0 < $1.0 }
-                .map(\.1)
-        }
-        // A real rule chip: that rule's findings only (clustered if duplicates).
-        if let rule = ruleFilter {
-            let results = auditVM.filteredResults.filter { $0.ruleID == rule }
-            let dupes = results.filter { $0.ruleID == "duplicateDetection" }
-            let others = results.filter { $0.ruleID != "duplicateDetection" }
-            var rows = duplicateClusters(from: dupes).map { HealthRow.duplicateCluster($0) }
-            rows += others.map { HealthRow.finding($0) }
-            return sortedByTriage(rows)
-        }
-        return sortedByTriage(mergedRows(findings: auditVM.filteredResults))
-    }
-
-    /// Everything the unfiltered Health list holds: findings (duplicates
-    /// clustered) + open disputes + the synthetic proposal rows.
-    private func mergedRows(findings: [AuditResult]) -> [HealthRow] {
+    /// One keyed, ladder-sorted row for everything the unfiltered Health list
+    /// holds — findings (duplicate pairs collapsed to ONE row per identity
+    /// cluster, owner request 2026-07-25), open disputes, and the synthetic
+    /// proposal rows. Sorted by `HealthTriage`: pinned conflicts → red →
+    /// amber → blue, one-clicks leading each band, rules alphabetical, people
+    /// alphabetical, run-stable tiebreak.
+    ///
+    /// Every consumer derives from THIS array, so the chip counts and the
+    /// visible rows are the same data by construction — and the K3 registry
+    /// (which reads the snapshot per row) runs once per body pass.
+    private var mergedLadder: [LadderRow] {
+        let findings = auditVM.filteredResults
         let dupes = findings.filter { $0.ruleID == "duplicateDetection" }
         let others = findings.filter { $0.ruleID != "duplicateDetection" }
         var rows: [HealthRow] = disputeRows
@@ -367,19 +351,52 @@ struct HealthView: View {
         rows += duplicateClusters(from: dupes).map { HealthRow.duplicateCluster($0) }
         rows += others.map { HealthRow.finding($0) }
         return rows
+            .map { LadderRow(key: triageKey(for: $0), row: $0) }
+            .sorted { $0.key < $1.key }
     }
 
-    /// Decorate–sort–undecorate through the ladder (keys computed once).
-    private func sortedByTriage(_ rows: [HealthRow]) -> [HealthRow] {
-        rows.map { (triageKey(for: $0), $0) }
-            .sorted { $0.0 < $1.0 }
-            .map(\.1)
+    struct LadderRow: Identifiable {
+        let key: HealthTriage.Key
+        let row: HealthRow
+        var id: String { row.id }
+    }
+
+    /// The active chip applied to the merged ladder — order preserved, so
+    /// every filtered view is still worst-first.
+    private func filteredRows(from ladder: [LadderRow]) -> [HealthRow] {
+        let matching: (LadderRow) -> Bool
+        switch ruleFilter {
+        case nil:
+            return ladder.map(\.row)
+        case quickWinsFilterID:
+            matching = { $0.key.quickWinRank == 0 }
+        case censusBackfillFilterID:
+            matching = { if case .censusBackfill = $0.row { true } else { false } }
+        case deathAgeBackfillFilterID:
+            matching = { if case .deathAgeBackfill = $0.row { true } else { false } }
+        case censusCiteFilterID:
+            matching = { if case .censusCorroboration = $0.row { true } else { false } }
+        case contradictoryFactsFilterID:
+            matching = { if case .contradictoryFacts = $0.row { true } else { false } }
+        case disputeConflictFilterID:
+            matching = { if case .dispute = $0.row { true } else { false } }
+        case let rule?:
+            // A real rule chip. Duplicate findings live inside cluster rows,
+            // so that chip matches the cluster type rather than a ruleID.
+            if rule == "duplicateDetection" {
+                matching = { if case .duplicateCluster = $0.row { true } else { false } }
+            } else {
+                matching = { if case .finding(let r) = $0.row { r.ruleID == rule } else { false } }
+            }
+        }
+        return ladder.filter(matching).map(\.row)
     }
 
     private func triageKey(for row: HealthRow) -> HealthTriage.Key {
+        let hasDB = appState.currentDatabase != nil
         switch row {
         case .finding(let r):
-            return HealthTriage.findingKey(r, snapshot: appState.snapshot)
+            return HealthTriage.findingKey(r, snapshot: appState.snapshot, hasDatabase: hasDB)
         case .duplicateCluster(let c):
             return HealthTriage.duplicateClusterKey(firstName: c.names.first, clusterID: c.id)
         case .censusBackfill(let p):
@@ -394,20 +411,10 @@ struct HealthView: View {
                 demotableCount: f.demotable.count)
         case .dispute(let d):
             return HealthTriage.disputeKey(
-                severity: d.severity, field: d.field, entityID: d.entityID,
+                severity: d.severity, kind: d.kind, field: d.field,
+                entityID: d.entityID, rowID: d.id,
                 personName: appState.snapshot.profiles[d.entityID]?.displayName)
         }
-    }
-
-    /// The ⚡ chip's count — same membership as the ladder's K3 and the row
-    /// badges, over the same pill/search-filtered universe as the other chips.
-    private var quickWinCount: Int {
-        auditVM.filteredResults.filter {
-            HealthTriage.isOneClickFinding($0, snapshot: appState.snapshot)
-        }.count
-            + backfillProposals.count + deathAgeProposals.count
-            + censusCorroborations.count
-            + contradictoryFindings.filter { !$0.demotable.isEmpty }.count
     }
 
     private func duplicateClusters(from results: [AuditResult]) -> [DuplicateCluster] {
@@ -674,7 +681,9 @@ struct HealthView: View {
                 .font(.body)
                 .frame(width: 24)
                 .accessibilityLabel("Severity \(result.severity.rawValue)")
-            if HealthTriage.isOneClickFinding(result, snapshot: appState.snapshot) {
+            if HealthTriage.isOneClickFinding(
+                result, snapshot: appState.snapshot,
+                hasDatabase: appState.currentDatabase != nil) {
                 quickWinBadge
             }
             // Clicking the finding jumps to the profile it is about
@@ -812,11 +821,18 @@ struct HealthView: View {
                                 .font(AppTypography.badge)
                                 .foregroundStyle(disputeSeverityColor(sev))
                         }
-                        if HealthTriage.disputePins(row.severity) {
-                            Label("Blocks auto-approval", systemImage: "nosign")
+                        // Mirrors the §14.3 gate EXACTLY — which ignores
+                        // severity (a cosmetic refinement blocks its field
+                        // too) and does NOT refuse on a deferred dispute.
+                        // Deliberately independent of the pin (review
+                        // 2026-08-25: the pin is about urgency, this is about
+                        // machinery).
+                        if HealthTriage.blocksAutoApproval(resolution: row.resolution) {
+                            Label(HealthTriage.autoApprovalBadgeText(kind: row.kind, field: row.field),
+                                  systemImage: "nosign")
                                 .font(AppTypography.badge)
                                 .foregroundStyle(.red)
-                                .help("MCP auto-approval refuses while this field has an open dispute — resolving it unblocks the machinery")
+                                .help("MCP auto-approval refuses while this dispute is open — resolving it unblocks the machinery. (Deferring does not: the gate only clears on a real resolution.)")
                         }
                     }
                     Text(disputeMessage(row))
@@ -1140,7 +1156,10 @@ struct HealthView: View {
         return out
     }
 
-    @ViewBuilder private var ruleFilterChips: some View {
+    @ViewBuilder private func ruleFilterChips(ladder: [LadderRow]) -> some View {
+        // The ⚡ count is derived from the SAME ladder the rows come from, so
+        // the chip's N and the rows it reveals can never disagree.
+        let quickWinCount = ladder.count { $0.key.quickWinRank == 0 }
         let counts = Dictionary(grouping: auditVM.filteredResults, by: { $0.ruleID })
             .mapValues(\.count)
             .sorted { $0.value > $1.value }
@@ -1149,7 +1168,13 @@ struct HealthView: View {
         // gap ("Missing bio") shows blue, an amber warning shows orange, an error
         // shows red — the severity is legible before you even select the chip.
         let severityByRule = worstSeverityByRule
-        if counts.count > 1 || !backfillProposals.isEmpty || !deathAgeProposals.isEmpty
+        // The bar must render whenever a filter is ACTIVE (it carries the only
+        // way back), or whenever any chip would be offered — including the ⚡
+        // and Conflicts chips, which the old gate ignored (review 2026-08-25:
+        // a single-rule list of one-click findings hid its own clearance mode).
+        if ruleFilter != nil || counts.count > 1 || quickWinCount > 0
+            || !openDisputeRows.isEmpty
+            || !backfillProposals.isEmpty || !deathAgeProposals.isEmpty
             || !contradictoryFindings.isEmpty || !censusCorroborations.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -1158,7 +1183,7 @@ struct HealthView: View {
                     }
                     // #HR4 — the opportunistic-session mode: one tap turns the
                     // list into a pure clearance queue, still worst-first.
-                    if quickWinCount > 0 {
+                    if quickWinCount > 0 || ruleFilter == quickWinsFilterID {
                         ruleChip(label: "⚡ Quick wins (\(quickWinCount))",
                                  selected: ruleFilter == quickWinsFilterID) {
                             ruleFilter = (ruleFilter == quickWinsFilterID) ? nil : quickWinsFilterID

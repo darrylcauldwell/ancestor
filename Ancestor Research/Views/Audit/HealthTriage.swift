@@ -8,24 +8,32 @@ import AncestorKit
 /// both without a blended score: one lexicographic sort on a six-part key.
 /// Every position is explainable by reciting the keys in order —
 ///
-///   K1  pin        correction/conflict disputes first: they are the only
-///                  rows that BLOCK the MCP auto-approval gate (§14.3
-///                  refuses on an open dispute). Cosmetic refinement/note
-///                  disputes do NOT pin — a conflict-sweep of trivia must
-///                  never bury the reds (pin-flood guard).
+///   K1  pin        genuine disagreements (correction/conflict disputes)
+///                  first: the stored value may be WRONG and only the user
+///                  can choose. Cosmetic refinement/note disputes do NOT
+///                  pin — a conflict sweep of trivia must never bury the
+///                  reds (pin-flood guard). Whether a dispute blocks the
+///                  MCP auto-approval gate is a separate, precisely
+///                  mirrored fact (`blocksAutoApproval`) shown as its own
+///                  row badge — it is NOT what earns the pin.
 ///   K2  severity   red → amber → blue, from an explicit per-row-type table
-///                  (no inference). Inside the pin block this slot orders
-///                  correction before conflict.
+///                  (no inference). Disputes run the full DiscrepancySeverity
+///                  ladder — correction, conflict (both pinned), then
+///                  refinement, then note — so worst-first survives inside
+///                  the cosmetic band too.
 ///   K3  quick win  a deterministic one-click undoable fix leads its colour
 ///                  band — the "equal factor". Membership comes from ONE
 ///                  registry (`isOneClickFinding`) shared by the sort, the
 ///                  ⚡ badge, and the ⚡ Quick-wins chip, so they can never
-///                  disagree. Compare/Resolve are judgement, never quick.
+///                  disagree. Compare/Resolve — and anything that merely
+///                  ROUTES to the profile or fetches from the network — are
+///                  judgement, never quick.
 ///   K4  rule label alphabetical by display label — stable as counts change.
 ///   K5  person     display name, case-insensitive, then profile id — kills
 ///                  the dictionary-iteration jitter between audit runs.
 ///   K6  value key  run-stable value-derived tiebreak (NEVER AuditResult.id,
-///                  which is a fresh UUID every audit pass).
+///                  which is a fresh UUID every audit pass), carrying enough
+///                  identity to make the key injective.
 ///
 /// Pure and view-free so the ordering rules are testable without a host
 /// (HealthTriageTests).
@@ -51,15 +59,23 @@ enum HealthTriage {
     /// one-click fix. Guards mirror `AuditFixButton`'s switch EXACTLY — a
     /// row must never wear the ⚡ badge and then render no button.
     ///
-    /// `censusUnabsorbed` / `parishFamilyUnabsorbed` count unconditionally:
-    /// the audit only fires when an unabsorbed household/family exists, so
-    /// the finding itself is the proposal signal (re-deriving the DB-backed
-    /// proposal here would put evidence reads inside a sort comparator).
-    static func isOneClickFinding(_ r: AuditResult, snapshot: FamilyGraphSnapshot) -> Bool {
+    /// `hasDatabase` mirrors the `appState.currentDatabase` guard the
+    /// FreeBMD-enrich button sits behind.
+    ///
+    /// NOT one-click, though they look like it (review 2026-08-25):
+    /// `censusUnabsorbed` / `parishFamilyUnabsorbed` have no AuditFixButton
+    /// case at all — in the Health host their detail row renders "Review in
+    /// profile" (a navigation: adding people is a tree change that must be
+    /// confirmed in full context) or "Load household" (a network fetch).
+    /// Neither is a deterministic undoable click, so neither earns the ⚡.
+    static func isOneClickFinding(
+        _ r: AuditResult, snapshot: FamilyGraphSnapshot, hasDatabase: Bool
+    ) -> Bool {
         switch r.ruleID {
-        case "censusParentUnlock", "freebmdLinkMissing",
-             "censusUnabsorbed", "parishFamilyUnabsorbed":
+        case "censusParentUnlock":
             return true
+        case "freebmdLinkMissing":
+            return hasDatabase
         case "excessParentEdges":
             return r.relatedProfileIDs?.isEmpty == false
         case "missingCoParent":
@@ -83,17 +99,45 @@ enum HealthTriage {
         }
     }
 
-    // MARK: - Pinning (K1)
+    // MARK: - Disputes
 
-    /// Only genuine disagreements block the auto-approval machinery and earn
-    /// the pin; refinement/note disputes band as blue judgement rows.
+    /// Only genuine disagreements earn the pin; refinement/note disputes band
+    /// with the cosmetic rows so a trivia sweep can't bury the reds.
     static func disputePins(_ severity: DiscrepancySeverity?) -> Bool {
         severity == .correction || severity == .conflict
     }
 
+    /// Mirrors the §14.3 MCP auto-approval refusal EXACTLY
+    /// (`MCPServer.swift`: `WHERE entity_id = ? AND resolution IS NULL`, then
+    /// fieldValue-on-the-target-field or any structural kind).
+    ///
+    /// Two consequences the pin does NOT capture, which is why this is its
+    /// own predicate: severity is irrelevant to the gate (a cosmetic
+    /// `refinement` dispute blocks its field exactly as a `correction`
+    /// does), and a `deferred` dispute — which Health still lists as open —
+    /// does NOT block, because the gate matches `resolution IS NULL` only.
+    static func blocksAutoApproval(resolution: DisputeResolution?) -> Bool {
+        resolution == nil
+    }
+
+    /// Row badge wording for a dispute that blocks the gate. A fieldValue
+    /// dispute blocks only facts on ITS field; the structural kinds block
+    /// everything on the profile.
+    static func autoApprovalBadgeText(kind: DisputeKind, field: String) -> String {
+        switch kind {
+        case .fieldValue:
+            let name = field.isEmpty ? "this field" : field
+            return "Blocks \(name) auto-approval"
+        case .timeline, .parentRole, .spouseIdentity:
+            return "Blocks auto-approval"
+        }
+    }
+
     // MARK: - Key factories, one per Health row type
 
-    static func findingKey(_ r: AuditResult, snapshot: FamilyGraphSnapshot) -> Key {
+    static func findingKey(
+        _ r: AuditResult, snapshot: FamilyGraphSnapshot, hasDatabase: Bool
+    ) -> Key {
         let severityRank: Int = switch r.severity {
         case .error: 0
         case .warning: 1
@@ -102,25 +146,37 @@ enum HealthTriage {
         return Key(
             pinRank: 1,
             severityRank: severityRank,
-            quickWinRank: isOneClickFinding(r, snapshot: snapshot) ? 0 : 1,
+            quickWinRank: isOneClickFinding(r, snapshot: snapshot, hasDatabase: hasDatabase) ? 0 : 1,
             ruleLabel: prettyRule(r.ruleID),
             personKey: personKey(name: r.profileName, id: r.profileID),
             valueKey: "\(r.ruleID)|\(r.profileID)|\(r.message)")
     }
 
-    static func disputeKey(severity: DiscrepancySeverity?, field: String,
-                           entityID: String, personName: String?) -> Key {
-        let pinned = disputePins(severity)
-        // Inside the pin block K2 orders correction (0) before conflict (1);
-        // unpinned cosmetic disputes band as blue judgement.
-        let severityRank = pinned ? (severity == .correction ? 0 : 1) : 2
+    /// `rowID` is the persisted `field_disputes` rowid — the final fence that
+    /// makes the key injective. Two open disputes can legitimately share
+    /// entity+field (different `kind`, or a deferred row beside a fresh
+    /// detection), so kind and rowid both ride in K6.
+    static func disputeKey(severity: DiscrepancySeverity?, kind: DisputeKind,
+                           field: String, entityID: String, rowID: Int64,
+                           personName: String?) -> Key {
+        // The full DiscrepancySeverity ladder (correction > conflict >
+        // refinement > note > none): the top two pin (0/1); the rest stay in
+        // the cosmetic band but keep worst-first between themselves (2/3/4),
+        // which is exactly the pre-HR4 `sorted { severity > severity }`.
+        let severityRank: Int = switch severity {
+        case .correction: 0
+        case .conflict: 1
+        case .refinement: 2
+        case .note: 3
+        case .none, .some(.none): 4
+        }
         return Key(
-            pinRank: pinned ? 0 : 1,
+            pinRank: disputePins(severity) ? 0 : 1,
             severityRank: severityRank,
             quickWinRank: 1,        // Resolve… is a decision, never a quick win
             ruleLabel: "Conflicts",
             personKey: personKey(name: personName ?? entityID, id: entityID),
-            valueKey: "\(field)|\(entityID)")
+            valueKey: "\(kind.rawValue)|\(field)|\(entityID)|\(rowID)")
     }
 
     static func duplicateClusterKey(firstName: String?, clusterID: String) -> Key {
