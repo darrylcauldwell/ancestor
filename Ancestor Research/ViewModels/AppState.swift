@@ -1356,6 +1356,76 @@ final class AppState {
     private static let relationshipLogger = Logger(
         subsystem: "dev.dreamfold.Ancestor-Research", category: "Relationships")
 
+    // MARK: - Per-profile lead actions (SC-2)
+
+    /// Add a lead to the tree with the given action — the ONE promote path
+    /// shared by every lead surface, so the dedup/attach rules (mayAttach,
+    /// "when in doubt, split") and the #37 child-of-parents promotion can
+    /// never drift between views.
+    @discardableResult
+    func addLeadToTree(_ lead: Lead, action: CampaignReviewService.AddAction) -> Bool {
+        guard let db = currentDatabase else { return false }
+        do {
+            if case .childOfParents(let parentIDs, _) = action {
+                _ = try db.promoteLeadToProfile(lead, asChildOfParents: parentIDs)
+            } else {
+                let existingID: String?
+                switch ProposalDedup.decide(
+                    query: ProposalDedup.Query(lead: lead),
+                    candidates: Array(snapshot.profiles.values)
+                ) {
+                case .matched(let matchedID):
+                    existingID = snapshot.profiles[matchedID].map {
+                        CampaignReviewService.mayAttach(
+                            lead: lead, to: $0,
+                            relationships: snapshot.relationships)
+                    } == true ? matchedID : nil
+                case .noMatch, .multipleMatches:
+                    existingID = nil
+                }
+                _ = try db.promoteLeadToProfile(lead, attachingTo: existingID)
+            }
+            snapshot = try db.buildSnapshot()
+            return true
+        } catch {
+            Self.leadLogger.error("Lead promote failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Flip a lead to dismissed — a recorded human verdict.
+    func dismissLead(_ lead: Lead) {
+        setLeadStatus(lead, status: .dismissed, resolution: .dismissed)
+    }
+
+    /// Restore a dismissed lead to the active queue.
+    func restoreLead(_ lead: Lead) {
+        setLeadStatus(lead, status: .new, resolution: nil)
+    }
+
+    private func setLeadStatus(_ lead: Lead, status: LeadStatus, resolution: LeadResolution?) {
+        guard let db = currentDatabase else { return }
+        let updated = Lead(
+            id: lead.id, profileID: lead.profileID,
+            name: lead.name, surname: lead.surname, givenName: lead.givenName,
+            birthYear: lead.birthYear, deathYear: lead.deathYear,
+            ageAtDeath: lead.ageAtDeath, place: lead.place,
+            relationship: lead.relationship, source: lead.source,
+            status: status, evidence: lead.evidence,
+            createdAt: lead.createdAt, investigatedAt: lead.investigatedAt,
+            resolvedAt: resolution == nil ? nil : Date(),
+            resolution: resolution
+        )
+        do {
+            try db.upsertLead(updated)
+        } catch {
+            Self.leadLogger.error("Lead status update failed: \(error.localizedDescription)")
+        }
+    }
+
+    private static let leadLogger = Logger(
+        subsystem: "dev.dreamfold.Ancestor-Research", category: "Leads")
+
     /// Notes attached to a specific hypothesis.
     func notesForHypothesis(_ id: UUID) -> [WorkbenchNote] {
         guard let db = currentDatabase else { return [] }

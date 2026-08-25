@@ -858,6 +858,10 @@ struct SharedProfileLayout: View {
             // and no surface read them (owner hunted for a review screen that
             // did not exist, 2026-08-24). Rendered on BOTH endpoints' cards.
             PendingRelationshipsBlock(profileID: profile.id)
+
+            // SC-2 — this profile's lead queue, in context. Every action the
+            // retiring Triage tab had, with no watermark to hide work.
+            ProfileLeadsBlock(profile: profile)
         }
     }
 
