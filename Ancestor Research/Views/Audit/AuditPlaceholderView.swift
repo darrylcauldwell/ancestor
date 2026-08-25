@@ -84,6 +84,9 @@ struct HealthView: View {
     /// Sentinel `ruleFilter` value for the synthetic "Conflicts" chip — the
     /// folded-in open field-disputes (sources disagreeing with a stored value).
     private let disputeConflictFilterID = "__disputes"
+    /// Sentinel `ruleFilter` value for the "⚡ Quick wins" chip (#HR4) — the
+    /// whole merged list filtered to one-click rows, ladder order preserved.
+    private let quickWinsFilterID = "__quickWins"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -270,13 +273,6 @@ struct HealthView: View {
     /// the audit message; provenance is recorded via QuestionOrigin.fromAudit
     /// so the workbench can surface where the question came from. Maps audit
     /// severity to question priority (error → high, warning → medium, info → low).
-    /// Findings after applying the per-rule chip filter (on top of the
-    /// category/severity/search filters AuditViewModel already applies).
-    private var shownResults: [AuditResult] {
-        guard let rule = ruleFilter else { return auditVM.filteredResults }
-        return auditVM.filteredResults.filter { $0.ruleID == rule }
-    }
-
     // MARK: - Duplicate grouping
 
     enum HealthRow: Identifiable {
@@ -300,13 +296,11 @@ struct HealthView: View {
         }
     }
 
-    /// Open disputes as rows, worst severity first (correction/conflict above the
-    /// cosmetic note/refinement) so a genuine disagreement never hides under a
-    /// pile of trivial ones.
+    /// Open disputes as rows. Ordering is the ladder's job (#HR4):
+    /// correction/conflict disputes pin to the very top, cosmetic
+    /// refinement/note disputes band as blue judgement rows.
     private var disputeRows: [HealthRow] {
-        openDisputeRows
-            .sorted { ($0.severity ?? .none) > ($1.severity ?? .none) }
-            .map { HealthRow.dispute($0) }
+        openDisputeRows.map { HealthRow.dispute($0) }
     }
 
     struct DuplicateCluster: Identifiable {
@@ -316,48 +310,104 @@ struct HealthView: View {
         let pairs: [(String, String)]
     }
 
-    /// Display rows: non-duplicate findings as-is, plus ONE grouped row per
-    /// identity cluster of duplicate-pair findings (union-find over the pairs),
-    /// so a person appearing in several pairwise rows collapses to a single
-    /// entry (owner request 2026-07-25).
+    /// Display rows — the #HR4 Severity Ladder. Duplicate-pair findings
+    /// collapse to ONE grouped row per identity cluster (union-find, owner
+    /// request 2026-07-25); everything then sorts through `HealthTriage`:
+    /// pinned conflicts → red → amber → blue, one-clicks leading each band,
+    /// rules alphabetical, people alphabetical, run-stable tiebreak.
     private var displayRows: [HealthRow] {
-        // The synthetic census-backfill chip shows only those rows.
+        // Synthetic-chip early returns — single-type lists, still ladder-
+        // sorted so people stay alphabetical and stable.
         if ruleFilter == censusBackfillFilterID {
-            return backfillProposals.map { HealthRow.censusBackfill($0) }
+            return sortedByTriage(backfillProposals.map { HealthRow.censusBackfill($0) })
         }
         if ruleFilter == deathAgeBackfillFilterID {
-            return deathAgeProposals.map { HealthRow.deathAgeBackfill($0) }
+            return sortedByTriage(deathAgeProposals.map { HealthRow.deathAgeBackfill($0) })
         }
         if ruleFilter == censusCiteFilterID {
-            return censusCorroborations.map { HealthRow.censusCorroboration($0) }
+            return sortedByTriage(censusCorroborations.map { HealthRow.censusCorroboration($0) })
         }
         if ruleFilter == contradictoryFactsFilterID {
-            return contradictoryFindings.map { HealthRow.contradictoryFacts($0) }
+            return sortedByTriage(contradictoryFindings.map { HealthRow.contradictoryFacts($0) })
         }
         // The synthetic conflicts chip (and the disputes pill) show only disputes.
         if ruleFilter == disputeConflictFilterID {
-            return disputeRows
+            return sortedByTriage(disputeRows)
         }
-        let results = shownResults
-        let dupes = results.filter { $0.ruleID == "duplicateDetection" }
-        let others = results.filter { $0.ruleID != "duplicateDetection" }
-        var rows: [HealthRow] = []
-        // Conflicts + backfill proposals surface at the top of the unfiltered
-        // view — conflicts first, since a source disagreeing with a stored value
-        // is a decision only the user can make.
-        if ruleFilter == nil {
-            rows += disputeRows
-            // Contradictory facts sit with the conflicts, above the gap-fill
-            // backfills — accepted evidence disagreeing with itself is an
-            // issue, not a gap.
-            rows += contradictoryFindings.map { HealthRow.contradictoryFacts($0) }
-            rows += backfillProposals.map { HealthRow.censusBackfill($0) }
-            rows += deathAgeProposals.map { HealthRow.deathAgeBackfill($0) }
-            rows += censusCorroborations.map { HealthRow.censusCorroboration($0) }
+        // ⚡ mode: the whole merged list filtered to one-click rows, same order.
+        if ruleFilter == quickWinsFilterID {
+            return mergedRows(findings: auditVM.filteredResults)
+                .map { (triageKey(for: $0), $0) }
+                .filter { $0.0.quickWinRank == 0 }
+                .sorted { $0.0 < $1.0 }
+                .map(\.1)
         }
+        // A real rule chip: that rule's findings only (clustered if duplicates).
+        if let rule = ruleFilter {
+            let results = auditVM.filteredResults.filter { $0.ruleID == rule }
+            let dupes = results.filter { $0.ruleID == "duplicateDetection" }
+            let others = results.filter { $0.ruleID != "duplicateDetection" }
+            var rows = duplicateClusters(from: dupes).map { HealthRow.duplicateCluster($0) }
+            rows += others.map { HealthRow.finding($0) }
+            return sortedByTriage(rows)
+        }
+        return sortedByTriage(mergedRows(findings: auditVM.filteredResults))
+    }
+
+    /// Everything the unfiltered Health list holds: findings (duplicates
+    /// clustered) + open disputes + the synthetic proposal rows.
+    private func mergedRows(findings: [AuditResult]) -> [HealthRow] {
+        let dupes = findings.filter { $0.ruleID == "duplicateDetection" }
+        let others = findings.filter { $0.ruleID != "duplicateDetection" }
+        var rows: [HealthRow] = disputeRows
+        rows += contradictoryFindings.map { HealthRow.contradictoryFacts($0) }
+        rows += backfillProposals.map { HealthRow.censusBackfill($0) }
+        rows += deathAgeProposals.map { HealthRow.deathAgeBackfill($0) }
+        rows += censusCorroborations.map { HealthRow.censusCorroboration($0) }
         rows += duplicateClusters(from: dupes).map { HealthRow.duplicateCluster($0) }
         rows += others.map { HealthRow.finding($0) }
         return rows
+    }
+
+    /// Decorate–sort–undecorate through the ladder (keys computed once).
+    private func sortedByTriage(_ rows: [HealthRow]) -> [HealthRow] {
+        rows.map { (triageKey(for: $0), $0) }
+            .sorted { $0.0 < $1.0 }
+            .map(\.1)
+    }
+
+    private func triageKey(for row: HealthRow) -> HealthTriage.Key {
+        switch row {
+        case .finding(let r):
+            return HealthTriage.findingKey(r, snapshot: appState.snapshot)
+        case .duplicateCluster(let c):
+            return HealthTriage.duplicateClusterKey(firstName: c.names.first, clusterID: c.id)
+        case .censusBackfill(let p):
+            return HealthTriage.proposalKey(label: "Census backfill", personName: p.targetName, id: "b:\(p.id)")
+        case .deathAgeBackfill(let p):
+            return HealthTriage.proposalKey(label: "Death-age backfill", personName: p.profileName, id: "da:\(p.id)")
+        case .censusCorroboration(let p):
+            return HealthTriage.proposalKey(label: "Cite census", personName: p.targetName, id: "cc:\(p.id)")
+        case .contradictoryFacts(let f):
+            return HealthTriage.contradictoryFactsKey(
+                personName: f.profileName, profileID: f.profileID,
+                demotableCount: f.demotable.count)
+        case .dispute(let d):
+            return HealthTriage.disputeKey(
+                severity: d.severity, field: d.field, entityID: d.entityID,
+                personName: appState.snapshot.profiles[d.entityID]?.displayName)
+        }
+    }
+
+    /// The ⚡ chip's count — same membership as the ladder's K3 and the row
+    /// badges, over the same pill/search-filtered universe as the other chips.
+    private var quickWinCount: Int {
+        auditVM.filteredResults.filter {
+            HealthTriage.isOneClickFinding($0, snapshot: appState.snapshot)
+        }.count
+            + backfillProposals.count + deathAgeProposals.count
+            + censusCorroborations.count
+            + contradictoryFindings.filter { !$0.demotable.isEmpty }.count
     }
 
     private func duplicateClusters(from results: [AuditResult]) -> [DuplicateCluster] {
@@ -386,7 +436,10 @@ struct HealthView: View {
         return members.map { rootID, ids in
             let names = ids.compactMap { appState.snapshot.profiles[$0]?.displayName }
                 .filter { !$0.isEmpty }.sorted()
-            return DuplicateCluster(id: rootID, names: names,
+            // Cluster identity = smallest member id, NOT the union-find root
+            // (which depends on iteration order) — keeps the ladder's
+            // tiebreak, scroll position and SwiftUI identity run-stable.
+            return DuplicateCluster(id: ids.min() ?? rootID, names: names,
                                     profileIDs: Array(ids), pairs: pairsByRoot[rootID] ?? [])
         }
         .sorted { ($0.names.first ?? "") < ($1.names.first ?? "") }
@@ -444,6 +497,7 @@ struct HealthView: View {
                 .foregroundStyle(.blue)
                 .font(.body)
                 .frame(width: 24)
+            quickWinBadge
             VStack(alignment: .leading, spacing: 3) {
                 Text(p.targetName)
                     .font(AppTypography.cardTitle)
@@ -485,6 +539,7 @@ struct HealthView: View {
                 .foregroundStyle(.blue)
                 .font(.body)
                 .frame(width: 24)
+            quickWinBadge
             VStack(alignment: .leading, spacing: 3) {
                 Text(p.profileName)
                     .font(AppTypography.cardTitle)
@@ -523,6 +578,7 @@ struct HealthView: View {
                 .foregroundStyle(.blue)
                 .font(.body)
                 .frame(width: 24)
+            quickWinBadge
             VStack(alignment: .leading, spacing: 3) {
                 Text(p.targetName)
                     .font(AppTypography.cardTitle)
@@ -553,6 +609,9 @@ struct HealthView: View {
                 .foregroundStyle(.orange)
                 .font(.body)
                 .frame(width: 24)
+            if !f.demotable.isEmpty {
+                quickWinBadge
+            }
             Button {
                 onOpenProfile?(f.profileID)
             } label: {
@@ -594,6 +653,18 @@ struct HealthView: View {
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
     }
 
+    /// #HR4 — the green bolt worn by every one-click row. Membership comes
+    /// from the same registry as the ladder's K3 and the ⚡ chip, so badge,
+    /// sort and chip can never disagree.
+    private var quickWinBadge: some View {
+        Label("1-click", systemImage: "bolt.fill")
+            .font(AppTypography.badge)
+            .foregroundStyle(.green)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(.green.opacity(0.12), in: .capsule)
+            .help("Deterministic fix — one click, undoable")
+    }
+
     @ViewBuilder
     private func findingRow(_ result: AuditResult) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -603,6 +674,9 @@ struct HealthView: View {
                 .font(.body)
                 .frame(width: 24)
                 .accessibilityLabel("Severity \(result.severity.rawValue)")
+            if HealthTriage.isOneClickFinding(result, snapshot: appState.snapshot) {
+                quickWinBadge
+            }
             // Clicking the finding jumps to the profile it is about
             // (Tree → Full Detail) so it can be investigated in context.
             Button {
@@ -737,6 +811,12 @@ struct HealthView: View {
                             Text(sev.rawValue)
                                 .font(AppTypography.badge)
                                 .foregroundStyle(disputeSeverityColor(sev))
+                        }
+                        if HealthTriage.disputePins(row.severity) {
+                            Label("Blocks auto-approval", systemImage: "nosign")
+                                .font(AppTypography.badge)
+                                .foregroundStyle(.red)
+                                .help("MCP auto-approval refuses while this field has an open dispute — resolving it unblocks the machinery")
                         }
                     }
                     Text(disputeMessage(row))
@@ -1076,6 +1156,14 @@ struct HealthView: View {
                     ruleChip(label: "All (\(auditVM.filteredResults.count))", selected: ruleFilter == nil) {
                         ruleFilter = nil
                     }
+                    // #HR4 — the opportunistic-session mode: one tap turns the
+                    // list into a pure clearance queue, still worst-first.
+                    if quickWinCount > 0 {
+                        ruleChip(label: "⚡ Quick wins (\(quickWinCount))",
+                                 selected: ruleFilter == quickWinsFilterID) {
+                            ruleFilter = (ruleFilter == quickWinsFilterID) ? nil : quickWinsFilterID
+                        }
+                    }
                     ForEach(counts, id: \.key) { rule, count in
                         ruleChip(label: "\(prettyRule(rule)) (\(count))", severity: severityByRule[rule], selected: ruleFilter == rule) {
                             ruleFilter = (ruleFilter == rule) ? nil : rule
@@ -1144,13 +1232,10 @@ struct HealthView: View {
     }
 
     /// "marriedSurnameFromSpouse" → "Married surname from spouse".
+    /// Delegates to HealthTriage so the chip label and the ladder's K4 sort
+    /// label are the same string by construction.
     private func prettyRule(_ id: String) -> String {
-        var out = ""
-        for ch in id {
-            if ch.isUppercase && !out.isEmpty { out.append(" ") }
-            out.append(ch)
-        }
-        return out.prefix(1).uppercased() + out.dropFirst().lowercased()
+        HealthTriage.prettyRule(id)
     }
 
     /// The one-click fix for a finding whose rule has one — married surname,

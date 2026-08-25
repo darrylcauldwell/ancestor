@@ -82,6 +82,41 @@ ranks: `ProfileCompleteness.missing` short labels — "Missing: birth date,
 parents". No audit findings are consumed; the completeness engine already
 carries the reasons.
 
+### HR4 — Severity Ladder ordering (owner-ruled 2026-08-25)
+
+The pre-HR4 row order was organic accretion: disputes, then backfill
+proposals, then duplicate clusters, then severity-ordered findings — so amber
+and blue rows sat above reds. Owner ruling: red must never sit below amber,
+and quick wins are "a factor likely equal to red hard-to-fix issues". Chosen
+design (from a judged panel; two-lane and six-section layouts were the
+runners-up): **one list, one deterministic six-key sort** —
+
+1. **Pin** — correction/conflict disputes only (they block the §14.3 MCP
+   auto-approval gate; the row wears a "Blocks auto-approval" badge saying
+   why). Cosmetic refinement/note disputes do NOT pin — they band as blue
+   judgement, so a conflict sweep of trivia can never bury the reds.
+2. **Severity** — red → amber → blue from an explicit per-row-type table:
+   contradictory facts and duplicate clusters are amber; backfill/cite
+   proposals are blue.
+3. **Quick win** — a deterministic one-click fix leads its colour band.
+   Membership comes from ONE registry (`HealthTriage.isOneClickFinding`,
+   guards mirroring `AuditFixButton`) shared by the sort, the green ⚡
+   "1-click" row badge, and a **"⚡ Quick wins (N)" chip** pinned after
+   "All" — one tap turns the list into a pure clearance queue, still
+   worst-first. That chip is the 2-minute-session mode.
+4. **Rule label** — alphabetical (stable as counts change).
+5. **Person** — display name, case-insensitive, then id.
+6. **Value key** — run-stable, value-derived (never `AuditResult.id`, a
+   fresh UUID per audit). Duplicate-cluster identity is the smallest member
+   profile id, not the union-find root. Kills the dictionary-iteration
+   jitter.
+
+Implemented in `Views/Audit/HealthTriage.swift` (pure, view-free, pinned by
+`HealthTriageTests`). Dogfood watch (the panel's dissent): the census
+backfills move from top-of-list to the blue band — the ⚡ chip replaces the
+old open-Health-and-absorb warm-up ritual; if that habit doesn't transfer,
+revisit with a quick-wins lane.
+
 ## Not changed
 
 - MCP `get_audit_findings`, the `audit_findings` v55 snapshot, and
