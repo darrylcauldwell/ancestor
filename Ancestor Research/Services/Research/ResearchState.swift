@@ -68,6 +68,24 @@ nonisolated struct SearchOutcomeEntry: Sendable {
     /// `QueryCache.cacheKey` for the query — stable per wire request.
     let queryKey: String
     let outcome: SearchOutcome
+    /// A tree fact this query PRESUPPOSED that the tree cannot cite — see
+    /// `ResearchSubject.unverifiedKinPremises`. Nil for the overwhelming
+    /// majority of queries, and `var` only so the synthesised memberwise
+    /// init keeps it optional for every existing construction site.
+    ///
+    /// A search is evidence of absence only if its premises hold. The Gladwin
+    /// parents' marriage was searched twice under an uncited GEDCOM surname
+    /// ("Wheatman"), came back empty both times because the surname was wrong
+    /// (HEWKIN), and both empties were banked as durable negatives that went
+    /// on suppressing the search. A premise-bearing empty is a fact about our
+    /// assumption, not about the record.
+    var unverifiedPremise: String? = nil
+
+    /// The caveat this entry earns when it comes back empty — the phrasing
+    /// the review surfaces show in place of a bare "searched, nothing found".
+    var assumptionCaveat: String? {
+        unverifiedPremise.map { "searched, but the query assumed \($0), which is unverified" }
+    }
 }
 
 /// Aggregates per-query outcomes into the genuine negatives that may be
@@ -113,15 +131,60 @@ nonisolated enum NegativeSearchAggregator {
     /// `isCleanNegative == false` by construction, so a pair made up of
     /// only-suppressed replays is NOT re-persisted here — it's the same
     /// absence already on disk.
+    ///
+    /// Queries resting on an unverified premise are excluded (EV7): their
+    /// emptiness is unproven for a reason no availability code captures — the
+    /// wire answered honestly, we asked the wrong question. A pair made up of
+    /// nothing but premise-bearing queries yields no negative at all.
     static func genuineNegatives(
         outcomes: [SearchOutcomeEntry],
         scoredRecords: [ScoredRecord]
     ) -> [Negative] {
         cleanPairs(outcomes: outcomes, scoredRecords: scoredRecords)
-            .map { key, entries in
-                Negative(sourceID: key.sourceID, recordType: key.recordType, queryCount: entries.count)
+            .compactMap { pair -> Negative? in
+                let proven = pair.entries.filter { $0.unverifiedPremise == nil }
+                guard !proven.isEmpty else { return nil }
+                return Negative(sourceID: pair.key.sourceID, recordType: pair.key.recordType,
+                                queryCount: proven.count)
             }
             .sorted { ($0.sourceID, $0.recordType.rawValue) < ($1.sourceID, $1.recordType.rawValue) }
+    }
+
+    /// One clean-zero query whose premise the tree cannot cite — the honest
+    /// counterpart to a `Negative`, for the surfaces that would otherwise
+    /// report "searched, found nothing" about a question we asked wrong.
+    struct AssumedNegative: Equatable {
+        let sourceID: String
+        let recordType: RecordType
+        let queryKey: String
+        /// "searched, but the query assumed …, which is unverified".
+        let caveat: String
+    }
+
+    /// The clean-zero queries excluded from `genuineNegatives` because they
+    /// rested on an uncited fact. Deliberately NOT persisted: a durable row
+    /// is exactly what the Gladwin marriage search should never have earned.
+    /// Same de-duplication and ordering as `genuineNegativeKeys`.
+    static func assumedNegatives(
+        outcomes: [SearchOutcomeEntry],
+        scoredRecords: [ScoredRecord]
+    ) -> [AssumedNegative] {
+        var out: [AssumedNegative] = []
+        var seen: Set<String> = []
+        for (key, entries) in cleanPairs(outcomes: outcomes, scoredRecords: scoredRecords) {
+            for entry in entries {
+                guard let caveat = entry.assumptionCaveat else { continue }
+                let dedupKey = "\(key.sourceID)|\(key.recordType.rawValue)|\(entry.queryKey)"
+                guard seen.insert(dedupKey).inserted else { continue }
+                out.append(AssumedNegative(
+                    sourceID: key.sourceID, recordType: key.recordType,
+                    queryKey: entry.queryKey, caveat: caveat))
+            }
+        }
+        return out.sorted {
+            ($0.sourceID, $0.recordType.rawValue, $0.queryKey)
+                < ($1.sourceID, $1.recordType.rawValue, $1.queryKey)
+        }
     }
 
     /// The per-wire-query keys backing the genuine negatives (T1-04
@@ -132,6 +195,9 @@ nonisolated enum NegativeSearchAggregator {
     /// same wire query may repeat across ladder tiers (loose vs strict
     /// can be distinct keys; strict/variant may collapse), and each
     /// distinct key becomes one durable row.
+    ///
+    /// A query resting on an unverified premise is skipped (EV7) — see
+    /// `assumedNegatives`, which is where those go instead.
     static func genuineNegativeKeys(
         outcomes: [SearchOutcomeEntry],
         scoredRecords: [ScoredRecord]
@@ -139,7 +205,7 @@ nonisolated enum NegativeSearchAggregator {
         var out: [NegativeKey] = []
         var seen: Set<String> = []
         for (key, entries) in cleanPairs(outcomes: outcomes, scoredRecords: scoredRecords) {
-            for entry in entries {
+            for entry in entries where entry.unverifiedPremise == nil {
                 let dedupKey = "\(key.sourceID)|\(key.recordType.rawValue)|\(entry.queryKey)"
                 guard seen.insert(dedupKey).inserted else { continue }
                 out.append(NegativeKey(
@@ -160,11 +226,11 @@ nonisolated enum NegativeSearchAggregator {
         let recordType: RecordType
     }
 
-    /// Shared clean-pair computation for both aggregators.
+    /// Shared clean-pair computation for the three aggregators.
     private static func cleanPairs(
         outcomes: [SearchOutcomeEntry],
         scoredRecords: [ScoredRecord]
-    ) -> [(PairKey, [SearchOutcomeEntry])] {
+    ) -> [(key: PairKey, entries: [SearchOutcomeEntry])] {
         var grouped: [PairKey: [SearchOutcomeEntry]] = [:]
         for entry in outcomes {
             grouped[PairKey(sourceID: entry.sourceID, recordType: entry.recordType), default: []].append(entry)
@@ -176,7 +242,7 @@ nonisolated enum NegativeSearchAggregator {
             guard !recordPairs.contains(key),
                   entries.allSatisfy({ $0.outcome.isCleanNegative })
             else { return nil }
-            return (key, entries)
+            return (key: key, entries: entries)
         }
     }
 }

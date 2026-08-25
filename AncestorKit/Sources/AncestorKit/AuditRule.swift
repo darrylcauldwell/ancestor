@@ -94,6 +94,7 @@ public nonisolated enum AuditRules {
         IncompleteNameRule(),
         SuspectLocationRule(),
         FertilityGapRule(),
+        RivalBirthRegistrationsRule(),
     ]
 }
 
@@ -644,6 +645,104 @@ public nonisolated struct MuddledIdentityRule: AuditRuleDefinition {
             ))
         }
         return results
+    }
+}
+
+// MARK: - Rival Birth Registrations (two GRO entries on one birth)
+
+/// Two or more DIFFERENT civil-registration birth entries cited on the same
+/// profile's birth date. A person is registered once, so whichever entry is
+/// theirs the others belong to somebody else — a namesake absorbed onto the
+/// profile. Live specimen (owner dogfood 2026-08-25): Emma Gladwin held both
+/// Dec 1867 (7b/513) and Dec 1865 (7b/515) as cited birth dates at once.
+///
+/// The confirmed-facts twin of `ContradictoryFactsAudit`, which contests the
+/// evidence store. A cited fact can reach `field_sources` by paths that leave
+/// no scoring row behind — the firewall's pending-facts queue, an import
+/// carrying its own citation — and no exclusivity pass can demote a rival it
+/// cannot see. This rule reads only what is ON the profile, so it holds
+/// whatever the evidence store does or doesn't remember.
+///
+/// Index TWINS are not rivals: one registration is indexed under several row
+/// ids, so entries group by volume+page — the same registration identity the
+/// scorer's own exclusivity pass uses.
+public nonisolated struct RivalBirthRegistrationsRule: AuditRuleDefinition {
+    public init() {}
+
+    public let id = "rivalBirthRegistrations"
+    public let category: AuditCategory = .issue
+    public let displayName = "Rival Birth Registrations"
+    public let description = "Two or more different GRO birth-index entries are cited on one profile's birth date — but a person is registered once."
+    public let fireCondition = "birthDate carries cited birth-index references with 2+ distinct volume/page pairs."
+    public let warningCondition: String? = nil
+    public let workedExample = "Emma Gladwin's birth date cited both \u{201C}Dec 1867, Belper, vol. 7b/513\u{201D} and \u{201C}Dec 1865, Belper, vol. 7b/515\u{201D} — two babies, one profile."
+    public let defaultSeverity = Severity.error
+
+    /// One cited GRO birth-index entry: the volume/page that identifies the
+    /// registration, and the value the citing fact put on the profile.
+    public struct Registration: Sendable, Equatable {
+        public let reference: String    // normalised "7b/513"
+        public let value: String
+    }
+
+    /// The DISTINCT birth registrations cited on a profile's birth date, in
+    /// first-seen order. Shared by the rule and any fix that resolves it, so
+    /// the finding and the action can never disagree about which entries rival.
+    public static func registrations(for profile: Profile) -> [Registration] {
+        var out: [Registration] = []
+        var seen: Set<String> = []
+        for source in profile.sources[.birthDate] ?? [] {
+            guard let ref = birthRegistrationReference(source),
+                  seen.insert(ref).inserted else { continue }
+            let value = source.raw.trimmingCharacters(in: .whitespaces)
+            out.append(Registration(reference: ref, value: value.isEmpty ? "unstated date" : value))
+        }
+        return out
+    }
+
+    /// The `volume/page` of a field source's citation when that citation is a
+    /// civil-registration BIRTH index entry. Nil for anything else: a baptism
+    /// carries no vol/page at all, and a death or marriage reference that
+    /// reached the birth date (an age-at-death backfill cites the DEATH) is not
+    /// a rival birth registration.
+    static func birthRegistrationReference(_ source: FieldSource) -> String? {
+        guard let citation = source.citation else { return nil }
+        let text = [citation.collection, citation.title, citation.page, citation.notes]
+            .compactMap { $0 }.joined(separator: " ")
+        let lower = text.lowercased()
+        guard lower.contains("birth") else { return nil }
+        guard !lower.contains("baptis"), !lower.contains("christen") else { return nil }
+        return volumePage(in: text)
+    }
+
+    /// "vol. 7b/513" (rendered citations) or "Volume 7b, page 513" (hand-entered
+    /// ones) → "7b/513". Nil when the text carries no index reference.
+    static func volumePage(in text: String) -> String? {
+        let ns = text as NSString
+        let whole = NSRange(location: 0, length: ns.length)
+        let patterns = [
+            #"vol\.?\s*([0-9]+[a-z]?)\s*/\s*([0-9]+[a-z]?)"#,
+            #"volume\s*([0-9]+[a-z]?)\s*,?\s*(?:page|pp?\.)\s*([0-9]+[a-z]?)"#,
+        ]
+        for pattern in patterns {
+            guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+                  let m = re.firstMatch(in: text, range: whole), m.numberOfRanges == 3 else { continue }
+            return (ns.substring(with: m.range(at: 1)) + "/" + ns.substring(with: m.range(at: 2))).lowercased()
+        }
+        return nil
+    }
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        let registrations = Self.registrations(for: profile)
+        guard registrations.count > 1 else { return [] }
+        let listed = registrations
+            .map { "\($0.value) (vol. \($0.reference))" }
+            .joined(separator: " vs ")
+        return [AuditResult(
+            profileID: profile.id, profileName: profile.displayName,
+            severity: .error, category: .issue, ruleID: id,
+            message: "\(profile.displayName) — \(registrations.count) different birth registrations are cited on the birth date: \(listed). A birth is registered once, so at most one is theirs; keep the corroborated entry and send the rest back to leads."
+        )]
     }
 }
 

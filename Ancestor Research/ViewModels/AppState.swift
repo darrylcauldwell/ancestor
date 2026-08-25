@@ -3920,8 +3920,41 @@ final class AppState {
             let links = group.map { CensusFamilyLinker.Link(member: $0.member, relation: $0.censusRelation) }
             _ = addCensusFamily(links: links, subject: subject,
                                 censusYear: year,
-                                sourceID: year.map { "census.\($0)" } ?? "census")
+                                sourceID: year.map { "census.\($0)" } ?? "census",
+                                citationURL: censusScheduleCitationURL(subjectID: subjectID, censusYear: year))
         }
+    }
+
+    /// The household-schedule URL to cite when a census row becomes a person.
+    /// Every create-from-census path resolves it here, so nine people taken in
+    /// one click are cited exactly like four taken row by row (owner dogfood
+    /// 2026-08-25: the citation was wired into `addCensusFamily` but only one of
+    /// its three callers passed a URL, so the bulk path created uncited people).
+    /// Prefers the census LIFE EVENT's own citation — the roster the
+    /// reconciliation panel actually read — then a still-live census evidence
+    /// record for the same year. A discarded record cites nothing: the user
+    /// rejected it, so it must not be named as the source of anything.
+    /// Nil when the year is unknown or nothing cites that schedule — an
+    /// unmatched citation is worse than no citation.
+    func censusScheduleCitationURL(subjectID: String, censusYear: Int?) -> String? {
+        guard let year = censusYear else { return nil }
+        func usable(_ url: String?) -> String? {
+            guard let url, !url.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+            return url
+        }
+        let fromEvent = (snapshot.lifeEvents[subjectID] ?? [])
+            .filter { $0.type == .census && $0.date?.bestYear == year }
+            .flatMap { $0.sources }
+            .compactMap { usable($0.citation?.url) }
+            .first
+        if let fromEvent { return fromEvent }
+        guard let db = currentDatabase else { return nil }
+        for ev in (try? db.loadEvidenceForProfile(subjectID)) ?? [] {
+            guard ev.userStatus != .discarded, case .census(let c) = ev.record,
+                  c.censusYear == year, let url = usable(c.common.detailURL) else { continue }
+            return url
+        }
+        return nil
     }
 
     /// Add a SINGLE census relative — the per-row "Add" in the census-reconciliation
@@ -3932,7 +3965,8 @@ final class AppState {
         guard let subject = snapshot.profiles[subjectID] else { return }
         _ = addCensusFamily(links: [CensusFamilyLinker.Link(member: member, relation: relation)],
                             subject: subject, censusYear: censusYear,
-                            sourceID: censusYear.map { "census.\($0)" } ?? "census")
+                            sourceID: censusYear.map { "census.\($0)" } ?? "census",
+                            citationURL: censusScheduleCitationURL(subjectID: subjectID, censusYear: censusYear))
     }
 
     /// Link a census relative who ALREADY EXISTS in the tree (matched by name +
@@ -4047,6 +4081,19 @@ final class AppState {
 
         do {
             _ = try db.addProfile(inLaw, source: source)
+            // Same rule as `addCensusFamily`: a birth year calculated from a
+            // census age must trace to the schedule that stated the age.
+            if inLaw.birthDate != nil,
+               let url = censusScheduleCitationURL(subjectID: subjectID, censusYear: censusYear) {
+                try db.updateFieldSourceCitation(
+                    profileID: inLaw.id, field: .birthDate, origin: source,
+                    citation: Citation(
+                        title: censusYear.map { "Census \($0)" } ?? "Census",
+                        url: url,
+                        dateAccessed: Date(),
+                        notes: "Household schedule naming this person as \(spouse.displayName)'s \(word)."),
+                    quality: nil)
+            }
             _ = try db.addRelationship(
                 Relationship(id: UUID(), from: inLaw.id, to: spouseID, type: .parent, role: role,
                              subtype: .biological, marriageDate: nil, marriageLocation: nil, divorceDate: nil),
@@ -4588,6 +4635,28 @@ final class AppState {
     /// the pre-1911 twin of the FreeBMD/MMN unlock. DB-derived (reads each
     /// profile's census evidence), so computed on demand from Health rather than
     /// on the hot `runPostLoadAudit` path. Read-only.
+    /// Tree-wide sweep over UNAPPLIED census leads (EV2, owner dogfood
+    /// 2026-08-25). `censusUnabsorbed` fires only on APPLIED evidence, so a
+    /// census sitting in the lead queue held its whole household silently —
+    /// Emma Gladwin's 1891 Beighton record sat unapplied for a month while
+    /// naming an unrecorded sibling, an unrecorded grandchild implying an
+    /// unrecorded married daughter, and contradicting two applied birthplaces.
+    /// NETWORK-FREE: stored evidence only.
+    func censusLeadAttentionFindings() -> [AuditResult] {
+        guard let db = currentDatabase else { return [] }
+        let index = CensusLeadAttentionAudit.TreeIndex(snapshot)
+        var out: [AuditResult] = []
+        for (pid, profile) in snapshot.profiles where !profile.isDeleted {
+            let evidence = (try? db.loadEvidenceForProfile(pid)) ?? []
+            guard !evidence.isEmpty else { continue }
+            out += CensusLeadAttentionAudit.findings(
+                for: profile, evidence: evidence, index: index)
+        }
+        return out.sorted {
+            $0.profileName.localizedCaseInsensitiveCompare($1.profileName) == .orderedAscending
+        }
+    }
+
     func censusParentUnlockFindings() -> [AuditResult] {
         guard let db = currentDatabase else { return [] }
         var out: [AuditResult] = []

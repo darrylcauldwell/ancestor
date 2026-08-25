@@ -304,6 +304,38 @@ struct SearchDispatcher {
         return nil
     }
 
+    /// EV7 — the uncited tree fact a (source, recordType) fan-out PUTS ON THE
+    /// WIRE, or nil when the fan-out rests only on the subject's own identity.
+    ///
+    /// A premise counts only where the axis actually reaches the request: a
+    /// spouse surname is sent on a marriage index query and nowhere else, and
+    /// FreeBMD's mother's-maiden-name column does not exist before Sep 1911,
+    /// so a Victorian birth cannot be resting on an MMN it never sent (see the
+    /// matching gate in `buildQueries`). Anything looser would mark queries
+    /// that never carried the fact, and a caveat attached to the wrong search
+    /// teaches the user to ignore caveats.
+    ///
+    /// Pure and static so the premise contract is testable without a live
+    /// dispatcher.
+    nonisolated static func unverifiedPremise(
+        subject: ResearchSubject, sourceID: String, recordType: RecordType
+    ) -> String? {
+        for premise in subject.unverifiedKinPremises {
+            switch premise.axis {
+            case .spouseSurname:
+                guard recordType == .marriage,
+                      sourceID == "freebmd" || sourceID == "familysearch" else { continue }
+            case .motherSurname:
+                guard recordType == .birth,
+                      sourceID == "freebmd" || sourceID == "familysearch" else { continue }
+                if sourceID == "freebmd",
+                   (subject.yearRange(for: .birth).from ?? 0) < 1912 { continue }
+            }
+            return premise.phrase
+        }
+        return nil
+    }
+
     /// Walk the strictness ladder for one source at ONE scope. For
     /// non-`.all` modes, stops at the first tier that returns non-empty
     /// results; broadens past an empty tier only when its emptiness is
@@ -345,6 +377,20 @@ struct SearchDispatcher {
             return ([], [])
         }
 
+        // EV7 — a tree fact this whole (source, recordType) fan-out rests on
+        // that the tree cannot cite. Non-nil disables cross-run suppression
+        // for the fan-out and stamps every outcome, so the empties it
+        // produces are never banked as durable negatives. Computed once: the
+        // premise is a property of the AXES a record type uses, not of the
+        // individual wire query.
+        let premise = Self.unverifiedPremise(
+            subject: subject, sourceID: source.sourceID, recordType: recordType)
+        if let premise {
+            await ResearchActivityBus.shared.publish(.pipelineStage(
+                message: "\(source.sourceID) \(recordType.rawValue): searched, but the query assumed \(premise), which is unverified — an empty result proves nothing here"
+            ))
+        }
+
         var accumulated: [SourceRecord] = []
         var outcomes: [SearchOutcomeEntry] = []
         for strictness in ladder {
@@ -364,7 +410,7 @@ struct SearchDispatcher {
                 returning: ([SourceRecord], [SearchOutcomeEntry]).self
             ) { tierGroup in
                 for query in tierQueries {
-                    tierGroup.addTask { [source, query, cache, negativeCache, budgetTracker] in
+                    tierGroup.addTask { [source, query, cache, negativeCache, budgetTracker, premise] in
                         let queryKey = QueryCache.cacheKey(sourceID: source.sourceID, query: query)
                         // T1-04 — cross-run suppression. If a prior run
                         // proved this exact wire query cleanly empty and
@@ -374,7 +420,14 @@ struct SearchDispatcher {
                         // sees a conclusive empty and broadens on merit.
                         // A suppressed query makes NO request, so it is not
                         // counted against the source's daily budget (#Change5).
-                        if let suppressed = negativeCache.suppression(forQueryKey: queryKey) {
+                        // EV7 — but a stored negative may only silence a
+                        // question we asked correctly. Rows written before
+                        // this guard existed (the two Gladwin marriage
+                        // searches of 21 and 27 Jul 2026 are still inside
+                        // their 90-day window) would otherwise keep
+                        // suppressing the corrected search for another month.
+                        if premise == nil,
+                           let suppressed = negativeCache.suppression(forQueryKey: queryKey) {
                             let entry = SearchOutcomeEntry(
                                 sourceID: source.sourceID,
                                 recordType: query.recordType,
@@ -402,7 +455,8 @@ struct SearchDispatcher {
                             recordType: query.recordType,
                             strictness: query.strictness,
                             queryKey: queryKey,
-                            outcome: outcome
+                            outcome: outcome,
+                            unverifiedPremise: premise
                         )
                         return (records, entry)
                     }
@@ -1109,6 +1163,15 @@ struct SearchDispatcher {
                     deathShapedCounties.append(burialCounty)
                 }
             }
+            // Counties the tree evidences the FAMILY in, one edge away — a
+            // spouse's or child's birthplace, a child's census page (EV8).
+            // They sit in the SAME `extraCounties` arm as the death/burial
+            // counties beside them, and so under the same `.adjacent`
+            // ceiling: the 2026-08-23 ruling is that a County search reaches
+            // exactly the county the picker names, whatever the reason, and a
+            // county inferred from a relative is a weaker reason than the
+            // subject's own recorded death place, not a stronger one.
+            let kinCounties = subject.kinResidenceAxes.map(\.chapmanCode)
             let geoAxes = Self.freeBMDGeoAxes(
                 scope: scope,
                 homeChapmanCode: subject.homeChapmanCode,
@@ -1116,7 +1179,7 @@ struct SearchDispatcher {
                 yearFrom: yearRange.from,
                 yearTo: yearRange.to,
                 surname: subject.surname,
-                extraCounties: deathShapedCounties.flatMap {
+                extraCounties: (deathShapedCounties + kinCounties).flatMap {
                     RegionConfig.expandUmbrellaChapmanCode($0)
                 }
             )
@@ -1295,26 +1358,44 @@ struct SearchDispatcher {
             // county never dropped. The blessing covers exactly this
             // behaviour; it does not cover the anchor-less-subject skip
             // (SUBJECT_PLACE_MODEL Slice 5) or the FT-27 batching gate.
-            let residenceEventsApply: Bool
+            //
+            // Kin-derived counties (`subject.kinResidenceAxes`) ride the same
+            // arm on the same terms. A subject whose ONLY place fact is a
+            // birthplace has no residence events to contribute, and that is
+            // precisely the person the census sweep fails on: William Gladwin,
+            // born Teversall NTT, had every one of his eight census-year
+            // probes sent to Nottinghamshire while he lived his adult life in
+            // Derbyshire and the West Riding (owner dogfood 2026-08-25). The
+            // counties that would have found him were on the tree the whole
+            // time, one edge away, on his wife and his daughter.
+            let residenceCodesApply: Bool
             switch scope {
-            case .parish, .district, .county: residenceEventsApply = true
-            case .adjacent, .national, .international: residenceEventsApply = false
+            case .parish, .district, .county: residenceCodesApply = true
+            case .adjacent, .national, .international: residenceCodesApply = false
             }
-            func residenceEventCodes(coveringCensusYear year: Int) -> [String] {
+            func residenceCodes(coveringCensusYear year: Int) -> [String] {
                 subject.residenceAxes
                     .filter { $0.covers(year) }
                     .compactMap { $0.chapmanCode }
                     .flatMap { RegionConfig.expandUmbrellaChapmanCode($0) }
+                    // Kin-derived counties carry no window. The evidence
+                    // behind them — a wife's birthplace, a child's census
+                    // page — says WHERE the family was, not for which years,
+                    // and a year window invented to bound them would be a
+                    // fact we do not have. They join every census year the
+                    // subject is probed for; already umbrella-expanded at
+                    // derivation, and capped at two.
+                    + subject.kinResidenceAxes.map(\.chapmanCode)
             }
             return cenSurnames.flatMap { surnameToTry in
                 censusYears.flatMap { year in
                     cenGeoAxes.flatMap { geo -> [(residenceCodes: [String], birth: String?)] in
-                        guard residenceEventsApply, !geo.residenceCodes.isEmpty else {
+                        guard residenceCodesApply, !geo.residenceCodes.isEmpty else {
                             return [geo]
                         }
                         var merged = geo.residenceCodes
                         var seen = Set(merged)
-                        for code in residenceEventCodes(coveringCensusYear: year)
+                        for code in residenceCodes(coveringCensusYear: year)
                         where seen.insert(code).inserted {
                             merged.append(code)
                         }
@@ -1392,9 +1473,22 @@ struct SearchDispatcher {
             // must never reach another county however good the reason. The
             // capability moves to the setting that honestly describes it
             // (2026-08-23 sweep residual, same defect class).
-            if scope >= .adjacent,
-               recordType == .burial, let burialCode = subject.burialChapmanCode {
-                for code in RegionConfig.expandUmbrellaChapmanCode(burialCode)
+            if scope >= .adjacent {
+                if recordType == .burial, let burialCode = subject.burialChapmanCode {
+                    for code in RegionConfig.expandUmbrellaChapmanCode(burialCode)
+                    where !regCodesWithBurial.contains(code) {
+                        regCodesWithBurial.append(code)
+                    }
+                }
+                // Counties the tree evidences the FAMILY in, one edge away
+                // (EV8). Unlike the burial county this is not tied to a
+                // register type: a family that moved was baptising, marrying
+                // and burying wherever it was living, so every FreeREG
+                // register type reaches them. Same `.adjacent` ceiling and the
+                // same additive rule — the scope's own codes are never
+                // dropped, and the list is already umbrella-expanded and
+                // capped at two.
+                for code in subject.kinResidenceAxes.map(\.chapmanCode)
                 where !regCodesWithBurial.contains(code) {
                     regCodesWithBurial.append(code)
                 }

@@ -4354,6 +4354,17 @@ nonisolated extension ProjectDatabase {
                 arguments: [status.rawValue, evidenceID]
             )
         }
+        guard status == .discarded else { return }
+        let owner = try dbQueue.read { db in
+            try Row.fetchOne(db, sql: """
+                SELECT profile_id, source_record_id FROM evidence_records WHERE id = ?
+                """, arguments: [evidenceID])
+        }
+        if let owner {
+            try dismissLeadsForDiscardedEvidence(
+                profileID: owner["profile_id"] as String,
+                sourceRecordIDs: [owner["source_record_id"] as String])
+        }
     }
 
     /// Re-encode just the `record_json` of an evidence row — used to fold in a
@@ -4391,6 +4402,150 @@ nonisolated extension ProjectDatabase {
                     """,
                 arguments: StatementArguments([status.rawValue, profileID] + sourceRecordIDs)
             )
+        }
+        if status == .discarded {
+            try dismissLeadsForDiscardedEvidence(
+                profileID: profileID, sourceRecordIDs: sourceRecordIDs)
+        }
+    }
+
+    /// A lead's id is `"lead_" + source_record_id` (the convention the v48
+    /// backfill, `leadEvidenceMeta` and `LeadStore` all join on). Nil for
+    /// household (`lead_hh_…`) and inference leads, which have no evidence row.
+    static func sourceRecordID(forLeadID leadID: String) -> String? {
+        guard leadID.hasPrefix("lead_") else { return nil }
+        let tail = String(leadID.dropFirst("lead_".count))
+        return tail.isEmpty ? nil : tail
+    }
+
+    /// One already-judged index row: the user discarded it, or it already
+    /// carries a lead. Anything else can neither suppress a new lead nor
+    /// duplicate one.
+    private struct RegistrationSettlement {
+        let record: SourceRecord
+        let discarded: Bool
+        let leadID: String?
+    }
+
+    /// The rows that can settle a registration for this profile. Bounded read
+    /// — decoding the profile's whole evidence pile per lead would be the
+    /// same answer at many times the cost.
+    private func registrationSettlements(profileID: String) throws -> [RegistrationSettlement] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT e.record_json AS record_json,
+                       e.user_status AS user_status, l.id AS lead_id
+                FROM evidence_records e
+                LEFT JOIN leads l
+                  ON l.id = 'lead_' || e.source_record_id AND l.profile_id = e.profile_id
+                WHERE e.profile_id = ?
+                  AND (e.user_status = 'discarded' OR l.id IS NOT NULL)
+                """, arguments: [profileID])
+            return rows.compactMap { row -> RegistrationSettlement? in
+                guard let json = row["record_json"] as String?,
+                      let data = json.data(using: .utf8),
+                      let record = try? JSONDecoder().decode(SourceRecord.self, from: data)
+                else { return nil }
+                return RegistrationSettlement(
+                    record: record,
+                    discarded: (row["user_status"] as String?) == "discarded",
+                    leadID: row["lead_id"] as String?)
+            }
+        }
+    }
+
+    /// EV10 (owner dogfood 2026-08-25) — one GRO registration, many index
+    /// rows. `saveLead`'s `INSERT OR IGNORE` dedupes on the lead id, which is
+    /// derived from the SOURCE ROW id, so the same registration re-fetched
+    /// under a different FreeBMD row id sails straight past it: Emma Gladwin's
+    /// Dec 1865 Chesterfield 7b/515 was discarded as …39326572 and came back
+    /// as …39324032 — same volume, same page, same quarter, same district.
+    ///
+    /// True when this profile has already settled that registration: the user
+    /// discarded a row of it (a rejection is of the REGISTRATION, not of the
+    /// transcription she happened to be shown) or a lead for it already exists
+    /// under another row id. Records with no volume/page — censuses, parish
+    /// rows, household and inference leads — carry no registration identity
+    /// and fall through to the row-id behaviour unchanged.
+    func registrationAlreadySettled(_ lead: Lead) throws -> Bool {
+        guard let sourceRecordID = Self.sourceRecordID(forLeadID: lead.id) else { return false }
+        let own: SourceRecord? = try dbQueue.read { db -> SourceRecord? in
+            guard let json = try String.fetchOne(db, sql: """
+                SELECT record_json FROM evidence_records
+                WHERE profile_id = ? AND source_record_id = ?
+                """, arguments: [lead.profileID, sourceRecordID]),
+                let data = json.data(using: .utf8) else { return nil }
+            return try? JSONDecoder().decode(SourceRecord.self, from: data)
+        }
+        guard let own, RecordScorer.registrationKey(for: own) != nil else { return false }
+        for settlement in try registrationSettlements(profileID: lead.profileID)
+        where RecordScorer.isSameRegistration(settlement.record, own) {
+            if settlement.discarded { return true }
+            if let existing = settlement.leadID, existing != lead.id { return true }
+        }
+        return false
+    }
+
+    /// EV10, second half — a discard is a decision about the RECORD, so the
+    /// lead that record produced must not sit in Triage at `new` waiting to be
+    /// judged again (Emma Gladwin had five such leads whose evidence rows were
+    /// already `discarded`). Dismisses the lead of every discarded row AND of
+    /// every other index row of the same GRO registration. Promoted and
+    /// already-dismissed leads are left alone — a promotion is the stronger,
+    /// later decision. Returns the number of lead rows dismissed.
+    @discardableResult
+    func dismissLeadsForDiscardedEvidence(
+        profileID: String, sourceRecordIDs: [String]
+    ) throws -> Int {
+        guard !sourceRecordIDs.isEmpty else { return 0 }
+        let discardedSet = Set(sourceRecordIDs)
+        return try dbQueue.write { db in
+            let placeholders = Array(repeating: "?", count: sourceRecordIDs.count).joined(separator: ",")
+            let discardedRecords: [SourceRecord] = try Row.fetchAll(db, sql: """
+                SELECT record_json FROM evidence_records
+                WHERE profile_id = ? AND source_record_id IN (\(placeholders))
+                """, arguments: StatementArguments([profileID] + sourceRecordIDs))
+                .compactMap { row -> SourceRecord? in
+                    guard let json = row["record_json"] as String?,
+                          let data = json.data(using: .utf8) else { return nil }
+                    return try? JSONDecoder().decode(SourceRecord.self, from: data)
+                }
+            let live = try Row.fetchAll(db, sql: """
+                SELECT e.source_record_id AS srid, e.record_json AS record_json, l.id AS lead_id
+                FROM evidence_records e
+                JOIN leads l
+                  ON l.id = 'lead_' || e.source_record_id AND l.profile_id = e.profile_id
+                WHERE e.profile_id = ?
+                  AND l.status NOT IN ('promoted', 'dismissed', 'resolved')
+                """, arguments: [profileID])
+            var leadIDs: [String] = []
+            for row in live {
+                let srid = row["srid"] as String
+                let leadID = row["lead_id"] as String
+                if discardedSet.contains(srid) {
+                    leadIDs.append(leadID)
+                    continue
+                }
+                guard let json = row["record_json"] as String?,
+                      let data = json.data(using: .utf8),
+                      let record = try? JSONDecoder().decode(SourceRecord.self, from: data)
+                else { continue }
+                if discardedRecords.contains(where: { RecordScorer.isSameRegistration($0, record) }) {
+                    leadIDs.append(leadID)
+                }
+            }
+            let now = Date()
+            for leadID in leadIDs {
+                try db.execute(sql: """
+                    UPDATE leads
+                    SET status = ?, resolution = ?, resolved_at = ?
+                    WHERE id = ?
+                    """, arguments: [
+                        LeadStatus.dismissed.rawValue, LeadResolution.dismissed.rawValue,
+                        now, leadID,
+                    ])
+            }
+            return leadIDs.count
         }
     }
 
@@ -4550,7 +4705,14 @@ nonisolated extension ProjectDatabase {
     /// and timestamps. Re-running research therefore can't reset an
     /// `investigating` or `dismissed` lead back to `.new`. Use `upsertLead`
     /// for deliberate status transitions.
+    ///
+    /// EV10: id-equality is not registration-equality. A lead whose GRO
+    /// registration this profile has already discarded — or already holds a
+    /// lead for under a different index-row id — is dropped here rather than
+    /// inserted, so a rejected registration cannot come back wearing a new row
+    /// id. See `registrationAlreadySettled`.
     func saveLead(_ lead: Lead) throws {
+        if try registrationAlreadySettled(lead) { return }
         try dbQueue.write { db in
             try db.execute(sql: """
                 INSERT OR IGNORE INTO leads

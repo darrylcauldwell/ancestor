@@ -29,10 +29,63 @@ struct ProfileEditBindings {
 /// Identifiable wrapper for presenting `ConflictResolutionView` via
 /// `.sheet(item:)` — one profile field has at most one displayed dispute
 /// (snapshot map invariant), so (profile, field) identifies the sheet.
+///
+/// Construction re-derives the dispute's competing values against what the
+/// profile currently attests, so every host of the sheet gets that for free.
 struct DisputeSheetItem: Identifiable {
     let profile: Profile
     let dispute: FieldDispute
     var id: String { "\(profile.id):\(dispute.field.rawValue)" }
+
+    init(profile: Profile, dispute: FieldDispute) {
+        self.profile = profile
+        self.dispute = FieldDispute(
+            field: dispute.field,
+            reason: dispute.reason,
+            competingSources: Self.liveCompetingSources(
+                stored: dispute.competingSources,
+                attested: profile.sources[dispute.field] ?? []),
+            detectedAt: dispute.detectedAt,
+            resolution: dispute.resolution,
+            kind: dispute.kind,
+            severity: dispute.severity,
+            detectedBy: dispute.detectedBy)
+    }
+
+    /// The stored competing values with the WITHDRAWN ones dropped.
+    ///
+    /// `field_disputes.competing_sources` is frozen at detection and never
+    /// revised, while discarding a record deletes its `field_sources` row — so a
+    /// value the user threw away stays on offer, and picking it in the resolver
+    /// writes it straight back onto the profile. Owner dogfood 2026-08-25: "Dec
+    /// 1865" was still selectable minutes after that registration was discarded,
+    /// and accepting it would have reinstated another family's entry.
+    ///
+    /// Withdrawn is narrower than "not attested", deliberately. Some competitors
+    /// never had a `field_sources` row to lose: `ConflictDetector` synthesises a
+    /// `tree`-origin entry for the profile's canonical value when no attested
+    /// row represents it (imports predating the provenance journal), and the
+    /// pending-facts accept path does the same for the value it displaced. Those
+    /// are the only route back to that value — dropping them would empty the
+    /// picker of the very side the user usually wants. So a value is dropped
+    /// only when its own SOURCE is still on this field under some other value,
+    /// which is exactly what record removal leaves behind: that one row gone,
+    /// the source's others intact.
+    ///
+    /// Matched on (origin, case-folded value). The offered set can only SHRINK —
+    /// nothing is introduced that the detector never weighed.
+    nonisolated static func liveCompetingSources(
+        stored: [FieldSource], attested: [FieldSource]
+    ) -> [FieldSource] {
+        func key(_ s: FieldSource) -> String {
+            "\(s.origin.identifier)|\(s.raw.trimmingCharacters(in: .whitespaces).lowercased())"
+        }
+        let live = Set(attested.map(key))
+        let originsOnField = Set(attested.map(\.origin.identifier))
+        return stored.filter {
+            live.contains(key($0)) || !originsOnField.contains($0.origin.identifier)
+        }
+    }
 }
 
 /// Shared layout shell for a single profile. Renders the header, fields,
@@ -533,6 +586,13 @@ struct SharedProfileLayout: View {
                     .font(.headline)
                     .foregroundStyle(.orange)
                 ForEach(Array(profile.disputes.values), id: \.field) { dispute in
+                    // The stored competing values narrowed to what the profile
+                    // still attests — a discarded record's value must not be
+                    // listed here any more than it may be offered in the
+                    // resolver (see `DisputeSheetItem.liveCompetingSources`).
+                    let competing = DisputeSheetItem.liveCompetingSources(
+                        stored: dispute.competingSources,
+                        attested: profile.sources[dispute.field] ?? [])
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(dispute.field.rawValue)
@@ -541,7 +601,7 @@ struct SharedProfileLayout: View {
                             Text(dispute.reason.rawValue)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
-                            ForEach(dispute.competingSources, id: \.raw) { source in
+                            ForEach(competing, id: \.raw) { source in
                                 Text("  \(source.origin.identifier): \(source.raw)")
                                     .font(.caption2)
                                     .foregroundStyle(.tertiary)
@@ -566,13 +626,19 @@ struct SharedProfileLayout: View {
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
-                            Button("Resolve…") {
-                                resolvingDispute = DisputeSheetItem(
-                                    profile: profile, dispute: dispute
-                                )
+                            // A picker with nothing left to pick is a dead end:
+                            // once every competing value has been discarded the
+                            // dispute is stale, and the fix is on the record, not
+                            // in a value choice.
+                            if !competing.isEmpty {
+                                Button("Resolve…") {
+                                    resolvingDispute = DisputeSheetItem(
+                                        profile: profile, dispute: dispute
+                                    )
+                                }
+                                .buttonStyle(.glass)
+                                .controlSize(.small)
                             }
-                            .buttonStyle(.glass)
-                            .controlSize(.small)
                         } else {
                             Label("Resolved", systemImage: "checkmark.circle")
                                 .font(.caption2)
@@ -673,9 +739,15 @@ struct SharedProfileLayout: View {
         }
         // Any snapshot mutation (applying a record, adding a verified record)
         // should refresh the per-fact evidence — profile.id is unchanged, so the
-        // task above won't re-fire on its own.
+        // task above won't re-fire on its own. The Conflicts block is reloaded
+        // with it: those rows come from the dispute store rather than the
+        // snapshot, so a conflict closed by another route (un-applying its
+        // record, an MCP write) kept its Resolve affordance here until the
+        // profile was reopened (owner dogfood 2026-08-25).
         .onChange(of: appState.treeContentRevision) { _, _ in
             reloadFactRecords()
+            structuralDisputes = ((try? appState.currentDatabase?.openDisputes(profileID: profile.id)) ?? [])
+                .filter { $0.kind != .fieldValue }
         }
         .confirmationDialog(
             "Remove this record?",
@@ -1225,6 +1297,24 @@ struct SharedProfileLayout: View {
         }
     }
 
+    /// Which of the two census offers produced `censusCiteHint`.
+    ///
+    /// `AppState.censusCorroborationProposal` tries corroborate-mode first and
+    /// falls back to cite-mode, and corroborate-mode's own target filter is
+    /// exactly "recorded birth year is NOT research-backed" — so the profile's
+    /// birth-date provenance decides which offer this is. It matters because the
+    /// two say different things: corroborate-mode evidences an uncited year,
+    /// while cite-mode's year is already sourced and it is the census EVENT that
+    /// is missing. The one message claimed "currently uncited" for both (owner
+    /// dogfood 2026-08-25), which is untrue of the second.
+    private var censusCiteHintCorroborates: Bool {
+        Self.censusOfferCorroboratesBirthYear(birthDateSources: profile.sources[.birthDate] ?? [])
+    }
+
+    nonisolated static func censusOfferCorroboratesBirthYear(birthDateSources: [FieldSource]) -> Bool {
+        !birthDateSources.contains { $0.origin.tier == .researchSource }
+    }
+
     @ViewBuilder
     private func fieldRow(_ label: String, value: String?, place: String?, field: ProfileField) -> some View {
         let records = evidenceRecords(for: field)
@@ -1268,14 +1358,24 @@ struct SharedProfileLayout: View {
                 }
                 // Corroborate-in-place hint ON the profile (owner dogfood
                 // 2026-07-31: the offer only lived in Health — invisible
-                // here). An applied family census agrees with this uncited
-                // birth year; one click evidences it, changing nothing.
+                // here). Two producers stand behind it and they say different
+                // things, so the copy follows the mode: corroborate-mode
+                // evidences an uncited year, cite-mode's year is already
+                // sourced and it is the census EVENT that is missing here.
                 if field == .birthDate, let hint = censusCiteHint {
+                    let year = String(hint.censusYear)
+                    let corroborates = censusCiteHintCorroborates
+                    let message: String = corroborates
+                        ? "The applied \(year) census (as \(hint.relationshipLabel)) agrees with this year — currently uncited"
+                        : "The applied \(year) census (as \(hint.relationshipLabel)) names this person, but isn't recorded on this profile"
+                    let helpText: String = corroborates
+                        ? "Attach the \(year) census as evidence for this birth year — the value doesn't change; it becomes evidence-backed instead of an uncited import."
+                        : "Record the \(year) census on this profile from the household that already names them — the birth year doesn't change; the census gains its own event and citation here."
                     HStack(spacing: 6) {
                         Image(systemName: "checkmark.seal")
                             .font(AppTypography.badge)
                             .foregroundStyle(.blue)
-                        Text("The applied \(String(hint.censusYear)) census (as \(hint.relationshipLabel)) agrees with this year — currently uncited")
+                        Text(message)
                             .font(AppTypography.badge)
                             .foregroundStyle(.secondary)
                         Button("Cite census") {
@@ -1285,7 +1385,7 @@ struct SharedProfileLayout: View {
                         }
                         .buttonStyle(.glassProminent)
                         .controlSize(.mini)
-                        .help("Attach the \(String(hint.censusYear)) census as evidence for this birth year — the value doesn't change; it becomes evidence-backed instead of an uncited import.")
+                        .help(helpText)
                     }
                     .padding(.top, 2)
                 }
@@ -1408,6 +1508,13 @@ struct SharedProfileLayout: View {
             + (censusHousehold != nil ? 1 : 0)
     }
 
+    /// The census the household row on this strip already offers, if any — what
+    /// `AuditFixButton` keys the one-affordance rule on.
+    private var householdRowYears: Set<Int> {
+        guard let proposal = censusHousehold else { return [] }
+        return [proposal.censusYear]
+    }
+
     @ViewBuilder
     private var profileHealthStrip: some View {
         if healthStripCount > 0 {
@@ -1487,7 +1594,14 @@ struct SharedProfileLayout: View {
                                 tint: finding.severity.color,
                                 text: strippedFindingMessage(finding)
                             ) {
-                                AuditFixButton(result: finding, onFixed: { reloadFactRecords() })
+                                // The household row above is on the same strip
+                                // with the roster the reader is judging, so its
+                                // census year suppresses a second bulk add here
+                                // (owner dogfood 2026-08-25).
+                                AuditFixButton(
+                                    result: finding,
+                                    householdRowYears: householdRowYears,
+                                    onFixed: { reloadFactRecords() })
                             }
                         }
                     }

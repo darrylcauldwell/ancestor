@@ -246,6 +246,14 @@ nonisolated struct ResearchSubject: Sendable {
     /// geography must never discriminate an exclusivity slot.
     var homeDistrictID: String? = nil
 
+    /// Profile fields whose current value is still UNDER ARGUMENT — an open
+    /// `field_disputes` row, or one the user explicitly deferred. The date
+    /// gate consults it before it excludes a record: an `.impossible` verdict
+    /// drops a record from every pool, so it may only rest on a fact the tree
+    /// is sure of (see `RecordScorer.contestedPremise`). Empty for leads,
+    /// manual subjects, and any profile with no disputes on file.
+    var contestedFields: Set<ProfileField> = []
+
     /// Residence search axes derived from the subject's Residence
     /// LifeEvents (Stage 2 roadmap: "life events feed research axes") —
     /// user-entered ones and evidence-absorbed ones alike (absorbed events
@@ -265,6 +273,45 @@ nonisolated struct ResearchSubject: Sendable {
     /// County chapman derived from the burial event's place via the same
     /// derivation chain as profile fields. Nil when underivable.
     var burialChapmanCode: String? = nil
+
+    /// Candidate RESIDENCE counties evidenced one edge away — the counties
+    /// the subject's SPOUSE and CHILDREN are recorded in, ranked by how many
+    /// of those facts back each one and capped at `maxKinResidenceCounties`.
+    ///
+    /// Owner dogfood 2026-08-25 (run FB03A519). William Gladwin's only place
+    /// fact is his Teversall birthplace, so every census probe went to NTT
+    /// while he spent his whole adult life in Derbyshire and the West Riding.
+    /// That is a closed loop: the app cannot find his censuses because it does
+    /// not know where he lived, and does not know where he lived because it
+    /// has not found his censuses. The evidence to break it was already on the
+    /// tree — his wife was born Unstone, Derbyshire and his daughter
+    /// Whittington, Derbyshire.
+    ///
+    /// SOFT TARGETING ONLY, on exactly the terms `residenceAxes` states: these
+    /// widen the residence axis of chapman-coded searches and never filter,
+    /// never score, and never move `homeChapmanCode` — the scorer's geography
+    /// anchor stays a fact about this person, not an inference from their
+    /// relatives. Empty for a subject with no kin places, so every subject the
+    /// app already handled is unaffected.
+    var kinResidenceAxes: [KinResidenceAxis] = []
+
+    /// Kin facts this subject's QUERY AXES rest on that the tree cannot back
+    /// with a citation — the premise half of a negative search.
+    ///
+    /// Owner dogfood 2026-08-25 (EV7): the Gladwin parents' marriage was
+    /// searched on FreeBMD twice, 21 and 27 Jul 2026, both negative, because
+    /// both queries presupposed the wife's surname "Wheatman" — a GEDCOM-only
+    /// value with no citation, and wrong. The real marriage is Gladwin ×
+    /// HEWKIN, and FreeBMD answered at 7b/741 the moment the surname was
+    /// corrected. Both negatives were nevertheless recorded as durable
+    /// `negative_searches` rows, so the app went on suppressing the search
+    /// that would have found it.
+    ///
+    /// A search is only evidence of absence if its premises hold. Empty for
+    /// the overwhelming majority of subjects — see
+    /// `unverifiedKinPremises(for:spouse:mother:)` for the deliberately narrow
+    /// admission rule.
+    var unverifiedKinPremises: [KinPremise] = []
 
     /// SUBJECT_PLACE_MODEL_SPEC Slice 2 — every place we know about this
     /// person, in one shape, in precedence order (birth, death, burial,
@@ -319,6 +366,54 @@ nonisolated struct ResidenceAxis: Sendable, Equatable {
         if let queryFrom = from, let axisTo = yearTo, axisTo < queryFrom { return false }
         if let queryTo = to, let axisFrom = yearFrom, axisFrom > queryTo { return false }
         return true
+    }
+}
+
+/// One county the subject's close kin are evidenced in, with the number of
+/// distinct kin facts behind it — see `ResearchSubject.kinResidenceAxes`.
+///
+/// `support` exists so the ranking is a count of evidence rather than a
+/// preference: a county named by a wife's birthplace AND two children's
+/// birthplaces outranks one named by a single child, and the cap then keeps
+/// the head of that list. Ties break on the code so the wire fan-out is
+/// deterministic across runs.
+nonisolated struct KinResidenceAxis: Sendable, Equatable {
+    /// Always a code a source form actually tags — umbrellas are expanded at
+    /// derivation (YKS → WRY/NRY/ERY), never handed on as a dead literal.
+    let chapmanCode: String
+    /// Distinct kin facts naming this county. Never zero.
+    let support: Int
+    /// The first supporting fact, phrased for the activity feed's "why".
+    let evidence: String
+}
+
+/// A kin fact a query axis presupposes that the tree cannot cite — see
+/// `ResearchSubject.unverifiedKinPremises`.
+nonisolated struct KinPremise: Sendable, Equatable {
+    /// Which outbound axis the fact feeds. Deliberately only the two axes
+    /// that put a surname OTHER than the subject's own onto the wire: the
+    /// subject's own name and dates are the search itself, not an assumption
+    /// layered on top of it, and admitting them would make every query in a
+    /// GEDCOM-imported tree premise-bearing — which would not flag a problem,
+    /// it would disable the negative-search cache.
+    nonisolated enum Axis: String, Sendable {
+        /// Bride/groom surname on a marriage index (FreeBMD `s_surname`).
+        case spouseSurname
+        /// Mother's maiden name on a birth index (FreeBMD `motherSurname`).
+        case motherSurname
+    }
+    let axis: Axis
+    let value: String
+    /// Why the tree cannot stand behind it — "no citation", "gedcom import,
+    /// no citation".
+    let provenance: String
+
+    /// Slotted into "searched, but the query assumed …, which is unverified".
+    var phrase: String {
+        switch axis {
+        case .spouseSurname: return "the spouse surname \"\(value)\" (\(provenance))"
+        case .motherSurname: return "the mother's maiden surname \"\(value)\" (\(provenance))"
+        }
     }
 }
 
@@ -1157,6 +1252,9 @@ nonisolated extension ResearchSubject {
             return a.text < b.text
         }
 
+        let derivedHome = Self.deriveHomeChapmanCode(
+            from: profile, projectFallback: homeChapmanCode)
+
         var subject = ResearchSubject(
             profileID: profile.id,
             surname: profile.lastName,
@@ -1185,12 +1283,14 @@ nonisolated extension ResearchSubject {
             mode: mode,
             focus: focus,
             familyContext: context,
-            homeChapmanCode: Self.deriveHomeChapmanCode(
-                from: profile, projectFallback: homeChapmanCode
-            ),
+            homeChapmanCode: derivedHome,
             residenceAxes: derivedResidenceAxes,
             burialPlace: derivedBurialPlace,
             burialChapmanCode: derivedBurialChapman,
+            kinResidenceAxes: Self.rankKinResidenceCounties(
+                for: profile, snapshot: snapshot, home: derivedHome),
+            unverifiedKinPremises: Self.unverifiedKinPremises(
+                for: profile, spouse: spouses.first, mother: mother),
             places: derivedPlaces
         )
         // #34 ruling a — home-district anchor for the geography gate's graded
@@ -1202,6 +1302,12 @@ nonisolated extension ResearchSubject {
                 chapman: RegistrationDistrictResolver.chapman(forProfile: profile),
                 year: profile.birthDate?.bestYear)
         }
+        // Fields still under argument. Same open-dispute test the birth-window
+        // narrowing above applies (`narrowBirthWindowFromSources`) — unresolved,
+        // or resolved as `.deferred`, means the user has not picked a winner.
+        subject.contestedFields = Set(profile.disputes.compactMap { field, dispute in
+            (dispute.resolution == nil || dispute.resolution == .deferred) ? field : nil
+        })
         return subject
     }
 
@@ -1247,6 +1353,160 @@ nonisolated extension ResearchSubject {
             return code
         }
         return projectFallback
+    }
+
+    /// How many kin-derived COUNTIES may join a chapman-coded fan-out. Two.
+    ///
+    /// FreeCEN emits one request per census YEAR per code, so each extra county
+    /// costs eight requests against a volunteer server for one subject. Two is
+    /// enough to carry the shape the evidence actually has — a family that
+    /// moved once — and refuses to turn a wide family into a national sweep.
+    /// The cap counts counties, not codes: an umbrella county spends one slot
+    /// and then expands to the codes the source forms actually tag.
+    static let maxKinResidenceCounties = 2
+
+    /// Rank the counties the subject's close kin are evidenced in
+    /// (see `kinResidenceAxes` — SOFT targeting, never a scoring anchor).
+    ///
+    /// The four facts consulted are the ones that place a FAMILY rather than
+    /// an individual: the spouse's birthplace, each child's birthplace, each
+    /// child's census place, and the marriage place. Parents are deliberately
+    /// NOT consulted — a person's parents place their CHILDHOOD, which their
+    /// own birthplace already covers, so admitting them would drag the sweep
+    /// back a generation instead of forward into the years the censuses that
+    /// are missing were taken.
+    ///
+    /// `home` is excluded from the result (it is already the primary axis).
+    /// Ranking runs on the county as resolved and umbrellas expand only AFTER
+    /// the cap — expanding first would let one Yorkshire fact enter three
+    /// codes into the ranking, where they compete with each other for the two
+    /// slots and the alphabetical tie-break silently drops a riding.
+    static func rankKinResidenceCounties(
+        for profile: Profile,
+        snapshot: FamilyGraphSnapshot,
+        home: String,
+        limit: Int = maxKinResidenceCounties
+    ) -> [KinResidenceAxis] {
+        var support: [String: Int] = [:]
+        var evidence: [String: String] = [:]
+        func credit(place: String?, code: String?, because label: String) {
+            let trimmed = place?.trimmingCharacters(in: .whitespaces)
+            guard let resolved = chapmanCodeFromLocationCode(code)
+                ?? trimmed.flatMap({ $0.isEmpty ? nil : Self.chapmanCode(forPlaceText: $0) })
+            else { return }
+            let county = resolved.uppercased()
+            support[county, default: 0] += 1
+            if evidence[county] == nil { evidence[county] = label }
+        }
+
+        for spouse in snapshot.spousesOf(profile.id) {
+            credit(place: spouse.birthLocation, code: spouse.birthLocationCode,
+                   because: "spouse \(spouse.displayName) born \(spouse.birthLocation ?? "")")
+        }
+        for edge in snapshot.relationships
+        where edge.type == .spouse && (edge.from == profile.id || edge.to == profile.id) {
+            credit(place: edge.marriageLocation, code: edge.marriageLocationCode,
+                   because: "married at \(edge.marriageLocation ?? "")")
+        }
+        for child in snapshot.childrenOf(profile.id) {
+            credit(place: child.birthLocation, code: child.birthLocationCode,
+                   because: "child \(child.displayName) born \(child.birthLocation ?? "")")
+            // A child's census places are the strongest residence signal on
+            // the whole tree: a household enumerated together IS the family's
+            // address in that year. Sensitive events are excluded here, before
+            // any of their text could reach an outbound query — the same rule
+            // the subject's own residence axes apply.
+            for event in snapshot.lifeEvents[child.id] ?? []
+            where event.type == .census && !event.sensitive {
+                credit(place: event.location, code: event.locationCode,
+                       because: "child \(child.displayName) enumerated at \(event.location ?? "")")
+            }
+        }
+
+        let homeCode = home.trimmingCharacters(in: .whitespaces).uppercased()
+        var homeCodes = Set(RegionConfig.expandUmbrellaChapmanCode(homeCode))
+        homeCodes.insert(homeCode)
+        let ranked = support
+            .filter { !homeCodes.contains($0.key) }
+            .sorted { l, r in
+                l.value != r.value ? l.value > r.value : l.key < r.key
+            }
+            .prefix(max(0, limit))
+
+        var out: [KinResidenceAxis] = []
+        var seen: Set<String> = []
+        for (county, count) in ranked {
+            for code in RegionConfig.expandUmbrellaChapmanCode(county)
+            where !homeCodes.contains(code) && seen.insert(code).inserted {
+                out.append(KinResidenceAxis(
+                    chapmanCode: code, support: count, evidence: evidence[county] ?? ""))
+            }
+        }
+        return out
+    }
+
+    /// The kin facts this subject's outbound axes rest on that the tree cannot
+    /// cite (see `unverifiedKinPremises`).
+    ///
+    /// Admission is deliberately narrow — a premise counts only when all three
+    /// hold:
+    ///   1. it is a fact about a RELATIVE, not about the subject (the
+    ///      subject's own name and dates ARE the search);
+    ///   2. it puts a surname on the wire that the subject does not already
+    ///      carry (an uncited father's surname is the subject's own surname
+    ///      wearing a hat); and
+    ///   3. the tree can offer nothing better for it than an uncited
+    ///      third-party import — a citation, or a hand-entered value the user
+    ///      investigated, both count as verified.
+    /// Widen any one of those and a GEDCOM-imported tree makes every query
+    /// premise-bearing, which does not flag the problem — it switches the
+    /// negative-search cache off.
+    static func unverifiedKinPremises(
+        for profile: Profile,
+        spouse: Profile?,
+        mother: Profile?
+    ) -> [KinPremise] {
+        let subjectSurname = (profile.lastName ?? "")
+            .trimmingCharacters(in: .whitespaces).lowercased()
+        var out: [KinPremise] = []
+        func admit(_ axis: KinPremise.Axis, value: String?, provenance: String?) {
+            guard let provenance else { return }
+            guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty,
+                  value.lowercased() != subjectSurname else { return }
+            out.append(KinPremise(axis: axis, value: value, provenance: provenance))
+        }
+        if let spouse {
+            admit(.spouseSurname, value: spouse.lastName,
+                  provenance: uncitedProvenance(of: .lastName, on: spouse))
+        }
+        if let mother {
+            admit(.motherSurname, value: mother.lastName,
+                  provenance: uncitedProvenance(of: .lastName, on: mother))
+        } else {
+            // No linked mother, but an MMN recorded on the subject — the
+            // classic shape for early generations, and the exact shape of the
+            // Gladwin "Wheatman" failure.
+            admit(.motherSurname, value: profile.mothersMaidenName,
+                  provenance: uncitedProvenance(of: .mothersMaidenName, on: profile))
+        }
+        return out
+    }
+
+    /// Why `field` on `profile` cannot be stood behind, or nil when it can.
+    ///
+    /// Verified means either a citation on any supporting source, or a source
+    /// above import tier (`manual.*` — the user investigated and decided;
+    /// `freebmd`/`freecen`/… — the value came off a record). Unverified means
+    /// no sources at all, or nothing but uncited `gedcom`/`wikitree` rows.
+    static func uncitedProvenance(of field: ProfileField, on profile: Profile) -> String? {
+        let sources = profile.sources[field] ?? []
+        guard !sources.isEmpty else { return "no citation" }
+        for source in sources {
+            if source.citation != nil { return nil }
+            if source.origin.tier != .initialImport { return nil }
+        }
+        let origins = Set(sources.map(\.origin.identifier)).sorted().joined(separator: "/")
+        return "\(origins) import, no citation"
     }
 
     /// Chapman code from a freeform place string — the tier-2 logic of

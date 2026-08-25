@@ -522,7 +522,9 @@ nonisolated struct ApplyEngine {
         failures: inout [WriteFailure]
     ) {
         guard let trimmed = candidate?.trimmingCharacters(in: .whitespaces), !trimmed.isEmpty else { return }
-        if shouldOverwriteStringField(existing: existing, existingSources: existingSources, candidateOrigin: origin) {
+        if shouldOverwriteStringField(field: field, existing: existing,
+                                      existingSources: existingSources,
+                                      candidate: trimmed, candidateOrigin: origin) {
             attempt("Apply \(field) value", into: &failures) {
                 _ = try db.editProfile(profileID: profileID, changes: [(field, existing, trimmed)], dateChanges: [], source: origin)
             }
@@ -623,16 +625,51 @@ nonisolated struct ApplyEngine {
     /// problem (multi-hypothesis investigation owns it for cases where two
     /// research sources disagree). They still land in `field_sources` via
     /// `recordAlternativeFact`.
+    ///
+    /// LOCATION fields additionally carry a precision axis, the way dates do
+    /// and other strings don't: a registration district strictly contains the
+    /// parish inside it. Tier alone gets this wrong, because the BMD index is
+    /// a high-tier source that names the DISTRICT a birth was registered in,
+    /// never the town it happened in. So a coarser place is refused however
+    /// well-sourced, and lands as an alternative fact instead.
     static func shouldOverwriteStringField(
+        field: ProfileField = .firstName,
         existing: String?,
         existingSources: [FieldSource],
+        candidate: String = "",
         candidateOrigin: SourceOrigin
     ) -> Bool {
         if (existing ?? "").trimmingCharacters(in: .whitespaces).isEmpty { return true }
+        if field == .birthLocation || field == .deathLocation,
+           isCoarserPlace(candidate: candidate, existing: existing) {
+            return false
+        }
         guard let existingTier = existingSources.map(\.origin.tier).max() else {
             return false
         }
         return candidateOrigin.tier > existingTier
+    }
+
+    /// True when `candidate` names a strictly broader place than `existing`
+    /// already does — a single bare component against a qualified place that
+    /// does not mention it. "Chesterfield" against "Whittington, Derbyshire,
+    /// England" is the live case (owner dogfood 2026-08-25: Emma Gladwin's
+    /// parish-level birthplace was displaced by her registration district,
+    /// cited to a different family's registration).
+    ///
+    /// Deliberately narrow: it fires only on a bare single component, so a
+    /// genuinely more specific two-part place still overwrites normally, and
+    /// a candidate the existing value already names ("Chesterfield" against
+    /// "Chesterfield, Derbyshire") is not treated as coarser.
+    nonisolated static func isCoarserPlace(candidate: String, existing: String?) -> Bool {
+        func parts(_ s: String) -> [String] {
+            s.split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+        }
+        let e = parts(existing ?? ""), c = parts(candidate)
+        guard c.count == 1, e.count >= 2 else { return false }
+        return !e.contains { $0.caseInsensitiveCompare(c[0]) == .orderedSame }
     }
 
     /// True when an existing name-field value and a refused candidate are

@@ -332,6 +332,38 @@ nonisolated struct RecordScorer {
         }
     }
 
+    /// The quarter a BMD index row was registered in ("Jun", "Q2", …),
+    /// lower-cased and trimmed; nil when the row doesn't carry one.
+    static func registrationQuarter(for record: SourceRecord) -> String? {
+        let raw: String? = switch record {
+        case .birth(let r): r.quarter
+        case .death(let r): r.quarter
+        case .marriage(let r): r.quarter
+        default: nil
+        }
+        let q = raw?.trimmingCharacters(in: .whitespaces).lowercased()
+        return (q?.isEmpty == false) ? q : nil
+    }
+
+    /// Whether two BMD index rows describe the SAME GRO registration. One
+    /// registration routinely appears as several index rows — identical
+    /// type/quarter/district/vol/page, different row ids — and treating those
+    /// as separate records is what let a discarded FreeBMD row return as a
+    /// fresh lead under a new row id (owner dogfood 2026-08-25: Emma Gladwin,
+    /// Dec 1865 Chesterfield 7b/515, discarded as …39326572 and re-proposed as
+    /// …39324032).
+    ///
+    /// FreeBMD volume/page numbering restarts every quarter, so the quarter is
+    /// part of the identity — but a row that OMITS it cannot be told apart on
+    /// that basis and must not be split off for the omission.
+    static func isSameRegistration(_ a: SourceRecord, _ b: SourceRecord) -> Bool {
+        guard let keyA = registrationKey(for: a), let keyB = registrationKey(for: b),
+              keyA == keyB else { return false }
+        guard let quarterA = registrationQuarter(for: a),
+              let quarterB = registrationQuarter(for: b) else { return true }
+        return quarterA == quarterB
+    }
+
     /// The deterministic discriminator: a NON-VACUOUS familyContext pass
     /// (child/spouse/parent/maiden-name actually matched — `.skip` and
     /// `.softFail` never count). Cross-profile elevation is subsumed: its
@@ -959,6 +991,53 @@ nonisolated struct RecordScorer {
 
     // MARK: - Gate 2: Date
 
+    /// An `.impossible` verdict is an EXCLUSION — the record leaves every
+    /// pool, silently — so it may only rest on a fact the tree is actually
+    /// sure of. This returns the dependency clause when the premise field is
+    /// still under argument, nil when it is firm.
+    ///
+    /// Two ways a premise is not firm:
+    ///  * an OPEN dispute on the field (unresolved, or explicitly deferred) —
+    ///    the user has not yet picked between competing values, so
+    ///    contradicting the current one proves nothing;
+    ///  * for the birth window, a DERIVED anchor (`birthAnchorIsDerived` — a
+    ///    census age or an `ABT`/`CAL` estimate). A census age is the least
+    ///    reliable number in genealogy; Jacob Holmes's was out by five.
+    ///
+    /// Live case (owner dogfood 2026-08-25): FreeBMD "Emma KEYWORTH, Jun q
+    /// 1909, Chesterfield 7b/407, age 35" scored `.impossible` — "age at death
+    /// 35 impossible for birth ~1867" — against an applied birthDate of Dec
+    /// 1867 that carried an OPEN dispute. A contested fact excluded a probably-
+    /// correct record and the profile lost its death registration.
+    static func contestedPremise(_ field: ProfileField, subject: ResearchSubject) -> String? {
+        let stated: String? = switch field {
+        case .birthDate: subject.birthDateOriginal
+        case .deathDate: subject.deathDateOriginal
+        default: nil
+        }
+        let value = stated.map { " \($0)" } ?? ""
+        if subject.contestedFields.contains(field) {
+            return "conflicts with \(field.rawValue)\(value), which is itself disputed"
+        }
+        if field == .birthDate, subject.birthAnchorIsDerived {
+            return "conflicts with \(field.rawValue)\(value), which is itself only an estimate (no birth-shape record behind it)"
+        }
+        return nil
+    }
+
+    /// Emit a date-gate exclusion — downgraded to a reviewable `.fail` (a
+    /// `.lead` at the verdict layer) when the fact it contradicts is itself
+    /// contested, with the dependency named in the reason so the user can see
+    /// what the demotion hangs on. See `contestedPremise`.
+    private static func dateExclusion(
+        _ reason: String, restingOn premise: ProfileField, subject: ResearchSubject
+    ) -> GateResult {
+        guard let dependency = contestedPremise(premise, subject: subject) else {
+            return GateResult(gate: .date, outcome: .impossible, reason: reason)
+        }
+        return GateResult(gate: .date, outcome: .fail, reason: "\(reason) — held as a lead: it \(dependency)")
+    }
+
     private static func checkDate(record: SourceRecord, subject: ResearchSubject, searchType: RecordType) -> GateResult {
         guard let birthLow = subject.birthYearFrom else {
             return GateResult(gate: .date, outcome: .fail, reason: insufficientDateInfoReason)
@@ -1005,7 +1084,10 @@ nonisolated struct RecordScorer {
         // birth, died before birth, etc.) still fire.
         let validation = ScoringRules.validateRecord(recordYear: recordYear, birthYear: birthLow, deathYear: deathYear, recordType: effectiveType.rawValue)
         if validation.hasPrefix("impossible") {
-            return GateResult(gate: .date, outcome: .impossible, reason: validation)
+            // "…before birth" rests on the birth window, "…after death" on the
+            // death year — the exclusion is only as sound as the field it names.
+            let premise: ProfileField = validation.contains("before birth") ? .birthDate : .deathDate
+            return dateExclusion(validation, restingOn: premise, subject: subject)
         }
 
         let windowLabel = birthLow == birthHigh ? "~\(birthLow)" : "\(birthLow)–\(birthHigh)"
@@ -1057,7 +1139,9 @@ nonisolated struct RecordScorer {
                         && recDeath.month == confirmed.month
                         && abs(recDeath.day - confirmed.day) <= 3
                     if !sameEvent {
-                        return GateResult(gate: .date, outcome: .impossible, reason: "record's death date differs from the subject's confirmed death \(confirmedLabel) — a person dies once; same-name namesake, not them")
+                        return dateExclusion(
+                            "record's death date differs from the subject's confirmed death \(confirmedLabel) — a person dies once; same-name namesake, not them",
+                            restingOn: .deathDate, subject: subject)
                     }
                 } else {
                     // Record is year/quarter-only (e.g. a FreeBMD death index
@@ -1068,7 +1152,9 @@ nonisolated struct RecordScorer {
                     // confirmed death fell in Nov/Dec.
                     let registrationSlipOK = confirmed.month >= 11 && recDeath.year == confirmed.year + 1
                     if recDeath.year != confirmed.year && !registrationSlipOK {
-                        return GateResult(gate: .date, outcome: .impossible, reason: "death year \(recDeath.year) ≠ the subject's confirmed death \(confirmedLabel) — a person dies once; same-name namesake, not them")
+                        return dateExclusion(
+                            "death year \(recDeath.year) ≠ the subject's confirmed death \(confirmedLabel) — a person dies once; same-name namesake, not them",
+                            restingOn: .deathDate, subject: subject)
                     }
                 }
             }
@@ -1132,7 +1218,9 @@ nonisolated struct RecordScorer {
             // age-less namesake burials (e.g. the "Spital Cemetery, d.1920"
             // twin) that carry no recorded age.
             if reachedAdulthood, ageAtDeathHigh < childbearingFloor {
-                return GateResult(gate: .date, outcome: .impossible, reason: "died \(recordYear) at age ≤\(ageAtDeathHigh), but the subject married/had children — a childhood-death namesake, not them")
+                return dateExclusion(
+                    "died \(recordYear) at age ≤\(ageAtDeathHigh), but the subject married/had children — a childhood-death namesake, not them",
+                    restingOn: .birthDate, subject: subject)
             }
 
             if let recordedAge {
@@ -1155,7 +1243,9 @@ nonisolated struct RecordScorer {
                 // a reviewable lead (aged 19 vs implied 31), not dropping it.
                 let isMilitary: Bool = { if case .military = record { return true }; return false }()
                 if !isMilitary, recordedAge < ageAtDeathLow - 5 || recordedAge > ageAtDeathHigh + 12 {
-                    return GateResult(gate: .date, outcome: .impossible, reason: "age at death \(recordedAge) impossible for birth \(windowLabel) — a different person")
+                    return dateExclusion(
+                        "age at death \(recordedAge) impossible for birth \(windowLabel) — a different person",
+                        restingOn: .birthDate, subject: subject)
                 }
                 return GateResult(gate: .date, outcome: .fail, reason: "age at death \(recordedAge) inconsistent with birth \(windowLabel)")
             }
@@ -1198,10 +1288,14 @@ nonisolated struct RecordScorer {
             let ageHigh = recordYear - birthLow
             let ageLow  = recordYear - birthHigh
             if !ScoringRules.checkMarriageAge(birthYear: birthLow, marriageYear: recordYear) {
-                return GateResult(gate: .date, outcome: .impossible, reason: "married \(recordYear) at max age ~\(ageHigh) (birth \(windowLabel))")
+                return dateExclusion(
+                    "married \(recordYear) at max age ~\(ageHigh) (birth \(windowLabel))",
+                    restingOn: .birthDate, subject: subject)
             }
             if ageLow > 70 {
-                return GateResult(gate: .date, outcome: .impossible, reason: "married \(recordYear) at minimum age ~\(ageLow) (birth \(windowLabel))")
+                return dateExclusion(
+                    "married \(recordYear) at minimum age ~\(ageLow) (birth \(windowLabel))",
+                    restingOn: .birthDate, subject: subject)
             }
             let typicalOverlap = ageHigh >= 16 && ageLow <= 60
             if typicalOverlap {
@@ -1262,7 +1356,9 @@ nonisolated struct RecordScorer {
             if diff <= 5 {
                 return GateResult(gate: .date, outcome: .fail, reason: "year \(recordYear) is \(diff) years outside window \(windowLabel)")
             }
-            return GateResult(gate: .date, outcome: .impossible, reason: "year \(recordYear) is \(diff) years outside window \(windowLabel)")
+            return dateExclusion(
+                "year \(recordYear) is \(diff) years outside window \(windowLabel)",
+                restingOn: .birthDate, subject: subject)
         }
     }
 

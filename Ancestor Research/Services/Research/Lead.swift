@@ -242,6 +242,18 @@ actor LeadStore {
         return lead
     }
 
+    /// Evidence line for a household-member lead. Each clause appears only
+    /// when its datum exists, so a row never claims a census year or an age
+    /// it does not have.
+    nonisolated static func householdEvidence(
+        relationship: String, censusYear: Int?, age: Int?
+    ) -> String {
+        var out = relationship
+        out += censusYear.map { " in \($0) census" } ?? " in census"
+        if let age { out += ", age \(age)" }
+        return out
+    }
+
     /// Create a lead from a household member discovery.
     func createFromHouseholdMember(_ member: HouseholdMember, profileID: String, censusYear: Int) throws -> Lead {
         // Deterministic id — Swift's `hashValue` is process-randomised, so
@@ -251,19 +263,26 @@ actor LeadStore {
             .uppercased()
             .trimmingCharacters(in: .whitespaces)
             .replacingOccurrences(of: " ", with: "_")
+        // A non-positive year means the caller had none. Interpolating it
+        // produced ids like `lead_hh_ELLEN_GLADWIN_0` and evidence reading
+        // "child in 0 census, age ?" — unactionable rows for people who
+        // turned out to be real daughters (owner dogfood 2026-08-25). An
+        // absent year is stated as absent, never as a number.
+        let year: Int? = censusYear > 0 ? censusYear : nil
         let lead = Lead(
-            id: "lead_hh_\(key)_\(censusYear)",
+            id: "lead_hh_\(key)_\(year.map(String.init) ?? "undated")",
             profileID: profileID,
             name: member.name,
             surname: member.name.split(separator: " ").last.map(String.init),
             givenName: member.name.split(separator: " ").first.map(String.init),
-            birthYear: member.birthYear ?? member.age.map { censusYear - $0 },
+            birthYear: member.birthYear ?? year.flatMap { y in member.age.map { y - $0 } },
             deathYear: nil,
             place: member.birthPlace ?? member.birthCounty,
             relationship: member.relationship,
             source: .householdMember,
             status: .new,
-            evidence: "\(member.relationship) in \(censusYear) census, age \(member.age.map(String.init) ?? "?")",
+            evidence: Self.householdEvidence(
+                relationship: member.relationship, censusYear: year, age: member.age),
             createdAt: Date()
         )
 

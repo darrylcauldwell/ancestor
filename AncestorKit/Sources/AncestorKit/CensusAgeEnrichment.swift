@@ -203,8 +203,17 @@ public nonisolated struct CensusAgeEnrichment {
             guard matches.count == 1 else { continue }        // 0 or ambiguous
             let hit = matches[0]
             // Member-side uniqueness: this member must not also plausibly be a
-            // different candidate relative.
-            let relativesForMember = targets.filter { Self.nameMatches(hit.member.name, $0) }
+            // different candidate relative. The role GATE applies HERE too —
+            // without it the check counts rivals the gate above has already
+            // ruled out, and the guard bails on an unambiguous match: a
+            // grandfather (Thomas, b.1801, relation .parent) and his grandson
+            // (Thomas H, b.1861, relation .child) both name-match the one
+            // "Thomas" roster row, so neither ever got a proposal.
+            let relativesForMember = targets.filter { target in
+                guard Self.nameMatches(hit.member.name, target) else { return false }
+                guard let relation = relations[target.id] else { return true }
+                return Self.roleIsCompatible(hit.member.relationship, with: relation)
+            }
             guard relativesForMember.count == 1 else { continue }
             // Mode-specific consistency (corroboration: the roster estimate
             // must agree with the recorded year — a mismatch is namesake

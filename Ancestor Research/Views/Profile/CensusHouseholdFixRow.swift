@@ -16,7 +16,9 @@ import AncestorKit
 ///    so it is a safe one-click. The row flips to `.canAbsorb` once loaded.
 ///  - `.canAbsorb` → **adds N people** ("Add N family members"), shown with the
 ///    named roster (who would be added + the subject's own census birthplace) so
-///    a namesake household is caught before its parents are grafted on.
+///    a namesake household is caught before its parents are grafted on. Each
+///    net-new roster row carries its own Add in the profile host, so one
+///    relative can be taken without the whole household.
 struct CensusHouseholdFixRow: View {
     @Environment(AppState.self) private var appState
 
@@ -116,22 +118,24 @@ struct CensusHouseholdFixRow: View {
         // against the tree by hand, which is the app's job. It was wrong twice in
         // one day — 5 on Samuel Holmes, 4 on Harriet — each time including a
         // relative already linked to the profile. Showing the whole household
-        // makes the count a CONSEQUENCE of visible rows: the "add" markers are
-        // literally `links`, so the button and the list cannot disagree.
-        let addSet = Set(links.map { $0.member })
+        // makes the count a CONSEQUENCE of visible rows: the add rows ARE
+        // `links`, so the button and the list cannot disagree.
+        let addLinks = Dictionary(links.map { ($0.member, $0) }, uniquingKeysWith: { first, _ in first })
         let statuses = rosterStatuses(household: household)
         VStack(alignment: .leading, spacing: 1) {
             ForEach(Array(household.enumerated()), id: \.offset) { _, member in
                 HStack(alignment: .top, spacing: 6) {
                     Text(Self.householdLine(member))
                         .font(AppTypography.badge)
-                        .foregroundStyle(addSet.contains(member) ? .primary : .secondary)
+                        .foregroundStyle(addLinks[member] != nil ? .primary : .secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(statusLabel(for: member, isAdd: addSet.contains(member),
-                                     status: statuses[member]))
-                        .font(AppTypography.badge)
-                        .foregroundStyle(statusTint(isAdd: addSet.contains(member),
-                                                    status: statuses[member]))
+                    if let link = addLinks[member] {
+                        addControl(link: link)
+                    } else {
+                        Text(statusLabel(for: member, status: statuses[member]))
+                            .font(AppTypography.badge)
+                            .foregroundStyle(statusTint(status: statuses[member]))
+                    }
                 }
             }
             if let target = household.first(where: { $0.isTarget == true }),
@@ -173,11 +177,71 @@ struct CensusHouseholdFixRow: View {
         appState.snapshot.profiles[id]?.displayName ?? "a profile"
     }
 
+    /// The `.canAbsorb` payload the per-row Add needs, or nil in `.needsLoad`.
+    /// Reading it here rather than threading it through the roster keeps the
+    /// per-row add landing EXACTLY what the whole-household button would land
+    /// for that row — same source id, same household context, same citation —
+    /// so the two adds can never write different provenance for one person.
+    private var absorbable: (year: Int, sourceID: String,
+                             household: [HouseholdMember], citationURL: String?)? {
+        if case .canAbsorb(_, let year, let sourceID, let household, _, let url) = proposal {
+            return (year, sourceID, household, url)
+        }
+        return nil
+    }
+
+    /// The net-new rows are the only ones this component can act on, and they
+    /// used to render as a tinted, right-aligned "add" — indistinguishable from
+    /// the real buttons its Health-tab sibling puts in the same column, and inert
+    /// (owner dogfood 2026-08-25: clicked repeatedly, nothing happened). In the
+    /// profile host it is now the control it looked like; in the Health host it
+    /// stays a MARKER, because that host's whole-household action is deliberately
+    /// "Review in profile" — a tree change is confirmed with the existing family
+    /// in view — and a per-row commit would walk straight through that gate.
+    @ViewBuilder
+    private func addControl(link: CensusFamilyLinker.Link) -> some View {
+        if let a = absorbable, reviewInProfile == nil {
+            let lands = Self.perRowAddLands(
+                relation: link.relation,
+                subjectHasParent: !appState.snapshot.parentsOf(profile.id).isEmpty)
+            Button("Add \(Self.relationLabel(link))") {
+                _ = appState.addCensusFamily(
+                    links: [link], subject: profile,
+                    censusYear: a.year, sourceID: a.sourceID,
+                    household: a.household, citationURL: a.citationURL)
+                onChanged()
+            }
+            .buttonStyle(.glass).controlSize(.mini)
+            .disabled(!lands)
+            .help(lands
+                  ? "Create \(link.member.name) and link them as \(profile.displayName)'s \(Self.relationLabel(link)) from the \(String(a.year)) census, cited to the household schedule — this row only, rather than the whole household."
+                  : "\(link.member.name) can only be added once \(profile.displayName) has a parent to share — add the father or mother from this roster first, or take the whole household in one click.")
+        } else {
+            Text("will add")
+                .font(AppTypography.badge)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Whether a single-row add can actually land, or would be skipped inside
+    /// `addCensusFamily` and look inert all over again.
+    ///
+    /// A sibling is wired as a CHILD OF THE SUBJECT'S PARENTS — siblinghood is
+    /// shared parentage, never a direct edge — so the add skips a sibling with
+    /// no parent to hang it on. The proposal still offers those siblings, and
+    /// correctly: `censusFamilyNetNewLinks` counts a sibling as net-new when a
+    /// parent is coming from the SAME roster, which the whole-household add
+    /// creates first. Taken one row at a time that parent never arrives.
+    nonisolated static func perRowAddLands(
+        relation: CensusRelation, subjectHasParent: Bool
+    ) -> Bool {
+        relation != .sibling || subjectHasParent
+    }
+
     private func statusLabel(
-        for member: HouseholdMember, isAdd: Bool,
+        for member: HouseholdMember,
         status: CensusRelationshipReconciler.CensusReconciliation.RosterEntry.Status?
     ) -> String {
-        if isAdd { return "add" }
         switch status {
         case .subject:                       return "this person"
         case .inTree(let pid):               return "✓ \(name(pid))"
@@ -191,10 +255,8 @@ struct CensusHouseholdFixRow: View {
     }
 
     private func statusTint(
-        isAdd: Bool,
         status: CensusRelationshipReconciler.CensusReconciliation.RosterEntry.Status?
     ) -> Color {
-        if isAdd { return .blue }
         if case .contradiction = status { return .orange }
         if case .inTree = status { return .green }
         if case .nearMatch = status { return .green }
@@ -239,6 +301,19 @@ struct CensusHouseholdFixRow: View {
         case .child:   return g == .female ? "daughter" : g == .male ? "son" : "child"
         case .sibling: return g == .female ? "sister" : g == .male ? "brother" : "sibling"
         case .spouse:  return "spouse"
+        }
+    }
+}
+
+extension AppState.CensusHouseholdProposal {
+    /// The census this proposal is about. Both hosts key the one-affordance
+    /// rule on it: a `censusRelationship` finding covering the same year would
+    /// otherwise put a second bulk-add button beside this row, and only this
+    /// one carries the household's citation URL.
+    var censusYear: Int {
+        switch self {
+        case .needsLoad(_, let year): year
+        case .canAbsorb(_, let year, _, _, _, _): year
         }
     }
 }

@@ -312,11 +312,15 @@ enum ResearchRunService {
                 catch { failures.append(.init(what: "Save lead", error: error)) }
             }
             for member in result.householdMembers {
+                // Only a REAL census year: `?? 1861` invented a date for
+                // households that carried none, and a stored 0 propagated
+                // into the lead id and its evidence text. 0 reaches the
+                // builder as "undated" (owner dogfood 2026-08-25).
                 let censusYear = result.allScoredRecords
                     .compactMap { r -> Int? in
                         if case .census(let c) = r.record { return c.censusYear }
                         return nil
-                    }.first ?? 1861
+                    }.first(where: { $0 > 0 }) ?? 0
                 do { _ = try await leadStore.createFromHouseholdMember(member, profileID: profileID, censusYear: censusYear) }
                 catch { failures.append(.init(what: "Save household lead", error: error)) }
             }

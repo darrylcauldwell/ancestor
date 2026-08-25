@@ -79,6 +79,12 @@ struct HealthView: View {
     /// "Re-research (Nd ago)" label so a recently-searched profile isn't
     /// re-hammered blindly (scope-I follow-up 2026-08-12).
     @State private var researchDates: [String: Date] = [:]
+    /// Census years each profile's `censusUnabsorbed` household row already
+    /// offers, keyed by profile. Feeds `AuditFixButton.bulkAddSuppressed` so a
+    /// `censusRelationship` finding on the same year doesn't add a SECOND bulk
+    /// add for the same schedule. Built with the household sweep in
+    /// `syncAuditSummary`, so it is bounded to the profiles that raised one.
+    @State private var censusHouseholdYears: [String: Set<Int>] = [:]
     /// Sentinel `ruleFilter` value for the synthetic "Contradictory facts" chip.
     private let contradictoryFactsFilterID = "__contradictoryFacts"
     /// Sentinel `ruleFilter` value for the synthetic "Conflicts" chip — the
@@ -106,8 +112,7 @@ struct HealthView: View {
                         // showed "12 conflicts" in the pill with no conflict
                         // rows anywhere in the list (review 2026-08-25).
                         appState.runConflictSweep(force: true)
-                        openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
-                        openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
+                        reloadDisputes()
                     } label: {
                         Label("Scan for Conflicts", systemImage: "exclamationmark.triangle")
                     }
@@ -153,9 +158,6 @@ struct HealthView: View {
                     .frame(width: 170)
             }
             .padding()
-            .onAppear {
-                openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
-            }
 
             Divider()
 
@@ -297,17 +299,33 @@ struct HealthView: View {
             deathAgeProposals = appState.deathAgeBackfillProposals()
             censusCorroborations = appState.censusCorroborationProposals()
             contradictoryFindings = appState.contradictoryFactsFindings()
-            openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
+            reloadDisputes()
             researchDates = appState.lastResearchCompletions()
+        }
+        // Disputes close by routes this view never sees — un-applying a record,
+        // an MCP write, a resolution taken on the profile in another window —
+        // and the list was only ever reloaded on appear and on the sheet's
+        // dismissal. So a dispute resolved elsewhere kept its Resolve affordance
+        // here (owner dogfood 2026-08-25: a tree-wide read returned 66 open
+        // disputes with Emma not among them, while this list still offered to
+        // resolve hers). Same revision signal every other live list uses.
+        .onChange(of: appState.treeContentRevision) { _, _ in
+            reloadDisputes()
         }
         .sheet(item: $resolvingDispute, onDismiss: {
             // Resolving writes through AppState.resolveDispute (re-runs the audit);
             // reload the open rows + count so the resolved conflict drops off.
-            openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
-            openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
+            reloadDisputes()
         }) { item in
             ConflictResolutionView(profile: item.profile, dispute: item.dispute)
         }
+    }
+
+    /// The open-dispute rows and their pill count — always read together, so a
+    /// refresh can never leave "12 conflicts" in the pill with no rows behind it.
+    private func reloadDisputes() {
+        openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
+        openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
     }
 
     /// Promote an audit issue to an OpenQuestion. The question text mirrors
@@ -903,10 +921,29 @@ struct HealthView: View {
 
     /// A dispute is resolvable inline (value-picker sheet) only when it's a
     /// field-value conflict on a real profile field — the only kind
-    /// `ConflictResolutionView` accepts. Timeline/spouse/parent kinds are edited
-    /// on the profile instead.
+    /// `ConflictResolutionView` accepts — AND at least one of its competing
+    /// values is still attested. Timeline/spouse/parent kinds are edited on the
+    /// profile instead, and so is a value dispute whose every candidate has been
+    /// discarded: a picker with nothing left to pick is a dead end.
     private func disputeIsInlineResolvable(_ row: DisputeRow) -> Bool {
+        isFieldValueDispute(row) && !liveCompetingSources(row).isEmpty
+    }
+
+    private func isFieldValueDispute(_ row: DisputeRow) -> Bool {
         row.kind == .fieldValue && ProfileField(rawValue: row.field) != nil
+    }
+
+    /// The row's competing values re-derived against what the profile CURRENTLY
+    /// attests (see `DisputeSheetItem.liveCompetingSources`). Structural kinds
+    /// keep their stored snapshot — their field keys are not `field_sources`
+    /// fields, so there is nothing live to re-derive them from.
+    private func liveCompetingSources(_ row: DisputeRow) -> [FieldSource] {
+        guard isFieldValueDispute(row),
+              let field = ProfileField(rawValue: row.field),
+              let profile = appState.snapshot.profiles[row.entityID]
+        else { return row.competingSources }
+        return DisputeSheetItem.liveCompetingSources(
+            stored: row.competingSources, attested: profile.sources[field] ?? [])
     }
 
     /// Open the same `ConflictResolutionView` the profile uses for a value dispute.
@@ -925,7 +962,7 @@ struct HealthView: View {
     private func disputeMessage(_ row: DisputeRow) -> String {
         var origins: [String: Set<String>] = [:]
         var order: [String] = []
-        for source in row.competingSources {
+        for source in liveCompetingSources(row) {
             let value = source.raw.trimmingCharacters(in: .whitespaces)
             guard !value.isEmpty else { continue }
             if origins[value] == nil { order.append(value) }
@@ -1301,6 +1338,7 @@ struct HealthView: View {
         AuditFixButton(
             result: r,
             lastResearched: researchDates[r.profileID],
+            householdRowYears: censusHouseholdYears[r.profileID] ?? [],
             onFixed: { refreshAudit() },
             onCompare: { left, right in comparePair = ComparePair(leftID: left, rightID: right) },
             onEnriched: { profileID, profileName, count in
@@ -1329,23 +1367,51 @@ struct HealthView: View {
         let citationGaps = kept(appState.freeBMDCitationGapFindings())      // info
         let parentUnlocks = kept(appState.censusParentUnlockFindings())     // warning
         let censusUnabsorbed = kept(appState.censusUnabsorbedFindings())    // warning
+        censusHouseholdYears = householdYears(for: censusUnabsorbed)
         let parishUnabsorbed = kept(appState.parishFamilyUnabsorbedFindings()) // warning
         // Evidence the app names but can't act on — the net under the offers,
         // so a proposal that never forms is a work item rather than silence.
         let kinUnreadable = kept(appState.parishKinUnreadableFindings())     // warning
+        // Unapplied census leads holding un-absorbed kin (EV2). Deduped
+        // against censusUnabsorbed: once a household has been APPLIED the
+        // absorbed sweep owns it, and both firing would show one household
+        // twice under two rules.
+        let absorbedSubjects = Set(censusUnabsorbed.map(\.profileID))
+        let censusLeadAttention = kept(appState.censusLeadAttentionFindings())
+            .filter { !absorbedSubjects.contains($0.profileID) }
         guard !citationGaps.isEmpty || !parentUnlocks.isEmpty
             || !censusUnabsorbed.isEmpty || !parishUnabsorbed.isEmpty
-            || !kinUnreadable.isEmpty else {
+            || !kinUnreadable.isEmpty || !censusLeadAttention.isEmpty else {
             auditVM.summary = base; return
         }
         auditVM.summary = AuditSummary(
             errors: base.errors,
             warnings: base.warnings + parentUnlocks + censusUnabsorbed
-                + parishUnabsorbed + kinUnreadable,
-            info: base.info + citationGaps,
+                + parishUnabsorbed + kinUnreadable
+                + censusLeadAttention.filter { $0.severity == .warning },
+            info: base.info + citationGaps
+                + censusLeadAttention.filter { $0.severity != .warning },
             total: base.total + citationGaps.count + parentUnlocks.count
-                + censusUnabsorbed.count + parishUnabsorbed.count + kinUnreadable.count,
+                + censusUnabsorbed.count + parishUnabsorbed.count + kinUnreadable.count
+                + censusLeadAttention.count,
             profilesChecked: base.profilesChecked)
+    }
+
+    /// Which census year each `censusUnabsorbed` finding covers. The finding
+    /// itself carries the year only inside its prose message, so the proposal is
+    /// re-derived — the same read that produced the finding, over the handful of
+    /// profiles that raised one.
+    private func householdYears(for findings: [AuditResult]) -> [String: Set<Int>] {
+        guard let db = appState.currentDatabase else { return [:] }
+        var out: [String: Set<Int>] = [:]
+        for finding in findings {
+            guard let profile = appState.snapshot.profiles[finding.profileID],
+                  let evidence = try? db.loadEvidenceForProfile(finding.profileID),
+                  let proposal = appState.censusHouseholdProposal(for: profile, evidence: evidence)
+            else { continue }
+            out[finding.profileID, default: []].insert(proposal.censusYear)
+        }
+        return out
     }
 
     private func promoteToQuestion(_ result: AuditResult) {

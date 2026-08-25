@@ -21,6 +21,10 @@ struct AuditFixButton: View {
     /// set → "Re-research" with an age note in the help, so a recently-searched
     /// profile isn't re-hammered on a whim. Informational — never blocks.
     var lastResearched: Date? = nil
+    /// Census years the host is ALREADY offering through a `censusUnabsorbed`
+    /// household row (`CensusHouseholdFixRow`). Empty (the default) → the host
+    /// has no such row and nothing is suppressed. See `bulkAddSuppressed`.
+    var householdRowYears: Set<Int> = []
     var onFixed: () -> Void = {}
     var onCompare: ((_ leftID: String, _ rightID: String) -> Void)? = nil
     var onEnriched: ((_ profileID: String, _ profileName: String, _ count: Int) -> Void)? = nil
@@ -54,6 +58,29 @@ struct AuditFixButton: View {
             return "Search the record sources to complete the name — a surname-only spouse usually needs a maiden name from the marriage record"
         default:
             return "This detail can't be filled by editing until it's found — search the record sources for it"
+        }
+    }
+
+    /// Whether the `censusRelationship` bulk add stands down because a census
+    /// household row on the same surface already offers the same job.
+    ///
+    /// "Add all N" and the household row's "Add N family members" create the
+    /// same people from the same schedule — two buttons for one job, sitting one
+    /// above the other with a single roster between them (owner dogfood
+    /// 2026-08-25). The household row wins: it takes its source id and citation
+    /// URL straight off the record whose roster is on screen, so what it writes
+    /// is what the reader just judged.
+    ///
+    /// Suppressed only when EVERY missing person is covered: a finding that also
+    /// spans a year with no household row would otherwise lose its only bulk
+    /// affordance. An undated finding is never covered.
+    nonisolated static func bulkAddSuppressed(
+        missingYears: [Int?], householdRowYears: Set<Int>
+    ) -> Bool {
+        guard !householdRowYears.isEmpty, !missingYears.isEmpty else { return false }
+        return missingYears.allSatisfy { year in
+            guard let year else { return false }
+            return householdRowYears.contains(year)
         }
     }
 
@@ -234,11 +261,14 @@ struct AuditFixButton: View {
             .buttonStyle(.glassProminent).controlSize(.mini)
             .help("Apply the best-matching childhood census (same county, closest age) so its household's Head and Wife can be added as this person's parents")
         case "censusRelationship" where result.severity == .info:
-            let missingCount = appState.snapshot.profiles[result.profileID].map { subject in
+            let missing = appState.snapshot.profiles[result.profileID].map { subject in
                 CensusRelationshipReconciler.findings(for: subject, in: appState.snapshot)
-                    .filter { $0.kind == .missing }.count
-            } ?? 0
-            if missingCount > 1 {
+                    .filter { $0.kind == .missing }
+            } ?? []
+            let missingCount = missing.count
+            if missingCount > 1,
+               !Self.bulkAddSuppressed(missingYears: missing.map(\.censusYear),
+                                       householdRowYears: householdRowYears) {
                 Button {
                     appState.addMissingCensusRelatives(for: result.profileID)
                     onFixed()

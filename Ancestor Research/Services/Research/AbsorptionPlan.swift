@@ -249,10 +249,12 @@ nonisolated extension SourceRecord {
             // say so — "Will add to profile" must not promise an overwrite
             // the tier policy is going to refuse. The record's form still
             // lands as a cited alternative in field_sources.
-            if case .stringField(let field, _) = item, let profile,
+            if case .stringField(let field, let candidate) = item, let profile,
                !ApplyEngine.shouldOverwriteStringField(
+                   field: field,
                    existing: ApplyEngine.existingString(field, of: profile),
                    existingSources: profile.sources[field] ?? [],
+                   candidate: candidate,
                    candidateOrigin: origin
                ) {
                 label += " (as cited alternative)"
