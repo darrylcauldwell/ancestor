@@ -1,11 +1,16 @@
 # HEALTH_RECATEGORISATION_SPEC — Health shows defects, not research prompts
 
 **Status:** IMPLEMENTED · 2026-08-25 — HR1 `1f65c78`, HR2 `8213812`,
-HR3 `f7d6b68`, plus review fixes `cfcddfc` (empty-state gate switched to
-displayRows so synthetic dispute/backfill/contradiction rows survive an
-otherwise-clean audit; import toast now uses `AuditSummary.actionableTotal`).
-Owner walk-through owed: Health should show ~176 actionable rows, chips no
-longer led by Completeness/Missing-bio, Workbench suggestions list reasons.
+HR3 `f7d6b68`, HR4 `a3f48de`, plus review fixes `cfcddfc` (empty-state gate
+switched to the row set so synthetic dispute/backfill/contradiction rows
+survive an otherwise-clean audit; import toast uses
+`AuditSummary.actionableTotal`) and `0588e9c` (false quick wins, stranded
+⚡ filter, auto-approval badge accuracy, dispute ordering + key injectivity,
+single ladder evaluation per body pass).
+
+**Owner walk-through owed:** Health should show ~176 actionable rows led by
+conflicts then reds, chips no longer led by Completeness/Missing-bio, the ⚡
+Quick wins chip present, and Workbench suggestions listing their reasons.
 **Owner ruling (2026-08-25):** completeness score, missing bio, missing
 birth/death fields etc. "are not really record Health — these types are just
 research. Health should focus on actionable: census is added but there are
@@ -91,25 +96,37 @@ and quick wins are "a factor likely equal to red hard-to-fix issues". Chosen
 design (from a judged panel; two-lane and six-section layouts were the
 runners-up): **one list, one deterministic six-key sort** —
 
-1. **Pin** — correction/conflict disputes only (they block the §14.3 MCP
-   auto-approval gate; the row wears a "Blocks auto-approval" badge saying
-   why). Cosmetic refinement/note disputes do NOT pin — they band as blue
-   judgement, so a conflict sweep of trivia can never bury the reds.
+1. **Pin** — correction/conflict disputes only, because the stored value may
+   be *wrong* and only the user can choose. Cosmetic refinement/note disputes
+   do NOT pin — a conflict sweep of trivia can never bury the reds — but they
+   still order worst-first among themselves (refinement > note > ungraded).
+   Whether a dispute blocks the §14.3 MCP auto-approval gate is a **separate**
+   fact carried by its own row badge, mirroring the gate exactly
+   (`resolution IS NULL`, any kind, severity irrelevant): a deferred dispute
+   is NOT badged, and a cosmetic refinement on the target field IS. Pin =
+   urgency; badge = machinery.
 2. **Severity** — red → amber → blue from an explicit per-row-type table:
    contradictory facts and duplicate clusters are amber; backfill/cite
    proposals are blue.
-3. **Quick win** — a deterministic one-click fix leads its colour band.
-   Membership comes from ONE registry (`HealthTriage.isOneClickFinding`,
-   guards mirroring `AuditFixButton`) shared by the sort, the green ⚡
+3. **Quick win** — a deterministic, undoable one-click fix leads its colour
+   band. Membership comes from ONE registry
+   (`HealthTriage.isOneClickFinding`, guards mirroring `AuditFixButton`
+   including its live-database guard) shared by the sort, the green ⚡
    "1-click" row badge, and a **"⚡ Quick wins (N)" chip** pinned after
    "All" — one tap turns the list into a pure clearance queue, still
-   worst-first. That chip is the 2-minute-session mode.
+   worst-first. That chip is the 2-minute-session mode. A row that merely
+   ROUTES to the profile (`censusUnabsorbed`, `parishFamilyUnabsorbed` — a
+   tree change needing full context) or fetches from the network is NOT a
+   quick win. Because the queue is meant to be emptied, an emptied filter
+   always shows "All cleared" with a "Show all findings" exit, and the chip
+   bar always renders while a filter is active.
 4. **Rule label** — alphabetical (stable as counts change).
 5. **Person** — display name, case-insensitive, then id.
-6. **Value key** — run-stable, value-derived (never `AuditResult.id`, a
-   fresh UUID per audit). Duplicate-cluster identity is the smallest member
-   profile id, not the union-find root. Kills the dictionary-iteration
-   jitter.
+6. **Value key** — run-stable, value-derived and injective (never
+   `AuditResult.id`, a fresh UUID per audit). Duplicate-cluster identity is
+   the smallest member profile id, not the union-find root; dispute keys
+   carry `kind` + the persisted rowid, since two open disputes can share
+   entity+field. Kills the dictionary-iteration jitter.
 
 Implemented in `Views/Audit/HealthTriage.swift` (pure, view-free, pinned by
 `HealthTriageTests`). Dogfood watch (the panel's dissent): the census
