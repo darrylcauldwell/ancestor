@@ -56,13 +56,19 @@ struct HealthTriageTests {
 
     // MARK: - The ladder itself
 
+    /// Rule IDs chosen so their K4 labels run REVERSE-alphabetically to
+    /// their severities ("Unsourced bio" > "Muddled identity" > "Junk in
+    /// name") — otherwise the assertion passes on the label key and would
+    /// stay green with the severity key deleted (review 2026-08-25).
     @Test func theLadderOrdersPinThenRedThenAmberThenBlue() {
         let snap = snapshot()
         let pinCorrection = dispute(.correction, entity: "@A@", name: "Ann")
         let pinConflict = dispute(.conflict, entity: "@B@", name: "Bea")
-        let red = key(finding("birthBeforeDeath", severity: .error), snap)
-        let amber = key(finding("phantomSpouse", severity: .warning), snap)
-        let blue = key(finding("suspectLocation", severity: .info), snap)
+        let red = key(finding("unsourcedBio", severity: .error), snap)
+        let amber = key(finding("muddledIdentity", severity: .warning), snap)
+        let blue = key(finding("junkInName", severity: .info), snap)
+        #expect(red.ruleLabel > amber.ruleLabel && amber.ruleLabel > blue.ruleLabel,
+                "premise: the labels oppose the severities, so only K2 can order these")
 
         #expect(pinCorrection < pinConflict, "within the pin block, correction before conflict")
         #expect(pinConflict < red)
@@ -96,11 +102,34 @@ struct HealthTriageTests {
         #expect(dispute(.note) < dispute(nil), "a graded note outranks an ungraded dispute")
     }
 
+    /// Second review 2026-08-25 — giving disputes their own ranks 3/4 put
+    /// them in a fifth band BELOW blue, so a structural `.note` dispute that
+    /// blocks all auto-approval sorted dead last. Unpinned disputes must band
+    /// blue and grade within it.
+    @Test func unpinnedDisputesStayInsideTheBlueBand() {
+        let snap = snapshot()
+        let blueFinding = key(finding("suspectLocation", severity: .info), snap)
+        for severity in [DiscrepancySeverity.refinement, .note, DiscrepancySeverity.none] {
+            #expect(dispute(severity).severityRank == blueFinding.severityRank,
+                    "\(severity) must share the blue band, not sink beneath it")
+        }
+        // A structural note-severity dispute (ConflictDetector emits these)
+        // must not end up under every backfill proposal.
+        let structural = dispute(.note, kind: .spouseIdentity, field: "")
+        let proposal = HealthTriage.proposalKey(
+            label: "Census backfill", personName: "Zzz Person", id: "b:9")
+        #expect(structural.severityRank == proposal.severityRank)
+    }
+
     @Test func oneClickLeadsItsBandButNeverOutranksSeverity() {
         let snap = snapshot()
-        // censusParentUnlock is amber + one-click; phantomSpouse amber judgement.
-        let amberQuick = key(finding("censusParentUnlock", severity: .warning), snap)
-        let amberJudge = key(finding("phantomSpouse", severity: .warning), snap)
+        // Both amber, same person. The quick win's label sorts AFTER the
+        // judgement row's ("Freebmd link missing" > "Birth before death"), so
+        // only K3 can put it first — with K3 removed this goes red.
+        let amberQuick = key(finding("freebmdLinkMissing", severity: .warning), snap)
+        let amberJudge = key(finding("birthBeforeDeath", severity: .warning), snap)
+        #expect(amberQuick.ruleLabel > amberJudge.ruleLabel,
+                "premise: the label opposes the quick-win rank")
         #expect(amberQuick < amberJudge, "one-click leads within the amber band")
 
         // The owner's original complaint, inverted and pinned: a blue
@@ -209,7 +238,8 @@ struct HealthTriageTests {
     /// severity — so the badge must not key off the pin, which does.
     @Test func autoApprovalBadgeFollowsTheGateNotTheSeverity() {
         // A cosmetic refinement still blocks its field: badged, though unpinned.
-        #expect(HealthTriage.blocksAutoApproval(resolution: nil))
+        #expect(HealthTriage.blocksAutoApproval(
+            kind: .fieldValue, field: "birthDate", resolution: nil))
         #expect(!HealthTriage.disputePins(.refinement),
                 "…while still not earning the pin — the two are independent")
     }
@@ -217,16 +247,39 @@ struct HealthTriageTests {
     @Test func aDeferredDisputeDoesNotBlockTheGate() {
         // Health lists deferred disputes as open, but the gate matches
         // `resolution IS NULL` only — badging one would be a false claim.
-        #expect(!HealthTriage.blocksAutoApproval(resolution: .deferred))
-        #expect(!HealthTriage.blocksAutoApproval(resolution: .manual("chose the register")))
+        #expect(!HealthTriage.blocksAutoApproval(
+            kind: .fieldValue, field: "birthDate", resolution: .deferred))
+        #expect(!HealthTriage.blocksAutoApproval(
+            kind: .timeline, field: "", resolution: .manual("chose the register")))
+    }
+
+    /// Second review 2026-08-25 — the gate has TWO conjuncts. A fieldValue
+    /// dispute on a field auto-approval never touches (names, gender, bio)
+    /// blocks nothing, so claiming it does is a false badge.
+    @Test func onlyDisputesTheGateActuallyConsultsAreBadged() {
+        for field in ["birthDate", "deathLocation", "marriageDate", "occupation"] {
+            #expect(HealthTriage.blocksAutoApproval(
+                kind: .fieldValue, field: field, resolution: nil), "\(field) is gate-relevant")
+        }
+        for field in ["firstName", "lastName", "gender", "bio", ""] {
+            #expect(!HealthTriage.blocksAutoApproval(
+                kind: .fieldValue, field: field, resolution: nil),
+                "\(field) is never auto-approved, so no dispute on it can block")
+        }
+        // Structural kinds block everything on the profile, field irrelevant.
+        for kind in [DisputeKind.timeline, .parentRole, .spouseIdentity] {
+            #expect(HealthTriage.blocksAutoApproval(kind: kind, field: "", resolution: nil))
+        }
     }
 
     @Test func badgeTextNamesTheFieldOnlyForFieldValueDisputes() {
-        #expect(HealthTriage.autoApprovalBadgeText(kind: .fieldValue, field: "birthDate")
-                == "Blocks birthDate auto-approval")
-        #expect(HealthTriage.autoApprovalBadgeText(kind: .timeline, field: "")
+        // The caller passes the DISPLAY label, so the badge and the field
+        // name printed beside it on the row agree.
+        #expect(HealthTriage.autoApprovalBadgeText(kind: .fieldValue, fieldLabel: "Birth date")
+                == "Blocks Birth date auto-approval")
+        #expect(HealthTriage.autoApprovalBadgeText(kind: .timeline, fieldLabel: "")
                 == "Blocks auto-approval", "structural kinds block everything on the profile")
-        #expect(HealthTriage.autoApprovalBadgeText(kind: .parentRole, field: "")
+        #expect(HealthTriage.autoApprovalBadgeText(kind: .parentRole, fieldLabel: "")
                 == "Blocks auto-approval")
     }
 

@@ -99,9 +99,14 @@ struct HealthView: View {
                 // they don't need to sit out on the bar competing for space.
                 Menu {
                     Button {
-                        // CONFLICT_LAYER_SPEC CL2 — manual conflict sweep;
-                        // refreshes the live open-dispute count.
+                        // CONFLICT_LAYER_SPEC CL2 — manual conflict sweep.
+                        // Refresh the ROWS as well as the count: the ladder,
+                        // the Conflicts chip and the dispute rows all read
+                        // `openDisputeRows`, so refreshing only the count
+                        // showed "12 conflicts" in the pill with no conflict
+                        // rows anywhere in the list (review 2026-08-25).
                         appState.runConflictSweep(force: true)
+                        openDisputeRows = (try? appState.currentDatabase?.allOpenDisputes()) ?? []
                         openDisputeCount = try? appState.currentDatabase?.openDisputeCount()
                     } label: {
                         Label("Scan for Conflicts", systemImage: "exclamationmark.triangle")
@@ -175,24 +180,41 @@ struct HealthView: View {
                 // and post-#HR2 a curated tree routinely has zero audit rows
                 // while those still need action — "No Issues" must not hide
                 // them (nor dead-end the Conflicts pill).
+                // The chip is only ONE of four narrowing axes — the search
+                // box and the category/severity pills also feed
+                // `filteredResults`. Saying "All cleared" when a pill is what
+                // emptied the list would assert the tree is clean while
+                // unfixed rows sit behind the filter (review 2026-08-25).
+                let narrowedByFacets = !auditVM.searchText.isEmpty
+                    || auditVM.filterSeverity != nil || auditVM.filterCategory != nil
                 if rows.isEmpty {
-                    if ruleFilter == nil {
+                    if ruleFilter == nil && !narrowedByFacets {
                         ContentUnavailableView {
                             Label("No Issues", systemImage: "checkmark.circle")
                         } description: {
                             Text("Checked \(summary.profilesChecked) profiles.")
                         }
                     } else {
-                        // A filter the user just emptied (the ⚡ queue is
-                        // MEANT to be cleared). Never a blank pane with no
-                        // way back — always an explicit exit.
+                        // Either a filter the user just emptied (the ⚡ queue
+                        // is MEANT to be cleared) or a facet with no matches.
+                        // Never a blank pane with no way back, and the exit
+                        // clears every axis so it honours its own label.
                         ContentUnavailableView {
-                            Label("All cleared", systemImage: "checkmark.circle")
+                            Label(narrowedByFacets ? "No matches" : "All cleared",
+                                  systemImage: narrowedByFacets
+                                      ? "line.3.horizontal.decrease.circle" : "checkmark.circle")
                         } description: {
-                            Text("Nothing left in this filter.")
+                            Text(narrowedByFacets
+                                 ? "No findings match the active filters — others are hidden behind them."
+                                 : "Nothing left in this filter.")
                         } actions: {
-                            Button("Show all findings") { ruleFilter = nil }
-                                .buttonStyle(.glassProminent)
+                            Button("Show all findings") {
+                                ruleFilter = nil
+                                auditVM.filterSeverity = nil
+                                auditVM.filterCategory = nil
+                                auditVM.searchText = ""
+                            }
+                            .buttonStyle(.glassProminent)
                         }
                     }
                 } else {
@@ -816,7 +838,10 @@ struct HealthView: View {
                         Text(prettyField(row.field))
                             .font(AppTypography.badge)
                             .foregroundStyle(.secondary)
-                        if let sev = row.severity {
+                        // `.none` is a stored default, not a grade — printing
+                        // the literal word "none" as a severity badge says
+                        // nothing (review 2026-08-25).
+                        if let sev = row.severity, sev != .none {
                             Text(sev.rawValue)
                                 .font(AppTypography.badge)
                                 .foregroundStyle(disputeSeverityColor(sev))
@@ -827,8 +852,10 @@ struct HealthView: View {
                         // Deliberately independent of the pin (review
                         // 2026-08-25: the pin is about urgency, this is about
                         // machinery).
-                        if HealthTriage.blocksAutoApproval(resolution: row.resolution) {
-                            Label(HealthTriage.autoApprovalBadgeText(kind: row.kind, field: row.field),
+                        if HealthTriage.blocksAutoApproval(
+                            kind: row.kind, field: row.field, resolution: row.resolution) {
+                            Label(HealthTriage.autoApprovalBadgeText(
+                                    kind: row.kind, fieldLabel: prettyField(row.field)),
                                   systemImage: "nosign")
                                 .font(AppTypography.badge)
                                 .foregroundStyle(.red)
