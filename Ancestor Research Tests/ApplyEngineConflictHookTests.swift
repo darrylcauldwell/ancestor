@@ -261,10 +261,17 @@ struct ApplyEngineConflictHookTests {
         #expect(edge?.marriageDate?.original == "Jun 1921")
     }
 
-    @Test func marriageWithNoSpouseNameStaysSilent() throws {
+    @Test func marriageWithNoSpouseNameOpensNoDisputeButReportsTheGap() throws {
         // The early guard (no spouse surname on the record AND none recovered
         // from same-page pairing) is not the DS-12 predicate — no data means
         // nothing to conflict with.
+        //
+        // EV21 (2026-08-26): "silent" here means NO DISPUTE, not no report.
+        // With no spouse linked there is nowhere to write the marriage, and
+        // the apply used to return without a word — so the caller stamped the
+        // evidence row "Applied" over zero writes. The dispute count below is
+        // the assertion that carries this test's meaning; the outcome channel
+        // must now also name what stopped the write.
         let db = try makeDB()
         let subject = makeProfile(id: "s", firstName: "Ernest", lastName: "Cauldwell")
         _ = try db.addProfile(subject, source: .gedcom)
@@ -274,7 +281,8 @@ struct ApplyEngineConflictHookTests {
             scoredMarriage(spouseName: nil),
             profile: snapshot.profiles["s"]!, snapshot: snapshot, db: db
         )
-        #expect(failures.isEmpty)
+        #expect(failures.contains { $0.error is ApplyEngine.ConflictNotice },
+                "a marriage that wrote nothing must say so")
         #expect(try db.openDisputeCount() == 0)
     }
 
@@ -336,11 +344,16 @@ struct ApplyEngineConflictHookTests {
                 "the cross-profile annotation names the exact partner — fill the edge directly")
     }
 
-    @Test func samePageInferredPartnerMismatchStaysSilentWithNoDispute() throws {
+    @Test func samePageInferredPartnerMismatchWritesNothingWithNoDispute() throws {
         // A same-page inference is a WEAKER signal than a stated column: if
         // it matches no linked spouse it must NOT open a DS-12 dispute (that
         // would over-claim from an inference the family-context gate already
-        // vetted). Silent no-op.
+        // vetted), and it must not be force-filled onto the linked spouse.
+        //
+        // EV21 (2026-08-26): the no-op is still a no-op — the dispute count
+        // and the untouched edge below are unchanged — but it is no longer
+        // SILENT. An inference that missed is reported, so this record cannot
+        // be stamped "Applied" over a spouse edge it never touched.
         let db = try makeDB()
         let subject = makeProfile(id: "s", firstName: "Ernest", lastName: "Cauldwell")
         let wife = makeProfile(id: "w", firstName: "Gertrude", lastName: "Jones", gender: .female)
@@ -356,11 +369,13 @@ struct ApplyEngineConflictHookTests {
             scoredMarriage(year: 1911, spouseName: nil, partnerSurnameFromSamePage: "SMITH"),
             profile: snapshot.profiles["s"]!, snapshot: snapshot, db: db
         )
-        #expect(failures.isEmpty)
+        #expect(failures.contains { $0.error is ApplyEngine.ConflictNotice },
+                "an inference that matched no linked spouse must be reported, not swallowed")
         #expect(try db.openDisputeCount() == 0,
                 "an inference mismatch must not manufacture a spouse-identity dispute")
         let edge = try db.buildSnapshot().relationships.first { $0.type == .spouse }
-        #expect(edge?.marriageDate == nil)
+        #expect(edge?.marriageDate == nil,
+                "a mismatched partner is never force-filled onto the linked spouse")
     }
 
     // MARK: - AC3: DS-26 — parent accept onto an occupied role

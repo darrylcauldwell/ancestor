@@ -9,6 +9,114 @@ public nonisolated enum CensusRelation: Sendable, Equatable, Hashable {
     case parent, sibling, spouse, child
 }
 
+/// How a census roster row's surname sits against the surnames a tree profile
+/// is known by.
+///
+/// FOUR outcomes, not two, deliberately: the callers of this primitive have
+/// different — and each correct — tolerances for a MISSING surname. Census
+/// enrichment matches a bare given-name roster row against a thin linked stub
+/// on purpose (`CensusAgeEnrichment.nameMatches`); the reconciler refuses to
+/// assert identity without a surname on both sides
+/// (`CensusRelationshipReconciler.surnamesMatch`). Collapsing the absences
+/// into the mismatch case, or into the match case, would silently rewrite one
+/// of them. Only `.conflicts` means "these are different families".
+public nonisolated enum RosterSurnameAgreement: Sendable, Equatable {
+    /// The roster row's surname is one the profile is known by.
+    case agrees
+    /// Both sides carry a surname and they disagree.
+    case conflicts
+    /// The roster row is a single token — a bare given name. Nothing to compare.
+    case rosterSurnameAbsent
+    /// The profile carries no surname at all (a thin stub). Nothing to compare.
+    case profileSurnamesAbsent
+}
+
+/// The single answer to "does this census roster row's NAME refer to this
+/// person?".
+///
+/// EV23 (owner dogfood 2026-08-26): three implementations of that one question
+/// had drifted apart. `CensusRelationshipReconciler` consulted `lastName` AND
+/// `marriedSurname`; `CensusAgeEnrichment.nameMatches` consulted `lastName`
+/// alone; `ConflictSweep.knownSurnames(of:)` (app target, used by
+/// `ApplyEngine`'s marriage path) consulted `lastName`, `marriedSurname` AND
+/// the `nameForms` sidecar. The tree stores a married woman under her MAIDEN
+/// surname and every census indexes her under her MARRIED one, so the
+/// `lastName`-only variant could not see ANY married woman on ANY roster —
+/// Hannah HEWKIN (`marriedSurname` "Gladwin") is "Hannah Gladwin" on every
+/// household she ever appears in, so no census-citation offer could form for
+/// her anywhere in the app. Two engines reading the same household disagreed
+/// about who was on it.
+///
+/// This is the canonical home. Both AncestorKit roster matchers read it;
+/// `ConflictSweep.knownSurnames(of:)` is the third caller and should be
+/// migrated to it (it lives in the app target, which already depends on
+/// AncestorKit, so the move is one-way and safe).
+public nonisolated enum RosterIdentity {
+
+    /// Every surname the profile is known by, trimmed and upper-cased, empties
+    /// dropped.
+    ///
+    /// The union is deliberately identical to `ConflictSweep.knownSurnames`:
+    /// the two flat search keys — `lastName` (maiden, by tree convention) and
+    /// `marriedSurname` — plus the `NameForm` sidecar, which is where a
+    /// WikiTree `LastNameOther` and a twice-married woman's second married
+    /// surname land.
+    ///
+    /// A form carrying only `fullText` and no structured `surname` contributes
+    /// nothing: `fullText` on a `.nickname` form is a GIVEN name, so admitting
+    /// it blind would inject forenames into the surname set. Every producer in
+    /// the app (`WikiTreeClient`, `ProjectDatabase.nameForms`) populates
+    /// `surname` on the forms it builds, so this costs nothing today; a future
+    /// bare-surname producer would need this taught the `.birth`/`.married`/
+    /// `.alsoKnownAs` single-token case explicitly, never `fullText` wholesale.
+    public static func knownSurnames(of profile: Profile) -> Set<String> {
+        var out: Set<String> = []
+        let candidates = [profile.lastName, profile.marriedSurname]
+            + profile.nameForms.map(\.surname)
+        for candidate in candidates {
+            let value = (candidate ?? "").trimmingCharacters(in: .whitespaces).uppercased()
+            if !value.isEmpty { out.insert(value) }
+        }
+        return out
+    }
+
+    /// A roster name split into upper-cased tokens on spaces and commas — the
+    /// tokenizer both matchers already used, preserved verbatim.
+    ///
+    /// KNOWN LIMITATION, pre-existing and deliberately not changed by EV23
+    /// (2026-08-26): `rosterSurname` takes the LAST token, so an INVERTED row
+    /// ("GLADWIN, Hannah") is mis-read with "HANNAH" as the surname and
+    /// refuses. Both matchers had that flaw independently; consolidating them
+    /// makes it fail identically on both sides instead of differently, which is
+    /// the prerequisite for fixing it in one place later. Fixing it here would
+    /// have meant changing name PARSING while fixing name MATCHING.
+    public static func tokens(of memberName: String) -> [String] {
+        memberName.uppercased()
+            .split(whereSeparator: { $0 == " " || $0 == "," })
+            .map(String.init)
+            .filter { !$0.isEmpty }
+    }
+
+    /// The roster row's surname — its LAST name token, upper-cased. `nil` when
+    /// the row carries a single token, which is an absence to be tolerated or
+    /// refused by the caller, never a mismatch.
+    public static func rosterSurname(of memberName: String) -> String? {
+        let parts = tokens(of: memberName)
+        guard parts.count >= 2 else { return nil }
+        return parts.last
+    }
+
+    /// Compare a roster row's surname against every surname the profile is
+    /// known by. The caller decides what the two absences mean for it — see
+    /// `RosterSurnameAgreement`.
+    public static func surnameAgreement(memberName: String, profile: Profile) -> RosterSurnameAgreement {
+        let known = knownSurnames(of: profile)
+        guard !known.isEmpty else { return .profileSurnamesAbsent }
+        guard let surname = rosterSurname(of: memberName) else { return .rosterSurnameAbsent }
+        return known.contains(surname) ? .agrees : .conflicts
+    }
+}
+
 /// A proposal to fill an EMPTY birth year on a profile that is already
 /// structurally linked to the census subject, using an age (or stated birth
 /// year) from that subject's census household roster.
@@ -267,23 +375,42 @@ public nonisolated struct CensusAgeEnrichment {
     /// Given-name-and-surname match tolerant of missing surnames (a thin
     /// linked stub is often given-name only). Requires the given name to line
     /// up; the surname must match only when both sides carry one.
+    ///
+    /// EV23 (owner dogfood 2026-08-26): the surname half read `profile.lastName`
+    /// ALONE. The tree stores a married woman under her MAIDEN surname and every
+    /// census indexes her under her MARRIED one, so this matcher could not see a
+    /// married woman on her own household roster — Hannah HEWKIN
+    /// (`marriedSurname` "Gladwin") appears as "Hannah Gladwin", the surname
+    /// compared against "HEWKIN", and every proposal, corroboration and
+    /// census-citation offer for her was silently dropped. Not a one-person
+    /// defect: by tree convention it is EVERY married woman.
+    ///
+    /// The surname question now goes through `RosterIdentity` — the same
+    /// primitive `CensusRelationshipReconciler` reads over the SAME household —
+    /// so the two engines can no longer disagree about who a roster row is.
+    ///
+    /// The widening is on exactly ONE axis — which surnames count as this
+    /// person's — and nowhere else. A surname the profile is not known by is
+    /// still a refusal: a maiden-only profile with no `marriedSurname` still
+    /// does NOT match a married-surname roster row, so nothing here can merge
+    /// two women who merely share a forename and a village. The tolerance the
+    /// matcher was written for is preserved (a bare given-name roster row, and
+    /// a surname-less stub, both still match — only `.conflicts` refuses).
+    /// One case tightens, deliberately: a profile with a BLANK `lastName` but a
+    /// recorded married surname used to match every roster row regardless of
+    /// surname, because the old guard tested `lastName` emptiness rather than
+    /// "no surname known". It now has to agree — "when in doubt, split".
     static func nameMatches(_ memberName: String, _ profile: Profile) -> Bool {
-        let memberTokens = memberName.uppercased()
-            .split(whereSeparator: { $0 == " " || $0 == "," })
-            .map(String.init)
-            .filter { !$0.isEmpty }
+        let memberTokens = RosterIdentity.tokens(of: memberName)
         guard let memberGiven = memberTokens.first else { return false }
-        let memberSurname = memberTokens.count > 1 ? memberTokens.last : nil
 
         let profileGiven = (profile.firstName ?? "").uppercased()
-        let profileSurname = (profile.lastName ?? "").uppercased()
         guard !profileGiven.isEmpty else { return false }
 
         let givenMatch = memberGiven == profileGiven || memberTokens.contains(profileGiven)
         guard givenMatch else { return false }
 
-        let surnameMatch = memberSurname == nil || profileSurname.isEmpty
-            || memberSurname == profileSurname
-        return surnameMatch
+        return RosterIdentity.surnameAgreement(
+            memberName: memberName, profile: profile) != .conflicts
     }
 }

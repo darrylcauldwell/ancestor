@@ -74,8 +74,10 @@ public nonisolated enum AuditRules {
         MissingBioRule(),
         InvalidDateRule(),
         DuplicateDetectionRule(),
+        SiblingIdentityCollisionRule(),
         ExcessParentEdgesRule(),
         CensusRelationshipRule(),
+        CitedCensusWithoutEventRule(),
         MissingCoParentRule(),
         EmptyProfileRule(),
         CompletenessScoreRule(),
@@ -1120,12 +1122,12 @@ public nonisolated struct DuplicateDetectionRule: AuditRuleDefinition {
             // source rather than surface a row the user can only dismiss. This
             // catches same-named father/son pairs in a generational naming chain
             // (e.g. George Keyworth b.1838 → his son George b.1877).
-            if hasDirectParentChildEdge(profile.id, otherID, snapshot: snapshot) {
+            if Self.hasDirectParentChildEdge(profile.id, otherID, snapshot: snapshot) {
                 continue
             }
 
             let score = similarityScore(profile, other)
-            if score >= 0.7 {
+            if score >= Self.threshold {
                 results.append(AuditResult(
                     id: UUID(), profileID: profile.id, profileName: profile.displayName,
                     severity: .warning, ruleID: id,
@@ -1190,6 +1192,23 @@ public nonisolated struct DuplicateDetectionRule: AuditRuleDefinition {
         return score
     }
 
+    /// Similarity at or above which a pair is surfaced as a possible duplicate.
+    /// Named (was a bare 0.7 literal) so `SiblingIdentityCollisionRule` can ask
+    /// the SAME question this rule answers rather than re-deriving the number —
+    /// the two rules must partition the pair space, not overlap it (EV17,
+    /// 2026-08-26).
+    static let threshold = 0.7
+
+    /// Would this rule surface `a`+`b` as a possible duplicate on score alone?
+    /// Public so a sibling rule can stay strictly ORTHOGONAL to this one: a pair
+    /// this rule already flags must not also be flagged as a sibling identity
+    /// collision, or one row becomes two (EV17, 2026-08-26). Score only — the
+    /// dismissal / parent-child suppressions are applied independently by each
+    /// caller, from the same snapshot.
+    public static func flags(_ a: Profile, _ b: Profile) -> Bool {
+        DuplicateDetectionRule().similarityScore(a, b) >= threshold
+    }
+
     /// Birth-year gap beyond which two DATED profiles cannot be the same person
     /// misrecorded. Census ages and estimates drift a few years at most; a
     /// larger gap is a generational distinction, not a transcription variance.
@@ -1211,7 +1230,11 @@ public nonisolated struct DuplicateDetectionRule: AuditRuleDefinition {
     /// merge guard agree on what "structurally impossible to be one person"
     /// means. Grandparent/uncle links are NOT direct edges and fall to the
     /// date-gap suppression instead.
-    private func hasDirectParentChildEdge(_ a: String, _ b: String, snapshot: FamilyGraphSnapshot) -> Bool {
+    ///
+    /// `static` (was a private instance method) so `SiblingIdentityCollisionRule`
+    /// reuses the identical predicate instead of keeping a second copy that could
+    /// drift out of step with MergeSafety (EV17, 2026-08-26). Behaviour unchanged.
+    static func hasDirectParentChildEdge(_ a: String, _ b: String, snapshot: FamilyGraphSnapshot) -> Bool {
         snapshot.relationships.contains { r in
             r.type == .parent &&
             ((r.from == a && r.to == b) || (r.from == b && r.to == a))
@@ -1224,6 +1247,280 @@ public nonisolated struct DuplicateDetectionRule: AuditRuleDefinition {
         let bEarliest = b.earliest ?? Int.min
         let bLatest = b.latest ?? Int.max
         return aEarliest <= bLatest && bEarliest <= aLatest
+    }
+}
+
+// MARK: - Sibling Identity Collision (EV17, owner dogfood 2026-08-26)
+
+/// Two children of the SAME parents who may be one child recorded twice under
+/// two different forenames — the region `DuplicateDetectionRule` is
+/// structurally blind to.
+///
+/// That blindness is deliberate and correct where it was written: the hard
+/// forename gate (`givenSim == 0 → score 0`) exists so a Dorothy and a Florence
+/// sharing a surname and a birth year are NOT proposed as duplicates, because
+/// same-surname siblings are the commonest false positive on a dense tree. But
+/// the gate is applied BEFORE surname (0.4) and birth-year overlap (0.3) are
+/// added, and `evaluate` consults only name and birthDate — never parent edges,
+/// sibship, or evidence sets. So shared parents, disjoint evidence and
+/// never-co-resident contribute nothing at all, and the pair scores 0. The live
+/// firing pattern confirms it: every duplicateDetection finding on the owner's
+/// tree pairs SAME-forename profiles.
+///
+/// The gate is NOT removed. This is the separate rule covering the region it
+/// excludes, and it is far stricter than duplicate detection in every other
+/// axis: IDENTICAL parent sets (not "shares a parent"), same recorded sex,
+/// colliding birth windows, DISJOINT evidence, and never seated on one census
+/// roster. That combination is orthogonal to the known namesake over-fire —
+/// those pairs have the SAME forename (this rule requires dissimilarity) and
+/// DIFFERENT parents (this rule requires identity) — so it cannot worsen it.
+///
+/// The output is an OPEN QUESTION, never a merge proposal. "Two brothers" is a
+/// legitimate resolution, and a merge here is irreversible; the rule deliberately
+/// carries no `duplicateDetection` rule id, so none of the merge affordances
+/// keyed on that id attach to it.
+///
+/// Live specimen: John H Gladwin (b. CAL 1861, known only from the 1871 roster)
+/// and Thomas H Gladwin (b. 1861, known only from the 1881 roster) — same
+/// parents, same sex, same birth year, disjoint evidence, never co-resident.
+public nonisolated struct SiblingIdentityCollisionRule: AuditRuleDefinition {
+    public let id = "siblingIdentityCollision"
+    // `.issue`, not `.gap` or `.research`: if the two records are one boy the
+    // tree currently holds a person who never existed — the data is WRONG, which
+    // is the `.issue` definition. It is not evidence half-carried (`.gap`), and
+    // it is not a prompt to go and find something (`.research`); the evidence is
+    // already in hand and it is the tree's own structure that is in question.
+    public let category: AuditCategory = .issue
+    public let displayName = "One Child Or Two?"
+    public let description = "Two children of the same parents, same sex, with colliding birth years, who appear on disjoint records and never together on any household roster the tree holds — they may be one child recorded twice."
+    public let fireCondition = "Identical linked-parent sets; same recorded sex; birth windows collide; DISSIMILAR forenames (< 0.7); disjoint citation sets; never two rows of one census household; not already dismissed, not a duplicate-detection pair, no direct parent-child edge."
+    public let warningCondition: String? = nil
+    public let workedExample = "John H Gladwin (b. CAL 1861) appears only on the 1871 Whittington roster; Thomas H Gladwin (b. 1861) only on the 1881 Handsworth roster. Same parents, same sex, same birth year, no record ever shows both."
+    public let defaultSeverity = Severity.warning
+    public init() {}
+
+    /// Forename similarity BELOW which the pair enters this rule's region.
+    /// `nameSimilarity` already credits nicknames, containment and single-edit
+    /// typos, so JACK/JOHN (0.85) and GLAYS/GLADYS (0.7) stay out — they are
+    /// duplicate detection's business, not this rule's.
+    static let dissimilarForename = 0.7
+
+    /// Slack when two `bestYear` estimates are compared directly. One year: a
+    /// census age and a registration year routinely differ by one for the same
+    /// child; two would start swallowing genuine Irish-twin siblings.
+    static let birthYearSlack = 1
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        Self.collisions(for: profile, in: snapshot).map { pair in
+            AuditResult(
+                profileID: profile.id, profileName: profile.displayName,
+                severity: .warning, category: .issue, ruleID: id,
+                message: Self.message(a: profile, b: pair.other,
+                                      aYears: pair.aYears, bYears: pair.bYears,
+                                      parents: snapshot.parentsOf(profile.id)),
+                relatedProfileIDs: [pair.other.id])
+        }
+    }
+
+    public struct Collision: Sendable {
+        public let other: Profile
+        /// Census years whose household roster seats the subject.
+        public let aYears: Set<Int>
+        /// Census years whose household roster seats `other`.
+        public let bYears: Set<Int>
+    }
+
+    /// The sibling(s) `profile` may actually BE. Reported once per pair, from
+    /// the alphabetically-first id (the same convention `DuplicateDetectionRule`
+    /// uses), so one question never renders as two rows.
+    ///
+    /// Guard order is cost-ordered on purpose: every O(1) profile-local test
+    /// runs before the first graph read. The engine evaluates every rule against
+    /// every profile, and `parentsOf` is a linear scan of the whole relationship
+    /// array — running it per sibling on a large tree would dominate the audit.
+    public static func collisions(for profile: Profile, in snapshot: FamilyGraphSnapshot) -> [Collision] {
+        // A soft-deleted profile is not a live identity — neither side.
+        guard !profile.isDeleted else { return [] }
+        // Condition 2 — same sex, both known. `.unknown` is a recorded ABSENCE
+        // of sex, and `.other` carries no discriminating signal for a Victorian
+        // roster, so neither counts as "known" here.
+        guard let sex = profile.gender, sex == .male || sex == .female else { return [] }
+        // Condition 3 needs a real window on both sides. Two undated children of
+        // one couple carry no birth-year signal at all, and an unbounded window
+        // would "intersect" everything — which is how a rule like this turns
+        // into tree-wide noise.
+        guard profile.birthDate?.bestYear != nil else { return [] }
+
+        let candidates = snapshot.siblingsOf(profile.id).filter { other in
+            // Report once, from the alphabetically-first id.
+            guard other.id > profile.id, !other.isDeleted else { return false }
+            guard other.gender == sex else { return false }                 // condition 2
+            guard Self.birthWindowsCollide(profile, other) else { return false }  // condition 3
+            guard Self.forenamesDiffer(profile, other) else { return false }      // condition 7
+            // Condition 6 — the user has already answered "different people",
+            // which is the `not_duplicate_of` verdict MCP reports and the
+            // `dismissed_duplicates` table stores.
+            guard !snapshot.dismissedDuplicatePairs.contains(
+                DuplicatePairKey(profile.id, other.id)) else { return false }
+            // Condition 6 — a direct parent-child edge asserts two people.
+            guard !DuplicateDetectionRule.hasDirectParentChildEdge(
+                profile.id, other.id, snapshot: snapshot) else { return false }
+            // Orthogonality, enforced not merely asserted: a pair duplicate
+            // detection ALREADY surfaces must not surface twice. With a shared
+            // surname and overlapping birth ranges that rule scores
+            // 0.4 + 0.3 + 0.3·given ≥ 0.7 for ANY non-zero forename similarity,
+            // so the genuinely blind region is narrower than "forename < 0.7" —
+            // this hands the difference back to the rule that already owns it.
+            return !DuplicateDetectionRule.flags(profile, other)
+        }
+        guard !candidates.isEmpty else { return [] }
+
+        // Graph + evidence reads only once a candidate has survived the screen.
+        let parents = Set(snapshot.parentsOf(profile.id).map(\.id))
+        guard !parents.isEmpty else { return [] }
+        let mine = Self.citedRecords(of: profile, in: snapshot)
+        // Condition 4 refinement: BOTH sides must actually cite something. Two
+        // uncited GEDCOM stubs have no evidence to be disjoint, and the finding's
+        // own wording ("appearing on disjoint records") would be a false claim.
+        guard !mine.isEmpty else { return [] }
+
+        var out: [Collision] = []
+        for other in candidates {
+            // Condition 1 — IDENTICAL, not merely overlapping: neither may have a
+            // parent the other lacks. `siblingsOf` only guarantees ONE shared
+            // parent, which is exactly how half-siblings and step-families get
+            // proposed as one person.
+            guard Set(snapshot.parentsOf(other.id).map(\.id)) == parents else { continue }
+            let theirs = Self.citedRecords(of: other, in: snapshot)
+            guard !theirs.isEmpty, mine.isDisjoint(with: theirs) else { continue }   // condition 4
+            let rosters = Self.rosterOverlap(profile, other, in: snapshot)
+            guard !rosters.coResident else { continue }                              // condition 5
+            out.append(Collision(other: other, aYears: rosters.aYears, bYears: rosters.bYears))
+        }
+        return out
+    }
+
+    /// Condition 7 — the TRIGGER. Fires on forename DISSIMILARITY, the region
+    /// duplicate detection discards before it ever looks at surname or dates.
+    /// A missing forename on either side is not dissimilarity: it is absence,
+    /// and `IncompleteNameRule` owns that.
+    static func forenamesDiffer(_ a: Profile, _ b: Profile) -> Bool {
+        let ga = (a.firstName ?? "").trimmingCharacters(in: .whitespaces)
+        let gb = (b.firstName ?? "").trimmingCharacters(in: .whitespaces)
+        guard !ga.isEmpty, !gb.isEmpty else { return false }
+        return nameSimilarity(ga, gb) < dissimilarForename
+    }
+
+    /// Condition 3 — birth-year windows intersect, OR the two best-year
+    /// estimates sit within `birthYearSlack`. The second arm matters because a
+    /// "CAL 1861" (±1) and a bare "1861" do intersect, but a bare "1860" and a
+    /// bare "1861" do not — and a one-year gap between a census age and a
+    /// registration is the commonest way one child is recorded as two.
+    static func birthWindowsCollide(_ a: Profile, _ b: Profile) -> Bool {
+        guard let da = a.birthDate, let db = b.birthDate,
+              let ya = da.bestYear, let yb = db.bestYear else { return false }
+        if abs(ya - yb) <= birthYearSlack { return true }
+        let aLo = da.earliest ?? ya, aHi = da.latest ?? ya
+        let bLo = db.earliest ?? yb, bHi = db.latest ?? yb
+        return aLo <= bHi && bLo <= aHi
+    }
+
+    /// Every record this profile's evidence points at, as stable locators —
+    /// field-source citations plus life-event sources. Condition 4 asks whether
+    /// two profiles were discovered from DIFFERENT records; the locator is the
+    /// unit of "a record".
+    static func citedRecords(of profile: Profile, in snapshot: FamilyGraphSnapshot) -> Set<String> {
+        var out: Set<String> = []
+        for source in profile.sources.values.flatMap({ $0 }) {
+            if let locator = recordLocator(source) { out.insert(locator) }
+        }
+        for event in snapshot.lifeEvents[profile.id] ?? [] {
+            for source in event.sources {
+                if let locator = recordLocator(source) { out.insert(locator) }
+            }
+        }
+        return out
+    }
+
+    /// The stable identity of a cited record. When the URL carries an `ark:/…`
+    /// path segment that segment IS the identity — the same FamilySearch record
+    /// is reachable under several host spellings and query strings, and two
+    /// spellings of one record must never read as two independent records.
+    /// Otherwise the whole URL, case- and trailing-slash-normalised.
+    static func recordLocator(_ source: FieldSource) -> String? {
+        guard let raw = source.citation?.url?.trimmingCharacters(in: .whitespaces),
+              !raw.isEmpty else { return nil }
+        let lower = raw.lowercased()
+        if let ark = lower.range(of: "ark:/") { return String(lower[ark.lowerBound...]) }
+        return lower.hasSuffix("/") ? String(lower.dropLast()) : lower
+    }
+
+    /// One pass over every census roster the tree holds, answering both
+    /// questions the finding needs: were `a` and `b` ever seated on the SAME
+    /// household as two DISTINCT rows, and which census years does each appear
+    /// on at all (which is what makes the message concrete)?
+    ///
+    /// Rows resolve to profiles through
+    /// `CensusRelationshipReconciler.matchesTreeWide` — the app's own tree-wide
+    /// "is this roster row already this person?" predicate — so the audit and
+    /// the census net-new guard can never disagree about who is on a roster.
+    /// Deliberately the STRICT (year- or birthplace-corroborated) matcher rather
+    /// than the role-scoped one that falls back to a bare name: the 1871 Gladwin
+    /// household seats both "John H Gladwin" (Son, 10) and "Thomas Gladwin"
+    /// (Father, 70 — the grandfather), and a name-only fallback would read the
+    /// grandfather's row as Thomas H b.1861, conclude the brothers were
+    /// co-resident, and silently swallow the finding this rule exists to raise.
+    static func rosterOverlap(_ a: Profile, _ b: Profile, in snapshot: FamilyGraphSnapshot)
+        -> (coResident: Bool, aYears: Set<Int>, bYears: Set<Int>) {
+        var coResident = false
+        var aYears: Set<Int> = []
+        var bYears: Set<Int> = []
+        for events in snapshot.lifeEvents.values {
+            for event in events where event.type == .census {
+                guard case .census(let details)? = event.details, !details.household.isEmpty else { continue }
+                let year = event.date?.bestYear ?? event.endDate?.bestYear
+                let aRows = Set(details.household.indices.filter {
+                    CensusRelationshipReconciler.matchesTreeWide(
+                        member: details.household[$0], profile: a, censusYear: year)
+                })
+                let bRows = Set(details.household.indices.filter {
+                    CensusRelationshipReconciler.matchesTreeWide(
+                        member: details.household[$0], profile: b, censusYear: year)
+                })
+                if let year {
+                    if !aRows.isEmpty { aYears.insert(year) }
+                    if !bRows.isEmpty { bYears.insert(year) }
+                }
+                // TWO DISTINCT rows — a single row that matches both is an
+                // ambiguous transcription, not proof of two people at one table.
+                if aRows.contains(where: { i in bRows.contains { $0 != i } }) { coResident = true }
+            }
+        }
+        return (coResident, aYears, bYears)
+    }
+
+    /// An open question in the owner's words — never "merge these". The shape is
+    /// fixed by EV17: same parents, same sex, overlapping birth windows, disjoint
+    /// records, never together on a roster → one child or two?
+    static func message(a: Profile, b: Profile,
+                        aYears: Set<Int>, bYears: Set<Int>,
+                        parents: [Profile]) -> String {
+        func born(_ p: Profile) -> String {
+            p.birthDate?.bestYear.map { "b.\($0)" } ?? "no birth year"
+        }
+        func rosterPhrase(_ p: Profile, _ years: Set<Int>) -> String? {
+            guard !years.isEmpty else { return nil }
+            let list = years.sorted().map { String($0) }.joined(separator: ", ")
+            return "\(p.firstName ?? p.displayName) only on \(list)"
+        }
+        let parentNames = parents.map(\.displayName).sorted().joined(separator: " and ")
+        let of = parentNames.isEmpty ? "the same parents" : parentNames
+        let phrases = [rosterPhrase(a, aYears), rosterPhrase(b, bYears)].compactMap { $0 }
+        let records = phrases.isEmpty
+            ? "on disjoint records"
+            : "on disjoint records (\(phrases.joined(separator: "; ")))"
+        let siblingWord = a.gender == .female ? "Two sisters" : "Two brothers"
+        return "\(a.displayName) (\(born(a))) and \(b.displayName) (\(born(b))) are both recorded as children of \(of), the same sex, with overlapping birth windows — and they appear \(records), never together on any roster the tree holds. One child or two? \(siblingWord) is a legitimate answer; establish which before merging, because a merge cannot be undone."
     }
 }
 
@@ -1857,6 +2154,273 @@ public nonisolated struct CensusRelationshipRule: AuditRuleDefinition {
         case .child:   return "child"
         case .spouse:  return "spouse"
         case .sibling: return "sibling"
+        }
+    }
+}
+
+// MARK: - Census citation reader (EV17 sibling task, 2026-08-26)
+
+/// Recognises "this cited record IS the census of year Y" from a `FieldSource`.
+///
+/// Why this lives here and not on `SourceTierRegistry`: that registry is the
+/// single source of truth for what a URL's TRUST TIER is (a load-bearing
+/// invariant — nothing else may assert a tier), but it answers only that
+/// question, it has no notion of record type or census year, and it lives in the
+/// app module which AncestorKit cannot import. So this reader deliberately
+/// asserts NO tier. It borrows only the registry's domain list — the same hosts,
+/// split by whether their collections can contain census returns at all — and
+/// takes the YEAR from the citation's own structured text via the existing
+/// `CensusType` catalogue, never from an invented year list.
+///
+/// Two-stage on purpose. The URL decides whether the record COULD be a census
+/// (a freebmd.org.uk index or a freereg.org.uk parish register never is, by
+/// construction); the citation text then has to SAY census — a bare four-digit
+/// year is not enough, because a FreeBMD birth index for a child born in 1861
+/// carries "1861" in its title and would otherwise read as the 1861 census.
+public nonisolated enum CensusCitationReader {
+
+    /// The census year this source cites, or nil when the source is not
+    /// recognisably a census record (or names more than one census, which is
+    /// ambiguous — say nothing rather than guess).
+    public static func censusYear(of source: FieldSource) -> Int? {
+        guard let url = source.citation?.url, isCensusBearing(url: url) == true else { return nil }
+
+        var text = [source.citation?.collection, source.citation?.title,
+                    source.citation?.page, source.citation?.notes]
+            .compactMap { $0 }
+        // `raw` is usually a pre-formatted citation string ("1881 England
+        // Census, Handsworth … RG11 4669/172 p.20 line 14") and is the only
+        // place some paths record the class piece. Skip it when it is a bare URL
+        // — record ids are digit runs and would pollute the year scan.
+        if !source.raw.contains("://"), !source.raw.contains("ark:/") {
+            text.append(source.raw)
+        }
+        let parts = tokens(in: text.joined(separator: " "))
+
+        // Census-ness: the word itself, or a TNA class that IS a census return.
+        let classYears = Set(parts.compactMap { censusClassYears[$0] })
+        let ambiguousClass = parts.contains { ambiguousCensusClasses.contains($0) }
+        guard parts.contains("CENSUS") || !classYears.isEmpty || ambiguousClass else { return nil }
+
+        let statedYears = Set(parts.compactMap { Int($0) }.filter { censusYears.contains($0) })
+        if classYears.count > 1 { return nil }              // two classes — incoherent
+        if let fromClass = classYears.first {
+            // A stated year contradicting the class piece means the citation is
+            // internally inconsistent; a wrong year would send the user to the
+            // wrong census, so stay silent.
+            return statedYears.isEmpty || statedYears == [fromClass] ? fromClass : nil
+        }
+        return statedYears.count == 1 ? statedYears.first : nil
+    }
+
+    /// The decennial years the app knows about, taken from the existing
+    /// `CensusType` catalogue rather than a second hand-written list.
+    static let censusYears: Set<Int> = Set(CensusType.allCases.compactMap(\.year))
+
+    /// TNA record classes that ARE the census returns. National classes — no
+    /// region is encoded anywhere here. Full digit runs are compared, so the
+    /// 1939 Register's RG101 does not collide with RG10 (1871).
+    static let censusClassYears: [String: Int] = [
+        "RG9": 1861, "RG10": 1871, "RG11": 1881,
+        "RG12": 1891, "RG13": 1901, "RG14": 1911,
+    ]
+
+    /// Census classes whose year is AMBIGUOUS — HO107 covers both 1841 and
+    /// 1851. They establish census-ness but cannot pin the year alone.
+    static let ambiguousCensusClasses: Set<String> = ["HO107"]
+
+    /// Hosts whose collections are, by construction, never census returns —
+    /// civil-registration indexes, parish registers, probate calendars, war
+    /// graves, memorials. Same domains the app's `SourceTierRegistry` knows.
+    static let nonCensusHosts: Set<String> = [
+        "freebmd.org.uk", "freereg.org.uk", "probatesearch.service.gov.uk",
+        "cwgc.org", "findagrave.com", "legislation.gov.uk",
+    ]
+
+    /// Hosts that DO publish census returns. `freecen.org.uk` is census-only;
+    /// the rest hold mixed collections, which is why the citation text still has
+    /// to say census.
+    static let censusBearingHosts: Set<String> = [
+        "freecen.org.uk", "familysearch.org", "nationalarchives.gov.uk",
+        "ancestry.co.uk", "ancestry.com", "findmypast.co.uk", "thegenealogist.co.uk",
+    ]
+
+    /// `true` = the host can carry census returns, `false` = it definitively
+    /// cannot, `nil` = unrecognised, so the record is not RECOGNISABLY a census
+    /// and this reader declines to guess.
+    static func isCensusBearing(url: String) -> Bool? {
+        let lower = url.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !lower.isEmpty else { return nil }
+        // A bare `ark:/…` path segment with no host is a FamilySearch record
+        // locator — `ExternalIdentifier` stores FS ids in exactly that form, so
+        // a citation may carry it without the host.
+        if lower.hasPrefix("ark:/") { return true }
+        guard let host = hostName(of: lower) else { return nil }
+        func matches(_ set: Set<String>) -> Bool {
+            set.contains { host == $0 || host.hasSuffix(".\($0)") }
+        }
+        if matches(nonCensusHosts) { return false }
+        if matches(censusBearingHosts) { return true }
+        return nil
+    }
+
+    /// Host, `www.`-stripped. Mirrors `SourceTierRegistry.extractHost` including
+    /// its fallback for strings `URL` refuses to parse.
+    static func hostName(of url: String) -> String? {
+        var found = URL(string: url)?.host
+        if found == nil {
+            var s = url
+            if let scheme = s.range(of: "://") { s = String(s[scheme.upperBound...]) }
+            if let slash = s.range(of: "/") { s = String(s[..<slash.lowerBound]) }
+            found = s.isEmpty ? nil : s
+        }
+        guard var h = found?.lowercased() else { return nil }
+        if h.hasPrefix("www.") { h.removeFirst(4) }
+        return h.isEmpty ? nil : h
+    }
+
+    /// Alphanumeric runs, upper-cased. Keeps "RG11" and "HO107" whole while
+    /// splitting "RG11 4669/172 p.20" into its parts.
+    static func tokens(in text: String) -> [String] {
+        text.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map { $0.uppercased() }
+    }
+}
+
+// MARK: - Cited Census Without Event (owner dogfood 2026-08-26)
+
+/// A census is cited as the SOURCE of a profile field, but no census event for
+/// that year sits on the profile — the citation is carrying a record that the
+/// tree otherwise cannot see.
+///
+/// Live specimen: Hannah Hewkin's `lastName` fact "Hewkin" cites the 1841
+/// Dronfield census (HO107 195/20 book 6 p.8 line 21, ark:/61903/1:1:M7SB-YZJ) —
+/// the evidence that corrected her surname from Wheatman. She had no 1841 census
+/// event, so the citation sat on a field with nothing behind it: the 1841 census
+/// was invisible to her timeline, to the roster machinery, to the family-context
+/// gate and to completeness. Nothing surfaced it. A human found it by reading
+/// citation URLs by eye.
+///
+/// `.gap`, at info: the evidence IS in the project and is only incompletely
+/// applied, which is the `.gap` definition, so it renders in Health rather than
+/// being filed as a research prompt.
+///
+/// Distinct from `censusUnabsorbed`, which describes the opposite situation — a
+/// census that HAS been applied and whose household names relatives not yet on
+/// the tree. This rule requires the ABSENCE of a census event for the year, so
+/// per (profile, year) the two cannot both be describing the same row. They can
+/// still both fire on one PROFILE for different years; see
+/// `missingCensusEventYears`, which the Health assembly can use to dedupe.
+public nonisolated struct CitedCensusWithoutEventRule: AuditRuleDefinition {
+    public let id = "citedCensusWithoutEvent"
+    public let category: AuditCategory = .gap
+    public let displayName = "Census Cited, Never Added"
+    public let description = "A profile field cites a census record, but the profile has no census event for that year — so the census is invisible to the timeline, the household roster and completeness."
+    public let fireCondition = "A field_source citation resolves to a census of year Y, and no census life event on the profile covers Y (nor cites the same record)."
+    public let warningCondition: String? = nil
+    public let workedExample = "Hannah Hewkin's surname cites the 1841 Dronfield census (HO107 195/20), but she has no 1841 census event — the household behind the correction was never added."
+    public let defaultSeverity = Severity.info
+    public init() {}
+
+    public func evaluate(profile: Profile, snapshot: FamilyGraphSnapshot) -> [AuditResult] {
+        let missing = Self.missingCensusEventYears(for: profile, in: snapshot)
+        guard !missing.isEmpty else { return [] }
+        return [AuditResult(
+            profileID: profile.id, profileName: profile.displayName,
+            severity: .info, category: .gap, ruleID: id,
+            message: Self.message(profile: profile, missing: missing))]
+    }
+
+    /// Census years cited by this profile's field sources that no census event
+    /// on the profile carries — ascending, with the fields that cite each.
+    ///
+    /// Public so the Health assembly can dedupe a `censusUnabsorbed` row against
+    /// this one by (profile, year) without parsing prose. `censusUnabsorbed`
+    /// treats a census as APPLIED when a confirmed fact cites its detail URL,
+    /// even with no life event (`AppState.censusHouseholdProposal`'s
+    /// `citedByFact` arm) — which is exactly Hannah's shape, so a profile whose
+    /// cited-but-eventless census ALSO has un-absorbed household members can
+    /// raise both rules.
+    public static func missingCensusEventYears(for profile: Profile, in snapshot: FamilyGraphSnapshot)
+        -> [(year: Int, fields: [ProfileField])] {
+        // Sorted so the message is stable across runs — dictionary order is not.
+        let sources = profile.sources
+            .sorted { $0.key.rawValue < $1.key.rawValue }
+            .flatMap { entry in entry.value.map { (field: entry.key, source: $0) } }
+        guard !sources.isEmpty else { return [] }
+
+        let events = (snapshot.lifeEvents[profile.id] ?? []).filter { $0.type == .census }
+        // The record identities already carried by a census EVENT. Belt to the
+        // year check's braces: if the very record cited on the field is what
+        // backs an existing census event, there is something behind the citation
+        // whatever year the two disagree on.
+        let eventRecords = Set(events.flatMap(\.sources)
+            .compactMap { SiblingIdentityCollisionRule.recordLocator($0) })
+
+        var fieldsByYear: [Int: [ProfileField]] = [:]
+        for (field, source) in sources {
+            guard let year = CensusCitationReader.censusYear(of: source) else { continue }
+            if let locator = SiblingIdentityCollisionRule.recordLocator(source),
+               eventRecords.contains(locator) { continue }
+            // YEAR, not date-string equality: an event dated "6 Jun 1841" and a
+            // citation saying "1841" are the same census, and must not fire.
+            if events.contains(where: { covers($0, year) }) { continue }
+            var fields = fieldsByYear[year] ?? []
+            if !fields.contains(field) { fields.append(field) }
+            fieldsByYear[year] = fields
+        }
+        return fieldsByYear.keys.sorted().map { (year: $0, fields: fieldsByYear[$0] ?? []) }
+    }
+
+    /// Does this event's date range cover `year`? Reads the parsed year bounds,
+    /// never the original string, so "6 Jun 1841", "1841" and "ABT 1841" all
+    /// cover 1841.
+    static func covers(_ event: LifeEvent, _ year: Int) -> Bool {
+        for date in [event.date, event.endDate].compactMap({ $0 }) {
+            let lo = date.earliest ?? date.latest
+            let hi = date.latest ?? date.earliest
+            if let lo, let hi, lo <= year, year <= hi { return true }
+        }
+        return false
+    }
+
+    static func message(profile: Profile, missing: [(year: Int, fields: [ProfileField])]) -> String {
+        let years = missing.map { String($0.year) }
+        // Key paths cannot address tuple components, so flatMap explicitly.
+        let fields = Array(Set(missing.flatMap { $0.fields }))
+            .sorted { $0.rawValue < $1.rawValue }
+            .map { fieldLabel($0) }
+        let plural = missing.count > 1
+        let citation = plural
+            ? "citations on \(list(fields)) point at the \(list(years)) censuses"
+            : "a citation on \(list(fields)) points at the \(years.first ?? "") census"
+        return "\(profile.displayName) — \(citation), but no matching census event sits on the timeline. Until the census is added, the timeline, the household roster, the family-context gate and completeness cannot see it."
+    }
+
+    /// "a, b and c" — Oxford-free, matching the prose style of the other rules.
+    static func list(_ items: [String]) -> String {
+        guard let last = items.last else { return "" }
+        guard items.count > 1 else { return last }
+        return items.dropLast().joined(separator: ", ") + " and " + last
+    }
+
+    /// Human field names. `ProfileField.rawValue` is camelCase and reads as
+    /// code in a Health row.
+    static func fieldLabel(_ field: ProfileField) -> String {
+        switch field {
+        case .firstName: return "the given name"
+        case .middleName: return "the middle name"
+        case .lastName: return "the surname"
+        case .marriedSurname: return "the married surname"
+        case .nickName: return "the nickname"
+        case .mothersMaidenName: return "the mother's maiden name"
+        case .gender: return "the sex"
+        case .birthDate: return "the birth date"
+        case .birthLocation: return "the birthplace"
+        case .deathDate: return "the death date"
+        case .deathLocation: return "the death place"
+        case .bio: return "the biography"
+        case .nameForms: return "the name variants"
         }
     }
 }

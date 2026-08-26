@@ -17,6 +17,37 @@ struct VerifiedRecordInput {
 @MainActor @Observable
 final class AppState {
     private let sweepLogger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "ConflictSweep")
+    private let applyLogger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "Apply")
+
+    /// Surface `ApplyEngine` write failures through the log + `errorMessage`
+    /// channel, and answer the only question a caller actually needs: did this
+    /// apply come back clean?
+    ///
+    /// EV21 (owner dogfood 2026-08-26). Every apply call site in this file used
+    /// to drop the engine's result with `_ =` and then stamp the evidence row
+    /// `.savedAsLead` / show a success banner unconditionally. That turned
+    /// EVERY blocked write — not just the pre-1912 marriage that started this —
+    /// into silent data loss underneath a green "Applied" badge: the owner's
+    /// verified Hannah Hewkin marriage (Jun q 1858, Chesterfield 7b/741) read
+    /// as applied with nothing on the spouse edge, no fact and no event.
+    /// Nothing here may claim an apply succeeded without asking this first.
+    /// `quietly` is for background enrichment re-applies, which have no user
+    /// action to attach an error to — they still log.
+    @discardableResult
+    func reportApplyOutcome(
+        _ failures: [ApplyEngine.WriteFailure], quietly: Bool = false
+    ) -> Bool {
+        guard !failures.isEmpty else { return true }
+        for failure in failures {
+            applyLogger.error("\(failure.what) failed: \(failure.error.localizedDescription)")
+        }
+        if !quietly {
+            errorMessage = failures
+                .map { "\($0.what): \($0.error.localizedDescription)" }
+                .joined(separator: "\n")
+        }
+        return false
+    }
 
     /// IMPORT_DEDUPE_SPEC — orphan-stub duplicates found by the last import,
     /// awaiting the user's one-click cleanse decision. nil = nothing to
@@ -535,8 +566,18 @@ final class AppState {
             let scored = evidence.asScoredRecord
             // Surname learning happens inside applyFactToSubject — the choke
             // point every apply path shares — so no per-path call here.
-            _ = ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: snapshot, db: db)
-            try db.updateEvidenceUserStatus(evidenceID: evidence.id, status: .savedAsLead)
+            let landed = reportApplyOutcome(
+                ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: snapshot, db: db))
+            // EV21 (owner dogfood 2026-08-26) — the status stamp follows the
+            // OUTCOME. This line used to run unconditionally on a discarded
+            // result, so a record that wrote nothing at all still moved into
+            // the applied bucket. A blocked apply now stays where it was —
+            // still reviewable, still showing "Apply" — and the failure the
+            // engine reported is on screen. Everything below still runs: a
+            // partial apply must not lose its life events or its re-audit.
+            if landed {
+                try db.updateEvidenceUserStatus(evidenceID: evidence.id, status: .savedAsLead)
+            }
             for event in scored.record.projectToLifeEvents(profileID: profileID) {
                 var event = event
                 // The record's roster may have been fetched via a RELATIVE's
@@ -848,8 +889,14 @@ final class AppState {
                     id: evidence.sourceRecordID, record: .parish(enriched),
                     verdict: evidence.verdict, gates: evidence.gates,
                     summary: evidence.summary)
-                _ = ApplyEngine.applyFactToSubject(
-                    enrichedScored, profile: profile, snapshot: snapshot, db: db)
+                // EV21 (2026-08-26) — a background enrichment re-apply has no
+                // user action to hang an alert on (`quietly` covers the
+                // auto-fetch sweep), but it must not swallow its failures
+                // either: they reach the log every time.
+                reportApplyOutcome(
+                    ApplyEngine.applyFactToSubject(
+                        enrichedScored, profile: profile, snapshot: snapshot, db: db),
+                    quietly: quietly)
                 if let projected = SourceRecord.parish(enriched)
                     .projectToLifeEvent(profileID: profileID),
                    var existing = (snapshot.lifeEvents[profileID] ?? [])
@@ -952,10 +999,19 @@ final class AppState {
             let citation = url.isEmpty ? input.sourceName : "\(input.sourceName) — \(url)"
             try db.saveEvidence(profileID: profileID, scored: scored, citationFull: citation,
                                 citationURL: url.isEmpty ? nil : url)
-            try db.updateEvidenceUserStatus(
-                evidenceID: EvidenceRecord.compositeID(profileID: profileID, sourceRecordID: recordID),
-                status: .savedAsLead)
-            _ = ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: snapshot, db: db)
+            // EV21 (2026-08-26) — the stamp used to be written BEFORE the
+            // apply, so it could not possibly reflect the outcome. Moved
+            // after, and gated on it: a hand-entered record whose facts were
+            // all refused must not sit in the applied bucket claiming
+            // otherwise. The evidence row itself is saved either way, so the
+            // user's typing is never lost — only the "applied" claim is.
+            let landed = reportApplyOutcome(
+                ApplyEngine.applyFactToSubject(scored, profile: profile, snapshot: snapshot, db: db))
+            if landed {
+                try db.updateEvidenceUserStatus(
+                    evidenceID: EvidenceRecord.compositeID(profileID: profileID, sourceRecordID: recordID),
+                    status: .savedAsLead)
+            }
             // Skipped when the caller (the Life Event editor) has already
             // created the rich life event and only wants the cited evidence.
             if projectLifeEvent {
@@ -4616,14 +4672,21 @@ final class AppState {
             verdict: .fact, gates: [], summary: "")
         do {
             let fresh = (try? db.loadProfile(id: profile.id)) ?? profile
-            _ = ApplyEngine.applyFactToSubject(scored, profile: fresh, snapshot: snapshot, db: db)
+            let landed = reportApplyOutcome(
+                ApplyEngine.applyFactToSubject(scored, profile: fresh, snapshot: snapshot, db: db))
             for event in scored.record.projectToLifeEvents(profileID: profile.id) {
                 try? db.addLifeEventIfAbsent(event)
             }
             snapshot = try db.buildSnapshot()
             runPostLoadAudit()
-            successMessage = message
-            successResearchProfileID = profile.id
+            // EV21 (2026-08-26) — the success banner follows the outcome too.
+            // "Absorbed the 1891 census onto …" over a failed write is the same
+            // lie as a green "Applied" badge; `reportApplyOutcome` has already
+            // put the reason on screen.
+            if landed {
+                successMessage = message
+                successResearchProfileID = profile.id
+            }
         } catch {
             errorMessage = "Could not absorb the census: \(error.localizedDescription)"
         }
@@ -4844,22 +4907,35 @@ final class AppState {
                                   verdict: .fact, gates: [], summary: "")
         do {
             let fresh = (try? db.loadProfile(id: profile.id)) ?? profile
-            _ = ApplyEngine.applyFactToSubject(scored, profile: fresh, snapshot: snapshot, db: db)
+            let landed = reportApplyOutcome(
+                ApplyEngine.applyFactToSubject(scored, profile: fresh, snapshot: snapshot, db: db))
             for event in scored.record.projectToLifeEvents(profileID: profile.id) {
                 try? db.addLifeEventIfAbsent(event)
             }
             // Stamp the evidence as applied, mirroring `applyEvidenceRecord`, so
             // the census-household proposal (and the tree-wide sweep) recognise
             // this census and offer to load its roster + absorb the parents.
-            try? db.updateEvidenceUserStatus(evidenceID: evidenceRow.id, status: .savedAsLead)
+            //
+            // EV21 (2026-08-26) — gated on the outcome, like every other stamp
+            // in this file. The result value is left alone deliberately: the
+            // enum has no "tried and failed" case and the Health fix button
+            // switches over it exhaustively, so a blocked apply reports through
+            // `errorMessage` (already set) rather than being disguised as
+            // `.noCandidate`, which would tell the user the opposite of what
+            // happened.
+            if landed {
+                try? db.updateEvidenceUserStatus(evidenceID: evidenceRow.id, status: .savedAsLead)
+            }
             snapshot = try db.buildSnapshot()
             runPostLoadAudit()
             let hasHousehold = !(census.household ?? []).isEmpty
-            successResearchProfileID = profile.id
-            if hasHousehold {
-                successMessage = "Applied \(profile.displayName)'s \(census.censusYear) childhood census — now “Add census relatives” to lift the household's Head and Wife as their parents."
-            } else {
-                successMessage = "Applied \(profile.displayName)'s \(census.censusYear) census, but its household wasn't fetched — research \(profile.displayName) to pull the roster, then add the parents."
+            if landed {
+                successResearchProfileID = profile.id
+                if hasHousehold {
+                    successMessage = "Applied \(profile.displayName)'s \(census.censusYear) childhood census — now “Add census relatives” to lift the household's Head and Wife as their parents."
+                } else {
+                    successMessage = "Applied \(profile.displayName)'s \(census.censusYear) census, but its household wasn't fetched — research \(profile.displayName) to pull the roster, then add the parents."
+                }
             }
             return .applied(censusYear: census.censusYear, hasHousehold: hasHousehold)
         } catch {

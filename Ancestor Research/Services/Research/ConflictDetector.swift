@@ -237,6 +237,58 @@ nonisolated struct ConflictDetector {
         ChapmanCodeResolver.chapmanCode(forPlaceText: text)
     }
 
+    /// The comma components of a place string, normalised (lowercased,
+    /// whitespace-collapsed, empties dropped) — the unit
+    /// `isPlaceRefinement` compares. Narrow→broad, left to right.
+    static func placeComponents(_ s: String) -> [String] {
+        normalisedPlace(s)
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// True when one of the two places says strictly LESS than the other and
+    /// contradicts nothing it does say: its components appear in the other,
+    /// **in order**, with strictly fewer of them.
+    ///
+    /// EV15 (owner dogfood 2026-08-26). The test is SUBSEQUENCE, not suffix,
+    /// and that distinction is the whole fix. Place strings run narrow→broad
+    /// left to right, but the broad tail is inconsistently present — some
+    /// values carry a trailing "England", some stop at the county. So the
+    /// coarse value routinely sits in the MIDDLE of the fine one:
+    /// `["nottinghamshire"]` is *not* a contiguous suffix of
+    /// `["teversal", "nottinghamshire", "england"]`, but it *is* a
+    /// subsequence. Suffix matching (and the trailing-qualifier collapse in
+    /// `stringFieldConflict`, which is a one-component special case of it)
+    /// misses exactly this shape.
+    ///
+    /// Equal component counts are never a refinement, whatever the overlap —
+    /// "Whittington, Derbyshire" against "Unstone, Derbyshire" is a real
+    /// disagreement and must survive to the human ("when in doubt, split").
+    ///
+    /// ApplyEngine carries a related but narrower helper, `isCoarserPlace`,
+    /// which only recognises a bare single component against a qualified
+    /// place. The two want to be one function; that consolidation needs an
+    /// edit to ApplyEngine, so this is the correct version for the detection
+    /// path in the meantime.
+    static func isPlaceRefinement(_ a: String, _ b: String) -> Bool {
+        isPlaceRefinement(placeComponents(a), placeComponents(b))
+    }
+
+    static func isPlaceRefinement(_ aParts: [String], _ bParts: [String]) -> Bool {
+        guard !aParts.isEmpty, !bParts.isEmpty,
+              aParts.count != bParts.count else { return false }
+        let (coarse, fine) = aParts.count < bParts.count
+            ? (aParts, bParts)
+            : (bParts, aParts)
+        var remaining = coarse[...]
+        for component in fine {
+            guard let next = remaining.first else { break }
+            if component == next { remaining = remaining.dropFirst() }
+        }
+        return remaining.isEmpty
+    }
+
     /// F2 — normalised inequality after collapse (case, whitespace,
     /// trailing county). Severity `.note` unless a county derives for both
     /// sides via the chapman chain and the counties differ → `.conflict`.
@@ -276,6 +328,31 @@ nonisolated struct ConflictDetector {
             } else {
                 countyDetail = " Both derive county \(existingCounty)."
             }
+        }
+
+        // EV15 (owner dogfood 2026-08-26) — a strictly COARSER place is a
+        // refinement, not a disagreement. William Gladwin carried an OPEN
+        // birthLocation dispute between the stored "Teversal, Nottinghamshire,
+        // England" and the 1891 census's county-only "Nottinghamshire": the
+        // census simply says less, so the human was asked to adjudicate a
+        // question with exactly one possible answer (the trace even read
+        // "Both derive county NTT" and raised it anyway). The
+        // trailing-qualifier collapse above cannot catch it — it only drops a
+        // LAST component, and here the coarse value sits in the middle of the
+        // fine one. Nothing downstream rescues it either: DisputeResolver's R1
+        // rung is a documented no-op that assumes refinements were filtered
+        // right here.
+        //
+        // Placement is deliberate — AFTER the county derivation and gated on
+        // its verdict. When the two sides derive DIFFERENT counties they
+        // contradict each other however neatly their components nest, and that
+        // stays a `.conflict` for the human ("when in doubt, split"). Location
+        // fields only: comma components carry no narrow→broad meaning on a
+        // name field, where this call site is also used.
+        if field == .birthLocation || field == .deathLocation,
+           severity != .conflict,
+           isPlaceRefinement(aParts, bParts) {
+            return nil
         }
 
         // The existing value's own attestations are the tree's side of the

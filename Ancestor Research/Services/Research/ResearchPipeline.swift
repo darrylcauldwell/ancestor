@@ -12,6 +12,20 @@ final class ResearchPipeline {
 
     /// Subject's home county for the current run — see research().
     private var runHomeChapmanCode: String = ""
+    /// EV19 (2026-08-26) — the subject's supplemental search counties for the
+    /// current run (contested-birthplace rivals + their own residences and
+    /// censuses). Stashed beside `runHomeChapmanCode` for exactly the same
+    /// reason and with exactly the same lifetime: `dispatchMarriageQuery` sits
+    /// several call levels below and does not carry the subject.
+    ///
+    /// Without it the marriage-enrichment pivot keeps EV19 whole — and a
+    /// MARRIAGE is the record EV19 was found on. Six FreeBMD marriage searches
+    /// for William Gladwin went to Nottinghamshire on a disputed birthplace
+    /// while the register sat in Chesterfield RD (7b/741); fixing only the main
+    /// fan-out would leave the parent-marriage flow searching the same wrong
+    /// county, and `freeBMDGeoAxes`'s own doc comment promises the two cannot
+    /// drift.
+    private var runSupplementalRegionCodes: [String] = []
     let sourceInfoMap: [String: SourceInfo]
 
     /// Q2 Option B fallback (RESEARCH_PIPELINE_SPEC §5.14.1 clause 5).
@@ -188,6 +202,7 @@ final class ResearchPipeline {
         // construction (ResearchRunService builds a fresh pipeline per
         // run), so this cannot leak across subjects.
         runHomeChapmanCode = subject.homeChapmanCode
+        runSupplementalRegionCodes = subject.supplementalRegionCodes
         var state = ResearchState(subject: subject)
         // DS-11/DS-19: an International-scope run opts in to foreign records,
         // so the geography gate soft-fails (not hard-fails) obviously-foreign
@@ -2299,7 +2314,12 @@ final class ResearchPipeline {
             countyQueriesEnabled: FreeBMDParams.countyQueryEnabled,
             yearFrom: yearFrom,
             yearTo: yearTo,
-            surname: surname
+            surname: surname,
+            // EV19 (2026-08-26) — the same subject-evidenced counties the main
+            // fan-out uses. A marriage is registered in the BRIDE'S district,
+            // which we rarely hold, so of every record type this is the one
+            // most likely to sit outside a contested birth county.
+            subjectCounties: runSupplementalRegionCodes
         )
         guard !geoAxes.isEmpty else { return [] }
 

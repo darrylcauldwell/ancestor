@@ -23,6 +23,12 @@ struct AuditCategoryAssignmentTests {
     /// category is `.issue` so it still runs for placeholder profiles.)
     private static let gap: Set<String> = [
         "datelessReadsAsLiving", "unlinkedSpouseForFemaleSubject",
+        // 2026-08-26: a census cited as the source of a field with no census
+        // event behind it is evidence already in the project and only half
+        // applied — the `.gap` definition, so it belongs in Health.
+        // (`siblingIdentityCollision`, added the same day, is deliberately NOT
+        // here: "these two may be one person" is a structural defect, `.issue`.)
+        "citedCensusWithoutEvent",
     ]
 
     @Test func everyBuiltInRuleHasItsRuledCategory() {

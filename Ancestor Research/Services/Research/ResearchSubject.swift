@@ -313,6 +313,49 @@ nonisolated struct ResearchSubject: Sendable {
     /// admission rule.
     var unverifiedKinPremises: [KinPremise] = []
 
+    /// EV19 (2026-08-26) — counties the SEARCH must reach beyond
+    /// `homeChapmanCode`, because the field that selected that anchor is not
+    /// the whole of what the tree knows about where this person was.
+    ///
+    /// Owner dogfood 2026-08-26 (EV19). William Gladwin (@I332233296774@)
+    /// carries SIX FreeBMD *marriage* negative-searches — the app looked six
+    /// times and found nothing. The owner found it by hand in ONE search:
+    /// Jun quarter 1858, GLADWIN, district CHESTERFIELD → 7b/741, verified
+    /// against the GRO register scans. It was in the family's own registration
+    /// district the whole time.
+    ///
+    /// The anchor that sent every one of those six searches to Nottinghamshire
+    /// is his birthplace "Teversall, Nottinghamshire" — the 1881 census value,
+    /// which is UNDER AN OPEN `birthLocation` DISPUTE against Ashover (1861),
+    /// Bolsover (1871) and Nottinghamshire (1891). One disputed value won
+    /// region selection unopposed and silently, and a disputed value winning
+    /// unopposed is exactly the state the conflict layer exists to refuse.
+    ///
+    /// Two contributors, both strictly additive:
+    ///   1. **Every competing value of a contested region field.** When we do
+    ///      not know which county is the subject's, the honest answer is that
+    ///      it is a SET, and searching the set is what "search his county"
+    ///      means for him. This is NOT the 2026-08-23 "scope picker is the
+    ///      contract" widening the FreeBMD/FreeREG arms gate at `.adjacent`:
+    ///      that ruling governs reaching a county which is admittedly NOT the
+    ///      subject's; this reaches the counties which each might BE.
+    ///   2. **The subject's own residence and census places.** People marry
+    ///      where they live — usually in the bride's parish — so for a
+    ///      marriage the residence region is a far better prior than the
+    ///      birthplace. `residenceAxes` already carries the Residence events
+    ///      (#34 ruling c blessed them at bounded scopes for FreeCEN); this
+    ///      also admits CENSUS events, which are the strongest residence
+    ///      evidence on the tree and which no axis reads today.
+    ///
+    /// SOFT TARGETING ONLY, on exactly the terms `residenceAxes` and
+    /// `kinResidenceAxes` state: these widen the geographic axis of a search
+    /// and never filter, never score, and never move `homeChapmanCode` — the
+    /// scorer's geography anchor stays one fact about this person rather than
+    /// a union of candidates. Empty for a subject with no dispute and no
+    /// residence/census events, so every subject the app already handled is
+    /// unaffected.
+    var supplementalRegionAxes: [RegionAxis] = []
+
     /// SUBJECT_PLACE_MODEL_SPEC Slice 2 — every place we know about this
     /// person, in one shape, in precedence order (birth, death, burial,
     /// marriage, then residence and census by event window).
@@ -385,6 +428,70 @@ nonisolated struct KinResidenceAxis: Sendable, Equatable {
     let support: Int
     /// The first supporting fact, phrased for the activity feed's "why".
     let evidence: String
+}
+
+/// One county a search must reach because of what the tree says about the
+/// SUBJECT — a competing value of a contested region field, or a place they
+/// are attested to have lived. See `ResearchSubject.supplementalRegionAxes`
+/// (EV19, 2026-08-26).
+///
+/// `support` is the count of distinct facts naming the county, for the same
+/// reason `KinResidenceAxis.support` exists: the cap must keep the
+/// best-evidenced counties, not whichever sorts first.
+nonisolated struct RegionAxis: Sendable, Equatable {
+    /// Why this county is on the list. Ordering matters — see
+    /// `ResearchSubject.deriveSupplementalRegionAxes`.
+    nonisolated enum Origin: String, Sendable {
+        /// A place the subject is attested to have LIVED (Residence or Census
+        /// life event). The strongest of the two: it is a fact about where
+        /// they were, not a candidate for it.
+        case residence
+        /// A competing value of a region-selecting field under open dispute.
+        case contestedField
+    }
+    /// Always a code a source form actually tags — umbrellas are expanded at
+    /// derivation (YKS → WRY/NRY/ERY), never handed on as a dead literal.
+    let chapmanCode: String
+    /// Every place text that named this county, best-evidenced first, for
+    /// sources whose geographic axis is free text rather than a Chapman code
+    /// (FindAGrave `location`, FamilySearch `q.*LikePlace`).
+    ///
+    /// A LIST, not one string: four Derbyshire residences collapse to one
+    /// chapman code but they are four different parishes, and a source that
+    /// searches by place name needs the parishes. Collapsing them here is how
+    /// "search Derbyshire" would quietly become "search whichever Derbyshire
+    /// village sorted first".
+    let places: [String]
+    /// Registration-district ids ("DBY:Chesterfield-RD") the place texts
+    /// resolve to — the grain the Gladwin marriage was actually filed at
+    /// (Chesterfield, 7b/741). Empty when no text names a resolvable district.
+    ///
+    /// **Nothing puts these on the wire yet**, and the reason is a vocabulary
+    /// gap, not an oversight: FreeBMD's `districtid` form value is a numeric id
+    /// from `RegionConfig.districts` ("1102"), while these are `PlaceAuthority`
+    /// ids. Bridging the two is a change to the FreeBMD district catalogue, not
+    /// to region derivation, and the FT-01 county gate is ON in production so
+    /// the district loop is not the code path that ships. Carried because it is
+    /// the honest answer to "which district would this search reach", which the
+    /// review surfaces and the EV19 acceptance test both ask.
+    let districtIDs: [String]
+    let origin: Origin
+    /// Which region-selecting field's dispute contributed this county, for
+    /// `.contestedField` origins; nil for `.residence`.
+    ///
+    /// Load-bearing at FreeCEN's `.adjacent`/`.national` scopes, where the
+    /// axis on the wire is `birth_chapman_codes[]` — a BIRTH axis. A county
+    /// the subject merely lived in has no business there, but a rival value
+    /// of the very birthplace that built the axis has every business there.
+    let sourceField: ProfileField?
+    /// Distinct facts naming this county. Never zero.
+    let support: Int
+    /// The first supporting fact, phrased for the activity feed's "why".
+    let evidence: String
+
+    /// Best-evidenced place text, or the bare county code when the county was
+    /// named only by a structured location code.
+    var place: String { places.first ?? chapmanCode }
 }
 
 /// A kin fact a query axis presupposes that the tree cannot cite — see
@@ -500,6 +607,102 @@ nonisolated struct FamilyContext: Sendable {
 nonisolated extension ResearchSubject {
     var displayName: String {
         [givenName, surname].compactMap { $0 }.joined(separator: " ")
+    }
+
+    // MARK: - EV19 (2026-08-26): the region axes every source shares
+
+    /// The Chapman codes a region-taking source must add to whatever its scope
+    /// already resolved — `supplementalRegionAxes` flattened, deduplicated,
+    /// order preserved. One accessor rather than a `map(\.chapmanCode)` at
+    /// each of the five call sites, because a per-source copy is how the
+    /// FreeBMD arm ended up without the residence widening FreeCEN had had
+    /// for a month (the EV8 comment says as much) and how EV19's blast radius
+    /// grew to "both parish AND BMD".
+    var supplementalRegionCodes: [String] {
+        var seen: Set<String> = []
+        return supplementalRegionAxes
+            .map(\.chapmanCode)
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    /// Every supplemental place TEXT, best-evidenced first, deduplicated —
+    /// for sources whose geographic axis is free text rather than a Chapman
+    /// code. Flattened across axes so a county contributing four parishes
+    /// offers four pins, not one.
+    var supplementalRegionPlaces: [String] {
+        var seen: Set<String> = []
+        return supplementalRegionAxes
+            .flatMap(\.places)
+            .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
+    }
+
+    /// The Chapman codes a rival value of the subject's BIRTHPLACE names —
+    /// the only supplemental codes that belong on a birth-shaped geographic
+    /// axis (FreeCEN `birth_chapman_codes[]` at `.adjacent`/`.national`).
+    /// A county the subject merely lived in is not a birth county and would
+    /// be a wrong axis, not a wider one.
+    var contestedBirthRegionCodes: [String] {
+        var seen: Set<String> = []
+        return supplementalRegionAxes
+            .filter { $0.sourceField == .birthLocation }
+            .map(\.chapmanCode)
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    /// The region-selecting fields still under argument on this subject —
+    /// `contestedFields` narrowed to the fields that pick a search region.
+    /// Empty for the overwhelming majority of subjects.
+    var contestedRegionFields: [ProfileField] {
+        Self.regionSelectingFields.filter { contestedFields.contains($0) }
+    }
+
+    /// Why a geographic axis built for this subject rests on a premise the
+    /// tree has not settled, or nil when it does not.
+    ///
+    /// Slotted into "searched, but the query assumed …, which is unverified",
+    /// exactly like `KinPremise.phrase`, and consumed by
+    /// `SearchDispatcher.contestedRegionPremise` — which feeds the same
+    /// `walkLadder` seam `unverifiedPremise` does, and so both refuses to let
+    /// a stored negative suppress the re-search AND refuses to bank a fresh
+    /// one. That matters more than the widening itself:
+    /// `negative_searches` suppresses for ~90 days, so a profile poisoned by a
+    /// region derived from a disputed value stays poisoned, and the widening
+    /// looks like it did nothing (EV19 item 4, 2026-08-26).
+    ///
+    /// Note the widening and this premise close different halves of the same
+    /// hole. Region components DO reach `QueryCache.cacheKey` (`districtCode`,
+    /// `countyCode`, `chapmanCode`, `fagLocation`), so a region that CHANGES
+    /// mints new keys and re-fires by construction. A region that is DISPUTED
+    /// does not change — the same losing value keeps winning — so its stored
+    /// negatives keep matching, and only an explicit premise can unstick them.
+    ///
+    /// Deliberately does NOT try to prove which of the two region-selecting
+    /// fields produced the anchor. `deriveHomeChapmanCode` consults birth
+    /// first and falls back to death only when birth yields no code, so a
+    /// death-place dispute on a birth-anchored subject over-fires here. That
+    /// is the cheap error: its cost is one subject's negatives going unbanked
+    /// while a dispute the user can see in the app is open. The cost of the
+    /// other error is a search that does not re-run for ninety days, which is
+    /// the bug EV19 IS.
+    var regionPremise: String? {
+        guard let field = contestedRegionFields.first else { return nil }
+        let anchor: String?
+        switch field {
+        case .deathLocation:
+            anchor = deathLocation
+        default:
+            // `region` is `.county(birthLocation)` — the very value that won
+            // region selection unopposed.
+            if case .county(let name)? = region { anchor = name } else { anchor = nil }
+        }
+        let alternatives = supplementalRegionAxes
+            .filter { $0.origin == .contestedField }
+            .map(\.place)
+        let rivals = alternatives.isEmpty
+            ? "other values are attested"
+            : "\(alternatives.joined(separator: ", ")) also attested"
+        return "the search region derived from \(field.rawValue) "
+            + "\"\(anchor ?? "unknown")\", which is under dispute (\(rivals))"
     }
 
     /// Year range for a given record type.
@@ -1291,6 +1494,13 @@ nonisolated extension ResearchSubject {
                 for: profile, snapshot: snapshot, home: derivedHome),
             unverifiedKinPremises: Self.unverifiedKinPremises(
                 for: profile, spouse: spouses.first, mother: mother),
+            // EV19 (2026-08-26) — the counties a contested birthplace and the
+            // subject's own attested residences/censuses add to every
+            // region-taking search. Derived from the SAME `subjectEvents`
+            // the residence axes above use, so a sensitive event excluded
+            // there is excluded here too.
+            supplementalRegionAxes: Self.deriveSupplementalRegionAxes(
+                for: profile, lifeEvents: subjectEvents, home: derivedHome),
             places: derivedPlaces
         )
         // #34 ruling a — home-district anchor for the geography gate's graded
@@ -1440,6 +1650,177 @@ nonisolated extension ResearchSubject {
             where !homeCodes.contains(code) && seen.insert(code).inserted {
                 out.append(KinResidenceAxis(
                     chapmanCode: code, support: count, evidence: evidence[county] ?? ""))
+            }
+        }
+        return out
+    }
+
+    // MARK: - EV19 (2026-08-26): region selection under an open dispute
+
+    /// The profile fields whose value SELECTS a search region. Birth is the
+    /// one the whole pipeline has always used (`deriveHomeChapmanCode`, and
+    /// `region` / `homeDistrictID` beside it); death joined it when the
+    /// death-county fallback landed. Enumerated once so the premise test and
+    /// the widening derivation cannot drift apart — a third region field added
+    /// to `deriveHomeChapmanCode` without being added here would reintroduce
+    /// EV19 silently.
+    static let regionSelectingFields: [ProfileField] = [.birthLocation, .deathLocation]
+
+    /// How many supplemental COUNTIES may join a region-taking fan-out. Four.
+    ///
+    /// Sized to the shape the evidence actually has: a contested birthplace
+    /// with three or four attested candidates, or a family that moved once or
+    /// twice. FreeCEN emits one request per census year per code, so each
+    /// extra county costs eight requests against a volunteer server for one
+    /// subject — four is a ceiling, not a target, and most subjects contribute
+    /// none at all. The cap counts counties, not codes: an umbrella county
+    /// spends one slot and then expands to the codes the source forms tag.
+    static let maxSupplementalRegionCounties = 4
+
+    /// Counties the search must reach beyond `home` — see
+    /// `supplementalRegionAxes` for the argument.
+    ///
+    /// Contributors, both additive and both facts the tree already holds:
+    ///   1. every competing value of a region-selecting field under an OPEN
+    ///      dispute (unresolved, or resolved `.deferred` — the same
+    ///      open-dispute test `narrowBirthWindowFromSources` and
+    ///      `contestedFields` apply, so "open" means one thing app-wide);
+    ///   2. every non-sensitive Residence and Census life event of the
+    ///      SUBJECT'S OWN. Census is included deliberately: a household
+    ///      enumerated together IS the family's address that year, and until
+    ///      EV19 no search axis read census places at all.
+    ///
+    /// `home` is excluded (it is already the primary axis). Ranking is by
+    /// support count, then residence before contested-field (a place they
+    /// lived outranks a candidate for where they were born), then code — so
+    /// the cap keeps the best-evidenced counties and the fan-out is
+    /// deterministic across runs. Umbrellas expand only AFTER the cap, for the
+    /// reason `rankKinResidenceCounties` states: expanding first lets one
+    /// Yorkshire fact enter three codes that then compete for the same slots.
+    ///
+    /// Sensitive life events are excluded HERE, before any of their text could
+    /// reach an outbound query — the same rule `residenceAxes` applies.
+    static func deriveSupplementalRegionAxes(
+        for profile: Profile,
+        lifeEvents: [LifeEvent],
+        home: String,
+        limit: Int = maxSupplementalRegionCounties
+    ) -> [RegionAxis] {
+        struct Bucket {
+            var support = 0
+            var origin: RegionAxis.Origin = .contestedField
+            var sourceField: ProfileField?
+            /// Kept apart, not interleaved, so the emitted `places` can lead
+            /// with residences whatever order the two loops below credit in: a
+            /// place they LIVED is a better free-text pin than a candidate for
+            /// where they were born, and the dispute loop runs first.
+            var residencePlaces: [String] = []
+            var contestedPlaces: [String] = []
+            var evidence = ""
+            var districtIDs: [String] = []
+
+            var places: [String] { residencePlaces + contestedPlaces }
+        }
+        var buckets: [String: Bucket] = [:]
+
+        func credit(
+            place rawPlace: String?,
+            code rawCode: String?,
+            origin: RegionAxis.Origin,
+            field: ProfileField?,
+            year: Int?,
+            because label: String
+        ) {
+            let text = rawPlace?.trimmingCharacters(in: .whitespaces) ?? ""
+            guard let resolved = chapmanCodeFromLocationCode(rawCode)
+                ?? (text.isEmpty ? nil : Self.chapmanCode(forPlaceText: text))
+            else { return }
+            let county = resolved.uppercased()
+            var bucket = buckets[county] ?? Bucket()
+            bucket.support += 1
+            // Residence outranks a contested-field candidate wherever both
+            // name the same county — the county is then a place they LIVED,
+            // and both the evidence string and the head of `places` should say
+            // so. `sourceField` is NOT cleared when that happens: FreeCEN's
+            // birth axis still needs to know a rival birthplace named this
+            // county, and losing that would silently re-narrow the axis EV19
+            // exists to widen.
+            if bucket.support == 1
+                || (origin == .residence && bucket.origin == .contestedField) {
+                bucket.origin = origin
+                bucket.evidence = label
+            }
+            if !text.isEmpty,
+               !bucket.places.contains(where: { $0.caseInsensitiveCompare(text) == .orderedSame }) {
+                switch origin {
+                case .residence: bucket.residencePlaces.append(text)
+                case .contestedField: bucket.contestedPlaces.append(text)
+                }
+            }
+            if bucket.sourceField == nil { bucket.sourceField = field }
+            if !text.isEmpty,
+               let districtID = RegistrationDistrictResolver.districtID(
+                forPlaceOrDistrict: text, chapman: county, year: year),
+               !bucket.districtIDs.contains(districtID) {
+                bucket.districtIDs.append(districtID)
+            }
+            buckets[county] = bucket
+        }
+
+        // (1) Competing values of a contested region field. `FieldSource.raw`
+        // is the value that source asserted — the 1861 "Ashover, Derbyshire"
+        // and 1871 "Bolsover, Derbyshire" rows that lost to the 1881 census.
+        for field in Self.regionSelectingFields {
+            guard let dispute = profile.disputes[field],
+                  dispute.resolution == nil || dispute.resolution == .deferred
+            else { continue }
+            let year = field == .deathLocation
+                ? profile.deathDate?.bestYear
+                : profile.birthDate?.bestYear
+            for source in dispute.competingSources {
+                credit(place: source.raw, code: nil, origin: .contestedField,
+                       field: field, year: year,
+                       because: "\(field.rawValue) disputed — \(source.raw) also attested")
+            }
+        }
+
+        // (2) The subject's own attested residences, including censuses.
+        for event in lifeEvents
+        where (event.type == .residence || event.type == .census) && !event.sensitive {
+            let year = event.date?.bestYear
+            let label = event.type == .census
+                ? "enumerated at \(event.location ?? "") in \(year.map(String.init) ?? "an unknown year")"
+                : "lived at \(event.location ?? "")"
+            credit(place: event.location, code: event.locationCode,
+                   origin: .residence, field: nil, year: year, because: label)
+        }
+
+        let homeCode = home.trimmingCharacters(in: .whitespaces).uppercased()
+        var homeCodes = Set(RegionConfig.expandUmbrellaChapmanCode(homeCode))
+        homeCodes.insert(homeCode)
+
+        let ranked = buckets
+            .filter { !homeCodes.contains($0.key) }
+            .sorted { l, r in
+                if l.value.support != r.value.support { return l.value.support > r.value.support }
+                if l.value.origin != r.value.origin { return l.value.origin == .residence }
+                return l.key < r.key
+            }
+            .prefix(max(0, limit))
+
+        var out: [RegionAxis] = []
+        var seen: Set<String> = []
+        for (county, bucket) in ranked {
+            for code in RegionConfig.expandUmbrellaChapmanCode(county)
+            where !homeCodes.contains(code) && seen.insert(code).inserted {
+                out.append(RegionAxis(
+                    chapmanCode: code,
+                    places: bucket.places,
+                    districtIDs: bucket.districtIDs,
+                    origin: bucket.origin,
+                    sourceField: bucket.sourceField,
+                    support: bucket.support,
+                    evidence: bucket.evidence))
             }
         }
         return out

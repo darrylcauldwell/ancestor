@@ -40,6 +40,38 @@ import Foundation
 ///       write and the read side — the SAME normalization code path —
 ///       so a param-shape drift between writer and reader is impossible
 ///       by construction (there is only one shape).
+///   (e) A stored negative may only silence a question we asked
+///       CORRECTLY. Two premise classes disqualify a row, and neither is
+///       enforced here — both are enforced at the one seam where the
+///       premise is knowable, `SearchDispatcher`'s `premise` in
+///       `walkLadder`, which suppresses nothing and banks nothing while it
+///       is non-nil:
+///         * EV7 — the query rested on an uncited kin fact (a spouse
+///           surname, a mother's maiden name). See
+///           `SearchDispatcher.unverifiedPremise`.
+///         * EV19 (2026-08-26) — the query's REGION was derived from a
+///           profile field still under open dispute. See
+///           `SearchDispatcher.contestedRegionPremise`.
+///
+///       Note the asymmetry that makes (e) necessary at all. A region that
+///       CHANGES needs no special handling: `districtCode`, `countyCode`,
+///       `chapmanCode` and `fagLocation` are all components of
+///       `QueryCache.cacheKey`, so a new region mints a new key and the
+///       query re-fires — the key IS the version stamp. A region that is
+///       DISPUTED does not change; the same losing value keeps winning
+///       region selection, its keys keep matching, and only an explicit
+///       premise unsticks them. William Gladwin's six FreeBMD marriage
+///       negatives were all taken in Nottinghamshire because a disputed
+///       birthplace picked the county unopposed, while the marriage sat in
+///       Chesterfield RD (7b/741); widening the region without (e) would
+///       have left every already-poisoned profile poisoned for the rest of
+///       the 90-day window.
+///
+///       What (e) deliberately does NOT do is delete the rows already on
+///       disk. They stop suppressing and stop multiplying, but the
+///       searched-surface readers (`SourcingReportService`,
+///       `CampaignReviewService`) still narrate them as "searched, found
+///       nothing" — those surfaces owe the same dispute check.
 nonisolated struct NegativeSearchCache: Sendable {
 
     /// How long a stored clean negative may suppress a re-fire before it

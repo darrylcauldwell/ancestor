@@ -177,6 +177,45 @@ struct ParishAbsorptionTests {
         #expect(events.first { $0.type == .residence } == nil)
     }
 
+    /// EV16 (2026-08-26) — the derived occupation/residence rows were built
+    /// with no `sources:` argument, so they defaulted to `[]`. For a parish
+    /// MARRIAGE that is the whole projection (the primary belongs on
+    /// `Relationship` and returns nil), so the register URL reached the tree
+    /// nowhere at all and both rows rendered with no citation badge.
+    ///
+    /// Re-wraps the fixture's `common` with a detailURL rather than changing
+    /// the shared helper, so every assertion above stays on the record it was
+    /// written against.
+    @Test func marriageDerivedEventsCarryTheRegisterCitation() throws {
+        let url = "https://www.freereg.org.uk/search_records/682f9727/x"
+        let base = marriage()
+        let cited = ParishRecord(
+            common: RecordCommon(
+                id: base.common.id, sourceID: base.common.sourceID,
+                name: base.common.name, surname: base.common.surname,
+                givenName: base.common.givenName,
+                detailURL: url, rawFields: base.common.rawFields),
+            eventType: base.eventType, eventDate: base.eventDate, eventYear: base.eventYear,
+            parish: base.parish, county: base.county,
+            fatherName: base.fatherName, motherName: base.motherName,
+            detail: base.detail)
+
+        let events = SourceRecord.parish(cited).projectToLifeEvents(profileID: "subj")
+        #expect(Set(events.map(\.type)) == [.occupation, .residence])
+        for event in events {
+            #expect(event.sources.compactMap { $0.citation?.url } == [url],
+                    "\(event.type.displayName) landed uncited")
+            #expect(event.sources.first?.origin.identifier == "freereg")
+        }
+    }
+
+    /// A register row with no URL must still cite nothing — no fabricated badge.
+    @Test func aURLlessMarriageDerivesUncitedEvents() {
+        let events = SourceRecord.parish(marriage()).projectToLifeEvents(profileID: "subj")
+        #expect(events.count == 2)
+        #expect(events.allSatisfy { $0.sources.isEmpty })
+    }
+
     @Test func burialEventCarriesCauseAndPlaceInDescription() {
         let ev = SourceRecord.parish(burial(age: "70")).projectToLifeEvent(profileID: "subj")
         #expect(ev?.type == .burial)

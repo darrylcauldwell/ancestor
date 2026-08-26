@@ -69,7 +69,19 @@ nonisolated struct ApplyEngine {
         // the legacy write order) is the single enumeration the review preview
         // also reads, so display and write can't drift. Life events are the
         // caller's `projectToLifeEvents` concern, so they're skipped here.
-        for item in scored.record.absorptionPlan(profileID: profile.id, profile: profile) {
+        //
+        // EV21 (owner dogfood 2026-08-26) — `landedSomething` tracks whether
+        // this apply actually reached the tree. It exists because a marriage
+        // whose spouse edge cannot be resolved writes NOTHING at all (a BMD
+        // marriage projects no life event, and usually carries no name
+        // enrichment either), yet the row was still stamped `applied_at` below
+        // and rendered a green "Applied" badge over zero writes. Note the
+        // distinction from a *policy-blocked* apply, which stays stamped: a
+        // refused field still writes its alternative fact and its citation, so
+        // its plan item counts as a write.
+        let plan = scored.record.absorptionPlan(profileID: profile.id, profile: profile)
+        var landedSomething = false
+        for item in plan {
             switch item {
             case .dateField(let field, let candidate):
                 applyDateField(
@@ -78,6 +90,7 @@ nonisolated struct ApplyEngine {
                     candidate: candidate, profileID: profile.id, origin: origin, db: db,
                     citation: citation, failures: &failures
                 )
+                landedSomething = true
             case .stringField(let field, let candidate):
                 applyStringField(
                     field, existing: existingString(field, of: profile),
@@ -85,10 +98,20 @@ nonisolated struct ApplyEngine {
                     candidate: candidate, profileID: profile.id, origin: origin, db: db,
                     citation: citation, failures: &failures
                 )
+                landedSomething = true
             case .spouseEdge(let m):
-                applyMarriageToSubjectSpouseEdge(m, profileID: profile.id, snapshot: snapshot, db: db, failures: &failures)
+                // Reports whether an edge was actually resolved AND filled —
+                // the one plan item that can silently have nowhere to go.
+                if applyMarriageToSubjectSpouseEdge(
+                    m, profileID: profile.id, snapshot: snapshot, db: db, failures: &failures) {
+                    landedSomething = true
+                }
             case .lifeEvent:
-                break  // executed by the caller via projectToLifeEvents
+                // Executed by the caller via projectToLifeEvents — but it IS a
+                // write onto the profile, so it counts: a burial/census record
+                // whose whole absorption is its timeline event must still read
+                // as applied in the ledger.
+                landedSomething = true
             }
         }
         // Slice C (LOCATION_MODEL_SPEC Part II) — populate the structured birth
@@ -105,7 +128,19 @@ nonisolated struct ApplyEngine {
         // fully-blocked apply was a deliberate act; Remove clears it). This
         // is what lets external consumers distinguish applied evidence from
         // merely-scored evidence.
-        try? db.markEvidenceApplied(evidenceID: "\(profile.id)|\(scored.id)")
+        //
+        // EV21 (2026-08-26) narrows "fully-blocked" to "blocked BY THE
+        // OVERWRITE POLICY" — which still writes alternative facts and
+        // citations, and so still deserves the stamp. An apply whose plan had
+        // work to do and landed literally none of it is not an apply, and must
+        // not wear the badge `wasApplied` reads: the owner's verified Hannah
+        // Hewkin marriage (Jun q 1858, Chesterfield 7b/741) showed a green
+        // "Applied" with no marriage date anywhere on the tree. A record with
+        // an EMPTY plan (a citation-only manual record with no facts) keeps
+        // today's behaviour — nothing was asked of it, so nothing was dropped.
+        if plan.isEmpty || landedSomething {
+            try? db.markEvidenceApplied(evidenceID: "\(profile.id)|\(scored.id)")
+        }
         return failures
     }
 
@@ -303,17 +338,33 @@ nonisolated struct ApplyEngine {
     /// surname). Marriage data is written only into nil columns via
     /// `fillRelationshipMarriage` — existing values the user typed manually
     /// are never overwritten (`Check Before Overwrite` rule).
+    ///
+    /// Returns true when an edge was resolved and filled. `applyFactToSubject`
+    /// needs that answer before it stamps `applied_at`: this is the one plan
+    /// item that can have nowhere at all to write (EV21, 2026-08-26).
     private static func applyMarriageToSubjectSpouseEdge(
         _ m: MarriageRecord,
         profileID: String,
         snapshot: FamilyGraphSnapshot,
         db: ProjectDatabase,
         failures: inout [WriteFailure]
-    ) {
+    ) -> Bool {
         let spouseEdges = snapshot.relationships.filter { rel in
             rel.type == .spouse && (rel.from == profileID || rel.to == profileID)
         }
         let otherEnd: (Relationship) -> String = { $0.from == profileID ? $0.to : $0.from }
+
+        // The three partner signals a marriage record can carry, resolved once
+        // up front. Hoisted out of the ladder (EV21, 2026-08-26) because step 3
+        // and the failure report both have to know when the record names
+        // NOBODY, not just when a named partner failed to match.
+        let nonEmptyTrimmed: (String?) -> String? = { s in
+            guard let t = s?.trimmingCharacters(in: .whitespaces), !t.isEmpty else { return nil }
+            return t
+        }
+        let corroboratedID = nonEmptyTrimmed(m.corroboratingSpouseProfileID)
+        let statedSpouse = nonEmptyTrimmed(m.spouseName)
+        let inferredSpouse = nonEmptyTrimmed(m.partnerSurnameFromSamePage)
 
         // Resolve the target spouse edge, most-reliable signal first.
         var edge: Relationship?
@@ -326,7 +377,7 @@ nonisolated struct ApplyEngine {
         //    7b/1397: her record names no spouse at all, so surname matching
         //    had nothing to work with and her accepted marriage never reached
         //    the edge (live-observed 2026-07-26).
-        if let corroboratedID = m.corroboratingSpouseProfileID {
+        if let corroboratedID {
             edge = spouseEdges.first { otherEnd($0) == corroboratedID }
         }
 
@@ -336,33 +387,51 @@ nonisolated struct ApplyEngine {
         //    the tree spouse by the family-context gate). Prefer the stated
         //    column; fall back to the recovered partner.
         var statedSpouseMismatch: String?
-        if edge == nil {
-            let nonEmptyTrimmed: (String?) -> String? = { s in
-                guard let t = s?.trimmingCharacters(in: .whitespaces), !t.isEmpty else { return nil }
-                return t
+        if edge == nil, let recordSpouseRaw = statedSpouse ?? inferredSpouse {
+            // BMD spouse field is normally just a surname (post-1912).
+            // Defensive split: trailing token of "GIVEN SURNAME".
+            let recordSpouseSurname = (recordSpouseRaw.split(separator: " ").last.map(String.init)
+                ?? recordSpouseRaw).uppercased()
+            edge = spouseEdges.first { rel in
+                guard let other = snapshot.profiles[otherEnd(rel)] else { return false }
+                // Match against ALL of the spouse's surnames (maiden/married/
+                // name-forms), not just lastName — a marriage names the maiden
+                // surname, but a wife may be stored under her married surname.
+                return ConflictSweep.knownSurnames(of: other).contains(recordSpouseSurname)
             }
-            let statedSpouse = nonEmptyTrimmed(m.spouseName)
-            let inferredSpouse = nonEmptyTrimmed(m.partnerSurnameFromSamePage)
-            if let recordSpouseRaw = statedSpouse ?? inferredSpouse {
-                // BMD spouse field is normally just a surname (post-1912).
-                // Defensive split: trailing token of "GIVEN SURNAME".
-                let recordSpouseSurname = (recordSpouseRaw.split(separator: " ").last.map(String.init)
-                    ?? recordSpouseRaw).uppercased()
-                edge = spouseEdges.first { rel in
-                    guard let other = snapshot.profiles[otherEnd(rel)] else { return false }
-                    // Match against ALL of the spouse's surnames (maiden/married/
-                    // name-forms), not just lastName — a marriage names the maiden
-                    // surname, but a wife may be stored under her married surname.
-                    return ConflictSweep.knownSurnames(of: other).contains(recordSpouseSurname)
-                }
-                // A same-page INFERENCE that matches no linked spouse is a
-                // weaker signal than a stated column (the family-context gate
-                // already vetted it) — stay silent, never manufacturing a
-                // dispute. Only a STATED column that misses is DS-12.
-                if edge == nil && statedSpouse != nil {
-                    statedSpouseMismatch = recordSpouseSurname
-                }
+            // A same-page INFERENCE that matches no linked spouse is a
+            // weaker signal than a stated column (the family-context gate
+            // already vetted it) — stay silent, never manufacturing a
+            // dispute. Only a STATED column that misses is DS-12.
+            if edge == nil && statedSpouse != nil {
+                statedSpouseMismatch = recordSpouseSurname
             }
+        }
+
+        // Does this record name a partner AT ALL? The GRO marriage index does
+        // not print the spouse before the Sep 1912 quarter, so for every
+        // pre-1912 entry `spouseName` is nil, `partnerSurnameFromSamePage` is
+        // empty unless the same-page pairing pass happened to run, and
+        // `corroboratingSpouseProfileID` is nil unless a tree-linked spouse
+        // already holds the same registration.
+        let recordNamesNoPartner = corroboratedID == nil && statedSpouse == nil && inferredSpouse == nil
+
+        // 3. EV21 (owner dogfood 2026-08-26) — the record names NOBODY, and the
+        //    subject has exactly ONE spouse on the tree. There is nothing to
+        //    choose between: that is the fill a human makes without hesitation,
+        //    and it is the ONLY way a pre-1912 marriage index entry can ever
+        //    reach the tree. The DS-12 repair below never covered this leg — it
+        //    handles "the record STATES a spouse the tree doesn't know", not
+        //    "the record states no spouse at all" — so the guard fell through to
+        //    a bare `return`: no write, no failure, no trace. The owner's
+        //    verified Hannah Hewkin marriage (Jun q 1858, Chesterfield 7b/741)
+        //    applied to a green badge and an empty spouse edge.
+        //
+        //    With zero or two-plus spouse edges we do NOT guess — "when in
+        //    doubt, split": picking the wrong marriage is not something the
+        //    user can see, let alone undo. The ambiguity is reported instead.
+        if edge == nil, recordNamesNoPartner, spouseEdges.count == 1 {
+            edge = spouseEdges.first
         }
 
         guard let edge else {
@@ -371,36 +440,67 @@ nonisolated struct ApplyEngine {
             // silently no-op here: no write, no failure, no trace. It now
             // opens an F4b spouseIdentity dispute AND reports on the outcome
             // channel.
-            guard let recordSpouseSurname = statedSpouseMismatch else { return }
-            let conflict = ConflictDetector.spouseIdentityConflict(
-                marriage: m,
-                recordSpouseSurname: recordSpouseSurname,
-                profileID: profileID,
-                spouseEdges: spouseEdges,
-                snapshot: snapshot,
-                origin: SourceOrigin(identifier: m.common.sourceID)
-            )
-            let adjudication = DisputeResolver.adjudicate(conflict)
-            attempt("Record spouse-identity dispute", into: &failures) {
-                _ = try db.upsertDispute(
-                    profileID: profileID, conflict: conflict, adjudication: adjudication
+            if let recordSpouseSurname = statedSpouseMismatch {
+                let conflict = ConflictDetector.spouseIdentityConflict(
+                    marriage: m,
+                    recordSpouseSurname: recordSpouseSurname,
+                    profileID: profileID,
+                    spouseEdges: spouseEdges,
+                    snapshot: snapshot,
+                    origin: SourceOrigin(identifier: m.common.sourceID)
                 )
+                let adjudication = DisputeResolver.adjudicate(conflict)
+                attempt("Record spouse-identity dispute", into: &failures) {
+                    _ = try db.upsertDispute(
+                        profileID: profileID, conflict: conflict, adjudication: adjudication
+                    )
+                }
+                failures.append(WriteFailure(
+                    what: "Marriage record spouse mismatch",
+                    error: ConflictNotice(message: "Marriage record names spouse surname \(recordSpouseSurname), which matches no linked spouse — opened a spouse-identity dispute")
+                ))
+                return false
+            }
+            // EV21 (2026-08-26) — every remaining leg used to be the bare
+            // `return` above the DS-12 block: no write, no failure, no trace,
+            // and the caller stamped the row "Applied" anyway. Each one now
+            // names what stopped it, so a marriage that did not land can no
+            // longer be mistaken for one that did. No dispute is opened here:
+            // a same-page INFERENCE that misses is deliberately not DS-12
+            // (see step 2), and "nobody is named" is an ambiguity, not a
+            // disagreement between sources.
+            let subjectName = snapshot.profiles[profileID]?.displayName ?? "this person"
+            let reason: String
+            if recordNamesNoPartner {
+                reason = spouseEdges.isEmpty
+                    ? "The marriage index names no spouse (GRO entries before September 1912 don't print one) and \(subjectName) has no spouse linked on the tree — link the spouse, then apply this record again."
+                    : "The marriage index names no spouse (GRO entries before September 1912 don't print one) and \(subjectName) has \(spouseEdges.count) linked spouses — record it on the right marriage rather than guessing which one this is."
+            } else {
+                let named = statedSpouse ?? inferredSpouse
+                    ?? corroboratedID.flatMap { snapshot.profiles[$0]?.displayName }
+                    ?? "an unlinked partner"
+                reason = "The marriage record's partner (\(named)) matches no spouse linked to \(subjectName), so its date and place were not written."
             }
             failures.append(WriteFailure(
-                what: "Marriage record spouse mismatch",
-                error: ConflictNotice(message: "Marriage record names spouse surname \(recordSpouseSurname), which matches no linked spouse — opened a spouse-identity dispute")
+                what: "Record marriage on spouse edge",
+                error: ConflictNotice(message: reason)
             ))
-            return
+            return false
         }
 
         let dateCandidate = bmdDate(year: m.marriageYear, quarter: m.quarter, exact: m.marriageDate)
         let locationCandidate = m.marriagePlace ?? m.district
+        // `fillRelationshipMarriage` is a gap-fill, so a re-apply onto an
+        // already-populated edge is a legitimate no-op — `filled` records that
+        // the write REACHED its target, which is what the applied stamp turns on.
+        var filled = false
         attempt("Record marriage on spouse edge", into: &failures) {
             try db.fillRelationshipMarriage(
                 relationshipID: edge.id,
                 candidateDate: dateCandidate,
                 candidateLocation: locationCandidate
             )
+            filled = true
         }
 
         // Married-surname enrichment (owner request 2026-07-21): a marriage
@@ -415,6 +515,7 @@ nonisolated struct ApplyEngine {
         enrichMarriedSurnameFromMarriage(
             edge: edge, subjectID: profileID, snapshot: snapshot,
             origin: SourceOrigin(identifier: m.common.sourceID), db: db, failures: &failures)
+        return filled
     }
 
     /// Fill the female partner's married surname from the male partner's, for
@@ -427,8 +528,20 @@ nonisolated struct ApplyEngine {
         origin: SourceOrigin, db: ProjectDatabase, failures: inout [WriteFailure]
     ) {
         let otherID = edge.from == subjectID ? edge.to : edge.from
+        // EV21 (2026-08-26): this was a bare `return`. Both ends of an edge
+        // that came out of THIS snapshot must be in the same snapshot — if one
+        // isn't, the relationship graph and the profile table disagree and the
+        // married-surname half of the absorption was dropped without a word.
+        // Narrowed, not deleted: the guard is still right to refuse the write.
         guard let subject = snapshot.profiles[subjectID],
-              let other = snapshot.profiles[otherID] else { return }
+              let other = snapshot.profiles[otherID]
+        else {
+            failures.append(WriteFailure(
+                what: "Fill married surname from marriage",
+                error: ConflictNotice(message: "The spouse edge points at a profile that isn't in the loaded tree, so the married-surname enrichment was skipped.")
+            ))
+            return
+        }
         // (recipient, surname-source) both ways — only the female partner
         // with an empty married surname and a differently-surnamed partner
         // is written.
@@ -448,18 +561,22 @@ nonisolated struct ApplyEngine {
         }
     }
 
+    /// EV21 (2026-08-26): `candidate` is non-optional. It used to be
+    /// `GenealogicalDate?` guarded by a bare `guard let … else { return }` —
+    /// an unreportable no-op that could only ever fire on a plan bug, since
+    /// `Absorption.dateField` carries a non-optional date. Making the nil case
+    /// unrepresentable is better than reporting it.
     private static func applyDateField(
         _ field: ProfileField,
         existing: GenealogicalDate?,
         existingSources: [FieldSource],
-        candidate: GenealogicalDate?,
+        candidate: GenealogicalDate,
         profileID: String,
         origin: SourceOrigin,
         db: ProjectDatabase,
         citation: Citation? = nil,
         failures: inout [WriteFailure]
     ) {
-        guard let candidate else { return }
         if shouldOverwriteDateField(existing: existing, candidate: candidate) {
             attempt("Apply \(field) date", into: &failures) {
                 _ = try db.editProfile(profileID: profileID, changes: [], dateChanges: [(field, existing, candidate)], source: origin)
@@ -510,18 +627,32 @@ nonisolated struct ApplyEngine {
         }
     }
 
+    /// EV21 (2026-08-26): `candidate` is non-optional, for the same reason as
+    /// `applyDateField` — `Absorption.stringField` carries a non-optional,
+    /// already-`nonEmpty`-filtered string, so the old
+    /// `guard let trimmed = candidate?…` swallowed nothing a caller could
+    /// legitimately produce. The trim stays (a source can pad a value); a
+    /// blank surviving it would be a plan defect, so it reports rather than
+    /// returning silently.
     private static func applyStringField(
         _ field: ProfileField,
         existing: String?,
         existingSources: [FieldSource],
-        candidate: String?,
+        candidate: String,
         profileID: String,
         origin: SourceOrigin,
         db: ProjectDatabase,
         citation: Citation? = nil,
         failures: inout [WriteFailure]
     ) {
-        guard let trimmed = candidate?.trimmingCharacters(in: .whitespaces), !trimmed.isEmpty else { return }
+        let trimmed = candidate.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            failures.append(WriteFailure(
+                what: "Apply \(field) value",
+                error: ConflictNotice(message: "The record offered a blank \(field) — nothing was written.")
+            ))
+            return
+        }
         if shouldOverwriteStringField(field: field, existing: existing,
                                       existingSources: existingSources,
                                       candidate: trimmed, candidateOrigin: origin) {
@@ -834,6 +965,10 @@ nonisolated struct ApplyEngine {
         db: ProjectDatabase,
         failures: inout [WriteFailure]
     ) {
+        // EV21 audit (2026-08-26): both early returns here are *decisions*, not
+        // dropped writes — an unspecified role can't collide, and an unoccupied
+        // role has no conflict to open. Nothing is silently skipped, so they
+        // stay silent.
         let role = parentRole(for: proposal.gender)
         guard role == .father || role == .mother else { return }
         guard let occupied = ConflictDetector.occupiedBiologicalRole(
@@ -923,9 +1058,19 @@ nonisolated struct ApplyEngine {
         db: ProjectDatabase,
         failures: inout [WriteFailure]
     ) {
-        guard let existing = snapshot.profiles[existingID],
-              let upgrade = firstNameUpgrade(for: proposal, existing: existing)
-        else { return }
+        // EV21 (2026-08-26): the two halves of this guard were one bare
+        // `return` covering two very different things. "Nothing to upgrade" is
+        // a legitimate policy decision and stays silent; "the profile we just
+        // matched isn't in the snapshot" is a graph inconsistency that was
+        // dropping a recovered given name without a word.
+        guard let existing = snapshot.profiles[existingID] else {
+            failures.append(WriteFailure(
+                what: "Upgrade ghost first name",
+                error: ConflictNotice(message: "The matched existing profile isn't in the loaded tree, so the recovered given name wasn't written.")
+            ))
+            return
+        }
+        guard let upgrade = firstNameUpgrade(for: proposal, existing: existing) else { return }
         let origin = SourceOrigin(identifier: proposal.evidence.first?.record.sourceID ?? "freebmd")
         attempt("Upgrade ghost first name", into: &failures) {
             try db.editProfile(

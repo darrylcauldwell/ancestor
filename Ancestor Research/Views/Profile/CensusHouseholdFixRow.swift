@@ -20,6 +20,11 @@ import AncestorKit
 ///    net-new roster row carries its own Add in the profile host, so one
 ///    relative can be taken without the whole household.
 struct CensusHouseholdFixRow: View {
+    /// The reconciler's per-row classification. Spelled out once so the roster
+    /// helpers below read as prose rather than as four-level type paths.
+    typealias RosterEntry = CensusRelationshipReconciler.CensusReconciliation.RosterEntry
+    typealias RosterStatus = RosterEntry.Status
+
     @Environment(AppState.self) private var appState
 
     let profile: Profile
@@ -51,14 +56,25 @@ struct CensusHouseholdFixRow: View {
             // Nuclear family + any in-law grandparent STILL net-new (a father/
             // mother-in-law is a two-generation unlock; the count clears once added).
             let total = links.count + inLaws
+            // One reconciliation pass for the whole row — the header count and the
+            // roster below must be read off the SAME classification, or the number
+            // goes back to being an assertion the reader can't check.
+            let entries = rosterEntries(household: household)
+            // Rows the reconciler could only PROPOSE an identity for. They are
+            // absent from `links` (the absorption dedup skips them), so without
+            // this they vanish from the count with nothing said — EV18,
+            // 2026-08-26. Naming them keeps the omission visible.
+            let questions = household.filter { Self.identityQuestion(entries[$0]) != nil }.count
+            let unconfirmed = questions > 0
+                ? " · \(questions) unconfirmed name match\(questions == 1 ? "" : "es")" : ""
             VStack(alignment: .leading, spacing: 3) {
                 // State the whole and the part, so the number reads as a subset
                 // of a list the reader can see rather than a claim they must
                 // take on trust.
                 row(icon: "person.2.badge.plus",
                     text: inLaws > 0
-                        ? "\(String(year)) census · \(household.count) in the household · \(links.count) not on the tree, plus \(inLaws) in-law grandparent\(inLaws == 1 ? "" : "s")"
-                        : "\(String(year)) census · \(household.count) in the household · \(links.count) not on the tree") {
+                        ? "\(String(year)) census · \(household.count) in the household · \(links.count) not on the tree, plus \(inLaws) in-law grandparent\(inLaws == 1 ? "" : "s")\(unconfirmed)"
+                        : "\(String(year)) census · \(household.count) in the household · \(links.count) not on the tree\(unconfirmed)") {
                     if let reviewInProfile {
                         // Health-list host: adding N people is a tree change, so
                         // route to the profile to confirm in full context rather
@@ -82,7 +98,7 @@ struct CensusHouseholdFixRow: View {
                 // evidence at the point of the click, so a namesake household (a
                 // target row born elsewhere than the profile records) is caught
                 // before its parents are grafted on.
-                roster(links: links, household: household)
+                roster(links: links, household: household, entries: entries)
             }
         }
     }
@@ -108,7 +124,8 @@ struct CensusHouseholdFixRow: View {
     // MARK: - Roster preview (who would be added)
 
     @ViewBuilder
-    private func roster(links: [CensusFamilyLinker.Link], household: [HouseholdMember]) -> some View {
+    private func roster(links: [CensusFamilyLinker.Link], household: [HouseholdMember],
+                        entries: [HouseholdMember: RosterEntry]) -> some View {
         // EVERY household row, each carrying what the tree already knows about
         // it — not just the ones that would be added.
         //
@@ -121,7 +138,6 @@ struct CensusHouseholdFixRow: View {
         // makes the count a CONSEQUENCE of visible rows: the add rows ARE
         // `links`, so the button and the list cannot disagree.
         let addLinks = Dictionary(links.map { ($0.member, $0) }, uniquingKeysWith: { first, _ in first })
-        let statuses = rosterStatuses(household: household)
         VStack(alignment: .leading, spacing: 1) {
             ForEach(Array(household.enumerated()), id: \.offset) { _, member in
                 HStack(alignment: .top, spacing: 6) {
@@ -129,13 +145,7 @@ struct CensusHouseholdFixRow: View {
                         .font(AppTypography.badge)
                         .foregroundStyle(addLinks[member] != nil ? .primary : .secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    if let link = addLinks[member] {
-                        addControl(link: link)
-                    } else {
-                        Text(statusLabel(for: member, status: statuses[member]))
-                            .font(AppTypography.badge)
-                            .foregroundStyle(statusTint(status: statuses[member]))
-                    }
+                    rosterControl(member: member, link: addLinks[member], entry: entries[member])
                 }
             }
             if let target = household.first(where: { $0.isTarget == true }),
@@ -161,13 +171,16 @@ struct CensusHouseholdFixRow: View {
     /// classifier for the whole surface — the same statuses the Health tab's
     /// roster renders — so this list can never tell a different story from the
     /// `censusRelationship` finding sitting beside it.
-    private func rosterStatuses(
-        household: [HouseholdMember]
-    ) -> [HouseholdMember: CensusRelationshipReconciler.CensusReconciliation.RosterEntry.Status] {
-        var out: [HouseholdMember: CensusRelationshipReconciler.CensusReconciliation.RosterEntry.Status] = [:]
+    ///
+    /// Carries the WHOLE entry, not just its status (EV18, 2026-08-26): a row the
+    /// reconciler could only propose an identity for now offers the user a way to
+    /// disagree, and acting on either answer needs the census-implied relation the
+    /// entry holds alongside the status.
+    private func rosterEntries(household: [HouseholdMember]) -> [HouseholdMember: RosterEntry] {
+        var out: [HouseholdMember: RosterEntry] = [:]
         for recon in CensusRelationshipReconciler.reconciliations(for: profile, in: appState.snapshot) {
             for entry in recon.entries where household.contains(entry.member) {
-                out[entry.member] = entry.status
+                out[entry.member] = entry
             }
         }
         return out
@@ -188,6 +201,97 @@ struct CensusHouseholdFixRow: View {
             return (year, sourceID, household, url)
         }
         return nil
+    }
+
+    /// The trailing control for one roster row. Three outcomes, in order of how
+    /// much the app is entitled to claim: a net-new row gets its Add, a row whose
+    /// identity is only PROPOSED gets the question plus a way to disagree, and
+    /// everything settled gets a plain status marker.
+    @ViewBuilder
+    private func rosterControl(member: HouseholdMember,
+                               link: CensusFamilyLinker.Link?,
+                               entry: RosterEntry?) -> some View {
+        if let link {
+            addControl(link: link)
+        } else if let question = Self.identityQuestion(entry) {
+            nearMatchControl(member: member, question: question)
+        } else {
+            Text(statusLabel(for: member, status: entry?.status))
+                .font(AppTypography.badge)
+                .foregroundStyle(statusTint(status: entry?.status))
+        }
+    }
+
+    /// The unconfirmed identity a roster row raises, or nil.
+    ///
+    /// `.nearMatch` is the reconciler's weakest rung: same surname, same household
+    /// role, sex and birth year agree — and the forename does NOT. It is a
+    /// proposal, not a finding, and it is the only status this component must not
+    /// render as settled. Pure and static so the rule is testable without a view.
+    nonisolated static func identityQuestion(
+        _ entry: RosterEntry?
+    ) -> (candidateID: String, relation: CensusRelation, reason: String)? {
+        guard let entry, case .nearMatch(let candidateID, let reason) = entry.status,
+              let relation = entry.censusRelation else { return nil }
+        return (candidateID, relation, reason)
+    }
+
+    /// Does this status assert that the roster row IS a particular tree profile —
+    /// a claim the row may render as a settled green tick?
+    ///
+    /// EV18, 2026-08-26: `.nearMatch` used to answer yes here, drawing "✓ Thomas
+    /// Gladwin" in exactly the green `.inTree` uses. Only `.inTree` earns it: the
+    /// name, role and year agree, or an existing tree edge already decided the
+    /// pairing. Everything else is an offer or a question.
+    nonisolated static func assertsSettledIdentity(_ status: RosterStatus?) -> Bool {
+        if case .inTree = status { return true }
+        return false
+    }
+
+    /// A roster row whose identity the reconciler can only PROPOSE.
+    ///
+    /// EV18, 2026-08-26. This rendered as "✓ Thomas Gladwin" in the same green as
+    /// `.inTree`, with no control at all, while `censusFamilyNetNewLinks` quietly
+    /// dropped the row from the "not on the tree" count. Between them they
+    /// asserted an identity nobody had confirmed and removed the only affordance
+    /// for disagreeing with it. The case that exposed it: William Gladwin's 1871
+    /// Whittington schedule lists a son "John H Gladwin" (b. 1861, Unstone)
+    /// against the tree's "Thomas H Gladwin" (b. 1861, Unstone) — same surname,
+    /// same role, same year, same birthplace, different forename. An adversarial
+    /// review put "same boy" at about 70% and ruled DO NOT MERGE.
+    ///
+    /// So the row states the question and offers the SPLIT. Nothing here commits
+    /// the merge: over-splitting is recoverable by the user, over-merging is not,
+    /// and a near-match candidate is by construction already linked to the subject
+    /// in this very role — so there is no link left to make, only a duplicate to
+    /// refuse or a distinct person to create. In the Health host it stays a marker
+    /// for the same reason `addControl` does: a tree change is confirmed in the
+    /// profile, with the existing family in view.
+    @ViewBuilder
+    private func nearMatchControl(
+        member: HouseholdMember,
+        question: (candidateID: String, relation: CensusRelation, reason: String)
+    ) -> some View {
+        let candidate = name(question.candidateID)
+        let lands = Self.perRowAddLands(
+            relation: question.relation,
+            subjectHasParent: !appState.snapshot.parentsOf(profile.id).isEmpty)
+        HStack(spacing: 6) {
+            Text("possibly \(candidate)?")
+                .font(AppTypography.badge)
+                .foregroundStyle(Color.orange)
+            if let a = absorbable, reviewInProfile == nil, lands {
+                Button("Add separately") {
+                    _ = appState.addCensusFamily(
+                        links: [CensusFamilyLinker.Link(member: member, relation: question.relation)],
+                        subject: profile, censusYear: a.year, sourceID: a.sourceID,
+                        household: a.household, citationURL: a.citationURL)
+                    onChanged()
+                }
+                .buttonStyle(.glass).controlSize(.mini)
+            }
+        }
+        .help("\(member.name) has not been linked to anyone. The census gives a different forename from \(candidate), but \(question.reason). If they are two different people, add \(member.name) as their own profile, cited to this schedule.")
     }
 
     /// The net-new rows are the only ones this component can act on, and they
@@ -238,14 +342,15 @@ struct CensusHouseholdFixRow: View {
         relation != .sibling || subjectHasParent
     }
 
-    private func statusLabel(
-        for member: HouseholdMember,
-        status: CensusRelationshipReconciler.CensusReconciliation.RosterEntry.Status?
-    ) -> String {
+    /// `.nearMatch` normally never reaches here — `rosterControl` intercepts it —
+    /// but it keeps a question-shaped label for the degenerate case where the
+    /// entry carries no census relation, because a tick would be a claim the
+    /// evidence does not support (EV18, 2026-08-26).
+    private func statusLabel(for member: HouseholdMember, status: RosterStatus?) -> String {
         switch status {
         case .subject:                       return "this person"
         case .inTree(let pid):               return "✓ \(name(pid))"
-        case .nearMatch(let pid, _):         return "✓ \(name(pid))"
+        case .nearMatch(let pid, _):         return "possibly \(name(pid))?"
         case .unlinkedInTree(let pid):       return "link \(name(pid))"
         case .contradiction(let tid, _):     return "⚠ conflicts with \(name(tid))"
         case .inLawOfSpouse:                 return "in-law"
@@ -254,12 +359,12 @@ struct CensusHouseholdFixRow: View {
         }
     }
 
-    private func statusTint(
-        status: CensusRelationshipReconciler.CensusReconciliation.RosterEntry.Status?
-    ) -> Color {
+    private func statusTint(status: RosterStatus?) -> Color {
         if case .contradiction = status { return .orange }
-        if case .inTree = status { return .green }
-        if case .nearMatch = status { return .green }
+        // A proposal is not a finding: an unconfirmed name match reads as
+        // something to decide (orange), never as something settled (green).
+        if case .nearMatch = status { return .orange }
+        if Self.assertsSettledIdentity(status) { return .green }
         return .secondary
     }
 

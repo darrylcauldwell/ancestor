@@ -10,12 +10,18 @@ import AncestorKit
 /// populated from any record until this slice.
 struct CensusLifeEventFanOutTests {
 
-    private func census(occupation: String?, address: String?, parish: String? = "Youlgreave") -> SourceRecord {
+    /// `detailURL` defaults to nil so the pre-EV16 assertions below are
+    /// untouched; the citation tests pass the household-page URL explicitly.
+    private func census(occupation: String?, address: String?, parish: String? = "Youlgreave",
+                        detailURL: String? = nil) -> SourceRecord {
         .census(CensusRecord(
-            common: RecordCommon(id: "cen-1", sourceID: "freecen", rawFields: [:]),
+            common: RecordCommon(id: "cen-1", sourceID: "freecen",
+                                 detailURL: detailURL, rawFields: [:]),
             censusYear: 1891,
             occupation: occupation, address: address, parish: parish))
     }
+
+    private let householdURL = "https://www.freecen.org.uk/search_records/6a2f/household"
 
     @Test func occupationAndAddressEachSpawnTheirOwnEvent() {
         let events = census(occupation: "Colliery electrician", address: "3 Mill Lane")
@@ -54,6 +60,44 @@ struct CensusLifeEventFanOutTests {
     @Test func blankNuggetsYieldOnlyTheCensusEvent() {
         let events = census(occupation: "   ", address: "").projectToLifeEvents(profileID: "p")
         #expect(events.map(\.type) == [.census])
+    }
+
+    /// EV16 (2026-08-26) — the fan-out shipped without carrying the census's
+    /// citation onto the derived rows, so an occupation and a residence
+    /// rendered with no source badge beside the fully-cited census stating the
+    /// identical fact (live: William Gladwin's 1881 "Sawyer" and 1891 "Wood
+    /// Sawyer", both `sources: []`). All three events come off one household
+    /// page, so all three carry that page's URL.
+    @Test func everyFannedOutEventCarriesTheCensusCitation() throws {
+        let events = census(occupation: "Wood sawyer", address: "Beighton Road",
+                            detailURL: householdURL)
+            .projectToLifeEvents(profileID: "p")
+        #expect(events.count == 3)
+        for event in events {
+            #expect(event.sources.compactMap { $0.citation?.url } == [householdURL],
+                    "\(event.type.displayName) landed uncited")
+        }
+    }
+
+    /// The primary's citation is exactly what it always was — one source, not a
+    /// second copy stacked on by the derived pass.
+    @Test func theCensusPrimaryCitationIsUnchangedByTheFix() throws {
+        let events = census(occupation: "Wood sawyer", address: "Beighton Road",
+                            detailURL: householdURL)
+            .projectToLifeEvents(profileID: "p")
+        let primary = try #require(events.first { $0.type == .census })
+        #expect(primary.sources.count == 1)
+        #expect(primary.sources.first?.citation?.url == householdURL)
+        #expect(primary.sources.first?.origin.identifier == "freecen")
+    }
+
+    /// A census with no detail URL must still cite nothing — an empty badge on
+    /// an untraceable fact is worse than no badge at all.
+    @Test func aURLlessCensusStillFabricatesNoCitation() {
+        let events = census(occupation: "Lead miner", address: "Church Street")
+            .projectToLifeEvents(profileID: "p")
+        #expect(events.count == 3)
+        #expect(events.allSatisfy { $0.sources.isEmpty })
     }
 
     @Test func nonCensusRecordIsUnchangedByFanOut() {

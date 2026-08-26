@@ -41,6 +41,11 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
         self.http = http
     }
     private let logger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "FreeCen")
+    /// Static twin of `logger` for the `nonisolated static` parsers. Added
+    /// for EV22 (2026-08-26): the household parser now REFUSES a record it
+    /// cannot date, and a silent refusal is exactly the failure mode EV22
+    /// was about. Same idiom as `SearchDispatcher.geoLogger`.
+    nonisolated private static let parseLogger = Logger(subsystem: "dev.dreamfold.Ancestor-Research", category: "FreeCen")
     /// Scheduled time for the next allowable request. Slot-reservation pattern
     /// (see FreeBMDSource for the full rationale): callers advance the slot
     /// synchronously inside the actor so concurrent search() calls each get a
@@ -81,6 +86,23 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
     /// the paging tests reference the budgets instead of hardcoding.
     nonisolated static let maxResults = 500
     nonisolated static let maxPages = 10
+    /// EV22 (2026-08-26) — the span of census years FreeCen could plausibly
+    /// state on a record page. `validYears` is the exact set FreeCen holds;
+    /// this looser range is used ONLY when reading the page's own stated
+    /// census year, because that is the page asserting a fact about itself
+    /// and we would rather accept an unexpected-but-in-coverage year than
+    /// refuse a real record. Anything INFERRED (a slug year, a query hint)
+    /// gets the strict `validYears` test instead — see `censusYearFromSlug`.
+    /// Mirrors `coverageYearRange`, which is an instance property and so
+    /// unreachable from the static parsers.
+    nonisolated static let plausibleCensusYears: ClosedRange<Int> = 1841...1911
+    /// EV22 (2026-08-26) — generous human-age ceiling. MyopicVicar's
+    /// unknown-age sentinel is 999 (the VLD path renders it "unk", but the
+    /// CSV path has been seen to leak the number through). A four-digit or
+    /// triple-digit "age" is a sentinel or a transcription slip, never an
+    /// age, and believing it would derive a birth year ~900 years early.
+    /// Such cells keep their transcription in `rawAge` instead.
+    nonisolated static let maxPlausibleAge = 120
 
     // MARK: - Search
 
@@ -295,7 +317,7 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             // ranked by name+year match and almost always the right
             // person. Higher cap stays available for future per-
             // subject deepening.
-            let enriched = await enrichWithHousehold(results, cap: 1)
+            let enriched = await enrichWithHousehold(results, cap: 1, queryYear: year)
             lastSuccessfulSearch = Date()
             lastError = nil
             logger.info("Search returned \(enriched.count) of \(totalAvailable ?? enriched.count) results for \(surname)")
@@ -359,7 +381,13 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
     /// enriched form (via fetchDetail). Records past the cap or
     /// without a usable detail URL pass through untouched. Detail
     /// failures fall back to the un-enriched record.
-    private func enrichWithHousehold(_ records: [SourceRecord], cap: Int) async -> [SourceRecord] {
+    ///
+    /// EV22 (2026-08-26) — `queryYear` is the census year the search asked
+    /// for. It rides along so a detail page whose own census-year cell is
+    /// missing can still be dated instead of refused. The search ROW's year
+    /// is preferred over it: that came from FreeCen's own results table for
+    /// this exact record, whereas the query year is only what we asked.
+    private func enrichWithHousehold(_ records: [SourceRecord], cap: Int, queryYear: Int?) async -> [SourceRecord] {
         var out: [SourceRecord] = []
         out.reserveCapacity(records.count)
         var enrichedCount = 0
@@ -373,7 +401,9 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
                 continue
             }
             enrichedCount += 1
-            let result = await fetchDetail(recordID: url)
+            let rowYear: Int? = census.censusYear > 0 ? census.censusYear : nil
+            let yearHint = rowYear ?? queryYear
+            let result = await fetchDetail(recordID: url, queryYear: yearHint)
             if case .results(let detailRecords) = result,
                let detail = detailRecords.first {
                 out.append(detail)
@@ -389,6 +419,16 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
     // MARK: - Detail Fetching (household)
 
     func fetchDetail(recordID: String) async -> SourceQueryResult {
+        await fetchDetail(recordID: recordID, queryYear: nil)
+    }
+
+    /// EV22 (2026-08-26) — year-hinted detail fetch. `DetailFetchingSource`
+    /// hands us a bare URL with no context, but the enrichment path DOES
+    /// know which census year it asked for, and that hint is the difference
+    /// between a dated household and a refused one when the page's own
+    /// census-year cell is missing. The protocol entry point above passes
+    /// nil, so an out-of-band detail fetch is unchanged.
+    func fetchDetail(recordID: String, queryYear: Int?) async -> SourceQueryResult {
         // recordID is the full URL
         // This method is called with the detailURL from the search result
         guard let url = URL(string: recordID) else {
@@ -402,7 +442,7 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             guard let html = String(data: data, encoding: .utf8) else {
                 return .unavailable(reason: "Invalid encoding")
             }
-            if let record = Self.parseHouseholdDetail(html, recordURL: recordID) {
+            if let record = Self.parseHouseholdDetail(html, recordURL: recordID, queryYear: queryYear) {
                 return .results([record])
             }
             return .results([])
@@ -545,7 +585,177 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
         MyopicVicarParsing.nextPaginationHref(in: html, base: base)
     }
 
+    // MARK: - EV22 (2026-08-26): age cells and census-year resolution
+
+    /// A parsed FreeCEN age cell (EV22, 2026-08-26).
+    nonisolated struct ParsedAge: Equatable {
+        /// Whole years. `nil` when the cell carries no usable YEAR-age —
+        /// a sub-year infant age ("3m" = three MONTHS), "unk", the 999
+        /// sentinel, an unrecognised unit — never a guess.
+        let years: Int?
+        /// The cell exactly as transcribed, kept whenever it is not a bare
+        /// integer: either a unit suffix was consumed ("57y") or the cell
+        /// carries evidence `years` cannot ("3m", "unk"). `nil` for a clean
+        /// integer, which `years` already carries losslessly.
+        let rawText: String?
+    }
+
+    /// Parse a FreeCEN age cell (EV22, 2026-08-26).
+    ///
+    /// OBSERVED LIVE 2026-08-26: an 1891 household applied with EVERY member
+    /// missing age and birthYear, while an 1861 household from the same
+    /// source parsed perfectly. The 1891 render path writes ages with a
+    /// trailing unit letter — "57y", "54y", "22y", "12y", "7y" — and the old
+    /// `Int(ageText)` returned nil for every one of them.
+    ///
+    /// The unit letter is load-bearing, not decoration. "3m" is three
+    /// MONTHS: reading the leading integer alone would age a three-month-old
+    /// into a three-year-old and poison the birth-year derivation for
+    /// exactly the household members whose birth years matter most (the
+    /// infants that reveal missing children). So sub-year units — months,
+    /// weeks, days, hours — yield NO year-age, matching the contract
+    /// documented on `HouseholdMember.rawAge`; the transcription survives in
+    /// `rawText`, so the evidence is kept without fabricating a birth year.
+    /// See the `case "m", "w", "d", "h"` comment for the two downstream
+    /// guards that depend on an infant row staying undateable.
+    ///
+    /// Liberal about whitespace and case ("57 Y", "57y", "57"), strict about
+    /// units it does not recognise (those yield no age rather than a guess).
+    nonisolated static func parseAge(_ text: String) -> ParsedAge {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return ParsedAge(years: nil, rawText: nil) }
+
+        // Leading run of digits, then whatever follows (a unit, a note…).
+        var digits = ""
+        var index = trimmed.startIndex
+        while index < trimmed.endIndex, trimmed[index].isASCII, trimmed[index].isNumber {
+            digits.append(trimmed[index])
+            index = trimmed.index(after: index)
+        }
+        guard let value = Int(digits) else {
+            // No leading integer at all — "unk" (the VLD rendering of the
+            // unknown-age sentinel), "-", a stray transcriber note. Keep the
+            // evidence, assert no age.
+            return ParsedAge(years: nil, rawText: trimmed)
+        }
+
+        let suffix = String(trimmed[index...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let unit = String(suffix.prefix(1))
+
+        let years: Int?
+        switch unit {
+        case "", "y":
+            // Bare integer (the 1861-style page) or an explicit years unit
+            // (the 1891-style page). Same meaning, same value.
+            years = value <= maxPlausibleAge ? value : nil
+        case "m", "w", "d", "h":
+            // Months / weeks / days / hours. NOT `value` — reading the
+            // leading integer would age a three-month-old into a
+            // three-year-old.
+            //
+            // Verification pass 2026-08-26: this yields NO age, not 0.
+            // The first cut of EV22 resolved sub-year units to 0 whole
+            // years, which reads as more informative but silently breaks
+            // two downstream guards that are documented to depend on an
+            // infant row being UNDATEABLE:
+            //   - `CensusRelationshipReconciler.matchesTreeWide` names
+            //     "3w" / "7m" explicitly and falls back to town-level
+            //     BIRTHPLACE corroboration for them (owner dogfood
+            //     2026-08-13, Elizabeth Barker "age 3w · born Weston
+            //     Underwood"). An age of 0 makes the row dateable, so
+            //     that branch never runs and a namesake infant born
+            //     elsewhere pairs on the ±3 year tolerance alone.
+            //   - `sameRoleFallbackMatch` deliberately allows a name-only
+            //     match for undateable children and refuses it for dated
+            //     ones (families reused a dead child's name).
+            // `HouseholdMember.rawAge` documents this contract too. The
+            // transcription survives in `rawText`, so nothing is lost —
+            // the evidence is kept and no birth year is fabricated.
+            years = nil
+        default:
+            // An unrecognised unit. Do not guess what it scales to.
+            years = nil
+        }
+
+        // A clean integer is fully represented by `years`; everything else
+        // keeps its transcription (see `HouseholdMember.rawAge`).
+        let isBareInteger = suffix.isEmpty
+        return ParsedAge(years: years, rawText: (isBareInteger && years != nil) ? nil : trimmed)
+    }
+
+    /// First four-digit run in a string, as an Int. Deliberately liberal —
+    /// a stated census-year cell has been seen rendered as "1891" and as
+    /// "1891 Census" (EV22, 2026-08-26).
+    nonisolated static func firstFourDigitRun(in text: String) -> Int? {
+        guard let range = text.range(of: #"\d{4}"#, options: .regularExpression) else { return nil }
+        return Int(text[range])
+    }
+
+    /// The census year embedded in a FreeCEN record slug (EV22, 2026-08-26).
+    ///
+    /// Record URLs look like
+    /// `…/search_records/<id>/hannah-gladwin-1891-derbyshire-beighton-1837-`
+    /// — TWO four-digit years, the census year (1891) and the subject's
+    /// birth year (1837). They are told apart by the one thing that is
+    /// always true of the census year and almost never of a birth year: it
+    /// is one of the eight years FreeCen actually holds. Strict `validYears`
+    /// membership IS the discriminator here, which is why this path does not
+    /// use the looser `plausibleCensusYears` range.
+    ///
+    /// Scanned left-to-right because FreeCen's slug puts the census year
+    /// before the place segments and the birth year last. The year token
+    /// must be delimited by non-alphanumerics so a hex record id that
+    /// happens to contain four digits (`64ab1891cd…`) cannot masquerade as
+    /// a year.
+    nonisolated static func censusYearFromSlug(_ url: String) -> Int? {
+        let pattern = #"(?<![0-9A-Za-z])\d{4}(?![0-9A-Za-z])"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        for match in regex.matches(in: url, range: NSRange(url.startIndex..., in: url)) {
+            guard let range = Range(match.range, in: url),
+                  let year = Int(url[range]) else { continue }
+            if validYears.contains(year) { return year }
+        }
+        return nil
+    }
+
+    /// Resolve the census year for a record, in descending order of
+    /// authority (EV22, 2026-08-26).
+    ///
+    /// Before this, the household path did `Int(dwelling["census_year"] ?? "") ?? 0`
+    /// — a silent zero. OBSERVED LIVE: that zero became a census life event
+    /// dated "0" with no location, AND, because the birth-year derivation
+    /// was gated on `censusYear > 0`, it wiped every household member's
+    /// birth year on the way past. A census with no year is not a census, so
+    /// the ladder ends in `nil` (the caller refuses the record) and never in
+    /// a zero.
+    ///
+    /// 1. The page's own stated census year (dwelling / census-header table).
+    /// 2. The queried census year — the same fallback the search-results
+    ///    path has always used (`Int(cells[5]) ?? censusYear`).
+    /// 3. The census year embedded in the record slug/URL.
+    nonisolated static func resolveCensusYear(
+        statedYear: String?, queryYear: Int?, recordURL: String?
+    ) -> Int? {
+        if let statedYear, let year = firstFourDigitRun(in: statedYear),
+           plausibleCensusYears.contains(year) {
+            return year
+        }
+        // A hint, not the page's own claim — hence the strict set test.
+        if let queryYear, validYears.contains(queryYear) { return queryYear }
+        return recordURL.flatMap(censusYearFromSlug)
+    }
+
     /// Parse FreeCen search results HTML table.
+    ///
+    /// EV22 (2026-08-26): the census year now runs through
+    /// `resolveCensusYear` rather than falling to a silent `0`. This path
+    /// already had the query-year fallback the household path lacked, so the
+    /// only behaviour change is the added slug fallback and the refusal:
+    /// a row whose year cannot be established at all is SKIPPED (and logged)
+    /// instead of emitted with `censusYear: 0`. Rows whose cell states the
+    /// year — every row in practice — parse exactly as before.
     nonisolated static func parseSearchResults(_ html: String, censusYear: Int?) -> [SourceRecord] {
         // Check for "No results found"
         guard html.contains("We found") else { return [] }
@@ -587,7 +797,14 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             let birthCounty = cells[2]
             let birthPlace = cells[3]
             let birthYear = Int(cells[4])
-            let recordCensusYear = Int(cells[5]) ?? censusYear
+            // EV22 (2026-08-26) — same ladder as the household path: stated
+            // cell → queried year → slug. Never a silent 0.
+            guard let recordCensusYear = resolveCensusYear(
+                statedYear: cells[5], queryYear: censusYear, recordURL: recordURL
+            ) else {
+                parseLogger.warning("Skipping FreeCen search row with no determinable census year (name=\(cells[1]))")
+                continue
+            }
             let censusCounty = cells[6]
             let censusDistrict = cells[7]
 
@@ -617,7 +834,7 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
 
             records.append(.census(CensusRecord(
                 common: common,
-                censusYear: recordCensusYear ?? 0,
+                censusYear: recordCensusYear,
                 age: nil,
                 birthYear: birthYear,
                 birthPlace: birthPlace,
@@ -661,7 +878,17 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
         }
     }
 
-    nonisolated static func parseHouseholdDetail(_ html: String, recordURL: String) -> SourceRecord? {
+    /// Parse a FreeCen household detail page.
+    ///
+    /// `queryYear` (EV22, 2026-08-26) is the census year the search asked
+    /// for, threaded down from `searchWithOutcome` through
+    /// `enrichWithHousehold` → `fetchDetail`. It is the SECOND rung of the
+    /// year ladder in `resolveCensusYear`; the page's own stated year still
+    /// wins, and it defaults to nil so the standalone-parse call sites (and
+    /// the fixture tests) are unchanged.
+    nonisolated static func parseHouseholdDetail(
+        _ html: String, recordURL: String, queryYear: Int? = nil
+    ) -> SourceRecord? {
         // Parse every table into rows of stripped cells (shared MyopicVicar
         // primitive). Tables are then identified by their HEADERS, not
         // their position: the VLD path renders dwelling + members
@@ -695,7 +922,20 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             }
         }
 
-        let censusYear = Int(dwelling["census_year"] ?? "") ?? 0
+        // EV22 (2026-08-26) — was `Int(dwelling["census_year"] ?? "") ?? 0`.
+        // OBSERVED LIVE: an 1891 household applied as a census life event
+        // dated "0", with no location, and with every member's birthYear
+        // wiped (the derivation below was gated on `censusYear > 0`). A
+        // census with no year is not a census — refuse the record rather
+        // than emit a dated-zero one. The refusal is loud, not silent.
+        guard let censusYear = Self.resolveCensusYear(
+            statedYear: dwelling["census_year"], queryYear: queryYear, recordURL: recordURL
+        ) else {
+            Self.parseLogger.warning(
+                "Refusing FreeCen household — no determinable census year (stated=\(dwelling["census_year"] ?? "nil"), query=\(queryYear.map(String.init) ?? "nil"), url=\(recordURL))"
+            )
+            return nil
+        }
 
         var members: [HouseholdMember] = []
         for rawRow in memberRows {
@@ -728,15 +968,26 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
             let name = "\(forenames) \(surname)".trimmingCharacters(in: .whitespaces)
             guard !name.isEmpty else { continue }
 
+            // EV22 (2026-08-26) — was `Int(ageText)`, which returned nil for
+            // every age on the "57y"-style render path and dropped the whole
+            // household's ages. See `parseAge` for why the unit suffix must
+            // be read rather than stripped: "3m" is age 0, not age 3.
             let ageText = cell("age") ?? ""
-            let ageInt = Int(ageText)
+            let parsedAge = Self.parseAge(ageText)
+            let ageInt = parsedAge.years
 
             members.append(HouseholdMember(
                 name: name,
                 // 1841 has no Relationship column — empty, never guessed.
                 relationship: cell("relationship") ?? "",
                 age: ageInt,
-                birthYear: (censusYear > 0) ? ageInt.map { censusYear - $0 } : nil,
+                // EV22 (2026-08-26) — the `censusYear > 0` guard is gone
+                // because `censusYear` can no longer BE 0: the record is
+                // refused above when the year cannot be resolved. For a
+                // sub-year age this yields the census year itself, which is
+                // right to within the same ±1 every census-age-derived birth
+                // year already carries.
+                birthYear: ageInt.map { censusYear - $0 },
                 birthPlace: cell("birth place"),
                 occupation: cell("occupation"),
                 sex: cell("sex"),
@@ -745,9 +996,11 @@ actor FreeCenSource: RecordSource, DetailFetchingSource {
                 disability: cell("disability"),
                 notes: cell("notes"),
                 isTarget: isTarget,
-                // Age text that isn't a clean integer ("3m", "6w", "unk")
-                // is preserved as transcribed instead of being dropped.
-                rawAge: (ageInt == nil && !ageText.isEmpty) ? ageText : nil,
+                // Age text that isn't a clean integer ("3m", "6w", "unk",
+                // and — since EV22, 2026-08-26 — "57y") is preserved as
+                // transcribed instead of being dropped. For "3m" this is
+                // what stops the rounding to age 0 from losing the months.
+                rawAge: parsedAge.rawText,
                 yearsMarried: cell("years married"),
                 childrenBornAlive: cell("children born alive").flatMap(Int.init),
                 childrenLiving: cell("children living").flatMap(Int.init),

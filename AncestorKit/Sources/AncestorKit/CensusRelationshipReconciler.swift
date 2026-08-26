@@ -463,21 +463,25 @@ public nonisolated struct CensusRelationshipReconciler {
         return abs(memberYear - profileYear) <= yearTolerance
     }
 
-    /// Surname agreement alone — the roster row's LAST name token against the
-    /// profile's birth or married surname, case-insensitively. The half of
+    /// Surname agreement alone — the roster row's LAST name token against every
+    /// surname the profile is known by, case-insensitively. The half of
     /// `namesMatch` that carries structural weight: a forename is what a census
     /// enumerator mishears or abbreviates, a surname is what the household is
     /// known by.
+    ///
+    /// EV23 (2026-08-26): the surname union used to be assembled inline here,
+    /// again in `namesMatch`, and a THIRD time — from a different set of fields
+    /// — in `CensusAgeEnrichment`, which is how two engines reading the same
+    /// household came to disagree about who was on it. It now comes from
+    /// `RosterIdentity`, the one primitive both roster matchers share. Strict
+    /// arm: only `.agrees` counts, so a surname-less roster row or a
+    /// surname-less profile still refuses to assert identity here, exactly as
+    /// before. The one widening is that the `nameForms` sidecar (a WikiTree
+    /// `LastNameOther`, a twice-married woman's second married surname) now
+    /// counts as a surname the profile is known by — which it already did
+    /// everywhere else in the app.
     static func surnamesMatch(member: HouseholdMember, profile: Profile) -> Bool {
-        let tokens = member.name.lowercased()
-            .split(whereSeparator: { $0 == " " || $0 == "," })
-            .map(String.init)
-            .filter { !$0.isEmpty }
-        guard tokens.count >= 2, let memberSurname = tokens.last else { return false }
-        let profileSurnames = [profile.lastName, profile.marriedSurname]
-            .compactMap { $0?.lowercased().trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        return profileSurnames.contains(memberSurname)
+        RosterIdentity.surnameAgreement(memberName: member.name, profile: profile) == .agrees
     }
 
     /// A relative ALREADY LINKED to the subject in a SINGLETON role — spouse or
@@ -599,27 +603,26 @@ public nonisolated struct CensusRelationshipReconciler {
         }
     }
 
-    /// Name-only agreement: first given-name token + a surname (birth or
-    /// married), case-insensitive. The weaker half of `matches` — used ALONE
-    /// only to recognise a member the census can't date (no age, no stated
-    /// year) against a relative already in the SAME household role, never to
-    /// assert a cross-role contradiction (that still requires year corroboration).
+    /// Name-only agreement: first given-name token + any surname the profile is
+    /// known by (`RosterIdentity`), case-insensitive. The weaker half of
+    /// `matches` — used ALONE only to recognise a member the census can't date
+    /// (no age, no stated year) against a relative already in the SAME
+    /// household role, never to assert a cross-role contradiction (that still
+    /// requires year corroboration).
     static func namesMatch(member: HouseholdMember, profile: Profile) -> Bool {
-        let memberTokens = member.name.lowercased()
-            .split(whereSeparator: { $0 == " " || $0 == "," })
-            .map(String.init)
-            .filter { !$0.isEmpty }
-        guard let memberGiven = memberTokens.first,
-              let memberSurname = memberTokens.last,
-              memberTokens.count >= 2 else { return false }
+        // Surname first, through the shared primitive (EV23, 2026-08-26). The
+        // guard is unchanged in strength — a bare given-name roster row and a
+        // surname-less profile both still refuse here, because this rung
+        // ASSERTS identity; `sameRoleFallbackMatch` and `matchesRoleScoped` are
+        // the rungs that relax it under role scoping.
+        guard surnamesMatch(member: member, profile: profile) else { return false }
 
-        let profileGiven = (profile.firstName ?? "").lowercased()
+        let memberTokens = RosterIdentity.tokens(of: member.name)
+        guard let memberGiven = memberTokens.first else { return false }
+
+        let profileGiven = (profile.firstName ?? "").uppercased()
             .split(separator: " ").first.map(String.init) ?? ""
-        let profileSurnames = [profile.lastName, profile.marriedSurname]
-            .compactMap { $0?.lowercased().trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        guard !profileGiven.isEmpty, !profileSurnames.isEmpty else { return false }
-        guard profileSurnames.contains(memberSurname) else { return false }
+        guard !profileGiven.isEmpty else { return false }
         // Given names compare through the name-similarity ladder at the
         // nickname threshold, not by string equality — a census "Samuel" must
         // recognise the tree's "Sam", "Joseph" its "Joe" (owner dogfood

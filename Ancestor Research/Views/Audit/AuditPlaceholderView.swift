@@ -1137,18 +1137,39 @@ struct HealthView: View {
             .buttonStyle(.glassProminent).controlSize(.mini)
             .help("\(name) is already in the tree — link them as \(subjectName(subjectID))\(relationWord(entry.censusRelation, sex: entry.member.sex)) instead of adding a duplicate")
         case .nearMatch(let existingID, let reason):
+            // A PROPOSAL, and the weakest one this engine makes: the forename does
+            // not agree — only surname, household role, sex and birth year do.
+            //
+            // EV18, 2026-08-26. This was a single `.glassProminent` "Same as X?"
+            // button, which read as the recommended action for an identity nobody
+            // had established, and it was the only answer on offer. William
+            // Gladwin's 1871 Whittington schedule lists a son "John H Gladwin"
+            // (b. 1861, Unstone) against the tree's "Thomas H Gladwin" (b. 1861,
+            // Unstone); an adversarial review put "same boy" at about 70% and
+            // ruled DO NOT MERGE. Over-splitting is recoverable by the user,
+            // over-merging is not — so both answers are offered, neither is
+            // prominent, and the split is spelled out rather than implied by
+            // walking away.
             let name = appState.snapshot.profiles[existingID]?.displayName ?? "existing profile"
-            Button {
+            HStack(spacing: 6) {
+                rosterBadge("possibly \(name)", "questionmark.circle", .orange)
                 if let relation = entry.censusRelation {
-                    appState.linkCensusRelative(subjectID: subjectID, existingID: existingID,
-                                                relation: relation, censusYear: censusYear)
-                    refreshAudit()
+                    Button("Same person") {
+                        appState.linkCensusRelative(subjectID: subjectID, existingID: existingID,
+                                                    relation: relation, censusYear: censusYear)
+                        refreshAudit()
+                    }
+                    .buttonStyle(.glass).controlSize(.mini)
+                    .help("Treat this row as \(name) and complete any missing edge to them. The census spells the forename differently, but \(reason).")
+                    Button("Add separately") {
+                        appState.addCensusRelative(subjectID: subjectID, member: entry.member,
+                                                   relation: relation, censusYear: censusYear)
+                        refreshAudit()
+                    }
+                    .buttonStyle(.glass).controlSize(.mini)
+                    .help("\(entry.member.name) has not been linked to anyone. If they are a different person from \(name), create them as \(subjectName(subjectID))\(relationWord(relation, sex: entry.member.sex)) in their own right, citing the census.")
                 }
-            } label: {
-                Label("Same as \(name)?", systemImage: "questionmark.circle")
             }
-            .buttonStyle(.glassProminent).controlSize(.mini)
-            .help("The census spells the forename differently, but \(reason). Confirm to link rather than add a duplicate.")
         case .outOfScope:
             rosterBadge("not family", "minus.circle", .secondary)
         }

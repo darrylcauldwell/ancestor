@@ -133,7 +133,16 @@ nonisolated extension SourceRecord {
                     probateNumber: r.probateNumber,
                     address: r.address,
                     ageAtDeath: r.ageAtDeath
-                ))
+                )),
+                // EV16 (2026-08-26) — this primary was ALSO built with no
+                // `sources:` argument, so it defaulted to []. Left alone it would
+                // now read UNCITED directly above the cited residence its own
+                // `probateDerivedEvents` emits from the same grant — an
+                // incoherence this pass would itself have created. Same helper as
+                // the parish primary (#29); the calendar entry's URL is the
+                // grant's provenance. (`.military` is the remaining uncited
+                // primary — out of EV16's scope, reported not fixed.)
+                sources: Self.recordSource(r.common)
             )
 
         case .census(let r):
@@ -259,6 +268,14 @@ nonisolated extension SourceRecord {
             ?? m.marriageDate.flatMap({ GenealogicalDate.parsePreview($0).parsed?.bestYear })
         else { return [] }
         let date = yearOnlyDate(year)
+        // EV16 (2026-08-26) — the derived events are as evidenced as the primary:
+        // they restate fields off the SAME register row. Built without a
+        // `sources:` argument they defaulted to [] and rendered with no citation
+        // badge beside the fully-cited parish event carrying the identical fact.
+        // Same helper the primary uses (#29), so the derived rows carry the
+        // register URL verbatim — no second-guessing the tier, which stays
+        // URL-derived via SourceTierRegistry.
+        let sources = recordSource(r.common)
         var out: [LifeEvent] = []
         if let occupation = p.occupation?.trimmingCharacters(in: .whitespaces), !occupation.isEmpty {
             out.append(LifeEvent(
@@ -268,7 +285,8 @@ nonisolated extension SourceRecord {
                 date: date,
                 location: p.abode?.nilIfEmptyProjection ?? r.parish,
                 description: occupation,
-                details: nil
+                details: nil,
+                sources: sources
             ))
         }
         if let abode = p.abode?.trimmingCharacters(in: .whitespaces), !abode.isEmpty {
@@ -283,7 +301,8 @@ nonisolated extension SourceRecord {
                 endDate: date,
                 location: abode,
                 description: nil,
-                details: nil
+                details: nil,
+                sources: sources
             ))
         }
         return out
@@ -295,6 +314,14 @@ nonisolated extension SourceRecord {
     /// event — we never manufacture a blank occupation/residence row.
     private static func censusDerivedEvents(_ r: CensusRecord, profileID: String) -> [LifeEvent] {
         let date = yearOnlyDate(r.censusYear)
+        // EV16 (2026-08-26) — the census fan-out shipped without carrying the
+        // record's citation onto the derived rows, so the occupation and
+        // residence read UNCITED next to the fully-cited `.census` event that
+        // states the identical fact. Observed live on William Gladwin: life
+        // events 8DEBEAC0 ("Sawyer", 1881, Handsworth) and B0A6E31A ("Wood
+        // Sawyer", 1891, Beighton) both held `sources: []`, plus four other
+        // profiles. Same helper as the primary — one household page, one URL.
+        let sources = censusSource(r)
         var out: [LifeEvent] = []
         if let occupation = r.occupation?.trimmingCharacters(in: .whitespaces), !occupation.isEmpty {
             out.append(LifeEvent(
@@ -304,7 +331,8 @@ nonisolated extension SourceRecord {
                 date: date,
                 location: r.address ?? r.parish,
                 description: occupation,
-                details: nil
+                details: nil,
+                sources: sources
             ))
         }
         if let address = r.address?.trimmingCharacters(in: .whitespaces), !address.isEmpty {
@@ -321,7 +349,8 @@ nonisolated extension SourceRecord {
                 endDate: date,
                 location: address,
                 description: nil,
-                details: nil
+                details: nil,
+                sources: sources
             ))
         }
         return out
@@ -344,7 +373,12 @@ nonisolated extension SourceRecord {
             endDate: date,
             location: address,
             description: nil,
-            details: nil
+            details: nil,
+            // EV16 (2026-08-26) — the "late of …" residence is an assertion of
+            // the probate calendar entry, so it carries that entry's URL rather
+            // than defaulting to `sources: []`. Same helper as the primary
+            // `.probate` event, which this pass also cites.
+            sources: recordSource(r.common)
         )]
     }
 

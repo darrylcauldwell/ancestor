@@ -336,6 +336,74 @@ struct SearchDispatcher {
         return nil
     }
 
+    /// EV19 (2026-08-26) — the sibling of `unverifiedPremise` for the axis
+    /// nobody thought of as an assumption: the search REGION.
+    ///
+    /// William Gladwin (@I332233296774@) carries six FreeBMD *marriage*
+    /// negative-searches. The owner found the marriage by hand in one search —
+    /// Jun q 1858, GLADWIN, district CHESTERFIELD, 7b/741, GRO-scan verified.
+    /// Every one of the six went to Nottinghamshire because his birthplace
+    /// "Teversall, Nottinghamshire" selected the region, and that birthplace is
+    /// under an OPEN dispute against Ashover, Bolsover and Nottinghamshire.
+    ///
+    /// Widening the region (see `ResearchSubject.supplementalRegionAxes`) is
+    /// only half the repair. `negative_searches` suppresses a re-fire for ~90
+    /// days, and a DISPUTED value does not change — the same losing value keeps
+    /// winning region selection — so its stored keys keep matching and the
+    /// widening looks like it did nothing. (A region that CHANGES self-
+    /// invalidates: `districtCode`/`countyCode`/`chapmanCode`/`fagLocation` all
+    /// reach `QueryCache.cacheKey`, so new region → new key → the query fires.
+    /// Only the disputed-but-unchanged case needs this.) Returning non-nil
+    /// disables cross-run suppression for the fan-out AND stops its empties
+    /// being banked as durable negatives — exactly EV7's contract, for exactly
+    /// EV7's reason: a search is evidence of absence only if its premises hold.
+    ///
+    /// Scoped per source because the premise is only real where the region
+    /// actually reaches the request. Marking a genuinely region-free query
+    /// premise-bearing would refuse to bank a conclusive negative, which is the
+    /// same class of dishonesty pointed the other way.
+    ///
+    /// Pure and static so the contract is testable without a live dispatcher.
+    nonisolated static func contestedRegionPremise(
+        subject: ResearchSubject, sourceID: String, scope: ResearchScope
+    ) -> String? {
+        guard let phrase = subject.regionPremise else { return nil }
+        switch sourceID {
+        case "freebmd", "freereg":
+            // Both sweep the whole catalogue from `.national` upward — FreeBMD
+            // as one `districtid=""` query, FreeREG as the England & Wales
+            // code list. No county reaches the wire there, so an empty answer
+            // is conclusive whatever the birthplace dispute says.
+            guard scope < .national else { return nil }
+        case "freecen":
+            // FreeCen never drops the county: bounded scopes send the
+            // residence chapman, `.adjacent`/`.national` send the BIRTH
+            // chapman — which IS the disputed value. The one region-free
+            // FreeCen query is the anchor-less national ~90-code sweep.
+            guard !(scope >= .national && subject.homeChapmanCode.isEmpty) else { return nil }
+        case "familysearch":
+            // SOURCE_WEIGHTING Change 4 drops the county-level place axes at
+            // `.national`; only `anyPlace` (country) survives, and no county
+            // dispute moves a country.
+            guard scope < .national else { return nil }
+        case "findagrave":
+            // FAG pins on the burial place, else the death place, else the
+            // birth county — so it rests on a contested birthplace only when
+            // nothing better was recorded. `.international` drops the pin.
+            guard scope != .international else { return nil }
+            let pinnedByEvent = !(subject.burialPlace ?? "").isEmpty
+                || !(subject.deathLocation ?? "").isEmpty
+            if pinnedByEvent && !subject.contestedRegionFields.contains(.deathLocation) {
+                return nil
+            }
+        default:
+            // CWGC, Probate and the local corpora take no region at all —
+            // their emptiness is untouched by which county we think this is.
+            return nil
+        }
+        return phrase
+    }
+
     /// Walk the strictness ladder for one source at ONE scope. For
     /// non-`.all` modes, stops at the first tier that returns non-empty
     /// results; broadens past an empty tier only when its emptiness is
@@ -383,8 +451,14 @@ struct SearchDispatcher {
         // produces are never banked as durable negatives. Computed once: the
         // premise is a property of the AXES a record type uses, not of the
         // individual wire query.
+        // EV19 (2026-08-26) — the region is an axis too, and a region derived
+        // from a field still under dispute is exactly the same kind of
+        // unproven premise as an uncited spouse surname. Checked second so an
+        // uncited kin fact keeps naming itself in the caveat when both apply.
         let premise = Self.unverifiedPremise(
             subject: subject, sourceID: source.sourceID, recordType: recordType)
+            ?? Self.contestedRegionPremise(
+                subject: subject, sourceID: source.sourceID, scope: scope)
         if let premise {
             await ResearchActivityBus.shared.publish(.pipelineStage(
                 message: "\(source.sourceID) \(recordType.rawValue): searched, but the query assumed \(premise), which is unverified — an empty result proves nothing here"
@@ -751,7 +825,8 @@ struct SearchDispatcher {
         yearFrom: Int? = nil,
         yearTo: Int? = nil,
         surname: String? = nil,
-        extraCounties: [String] = []
+        extraCounties: [String] = [],
+        subjectCounties: [String] = []
     ) -> [(districtCode: String?, countyCode: String?)] {
         switch scope {
         case .parish:
@@ -760,6 +835,25 @@ struct SearchDispatcher {
             var counties = [homeChapmanCode]
             if scope == .adjacent {
                 counties += RegionConfig.adjacentCounties(homeChapmanCode)
+            }
+            // EV19 (2026-08-26) — counties the tree evidences about THIS
+            // SUBJECT: a rival value of a disputed birthplace, or a place they
+            // are attested to have lived (`supplementalRegionAxes`).
+            //
+            // Deliberately NOT under the `scope >= .adjacent` ceiling that
+            // `extraCounties` sits under, and the distinction is the whole
+            // fix. The 2026-08-23 ruling governs reaching a county that is
+            // admittedly NOT the subject's — a neighbour, a relative's. These
+            // are the counties that might BE the subject's, or that the
+            // subject demonstrably lived in. When the field that names the
+            // home county is under open dispute the home county is not one
+            // value, it is a set, and searching the set is what "search his
+            // county" MEANS for him; picking one member of it silently is how
+            // William Gladwin's marriage went unfound six times in
+            // Nottinghamshire while it sat in Chesterfield RD (7b/741).
+            for county in subjectCounties
+            where !county.isEmpty && !counties.contains(county) {
+                counties.append(county)
             }
             // ADDITIVE — the scope's own county is never dropped. FreeCen
             // already merges residence counties and FreeREG already appends a
@@ -809,7 +903,28 @@ struct SearchDispatcher {
                 // burning a guaranteed-empty request. `districts(forChapman
                 // Code:)` also expands umbrella codes now (union of the
                 // ridings' districts).
-                let codes = RegionConfig.districts(forChapmanCode: homeChapmanCode).values
+                // EV19 (2026-08-26) — home PLUS the subject-evidenced counties,
+                // where this branch previously read `homeChapmanCode` alone and
+                // silently discarded everything `counties` had accumulated.
+                // The FT-01 gate is ON in production so no shipped search was
+                // affected, but leaving it would mean the EV19 repair
+                // evaporates the moment the gate is flipped back — the exact
+                // shape of the 86674fd failure, where the fix and the code the
+                // pipeline actually runs were different code.
+                //
+                // NARROWED, not opened: the adjacency list and `extraCounties`
+                // are deliberately NOT here, so the documented gate-off
+                // degradation ".adjacent == .county == home-county district
+                // loop" still holds for every subject that has no contested
+                // birthplace and no attested residence
+                // (`geoAxesAdjacentGateOffKeepsHomeCountyDistrictLoop`).
+                // Deduped because two counties can share a district code;
+                // era-filtered once, over the union.
+                var seenDistrictCodes: Set<String> = []
+                let codes = ([homeChapmanCode] + subjectCounties)
+                    .filter { !$0.isEmpty }
+                    .flatMap { RegionConfig.districts(forChapmanCode: $0).values }
+                    .filter { seenDistrictCodes.insert($0).inserted }
                 let validCodes = Self.eraFilterDistrictCodes(
                     Array(codes), yearFrom: yearFrom, yearTo: yearTo
                 )
@@ -844,6 +959,17 @@ struct SearchDispatcher {
         subsystem: "dev.dreamfold.Ancestor-Research",
         category: "SearchDispatcher.freeBMDGeoAxes"
     )
+
+    /// EV19 (2026-08-26) — how many supplemental places may join Find a
+    /// Grave's `location` fan-out. Two.
+    ///
+    /// FAG takes one location per request and is a scraped PAGE, not an API,
+    /// so every extra pin is an extra fetch. Two carries a family that moved
+    /// once, or a disputed birthplace with one serious rival, and refuses to
+    /// turn a contested profile into a crawl. Lower than
+    /// `ResearchSubject.maxSupplementalRegionCounties` on purpose: the
+    /// chapman-coded sources batch their codes into one request, FAG cannot.
+    nonisolated static let maxFindAGraveExtraPins = 2
 
     /// FT-09 — keep only district codes whose catalogue validity window
     /// overlaps the search window. When the window is open (both bounds
@@ -1181,7 +1307,13 @@ struct SearchDispatcher {
                 surname: subject.surname,
                 extraCounties: (deathShapedCounties + kinCounties).flatMap {
                     RegionConfig.expandUmbrellaChapmanCode($0)
-                }
+                },
+                // EV19 (2026-08-26) — counties evidenced about the SUBJECT
+                // (contested birthplace rivals, own residences/censuses).
+                // Already umbrella-expanded and capped at derivation; unlike
+                // `extraCounties` they apply at every bounded scope, for the
+                // reason `freeBMDGeoAxes` states.
+                subjectCounties: subject.supplementalRegionCodes
             )
             // FreeBMD's s_surname field is overloaded per record type
             // (see FreeBMDSource): spouse surname for marriages,
@@ -1303,6 +1435,25 @@ struct SearchDispatcher {
             // the source emits a byte-identical single-key request. The
             // birth axis is always a single code (broad census sweeps scope
             // by birth county as ONE code — no fan-out to batch there).
+            // EV19 (2026-08-26) — the `.adjacent`/`.national` axis on the wire
+            // is `birth_chapman_codes[]`, a BIRTH axis built from the very
+            // field that may be under dispute. When it is, every rival value's
+            // county earns its own birth axis: one of them is his birthplace
+            // and we do not know which. Only `.contestedField` codes for
+            // `.birthLocation` qualify — a county the subject merely LIVED in
+            // is not a birth county, and putting it here would be a wrong
+            // axis rather than a wider one. Empty list → byte-identical
+            // behaviour to before for every undisputed subject.
+            func birthAxes(_ homeCode: String) -> [(residenceCodes: [String], birth: String?)] {
+                var out: [(residenceCodes: [String], birth: String?)] = [
+                    (residenceCodes: [], birth: homeCode),
+                ]
+                for code in subject.contestedBirthRegionCodes
+                where !code.isEmpty && code != homeCode {
+                    out.append((residenceCodes: [], birth: code))
+                }
+                return out
+            }
             let cenGeoAxes: [(residenceCodes: [String], birth: String?)]
             switch scope {
             case .parish, .district, .county:
@@ -1319,7 +1470,7 @@ struct SearchDispatcher {
                     // walkLadder records the visible scope-skip.
                     cenGeoAxes = []
                 } else {
-                    cenGeoAxes = [([], home)]
+                    cenGeoAxes = birthAxes(home)
                 }
             case .national, .international:
                 if home.isEmpty {
@@ -1327,7 +1478,7 @@ struct SearchDispatcher {
                     // FT-28 — batch the ~90-code national residence sweep.
                     cenGeoAxes = Self.freeCenResidenceGroups(entries.map { $0.code }).map { ($0, nil) }
                 } else {
-                    cenGeoAxes = [([], home)]
+                    cenGeoAxes = birthAxes(home)
                 }
             }
             let birthRange = subject.birthYearFrom.flatMap { from in
@@ -1386,6 +1537,17 @@ struct SearchDispatcher {
                     // subject is probed for; already umbrella-expanded at
                     // derivation, and capped at two.
                     + subject.kinResidenceAxes.map(\.chapmanCode)
+                    // EV19 (2026-08-26) — and the counties evidenced about the
+                    // SUBJECT: rival values of a disputed birthplace, plus
+                    // their own residence AND census places. Census places are
+                    // new here: `residenceAxes` reads only `.residence` events,
+                    // so a household enumerated together — the strongest
+                    // statement of where a family lived that the tree holds —
+                    // fed no search axis at all before this. Windowless for the
+                    // same reason the kin axes are: the evidence says WHERE,
+                    // not for which years, and a window invented to bound it
+                    // would be a fact we do not have.
+                    + subject.supplementalRegionCodes
             }
             return cenSurnames.flatMap { surnameToTry in
                 censusYears.flatMap { year in
@@ -1468,6 +1630,24 @@ struct SearchDispatcher {
             // probe. At .national the E&W sweep already includes the
             // constituents and the per-constituent check dedups.
             var regCodesWithBurial = regChapmanCodes
+            // EV19 (2026-08-26) — counties evidenced about the SUBJECT: a
+            // rival value of a disputed birthplace, or a place they are
+            // attested to have lived. Applied at EVERY scope, ahead of the
+            // `.adjacent` ceiling below, and the difference is the fix.
+            //
+            // FreeREG is the parish half of EV19 and the more visible one:
+            // `get_scored_records` on William Gladwin returned 84 rows, 42 of
+            // them FreeREG parish records and almost entirely Nottinghamshire
+            // namesake noise (GOULDING, GOLDING, GILDING, GOULTON, GLEADEN at
+            // Gringley on the Hill, Walkeringham, Misterton, Ordsall,
+            // Babworth, Mattersey, Carlton in Lindrick, Worksop, Mansfield,
+            // Edwinstowe, Nottingham). That is the radius his disputed
+            // Teversall birthplace bought; Dronfield, Unstone, Whittington and
+            // Brampton were never swept.
+            for code in subject.supplementalRegionCodes
+            where !code.isEmpty && !regCodesWithBurial.contains(code) {
+                regCodesWithBurial.append(code)
+            }
             // …but only from `.adjacent` upward, matching the FreeBMD arm
             // (cd3aa8b): the scope picker is the contract, and a County search
             // must never reach another county however good the reason. The
@@ -1768,20 +1948,45 @@ struct SearchDispatcher {
             // is the closest semantic match for where someone is buried;
             // fall back to region (county name from birthLocation) when
             // death location is unknown. Spec §23.
-            let fagLocation: String? = {
+            // EV19 (2026-08-26) — FAG takes ONE `location` per request, so a
+            // subject whose pin can only come from the birth county gets one
+            // pin per candidate place instead of one guess.
+            //
+            // Only the weakest rung fans out. A recorded burial place, or a
+            // death place, is a fact about where this person ended up and
+            // needs no help; the birth-county fallback is the rung that is a
+            // guess, and when the birthplace is disputed it is a guess about a
+            // guess. The supplemental places lead with residences, which is
+            // the right prior for a grave anyway — people are buried where
+            // they lived, not where they were born.
+            let fagLocations: [String?] = {
                 // DS-11/DS-19: at International scope, drop the location pin so
                 // Find a Grave searches worldwide by name — the whole point is
                 // to surface an emigrant's overseas grave, which a UK-county
                 // pin would exclude.
-                if scope == .international { return nil }
+                if scope == .international { return [nil] }
                 // Stage 2 (life events feed research axes) — a Burial
                 // LifeEvent's place IS the burial location FAG filters on;
                 // it beats the deathLocation approximation, which beats the
                 // birth-county guess.
-                if let bp = subject.burialPlace, !bp.isEmpty { return bp }
-                if let dl = subject.deathLocation, !dl.isEmpty { return dl }
-                if case .county(let name) = subject.region { return name }
-                return nil
+                if let bp = subject.burialPlace, !bp.isEmpty { return [bp] }
+                if let dl = subject.deathLocation, !dl.isEmpty { return [dl] }
+                var out: [String?] = []
+                if case .county(let name) = subject.region { out.append(name) }
+                // Capped hard: FAG is a scraped page, not an API, and one
+                // extra pin is one extra fetch. Two is enough to carry a
+                // family that moved once, or a birthplace with one serious
+                // rival, and refuses to turn a disputed profile into a crawl.
+                for place in subject.supplementalRegionPlaces
+                    .prefix(Self.maxFindAGraveExtraPins)
+                where !out.contains(where: {
+                    ($0 ?? "").caseInsensitiveCompare(place) == .orderedSame
+                }) {
+                    out.append(place)
+                }
+                // Unchanged for a subject with nothing to pin on: one query,
+                // no location filter.
+                return out.isEmpty ? [nil] : out
             }()
             // T1-16 (fetch half) — subject-side year axes. FAG's
             // birthyear/deathyear are SEPARATE person-fact axes, so they
@@ -1806,38 +2011,40 @@ struct SearchDispatcher {
                 df...max(subject.deathYearTo ?? df, df)
             }
             let fagSurnames = subject.surnamesToProbe(for: recordType)
-            return fagSurnames.map { surnameToTry in
-                RecordQuery(
-                    surname: surnameToTry,
-                    givenName: subject.givenName,
-                    recordType: recordType,
-                    yearFrom: yearRange.from,
-                    yearTo: yearRange.to,
-                    gender: subject.gender,
-                    region: subject.region,
-                    sourceParams: .findAGrave(FindAGraveParams(
-                        yearRangeWidth: 5,
-                        location: fagLocation,
-                        birthYearRange: fagBirthRange,
-                        deathYearRange: fagDeathRange,
-                        // `limit` stays at the wire default (20) for
-                        // first-pass probes; a truncated-page raise is a
-                        // caller decision via this dispatcher-settable
-                        // param — no automatic skip-loops (T1-16).
-                        //
-                        // T1-23 — female subjects: also match `lastname`
-                        // against the memorial's maiden-name field.
-                        // Mirrors the maiden-axis gating in
-                        // `surnamesToProbe` (gender == .female is the
-                        // trigger): the wikitree convention stores women
-                        // under maiden surname while inverted imports
-                        // carry the married form, and the flag makes
-                        // either probe find a memorial filed the other
-                        // way round. Broadening-only, so no era/record-
-                        // type gate is needed.
-                        includeMaidenName: subject.gender == .female
-                    ))
-                )
+            return fagSurnames.flatMap { surnameToTry in
+                fagLocations.map { fagLocation in
+                    RecordQuery(
+                        surname: surnameToTry,
+                        givenName: subject.givenName,
+                        recordType: recordType,
+                        yearFrom: yearRange.from,
+                        yearTo: yearRange.to,
+                        gender: subject.gender,
+                        region: subject.region,
+                        sourceParams: .findAGrave(FindAGraveParams(
+                            yearRangeWidth: 5,
+                            location: fagLocation,
+                            birthYearRange: fagBirthRange,
+                            deathYearRange: fagDeathRange,
+                            // `limit` stays at the wire default (20) for
+                            // first-pass probes; a truncated-page raise is a
+                            // caller decision via this dispatcher-settable
+                            // param — no automatic skip-loops (T1-16).
+                            //
+                            // T1-23 — female subjects: also match `lastname`
+                            // against the memorial's maiden-name field.
+                            // Mirrors the maiden-axis gating in
+                            // `surnamesToProbe` (gender == .female is the
+                            // trigger): the wikitree convention stores women
+                            // under maiden surname while inverted imports
+                            // carry the married form, and the flag makes
+                            // either probe find a memorial filed the other
+                            // way round. Broadening-only, so no era/record-
+                            // type gate is needed.
+                            includeMaidenName: subject.gender == .female
+                        ))
+                    )
+                }
             }
 
         default:
