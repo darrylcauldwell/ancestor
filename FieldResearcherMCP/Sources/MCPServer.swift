@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import os
 
 /// Minimal MCP server for the Ancestor Research Field Researcher.
 /// Communicates via JSON-RPC over stdio. Reads tree context from the
@@ -224,7 +225,12 @@ actor MCPHandler {
     eleven truths. Recommend discriminating evidence, not application.
     3. user_status is the human's review verdict: "discarded" means the user \
     rejected it — NEVER re-propose it. Quirk: some apply paths historically \
-    set "saved_as_lead" on applied records.
+    set "saved_as_lead" on applied records. To RECORD a refusal, use \
+    discard_scored_record (reason required — a discarded record is never \
+    re-proposed, so an unexplained discard buries evidence permanently). One \
+    finding is TWO rows, a lead and a scored record: both discard_scored_record \
+    and dismiss_lead now cascade to the other half, so refuse a finding once, \
+    on either surface, not twice.
     4. LEADS never apply automatically. They are suggestions the user reviews \
     in the app's Triage. Same for anything research produces: the app's \
     review surfaces are where changes happen; you read, narrate, and trigger.
@@ -481,11 +487,22 @@ actor MCPHandler {
                 ),
                 tool(
                     name: "dismiss_lead",
-                    description: "Mark a lead as dismissed — the user has decided it's not relevant. Pure state transition, no fact data written.",
+                    description: "Mark a lead as dismissed — the user has decided it's not relevant. Pure state transition, no fact data written. EV33 (2026-08-26): ALSO cascades to the scored record the lead mirrors, setting evidence_records.user_status = 'discarded' (verdict / gates / scores / applied_at untouched). Without the cascade a dismissal cleared only the half the user cannot see, so the profile card kept reporting the record as 'Researched — not applied'. Household (lead_hh_*), parent-inference (lead_parentInferred_*) and field-researcher (lead_fr_*) leads mirror no scored record — they dismiss cleanly with no evidence write. The response reports both halves.",
                     properties: [
                         "lead_id": ["type": "string", "description": "Lead ID to dismiss"],
+                        "reason": ["type": "string", "description": "Optional but strongly encouraged: why this lead is being refused. Recorded as a workbench note so a wrong dismissal is auditable — the cascade suppresses the scored record from future runs too, and a discarded record is never re-proposed."],
                     ],
                     required: ["lead_id"]
+                ),
+                tool(
+                    name: "discard_scored_record",
+                    description: "Refuse a scored record on the human's behalf: sets evidence_records.user_status = 'discarded' for one record on one profile, and cascades to the matching lead. This is the human review verdict (META) — it writes NO genealogy, creates no profile, applies no fact, and never touches verdict, gates, scores or applied_at, which stay owned by the deterministic scorer. Use it when the scorer over-accepted (a namesake landing as verdict 'fact' is exactly the case this exists for — a 'fact' verdict is NOT a reason to refuse the discard). `reason` is REQUIRED: a discarded record is never re-proposed, so a wrong discard buries evidence permanently; the reason is filed as a workbench note on the profile so it stays auditable. Refuses when the record does not exist for that profile or the reason is blank; an already-discarded record is an idempotent no-op and says so. Un-discarding is an in-app action — this tool is one-way.",
+                    properties: [
+                        "profile_id": ["type": "string", "description": "Profile the record is scored against."],
+                        "source_record_id": ["type": "string", "description": "The record handle exactly as get_scored_records returns it — either source_record_id (e.g. freebmd_death_7b_1527_179857986) or the composite evidence_record_id ('<profile_id>|<source_record_id>'). Both are accepted; both are scoped to profile_id."],
+                        "reason": ["type": "string", "description": "REQUIRED, non-empty: why this record is being refused (e.g. 'namesake — this death is the Belper Sarah, ours is still alive in the 1891 census')."],
+                    ],
+                    required: ["profile_id", "source_record_id", "reason"]
                 ),
                 tool(
                     name: "flag_audit_override",
@@ -787,6 +804,13 @@ actor MCPHandler {
             return try submitRelationshipProposal(arguments)
         case "dismiss_lead":
             return try dismissLead(arguments)
+        // EV33 (2026-08-26) — dispatched ungated, alongside dismiss_lead and
+        // add_workbench_note. It writes `user_status` ONLY, which is the
+        // human's review verdict on a scorer-owned table (META), so it needs
+        // no ANCESTOR_MCP_AUTO_APPROVE gate: nothing it can write asserts a
+        // genealogical fact.
+        case "discard_scored_record":
+            return try discardScoredRecord(arguments)
         case "flag_audit_override":
             return try flagAuditOverride(arguments)
         case "add_workbench_note":
@@ -2212,23 +2236,466 @@ actor MCPHandler {
         return ["content": [["type": "text", "text": json]]]
     }
 
+    // MARK: - EV33 — lead ⇄ evidence sync (2026-08-26)
+    //
+    // One research finding lives as TWO rows: a suggestion in `leads` and a
+    // scored row in `evidence_records`. Nothing kept them in step. Proven live
+    // on 2026-08-25: 99 leads dismissed over MCP, and not one profile card
+    // moved, because the cards read `evidence_records.user_status` — which
+    // stayed "unreviewed" on every one of them. Concretely on Sarah A Gladwin
+    // (2AD1811B-DB1C-4677-A2DC-083601B3941E): lead
+    // `lead_freebmd_death_7b_1527_179857986` dismissed, evidence record
+    // `freebmd_death_7b_1527_179857986` still unreviewed, card still reporting
+    // "Researched — not applied (25)" under Death. MCP-driven triage could
+    // never finish because dismiss_lead cleared only the half the user cannot
+    // see.
+    //
+    // FIREWALL POSTURE for everything below. `user_status` is META — the
+    // HUMAN's review verdict living on a machine-owned table.
+    // AncestorApp/CROSS_PROFILE_CORROBORATION_SPEC.md line 8 is explicit that
+    // `evidence_records.verdict` is scorer-owned and re-stomped every run
+    // while "only user_status survives". Writing it asserts no genealogy,
+    // creates no profile and applies no fact, so it is on the legal side of
+    // the Evidence Firewall — and it is dispatched ungated for that reason.
+    // `verdict`, `gates_json`, the scores and `applied_at` are never written
+    // here: the deterministic sandwich keeps sole ownership of all four.
+
+    /// Lead-id families that are NOT mirrors of a scored record, so there is
+    /// no `evidence_records` row for the cascade to reach: household leads
+    /// (`Lead.createFromHousehold` → `lead_hh_<key>_<year>`), parent-inference
+    /// leads (`lead_parentInferred_<hypothesisID>`) and leads this server
+    /// itself submitted (`submit_lead` → `lead_fr_<hash>_<timestamp>`).
+    /// Recognised by prefix only so the response can SAY "no scored record by
+    /// construction" instead of the ambiguous "not found" — the real gate is
+    /// the lookup miss in `cascadeDiscardEvidence`, which also covers any id
+    /// family invented after this comment was written.
+    static let syntheticLeadPrefixes = ["lead_hh_", "lead_parentInferred_", "lead_fr_"]
+
+    /// The scored record a lead mirrors. The convention is `"lead_" +
+    /// evidence_records.source_record_id` — verified against the app's own
+    /// `ProjectDatabase.dismissLeadsForDiscardedEvidence`
+    /// (`l.id = 'lead_' || e.source_record_id`), its `leadEvidenceMeta` join,
+    /// and `get_profile`'s lead join in this file. Returns nil for the
+    /// synthetic families above.
+    static func sourceRecordID(forLeadID leadID: String) -> String? {
+        guard leadID.hasPrefix("lead_") else { return nil }
+        guard !syntheticLeadPrefixes.contains(where: { leadID.hasPrefix($0) }) else { return nil }
+        let tail = String(leadID.dropFirst("lead_".count))
+        return tail.isEmpty ? nil : tail
+    }
+
+    /// What the lead half of a discard did. `outcome` is one of
+    /// `dismissed` | `already_resolved` | `no_matching_lead`.
+    struct LeadCascadeOutcome {
+        let leadID: String?
+        let outcome: String
+    }
+
+    /// What the evidence half of a dismissal did. `outcome` is one of
+    /// `discarded` | `already_discarded` | `no_matching_record` |
+    /// `not_applicable` (synthetic lead id) | `no_evidence_table` (schema
+    /// predates v13) | `lead_not_found` | `no_profile_on_lead`.
+    struct EvidenceCascadeOutcome {
+        let evidenceRecordID: String?
+        let sourceRecordID: String?
+        let outcome: String
+    }
+
+    /// EV33 — discard → lead. Dismiss the lead that mirrors a scored record.
+    ///
+    /// The `promoted / dismissed / resolved` guard mirrors the app's own
+    /// `dismissLeadsForDiscardedEvidence`: a settled lead must not be
+    /// re-stamped or reopened by a later discard on the evidence side.
+    ///
+    /// KNOWN NARROWER THAN THE APP: the app additionally sweeps same-page
+    /// registration twins via `RecordScorer.isSameRegistration`, which needs
+    /// the app's scoring module and is not reachable from this package. A twin
+    /// index row therefore keeps its own live lead here; that over-splits
+    /// (the user still sees, and can still dismiss, the twin) rather than
+    /// over-merging, which is the safe direction.
+    static func cascadeDismissLead(
+        _ db: Database, profileID: String, sourceRecordID: String
+    ) throws -> LeadCascadeOutcome {
+        let leadID = "lead_" + sourceRecordID
+        guard let row = try Row.fetchOne(
+            db,
+            sql: "SELECT id, status FROM leads WHERE id = ? AND profile_id = ?",
+            arguments: [leadID, profileID]
+        ) else {
+            return LeadCascadeOutcome(leadID: nil, outcome: "no_matching_lead")
+        }
+        let status: String = row["status"] ?? ""
+        guard !["promoted", "dismissed", "resolved"].contains(status) else {
+            return LeadCascadeOutcome(leadID: leadID, outcome: "already_resolved")
+        }
+        try db.execute(sql: """
+            UPDATE leads
+            SET status = 'dismissed', resolution = 'dismissed', resolved_at = ?
+            WHERE id = ?
+            """, arguments: [Date(), leadID])
+        return LeadCascadeOutcome(leadID: leadID, outcome: "dismissed")
+    }
+
+    /// EV33 — lead → evidence. The half that was missing entirely: mark the
+    /// scored record a dismissed lead mirrors as `discarded`. `user_status`
+    /// ONLY; a lead dismissal is not a scoring event.
+    static func cascadeDiscardEvidence(
+        _ db: Database, profileID: String, leadID: String
+    ) throws -> EvidenceCascadeOutcome {
+        guard let srid = sourceRecordID(forLeadID: leadID) else {
+            return EvidenceCascadeOutcome(
+                evidenceRecordID: nil, sourceRecordID: nil, outcome: "not_applicable")
+        }
+        guard let row = try Row.fetchOne(db, sql: """
+            SELECT id, user_status FROM evidence_records
+            WHERE profile_id = ? AND source_record_id = ?
+            """, arguments: [profileID, srid]) else {
+            return EvidenceCascadeOutcome(
+                evidenceRecordID: nil, sourceRecordID: srid, outcome: "no_matching_record")
+        }
+        let evidenceID: String = row["id"] ?? ""
+        let current: String = row["user_status"] ?? ""
+        guard current != "discarded" else {
+            return EvidenceCascadeOutcome(
+                evidenceRecordID: evidenceID, sourceRecordID: srid, outcome: "already_discarded")
+        }
+        try db.execute(
+            sql: "UPDATE evidence_records SET user_status = 'discarded' WHERE id = ?",
+            arguments: [evidenceID])
+        return EvidenceCascadeOutcome(
+            evidenceRecordID: evidenceID, sourceRecordID: srid, outcome: "discarded")
+    }
+
+    /// Where a refusal reason goes. Neither `evidence_records` nor the legacy
+    /// `record_rejections` table has a column for one (checked 2026-08-26:
+    /// rejections is `(profile_id, record_id, rejected_at)` and nothing else),
+    /// so rather than invent a schema change the reason is filed as a
+    /// `workbench_notes` row — the same firewall-safe commentary table
+    /// `add_workbench_note` writes, readable back through
+    /// `get_workbench_notes` and visible in the app's Workbench. Follows the
+    /// `flag_audit_override` precedent of reusing existing machinery to carry
+    /// a reason. `INSERT OR IGNORE` keyed on a deterministic id so replaying
+    /// the same discard does not stack duplicate notes.
+    ///
+    /// Returns false when the project schema predates `workbench_notes`; the
+    /// caller reports that as `reason_recorded: false` rather than swallowing
+    /// it, and the reason is echoed in the response payload regardless.
+    static func writeRefusalReasonNote(
+        _ db: Database, noteID: String, profileID: String,
+        attachedTo: String, content: String
+    ) throws -> Bool {
+        guard try db.tableExists("workbench_notes") else { return false }
+        let now = Date()
+        // EV33 verification (2026-08-26) — the tag MUST be a `NoteTag` raw
+        // value. This first shipped as `'discard'`, which is not a case:
+        // the app's `noteFromRow` guards on `NoteTag(rawValue:)` and returns
+        // nil on a miss, so every refusal reason was silently dropped from
+        // the Workbench while `get_workbench_notes` (raw SQL) still showed
+        // it. The reason would have been invisible to the one person it
+        // exists for — which defeats the whole argument for making `reason`
+        // mandatory. `meta` is the canonical case for "notes about the
+        // research process itself" (AncestorKit/Workbench/WorkbenchNote.swift),
+        // and a review verdict is exactly that, not a genealogical
+        // observation. This package cannot import AncestorKit (GRDB only),
+        // so the literal is pinned by `refusalNoteTagIsDecodableByTheApp`.
+        try db.execute(sql: """
+            INSERT OR IGNORE INTO workbench_notes
+            (id, content, tag, attached_to, attachment_kind, attachment_id,
+             created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'profile', ?, ?, ?)
+            """, arguments: [noteID, content, refusalNoteTag, attachedTo, profileID, now, now])
+        return true
+    }
+
+    /// Every `NoteTag` raw value, mirrored from
+    /// `AncestorKit/Sources/AncestorKit/Workbench/WorkbenchNote.swift`. This
+    /// package depends on GRDB alone, so the compiler cannot check the
+    /// coupling — `refusalNoteTagIsDecodableByTheApp` does (EV33, 2026-08-26).
+    static let validNoteTags: Set<String> = [
+        "observation", "todo", "insight", "sourceLog", "meta",
+    ]
+
+    /// `NoteTag.meta` — "notes about the research process itself", which is
+    /// exactly what a human review verdict is (EV33, 2026-08-26).
+    static let refusalNoteTag = "meta"
+
+    /// The app's `NoteAttachment` JSON shape.
+    ///
+    /// EV33 verification (2026-08-26) — this is `{"<kind>":{"id":"<id>"}}`,
+    /// NOT the `{"kind":…,"id":…}` this used to emit. `NoteAttachment`
+    /// (AncestorKit/Workbench/WorkbenchNote.swift) is an enum with associated
+    /// values and SYNTHESISED `Codable`, so Swift keys the object by case
+    /// name; verified by round-tripping the real encoder rather than read off
+    /// the declaration. The app's `noteFromRow` decodes this column with
+    /// `try? JSONDecoder().decode(NoteAttachment.self, …)` and returns nil on
+    /// failure, so the old shape made every MCP-written note vanish from the
+    /// Workbench — silently, and including notes written long before EV33 by
+    /// `add_workbench_note`, which had the same bug and now shares this
+    /// helper. Pinned by `noteAttachmentJSONMatchesTheAppsEnumEncoding` here
+    /// and by the app-side round-trip test in
+    /// `Ancestor Research Tests/EvidenceLeadSyncTests.swift`.
+    ///
+    /// Built through JSONSerialization (not interpolation) so an id carrying a
+    /// quote or backslash cannot produce a malformed row.
+    static func noteAttachmentJSON(kind: String = "profile", id: String) -> String {
+        let payload: [String: Any] = [kind: ["id": id]]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let s = String(data: data, encoding: .utf8) else { return "{}" }
+        return s
+    }
+
+    /// Only used for the near-dead path where a project schema has no
+    /// `workbench_notes` table to file a refusal reason in. stdout is the
+    /// JSON-RPC channel, so it cannot be used for logging.
+    static let logger = Logger(subsystem: "dev.dreamfold.FieldResearcherMCP", category: "evidence")
+
     /// Mark a lead as dismissed. Pure state transition — no facts written.
-    /// Idempotent (DOA on re-dismiss because the WHERE clause already finds
-    /// `status = 'dismissed'`).
+    /// Idempotent (a re-dismiss re-stamps the same terminal state).
+    ///
+    /// EV33 (2026-08-26): now ALSO cascades to the scored record the lead
+    /// mirrors. Before this, dismissing a lead cleared only the half the user
+    /// cannot see — see the MARK block above for the live evidence.
     func dismissLead(_ args: [String: Any]) throws -> [String: Any] {
         guard let leadID = args["lead_id"] as? String else {
             throw MCPError.invalidParams("dismiss_lead requires lead_id")
         }
-        try db.write { db in
+        let reason = ((args["reason"] as? String) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Optional here, unlike discard_scored_record: the owner dismisses in
+        // bulk and requiring a reason would break that workflow. Encouraged in
+        // the tool description because the cascade now buries the scored
+        // record too.
+        let noteID = idempotencyKey(
+            profileID: leadID, field: "dismiss_reason", value: reason, sourceURL: leadID)
+
+        let json: String = try db.write { db in
+            // Read the lead BEFORE the update: the evidence half has to be
+            // scoped by the lead's own profile_id, and the caller deserves to
+            // know whether the id it passed actually existed.
+            let leadRow = try Row.fetchOne(
+                db, sql: "SELECT id, profile_id, status FROM leads WHERE id = ?",
+                arguments: [leadID])
+            var profileID: String?
+            if let leadRow { profileID = leadRow["profile_id"] }
+
+            // Unchanged from before EV33: the UPDATE runs even when the row is
+            // absent (a no-op), so replaying a dismiss over a pruned lead still
+            // succeeds instead of erroring. Not narrowed — only reported on.
             try db.execute(sql: """
                 UPDATE leads
                 SET status = 'dismissed', resolved_at = ?, resolution = 'dismissed'
                 WHERE id = ?
                 """, arguments: [Date(), leadID])
+
+            var payload: [String: Any] = [
+                "status": "dismissed",
+                "lead_id": leadID,
+                "lead_found": leadRow != nil,
+            ]
+            if let profileID { payload["profile_id"] = profileID }
+
+            // `evidence_records` is v13; guard the read so a pre-v13 project
+            // keeps dismissing leads exactly as it did rather than newly
+            // erroring on a table that isn't there.
+            let hasEvidence = try db.tableExists("evidence_records")
+            let cascade: EvidenceCascadeOutcome
+            if leadRow == nil {
+                // Nothing to join FROM — say that, rather than reporting the
+                // more specific "no_matching_record" and implying the lead was
+                // real.
+                cascade = EvidenceCascadeOutcome(
+                    evidenceRecordID: nil, sourceRecordID: nil, outcome: "lead_not_found")
+            } else if !hasEvidence {
+                cascade = EvidenceCascadeOutcome(
+                    evidenceRecordID: nil, sourceRecordID: nil, outcome: "no_evidence_table")
+            } else if let profileID, !profileID.isEmpty {
+                cascade = try Self.cascadeDiscardEvidence(
+                    db, profileID: profileID, leadID: leadID)
+            } else {
+                cascade = EvidenceCascadeOutcome(
+                    evidenceRecordID: nil, sourceRecordID: nil, outcome: "no_profile_on_lead")
+            }
+            var evidence: [String: Any] = ["outcome": cascade.outcome]
+            if let id = cascade.evidenceRecordID { evidence["evidence_record_id"] = id }
+            if let srid = cascade.sourceRecordID { evidence["source_record_id"] = srid }
+            if cascade.outcome == "not_applicable" {
+                evidence["detail"] = "Lead \(leadID) mirrors no scored record (household / parent-inference / field-researcher lead) — nothing to discard."
+            }
+            payload["evidence"] = evidence
+
+            if !reason.isEmpty, let profileID, !profileID.isEmpty {
+                let recorded = try Self.writeRefusalReasonNote(
+                    db, noteID: noteID, profileID: profileID,
+                    attachedTo: Self.noteAttachmentJSON(id: profileID),
+                    content: "Dismissed lead \(leadID) via MCP dismiss_lead: \(reason)")
+                payload["reason"] = reason
+                payload["reason_recorded"] = recorded
+                if recorded { payload["reason_note_id"] = noteID }
+                if !recorded {
+                    Self.logger.warning("dismiss_lead reason not filed — no workbench_notes table; lead=\(leadID, privacy: .public)")
+                }
+            }
+            return Self.jsonString(payload)
         }
-        return [
-            "content": [[ "type": "text", "text": "Lead \(leadID) dismissed." ]]
-        ]
+        return ["content": [["type": "text", "text": json]]]
+    }
+
+    /// EV33 (2026-08-26) — the other direction: refuse a SCORED RECORD, which
+    /// MCP previously had no way to do at all. Sets
+    /// `evidence_records.user_status = 'discarded'` and cascades to the
+    /// matching lead. See the MARK block above for the firewall reasoning.
+    ///
+    /// `reason` is REQUIRED and that is not negotiable. A discarded record is
+    /// NEVER re-proposed — the pipeline's `loadRejections` unions
+    /// `user_status = 'discarded'` into its suppression set, and this server's
+    /// own `dataInterpretationGuide` (item 3) instructs every client never to
+    /// re-propose one. An agent that discards wrongly therefore buries
+    /// evidence permanently and silently; a written reason is what makes a bad
+    /// discard auditable after the fact.
+    ///
+    /// Deliberately does NOT refuse a record whose verdict is `fact`: refusing
+    /// a fact-verdict record is precisely what a human does when the scorer
+    /// over-accepted a namesake, and the 2026-08-25 session produced several.
+    func discardScoredRecord(_ args: [String: Any]) throws -> [String: Any] {
+        guard let profileID = (args["profile_id"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !profileID.isEmpty else {
+            throw MCPError.invalidParams("discard_scored_record requires profile_id")
+        }
+        guard let handle = (args["source_record_id"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !handle.isEmpty else {
+            throw MCPError.invalidParams("discard_scored_record requires source_record_id (the handle get_scored_records returns as source_record_id, or its evidence_record_id)")
+        }
+        let reason = ((args["reason"] as? String) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !reason.isEmpty else {
+            return Self.discardRefusal([
+                "reason_code": "missing_reason",
+                "profile_id": profileID,
+                "source_record_id": handle,
+                "detail": "reason is required and must be non-empty. A discarded record is never re-proposed, so an unexplained discard buries the evidence permanently — say why you are refusing it.",
+            ])
+        }
+
+        let noteID = idempotencyKey(
+            profileID: profileID, field: "discard_reason", value: reason, sourceURL: handle)
+        let attachedTo = Self.noteAttachmentJSON(id: profileID)
+
+        let json: String = try db.write { db in
+            guard try db.tableExists("evidence_records") else {
+                return Self.jsonString([
+                    "status": "refused",
+                    "reason_code": "no_evidence_table",
+                    "profile_id": profileID,
+                    "source_record_id": handle,
+                    "detail": "This project's schema predates evidence_records (v13) — there is nothing to discard. Open the project in the app once to migrate it.",
+                ])
+            }
+
+            // Accept BOTH handles get_scored_records surfaces: the bare
+            // `source_record_id` and the composite `evidence_record_id`
+            // ('<profile_id>|<source_record_id>'). Both legs are scoped to
+            // profile_id, so a composite belonging to another profile simply
+            // misses rather than reaching across.
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, source_record_id, verdict, user_status, applied_at
+                FROM evidence_records
+                WHERE profile_id = ? AND (source_record_id = ? OR id = ?)
+                """, arguments: [profileID, handle, handle])
+
+            // "When in doubt, split": (profile_id, source_record_id) is unique
+            // and the composite id embeds both, so two matches means the
+            // handle is genuinely ambiguous. Refuse rather than guess which
+            // record the human meant to bury.
+            guard rows.count <= 1 else {
+                return Self.jsonString([
+                    "status": "refused",
+                    "reason_code": "ambiguous_handle",
+                    "profile_id": profileID,
+                    "source_record_id": handle,
+                    "detail": "'\(handle)' matches \(rows.count) evidence rows on this profile. Pass the evidence_record_id from get_scored_records instead.",
+                ])
+            }
+            guard let row = rows.first else {
+                return Self.jsonString([
+                    "status": "refused",
+                    "reason_code": "record_not_found",
+                    "profile_id": profileID,
+                    "source_record_id": handle,
+                    "detail": "No scored record '\(handle)' on profile \(profileID). Call get_scored_records for this profile and use a source_record_id or evidence_record_id it returns.",
+                ])
+            }
+
+            let evidenceID: String = row["id"] ?? ""
+            let sourceRecordID: String = row["source_record_id"] ?? ""
+            let verdict: String = row["verdict"] ?? ""
+            let alreadyDiscarded = (row["user_status"] as String? ?? "") == "discarded"
+
+            if !alreadyDiscarded {
+                // user_status ONLY. verdict / gates_json / the scores /
+                // applied_at are scorer-owned and are not in this statement.
+                try db.execute(
+                    sql: "UPDATE evidence_records SET user_status = 'discarded' WHERE id = ?",
+                    arguments: [evidenceID])
+            }
+
+            // Run the lead half even when the record was already discarded:
+            // that is exactly the drift EV33 is about, only inverted (evidence
+            // refused in-app, lead left live), and repairing it is idempotent.
+            let lead = try Self.cascadeDismissLead(
+                db, profileID: profileID, sourceRecordID: sourceRecordID)
+
+            var payload: [String: Any] = [
+                "status": alreadyDiscarded ? "already_discarded" : "discarded",
+                "profile_id": profileID,
+                "evidence_record_id": evidenceID,
+                "source_record_id": sourceRecordID,
+                "user_status": "discarded",
+                // Echoed for the caller's benefit, NOT modified — the scorer
+                // owns it and re-stamps it every run.
+                "verdict": verdict,
+                "reason": reason,
+                "lead": [
+                    "outcome": lead.outcome,
+                    "lead_id": lead.leadID ?? NSNull(),
+                ] as [String: Any],
+            ]
+            if alreadyDiscarded {
+                payload["detail"] = "Record \(sourceRecordID) was already discarded — no change to user_status. The lead half was re-checked anyway."
+            }
+
+            // An applied record whose evidence is now refused leaves the value
+            // sitting on the profile with its citation. This tool must not
+            // touch applied_at (the apply/un-apply path is the app's), so say
+            // so loudly instead of leaving a silent inconsistency.
+            if let appliedAt: Date = row["applied_at"] {
+                payload["applied_at"] = ISO8601DateFormatter().string(from: appliedAt)
+                payload["warning"] = "This record was APPLIED to the profile. Discarding it records the human verdict but does NOT remove the value or its citation — un-apply it in the app, or the profile keeps a fact whose evidence is now refused."
+            }
+
+            let recorded = try Self.writeRefusalReasonNote(
+                db, noteID: noteID, profileID: profileID, attachedTo: attachedTo,
+                content: "Discarded scored record \(sourceRecordID) via MCP discard_scored_record: \(reason)")
+            payload["reason_recorded"] = recorded
+            if recorded {
+                payload["reason_note_id"] = noteID
+            } else {
+                // Never silently swallowed: flagged in the payload AND logged.
+                // stdout is the JSON-RPC channel, so os.Logger is the only
+                // safe log sink here.
+                Self.logger.warning("discard_scored_record reason not filed — no workbench_notes table; record=\(sourceRecordID, privacy: .public)")
+                payload["detail_reason_storage"] = "This project has no workbench_notes table, so the reason could not be filed as a note. It is preserved in this response only."
+            }
+            return Self.jsonString(payload)
+        }
+        return ["content": [["type": "text", "text": json]]]
+    }
+
+    /// Structured refusal envelope for `discard_scored_record` — mirrors
+    /// `refusePromote`'s shape so callers parse one refusal form across tools.
+    private static func discardRefusal(_ fields: [String: Any]) -> [String: Any] {
+        var payload = fields
+        payload["status"] = "refused"
+        return ["content": [["type": "text", "text": jsonString(payload)]]]
     }
 
     /// Propose muting or snoozing an audit rule. Same firewall pattern as
@@ -2301,13 +2768,21 @@ actor MCPHandler {
             throw MCPError.invalidParams("attachment_kind must be 'profile' or 'relationship'")
         }
         let tag = (args["tag"] as? String) ?? "observation"
-        let attachedTo: String = {
-            // Mirror the in-app NoteAttachment JSON shape: { kind, id }.
-            let payload: [String: Any] = ["kind": kind, "id": attachmentID]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let s = String(data: data, encoding: .utf8) else { return "{}" }
-            return s
-        }()
+        // EV33 verification (2026-08-26) — an unrecognised tag is refused, not
+        // written. `noteFromRow` guards `NoteTag(rawValue:)` and returns nil,
+        // so a free-text tag produced a row that existed in SQLite and was
+        // invisible in the app: the caller got "note added" and the user got
+        // nothing. Same silent-drop class as the `attached_to` bug below.
+        guard Self.validNoteTags.contains(tag) else {
+            throw MCPError.invalidParams(
+                "tag must be one of \(Self.validNoteTags.sorted().joined(separator: ", ")) — '\(tag)' is not a NoteTag the app can decode, and a note carrying it would be silently dropped from the Workbench.")
+        }
+        // EV33 verification (2026-08-26) — was building `{"kind":…,"id":…}`
+        // inline, which `NoteAttachment` cannot decode, so every note this
+        // tool has ever written was dropped by the app's `noteFromRow` and
+        // never appeared in the Workbench. Now shares the one corrected
+        // helper; see its doc comment for the real shape and why.
+        let attachedTo = Self.noteAttachmentJSON(kind: kind, id: attachmentID)
 
         let id = idempotencyKey(
             profileID: attachmentID,
@@ -4125,6 +4600,39 @@ actor MCPHandler {
     /// JSON payload string (`Sendable`).
     func getScoredRecordsResponseText(_ args: [String: Any]) throws -> String {
         Self.toolResponseText(try getScoredRecords(args))
+    }
+
+    /// EV33 (2026-08-26) — same Sendable projection for the two tools that
+    /// keep `leads` and `evidence_records` in step, so tests can assert on the
+    /// payload without dragging `[String: Any]` across the actor boundary.
+    func discardScoredRecordResponseText(_ args: [String: Any]) throws -> String {
+        Self.toolResponseText(try discardScoredRecord(args))
+    }
+
+    func dismissLeadResponseText(_ args: [String: Any]) throws -> String {
+        Self.toolResponseText(try dismissLead(args))
+    }
+
+    /// Sendable read-back for tests: the current `user_status` / `verdict` of
+    /// one evidence row, and one lead's status. Keeps the assertions honest —
+    /// they check the DB, not just the response text.
+    func evidenceRowState(evidenceRecordID: String) throws -> [String: String] {
+        try db.read { db in
+            guard let row = try Row.fetchOne(
+                db, sql: "SELECT user_status, verdict FROM evidence_records WHERE id = ?",
+                arguments: [evidenceRecordID]) else { return [:] }
+            return [
+                "user_status": row["user_status"] as String? ?? "",
+                "verdict": row["verdict"] as String? ?? "",
+            ]
+        }
+    }
+
+    func leadStatus(leadID: String) throws -> String? {
+        try db.read { db in
+            try String.fetchOne(
+                db, sql: "SELECT status FROM leads WHERE id = ?", arguments: [leadID])
+        }
     }
 
     func approvePendingFact(_ args: [String: Any]) async throws -> [String: Any] {

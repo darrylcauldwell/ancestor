@@ -4347,21 +4347,30 @@ nonisolated extension ProjectDatabase {
         }
     }
 
+    /// EV33 (owner dogfood 2026-08-26) — the status write and the lead
+    /// cascade now share ONE transaction. The cascade itself landed with
+    /// EV10, but as three sequential queue operations (write → read → write):
+    /// a failure part-way through left the record `discarded` and its lead
+    /// still `new`, which is precisely the state EV10 was fixing. The owning
+    /// row is also read back INSIDE the block, so the join key can never be
+    /// read from a snapshot the UPDATE has not reached.
+    ///
+    /// Scope: `user_status` and `leads` only — verdict, gates and scores are
+    /// scorer-owned and are not touched here.
     func updateEvidenceUserStatus(evidenceID: String, status: UserReviewStatus) throws {
         try dbQueue.write { db in
             try db.execute(
                 sql: "UPDATE evidence_records SET user_status = ? WHERE id = ?",
                 arguments: [status.rawValue, evidenceID]
             )
-        }
-        guard status == .discarded else { return }
-        let owner = try dbQueue.read { db in
-            try Row.fetchOne(db, sql: """
+            guard status == .discarded else { return }
+            // No evidence row (id never persisted) → nothing to join on, and
+            // no error: a reject with no lead behind it is a normal outcome.
+            guard let owner = try Row.fetchOne(db, sql: """
                 SELECT profile_id, source_record_id FROM evidence_records WHERE id = ?
-                """, arguments: [evidenceID])
-        }
-        if let owner {
-            try dismissLeadsForDiscardedEvidence(
+                """, arguments: [evidenceID]) else { return }
+            try Self.dismissLeadsForDiscardedEvidence(
+                db: db,
                 profileID: owner["profile_id"] as String,
                 sourceRecordIDs: [owner["source_record_id"] as String])
         }
@@ -4386,6 +4395,12 @@ nonisolated extension ProjectDatabase {
     /// matches one of `sourceRecordIDs`. Used when the UI applies a decision
     /// at cluster level (a cluster contains multiple records; one click
     /// flips them all).
+    ///
+    /// EV33 (2026-08-26) — the discard cascade moved inside the same
+    /// transaction as the status write, for the reason given on the
+    /// single-row overload: a cluster reject that dismissed only half its
+    /// leads is worse than one that dismissed none, because the half that
+    /// survived looks reviewed.
     func updateEvidenceUserStatus(
         profileID: String,
         sourceRecordIDs: [String],
@@ -4402,10 +4417,9 @@ nonisolated extension ProjectDatabase {
                     """,
                 arguments: StatementArguments([status.rawValue, profileID] + sourceRecordIDs)
             )
-        }
-        if status == .discarded {
-            try dismissLeadsForDiscardedEvidence(
-                profileID: profileID, sourceRecordIDs: sourceRecordIDs)
+            guard status == .discarded else { return }
+            try Self.dismissLeadsForDiscardedEvidence(
+                db: db, profileID: profileID, sourceRecordIDs: sourceRecordIDs)
         }
     }
 
@@ -4493,59 +4507,85 @@ nonisolated extension ProjectDatabase {
     /// every other index row of the same GRO registration. Promoted and
     /// already-dismissed leads are left alone — a promotion is the stronger,
     /// later decision. Returns the number of lead rows dismissed.
+    ///
+    /// EV33 (owner dogfood 2026-08-26) — the body now takes an already-open
+    /// `Database` so the discard and the dismissal land in ONE transaction.
+    /// They are two representations of a single human decision; run as two
+    /// separate `dbQueue.write` calls, a failure between them re-creates
+    /// exactly the divergence EV10 set out to close. Callers already inside a
+    /// write block (`removeAppliedRecord`) MUST use this form — a nested
+    /// `dbQueue.write` on the same queue would deadlock.
+    ///
+    /// Writes `leads` only. `user_status` is META (the human's review verdict)
+    /// and a lead is a suggestion, so nothing here asserts a genealogical
+    /// fact; `evidence_records.verdict`, gates and scores stay scorer-owned
+    /// and untouched.
+    @discardableResult
+    static func dismissLeadsForDiscardedEvidence(
+        db: Database, profileID: String, sourceRecordIDs: [String]
+    ) throws -> Int {
+        guard !sourceRecordIDs.isEmpty else { return 0 }
+        let discardedSet = Set(sourceRecordIDs)
+        let placeholders = Array(repeating: "?", count: sourceRecordIDs.count).joined(separator: ",")
+        let discardedRecords: [SourceRecord] = try Row.fetchAll(db, sql: """
+            SELECT record_json FROM evidence_records
+            WHERE profile_id = ? AND source_record_id IN (\(placeholders))
+            """, arguments: StatementArguments([profileID] + sourceRecordIDs))
+            .compactMap { row -> SourceRecord? in
+                guard let json = row["record_json"] as String?,
+                      let data = json.data(using: .utf8) else { return nil }
+                return try? JSONDecoder().decode(SourceRecord.self, from: data)
+            }
+        let live = try Row.fetchAll(db, sql: """
+            SELECT e.source_record_id AS srid, e.record_json AS record_json, l.id AS lead_id
+            FROM evidence_records e
+            JOIN leads l
+              ON l.id = 'lead_' || e.source_record_id AND l.profile_id = e.profile_id
+            WHERE e.profile_id = ?
+              AND l.status NOT IN ('promoted', 'dismissed', 'resolved')
+            """, arguments: [profileID])
+        var leadIDs: [String] = []
+        for row in live {
+            let srid = row["srid"] as String
+            let leadID = row["lead_id"] as String
+            if discardedSet.contains(srid) {
+                leadIDs.append(leadID)
+                continue
+            }
+            guard let json = row["record_json"] as String?,
+                  let data = json.data(using: .utf8),
+                  let record = try? JSONDecoder().decode(SourceRecord.self, from: data)
+            else { continue }
+            if discardedRecords.contains(where: { RecordScorer.isSameRegistration($0, record) }) {
+                leadIDs.append(leadID)
+            }
+        }
+        let now = Date()
+        for leadID in leadIDs {
+            try db.execute(sql: """
+                UPDATE leads
+                SET status = ?, resolution = ?, resolved_at = ?
+                WHERE id = ?
+                """, arguments: [
+                    LeadStatus.dismissed.rawValue, LeadResolution.dismissed.rawValue,
+                    now, leadID,
+                ])
+        }
+        return leadIDs.count
+    }
+
+    /// Standalone form, for callers that are NOT already inside a write. Kept
+    /// so a caller that only wants the cascade (and tests that assert it in
+    /// isolation) needn't open a transaction by hand. Anything that also
+    /// writes `user_status` must use the `db:` form so the pair is atomic —
+    /// EV33, 2026-08-26.
     @discardableResult
     func dismissLeadsForDiscardedEvidence(
         profileID: String, sourceRecordIDs: [String]
     ) throws -> Int {
-        guard !sourceRecordIDs.isEmpty else { return 0 }
-        let discardedSet = Set(sourceRecordIDs)
-        return try dbQueue.write { db in
-            let placeholders = Array(repeating: "?", count: sourceRecordIDs.count).joined(separator: ",")
-            let discardedRecords: [SourceRecord] = try Row.fetchAll(db, sql: """
-                SELECT record_json FROM evidence_records
-                WHERE profile_id = ? AND source_record_id IN (\(placeholders))
-                """, arguments: StatementArguments([profileID] + sourceRecordIDs))
-                .compactMap { row -> SourceRecord? in
-                    guard let json = row["record_json"] as String?,
-                          let data = json.data(using: .utf8) else { return nil }
-                    return try? JSONDecoder().decode(SourceRecord.self, from: data)
-                }
-            let live = try Row.fetchAll(db, sql: """
-                SELECT e.source_record_id AS srid, e.record_json AS record_json, l.id AS lead_id
-                FROM evidence_records e
-                JOIN leads l
-                  ON l.id = 'lead_' || e.source_record_id AND l.profile_id = e.profile_id
-                WHERE e.profile_id = ?
-                  AND l.status NOT IN ('promoted', 'dismissed', 'resolved')
-                """, arguments: [profileID])
-            var leadIDs: [String] = []
-            for row in live {
-                let srid = row["srid"] as String
-                let leadID = row["lead_id"] as String
-                if discardedSet.contains(srid) {
-                    leadIDs.append(leadID)
-                    continue
-                }
-                guard let json = row["record_json"] as String?,
-                      let data = json.data(using: .utf8),
-                      let record = try? JSONDecoder().decode(SourceRecord.self, from: data)
-                else { continue }
-                if discardedRecords.contains(where: { RecordScorer.isSameRegistration($0, record) }) {
-                    leadIDs.append(leadID)
-                }
-            }
-            let now = Date()
-            for leadID in leadIDs {
-                try db.execute(sql: """
-                    UPDATE leads
-                    SET status = ?, resolution = ?, resolved_at = ?
-                    WHERE id = ?
-                    """, arguments: [
-                        LeadStatus.dismissed.rawValue, LeadResolution.dismissed.rawValue,
-                        now, leadID,
-                    ])
-            }
-            return leadIDs.count
+        try dbQueue.write { db in
+            try Self.dismissLeadsForDiscardedEvidence(
+                db: db, profileID: profileID, sourceRecordIDs: sourceRecordIDs)
         }
     }
 

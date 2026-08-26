@@ -42,6 +42,10 @@ import AncestorKit
 /// - **Rejection memory.** The same pair every discard path writes
 ///   (`user_status = 'discarded'` + `record_rejections`) — which also drops
 ///   the ledger entry (its filter is `savedAsLead`) and vetoes re-application.
+///   EV33 (2026-08-26): plus the lead that record produced, dismissed in the
+///   same transaction. A refusal has two representations and clearing one
+///   without the other is what left Emma Gladwin five `new` leads for records
+///   she had already rejected.
 ///
 /// The whole removal runs in ONE database transaction, journalled under a
 /// single Transaction row (`.manualEdit`/`.replay`) with field_changes rows per
@@ -61,6 +65,11 @@ nonisolated struct RecordRemovalReport: Sendable, Equatable {
     var clearedMarriageDate: Bool = false
     var clearedMarriageLocation: Bool = false
     var dissolvedDisputes: Int = 0
+    /// Lead rows dismissed because the removal refused this record (EV33,
+    /// 2026-08-26). Reported rather than discarded so the removal's full
+    /// effect is inspectable — every other inversion this struct performs is
+    /// already counted here.
+    var dismissedLeads: Int = 0
     var transactionID: UUID?
 }
 
@@ -259,6 +268,17 @@ extension ProjectDatabase {
                            arguments: [evidence.id])
             try db.execute(sql: "INSERT OR IGNORE INTO record_rejections (profile_id, record_id, rejected_at) VALUES (?, ?, ?)",
                            arguments: [profileID, evidence.sourceRecordID, now])
+            // EV33 (owner dogfood 2026-08-26) — this path writes `discarded`
+            // in raw SQL rather than through `updateEvidenceUserStatus`, so
+            // the EV10 lead cascade never reached it: un-applying a record
+            // left its lead sitting in Triage at `new`, inviting the user to
+            // re-decide something they had just reversed. Runs on the OPEN
+            // `db` (the `dbQueue.write` form would deadlock inside this
+            // block), which is also what keeps removal + status + dismissal a
+            // single transaction. Leads only — no verdict, gate or score
+            // is touched by a removal.
+            report.dismissedLeads = try ProjectDatabase.dismissLeadsForDiscardedEvidence(
+                db: db, profileID: profileID, sourceRecordIDs: [evidence.sourceRecordID])
         }
         return report
     }
