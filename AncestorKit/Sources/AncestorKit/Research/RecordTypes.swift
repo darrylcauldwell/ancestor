@@ -27,7 +27,7 @@ public nonisolated struct RecordCommon: Codable, Sendable {
     // Codable = old JSON without these keys decodes to nil (additive-safe).
 
     /// Bare place-authority ARK path segment for the record's event place
-    /// (, — never the full URL). Populated when a normalized
+    /// (never the full URL). Populated when a normalized
     /// place ARK is present; place-authority integration is later (E3).
     public let placeARK: String?
     /// Collection coverage completeness 0…1, when the source reports

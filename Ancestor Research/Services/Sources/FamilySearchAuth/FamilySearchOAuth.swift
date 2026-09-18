@@ -108,7 +108,7 @@ nonisolated struct FamilySearchTokenSet: Codable, Sendable, Equatable {
     /// the usual case on this key — we previously FABRICATED a one-hour
     /// lifetime and discarded the token client-side, which forced an
     /// interactive re-sign-in every hour even though FS reportedly
-    /// issues ~24h tokens (, lifetime unverified). Nobody but the
+    /// issues ~24h tokens (lifetime unverified). Nobody but the
     /// server knows the truth, and `FamilySearchClient.execute` already
     /// arbitrates it: a stale token costs one 401 → refresh (nil on
     /// this key) → `.notAuthenticated`, the same UX as a client-side

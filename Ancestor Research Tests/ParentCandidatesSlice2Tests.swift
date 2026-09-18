@@ -4,7 +4,7 @@ import GRDB
 @testable import Ancestor_Research
 
 /// Research pipeline Slice 2 — probe generation (
-/// per-kind deficit ladder), grading (, Decision E5: supported
+/// per-kind deficit ladder), grading (Decision E5: supported
 /// REQUIRES the linkage chain back to the subject — a marriage match
 /// ALONE stays inconclusive), the T7 stall-gate carve-out (Decision E4:
 /// one unconditional level-1 dispatch for user-origin rows), and

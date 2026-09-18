@@ -44,7 +44,7 @@ struct FreeREGQueryModelTests {
                 "search_query[region] is a bot honeypot and must never reach the wire")
     }
 
-    // MARK: - county cap (, resolves FT-27)
+    // MARK: - county cap (resolves FT-27)
 
     @Test func chapmanCodesCappedAtThree() {
         #expect(FreeREGParams.cappedChapmanCodes(["DBY", "NTT", "LEI", "STS", "YKS"]) == ["DBY", "NTT", "LEI"])

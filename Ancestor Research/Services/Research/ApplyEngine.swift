@@ -955,7 +955,7 @@ nonisolated struct ApplyEngine {
 
     // MARK: - F4a — parent-role conflict on accept (Conflict layer T-A)
 
-    /// Pre-computed warning for the accept UI ( Change 1 AC3): non-nil
+    /// Pre-computed warning for the accept UI (Change 1 AC3): non-nil
     /// when accepting this proposal would put a second biological parent
     /// into an occupied role ("Subject already has a mother: BOWN").
     /// Shares its predicate with the accept-time dispute hook via

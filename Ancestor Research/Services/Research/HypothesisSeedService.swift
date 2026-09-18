@@ -129,7 +129,7 @@ nonisolated enum HypothesisSeedService {
     /// Synchronous seed intake — the single app-side seam the Workbench
     /// "Add a hunch" form (phase b,) writes through, mirroring
     /// exactly what the MCP `submit_hypothesis` tool (phase a) does:
-    /// read-only validation per, then INSERT one queued
+    /// read-only validation, then INSERT one queued
     /// `user_hypothesis_seeds` row (nothing else). The watcher's
     /// `materialiseQueuedSeeds` picks it up and does the actual
     /// `research_hypotheses` upsert — so validation is NOT duplicated:

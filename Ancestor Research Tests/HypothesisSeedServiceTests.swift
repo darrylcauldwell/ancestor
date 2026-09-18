@@ -176,7 +176,7 @@ struct HypothesisSeedServiceTests {
         #expect(seed2["status"] == "materialised")
     }
 
-    // MARK: - Refusals (; acceptance criterion 3)
+    // MARK: - Refusals (acceptance criterion 3)
 
     @Test func allEmptyHintsRefusedWithNoNameHints() throws {
         let db = try makeTempDB()

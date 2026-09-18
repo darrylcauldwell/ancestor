@@ -5,7 +5,7 @@ import SwiftUI
 ///
 /// Reads from the live AppState snapshot + workbench arrays; renders rows
 /// produced by `TimelineBuilder`. Hypothetical events render in italic
-/// muted styling per.
+/// muted styling.
 struct ProfileTimelineView: View {
     @Environment(AppState.self) private var appState
     let profileID: String

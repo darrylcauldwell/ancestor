@@ -135,7 +135,7 @@ public nonisolated struct FieldDispute: Codable, Hashable, Sendable {
     }
 
     /// Decode-defaulted custom decoder: pre-conflict-layer JSON carries no
-    /// `kind`/`severity`/`detectedBy` keys and must keep decoding (,
+    /// `kind`/`severity`/`detectedBy` keys and must keep decoding
     /// Change 1 acceptance criterion 7).
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)

@@ -481,7 +481,7 @@ nonisolated extension HypothesisEngine {
         }
     }
 
-    /// Cross-hypothesis reconciliation result per. Pure
+    /// Cross-hypothesis reconciliation result. Pure
     /// function output: the pipeline applies the side effects
     /// (state.subject mutation, pending-fact emission); this struct
     /// just says what they should be.

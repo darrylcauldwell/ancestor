@@ -13,7 +13,7 @@ import Foundation
 ///     `search_query[chapman_codes][]` repeated-key idiom; the ordered-pairs
 ///     primitive must preserve duplicate keys on the wire. (The dispatcher-side
 ///     batching that *consumes* this primitive is out of transport scope.)
-///   * **T1-C4** (, transport half) — apostrophes and diacritics (O'Brien,
+///   * **T1-C4** (transport half) — apostrophes and diacritics (O'Brien,
 ///     Müller) must round-trip through the encoder.
 ///
 /// These exercise the pure serialisation surface (`formEncode` /

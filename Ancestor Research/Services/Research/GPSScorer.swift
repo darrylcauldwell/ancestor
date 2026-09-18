@@ -212,7 +212,7 @@ nonisolated struct GPSScorer {
     /// field can no longer pool into a single inflated level. Met when at
     /// least one value group reaches `.possible`; the reason string always
     /// reports per-value levels so a split vote is visible.
-    /// (Interim lineage counting per; witness counting lands CL4.)
+    /// (Interim lineage counting; witness counting lands CL4.)
     private static func criterion3Analysis(
         result: ResearchResult?, sourceInfoMap: [String: SourceInfo]
     ) -> GPSCriterion {
@@ -238,7 +238,7 @@ nonisolated struct GPSScorer {
 
     // MARK: - Criterion 4: Resolution of Conflicting Evidence
 
-    /// CL3 rewrite (, DS-07/DS-14/DS-22): GPS element 4 can now
+    /// CL3 rewrite (DS-07/DS-14/DS-22): GPS element 4 can now
     /// actually fire. Met requires ALL of:
     ///   1. no open dispute rows on the subject,
     ///   2. no rival confirmed clusters (≥2 clusters at confirmed quality

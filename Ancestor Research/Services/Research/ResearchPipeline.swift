@@ -167,7 +167,7 @@ final class ResearchPipeline {
     }
 
     /// Build a `userHypothesisLookup` closure backed by
-    /// `ProjectDatabase.loadHypotheses(forProfile:)` ( Slice 2).
+    /// `ProjectDatabase.loadHypotheses(forProfile:)` (Slice 2).
     /// Read-only; filters to `origin == .user`. Rejected rows never
     /// surface — `loadHypotheses` excludes `user_rejected = 1` by
     /// default, which is the dispatch-suppression contract.
@@ -944,7 +944,7 @@ final class ResearchPipeline {
         // parents' marriage as e.g. a "DAVID N CAULDWELL" orphan cluster.
         // A record the user has DISCARDED must not be resurrected by a later
         // research run. The pipeline's own doctrine — "a hunch cannot resurrect
-        // records the user discarded" (, `excludingRejected`) — applies
+        // records the user discarded" (`excludingRejected`) — applies
         // equally to the MAIN pass; without this, a namesake the user discarded
         // (e.g. George Herbert Brooks's "George Brooks, Mar 1884" twin)
         // re-clusters into the review every single run. Uses the rejection
@@ -1890,7 +1890,7 @@ final class ResearchPipeline {
 
     // MARK: - User-seeded hypothesis flow (Research pipeline)
 
-    /// Run the `.parentCandidates` user-hunch path (, Decision E4).
+    /// Run the `.parentCandidates` user-hunch path (Decision E4).
     ///
     /// User rows are never generated — `HypothesisSeedService`
     /// materialised them from the v32 seeds table (regeneration

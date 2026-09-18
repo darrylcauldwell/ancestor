@@ -1233,7 +1233,7 @@ struct SearchDispatcher {
                     }
                 }
             case "cwgc":
-                // No useful variant axis distinct from server soundex per.
+                // No useful variant axis distinct from server soundex.
                 return queries.map { $0.with(strictness: .loose) }
             default:
                 // Strict-only sources (Probate, FindAGrave).

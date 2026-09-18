@@ -5,7 +5,7 @@ import Foundation
 /// ladder for user-seeded parent hunches (Research pipeline,
 /// Slice 2).
 ///
-/// **No generator by design (, Decision E1).** The engine never
+/// **No generator by design (Decision E1).** The engine never
 /// invents a hunch: rows of this kind carry `origin == .user` and are
 /// materialised from the v32 `user_hypothesis_seeds` staging table by
 /// `HypothesisSeedService`. The engine's regeneration cycle never
@@ -85,7 +85,7 @@ nonisolated extension HypothesisEngine {
         return ScoringRules.nameSimilarity(aU, bU) < parentCandidatesNameAgreementThreshold
     }
 
-    // MARK: - Grader (, Decision E5)
+    // MARK: - Grader (Decision E5)
 
     /// Grade a `.parentCandidates` hunch against current evidence. Pure
     /// function — state + snapshot in, verdict out; deterministic, no
@@ -298,7 +298,7 @@ nonisolated extension HypothesisEngine {
     ///   level 3 → census household probe: census years where the
     ///             subject is aged 0–15, chapman-coded to the subject's
     ///             home county, tight birth-year range.
-    ///   level ≥ 4 → `[]`; ladder exhausted — archive per.
+    ///   level ≥ 4 → `[]`; ladder exhausted — archive.
     static func deficitQueryParentCandidates(
         for hypothesis: ResearchHypothesis,
         atLevel level: Int,

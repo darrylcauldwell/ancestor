@@ -172,7 +172,7 @@ nonisolated extension ConvergenceEngine {
     /// inflated convergence level (DS-24: birth 1881 + census-implied 1895
     /// previously counted as mutual corroboration).
     ///
-    /// Interim note (, stated per spec): group scoring still uses
+    /// Interim note (stated per spec): group scoring still uses
     /// lineage counting; witness-counted convergence arrives with CL4.
     static func scoreValueGroups(
         records: [SourceRecord],

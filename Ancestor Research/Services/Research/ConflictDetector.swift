@@ -115,7 +115,7 @@ nonisolated struct ConflictDetector {
     /// (`.noOverlap`) or overlap only partially with neither containing the
     /// other (`.approximateOverlap`). Strict containment = refinement, not
     /// a conflict (R1). Tested against the existing canonical value AND
-    /// every attested `field_sources` value ( T-A).
+    /// every attested `field_sources` value (T-A).
     ///
     /// Severity comes from `DiscrepancySeverityTable` with `.singleSource`
     /// convergence — the CL1–CL3 lineage-based interim stated in; the
@@ -415,7 +415,7 @@ nonisolated struct ConflictDetector {
         return nil
     }
 
-    /// Human-readable pre-computed warning for the accept UI ( T-A):
+    /// Human-readable pre-computed warning for the accept UI (T-A):
     /// "Subject already has a mother: BOWN".
     static func parentRoleWarning(
         role: ParentRole,
@@ -715,7 +715,7 @@ nonisolated struct ConflictDetector {
 
     /// Two fact-grade records reduce to ONE WitnessKey yet assert
     /// different values: a transcription disagreement, graded low and
-    /// R0-resolvable — never evidential conflict ( F5).
+    /// R0-resolvable — never evidential conflict (F5).
     static func sameWitnessDisagreements(
         profileID: String,
         records: [SourceRecord],
