@@ -338,7 +338,13 @@ struct PedigreeFanChartPage: View {
 
 /// Annular sector (ring slice) bounded by two radii and two angles. Used for
 /// each ancestor cell on the fan chart.
-private struct WedgePath: Shape {
+// `nonisolated` is load-bearing: the project builds with
+// SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor, so this struct would otherwise be
+// MainActor-isolated while `Shape` requires `path(in:)` to be callable from
+// SwiftUI's layout off the main actor. Swift 6.4 (Xcode 27) makes that a hard
+// error (#ConformanceIsolation) where earlier toolchains let it pass. The type
+// is a pure value (points and angles), so nonisolated is safe.
+private nonisolated struct WedgePath: Shape {
     let centre: CGPoint
     let inner: CGFloat
     let outer: CGFloat
